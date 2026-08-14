@@ -14,6 +14,7 @@ use closeclaw_config::agents::ResolvedAgentConfig;
 use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
 };
+use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_session::spawn as session_spawn;
 use std::collections::HashSet;
 use tracing::warn;
@@ -426,6 +427,34 @@ impl SessionManager {
         Ok(child_session_id)
     }
 
+    /// Terminate a single session and persist its checkpoint.
+    ///
+    /// Mirrors the Forceful path in `stop_single_session`:
+    /// snapshot → stop(Forceful) → persist checkpoint. Persist
+    /// failures are logged as warnings but do not block the kill.
+    /// Must be called while the session is still in memory maps
+    /// (before `conversation_sessions` / `sessions` removal) so
+    /// that `build_checkpoint` can read transcript metadata.
+    async fn terminate_and_persist_session(&self, session_id: &str) {
+        if let Some(cs) = self.get_conversation_session(session_id).await {
+            // Snapshot transcript state before stop clears exec state.
+            cs.write().await.snapshot_current_state(TranscriptOp::Rewrite, "kill");
+            // Stop: cascade + force_kill + cancel + clear_exec_state.
+            cs.read()
+                .await
+                .stop(true, ShutdownMode::Forceful, std::time::Duration::ZERO)
+                .await;
+        }
+        // Persist checkpoint after stop but before memory removal.
+        if let Err(e) = self.persist_checkpoint_with_pending(session_id, Vec::new()).await {
+            warn!(
+                session_id = %session_id,
+                error = %e,
+                "terminate_and_persist_session: checkpoint persist failed, continuing"
+            );
+        }
+    }
+
     /// Validate that a child session is owned by the given parent.
     #[allow(dead_code)]
     pub async fn validate_child_ownership(
@@ -483,12 +512,7 @@ impl SessionManager {
         };
 
         for id in &descendant_ids {
-            if let Some(cs) = self.get_conversation_session(id).await {
-                cs.read()
-                    .await
-                    .stop(true, ShutdownMode::Forceful, std::time::Duration::ZERO)
-                    .await;
-            }
+            self.terminate_and_persist_session(id).await;
             self.conversation_sessions.write().await.remove(id);
             if let Some(info) = self.children.read().await.find_child(id) {
                 let pid = info.parent_session_id.clone();
@@ -509,12 +533,7 @@ impl SessionManager {
                 .remove_descendant_entries(std::slice::from_ref(id));
         }
 
-        if let Some(cs) = self.get_conversation_session(child_id).await {
-            cs.read()
-                .await
-                .stop(true, ShutdownMode::Forceful, std::time::Duration::ZERO)
-                .await;
-        }
+        self.terminate_and_persist_session(child_id).await;
         self.conversation_sessions.write().await.remove(child_id);
         if let Some(pcs) = self.conversation_sessions.read().await.get(parent_id) {
             pcs.read().await.unregister_child_handle(child_id);
