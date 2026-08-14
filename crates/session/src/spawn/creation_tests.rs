@@ -267,6 +267,244 @@ async fn test_task_role_user_in_session_mode() {
     );
 }
 
+// ── Step 1.2: Agent skills whitelist injection ────────────────────────────
+
+/// Build a [`MockCreationContext`] that returns a [`ResolvedAgentConfig`]
+/// with the given skills whitelist from `get_agent_config`.
+struct MockCreationContextWithSkills {
+    inner: MockCreationContext,
+    agent_config: Option<ResolvedAgentConfig>,
+}
+
+impl MockCreationContextWithSkills {
+    fn new(agent_config: Option<ResolvedAgentConfig>) -> Self {
+        Self {
+            inner: MockCreationContext::new(),
+            agent_config,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SpawnCreationContext for MockCreationContextWithSkills {
+    async fn get_parent_conversation_session(
+        &self,
+        parent_session_id: &str,
+    ) -> Option<Arc<RwLock<ConversationSession>>> {
+        self.inner
+            .get_parent_conversation_session(parent_session_id)
+            .await
+    }
+
+    async fn load_checkpoint(&self, session_id: &str) -> Option<SessionCheckpoint> {
+        self.inner.load_checkpoint(session_id).await
+    }
+
+    async fn save_checkpoint(&self, cp: &SessionCheckpoint) {
+        self.inner.save_checkpoint(cp).await
+    }
+
+    fn get_agent_config(&self, _agent_id: &str) -> Option<ResolvedAgentConfig> {
+        self.agent_config.clone()
+    }
+
+    fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
+        self.inner.shutdown_signal()
+    }
+
+    fn default_reasoning_level(&self) -> ReasoningLevel {
+        self.inner.default_reasoning_level()
+    }
+
+    fn llm_caller(&self) -> Option<Arc<dyn closeclaw_common::LlmCaller>> {
+        self.inner.llm_caller()
+    }
+
+    fn system_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::SystemPromptBuilder>> {
+        self.inner.system_prompt_builder()
+    }
+
+    fn prompt_overrides(&self) -> Option<closeclaw_common::PromptOverrides> {
+        self.inner.prompt_overrides()
+    }
+
+    fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>> {
+        self.inner.dynamic_prompt_builder()
+    }
+
+    fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>> {
+        self.inner.skill_listing_provider()
+    }
+
+    async fn sender_id(&self, session_id: &str) -> Option<String> {
+        self.inner.sender_id(session_id).await
+    }
+}
+
+/// Build [`ChildSessionCreationParams`] with defaults suitable for skills tests.
+fn default_params<'a>() -> ChildSessionCreationParams<'a> {
+    ChildSessionCreationParams {
+        parent_session_id: "parent-session",
+        parent_agent_id: "parent-agent",
+        depth: 0,
+        task: "test task",
+        light_context: false,
+        workspace: None,
+        mode: SpawnMode::Run,
+        fork: false,
+        model_override: None,
+        parent_subagents_model: None,
+        max_spawn_depth: 3,
+        prompt_template_prefix: None,
+    }
+}
+
+/// **Test 1 — Whitelist injection生效**: When agent config has a non-empty
+/// skills subset, the child session must have `agent_skills == Some(whitelist)`.
+#[tokio::test]
+async fn test_skills_whitelist_injected() {
+    let mut config = make_config("child-agent");
+    config.skills = vec!["skill-a".into(), "skill-b".into()];
+    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let params = default_params();
+
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
+
+    let cs = result.conversation_session.read().await;
+    let skills = cs.agent_skills().expect("agent_skills should be Some");
+    assert_eq!(
+        skills,
+        &["skill-a".to_string(), "skill-b".to_string(),],
+        "whitelist must match config.effective_skills()"
+    );
+}
+
+/// **Test 2 — Wildcard semantics**: Empty or `["*"]` skills must not be
+/// injected (agent_skills stays None), matching resolve.rs behavior.
+#[tokio::test]
+async fn test_skills_wildcard_empty_no_injection() {
+    let mut config = make_config("child-agent");
+    config.skills = vec![]; // empty = wildcard
+    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let params = default_params();
+
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
+
+    let cs = result.conversation_session.read().await;
+    assert!(
+        cs.agent_skills().is_none(),
+        "empty skills must not inject whitelist"
+    );
+}
+
+/// Wildcard `["*"]` must also leave agent_skills as None.
+#[tokio::test]
+async fn test_skills_wildcard_star_no_injection() {
+    let mut config = make_config("child-agent");
+    config.skills = vec!["*".into()];
+    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let params = default_params();
+
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
+
+    let cs = result.conversation_session.read().await;
+    assert!(
+        cs.agent_skills().is_none(),
+        "[\"*\"] skills must not inject whitelist"
+    );
+}
+
+/// **Test 3 — Scenario independence**: Fork mode + lightContext both inject whitelist.
+#[tokio::test]
+async fn test_skills_injected_in_fork_mode() {
+    let mut config = make_config("child-agent");
+    config.skills = vec!["only-this".into()];
+    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let params = ChildSessionCreationParams {
+        fork: true,
+        light_context: false,
+        ..default_params()
+    };
+
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
+
+    let cs = result.conversation_session.read().await;
+    let skills = cs
+        .agent_skills()
+        .expect("agent_skills should be Some in fork mode");
+    assert_eq!(skills, &["only-this".to_string()]);
+}
+
+/// lightContext with non-wildcard skills still injects whitelist.
+#[tokio::test]
+async fn test_skills_injected_in_light_context() {
+    let mut config = make_config("child-agent");
+    config.skills = vec!["light-skill".into()];
+    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let params = ChildSessionCreationParams {
+        light_context: true,
+        fork: false,
+        ..default_params()
+    };
+
+    let result = create_child_conversation_session(
+        &ctx,
+        &ctx.get_agent_config("child-agent").unwrap(),
+        &params,
+    )
+    .await
+    .expect("should succeed");
+
+    let cs = result.conversation_session.read().await;
+    let skills = cs
+        .agent_skills()
+        .expect("agent_skills should be Some in light context");
+    assert_eq!(skills, &["light-skill".to_string()]);
+}
+
+/// **Test 4 — No config boundary**: When get_agent_config returns None, the
+/// child session creation must not panic and agent_skills stays None.
+#[tokio::test]
+async fn test_skills_no_config_no_panic() {
+    let ctx = MockCreationContextWithSkills::new(None);
+    let params = default_params();
+
+    let unknown_config = make_config("unknown-agent");
+    let result = create_child_conversation_session(&ctx, &unknown_config, &params)
+        .await
+        .expect("should not panic even without agent config");
+
+    let cs = result.conversation_session.read().await;
+    assert!(
+        cs.agent_skills().is_none(),
+        "no config should result in no whitelist injection"
+    );
+}
+
 // ── Gap 4: Prompt template injection into system prompt ───────────────────
 
 /// Verify prompt_template_prefix is injected into system prompt, not the user message.
