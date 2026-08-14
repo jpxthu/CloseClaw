@@ -119,13 +119,18 @@ impl Tool for SessionsSteerTool {
             risk_level,
         } = response
         {
+            let session_id = ctx.session_id.as_deref().unwrap_or("");
+            let is_sub_agent = self
+                .session_manager
+                .get_session_depth(session_id)
+                .await
+                .is_some_and(|depth| depth > 0);
             let caller = CallerInfo {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
                 creator_id: String::new(),
-                is_sub_agent: false,
+                is_sub_agent,
             };
-            let session_id = ctx.session_id.as_deref().unwrap_or("");
             let flow = self.approval_flow.lock().await;
             if let Some(request_id) = flow.submit_inter_agent_denial(
                 &caller,
@@ -133,7 +138,7 @@ impl Tool for SessionsSteerTool {
                 &info.agent_id,
                 risk_level,
                 session_id,
-                false,
+                is_sub_agent,
             ) {
                 let data = build_approval_pending(request_id);
                 return Ok(ToolResult {
