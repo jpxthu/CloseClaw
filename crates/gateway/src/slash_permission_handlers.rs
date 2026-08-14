@@ -113,12 +113,10 @@ impl Gateway {
         whitelist: bool,
     ) -> (String, PermissionRequestBody, String) {
         let (agent, file_op, paths) = match op {
-            closeclaw_common::PermissionOperation::AddFileWhitelist {
-                agent, op, paths,
+            closeclaw_common::PermissionOperation::AddFileWhitelist { agent, op, paths }
+            | closeclaw_common::PermissionOperation::AddFileDeny { agent, op, paths } => {
+                (agent.clone(), op.clone(), paths.clone())
             }
-            | closeclaw_common::PermissionOperation::AddFileDeny {
-                agent, op, paths,
-            } => (agent.clone(), op.clone(), paths.clone()),
             _ => unreachable!("called with non-file operation"),
         };
         let prefix = if whitelist { "allow" } else { "deny" };
@@ -141,10 +139,16 @@ impl Gateway {
     ) -> (String, PermissionRequestBody, String) {
         let (agent, command, args) = match op {
             closeclaw_common::PermissionOperation::AddCommandWhitelist {
-                agent, command, args, ..
+                agent,
+                command,
+                args,
+                ..
             }
             | closeclaw_common::PermissionOperation::AddCommandDeny {
-                agent, command, args, ..
+                agent,
+                command,
+                args,
+                ..
             } => (agent.clone(), command.clone(), args.clone()),
             _ => unreachable!("called with non-command operation"),
         };
