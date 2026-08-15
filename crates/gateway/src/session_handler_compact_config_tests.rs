@@ -137,14 +137,7 @@ async fn test_handler_uses_custom_compact_config() {
         max_history_messages: Some(200),
     };
     let (handler, _rx) = handler_with_channel(&sm, custom.clone());
-    assert_compaction_config(
-        &handler,
-        0.5,
-        0.08,
-        0.15,
-        5,
-    )
-    .await;
+    assert_compaction_config(&handler, 0.5, 0.08, 0.15, 5).await;
     // Verify max_history_messages propagates through config().
     let svc = handler.compaction_service.lock().await;
     assert_eq!(
@@ -162,11 +155,10 @@ async fn test_handler_uses_default_compact_config() {
     let default = CompactConfig::default();
     let (handler, _rx) = handler_with_channel(&sm, default);
     assert_compaction_config(
-        &handler,
-        0.25,  // chars_per_token
-        0.05,  // auto_compact_threshold_pct
-        0.10,  // warning_threshold_pct
-        3,     // max_consecutive_failures
+        &handler, 0.25, // chars_per_token
+        0.05, // auto_compact_threshold_pct
+        0.10, // warning_threshold_pct
+        3,    // max_consecutive_failures
     )
     .await;
 }
@@ -183,14 +175,7 @@ async fn test_handler_no_output_uses_custom_compact_config() {
         max_history_messages: None,
     };
     let handler = handler_no_output(&sm, custom);
-    assert_compaction_config(
-        &handler,
-        0.4,
-        0.03,
-        0.07,
-        10,
-    )
-    .await;
+    assert_compaction_config(&handler, 0.4, 0.03, 0.07, 10).await;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -230,7 +215,8 @@ async fn test_manual_compact_success_resets_circuit_break_notified_flag() {
     {
         let svc = handler.compaction_service.lock().await;
         assert_eq!(
-            svc.consecutive_failures(), 0,
+            svc.consecutive_failures(),
+            0,
             "consecutive_failures must be 0 after manual compact success"
         );
     }
@@ -254,7 +240,8 @@ async fn test_circuit_breaker_reset_allows_re_notification() {
             svc.record_failure();
         }
         assert_eq!(
-            svc.consecutive_failures(), 3,
+            svc.consecutive_failures(),
+            3,
             "precondition: breaker tripped at 3 failures"
         );
     }
@@ -271,7 +258,8 @@ async fn test_circuit_breaker_reset_allows_re_notification() {
     {
         let svc = handler.compaction_service.lock().await;
         assert_eq!(
-            svc.consecutive_failures(), 0,
+            svc.consecutive_failures(),
+            0,
             "consecutive_failures must be 0 after manual compact success"
         );
     }
@@ -283,7 +271,8 @@ async fn test_circuit_breaker_reset_allows_re_notification() {
         svc.record_failure();
         svc.record_failure();
         assert_eq!(
-            svc.consecutive_failures(), 3,
+            svc.consecutive_failures(),
+            3,
             "failures should be 3 after auto-compact failures"
         );
     }
