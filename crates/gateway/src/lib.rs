@@ -986,9 +986,9 @@ pub mod notification_tests;
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
 #[cfg(test)]
-pub mod session_handler_compact_config_tests;
-#[cfg(test)]
 pub mod session_handler_circuit_breaker_tests;
+#[cfg(test)]
+pub mod session_handler_compact_config_tests;
 #[cfg(feature = "full-tests")]
 pub mod session_handler_dynamic_tests;
 #[cfg(test)]
