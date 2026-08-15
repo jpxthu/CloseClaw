@@ -425,9 +425,9 @@
   },
   {
     "path": "docs/design/session/compact-process.md",
-    "commit": "a40b0ac3d96f7a38d708d6d6b5a926f1e01ef1a9",
-    "commit_time": "2026-08-04T11:36:34+08:00",
-    "confirmed_time": "2026-08-04T11:45:52.518782+08:00",
+    "commit": "695562f726d26bc04e7c9779799f16b939432f47",
+    "commit_time": "2026-08-15T18:28:27+08:00",
+    "confirmed_time": "2026-08-15T18:43:53.205872+08:00",
     "comment": "",
     "blocked_reason": ""
   },
