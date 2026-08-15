@@ -5,6 +5,7 @@
 //! bootstrap, storage, and recovery functionality for agent sessions.
 
 pub mod active_searcher;
+pub mod active_searcher_session;
 pub mod background;
 pub mod bootstrap;
 pub mod checkpoint_manager;
@@ -28,6 +29,8 @@ mod workflow_handler_tests;
 pub mod workflow_recovery;
 pub mod workspace;
 
+#[cfg(test)]
+mod active_searcher_session_tests;
 #[cfg(test)]
 mod active_searcher_tests;
 #[cfg(test)]
