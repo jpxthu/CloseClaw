@@ -4,7 +4,7 @@
 
 entity type 定义了记忆系统中 entity 的分类体系。Miner 2 在生成 entity 时为每个 entity 指定一种类型，类型决定了该 entity 在 active-searcher 和 dreaming 评分时的权重。
 
-类型体系沿用 [SAG](https://github.com/Zleap-AI/SAG)（MIT License）的 11 种分类。
+类型体系共 11 种分类。
 
 ## 架构
 
@@ -26,7 +26,7 @@ entity type 定义了记忆系统中 entity 的分类体系。Miner 2 在生成 
 
 **权重**：在 dreaming 和 active-searcher 的评分和排序中使用。`subject`（1.5）和 `action`（1.3）是最高价值类型。
 
-**相似度阈值**：实体类型的向量相似度余弦距离门槛。在 Miner 2 entity 分配和 active-searcher 搜索时，entity 向量嵌入与查询/目标的余弦距离低于此门槛则不匹配。值越高匹配越严格。
+**相似度阈值**：实体类型的向量余弦相似度门槛。在 Miner 2 entity 分配的向量兜底匹配和 active-searcher 搜索时，entity 向量嵌入与查询/目标的余弦相似度低于此门槛则不匹配。值越高匹配越严格。
 
 ### 约束
 
