@@ -2,7 +2,7 @@
 
 ## 概述
 
-Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn = 创建一个 child session，子 session 使用目标 agent 的配置档案运行。sessions_spawn 由 Session 模块提供工具定义，tools 模块在启动编排时注册到 ToolRegistry 并暴露给 LLM 调用。LLM 调用该工具时，SkillTool 触发 SpawnValidator（trait，定义在 config crate）执行前置检查（depth、并发、白名单等），通过后由 SpawnController（session crate）创建和管理子 session。
+Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn = 创建一个 child session，子 session 使用目标 agent 的配置档案运行。sessions_spawn 由 Session 模块提供工具定义，经 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 注册到 ToolRegistry（tools 模块启动时编排调用各注册方）并暴露给 LLM 调用。LLM 调用该工具时，Session 模块触发 SpawnValidator（trait，定义在 session crate）执行前置检查（depth、并发、白名单等），通过后由 SpawnController（session crate）创建和管理子 session。
 
 ## 架构
 
@@ -15,7 +15,7 @@ Spawn 是父 session 创建子 session 执行子任务的机制。一次 spawn =
 ```
 LLM 调用 sessions_spawn(agentId, task, ...)
   ↓
-SkillTool 触发 SpawnValidator 执行前置检查（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
+Session 模块触发 SpawnValidator 执行前置检查（注意：下文「父 agent」指配置来源，「父 session」指发出 spawn 调用的运行时会话）：
   ① depth 检查：父 agent 有效预算 ≤ 0 → 拒绝（预算见 Depth 追踪节）
   ② 并发检查：活跃子 session 数 >= 父 agent.subagents.maxChildren → 拒绝（maxChildren 默认值见 agent-config.md）
   ③ requireAgentId 检查（配置校验）：requireAgentId=true 且 spawn 未传 agentId → 拒绝。requireAgentId 是可选加严项——默认 false 时遵循「agentId 可解析（显式指定或走 ④ 默认回退）」语义，置 true 时要求显式指定、关闭 ④ 的默认回退
@@ -33,7 +33,7 @@ SpawnValidator 前置检查通过 → sessions_spawn 经 tools 模块触发 Perm
   - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
   - skills：按 agent 配置的 skills 白名单过滤
   - 注入 spawn 角色标记（parent_session_id, depth, spawn_mode, fork）
-  - timeout：spawn 参数指定 → 目标 agent 配置 → 全局默认，控制子 session 的最大执行时长
+  - timeout_warning / timeout：spawn 参数指定 → 目标 agent 配置 → 全局默认，分别控制子 session 的超时预警（循环预警通知）与硬超时（自动终止），执行行为详见 [session-execution.md](../session/session-execution.md) §子 Session 超时通知
   ↓
 子 session 注册到 spawn_tree（详见 [spawn-tree.md](../session/spawn-tree.md)）
   ↓
@@ -261,7 +261,7 @@ Spawn 树由 Session 模块内部的 spawn_tree 子组件维护，记录父子 s
 
 | 模块 | 调用关系 |
 |------|---------|
-| Session | 注册 sessions_spawn / sessions_steer / sessions_kill 工具到 ToolRegistry。LLM 调用时 SkillTool 触发 SpawnValidator 执行前置检查，通过后由 SpawnController 创建子 session |
+| Session | 注册 sessions_spawn / sessions_steer / sessions_kill 工具到 ToolRegistry。LLM 调用时 Session 模块触发 SpawnValidator 执行前置检查，通过后由 SpawnController 创建子 session |
 | Agent Config | 读取父 agent 的 subagents 配置（allowAgents、maxSpawnDepth 等），读取目标 agent 的完整配置 |
 
 ### 下游

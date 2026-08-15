@@ -84,17 +84,17 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 ### Spawn 控制流
 
 1. 父 session 调用 sessions_spawn 工具（由 Session 模块注册到 ToolRegistry）
-2. SkillTool 触发 SpawnValidator 执行前置检查：
+2. Session 模块触发 SpawnValidator 执行前置检查：
    - depth 检查
    - 并发检查
    - requireAgentId 检查
    - agentId 解析
    - 白名单检查
-   - 权限检查
-3. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task、过滤工具集）
-4. 子 session 执行 task
-5. 子 session 完成，结果通过 announce 机制入队到父 session
-6. 父 session 下一轮 turn 处理 announce
+3. 前置检查通过后，经 tools 模块触发 PermissionEngine 权限检查
+4. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task、过滤工具集）
+5. 子 session 执行 task
+6. 子 session 完成，结果通过 announce 机制入队到父 session
+7. 父 session 下一轮 turn 处理 announce
 
 ## 模块关系
 

@@ -74,7 +74,7 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   │
   ├── 层 4（依赖层 3）
   │   ├── Session Manager（注入 storage、agent registry、tool/skill registry，初始化完成后执行启动恢复扫描）
-  │   ├── SpawnController（校验 Agent spawn 权限，持有 Tools Registry 引用）
+  │   ├── SpawnController（创建并管理子 session，持有 Tools Registry 引用）
   │   └── System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
   │
   ├── 层 5（依赖层 4）
@@ -132,7 +132,7 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | Admin RPC Server | 启动时创建 Unix domain socket 管理服务，接收 CLI Admin 命令 |
 | ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider，详见 [session-lifecycle.md](../session/session-lifecycle.md)） |
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
-| SpawnController | 启动时创建，校验 Agent spawn 权限，持有 Tools Registry 引用。由 Session Manager 在处理 spawn 请求时调用 |
+| SpawnController | 启动时创建，负责创建并管理子 session，持有 Tools Registry 引用。由 Session Manager 在处理 spawn 请求时调用 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |
 | DreamingScheduler | 定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
