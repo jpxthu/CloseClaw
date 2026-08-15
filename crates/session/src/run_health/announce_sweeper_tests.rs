@@ -84,6 +84,16 @@ impl AnnounceSweepTarget for MockTarget {
             .await
             .push(session_id.to_string());
     }
+
+    async fn get_last_output_at(&self, _session_id: &str) -> Option<i64> {
+        None
+    }
+
+    async fn is_parent_archived(&self, _parent_id: &str) -> bool {
+        false
+    }
+
+    async fn terminate_stale_child(&self, _parent_id: &str, _child_id: &str) {}
 }
 
 // ── 1. Normal path: idle child → try_push_announce called ────────────────

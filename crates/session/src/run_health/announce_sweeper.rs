@@ -32,6 +32,17 @@ const ANNOUNCE_SWEEP_INTERVAL_SECS: u64 = 60;
 /// before forcibly aborting it on shutdown.
 const ANNOUNCE_SWEEP_GRACE_PERIOD_SECS: u64 = 5;
 
+/// Threshold in seconds: a non-idle child session with no new output
+/// for longer than this is considered stale (僵死).
+const STALE_CHILD_THRESHOLD_SECS: u64 = 300;
+
+/// Returns the stale-child threshold in seconds.
+/// Extracted as a function for testability (avoids direct wall-clock
+/// dependency in detection logic).
+fn stale_child_threshold_secs() -> u64 {
+    STALE_CHILD_THRESHOLD_SECS
+}
+
 /// Trait abstracting the gateway-layer operations that
 /// [`AnnounceSweeper`] needs. Implemented by `SessionManager`
 /// in the gateway crate, allowing the sweeper to live in the
@@ -51,6 +62,27 @@ pub trait AnnounceSweepTarget: Send + Sync {
 
     /// Push an announce event from a completed child to its parent.
     async fn try_push_announce(&self, session_id: &str, priority: NotificationPriority);
+
+    /// Get the timestamp (epoch seconds) of the last output produced
+    /// by a session. "Output" means a new assistant message or tool
+    /// execution result. Returns `None` if the session is unknown.
+    async fn get_last_output_at(&self, session_id: &str) -> Option<i64>;
+
+    /// Check whether a parent session is archived (not in the active
+    /// registry or already archived). Used to decide whether to skip
+    /// injecting a stale-child notification.
+    async fn is_parent_archived(&self, parent_id: &str) -> bool;
+
+    /// Terminate a stale child session and all its descendants.
+    ///
+    /// Contract:
+    /// 1. Kill the child and cascade-terminate all descendants.
+    /// 2. If the parent is NOT archived, inject a `Terminated`
+    ///    announce event with the stale duration into the parent's
+    ///    announce queue.
+    /// 3. If the parent IS archived, skip the notification
+    ///    (termination still proceeds).
+    async fn terminate_stale_child(&self, parent_id: &str, child_id: &str);
 }
 
 /// Background sweeper that ensures completion announces from run-mode
@@ -144,9 +176,13 @@ impl AnnounceSweeper {
             }
         }
     }
+}
 
+// Sweep logic: stale detection and announce delivery.
+impl AnnounceSweeper {
     /// Execute one sweep: check all run-mode children for completed
-    /// sessions that haven't had their announce delivered yet.
+    /// sessions that haven't had their announce delivered yet, and
+    /// detect stale (僵死) children that have been idle too long.
     pub async fn run_once(&self) {
         let children = self.target.get_run_mode_children().await;
 
@@ -154,9 +190,43 @@ impl AnnounceSweeper {
             return;
         }
 
-        for (child_id, _parent_id) in &children {
+        let now = chrono::Utc::now().timestamp();
+        for (child_id, parent_id) in &children {
             self.try_sweep_child(child_id).await;
+            self.try_detect_stale(parent_id, child_id, now).await;
         }
+    }
+
+    /// Detect a single non-idle child that may be stale (僵死).
+    ///
+    /// A child is considered stale when:
+    /// - It is NOT idle (still active: Busy or Waiting), AND
+    /// - Its last output timestamp is older than the threshold.
+    async fn try_detect_stale(&self, parent_id: &str, child_id: &str, now: i64) {
+        // Idle children are handled by try_sweep_child; skip them.
+        if self.target.is_session_idle(child_id).await {
+            return;
+        }
+
+        let Some(last_output_at) = self.target.get_last_output_at(child_id).await else {
+            // No output recorded yet — not stale.
+            return;
+        };
+
+        let elapsed = now - last_output_at;
+        let threshold = stale_child_threshold_secs() as i64;
+        if elapsed <= threshold {
+            return;
+        }
+
+        warn!(
+            child_session_id = %child_id,
+            parent_session_id = %parent_id,
+            elapsed_secs = elapsed,
+            threshold_secs = threshold,
+            "AnnounceSweeper: child session stale, terminating"
+        );
+        self.target.terminate_stale_child(parent_id, child_id).await;
     }
 
     /// Check a single child session and deliver its announce if it
@@ -177,7 +247,8 @@ impl AnnounceSweeper {
         // Session is idle but still in children table — deliver announce.
         info!(
             child_session_id = %child_id,
-            "AnnounceSweeper: child session idle but announce not delivered, pushing"
+            "AnnounceSweeper: child session idle \
+                but announce not delivered, pushing"
         );
         self.target
             .try_push_announce(child_id, NotificationPriority::Next)
