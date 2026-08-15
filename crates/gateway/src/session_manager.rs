@@ -49,6 +49,7 @@ pub mod spawn_adapter;
 pub mod spawn_controller;
 pub mod stop;
 mod stop_graceful;
+mod sweep_target;
 mod yield_timeout;
 use closeclaw_session::spawn::SpawnTree;
 pub use spawn::{ChildSessionConfig, ChildSessionInfo, ChildSessionStatus, SpawnMode};
@@ -883,6 +884,8 @@ mod spawn_tests;
 mod spawn_tree_tests;
 #[cfg(test)]
 mod stop_tests;
+#[cfg(test)]
+mod sweep_target_tests;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 #[cfg(test)]
