@@ -129,13 +129,14 @@ impl SessionMessageHandler {
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+        compact_config: CompactConfig,
     ) -> Self {
         Self {
             session_manager,
             fallback_client,
             output_tx: Arc::new(RwLock::new(Some(output_tx))),
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
-                CompactConfig::default(),
+                compact_config,
             ))),
             fallback_llm_caller,
             gateway: None,
@@ -152,13 +153,14 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+        compact_config: CompactConfig,
     ) -> Self {
         Self {
             session_manager,
             fallback_client,
             output_tx: Arc::new(RwLock::new(None)),
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
-                CompactConfig::default(),
+                compact_config,
             ))),
             fallback_llm_caller,
             gateway: None,

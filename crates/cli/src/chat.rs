@@ -412,6 +412,7 @@ async fn build_session_handler(
             fallback_client,
             output_tx,
             fallback_llm_caller,
+            closeclaw_session::compaction::CompactConfig::default(),
         )
         .with_metrics_emitter(metrics_emitter),
     )
