@@ -34,7 +34,12 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         client: ufc,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(sm, fallback, fallback_llm_caller)
+    SessionMessageHandler::new_no_output(
+        sm,
+        fallback,
+        fallback_llm_caller,
+        closeclaw_session::compaction::CompactConfig::default(),
+    )
 }
 
 fn make_msg() -> crate::Message {
@@ -785,6 +790,7 @@ fn handler_with_channel(
             )),
             model: String::new(),
         }),
+        closeclaw_session::compaction::CompactConfig::default(),
     );
     (handler, rx)
 }

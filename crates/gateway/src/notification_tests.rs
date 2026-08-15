@@ -261,7 +261,12 @@ fn build_handler(sm: Arc<SessionManager>) -> crate::session_handler::SessionMess
         client: ufc,
         model: String::new(),
     });
-    crate::session_handler::SessionMessageHandler::new_no_output(sm, fallback, fallback_llm_caller)
+    crate::session_handler::SessionMessageHandler::new_no_output(
+        sm,
+        fallback,
+        fallback_llm_caller,
+        closeclaw_session::compaction::CompactConfig::default(),
+    )
 }
 
 /// Build Gateway with handler + CapturingPlugin (for busy/queue tests).

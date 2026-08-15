@@ -75,6 +75,7 @@ fn handler_with_channel(
             )),
             model: String::new(),
         }),
+        closeclaw_session::compaction::CompactConfig::default(),
     );
     (handler, rx)
 }

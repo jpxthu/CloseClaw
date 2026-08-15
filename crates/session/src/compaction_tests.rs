@@ -761,8 +761,8 @@ mod tests {
             "message should start with 压缩完成："
         );
         assert!(
-            result.message.contains("字符"),
-            "message should contain 字符"
+            result.message.contains("tokens"),
+            "message should contain tokens"
         );
         assert!(!result.is_auto);
 
@@ -1111,10 +1111,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Format: "压缩完成：{before} → {after} 字符"
+        // Format: "压缩完成：{before} → {after} tokens"
         let expected_format = format!(
-            "压缩完成：{} → {} 字符",
-            result.before_char_count, result.after_char_count
+            "压缩完成：{} → {} tokens",
+            result.before_token_count, result.after_token_count
         );
         assert_eq!(result.message, expected_format);
     }

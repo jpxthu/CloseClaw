@@ -129,13 +129,14 @@ impl SessionMessageHandler {
         fallback_client: Arc<FallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+        compact_config: CompactConfig,
     ) -> Self {
         Self {
             session_manager,
             fallback_client,
             output_tx: Arc::new(RwLock::new(Some(output_tx))),
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
-                CompactConfig::default(),
+                compact_config,
             ))),
             fallback_llm_caller,
             gateway: None,
@@ -152,13 +153,14 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+        compact_config: CompactConfig,
     ) -> Self {
         Self {
             session_manager,
             fallback_client,
             output_tx: Arc::new(RwLock::new(None)),
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
-                CompactConfig::default(),
+                compact_config,
             ))),
             fallback_llm_caller,
             gateway: None,
@@ -271,6 +273,17 @@ impl SessionMessageHandler {
     /// Send a text reply through the output channel (used by slash handlers).
     pub async fn send_reply(&self, text: String) {
         super::session_handler_compact::send_output(&self.output_tx, &text).await;
+    }
+
+    /// Reset the circuit-breaker notification dedup flag.
+    ///
+    /// Called after a successful manual compaction so that a subsequent
+    /// auto-compact circuit-breaker trip re-injects the notification.
+    pub fn reset_circuit_breaker_notification(&self) {
+        *self
+            .has_circuit_break_notified
+            .lock()
+            .expect("has_circuit_break_notified poisoned") = false;
     }
 }
 
