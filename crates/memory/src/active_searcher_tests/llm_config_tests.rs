@@ -73,6 +73,7 @@ async fn test_run_full_pipeline_mock() {
         top_k_events: 10,
         context_turns: 3,
         model: "mock".into(),
+        injection_extension_days: 7,
     };
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
     let llm = MockConceptLlm {
@@ -207,7 +208,7 @@ fn test_from_agent_config_full_search_config() {
         ..MemoryConfig::default()
     };
 
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory));
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None);
     let config = config.expect("search should be enabled");
 
     assert_eq!(config.model, "claude-opus");
@@ -231,7 +232,7 @@ fn test_from_agent_config_partial_search_config() {
         ..MemoryConfig::default()
     };
 
-    let config = ActiveSearcherConfig::from_agent_config(None, Some(&memory));
+    let config = ActiveSearcherConfig::from_agent_config(None, Some(&memory), None);
     let config = config.expect("search should be enabled");
 
     assert_eq!(config.model, "deepseek-r1");
@@ -246,10 +247,10 @@ fn test_from_agent_config_partial_search_config() {
 /// No override (None) + agent_model → model uses agent global model.
 #[test]
 fn test_from_agent_config_no_override() {
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o-mini"), None).unwrap();
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o-mini"), None, None).unwrap();
     assert_eq!(config.model, "gpt-4o-mini");
     // Without agent_model → model is empty string
-    let config = ActiveSearcherConfig::from_agent_config(None, None).unwrap();
+    let config = ActiveSearcherConfig::from_agent_config(None, None, None).unwrap();
     assert_eq!(config.model, "");
 }
 
@@ -269,7 +270,7 @@ fn test_from_agent_config_search_config_values() {
         },
         ..MemoryConfig::default()
     };
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory)).unwrap();
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None).unwrap();
     assert_eq!(config.timeout_ms, 4000);
     assert_eq!(config.max_summary_chars, 800);
     assert_eq!(config.min_entity_hits, 2);
@@ -290,7 +291,7 @@ fn test_from_agent_config_model_priority() {
         ..MemoryConfig::default()
     };
     let config =
-        ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory)).unwrap();
+        ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory), None).unwrap();
     assert_eq!(config.model, "search-model");
 }
 
@@ -304,5 +305,5 @@ fn test_from_agent_config_search_disabled() {
         },
         ..MemoryConfig::default()
     };
-    assert!(ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory)).is_none());
+    assert!(ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None).is_none());
 }

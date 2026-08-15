@@ -219,7 +219,11 @@ fn build_searcher_config(
     mem_cfg: &Option<closeclaw_config::agents::MemoryConfig>,
 ) -> Option<crate::memory::active_searcher::ActiveSearcherConfig> {
     use crate::memory::active_searcher::ActiveSearcherConfig;
-    ActiveSearcherConfig::from_agent_config(Some(model), mem_cfg.as_ref())
+    ActiveSearcherConfig::from_agent_config(
+        Some(model),
+        mem_cfg.as_ref(),
+        mem_cfg.as_ref().map(|m| &m.forgetting),
+    )
 }
 
 /// Execute the searcher pipeline and convert the result.
