@@ -420,6 +420,7 @@ async fn test_gateway_delegates_llm_to_session_layer() {
             Arc::clone(&sm),
             fallback,
             fallback_llm_caller,
+            closeclaw_session::compaction::CompactConfig::default(),
         ),
     );
     let gw = crate::Gateway::new(config, sm).with_session_handler(handler);

@@ -163,6 +163,7 @@ async fn test_idle_message_returns_llm_started() {
                 .then_ok("dummy", "fake-model")
                 .build(),
         )),
+        closeclaw_session::compaction::CompactConfig::default(),
     );
 
     let result = handler.handle_message(&sid, "first".to_string()).await;
@@ -213,6 +214,7 @@ async fn test_busy_message_returns_queued() {
                 .then_ok("dummy", "fake-model")
                 .build(),
         )),
+        closeclaw_session::compaction::CompactConfig::default(),
     );
 
     let result = handler.handle_message(&sid, "hello".to_string()).await;
@@ -267,6 +269,7 @@ async fn test_fake_provider_call_count_while_busy() {
                 .then_ok("dummy", "fake-model")
                 .build(),
         )),
+        closeclaw_session::compaction::CompactConfig::default(),
     );
 
     // First message — starts LLM call, busy = true
@@ -346,6 +349,7 @@ async fn test_pending_fifo_after_delay() {
                 .then_ok("dummy", "fake-model")
                 .build(),
         )),
+        closeclaw_session::compaction::CompactConfig::default(),
     );
 
     // First message → LlmStarted (busy)
@@ -418,6 +422,7 @@ async fn test_idle_after_delay_drain() {
                 .then_ok("dummy", "fake-model")
                 .build(),
         )),
+        closeclaw_session::compaction::CompactConfig::default(),
     );
 
     // Start first call

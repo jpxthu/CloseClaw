@@ -73,16 +73,22 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
         ..Default::default()
     };
 
-    let llm_config = {
+    let (llm_config, compact_config) = {
         let config_dir = dirs::home_dir()
             .map(|h| h.join(".closeclaw"))
             .unwrap_or_else(|| PathBuf::from(".closeclaw"));
         let config_subdir = config_dir.join("config");
-        ConfigManager::new(config_subdir).ok().and_then(|cm| {
+        let cm = ConfigManager::new(config_subdir).ok();
+        let llm = cm.as_ref().and_then(|cm| {
             cm.section(ConfigSection::System)
                 .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
                 .and_then(|sys| sys.llm)
-        })
+        });
+        let compact = cm.as_ref()
+            .and_then(|cm| cm.session_config_provider())
+            .map(|p| p.compact_config())
+            .unwrap_or_default();
+        (llm, compact)
     };
     let reasoning_level = llm_config
         .as_ref()
@@ -116,8 +122,13 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
     let slash_dispatcher = build_slash_dispatcher(Arc::clone(&session_manager)).await;
 
     let metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter> = Arc::new(NoopMetricsEmitter);
-    let gateway =
-        attach_session_handler(gateway, Arc::clone(&session_manager), metrics_emitter).await;
+    let gateway = attach_session_handler(
+        gateway,
+        Arc::clone(&session_manager),
+        metrics_emitter,
+        compact_config,
+    )
+    .await;
     let gateway = Arc::new(gateway);
     gateway.set_self_ref(Arc::clone(&gateway));
     gateway
@@ -227,8 +238,9 @@ async fn attach_session_handler(
     gateway: Gateway,
     session_manager: Arc<SessionManager>,
     metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter>,
+    compact_config: closeclaw_common::CompactConfig,
 ) -> Gateway {
-    match build_session_handler(session_manager, metrics_emitter).await {
+    match build_session_handler(session_manager, metrics_emitter, compact_config).await {
         Some(handler) => gateway.with_session_handler(Arc::new(handler)),
         None => gateway,
     }
@@ -377,6 +389,7 @@ async fn build_unified_chain(
 async fn build_session_handler(
     session_manager: Arc<SessionManager>,
     metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter>,
+    compact_config: closeclaw_common::CompactConfig,
 ) -> Option<closeclaw_gateway::session_handler::SessionMessageHandler> {
     let llm_registry = init_llm_registry().await;
     let fallback_chain = build_fallback_chain();
@@ -412,6 +425,7 @@ async fn build_session_handler(
             fallback_client,
             output_tx,
             fallback_llm_caller,
+            compact_config,
         )
         .with_metrics_emitter(metrics_emitter),
     )

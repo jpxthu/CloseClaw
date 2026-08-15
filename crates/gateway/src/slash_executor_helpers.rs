@@ -85,15 +85,20 @@ pub(crate) async fn gw_compact(
     let fc = Arc::clone(&sh.fallback_client);
     let chat_fn = crate::session_handler_compact::build_chat_fn(fc);
     let mut svc = sh.compaction_service.lock().await;
-    sm.compact(
-        session_id,
-        instruction.as_deref(),
-        false,
-        &mut svc,
-        &chat_fn,
-        None,
-    )
-    .await
+    let result = sm
+        .compact(
+            session_id,
+            instruction.as_deref(),
+            false,
+            &mut svc,
+            &chat_fn,
+            None,
+        )
+        .await;
+    if result.is_ok() {
+        sh.reset_circuit_breaker_notification();
+    }
+    result
 }
 
 /// Apply a system prompt append/clear action.

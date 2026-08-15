@@ -312,8 +312,8 @@ impl CompactionService {
     /// pure character estimation when `None`.
     ///
     /// On success, resets `consecutive_failures` to 0.
-    /// The reply message format is: `"压缩完成：{before_char_count} → {after_char_count} 字符"`
-    /// to align with the design document's requirement of showing character counts.
+    /// The reply message format is: `"压缩完成：{before_token_count} → {after_token_count} tokens"`
+    /// to align with the design document's requirement of showing token counts.
     pub async fn compact(
         &mut self,
         messages: &[CompactionMessage],
@@ -358,7 +358,7 @@ impl CompactionService {
             performed: true,
             original_tokens: before_tokens,
             compacted_tokens: after_tokens,
-            message: format!("压缩完成：{} → {} 字符", before_chars, after_chars),
+            message: format!("压缩完成：{} → {} tokens", before_tokens, after_tokens),
             before_char_count: before_chars,
             after_char_count: after_chars,
             before_token_count: before_tokens,
