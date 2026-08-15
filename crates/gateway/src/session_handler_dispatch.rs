@@ -61,7 +61,7 @@ type RunSearcher = Box<
         + Sync,
 >;
 
-// ── Closure builders ───────────────────────────────────────────────
+// ── Closure builders (grouped: config → lifecycle → injection → runner → trigger) ──
 
 impl SearcherTriggerDeps {
     /// Build a closure that loads agent config from the session manager.
@@ -136,11 +136,53 @@ impl SearcherTriggerDeps {
             },
         )
     }
-}
 
-// ── Write/execute closure builders ─────────────────────────────────
+    // ── Session lifecycle closure builders ──────────────────────────
 
-impl SearcherTriggerDeps {
+    /// Build a closure that begins a searcher session.
+    ///
+    /// Validates the parent conversation session exists, then registers
+    /// a new searcher session in the tracker. Returns `None` (and the
+    /// spawn flow abandons) when the parent session is missing.
+    fn build_begin_searcher_session(
+        &self,
+    ) -> closeclaw_session::active_searcher::BeginSearcherSession {
+        let sm = Arc::clone(&self.session_manager);
+        Box::new(
+            move |parent_sid: String,
+                  agent_id: String,
+                  trigger_role: String|
+                  -> BoxFuture<Option<String>> {
+                let sm = Arc::clone(&sm);
+                Box::pin(async move {
+                    // Validate parent session exists.
+                    if sm.get_conversation_session(&parent_sid).await.is_none() {
+                        tracing::warn!(
+                            session_id = %parent_sid,
+                            "active-searcher: parent session not found, skipping"
+                        );
+                        return None;
+                    }
+                    let id = sm
+                        .searcher_sessions
+                        .begin(parent_sid, agent_id, trigger_role);
+                    Some(id)
+                })
+            },
+        )
+    }
+
+    /// Build a closure that marks a searcher session as finished.
+    fn build_end_searcher_session(&self) -> closeclaw_session::active_searcher::EndSearcherSession {
+        let sm = Arc::clone(&self.session_manager);
+        Box::new(move |sid: String, status: closeclaw_session::active_searcher_session::SearcherSessionStatus| {
+            let sm = Arc::clone(&sm);
+            sm.searcher_sessions.end(&sid, status);
+        })
+    }
+
+    // ── Injection & runner closure builders ─────────────────────────
+
     /// Build a closure that writes a memory injection into the session slot.
     fn build_set_memory_injection(&self) -> SetMemoryInjection {
         let sm = Arc::clone(&self.session_manager);
@@ -185,6 +227,45 @@ impl SearcherTriggerDeps {
                 })
             },
         )
+    }
+
+    /// Trigger an active-searcher background task for the given message.
+    ///
+    /// Pre-loaded `agent_model`, `memory_config`, and `context_turns`
+    /// are used by closure builders to avoid redundant config loads
+    /// inside the session crate.
+    fn trigger(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        content: &str,
+        message_role: &str,
+        context_turns: usize,
+    ) {
+        use crate::memory::active_searcher_llm::should_trigger_role;
+
+        if !should_trigger_role(message_role) {
+            return;
+        }
+
+        let deps = closeclaw_session::active_searcher::SearcherDependencies {
+            get_agent_config: self.build_get_agent_config(),
+            get_context_messages: self.build_get_context_messages(context_turns),
+            get_injected_event_ids: self.build_get_injected_event_ids(),
+            set_memory_injection: self.build_set_memory_injection(),
+            run_searcher: self.build_run_searcher(),
+            begin_searcher_session: self.build_begin_searcher_session(),
+            end_searcher_session: self.build_end_searcher_session(),
+        };
+
+        closeclaw_session::active_searcher::spawn_active_searcher(
+            session_id,
+            agent_id,
+            content,
+            message_role,
+            &self.memory_db_path,
+            deps,
+        );
     }
 }
 
@@ -276,47 +357,6 @@ async fn load_agent_config_with_context_turns(
             (cfg.model.map(|m| m.primary), mem_json, ctx_turns)
         }
         None => (None, None, 10),
-    }
-}
-
-// ── Trigger assembly ───────────────────────────────────────────────
-
-impl SearcherTriggerDeps {
-    /// Trigger an active-searcher background task for the given message.
-    ///
-    /// Pre-loaded `agent_model`, `memory_config`, and `context_turns`
-    /// are used by closure builders to avoid redundant config loads
-    /// inside the session crate.
-    fn trigger(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-        content: &str,
-        message_role: &str,
-        context_turns: usize,
-    ) {
-        use crate::memory::active_searcher_llm::should_trigger_role;
-
-        if !should_trigger_role(message_role) {
-            return;
-        }
-
-        let deps = closeclaw_session::active_searcher::SearcherDependencies {
-            get_agent_config: self.build_get_agent_config(),
-            get_context_messages: self.build_get_context_messages(context_turns),
-            get_injected_event_ids: self.build_get_injected_event_ids(),
-            set_memory_injection: self.build_set_memory_injection(),
-            run_searcher: self.build_run_searcher(),
-        };
-
-        closeclaw_session::active_searcher::spawn_active_searcher(
-            session_id,
-            agent_id,
-            content,
-            message_role,
-            &self.memory_db_path,
-            deps,
-        );
     }
 }
 
