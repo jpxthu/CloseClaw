@@ -183,18 +183,27 @@ impl AnnounceSweeper {
     /// Execute one sweep: check all run-mode children for completed
     /// sessions that haven't had their announce delivered yet, and
     /// detect stale (僵死) children that have been idle too long.
-    pub async fn run_once(&self) {
+    ///
+    /// If `now` is `None`, the current wall-clock time is used.
+    /// Accepting an explicit `now` enables deterministic testing
+    /// without a real clock dependency.
+    pub async fn run_once_with_now(&self, now: Option<i64>) {
         let children = self.target.get_run_mode_children().await;
 
         if children.is_empty() {
             return;
         }
 
-        let now = chrono::Utc::now().timestamp();
+        let now = now.unwrap_or_else(|| chrono::Utc::now().timestamp());
         for (child_id, parent_id) in &children {
             self.try_sweep_child(child_id).await;
             self.try_detect_stale(parent_id, child_id, now).await;
         }
+    }
+
+    /// Execute one sweep using the current wall-clock time.
+    pub async fn run_once(&self) {
+        self.run_once_with_now(None).await;
     }
 
     /// Detect a single non-idle child that may be stale (僵死).
