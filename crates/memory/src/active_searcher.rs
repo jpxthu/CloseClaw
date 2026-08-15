@@ -414,7 +414,7 @@ impl ActiveSearcher {
     /// 2. Search entities in SQLite
     /// 3. Find associated events
     /// 4. Deduplicate against already-injected events
-    /// 4.5. Extend expiry for hit events (best-effort)
+    ///    4.5. Extend expiry for hit events (best-effort)
     /// 5. Summarise via LLM
     ///
     /// Returns `None` if the pipeline times out or produces no results.

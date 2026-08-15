@@ -510,7 +510,7 @@ pub fn default_capacity_max_rules() -> usize {
 // ── Forgetting subsystem ──────────────────────────────────────────────
 
 /// Forgetting subsystem configuration.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgettingConfig {
     /// Initial TTL in days for new events. `None` means inherit global default.
@@ -520,15 +520,6 @@ pub struct ForgettingConfig {
     /// `None` means inherit global default.
     #[serde(default)]
     pub injection_extension_days: Option<i64>,
-}
-
-impl Default for ForgettingConfig {
-    fn default() -> Self {
-        Self {
-            initial_ttl_days: None,
-            injection_extension_days: None,
-        }
-    }
 }
 
 impl ForgettingConfig {
