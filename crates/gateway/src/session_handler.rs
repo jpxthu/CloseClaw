@@ -274,6 +274,17 @@ impl SessionMessageHandler {
     pub async fn send_reply(&self, text: String) {
         super::session_handler_compact::send_output(&self.output_tx, &text).await;
     }
+
+    /// Reset the circuit-breaker notification dedup flag.
+    ///
+    /// Called after a successful manual compaction so that a subsequent
+    /// auto-compact circuit-breaker trip re-injects the notification.
+    pub fn reset_circuit_breaker_notification(&self) {
+        *self
+            .has_circuit_break_notified
+            .lock()
+            .expect("has_circuit_break_notified poisoned") = false;
+    }
 }
 
 /// LlmCaller adapter for `UnifiedFallbackClient`.
