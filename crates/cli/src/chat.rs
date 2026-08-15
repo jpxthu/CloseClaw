@@ -84,7 +84,8 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
                 .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
                 .and_then(|sys| sys.llm)
         });
-        let compact = cm.as_ref()
+        let compact = cm
+            .as_ref()
             .and_then(|cm| cm.session_config_provider())
             .map(|p| p.compact_config())
             .unwrap_or_default();
