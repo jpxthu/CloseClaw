@@ -13,6 +13,8 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
+use crate::active_searcher_session::SearcherSessionStatus;
+
 /// Pinned boxed future type used by dependency closures.
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
@@ -76,10 +78,22 @@ pub struct SearcherInput {
 type RunSearcher =
     Box<dyn Fn(SearcherInput) -> BoxFuture<Option<(String, String, HashSet<i64>)>> + Send + Sync>;
 
-/// All external dependencies needed by [`ActiveSearcherRunner::trigger`].
+/// Async closure: begins a searcher session.
 ///
-/// Bundles the five async closures that the runner depends on, keeping
-/// the `trigger` signature within the 6-parameter limit.
+/// Arguments: `(parent_session_id, agent_id, trigger_role)`.
+/// Returns `Some(searcher_session_id)` or `None` if parent missing.
+pub type BeginSearcherSession =
+    Box<dyn Fn(String, String, String) -> BoxFuture<Option<String>> + Send + Sync>;
+
+/// Async closure: marks a searcher session as finished.
+///
+/// Arguments: `(searcher_session_id, status)`.
+pub type EndSearcherSession = Box<dyn Fn(String, SearcherSessionStatus) + Send + Sync>;
+
+/// All external dependencies needed by [`spawn_active_searcher`].
+///
+/// Bundles the async closures that the runner depends on, keeping
+/// the caller signature within the 6-parameter limit.
 pub struct SearcherDependencies {
     /// Load agent configuration (model + memory config).
     pub get_agent_config: GetAgentConfig,
@@ -91,6 +105,10 @@ pub struct SearcherDependencies {
     pub set_memory_injection: SetMemoryInjection,
     /// Execute the active-searcher pipeline.
     pub run_searcher: RunSearcher,
+    /// Begin a searcher session (returns session ID or None).
+    pub begin_searcher_session: BeginSearcherSession,
+    /// End a searcher session with a terminal status.
+    pub end_searcher_session: EndSearcherSession,
 }
 
 // ── Search context ──────────────────────────────────────────────────────
@@ -108,6 +126,18 @@ struct SearchContext {
     injected_ids: HashSet<i64>,
     /// Memory config from the agent config.
     memory_config: Option<serde_json::Value>,
+}
+
+// ── Outcome type ────────────────────────────────────────────────────────
+
+/// Outcome of a single searcher pipeline run.
+enum SearchResult {
+    /// Injection was written successfully.
+    Injected(String, String, HashSet<i64>),
+    /// Search completed with no results.
+    NoResult,
+    /// Search was abandoned (timeout).
+    Abandoned,
 }
 
 // ── ActiveSearcherRunner ────────────────────────────────────────────────
@@ -165,14 +195,29 @@ fn spawn_search_task(
     let role = message_role.to_string();
 
     tokio::spawn(async move {
+        // Begin searcher session.
+        let searcher_session_id =
+            match (deps.begin_searcher_session)(sid.clone(), aid.clone(), role.clone()).await {
+                Some(id) => id,
+                None => {
+                    tracing::warn!(
+                        session_id = %sid,
+                        "active-searcher: begin returned None, skipping"
+                    );
+                    return;
+                }
+            };
+
         let (agent_model, memory_config) = match load_agent_config(&deps, &aid).await {
             Ok(cfg) => cfg,
             Err(e) => {
                 tracing::warn!(
+                    session_id = %searcher_session_id,
                     agent_id = %aid,
                     error = %e,
                     "active-searcher: failed to load agent config"
                 );
+                (deps.end_searcher_session)(searcher_session_id, SearcherSessionStatus::Abandoned);
                 return;
             }
         };
@@ -187,9 +232,18 @@ fn spawn_search_task(
             memory_config,
         };
 
-        let result = run_search_pipeline(&deps, &db_path, &aid, &role, &content, &ctx).await;
+        let result = run_search_pipeline(
+            &deps,
+            &db_path,
+            &aid,
+            &role,
+            &content,
+            &ctx,
+            &searcher_session_id,
+        )
+        .await;
 
-        handle_search_result(&deps, &sid, result).await;
+        handle_search_result(&deps, &sid, result, &searcher_session_id).await;
     });
 }
 
@@ -225,7 +279,8 @@ async fn run_search_pipeline(
     role: &str,
     content: &str,
     ctx: &SearchContext,
-) -> Option<(String, String, HashSet<i64>)> {
+    searcher_session_id: &str,
+) -> SearchResult {
     let timeout_duration = std::time::Duration::from_millis(extract_timeout_ms(&ctx.memory_config));
 
     let result = tokio::time::timeout(
@@ -244,25 +299,29 @@ async fn run_search_pipeline(
     .await;
 
     match result {
-        Ok(inner) => inner,
+        Ok(Some((inj_content, inj_position, inj_event_ids))) => {
+            SearchResult::Injected(inj_content, inj_position, inj_event_ids)
+        }
+        Ok(None) => SearchResult::NoResult,
         Err(_elapsed) => {
             tracing::warn!(
-                session_id = %agent_id,
+                session_id = %searcher_session_id,
                 "active-searcher: timed out, abandoning this round"
             );
-            None
+            SearchResult::Abandoned
         }
     }
 }
 
-/// Handle the search result: write injection or log accordingly.
+/// Handle the search result: write injection, log, and end session.
 async fn handle_search_result(
     deps: &SearcherDependencies,
     session_id: &str,
-    result: Option<(String, String, HashSet<i64>)>,
+    result: SearchResult,
+    searcher_session_id: &str,
 ) {
     match result {
-        Some((inj_content, inj_position, inj_event_ids)) => {
+        SearchResult::Injected(inj_content, inj_position, inj_event_ids) => {
             (deps.set_memory_injection)(
                 session_id.to_string(),
                 inj_content,
@@ -270,9 +329,26 @@ async fn handle_search_result(
                 inj_event_ids,
             )
             .await;
+            (deps.end_searcher_session)(
+                searcher_session_id.to_string(),
+                SearcherSessionStatus::Injected,
+            );
         }
-        None => {
-            tracing::debug!(session_id = %session_id, "active-searcher: no results");
+        SearchResult::NoResult => {
+            tracing::debug!(
+                session_id = %session_id,
+                "active-searcher: no results"
+            );
+            (deps.end_searcher_session)(
+                searcher_session_id.to_string(),
+                SearcherSessionStatus::NoResult,
+            );
+        }
+        SearchResult::Abandoned => {
+            (deps.end_searcher_session)(
+                searcher_session_id.to_string(),
+                SearcherSessionStatus::Abandoned,
+            );
         }
     }
 }

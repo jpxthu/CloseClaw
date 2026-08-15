@@ -156,6 +156,11 @@ pub struct SessionManager {
     /// incremental scan will use 0 (equivalent to full scan) until the
     /// startup full scan sets this value.
     last_consistency_check_time: std::sync::Mutex<Option<i64>>,
+    /// In-memory tracker for active-searcher sub-sessions.
+    /// Lightweight identity + lifecycle tracking (Running → Injected /
+    /// NoResult / Abandoned), no persistence.
+    pub(crate) searcher_sessions:
+        Arc<closeclaw_session::active_searcher_session::SearcherSessionTracker>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -208,6 +213,9 @@ impl SessionManager {
             tool_register_fn: RwLock::new(None),
             gateway_ref: RwLock::new(None),
             last_consistency_check_time: std::sync::Mutex::new(None),
+            searcher_sessions: Arc::new(
+                closeclaw_session::active_searcher_session::SearcherSessionTracker::new(),
+            ),
         }
     }
 

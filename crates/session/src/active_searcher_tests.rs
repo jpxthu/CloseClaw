@@ -11,6 +11,7 @@ mod tests {
         extract_context_turns, extract_timeout_ms, spawn_active_searcher, SearcherDependencies,
         SearcherInput, SessionMessageSnapshot,
     };
+    use crate::active_searcher_session::SearcherSessionStatus;
 
     // ── Helpers ──────────────────────────────────────────────────────
 
@@ -40,6 +41,12 @@ mod tests {
             run_searcher: Box::new(|_input: SearcherInput| {
                 Box::pin(async { None })
             }),
+            begin_searcher_session: Box::new(
+                |_sid: String, _aid: String, _role: String| {
+                    Box::pin(async { Some("test-searcher-session".to_string()) })
+                },
+            ),
+            end_searcher_session: Box::new(|_sid: String, _status: SearcherSessionStatus| {}),
         }
     }
 
@@ -480,5 +487,226 @@ mod tests {
     fn test_extract_context_turns_explicit_value() {
         let config = serde_json::json!({ "search": { "context_turns": 10 } });
         assert_eq!(extract_context_turns(&Some(config)), 10);
+    }
+
+    // ── Step 1.3: begin_searcher_session returns None → skip ──────
+
+    /// When `begin_searcher_session` returns `None` (parent session
+    /// missing), the spawn task must not call `run_searcher` and must
+    /// not write any injection.
+    #[tokio::test]
+    async fn test_begin_none_skips_run_and_injection() {
+        let db = PathBuf::from("/tmp/test.db");
+        let searcher_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
+        let injection_called: Arc<tokio::sync::Mutex<bool>> =
+            Arc::new(tokio::sync::Mutex::new(false));
+
+        let ran = Arc::clone(&searcher_ran);
+        let called = Arc::clone(&injection_called);
+        let mut deps = noop_deps();
+        deps.begin_searcher_session =
+            Box::new(|_sid: String, _aid: String, _role: String| Box::pin(async { None }));
+        deps.run_searcher = Box::new(move |_input: SearcherInput| {
+            let ran = Arc::clone(&ran);
+            Box::pin(async move {
+                *ran.lock().await = true;
+                Some(("result".into(), "after_current".into(), HashSet::new()))
+            })
+        });
+        deps.set_memory_injection = Box::new(
+            move |_sid: String, _c: String, _p: String, _e: HashSet<i64>| {
+                let called = Arc::clone(&called);
+                Box::pin(async move {
+                    *called.lock().await = true;
+                })
+            },
+        );
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        assert!(
+            !*searcher_ran.lock().await,
+            "run_searcher must not be called when begin returns None"
+        );
+        assert!(
+            !*injection_called.lock().await,
+            "set_memory_injection must not be called when begin returns None"
+        );
+    }
+
+    // ── Step 1.3: end_searcher_session with unknown ID is safe ──────
+
+    /// When the searcher session tracker has no record for the given
+    /// ID, `end_searcher_session` should be a safe no-op (no panic,
+    /// no observable side-effect).
+    #[tokio::test]
+    async fn test_end_unknown_id_is_safe_noop() {
+        let db = PathBuf::from("/tmp/test.db");
+        let end_called_with: Arc<tokio::sync::Mutex<Vec<String>>> =
+            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+        let recorded = Arc::clone(&end_called_with);
+        let mut deps = noop_deps();
+        deps.end_searcher_session = Box::new(move |sid: String, status: SearcherSessionStatus| {
+            let recorded = Arc::clone(&recorded);
+            recorded
+                .try_lock()
+                .unwrap()
+                .push(format!("{sid}:{status:?}"));
+        });
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // end_searcher_session was called with the test ID.
+        let calls = end_called_with.lock().await;
+        assert!(!calls.is_empty(), "end_searcher_session should be called");
+        // The ID is "test-searcher-session" from noop_deps' begin;
+        // the closure receives it and should not panic.
+    }
+
+    // ── Step 1.3: inject success → end(Injected) with finished_at ───
+
+    /// When the searcher returns a result (Some), the end closure must
+    /// be called with status "Injected".
+    #[tokio::test]
+    async fn test_inject_success_calls_end_injected() {
+        let db = PathBuf::from("/tmp/test.db");
+        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+
+        let status_ref = Arc::clone(&end_status);
+        let mut deps = noop_deps();
+        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let status_ref = Arc::clone(&status_ref);
+            *status_ref.try_lock().unwrap() = Some(status);
+        });
+        deps.run_searcher = Box::new(|_input: SearcherInput| {
+            Box::pin(async { Some(("found".into(), "after_current".into(), HashSet::new())) })
+        });
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let status = end_status.lock().await;
+        assert_eq!(*status, Some(SearcherSessionStatus::Injected));
+    }
+
+    // ── Step 1.3: no result → end(NoResult) ─────────────────────────
+
+    /// When the searcher returns None, the end closure must be called
+    /// with status "NoResult".
+    #[tokio::test]
+    async fn test_no_result_calls_end_no_result() {
+        let db = PathBuf::from("/tmp/test.db");
+        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+
+        let status_ref = Arc::clone(&end_status);
+        let mut deps = noop_deps();
+        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let status_ref = Arc::clone(&status_ref);
+            *status_ref.try_lock().unwrap() = Some(status);
+        });
+        deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let status = end_status.lock().await;
+        assert_eq!(*status, Some(SearcherSessionStatus::NoResult));
+    }
+
+    // ── Step 1.3: timeout → end(Abandoned) ──────────────────────────
+
+    /// When the searcher times out, the end closure must be called
+    /// with status "Abandoned" (distinct from NoResult).
+    #[tokio::test]
+    async fn test_timeout_calls_end_abandoned() {
+        let db = PathBuf::from("/tmp/test.db");
+        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+
+        let status_ref = Arc::clone(&end_status);
+        let mut deps = noop_deps();
+        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
+            Result<(Option<String>, Option<serde_json::Value>), String>,
+        > {
+            let cfg = serde_json::json!({ "search": { "timeout_ms": 1 } });
+            Box::pin(async move { Ok((Some("m".into()), Some(cfg))) })
+        });
+        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let status_ref = Arc::clone(&status_ref);
+            *status_ref.try_lock().unwrap() = Some(status);
+        });
+        deps.run_searcher = Box::new(|_input: SearcherInput| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Some(("r".into(), "after_current".into(), HashSet::new()))
+            })
+        });
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let status = end_status.lock().await;
+        assert_eq!(*status, Some(SearcherSessionStatus::Abandoned));
+    }
+
+    // ── Step 1.3: agent config error → end(Abandoned) ───────────────
+
+    /// When agent config loading fails, the end closure must be called
+    /// with status "Abandoned".
+    #[tokio::test]
+    async fn test_config_error_calls_end_abandoned() {
+        let db = PathBuf::from("/tmp/test.db");
+        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+
+        let status_ref = Arc::clone(&end_status);
+        let mut deps = noop_deps();
+        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
+            Result<(Option<String>, Option<serde_json::Value>), String>,
+        > {
+            Box::pin(async { Err("not found".into()) })
+        });
+        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let status_ref = Arc::clone(&status_ref);
+            *status_ref.try_lock().unwrap() = Some(status);
+        });
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let status = end_status.lock().await;
+        assert_eq!(*status, Some(SearcherSessionStatus::Abandoned));
+    }
+
+    // ── Step 1.3: searcher session ID passed to end ─────────────────
+
+    /// The searcher session ID returned by `begin_searcher_session`
+    /// must be forwarded to `end_searcher_session`.
+    #[tokio::test]
+    async fn test_searcher_session_id_forwarded_to_end() {
+        let db = PathBuf::from("/tmp/test.db");
+        let end_sid: Arc<tokio::sync::Mutex<Option<String>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+
+        let sid_ref = Arc::clone(&end_sid);
+        let mut deps = noop_deps();
+        deps.begin_searcher_session = Box::new(|_sid: String, _aid: String, _role: String| {
+            Box::pin(async { Some("my-searcher-id-123".to_string()) })
+        });
+        deps.end_searcher_session = Box::new(move |sid: String, _status: SearcherSessionStatus| {
+            let sid_ref = Arc::clone(&sid_ref);
+            *sid_ref.try_lock().unwrap() = Some(sid);
+        });
+
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let sid = end_sid.lock().await;
+        assert_eq!(sid.as_deref(), Some("my-searcher-id-123"));
     }
 }
