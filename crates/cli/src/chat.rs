@@ -122,8 +122,13 @@ pub(crate) async fn build_gateway(agent_id: &str) -> (Arc<Gateway>, Arc<SessionM
     let slash_dispatcher = build_slash_dispatcher(Arc::clone(&session_manager)).await;
 
     let metrics_emitter: Arc<dyn closeclaw_common::MetricsEmitter> = Arc::new(NoopMetricsEmitter);
-    let gateway =
-        attach_session_handler(gateway, Arc::clone(&session_manager), metrics_emitter, compact_config).await;
+    let gateway = attach_session_handler(
+        gateway,
+        Arc::clone(&session_manager),
+        metrics_emitter,
+        compact_config,
+    )
+    .await;
     let gateway = Arc::new(gateway);
     gateway.set_self_ref(Arc::clone(&gateway));
     gateway
