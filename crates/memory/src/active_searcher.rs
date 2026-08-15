@@ -49,6 +49,8 @@ pub struct ActiveSearcherConfig {
     pub context_turns: usize,
     /// LLM model used for concept extraction and summarisation.
     pub model: String,
+    /// Days to extend `expires_at` on injection hit.
+    pub injection_extension_days: i64,
 }
 
 impl Default for ActiveSearcherConfig {
@@ -60,6 +62,7 @@ impl Default for ActiveSearcherConfig {
             top_k_events: 3,
             context_turns: 5,
             model: String::new(),
+            injection_extension_days: 7,
         }
     }
 }
@@ -122,6 +125,7 @@ impl ActiveSearcherConfig {
     pub fn from_agent_config(
         agent_model: Option<&str>,
         memory_override: Option<&closeclaw_config::agents::MemoryConfig>,
+        forgetting: Option<&closeclaw_config::agents::ForgettingConfig>,
     ) -> Option<Self> {
         // Check search.enabled gate.
         if let Some(memory) = memory_override {
@@ -130,6 +134,9 @@ impl ActiveSearcherConfig {
             }
         }
         let search = memory_override.map(|m| &m.search);
+        let ext_days = forgetting
+            .and_then(|f| f.injection_extension_days)
+            .unwrap_or(closeclaw_config::agents::default_forgetting_injection_extension_days());
         Some(Self {
             timeout_ms: search.and_then(|s| s.timeout_ms).unwrap_or(3000),
             max_summary_chars: search.and_then(|s| s.max_summary_chars).unwrap_or(500),
@@ -140,6 +147,7 @@ impl ActiveSearcherConfig {
                 .and_then(|s| s.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))
                 .unwrap_or_default(),
+            injection_extension_days: ext_days,
         })
     }
 }
@@ -315,6 +323,44 @@ impl ActiveSearcher {
             .collect()
     }
 
+    // ── Expiry extension ─────────────────────────────────────────────
+
+    /// Extend `expires_at` for the given event IDs.
+    ///
+    /// Each affected event gets `injection_extension_days` added to its
+    /// current `expires_at`. Events with `expires_at = 0` (forgetting
+    /// disabled) are left untouched.
+    ///
+    /// Returns `Ok(())` even if no rows are affected (empty IDs,
+    /// nonexistent IDs, or all `expires_at = 0`).
+    pub fn extend_event_expiry(&self, event_ids: &[i64]) -> Result<(), ActiveSearcherError> {
+        if event_ids.is_empty() {
+            return Ok(());
+        }
+        let ext = self.config.injection_extension_days;
+        if ext == 0 {
+            return Ok(());
+        }
+        let conn = self.open()?;
+        let event_placeholders: Vec<String> =
+            (1..=event_ids.len()).map(|i| format!("?{i}")).collect();
+        let ext_idx = event_ids.len() + 1;
+        let sql = format!(
+            "UPDATE events SET expires_at = expires_at + ?{ext_idx} WHERE id IN ({}) AND expires_at > 0",
+            event_placeholders.join(", "),
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = event_ids
+            .iter()
+            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        param_values.push(Box::new(ext * 86400));
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        conn.execute(&sql, params_refs.as_slice())
+            .map_err(|e| ActiveSearcherError::Sqlite(e.to_string()))?;
+        Ok(())
+    }
+
     // ── Summarise ────────────────────────────────────────────────────
 
     /// Condense a list of events into a plain-text summary.
@@ -368,6 +414,7 @@ impl ActiveSearcher {
     /// 2. Search entities in SQLite
     /// 3. Find associated events
     /// 4. Deduplicate against already-injected events
+    ///    4.5. Extend expiry for hit events (best-effort)
     /// 5. Summarise via LLM
     ///
     /// Returns `None` if the pipeline times out or produces no results.
@@ -411,6 +458,12 @@ impl ActiveSearcher {
                 let events = self.dedup_events(events, injected_event_ids);
                 if events.is_empty() {
                     return Ok(None);
+                }
+
+                // 4.5. Extend expiry for hit events (best-effort)
+                let hit_ids: Vec<i64> = events.iter().map(|e| e.id).collect();
+                if let Err(e) = self.extend_event_expiry(&hit_ids) {
+                    tracing::warn!("failed to extend event expiry: {e}");
                 }
 
                 // 5. Summarise via LLM

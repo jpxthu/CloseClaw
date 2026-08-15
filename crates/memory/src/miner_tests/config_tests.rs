@@ -1,6 +1,8 @@
 use crate::miner::{MemoryMiner, MinerConfig};
 use crate::miner_llm::MockMinerLlmCaller;
-use closeclaw_config::agents::MiningConfig;
+use closeclaw_config::agents::{
+    default_forgetting_initial_ttl_days, ForgettingConfig, MemoryConfig, MiningConfig,
+};
 
 fn make_miner(config: MinerConfig) -> MemoryMiner {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -89,6 +91,58 @@ fn test_miner_config_default_values() {
     assert!(!config.enabled);
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
+}
+
+// ── MinerConfig from_memory_config tests ──────────────────────────────
+
+#[test]
+fn test_miner_config_from_memory_config() {
+    let mc = MemoryConfig {
+        mining: MiningConfig {
+            enabled: Some(true),
+            model: Some("gpt-4o-mini".to_string()),
+            max_events_per_session: Some(5),
+            dedup_window_days: Some(14),
+            ..Default::default()
+        },
+        forgetting: ForgettingConfig {
+            initial_ttl_days: Some(60),
+            injection_extension_days: Some(10),
+        },
+        ..Default::default()
+    };
+    let config = MinerConfig::from_memory_config(&mc);
+    assert!(config.enabled);
+    assert_eq!(config.model.as_deref(), Some("gpt-4o-mini"));
+    assert_eq!(config.max_events_per_session, 5);
+    assert_eq!(config.dedup_window_days, 14);
+    assert_eq!(config.initial_ttl_days, 60);
+}
+
+#[test]
+fn test_miner_config_from_memory_config_default_forgetting() {
+    let mc = MemoryConfig::default();
+    let config = MinerConfig::from_memory_config(&mc);
+    assert_eq!(
+        config.initial_ttl_days,
+        default_forgetting_initial_ttl_days()
+    );
+}
+
+#[test]
+fn test_miner_config_from_memory_config_none_forgetting() {
+    let mc = MemoryConfig {
+        forgetting: ForgettingConfig {
+            initial_ttl_days: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let config = MinerConfig::from_memory_config(&mc);
+    assert_eq!(
+        config.initial_ttl_days,
+        default_forgetting_initial_ttl_days()
+    );
 }
 
 // ── Config hot-reload tests ────────────────────────────────────────────

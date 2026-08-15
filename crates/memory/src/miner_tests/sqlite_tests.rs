@@ -1,4 +1,5 @@
 use crate::miner::{load_entity_catalog, load_recent_events, write_to_sqlite, MiningEventCategory};
+use closeclaw_config::agents::default_forgetting_initial_ttl_days;
 
 use rusqlite::params;
 use tempfile::TempDir;
@@ -16,7 +17,15 @@ fn test_write_to_sqlite_creates_events() {
     let events = vec![make_event("test event", MiningEventCategory::Error)];
     let entities = vec![vec![make_entity("My Entity", "subject")]];
 
-    write_to_sqlite(&conn, "sess-1", "a1", &events, &entities).unwrap();
+    write_to_sqlite(
+        &conn,
+        "sess-1",
+        "a1",
+        &events,
+        &entities,
+        default_forgetting_initial_ttl_days(),
+    )
+    .unwrap();
 
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
@@ -49,7 +58,15 @@ fn test_write_to_sqlite_deduplicates_entities() {
         vec![make_entity("Same Entity", "subject")],
     ];
 
-    write_to_sqlite(&conn, "sess-1", "a1", &events, &entities).unwrap();
+    write_to_sqlite(
+        &conn,
+        "sess-1",
+        "a1",
+        &events,
+        &entities,
+        default_forgetting_initial_ttl_days(),
+    )
+    .unwrap();
 
     let entity_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM entities", [], |row| row.get(0))
@@ -75,7 +92,15 @@ fn test_write_to_sqlite_stores_event_fields() {
         category: MiningEventCategory::Anger,
         lesson: Some("My Lesson".to_string()),
     };
-    write_to_sqlite(&conn, "sess-1", "a1", &[event], &[vec![]]).unwrap();
+    write_to_sqlite(
+        &conn,
+        "sess-1",
+        "a1",
+        &[event],
+        &[vec![]],
+        default_forgetting_initial_ttl_days(),
+    )
+    .unwrap();
 
     let title: String = conn
         .query_row("SELECT title FROM events WHERE id = 1", [], |row| {
@@ -302,4 +327,121 @@ fn test_load_entity_catalog_excludes_inactive_types() {
     );
     assert!(catalog.contains("## subject "));
     assert!(catalog.contains("## action "));
+}
+
+// ── expires_at tests ────────────────────────────────────────────────
+
+/// New event written via write_to_sqlite should have expires_at ≈ now + 90 * 86400.
+#[test]
+fn test_write_to_sqlite_sets_expires_at() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let events = vec![make_event("expiring event", MiningEventCategory::Error)];
+    let entities = vec![vec![]];
+    let ttl_days = default_forgetting_initial_ttl_days();
+    write_to_sqlite(&conn, "sess-1", "a1", &events, &entities, ttl_days).unwrap();
+
+    let now = chrono::Utc::now().timestamp();
+    let expires_at: i64 = conn
+        .query_row("SELECT expires_at FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+
+    let expected = now + ttl_days * 86400;
+    assert!(
+        (expires_at - expected).abs() < 120,
+        "expires_at {expires_at} should be ≈ {expected} (±120s)"
+    );
+}
+
+/// Custom initial_ttl_days should be reflected in expires_at.
+#[test]
+fn test_write_to_sqlite_custom_ttl_days() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let events = vec![make_event("short ttl", MiningEventCategory::Error)];
+    let entities = vec![vec![]];
+    let custom_ttl: i64 = 30;
+    write_to_sqlite(&conn, "sess-1", "a1", &events, &entities, custom_ttl).unwrap();
+
+    let now = chrono::Utc::now().timestamp();
+    let expires_at: i64 = conn
+        .query_row("SELECT expires_at FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+
+    let expected = now + custom_ttl * 86400;
+    assert!(
+        (expires_at - expected).abs() < 120,
+        "expires_at {expires_at} should be ≈ {expected} (±120s)"
+    );
+}
+
+/// Migration: existing DB without expires_at column → column exists with default 0.
+#[test]
+fn test_init_schema_migration_adds_expires_at_to_existing_db() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+
+    // Create an old-style events table without expires_at.
+    conn.execute_batch(
+        "CREATE TABLE events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT NOT NULL,
+            lesson TEXT,
+            source_session_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL DEFAULT '',
+            timestamp INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO events (title, summary, content, category, source_session_id, agent_id, timestamp)
+        VALUES ('old', 'old', 'body', 'error', 'sess', 'agent-1', 1000000);",
+    )
+    .unwrap();
+
+    // init_schema should add expires_at via ALTER TABLE.
+    crate::miner::init_schema(&conn).unwrap();
+
+    // Column should exist and existing row should have default value 0.
+    let expires_at: i64 = conn
+        .query_row("SELECT expires_at FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        expires_at, 0,
+        "existing row should have expires_at = 0 (default)"
+    );
+}
+
+/// Second call to init_schema does not error (idempotent).
+#[test]
+fn test_init_schema_idempotent_with_migration() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    // Second call should succeed without error.
+    crate::miner::init_schema(&conn).unwrap();
+}
+
+/// events table DDL includes expires_at column.
+#[test]
+fn test_init_schema_events_has_expires_at_column() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let column_exists: bool = conn
+        .prepare("SELECT expires_at FROM events WHERE 0")
+        .is_ok();
+    assert!(column_exists, "events table should have expires_at column");
 }

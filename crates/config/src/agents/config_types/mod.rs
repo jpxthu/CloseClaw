@@ -285,6 +285,9 @@ pub struct MemoryConfig {
     /// Active search subsystem configuration.
     #[serde(default)]
     pub search: SearchConfig,
+    /// Forgetting subsystem configuration.
+    #[serde(default)]
+    pub forgetting: ForgettingConfig,
 }
 
 impl MemoryConfig {
@@ -296,6 +299,7 @@ impl MemoryConfig {
             mining: self.mining.merge_overrides(&agent.mining),
             dreaming: self.dreaming.merge_overrides(&agent.dreaming),
             search: self.search.merge_overrides(&agent.search),
+            forgetting: self.forgetting.merge_overrides(&agent.forgetting),
         }
     }
 }
@@ -501,6 +505,43 @@ impl DreamingCapacityConfig {
 /// Default capacity max rules.
 pub fn default_capacity_max_rules() -> usize {
     20
+}
+
+// ── Forgetting subsystem ──────────────────────────────────────────────
+
+/// Forgetting subsystem configuration.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgettingConfig {
+    /// Initial TTL in days for new events. `None` means inherit global default.
+    #[serde(default)]
+    pub initial_ttl_days: Option<i64>,
+    /// Days to extend `expires_at` on active-searcher injection hit.
+    /// `None` means inherit global default.
+    #[serde(default)]
+    pub injection_extension_days: Option<i64>,
+}
+
+impl ForgettingConfig {
+    /// Field-level merge: agent's declared fields override global.
+    pub fn merge_overrides(&self, agent: &ForgettingConfig) -> ForgettingConfig {
+        ForgettingConfig {
+            initial_ttl_days: agent.initial_ttl_days.or(self.initial_ttl_days),
+            injection_extension_days: agent
+                .injection_extension_days
+                .or(self.injection_extension_days),
+        }
+    }
+}
+
+/// Default initial TTL in days for new events.
+pub fn default_forgetting_initial_ttl_days() -> i64 {
+    90
+}
+
+/// Default injection extension days for active-searcher hits.
+pub fn default_forgetting_injection_extension_days() -> i64 {
+    7
 }
 
 // ── Storage paths ───────────────────────────────────────────────────────

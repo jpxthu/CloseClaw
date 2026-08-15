@@ -772,6 +772,119 @@ fn test_memory_config_full_deserialize() {
     assert_eq!(config.search.timeout_ms, Some(6000));
 }
 
+// ── ForgettingConfig tests ──────────────────────────────────────────
+
+#[test]
+fn test_forgetting_config_defaults() {
+    let config = ForgettingConfig::default();
+    assert!(config.initial_ttl_days.is_none());
+    assert!(config.injection_extension_days.is_none());
+}
+
+#[test]
+fn test_forgetting_config_deserialize_full() {
+    let json = r#"{
+        "initialTtlDays": 30,
+        "injectionExtensionDays": 14
+    }"#;
+    let config: ForgettingConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.initial_ttl_days, Some(30));
+    assert_eq!(config.injection_extension_days, Some(14));
+}
+
+#[test]
+fn test_forgetting_config_deserialize_minimal() {
+    let json = r#"{"initialTtlDays": 30}"#;
+    let config: ForgettingConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.initial_ttl_days, Some(30));
+    assert!(config.injection_extension_days.is_none());
+}
+
+#[test]
+fn test_forgetting_config_camel_case_roundtrip() {
+    let json = r#"{
+        "initialTtlDays": 60,
+        "injectionExtensionDays": 10
+    }"#;
+    let config: ForgettingConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.initial_ttl_days, Some(60));
+    assert_eq!(config.injection_extension_days, Some(10));
+    let serialized = serde_json::to_string(&config).unwrap();
+    assert!(serialized.contains("initialTtlDays"));
+    assert!(serialized.contains("injectionExtensionDays"));
+}
+
+#[test]
+fn test_forgetting_config_merge_agent_overrides_global() {
+    let global = ForgettingConfig {
+        initial_ttl_days: Some(90),
+        injection_extension_days: Some(7),
+    };
+    let agent = ForgettingConfig {
+        initial_ttl_days: Some(30),
+        injection_extension_days: None,
+    };
+    let merged = global.merge_overrides(&agent);
+    assert_eq!(merged.initial_ttl_days, Some(30));
+    assert_eq!(merged.injection_extension_days, Some(7));
+}
+
+#[test]
+fn test_forgetting_config_merge_both_none() {
+    let global = ForgettingConfig::default();
+    let agent = ForgettingConfig::default();
+    let merged = global.merge_overrides(&agent);
+    assert!(merged.initial_ttl_days.is_none());
+    assert!(merged.injection_extension_days.is_none());
+}
+
+#[test]
+fn test_memory_config_deserialize_with_forgetting() {
+    let json = r#"{
+        "forgetting": {
+            "initialTtlDays": 30
+        }
+    }"#;
+    let config: MemoryConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.forgetting.initial_ttl_days, Some(30));
+    assert!(config.forgetting.injection_extension_days.is_none());
+}
+
+#[test]
+fn test_memory_config_deserialize_without_forgetting() {
+    let json = r#"{"mining": {"enabled": true}}"#;
+    let config: MemoryConfig = serde_json::from_str(json).unwrap();
+    assert!(config.forgetting.initial_ttl_days.is_none());
+    assert!(config.forgetting.injection_extension_days.is_none());
+}
+
+#[test]
+fn test_memory_config_merge_includes_forgetting() {
+    let global = MemoryConfig {
+        forgetting: ForgettingConfig {
+            initial_ttl_days: Some(90),
+            injection_extension_days: Some(7),
+        },
+        ..Default::default()
+    };
+    let agent = MemoryConfig {
+        forgetting: ForgettingConfig {
+            initial_ttl_days: Some(30),
+            injection_extension_days: None,
+        },
+        ..Default::default()
+    };
+    let merged = global.merge_overrides(&agent);
+    assert_eq!(merged.forgetting.initial_ttl_days, Some(30));
+    assert_eq!(merged.forgetting.injection_extension_days, Some(7));
+}
+
+#[test]
+fn test_default_forgetting_values() {
+    assert_eq!(default_forgetting_initial_ttl_days(), 90);
+    assert_eq!(default_forgetting_injection_extension_days(), 7);
+}
+
 // ── SubagentsConfig timeout tests ─────────────────────────────────
 
 #[test]
