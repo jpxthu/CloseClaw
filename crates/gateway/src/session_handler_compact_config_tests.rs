@@ -197,27 +197,51 @@ async fn test_handler_no_output_uses_custom_compact_config() {
 // Circuit breaker notification flag reset tests
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// After manual compact success, `has_circuit_break_notified` must be `false`.
+/// After manual compact success, `has_circuit_break_notified` must be `false`
+/// and `consecutive_failures` must be reset to 0.
 ///
-/// This tests the `reset_circuit_breaker_notification()` method which is
-/// called by `gw_compact` on success.
+/// This tests the full production reset path: `gw_compact` success calls
+/// both `reset_circuit_breaker_notification()` (notification flag) and
+/// `compaction_service.record_success()` (failure counter) — matching
+/// the design doc §熔断器: "手动压缩成功后熔断器自动复位".
 #[tokio::test]
 async fn test_manual_compact_success_resets_circuit_break_notified_flag() {
     let sm = make_sm();
     let (handler, _rx) = handler_with_channel(&sm, CompactConfig::default());
 
-    // Simulate: circuit breaker was notified.
+    // Simulate: circuit breaker has accumulated failures and was notified.
+    {
+        let mut svc = handler.compaction_service.lock().await;
+        for _ in 0..3 {
+            svc.record_failure();
+        }
+        assert_eq!(svc.consecutive_failures(), 3, "precondition: failures == 3");
+    }
     *handler.has_circuit_break_notified.lock().expect("poisoned") = true;
     assert_circuit_break_notified_flag(&handler, true);
 
-    // Manual compact succeeds → reset flag.
+    // Manual compact success → reset both notification flag and failure counter.
     handler.reset_circuit_breaker_notification();
+    {
+        let mut svc = handler.compaction_service.lock().await;
+        svc.record_success();
+    }
     assert_circuit_break_notified_flag(&handler, false);
+    {
+        let svc = handler.compaction_service.lock().await;
+        assert_eq!(
+            svc.consecutive_failures(), 0,
+            "consecutive_failures must be 0 after manual compact success"
+        );
+    }
 }
 
 /// After circuit breaker trips and notification is sent, manual compact
-/// success resets the flag so that a subsequent auto-compact failure
-/// can re-trigger the notification.
+/// success resets both the failure counter and notification flag, so that
+/// a subsequent auto-compact failure can re-trigger the notification.
+///
+/// This verifies the design doc requirement: "手动压缩成功后熔断器自动复位"
+/// — the breaker (consecutive_failures + notification flag) fully resets.
 #[tokio::test]
 async fn test_circuit_breaker_reset_allows_re_notification() {
     let sm = make_sm();
@@ -229,6 +253,10 @@ async fn test_circuit_breaker_reset_allows_re_notification() {
         for _ in 0..3 {
             svc.record_failure();
         }
+        assert_eq!(
+            svc.consecutive_failures(), 3,
+            "precondition: breaker tripped at 3 failures"
+        );
     }
     *handler.has_circuit_break_notified.lock().expect("poisoned") = true;
     assert_circuit_break_notified_flag(&handler, true);
@@ -240,6 +268,13 @@ async fn test_circuit_breaker_reset_allows_re_notification() {
         svc.record_success();
     }
     assert_circuit_break_notified_flag(&handler, false);
+    {
+        let svc = handler.compaction_service.lock().await;
+        assert_eq!(
+            svc.consecutive_failures(), 0,
+            "consecutive_failures must be 0 after manual compact success"
+        );
+    }
 
     // Subsequent auto-compact failure increments the breaker counter.
     {
@@ -247,6 +282,10 @@ async fn test_circuit_breaker_reset_allows_re_notification() {
         svc.record_failure();
         svc.record_failure();
         svc.record_failure();
+        assert_eq!(
+            svc.consecutive_failures(), 3,
+            "failures should be 3 after auto-compact failures"
+        );
     }
     // The flag is still false, so a new notification can be sent.
     assert_circuit_break_notified_flag(&handler, false);
