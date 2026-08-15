@@ -527,7 +527,6 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
         [],
     ) {
         Ok(_) => {}
-        Err(rusqlite::Error::ExecuteReturnedResults) => {}
         Err(e) => {
             let msg = e.to_string();
             if !msg.contains("duplicate column") {
