@@ -30,7 +30,7 @@ dreaming 由三阶段 + 教训浓缩组成。Light / REM / Deep 为程序化处�
 
 - entity 级聚类：通过 SQL 查询 `event_entities` 关联表，将共享相同 entity 的 event 归为同一 entity 组
 - entity 频次统计：按 entity 级精确计数——同一 entity 在多个 session 中被关联，频次相应提升
-- 跨 agent 模式：同一 entity 被不同 agent 的 session 关联时标记
+- 跨 agent 模式：同 type + 同 normalized_name 的实体在多个 agent 下被关联时标记（跨 agent 同名同类型实体可对比）
 - entity type 权重在 Deep 阶段统一应用，详见 [entity-types](entity-types.md)
 
 ### Deep 阶段
@@ -43,8 +43,10 @@ dreaming 由三阶段 + 教训浓缩组成。Light / REM / Deep 为程序化处�
 | 时效 | 最近关联的 event 权重更高（时间衰减） |
 | 明确性 | owner 明确表述 vs agent 推断。owner 明确表述显著加分 |
 | 类型权重 | 按 entity type 的 weight 调整，详见 [entity-types](entity-types.md) |
-| 跨 agent | 多个 agent 的 event 共享此 entity |
+| 跨 agent | 同 type + 同 normalized_name 的实体在多个 agent 下出现（跨 agent 同名同类型实体对比加分） |
 | 负面信号 | 可能被后续 event 推翻 |
+
+**评分合成**：频次、时效、明确性、跨 agent 四个正向维度得分各自乘以对应权重后求和，负面信号乘以负权重扣减，最后整体乘以实体类型的 type weight 得到最终评分。各维度权重值见 [config](config.md) 的评分权重节，type weight 见 [entity-types](entity-types.md)。
 
 **三道门槛**（在 entity 组级别应用）：
 - 绝对阈值：总评分低于下限的 entity 组直接丢弃
@@ -57,7 +59,7 @@ dreaming 由三阶段 + 教训浓缩组成。Light / REM / Deep 为程序化处�
 
 - 输入：entity 组内所有关联 event 的 `lesson` 字段 + entity 信息 + 频次统计
 - 处理：LLM 将多条相关教训浓缩为一条简洁的行为规则
-- 输出要求：规则直接可执行（与 Miner 1 的 lesson 格式约束一致）
+- 输出要求：规则直接可执行（与 memory-miner 的 Miner 1 lesson 格式约束一致）
 
 浓缩后的行为规则写入 MEMORY.md。原始 event 保留在 SQLite 中，由 active-searcher 独立消费。
 
@@ -71,7 +73,7 @@ Dream Diary 是 dreaming 完成后触发的可选 LLM 叙事摘要，将本轮�
 
 ### 防污染
 
-- dreaming 产出只写入 MEMORY.md，不写回 SQLite events 表，无自循环风险
+- dreaming 升格结果只写入 MEMORY.md（Dream Diary 写独立日记文件，不参与升格链路），绝不写回 SQLite events 表，无自循环风险
 - 写入 MEMORY.md 前确认源 event 仍存在且未被修改（SQL 查询 event_id + updated_at 校验）
 
 ### 触发

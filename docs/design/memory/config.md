@@ -42,7 +42,7 @@ mining、dreaming、search 各有独立开关，各开关独立控制对应子�
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `mining.enabled` | bool | `false` | 必须显式设为 `true` 才启用挖掘 |
-| `mining.model` | string | 继承全局默认模型 | Miner 1 和 Miner 2 使用的模型。当前共用同一模型；Miner 2 设计落地后若需独立模型，再扩展 `mining.miner2_model` |
+| `mining.model` | string | 继承全局默认模型 | Miner 1 和 Miner 2 使用的模型，两者共用同一模型 |
 | `mining.max_events_per_session` | int | `10` | 每次挖掘最多产出的 event 数 |
 | `mining.dedup_window_days` | int | `30` | Miner 1 去重时读取近期 event 的时间窗口（天） |
 | `mining.transcript_clean_rules` | object | `{}` | transcript 清洗规则配置 |
@@ -95,12 +95,22 @@ mining、dreaming、search 各有独立开关，各开关独立控制对应子�
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `search.enabled` | bool | `false` | 必须显式设为 `true` 才启用搜索 |
-| `search.model` | string | 继承全局默认模型 | 概念提取使用的模型，追求便宜 + 快。search.enabled 为 false 时不校验
+| `search.model` | string | 继承全局默认模型 | 概念提取使用的模型，追求便宜 + 快。search.enabled 为 false 时不校验 |
 | `search.context_turns` | int | `5` | 提取查询概念时携带的最近对话轮数 |
 | `search.timeout_ms` | int | `3000` | 搜索超时（毫秒） |
 | `search.max_summary_chars` | int | `500` | 浓缩摘要最大字符数 |
 | `search.min_entity_hits` | int | `1` | 最少 entity 命中数 |
 | `search.top_k_events` | int | `3` | 最终注入的 event 摘要数上限 |
+
+### 遗忘（forgetting）
+
+遗忘参数控制 event 的自然遗忘节奏（见 [memory-miner](memory-miner.md) 的遗忘清理）。遗忘不是独立开关，随 memory 体系启用生效。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `forgetting.initial_ttl_days` | int | `90` | 新 event 的初始遗忘倒计时（天），创建时设定 expires_at |
+| `forgetting.reidentify_extension_days` | int | `90` | Miner 1 去重命中（再次识别）时延长的天数（大幅） |
+| `forgetting.injection_extension_days` | int | `7` | active-searcher 注入命中时延长的天数（小幅） |
 
 ### per-agent 覆盖
 
