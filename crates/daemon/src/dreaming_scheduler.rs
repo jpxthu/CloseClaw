@@ -236,9 +236,7 @@ impl DreamingScheduler {
                 self.dreaming_pipeline
                     .update_config(memory_config.config.dreaming.clone());
                 self.memory_miner.update_config(
-                    closeclaw_memory::miner::MinerConfig::from_memory_config(
-                        &memory_config.config,
-                    ),
+                    closeclaw_memory::miner::MinerConfig::from_memory_config(&memory_config.config),
                 );
                 self.schedule = memory_config.config.dreaming.schedule.clone();
                 info!("dreaming config reloaded via config manager");

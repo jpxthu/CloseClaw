@@ -1,10 +1,10 @@
 use crate::miner::{
-    load_entity_catalog, normalize_entity_name,
-    write_to_sqlite, MemoryMiner, MinerConfig, MiningEventCategory,
+    load_entity_catalog, normalize_entity_name, write_to_sqlite, MemoryMiner, MinerConfig,
+    MiningEventCategory,
 };
-use closeclaw_config::agents::default_forgetting_initial_ttl_days;
 use crate::miner_llm::MockMinerLlmCaller;
 use crate::test_helpers::TestStorage;
+use closeclaw_config::agents::default_forgetting_initial_ttl_days;
 use closeclaw_config::agents::TranscriptCleanRules;
 use closeclaw_session::persistence::SessionCheckpoint;
 

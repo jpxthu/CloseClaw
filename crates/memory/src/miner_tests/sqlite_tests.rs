@@ -417,7 +417,10 @@ fn test_init_schema_migration_adds_expires_at_to_existing_db() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(expires_at, 0, "existing row should have expires_at = 0 (default)");
+    assert_eq!(
+        expires_at, 0,
+        "existing row should have expires_at = 0 (default)"
+    );
 }
 
 /// Second call to init_schema does not error (idempotent).

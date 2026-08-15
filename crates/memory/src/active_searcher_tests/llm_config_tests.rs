@@ -270,7 +270,8 @@ fn test_from_agent_config_search_config_values() {
         },
         ..MemoryConfig::default()
     };
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None).unwrap();
+    let config =
+        ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None).unwrap();
     assert_eq!(config.timeout_ms, 4000);
     assert_eq!(config.max_summary_chars, 800);
     assert_eq!(config.min_entity_hits, 2);

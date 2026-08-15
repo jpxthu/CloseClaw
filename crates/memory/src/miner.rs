@@ -168,7 +168,6 @@ impl MinerConfig {
                 .unwrap_or_else(default_forgetting_initial_ttl_days),
         }
     }
-
 }
 
 impl Default for MinerConfig {

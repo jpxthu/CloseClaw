@@ -83,7 +83,11 @@ fn test_extend_event_expiry_zero_extension() {
     let searcher = ActiveSearcher::new(tmp.path().join("test.db"), config);
 
     searcher.extend_event_expiry(&[ev]).unwrap();
-    assert_eq!(get_expires_at(&conn, ev), 5000, "extension_days=0 should not change");
+    assert_eq!(
+        get_expires_at(&conn, ev),
+        5000,
+        "extension_days=0 should not change"
+    );
 }
 
 #[test]
