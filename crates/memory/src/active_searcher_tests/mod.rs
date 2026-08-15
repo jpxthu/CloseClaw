@@ -5,6 +5,7 @@
 
 mod config_boundary_tests;
 mod event_tests;
+mod expiry_tests;
 mod llm_config_tests;
 mod schema_search_tests;
 
@@ -81,7 +82,8 @@ pub(crate) fn init_test_schema(conn: &Connection) {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
             timestamp INTEGER NOT NULL,
-            source_session_id TEXT NOT NULL
+            source_session_id TEXT NOT NULL,
+            expires_at INTEGER NOT NULL DEFAULT 0
         );
         "#,
     )
@@ -128,4 +130,31 @@ pub(crate) fn link_event_entity(conn: &Connection, event_id: i64, entity_id: i64
         params![event_id, entity_id],
     )
     .unwrap();
+}
+
+/// Insert an event with an explicit `expires_at` value and return its ID.
+pub(crate) fn insert_event_with_expiry(
+    conn: &Connection,
+    content: &str,
+    timestamp: i64,
+    session_id: &str,
+    expires_at: i64,
+) -> i64 {
+    conn.execute(
+        "INSERT INTO events (content, timestamp, source_session_id, expires_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![content, timestamp, session_id, expires_at],
+    )
+    .unwrap();
+    conn.last_insert_rowid()
+}
+
+/// Read `expires_at` for a given event ID.
+pub(crate) fn get_expires_at(conn: &Connection, event_id: i64) -> i64 {
+    conn.query_row(
+        "SELECT expires_at FROM events WHERE id = ?1",
+        params![event_id],
+        |row| row.get(0),
+    )
+    .unwrap()
 }

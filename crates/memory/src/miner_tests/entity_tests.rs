@@ -4,6 +4,7 @@ use crate::miner::{
 };
 use crate::miner_llm::MockMinerLlmCaller;
 use crate::test_helpers::TestStorage;
+use closeclaw_config::agents::default_forgetting_initial_ttl_days;
 use closeclaw_config::agents::TranscriptCleanRules;
 use closeclaw_session::persistence::SessionCheckpoint;
 
@@ -175,7 +176,15 @@ fn test_per_agent_dedup_same_agent_type_name() {
         vec![make_entity("Shared Entity", "subject")],
     ];
 
-    write_to_sqlite(&conn, "sess-1", "agent-A", &events, &entities).unwrap();
+    write_to_sqlite(
+        &conn,
+        "sess-1",
+        "agent-A",
+        &events,
+        &entities,
+        default_forgetting_initial_ttl_days(),
+    )
+    .unwrap();
     let entity_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM entities", [], |row| row.get(0))
         .unwrap();

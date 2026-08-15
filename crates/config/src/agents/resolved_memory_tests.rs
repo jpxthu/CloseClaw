@@ -57,6 +57,7 @@ fn make_global_memory() -> MemoryConfig {
             top_k_events: Some(5),
             context_turns: Some(8),
         },
+        ..Default::default()
     }
 }
 
@@ -173,6 +174,7 @@ fn test_merge_memory_full_agent_override() {
             top_k_events: Some(10),
             context_turns: Some(2),
         },
+        ..Default::default()
     };
     let merged = global.merge_overrides(&agent);
 
