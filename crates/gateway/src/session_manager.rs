@@ -49,6 +49,7 @@ pub mod spawn_adapter;
 pub mod spawn_controller;
 pub mod stop;
 mod stop_graceful;
+mod sweep_target;
 mod yield_timeout;
 use closeclaw_session::spawn::SpawnTree;
 pub use spawn::{ChildSessionConfig, ChildSessionInfo, ChildSessionStatus, SpawnMode};
