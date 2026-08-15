@@ -13,7 +13,8 @@ use rusqlite::params;
 use thiserror::Error;
 
 use closeclaw_config::agents::{
-    default_mining_dedup_window_days, default_mining_max_events_per_session, MiningConfig,
+    default_forgetting_initial_ttl_days, default_mining_dedup_window_days,
+    default_mining_max_events_per_session, ForgettingConfig, MemoryConfig, MiningConfig,
 };
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
@@ -118,10 +119,15 @@ pub struct MinerConfig {
     pub dedup_window_days: i32,
     /// Transcript clean rules.
     pub clean_rules: closeclaw_config::agents::TranscriptCleanRules,
+    /// Initial TTL in days for new event `expires_at`. Default 90.
+    pub initial_ttl_days: i64,
 }
 
 impl MinerConfig {
     /// Create a config from a [`MiningConfig`].
+    ///
+    /// Uses the default `initial_ttl_days` (90). Prefer [`Self::from_memory_config`]
+    /// when the full [`MemoryConfig`] is available.
     pub fn from_mining_config(config: &MiningConfig) -> Self {
         Self {
             enabled: config.enabled.unwrap_or(false),
@@ -134,7 +140,43 @@ impl MinerConfig {
                 .dedup_window_days
                 .unwrap_or_else(default_mining_dedup_window_days),
             clean_rules: config.transcript_clean_rules.clone(),
+            initial_ttl_days: default_forgetting_initial_ttl_days() as i64,
         }
+    }
+
+    /// Create a config from a full [`MemoryConfig`].
+    ///
+    /// Reads both `mining` and `forgetting` sections. This is the preferred
+    /// constructor when the caller has access to the complete memory config.
+    pub fn from_memory_config(config: &MemoryConfig) -> Self {
+        Self {
+            enabled: config.mining.enabled.unwrap_or(false),
+            model: config.mining.model.clone(),
+            max_events_per_session: config
+                .mining
+                .max_events_per_session
+                .unwrap_or_else(default_mining_max_events_per_session)
+                as usize,
+            dedup_window_days: config
+                .mining
+                .dedup_window_days
+                .unwrap_or_else(default_mining_dedup_window_days),
+            clean_rules: config.mining.transcript_clean_rules.clone(),
+            initial_ttl_days: config
+                .forgetting
+                .initial_ttl_days
+                .unwrap_or_else(default_forgetting_initial_ttl_days)
+                as i64,
+        }
+    }
+
+    /// Set the forgetting configuration after construction.
+    pub fn with_forgetting(mut self, forgetting: &ForgettingConfig) -> Self {
+        self.initial_ttl_days = forgetting
+            .initial_ttl_days
+            .unwrap_or_else(default_forgetting_initial_ttl_days)
+            as i64;
+        self
     }
 }
 
@@ -146,6 +188,7 @@ impl Default for MinerConfig {
             max_events_per_session: 10,
             dedup_window_days: 30,
             clean_rules: Default::default(),
+            initial_ttl_days: default_forgetting_initial_ttl_days() as i64,
         }
     }
 }
@@ -371,6 +414,7 @@ impl MemoryMiner {
         let session_id_owned = session_id.to_string();
         let events_clone = events.clone();
         let entities_clone = entities.clone();
+        let initial_ttl_days = self.config.read().unwrap().initial_ttl_days;
         tokio::task::spawn_blocking(move || -> Result<(), MinerError> {
             let conn = rusqlite::Connection::open(&db_path)
                 .map_err(|e| MinerError::Sqlite(e.to_string()))?;
@@ -380,6 +424,7 @@ impl MemoryMiner {
                 &agent_id_owned,
                 &events_clone,
                 &entities_clone,
+                initial_ttl_days,
             )
         })
         .await
@@ -434,7 +479,8 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             source_session_id TEXT NOT NULL,
             agent_id TEXT NOT NULL DEFAULT '',
             timestamp INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL DEFAULT 0
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            expires_at INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS entities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -481,6 +527,24 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
         );"
     )
     .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+
+    // Idempotent migration: add expires_at column to existing databases.
+    // SQLite has no ADD COLUMN IF NOT EXISTS, so we catch the duplicate
+    // column error and ignore it.
+    match conn.execute(
+        "ALTER TABLE events ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+        [],
+    ) {
+        Ok(_) => {}
+        Err(rusqlite::Error::ExecuteReturnedResults) => {}
+        Err(e) => {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column") {
+                return Err(MinerError::Sqlite(msg));
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -491,14 +555,16 @@ pub(crate) fn write_to_sqlite(
     agent_id: &str,
     events: &[MiningEvent],
     entities: &[Vec<MiningEntity>],
+    initial_ttl_days: i64,
 ) -> Result<(), MinerError> {
     for (event, event_entities) in events.iter().zip(entities.iter()) {
         let ts = Utc::now().timestamp();
+        let expires_at = ts + initial_ttl_days * 86400;
         let event_id: i64 = conn
             .query_row(
                 "INSERT INTO events (title, summary, content,
-                 category, lesson, source_session_id, agent_id, timestamp, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+                 category, lesson, source_session_id, agent_id, timestamp, updated_at, expires_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
                  RETURNING id",
                 params![
                     event.title,
@@ -509,6 +575,7 @@ pub(crate) fn write_to_sqlite(
                     session_id,
                     agent_id,
                     ts,
+                    expires_at,
                 ],
                 |row| row.get(0),
             )
@@ -561,7 +628,14 @@ pub fn write_entries_to_db(
     entities: &[Vec<MiningEntity>],
 ) -> Result<(), MinerError> {
     init_schema(conn)?;
-    write_to_sqlite(conn, session_id, agent_id, events, entities)
+    write_to_sqlite(
+        conn,
+        session_id,
+        agent_id,
+        events,
+        entities,
+        default_forgetting_initial_ttl_days() as i64,
+    )
 }
 
 /// Load recent events within the dedup window for Miner 1 context.
