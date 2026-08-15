@@ -14,7 +14,7 @@ use thiserror::Error;
 
 use closeclaw_config::agents::{
     default_forgetting_initial_ttl_days, default_mining_dedup_window_days,
-    default_mining_max_events_per_session, ForgettingConfig, MemoryConfig, MiningConfig,
+    default_mining_max_events_per_session, MemoryConfig, MiningConfig,
 };
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
@@ -140,7 +140,7 @@ impl MinerConfig {
                 .dedup_window_days
                 .unwrap_or_else(default_mining_dedup_window_days),
             clean_rules: config.transcript_clean_rules.clone(),
-            initial_ttl_days: default_forgetting_initial_ttl_days() as i64,
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
         }
     }
 
@@ -165,19 +165,10 @@ impl MinerConfig {
             initial_ttl_days: config
                 .forgetting
                 .initial_ttl_days
-                .unwrap_or_else(default_forgetting_initial_ttl_days)
-                as i64,
+                .unwrap_or_else(default_forgetting_initial_ttl_days),
         }
     }
 
-    /// Set the forgetting configuration after construction.
-    pub fn with_forgetting(mut self, forgetting: &ForgettingConfig) -> Self {
-        self.initial_ttl_days = forgetting
-            .initial_ttl_days
-            .unwrap_or_else(default_forgetting_initial_ttl_days)
-            as i64;
-        self
-    }
 }
 
 impl Default for MinerConfig {
@@ -188,7 +179,7 @@ impl Default for MinerConfig {
             max_events_per_session: 10,
             dedup_window_days: 30,
             clean_rules: Default::default(),
-            initial_ttl_days: default_forgetting_initial_ttl_days() as i64,
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
         }
     }
 }
@@ -620,6 +611,8 @@ pub(crate) fn write_to_sqlite(
 }
 
 /// Write entries to SQLite (public interface).
+//
+// NOTE: uses default initial_ttl_days; prefer write_to_sqlite for configured TTL.
 pub fn write_entries_to_db(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -634,7 +627,7 @@ pub fn write_entries_to_db(
         agent_id,
         events,
         entities,
-        default_forgetting_initial_ttl_days() as i64,
+        default_forgetting_initial_ttl_days(),
     )
 }
 

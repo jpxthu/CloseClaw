@@ -515,11 +515,11 @@ pub fn default_capacity_max_rules() -> usize {
 pub struct ForgettingConfig {
     /// Initial TTL in days for new events. `None` means inherit global default.
     #[serde(default)]
-    pub initial_ttl_days: Option<i32>,
+    pub initial_ttl_days: Option<i64>,
     /// Days to extend `expires_at` on active-searcher injection hit.
     /// `None` means inherit global default.
     #[serde(default)]
-    pub injection_extension_days: Option<i32>,
+    pub injection_extension_days: Option<i64>,
 }
 
 impl Default for ForgettingConfig {
@@ -544,12 +544,12 @@ impl ForgettingConfig {
 }
 
 /// Default initial TTL in days for new events.
-pub fn default_forgetting_initial_ttl_days() -> i32 {
+pub fn default_forgetting_initial_ttl_days() -> i64 {
     90
 }
 
 /// Default injection extension days for active-searcher hits.
-pub fn default_forgetting_injection_extension_days() -> i32 {
+pub fn default_forgetting_injection_extension_days() -> i64 {
     7
 }
 

@@ -131,7 +131,7 @@ fn test_config_injection_extension_days_default() {
     let config = ActiveSearcherConfig::default();
     assert_eq!(
         config.injection_extension_days,
-        default_forgetting_injection_extension_days() as i64
+        default_forgetting_injection_extension_days()
     );
 }
 
@@ -159,7 +159,7 @@ fn test_from_agent_config_without_forgetting() {
     assert!(config.is_some());
     assert_eq!(
         config.unwrap().injection_extension_days,
-        default_forgetting_injection_extension_days() as i64
+        default_forgetting_injection_extension_days()
     );
 }
 

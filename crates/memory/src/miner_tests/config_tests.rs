@@ -125,7 +125,7 @@ fn test_miner_config_from_memory_config_default_forgetting() {
     let config = MinerConfig::from_memory_config(&mc);
     assert_eq!(
         config.initial_ttl_days,
-        default_forgetting_initial_ttl_days() as i64
+        default_forgetting_initial_ttl_days()
     );
 }
 
@@ -141,27 +141,7 @@ fn test_miner_config_from_memory_config_none_forgetting() {
     let config = MinerConfig::from_memory_config(&mc);
     assert_eq!(
         config.initial_ttl_days,
-        default_forgetting_initial_ttl_days() as i64
-    );
-}
-
-// ── MinerConfig with_forgetting tests ────────────────────────────────
-
-#[test]
-fn test_miner_config_with_forgetting() {
-    let config = MinerConfig::default().with_forgetting(&ForgettingConfig {
-        initial_ttl_days: Some(30),
-        ..Default::default()
-    });
-    assert_eq!(config.initial_ttl_days, 30);
-}
-
-#[test]
-fn test_miner_config_with_forgetting_none_uses_default() {
-    let config = MinerConfig::default().with_forgetting(&ForgettingConfig::default());
-    assert_eq!(
-        config.initial_ttl_days,
-        default_forgetting_initial_ttl_days() as i64
+        default_forgetting_initial_ttl_days()
     );
 }
 

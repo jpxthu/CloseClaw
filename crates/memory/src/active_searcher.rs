@@ -147,7 +147,7 @@ impl ActiveSearcherConfig {
                 .and_then(|s| s.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))
                 .unwrap_or_default(),
-            injection_extension_days: ext_days as i64,
+            injection_extension_days: ext_days,
         })
     }
 }
