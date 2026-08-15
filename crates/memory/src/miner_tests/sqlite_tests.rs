@@ -23,7 +23,7 @@ fn test_write_to_sqlite_creates_events() {
         "a1",
         &events,
         &entities,
-        default_forgetting_initial_ttl_days() as i64,
+        default_forgetting_initial_ttl_days(),
     )
     .unwrap();
 
@@ -64,7 +64,7 @@ fn test_write_to_sqlite_deduplicates_entities() {
         "a1",
         &events,
         &entities,
-        default_forgetting_initial_ttl_days() as i64,
+        default_forgetting_initial_ttl_days(),
     )
     .unwrap();
 
@@ -98,7 +98,7 @@ fn test_write_to_sqlite_stores_event_fields() {
         "a1",
         &[event],
         &[vec![]],
-        default_forgetting_initial_ttl_days() as i64,
+        default_forgetting_initial_ttl_days(),
     )
     .unwrap();
 
@@ -340,7 +340,7 @@ fn test_write_to_sqlite_sets_expires_at() {
 
     let events = vec![make_event("expiring event", MiningEventCategory::Error)];
     let entities = vec![vec![]];
-    let ttl_days = default_forgetting_initial_ttl_days() as i64;
+    let ttl_days = default_forgetting_initial_ttl_days();
     write_to_sqlite(&conn, "sess-1", "a1", &events, &entities, ttl_days).unwrap();
 
     let now = chrono::Utc::now().timestamp();

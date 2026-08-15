@@ -182,7 +182,7 @@ fn test_per_agent_dedup_same_agent_type_name() {
         "agent-A",
         &events,
         &entities,
-        default_forgetting_initial_ttl_days() as i64,
+        default_forgetting_initial_ttl_days(),
     )
     .unwrap();
     let entity_count: i64 = conn
