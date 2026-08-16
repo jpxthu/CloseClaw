@@ -2,6 +2,10 @@
 
 use std::sync::Mutex;
 
+use rusqlite::params;
+
+use crate::miner::MiningEventCategory;
+
 use async_trait::async_trait;
 
 use closeclaw_session::persistence::{
@@ -109,4 +113,56 @@ impl PersistenceService for TestStorage {
         }
         Ok(())
     }
+}
+
+// ── SQLite test helpers (forgetting / miner_tests) ─────────────────
+
+/// Insert an event directly with a specific expires_at, bypassing
+/// `write_to_sqlite` (which computes expires_at from `Utc::now()`).
+pub(crate) fn insert_event(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    agent_id: &str,
+    category: MiningEventCategory,
+    expires_at: i64,
+) -> i64 {
+    let ts = 500i64; // fixed timestamp for determinism
+    conn.query_row(
+        "INSERT INTO events (title, summary, content, category, lesson, \
+         source_session_id, agent_id, timestamp, updated_at, expires_at) \
+         VALUES ('t', 's', 'b', ?1, NULL, ?2, ?3, ?4, ?4, ?5) \
+         RETURNING id",
+        params![category.to_string(), session_id, agent_id, ts, expires_at],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+/// Insert an entity and link it to an event via event_entities.
+pub(crate) fn insert_entity_with_event(
+    conn: &rusqlite::Connection,
+    agent_id: &str,
+    event_id: i64,
+    name: &str,
+) {
+    let norm_name = name.to_lowercase().replace(' ', "_");
+    conn.execute(
+        "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description) \
+         VALUES (?1, 'subject', ?2, ?3, 'desc')",
+        params![agent_id, name, norm_name],
+    )
+    .unwrap();
+    let entity_id: i64 = conn
+        .query_row(
+            "SELECT id FROM entities WHERE agent_id = ?1 AND type = 'subject' \
+             AND normalized_name = ?2",
+            params![agent_id, norm_name],
+            |row| row.get(0),
+        )
+        .unwrap();
+    conn.execute(
+        "INSERT INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
+        params![event_id, entity_id],
+    )
+    .unwrap();
 }

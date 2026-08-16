@@ -5,7 +5,6 @@
 //! then removes any entities left with zero references.
 
 use rusqlite::Transaction;
-use tracing::info;
 
 use crate::miner::MinerError;
 
@@ -45,14 +44,6 @@ pub(crate) fn cleanup_expired(
         entities_deleted,
     };
 
-    if stats.events_deleted > 0 || stats.entities_deleted > 0 {
-        info!(
-            events = stats.events_deleted,
-            entities = stats.entities_deleted,
-            "forgetting cleanup completed"
-        );
-    }
-
     Ok(stats)
 }
 
@@ -91,58 +82,9 @@ fn cleanup_orphan_entities(tx: &Transaction<'_>) -> Result<u64, MinerError> {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::params;
-
     use super::*;
     use crate::miner::{init_schema, MiningEventCategory};
-
-    /// Insert a single event directly with the given expires_at value,
-    /// bypassing `write_to_sqlite` which computes expires_at from
-    /// `Utc::now()`.
-    fn insert_event(
-        conn: &rusqlite::Connection,
-        session_id: &str,
-        agent_id: &str,
-        category: MiningEventCategory,
-        expires_at: i64,
-    ) -> i64 {
-        let ts = 500i64; // fixed timestamp for determinism
-        conn.query_row(
-            "INSERT INTO events (title, summary, content, category, lesson, source_session_id, agent_id, timestamp, updated_at, expires_at)
-             VALUES ('t', 's', 'b', ?1, NULL, ?2, ?3, ?4, ?4, ?5) RETURNING id",
-            params![category.to_string(), session_id, agent_id, ts, expires_at],
-            |row| row.get(0),
-        )
-        .unwrap()
-    }
-
-    /// Insert an entity and link it to an event via event_entities.
-    fn insert_entity_with_event(
-        conn: &rusqlite::Connection,
-        agent_id: &str,
-        event_id: i64,
-        name: &str,
-    ) {
-        let norm_name = name.to_lowercase().replace(' ', "_");
-        conn.execute(
-            "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description)
-             VALUES (?1, 'subject', ?2, ?3, 'desc')",
-            params![agent_id, name, norm_name],
-        )
-        .unwrap();
-        let entity_id: i64 = conn
-            .query_row(
-                "SELECT id FROM entities WHERE agent_id = ?1 AND type = 'subject' AND normalized_name = ?2",
-                params![agent_id, norm_name],
-                |row| row.get(0),
-            )
-            .unwrap();
-        conn.execute(
-            "INSERT INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
-            params![event_id, entity_id],
-        )
-        .unwrap();
-    }
+    use crate::test_helpers::{insert_entity_with_event, insert_event};
 
     #[test]
     fn test_cleanup_expired_removes_expired_events() {
