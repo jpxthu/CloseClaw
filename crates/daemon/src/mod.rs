@@ -937,6 +937,8 @@ mod lifecycle_abort_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
+mod session_config_provider_tests;
+#[cfg(test)]
 mod shutdown_alignment_tests;
 #[cfg(test)]
 mod shutdown_tests;
