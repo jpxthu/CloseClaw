@@ -606,4 +606,137 @@ mod tests {
         assert!(should_use_card("  - indented item", false));
         assert!(should_use_card("  > indented quote", false));
     }
+
+    // ================================================================
+    // dispatch_blocks — Image/Audio/File rendering (Step 1.2)
+    // ================================================================
+
+    #[test]
+    fn dispatch_blocks_image_url_nonempty_produces_native_element() {
+        let blocks = vec![ContentBlock::Image {
+            name: "photo.png".into(),
+            url: "https://example.com/img.png".into(),
+        }];
+        let (_, elements) = dispatch_blocks(&blocks, None);
+        assert_eq!(elements.len(), 1);
+        match &elements[0] {
+            CardElement::Image { img_key, alt } => {
+                assert_eq!(img_key, "https://example.com/img.png");
+                assert_eq!(alt.content, "photo.png");
+            }
+            other => panic!("expected CardElement::Image, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatch_blocks_audio_url_nonempty_produces_native_element() {
+        let blocks = vec![ContentBlock::Audio {
+            name: "voice.mp3".into(),
+            url: "https://example.com/audio.mp3".into(),
+        }];
+        let (_, elements) = dispatch_blocks(&blocks, None);
+        assert_eq!(elements.len(), 1);
+        match &elements[0] {
+            CardElement::Audio { file_token } => {
+                assert_eq!(file_token, "https://example.com/audio.mp3");
+            }
+            other => panic!("expected CardElement::Audio, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatch_blocks_file_url_nonempty_produces_native_element() {
+        let blocks = vec![ContentBlock::File {
+            name: "doc.pdf".into(),
+            url: "https://example.com/doc.pdf".into(),
+        }];
+        let (_, elements) = dispatch_blocks(&blocks, None);
+        assert_eq!(elements.len(), 1);
+        match &elements[0] {
+            CardElement::File { file_token } => {
+                assert_eq!(file_token, "https://example.com/doc.pdf");
+            }
+            other => panic!("expected CardElement::File, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatch_blocks_image_url_empty_falls_back_to_text() {
+        let blocks = vec![ContentBlock::Image {
+            name: "photo.png".into(),
+            url: String::new(),
+        }];
+        let (_, elements) = dispatch_blocks(&blocks, None);
+        // Empty URL → text placeholder rendered as markdown
+        let has_text = elements.iter().any(|e| {
+            matches!(e, CardElement::Markdown { content } if content.contains("[image: photo.png]"))
+        });
+        assert!(has_text, "expected text placeholder for empty URL");
+    }
+
+    #[test]
+    fn dispatch_blocks_audio_url_empty_falls_back_to_text() {
+        let blocks = vec![ContentBlock::Audio {
+            name: "voice.mp3".into(),
+            url: String::new(),
+        }];
+        let (_, elements) = dispatch_blocks(&blocks, None);
+        let has_text = elements.iter().any(|e| {
+            matches!(e, CardElement::Markdown { content } if content.contains("[audio: voice.mp3]"))
+        });
+        assert!(has_text, "expected text placeholder for empty URL");
+    }
+
+    #[test]
+    fn dispatch_blocks_file_url_empty_falls_back_to_text() {
+        let blocks = vec![ContentBlock::File {
+            name: "doc.pdf".into(),
+            url: String::new(),
+        }];
+        let (_, elements) = dispatch_blocks(&blocks, None);
+        let has_text = elements.iter().any(|e| {
+            matches!(e, CardElement::Markdown { content } if content.contains("[file: doc.pdf]"))
+        });
+        assert!(has_text, "expected text placeholder for empty URL");
+    }
+
+    // ================================================================
+    // CardElement JSON serialization (Step 1.2)
+    // ================================================================
+
+    #[test]
+    fn card_element_image_serializes_correctly() {
+        let el = CardElement::Image {
+            img_key: "img_v2_abc".into(),
+            alt: CardText {
+                tag: "plain_text".into(),
+                content: "photo".into(),
+            },
+        };
+        let json = serde_json::to_value(&el).unwrap();
+        assert_eq!(json["tag"], "img");
+        assert_eq!(json["img_key"], "img_v2_abc");
+        assert_eq!(json["alt"]["tag"], "plain_text");
+        assert_eq!(json["alt"]["content"], "photo");
+    }
+
+    #[test]
+    fn card_element_audio_serializes_correctly() {
+        let el = CardElement::Audio {
+            file_token: "file_token_123".into(),
+        };
+        let json = serde_json::to_value(&el).unwrap();
+        assert_eq!(json["tag"], "audio");
+        assert_eq!(json["file_token"], "file_token_123");
+    }
+
+    #[test]
+    fn card_element_file_serializes_correctly() {
+        let el = CardElement::File {
+            file_token: "file_token_456".into(),
+        };
+        let json = serde_json::to_value(&el).unwrap();
+        assert_eq!(json["tag"], "file");
+        assert_eq!(json["file_token"], "file_token_456");
+    }
 }
