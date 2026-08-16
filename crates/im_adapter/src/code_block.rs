@@ -28,13 +28,14 @@ pub enum ContentSegment {
 /// - Fenced code blocks (`` ``` `` … `` ``` ``) are collected as a single
 ///   [`ContentSegment::CodeBlock`].
 /// - Outside code blocks: empty lines are preserved as empty
-///   [`Markdown(" ")`](ContentSegment::Markdown) segments, `---` becomes
+///   [`Markdown("")`](ContentSegment::Markdown) segments, `---` becomes
 ///   [`Hr`](ContentSegment::Hr), everything else becomes
 ///   [`Markdown`](ContentSegment::Markdown).
 /// - An unclosed fence is treated as regular markdown text.
 /// - A line consisting only of backticks (≥3) inside a code block closes
 ///   the fence (the backtick line itself is consumed as the closing fence).
-///   Emit accumulated code-block lines as regular markdown (unclosed fence).
+///   Emit accumulated code-block lines as regular [`Markdown`](ContentSegment::Markdown)
+///   segments (the fence was never closed).
 fn flush_unclosed_fence(lang: &str, code_lines: &[&str], segments: &mut Vec<ContentSegment>) {
     let opening = if lang.is_empty() {
         "```".to_string()
@@ -282,8 +283,9 @@ mod tests {
 
     #[test]
     fn four_backtick_fence_opens_with_language() {
-        // ```` with a language tag: parser strips exactly 3 backticks,
-        // so the 4th backtick is captured as part of the language string.
+        // Known design behavior (not a bug): the parser only strips the leading
+        // 3 backticks from the opening fence; the 4th backtick is retained as
+        // part of the language field, producing language="`rust".
         let input = "````rust\nfn main() {}\n````";
         let segs = parse_content_segments(input);
         assert_eq!(
