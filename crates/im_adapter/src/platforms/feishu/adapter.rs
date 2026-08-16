@@ -157,6 +157,11 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
                     .to_string()
             }
         }
+        "text_run" => {
+            let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            let style = elem.get("style").cloned().unwrap_or(serde_json::Value::Null);
+            apply_text_style(text, &style)
+        }
         "img" => "[图片]".to_string(),
         "media" => "[视频]".to_string(),
         "file" => "[文件]".to_string(),
@@ -169,6 +174,38 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
             }
         }
     }
+}
+
+/// Apply text styles to a text_run element's content.
+///
+/// Supported styles: bold, italic, strikethrough, underline, link.
+/// Combination styles are applied in order: inline styles first, then link.
+fn apply_text_style(text: &str, style: &serde_json::Value) -> String {
+    let mut result = text.to_string();
+
+    if style.get("bold").and_then(|v| v.as_bool()).unwrap_or(false) {
+        result = format!("**{}**", result);
+    }
+    if style.get("italic").and_then(|v| v.as_bool()).unwrap_or(false) {
+        result = format!("_{}", result);
+    }
+    if style.get("strikethrough").and_then(|v| v.as_bool()).unwrap_or(false) {
+        result = format!("~~{}~~", result);
+    }
+    if style.get("underline").and_then(|v| v.as_bool()).unwrap_or(false) {
+        result = format!("<u>{}</u>", result);
+    }
+
+    // Link wraps the styled text: [styled_text](url)
+    if let Some(link) = style.get("link") {
+        if let Some(url) = link.get("url").and_then(|u| u.as_str()) {
+            if !url.is_empty() {
+                result = format!("[{}]({})", result, url);
+            }
+        }
+    }
+
+    result
 }
 
 // ---------------------------------------------------------------------------
