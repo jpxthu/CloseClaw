@@ -17,6 +17,7 @@ use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::NoopMetricsEmitter;
 use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
+use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};
 pub use daemon_struct::*;
 
@@ -176,6 +177,7 @@ impl Daemon {
         Arc<ToolRegistry>,
         Option<SkillWatcherHandle>,
         Arc<RwLock<SectionCache>>,
+        Arc<dyn SessionConfigProvider>,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
@@ -189,12 +191,24 @@ impl Daemon {
         )
         .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
+        let session_config_provider = config_manager
+            .session_config_provider()
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "session config provider not available after load, using defaults"
+                );
+                Arc::new(
+                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null")
+                        .unwrap(),
+                )
+            });
         Ok((
             agent_registry,
             skill_registry,
             tool_registry,
             skill_watcher,
             shared_cache,
+            session_config_provider,
         ))
     }
 
