@@ -13,8 +13,9 @@ use rusqlite::params;
 use thiserror::Error;
 
 use closeclaw_config::agents::{
-    default_forgetting_initial_ttl_days, default_mining_dedup_window_days,
-    default_mining_max_events_per_session, MemoryConfig, MiningConfig,
+    default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
+    default_mining_dedup_window_days, default_mining_max_events_per_session,
+    MemoryConfig, MiningConfig,
 };
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
@@ -121,6 +122,9 @@ pub struct MinerConfig {
     pub clean_rules: closeclaw_config::agents::TranscriptCleanRules,
     /// Initial TTL in days for new event `expires_at`. Default 90.
     pub initial_ttl_days: i64,
+    /// Days to extend `expires_at` when Miner 1 dedup re-identifies an entity.
+    /// Default 90.
+    pub reidentify_extension_days: i64,
 }
 
 impl MinerConfig {
@@ -141,6 +145,7 @@ impl MinerConfig {
                 .unwrap_or_else(default_mining_dedup_window_days),
             clean_rules: config.transcript_clean_rules.clone(),
             initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_reidentify_extension_days(),
         }
     }
 
@@ -166,6 +171,10 @@ impl MinerConfig {
                 .forgetting
                 .initial_ttl_days
                 .unwrap_or_else(default_forgetting_initial_ttl_days),
+            reidentify_extension_days: config
+                .forgetting
+                .reidentify_extension_days
+                .unwrap_or_else(default_forgetting_reidentify_extension_days),
         }
     }
 }
@@ -179,6 +188,7 @@ impl Default for MinerConfig {
             dedup_window_days: 30,
             clean_rules: Default::default(),
             initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_reidentify_extension_days(),
         }
     }
 }
