@@ -32,23 +32,11 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 > **交叉引用**：排队规则与排队提示详见 [session §F10](session.md)（消息排队）。
 - Session 查找异常或创建失败时，向 User 回复错误提示
 
-### F8. 调试日志
-
-Gateway 在以下环节记录调试日志，用于运维 Agent 排查问题：
-- 入站消息到达与队列操作（不含原始 Payload）
-- 路由决策结果（斜杠指令识别 / 普通对话分发 / 排队状态）
-- 中间件拦截（频率限制、审计等）
-
-> **交叉引用**：入站消息原始内容日志由 Processor Chain 模块负责，详见 [processor_chain §F6](processor_chain.md)（调试日志）。
-> **交叉引用**：Session 查找与生命周期事件日志由 Session 模块负责，详见 [session §F12](session.md)（调试日志）。
-> **交叉引用**：出站渲染与平台 API 发送结果日志由 IM Adapter 模块负责，详见 [im_adapter §F7](im_adapter.md)（调试日志）。
-
-> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
-
 ### F5. 斜杠指令拦截与分派
 
 - User 可以用 `/` 开头发送斜杠指令，指令在进入 LLM 对话之前被拦截，不进入 LLM 对话、不追加到对话历史
-- `/approve-once`、`/approve-whitelist`、`/deny` 仅 Owner 可用（非 Owner 调用时收到权限不足提示），与 `/stop`、`/status`、`/help` 等同属 Immediate 类指令，绕过排队条件，始终立即响应
+- `/approve-once`、`/approve-whitelist`、`/deny` 仅 Owner 可用，非 Owner 调用时收到权限不足提示
+- Immediate 类指令（`/approve-once`、`/approve-whitelist`、`/deny`、`/stop`、`/status`、`/help` 等）绕过排队条件，始终立即响应
 - 非 Immediate 斜杠指令在满足排队条件时进入该 Session 的待处理队列，排队提示详见 [session §F10](session.md)（消息排队）
 
 排队条件定义详见 [session §F10](session.md)（消息排队），活跃维度详见 [session §F11](session.md)。
@@ -66,6 +54,19 @@ Gateway 在以下环节记录调试日志，用于运维 Agent 排查问题：
 - 出站消息发送前经过频率限制、敏感操作审计等检查，被拦截的消息不发送
 - 流式输出过程中出错时统一降级处理，不向 User 呈现不完整内容
 - 出站消息发送后保存到 Session 历史记录
+
+### F8. 调试日志
+
+Gateway 在以下环节记录调试日志，用于运维 Agent 排查问题：
+- 入站消息到达与队列操作（不含原始 Payload）
+- 路由决策结果（斜杠指令识别 / 普通对话分发 / 排队状态）
+- 中间件拦截（频率限制、审计等）
+
+> **交叉引用**：入站消息原始内容日志由 Processor Chain 模块负责，详见 [processor_chain §F6](processor_chain.md)（调试日志）。
+> **交叉引用**：Session 查找与生命周期事件日志由 Session 模块负责，详见 [session §F12](session.md)（调试日志）。
+> **交叉引用**：出站渲染与平台 API 发送结果日志由 IM Adapter 模块负责，详见 [im_adapter §F7](im_adapter.md)（调试日志）。
+
+> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
 ## 关联设计文档
 
