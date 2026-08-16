@@ -8,27 +8,11 @@
 
 斜杠指令系统由三个核心组件组成：
 
-- **SlashDispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 SlashDispatcher，否则正常路由到 Session。
+- **SlashDispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 SlashDispatcher（`/approve-once`、`/approve-whitelist`、`/deny` 除外——这三条由 Gateway 硬拦截走审批流程），否则正常路由到 Session。
 - **HandlerRegistry**：指令注册表，维护指令名到 Handler 的映射。Gateway 初始化时注册所有 Handler。
 - **Handler**：指令处理器。每个 Handler 负责一组关联指令，接收指令参数和上下文，返回 [SlashResult](../common/shared-types.md#slashresult)。
 
 Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Gateway 构造 SideEffectContext（定义见 [common/shared-types.md](../common/shared-types.md#slashresult)）并触发 SlashResult 执行。SideEffectContext 封装 Session 操作和消息回复能力，各 SlashResult 变体自行完成副作用。Gateway 不感知具体变体，只负责传递上下文。
-
-```
-用户消息到达 Gateway
-  ↓
-是否以 / 开头？
-  ├── 否 → 正常路由到 Session
-  └── 是 → SlashDispatcher 解析指令名 + 参数
-            ↓
-          HandlerRegistry 查表
-            ├── 命中 → Handler 处理 → SlashResult
-            │           ↓
-            │         Gateway 构造 SideEffectContext → SlashResult.execute(ctx)
-            │           ↓
-            │         回复内容 → 出站 Processor Chain → IM 插件渲染发送
-            └── 未命中 → SlashResult::Unknown → 回复内容 → 出站 Processor Chain → IM 插件发送
-```
 
 部分指令支持 Immediate 模式——LLM 正在运行时也能立即响应，不被 Session 忙碌队列阻塞。非 Immediate 指令在 LLM 忙碌时回复等待提示。
 
@@ -36,7 +20,8 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 
 | Handler | 负责指令 | Immediate |
 |---------|---------|-----------|
-| ModeSwitchHandler | plan, mode, auto, execute | ❌ |
+| ModeSwitchHandler | plan, mode, execute | ❌（`/mode` 查询除外） |
+| PlanBrowseHandler | plans | ❌ |
 | NewSessionHandler | new | ❌ |
 | StopHandler | stop | ✅ |
 | StatusHandler | status | ✅ |
@@ -53,7 +38,8 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 - [上下文压缩](compact.md) — `/compact` 触发对话历史压缩
 - [命令执行](exec.md) — `/exec` owner 特权命令执行
 - [帮助](help.md) — `/help` 动态生成帮助文本
-- [模式切换](mode-switching.md) — `/plan`、`/mode`、`/auto`、`/execute`，切换 Normal/Plan/Auto 模式
+- [模式切换](mode-switching.md) — `/plan`、`/mode`、`/execute`，切换 Normal/Plan/Auto 模式
+- [plan 浏览](plan-browse.md) — `/plans` 列出/查看 plan
 - [会话管理](session-management.md) — `/new` 创建新会话，`/stop` 终止当前运行
 - [推理深度控制](reasoning.md) — `/reasoning` 查询或设置推理深度
 - [信息展示等级](verbose.md) — `/verbose` 查询或设置信息展示等级
@@ -63,31 +49,16 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 
 ## 数据流
 
-```
-入站消息
-  ↓
-Gateway.handle_inbound()
-  ↓
-内容以 / 开头？
-  ├── 否 → route_to_session() → 正常 LLM 对话流程
-  └── 是 → SlashDispatcher.dispatch()
-            ↓
-          parse_slash(): 分离指令名和参数
-            ↓
-          HandlerRegistry.get(指令名)
-            ├── 命中 → handler.handle(args, ctx)
-            │           ↓
-            │         SlashResult 变体
-            │           ↓
-            │         Gateway.handle_slash_result()
-            │           ↓
-            │         构造 SideEffectContext（封装 session 引用 + 回复通道）
-            │           ↓
-            │         SlashResult.execute(ctx) —— 各变体自行完成副作用
-            │           ↓
-            │         回复内容经出站 Processor Chain → IM 插件渲染发送
-            └── 未命中 → SlashResult::Unknown → 回复（经出站 Processor Chain → IM 插件发送）
-```
+1. 入站消息到达 Gateway
+2. 判断内容是否以 `/` 开头
+   - 否 → 正常路由到 Session，走 LLM 对话流程
+   - 是 → 交给 SlashDispatcher（`/approve-once`、`/approve-whitelist`、`/deny` 除外，由 Gateway 硬拦截走审批流程）
+3. SlashDispatcher 解析指令名与参数
+4. HandlerRegistry 按指令名查表
+   - 命中 → Handler 处理，返回 SlashResult 变体
+   - 未命中 → SlashResult::Unknown（友好错误提示 + 引导 /help）
+5. 命中的 SlashResult 由 Gateway 构造 SideEffectContext 并触发执行，各变体自行完成副作用
+6. 回复内容经出站 Processor Chain → IM 插件渲染发送
 
 关键判断点：
 - 是否 `/` 开头 → 决定走斜杠指令还是 LLM 对话
