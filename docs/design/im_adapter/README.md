@@ -12,7 +12,7 @@
 IM Adapter 模块不包含业务逻辑，由三层组成：
 
 - **插件接口层**：IMPlugin trait 是统一插件契约，完整接口定义见 [common/core-traits](../common/core-traits.md#implugin)。每个消息平台实现此 trait，提供入站解析、格式渲染、消息发送、生命周期管理四组方法。terminal 平台的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
-- **通用渲染能力**：代码块语法高亮和流式增量渲染是跨平台通用机制，作为 IMPlugin trait 的默认实现提供。各平台插件自动继承，按需覆盖平台差异化部分。
+- **通用渲染能力**：代码块语法高亮和流式增量渲染是跨平台通用机制，以 IM Adapter 内的通用组件形式提供。各平台插件组合持有对应组件并在渲染时委托调用，按需覆盖平台差异化部分。
 - **平台插件**：每个消息平台的数据和渲染实现。IM 平台（飞书、Discord 等）的插件放在 `platforms/` 子目录下。terminal 平台的实现位于 CLI 模块。
 
 模块运行时注册表由 Gateway 维护：
@@ -39,7 +39,7 @@ platforms/<平台名>/
 
 ### 对外工具
 
-IM Adapter 模块通过 [ToolRegistrar](../tools/tool-registrar.md) trait 向 ToolRegistry 注册平台插件工具。当前飞书平台注册以下工具分组：feishu_im、feishu_calendar、feishu_task、feishu_bitable、feishu_doc、feishu_drive、feishu_sheet。全部飞书工具默认延迟加载。工具详情见 [飞书插件](platforms/feishu.md)，各工具分组详细参数见 [tools 模块文档](../tools/README.md)。
+IM Adapter 模块通过 [ToolRegistrar](../tools/tool-registrar.md) trait 向 ToolRegistry 注册平台插件工具。飞书平台注册的工具分组见 [飞书插件](platforms/feishu.md)，各工具分组详细参数见 [tools 模块文档](../tools/README.md)。全部飞书工具默认延迟加载。
 
 ```
 im_adapter/
@@ -126,4 +126,4 @@ peer_id 和 thread_id 来源于入站时 IM Adapter 填入 NormalizedMessage 的
 
 - **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）、Config（accounts.json：入站解析时查询身份映射表，将 sender_id 转为 account_id）
 - **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）、debug_log（入站解析、出站渲染、平台发送各环节记录调试日志）
-- **无关**：Session（IMPlugin 不参与 session 生命周期管理）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）
+- **无关**：Session（IMPlugin 不直接参与 session 生命周期管理；peer_id/thread_id 经 Session 上下文存储后由 Gateway 在出站时取出传入）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）
