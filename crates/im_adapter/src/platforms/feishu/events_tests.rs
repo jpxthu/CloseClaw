@@ -64,6 +64,60 @@ async fn test_parse_inbound_reaction_created_returns_none() {
     assert!(result.is_none());
 }
 
+/// reaction.created: missing reaction_type — graceful parse error (no panic).
+#[tokio::test]
+async fn test_parse_inbound_reaction_created_missing_reaction_type() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test_no_reaction_type",
+            "event_type": "reaction.created",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {
+            "message_id": "om_msg_no_rt",
+            "operator": {
+                "open_id": "ou_user_no_rt",
+                "operator_type": "user"
+            }
+        }
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let result: Result<Option<_>, _> = adapter.parse_inbound(&bytes).await;
+    assert!(result.is_err(), "missing reaction_type should cause parse error");
+}
+
+/// reaction.created: missing message_id — graceful parse error (no panic).
+#[tokio::test]
+async fn test_parse_inbound_reaction_created_missing_message_id() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test_no_msg_id",
+            "event_type": "reaction.created",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {
+            "operator": {
+                "open_id": "ou_user_no_msg",
+                "operator_type": "user"
+            },
+            "reaction_type": {
+                "emoji_type": "THUMBSUP"
+            }
+        }
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let result: Result<Option<_>, _> = adapter.parse_inbound(&bytes).await;
+    assert!(result.is_err(), "missing message_id should cause parse error");
+}
+
 /// reaction.created: operator at top level (open_id field) — graceful handling.
 #[tokio::test]
 async fn test_parse_inbound_reaction_created_with_top_level_open_id() {

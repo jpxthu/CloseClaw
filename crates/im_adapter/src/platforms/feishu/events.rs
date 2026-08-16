@@ -16,7 +16,6 @@ use serde::Deserialize;
 /// This event is not converted into a `NormalizedMessage`; it is only
 /// logged as an observability signal.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuReactionEvent {
     pub(crate) message_id: String,
     pub(crate) operator: FeishuReactionOperator,
@@ -24,23 +23,19 @@ pub(crate) struct FeishuReactionEvent {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuReactionOperator {
-    #[serde(alias = "operator_id")]
     pub(crate) operator_id: Option<FeishuReactionOperatorId>,
-    #[serde(alias = "open_id")]
     pub(crate) open_id: Option<String>,
+    #[allow(dead_code)]
     pub(crate) operator_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuReactionOperatorId {
     pub(crate) open_id: String,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuReactionType {
     pub(crate) emoji_type: String,
 }
@@ -55,14 +50,12 @@ pub(crate) struct FeishuReactionType {
 /// logged as an observability signal. The chat session will be created
 /// when the first message arrives.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuBotAddedEvent {
     pub(crate) chat_id: String,
     pub(crate) bot: FeishuBotInfo,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuBotInfo {
     pub(crate) open_id: String,
 }
