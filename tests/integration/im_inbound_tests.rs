@@ -1,14 +1,14 @@
-//! IM inbound chain E2E tests — ProcessorRegistry with real fixtures.
+//! IM inbound chain integration tests — ProcessorRegistry with real fixtures.
 //!
 //! Covers:
 //! - p2p DM: raw webhook → ProcessorRegistry → processed output
 //!
-//! NOTE: These tests were adapted from the old `im::processor` module
-//! (Step 1.4). The old group-chat rejection test was removed because
-//! the new `processor_chain` SessionRouter does not reject group chats
+//! NOTE: These tests were adapted from the old `im::processor` module.
+//! The old group-chat rejection test was removed because the new
+//! `processor_chain` SessionRouter does not reject group chats
 //! (design doc requirement: "SessionRouter 不区分私聊和群聊").
 //!
-//! Step 1.5 removed `RawMessage`; this file now uses `NormalizedMessage`.
+//! `RawMessage` was removed; this file now uses `NormalizedMessage`.
 //!
 //! Run with: `cargo test --test integration`
 
