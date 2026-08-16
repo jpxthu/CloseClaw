@@ -27,10 +27,13 @@ pub enum ContentSegment {
 ///
 /// - Fenced code blocks (`` ``` `` … `` ``` ``) are collected as a single
 ///   [`ContentSegment::CodeBlock`].
-/// - Outside code blocks: empty lines are skipped, `---` becomes [`Hr`](ContentSegment::Hr),
-///   everything else becomes [`Markdown`](ContentSegment::Markdown).
+/// - Outside code blocks: empty lines are preserved as empty
+///   [`Markdown(" ")`](ContentSegment::Markdown) segments, `---` becomes
+///   [`Hr`](ContentSegment::Hr), everything else becomes
+///   [`Markdown`](ContentSegment::Markdown).
 /// - An unclosed fence is treated as regular markdown text.
-/// - Backtick fences nested inside a code block are preserved as content.
+/// - A line consisting only of backticks (≥3) inside a code block closes
+///   the fence (the backtick line itself is consumed as the closing fence).
 ///   Emit accumulated code-block lines as regular markdown (unclosed fence).
 fn flush_unclosed_fence(lang: &str, code_lines: &[&str], segments: &mut Vec<ContentSegment>) {
     let opening = if lang.is_empty() {

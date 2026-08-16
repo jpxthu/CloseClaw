@@ -352,10 +352,10 @@ pub trait IMPlugin: Send + Sync {
     /// Render LLM content blocks into a platform-native output.
     ///
     /// The default implementation produces a plain-text fallback: Text
-    /// blocks are concatenated with newlines, fenced code blocks and
-    /// horizontal rules are preserved verbatim (including ``` markers).
-    /// This implements the "other" platform strategy: plain text with
-    /// fenced code blocks preserved as-is.
+    /// blocks are joined with newlines; no transformations are applied
+    /// (fenced code blocks, horizontal rules, and all other content are
+    /// included verbatim). This implements the "other" platform strategy
+    /// described in `docs/design/im_adapter/code-render.md`.
     ///
     /// Platforms should override for rich formatting (e.g. Feishu uses
     /// native markdown code blocks, CLI uses ANSI escape sequences).
