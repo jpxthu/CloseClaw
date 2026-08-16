@@ -47,14 +47,8 @@ jobs:
           # 禁止 set_var / remove_var（load_env_file 除外）
           # 详见 CONTRIBUTING.md「环境变量禁令」
           #
-          # 白名单：已知存量违规文件，待逐步清理后移除
-          whitelist=(
-            src/daemon/mod.rs
-            src/handlers/handlers_tests.rs
-            src/llm/protocol/glm_test.rs
-            src/llm/model_discovery.rs
-            src/daemon/unit_tests.rs
-          )
+          # 白名单：已无存量违规文件（历史条目随 tests/ 目录重整清理完毕）
+          whitelist=()
           matches=$(grep -rn '\bset_var\b\|\bremove_var\b' src/ --include='*.rs' | grep -v 'load_env_file' || true)
           if [ -n "$matches" ]; then
             violations=""
