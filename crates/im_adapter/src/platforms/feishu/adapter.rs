@@ -13,9 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
-// ---------------------------------------------------------------------------
 // Webhook event types
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -64,58 +62,6 @@ pub(crate) struct FeishuSenderId {
     pub(crate) open_id: String,
 }
 
-/// Reaction event payload (`reaction.created`).
-///
-/// This event is not converted into a `NormalizedMessage`; it is only
-/// logged as an observability signal.
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuReactionEvent {
-    pub(crate) message_id: String,
-    pub(crate) operator: FeishuReactionOperator,
-    pub(crate) reaction_type: FeishuReactionType,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuReactionOperator {
-    #[serde(alias = "operator_id")]
-    pub(crate) operator_id: Option<FeishuReactionOperatorId>,
-    #[serde(alias = "open_id")]
-    pub(crate) open_id: Option<String>,
-    pub(crate) operator_type: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuReactionOperatorId {
-    pub(crate) open_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuReactionType {
-    pub(crate) emoji_type: String,
-}
-
-/// Bot added to chat event payload (`bot.added`).
-///
-/// This event is not converted into a `NormalizedMessage`; it is only
-/// logged as an observability signal. The chat session will be created
-/// when the first message arrives.
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuBotAddedEvent {
-    pub(crate) chat_id: String,
-    pub(crate) bot: FeishuBotInfo,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuBotInfo {
-    pub(crate) open_id: String,
-}
-
 /// Card action event payload (`card.action.trigger`).
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -138,15 +84,9 @@ pub(crate) struct FeishuCardAction {
     pub(crate) tag: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
-// ---------------------------------------------------------------------------
 // Post content expansion
-// ---------------------------------------------------------------------------
 
 #[allow(dead_code)]
 /// Expand a Feishu post-type content JSON value into plain text.
@@ -741,67 +681,6 @@ impl FeishuAdapter {
         Ok(())
     }
 
-    /// Parse a `reaction.created` event, log it, and return `Ok(None)`.
-    ///
-    /// This event does not produce a `NormalizedMessage`; it is recorded as
-    /// an observability signal for downstream agent observability.
-    fn parse_reaction_event(
-        &self,
-        raw: &serde_json::Value,
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let event: FeishuReactionEvent =
-            serde_json::from_value(raw["event"].clone()).map_err(|e| {
-                AdapterError::InvalidPayload(e.to_string())
-            })?;
-
-        let operator_id = event
-            .operator
-            .operator_id
-            .as_ref()
-            .map(|id| id.open_id.as_str())
-            .or(event.operator.open_id.as_deref())
-            .unwrap_or("unknown");
-
-        tracing::info!(
-            platform = "feishu",
-            event_type = "reaction.created",
-            message_id = %event.message_id,
-            reaction_type = %event.reaction_type.emoji_type,
-            operator = %operator_id,
-            "Feishu reaction event received"
-        );
-
-        Ok(None)
-    }
-
-    /// Parse a `bot.added` event, log it, and return `Ok(None)`.
-    ///
-    /// This event does not produce a `NormalizedMessage`; it is recorded as
-    /// an observability signal. The chat session will be created on the
-    /// first message arrival.
-    fn parse_bot_added_event(
-        &self,
-        raw: &serde_json::Value,
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        let event: FeishuBotAddedEvent =
-            serde_json::from_value(raw["event"].clone()).map_err(|e| {
-                AdapterError::InvalidPayload(format!(
-                    "bot.added event parse failed: {}",
-                    e
-                ))
-            })?;
-
-        tracing::info!(
-            platform = "feishu",
-            event_type = "bot.added",
-            chat_id = %event.chat_id,
-            bot_open_id = %event.bot.open_id,
-            "Feishu bot added to chat"
-        );
-
-        Ok(None)
-    }
-
     /// Parse a card.action.trigger event into a CardActionEvent.
     pub(crate) fn parse_card_action_event(
         &self,
@@ -978,11 +857,11 @@ impl IMAdapter for FeishuAdapter {
         }
 
         if event_type == "reaction.created" {
-            return self.parse_reaction_event(&raw);
+            return super::events::parse_reaction_event(&raw);
         }
 
         if event_type == "bot.added" {
-            return self.parse_bot_added_event(&raw);
+            return super::events::parse_bot_added_event(&raw);
         }
 
         let event: FeishuEvent =
