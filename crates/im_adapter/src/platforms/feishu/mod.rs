@@ -22,6 +22,8 @@ mod feishu_adapter_tests;
 mod feishu_tests;
 #[cfg(test)]
 mod send_fallback_tests;
+#[cfg(test)]
+mod send_warn_tests;
 pub mod renderer;
 pub mod tools;
 #[cfg(test)]
