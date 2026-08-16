@@ -327,15 +327,44 @@ pub(crate) fn dispatch_blocks(
     (title, elements)
 }
 
+/// Build button actions for a single selector when `allow_select_static` is false.
+///
+/// Each option becomes an individual button.  Label format: `{label}: {option}`
+/// (or just `{option}` when `label` is empty).  The first button is `primary`;
+/// the rest are `default`.
+fn render_selector_buttons(
+    options: &[String],
+    label: &str,
+    action_name: Option<String>,
+) -> CardElement {
+    let _ = action_name; // action is preserved on the selector itself, not buttons
+    let mut actions = Vec::new();
+    for (idx, opt) in options.iter().enumerate() {
+        let bt = if idx == 0 { "primary" } else { "default" };
+        let btn_label = if label.is_empty() {
+            opt.clone()
+        } else {
+            format!("{label}: {opt}")
+        };
+        actions.push(CardAction::Button {
+            text: CardText {
+                tag: "plain_text".into(),
+                content: btn_label,
+            },
+            action_type: bt.into(),
+            url: None,
+        });
+    }
+    CardElement::Action { actions }
+}
+
 /// Renders DSL selector instructions as Feishu interactive components.
 ///
 /// When `allow_select_static` is `true`, each selector produces a native
 /// `SelectMenu` (`select_static`) inside an `Action` element.
 ///
 /// When `allow_select_static` is `false`, each option is rendered as an
-/// individual button — label format `{selector_label}: {option}`, first
-/// option is `primary`, rest are `default`.  The selector's `action`
-/// parameter is preserved on every button.
+/// individual button via [`render_selector_buttons`].
 pub(crate) fn render_selectors(
     instructions: &[DslInstruction],
     allow_select_static: bool,
@@ -348,7 +377,6 @@ pub(crate) fn render_selectors(
     if selectors.is_empty() {
         return Vec::new();
     }
-
     selectors
         .into_iter()
         .flat_map(|inst| {
@@ -383,29 +411,7 @@ pub(crate) fn render_selectors(
                     })],
                 }]
             } else {
-                // Downgrade: one button per option
-                let mut actions = Vec::new();
-                for (idx, opt) in options.iter().enumerate() {
-                    let bt = if idx == 0 {
-                        "primary"
-                    } else {
-                        "default"
-                    };
-                    let btn_label = if label.is_empty() {
-                        opt.clone()
-                    } else {
-                        format!("{label}: {opt}")
-                    };
-                    actions.push(CardAction::Button {
-                        text: CardText {
-                            tag: "plain_text".into(),
-                            content: btn_label,
-                        },
-                        action_type: bt.into(),
-                        url: None,
-                    });
-                }
-                vec![CardElement::Action { actions }]
+                vec![render_selector_buttons(&options, &label, action_name)]
             }
         })
         .collect()
