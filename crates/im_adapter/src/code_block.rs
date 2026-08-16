@@ -23,19 +23,8 @@ pub enum ContentSegment {
 // parse_content_segments
 // ---------------------------------------------------------------------------
 
-/// Parses `content` into [`ContentSegment`]s.
-///
-/// - Fenced code blocks (`` ``` `` … `` ``` ``) are collected as a single
-///   [`ContentSegment::CodeBlock`].
-/// - Outside code blocks: empty lines are preserved as empty
-///   [`Markdown("")`](ContentSegment::Markdown) segments, `---` becomes
-///   [`Hr`](ContentSegment::Hr), everything else becomes
-///   [`Markdown`](ContentSegment::Markdown).
-/// - An unclosed fence is treated as regular markdown text.
-/// - A line consisting only of backticks (≥3) inside a code block closes
-///   the fence (the backtick line itself is consumed as the closing fence).
-///   Emit accumulated code-block lines as regular [`Markdown`](ContentSegment::Markdown)
-///   segments (the fence was never closed).
+/// Emits accumulated code-block lines as [`Markdown`](ContentSegment::Markdown)
+/// segments when the opening fence was never closed.
 fn flush_unclosed_fence(lang: &str, code_lines: &[&str], segments: &mut Vec<ContentSegment>) {
     let opening = if lang.is_empty() {
         "```".to_string()
@@ -53,7 +42,7 @@ fn process_outside_line(line: &str, segments: &mut Vec<ContentSegment>) -> Optio
     let trimmed = line.trim_end();
     if let Some(after_ticks) = trimmed.strip_prefix("```") {
         if after_ticks.is_empty() || !after_ticks.contains(' ') {
-            return Some(after_ticks.to_string()); // opening fence
+            return Some(after_ticks.trim().to_string()); // opening fence, trimmed
         }
         segments.push(ContentSegment::Markdown(line.to_string()));
     } else if trimmed == "---" {
@@ -66,6 +55,19 @@ fn process_outside_line(line: &str, segments: &mut Vec<ContentSegment>) -> Optio
     None
 }
 
+/// Parses `content` into [`ContentSegment`]s.
+///
+/// - Fenced code blocks (`` ``` `` … `` ``` ``) are collected as a single
+///   [`ContentSegment::CodeBlock`].
+/// - Outside code blocks: empty lines are preserved as empty
+///   [`Markdown("")`](ContentSegment::Markdown) segments, `---` becomes
+///   [`Hr`](ContentSegment::Hr), everything else becomes
+///   [`Markdown`](ContentSegment::Markdown).
+/// - An unclosed fence is treated as regular markdown text.
+/// - A line consisting only of backticks (≥3) inside a code block closes
+///   the fence (the backtick line itself is consumed as the closing fence).
+///   Emit accumulated code-block lines as regular [`Markdown`](ContentSegment::Markdown)
+///   segments (the fence was never closed).
 pub fn parse_content_segments(content: &str) -> Vec<ContentSegment> {
     let mut segments: Vec<ContentSegment> = Vec::new();
     let mut in_code = false;
@@ -278,6 +280,19 @@ mod tests {
         assert_eq!(
             segs,
             vec![ContentSegment::Hr, ContentSegment::Hr, ContentSegment::Hr,]
+        );
+    }
+
+    #[test]
+    fn trailing_space_in_language_tag() {
+        let input = "```rust \nfn main() {}\n```";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![ContentSegment::CodeBlock {
+                language: "rust".into(),
+                code: "fn main() {}".into(),
+            },]
         );
     }
 
