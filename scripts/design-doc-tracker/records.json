@@ -177,11 +177,11 @@
   },
   {
     "path": "docs/design/im_adapter/platforms/feishu.md",
-    "commit": "436db85fdcb7ec5a4ae36c92ca27d8466912f71d",
-    "commit_time": "2026-08-14T10:17:59+08:00",
-    "confirmed_time": "2026-08-16T18:20:22.583300+08:00",
+    "commit": "eba480919d54b099b4e57c7f28edc961e4b3d8b9",
+    "commit_time": "2026-08-16T19:19:35+08:00",
+    "confirmed_time": "2026-08-16T19:34:28.157355+08:00",
     "comment": "",
-    "blocked_reason": "doc_problem: (1) 表情消息处理歧义——文档描述表情消息应渲染为文本占位符，但代码对 sticker 类型消息直接丢弃，设计目标不清晰; (2) Thinking 块平台能力检查缺失——文档写'平台支持时'暗示有条件判断，代码无降级逻辑，文档内部矛盾"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
