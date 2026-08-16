@@ -4,9 +4,9 @@
 
 ---
 
-## 1. Plan Mode 全局约束
+## 1. Plan Mode 全局约束与路径自选
 
-所有 Plan Mode variant 共享的开场约束：
+所有 Plan Mode variant 共享的开场约束与路径自选规则：
 
 ```
 Plan mode is active. The user indicated that they do not want you to
@@ -21,11 +21,33 @@ the system. This supercedes any other instructions you have received.
 - `This supercedes any other instructions` — 确保 Plan Mode 约束覆盖所有其他 prompt，避免被 Agent 配置文件中的指令覆盖
 - 允许的唯一例外是 plan file，在约束文本后单独声明
 
+### 路径自选规则
+
+进入 Plan Mode 时，Agent 读取任务描述后自行判断走标准路径还是 Interview 路径。注入的路径自选规则：
+
+```
+Decide which planning path to follow based on the user's task
+description:
+
+- Standard 4-phase workflow: the description references specific
+  files/modules/interfaces AND includes quantifiable acceptance
+  criteria.
+- Interview (iterative) workflow: the description is vague, the scope
+  is unclear, or there are no concrete acceptance criteria.
+
+Follow the chosen path's instructions below.
+```
+
+**关键设计点**：
+
+- 路径选择由 Agent 读取任务描述后自行判断，不在入口拦截处做规则判断
+- 标准路径与 Interview 路径指令同时注入，Agent 按自选规则选择其一执行
+
 ---
 
 ## 2. 标准 4 阶段工作流
 
-Plan Mode 默认路径，适用于任务描述中含明确文件/接口引用和可量化验收条件的场景。
+标准路径，适用于任务描述中含明确文件/接口引用和可量化验收条件的场景。
 
 ### Phase 1: 初步理解（探索代码库）
 
@@ -212,7 +234,7 @@ respond naturally.
 
 ## 4. Auto Mode 指令
 
-Plan Mode 审批通过后自动进入，Agent 连续自主执行 plan tasks。
+Plan Mode 下 User 触发执行后进入 Auto Mode，Agent 连续自主执行 plan tasks。
 
 ```
 ## Auto Mode Active
@@ -290,7 +312,7 @@ Before proceeding with any new planning, you should:
    - Different task: start fresh by overwriting the existing plan.
    - Same task, continuing: modify the existing plan while cleaning up
      outdated or irrelevant sections.
-4. Always edit the plan file before submitting for approval.
+4. Always edit the plan file before presenting the completed plan to the user.
 
 Treat this as a fresh planning session. Do not assume the existing
 plan is relevant without evaluating it first.
@@ -527,7 +549,7 @@ a bug." If you can run the check, you must decide PASS or FAIL.
 
 | 注入时机 | 触发条件 | 注入内容 |
 |---------|---------|---------|
-| Plan Mode 激活 | 用户执行进入 Plan Mode 的斜杠命令 | 第 1 节全局约束 + 第 2 节标准路径 或 第 3 节 Interview 路径（由命令参数或任务特征决定） |
+| Plan Mode 激活 | 用户执行进入 Plan Mode 的斜杠命令 | 第 1 节全局约束与路径自选 + 第 2 节标准路径 + 第 3 节 Interview 路径 |
 | Plan Mode Sparse | Plan Mode 下上下文压缩后 | 第 5 节「标准路径 Sparse」 |
 | Plan Mode Sub-agent | Plan Mode 中 spawn 子 Agent | 第 5 节 Sub-agent 版 + 第 7 节对应 Agent 类型模板 |
 | Plan Mode Re-entry | 同一 session 中再次进入 Plan Mode | 第 6 节 Re-entry |
