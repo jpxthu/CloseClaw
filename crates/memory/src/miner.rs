@@ -472,9 +472,8 @@ impl MemoryMiner {
     ) -> Result<crate::forgetting::ForgettingCleanupStats, MinerError> {
         let db_path = self.db_path.clone();
         tokio::task::spawn_blocking(move || {
-            let mut conn =
-                rusqlite::Connection::open(&db_path)
-                    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            let mut conn = rusqlite::Connection::open(&db_path)
+                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
             crate::miner::init_schema(&conn)?;
             let now = chrono::Utc::now().timestamp();
             crate::forgetting::cleanup_expired(&mut conn, now)
