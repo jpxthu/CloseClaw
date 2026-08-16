@@ -5,9 +5,9 @@
 
 use std::sync::Arc;
 
-use closeclaw_llm::provider::Provider;
-use closeclaw_llm::types::{InternalMessage, InternalRequest, RawContentBlock};
-use closeclaw_llm::{LLMRegistry, StubProvider};
+use crate::provider::Provider;
+use crate::types::{InternalMessage, InternalRequest, RawContentBlock};
+use crate::{LLMRegistry, StubProvider};
 use closeclaw_session::persistence::ReasoningLevel;
 
 fn stub_provider() -> Arc<dyn Provider> {
@@ -165,7 +165,7 @@ async fn test_stub_provider_through_registry_chat() {
     let resp = response.unwrap();
     assert_eq!(resp.content_blocks.len(), 1);
     match &resp.content_blocks[0] {
-        closeclaw_llm::types::RawContentBlock::Text(s) => {
+        crate::types::RawContentBlock::Text(s) => {
             assert_eq!(s, "agent response from stub");
         }
         _ => panic!("Expected Text content block"),

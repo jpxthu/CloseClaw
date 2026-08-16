@@ -10,6 +10,8 @@ pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
 #[cfg(test)]
+mod feishu_adapter_tests;
+#[cfg(test)]
 mod feishu_tests;
 pub mod renderer;
 pub mod tools;
