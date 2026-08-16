@@ -196,10 +196,8 @@ impl crate::spawn_validation::SpawnValidator for MockSpawnValidator {
         &self,
         _parent_session_id: &str,
         _target_agent_id: Option<&str>,
-    ) -> Result<
-        crate::spawn_validation::SpawnValidationResult,
-        crate::spawn_validation::SpawnError,
-    > {
+    ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
+    {
         Err(crate::spawn_validation::SpawnError::AgentIdRequired)
     }
 }
