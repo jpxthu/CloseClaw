@@ -16,8 +16,8 @@ use std::sync::Arc;
 use closeclaw_common::AgentRole;
 use closeclaw_config::session::{
     JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfigProvider,
-    DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS, DEFAULT_DREAMING_INTERVAL_SECS,
-    DEFAULT_IDLE_MINUTES, DEFAULT_PURGE_AFTER_MINUTES, DEFAULT_SWEEPER_INTERVAL_SECS,
+    DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS, DEFAULT_DREAMING_INTERVAL_SECS, DEFAULT_IDLE_MINUTES,
+    DEFAULT_PURGE_AFTER_MINUTES, DEFAULT_SWEEPER_INTERVAL_SECS,
 };
 use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::PersistenceService;
@@ -102,7 +102,12 @@ fn make_config_manager(dir: &std::path::Path, session_json: Option<&str>) -> Arc
 fn make_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
     use closeclaw_gateway::{GatewayConfig, SessionManager};
     let gateway_config = GatewayConfig::default();
-    Arc::new(SessionManager::new(&gateway_config, None, None, Default::default()))
+    Arc::new(SessionManager::new(
+        &gateway_config,
+        None,
+        None,
+        Default::default(),
+    ))
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -205,8 +210,14 @@ async fn test_init_phase_2_fallback_defaults_without_session_config() {
     let cfg = provider.session_config_for("any-agent", AgentRole::MainAgent);
     assert_eq!(cfg.idle_minutes, DEFAULT_IDLE_MINUTES);
     assert_eq!(cfg.purge_after_minutes, DEFAULT_PURGE_AFTER_MINUTES);
-    assert_eq!(provider.sweeper_interval_secs(), DEFAULT_SWEEPER_INTERVAL_SECS);
-    assert_eq!(provider.dreaming_interval_secs(), DEFAULT_DREAMING_INTERVAL_SECS);
+    assert_eq!(
+        provider.sweeper_interval_secs(),
+        DEFAULT_SWEEPER_INTERVAL_SECS
+    );
+    assert_eq!(
+        provider.dreaming_interval_secs(),
+        DEFAULT_DREAMING_INTERVAL_SECS
+    );
     assert_eq!(
         provider.consistency_check_interval_secs(),
         DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS
@@ -219,16 +230,21 @@ async fn test_init_phase_2_fallback_defaults_without_session_config() {
 /// This is the fallback path used by init_phase_2_registries.
 #[test]
 fn test_json_session_config_provider_missing_file_defaults() {
-    let provider =
-        JsonSessionConfigProvider::new("/tmp/__nonexistent_session_cfg_defaults__.json")
-            .expect("should succeed with defaults for missing file");
+    let provider = JsonSessionConfigProvider::new("/tmp/__nonexistent_session_cfg_defaults__.json")
+        .expect("should succeed with defaults for missing file");
 
     let cfg = provider.session_config_for("any-agent", AgentRole::MainAgent);
     assert_eq!(cfg.idle_minutes, DEFAULT_IDLE_MINUTES);
     assert_eq!(cfg.purge_after_minutes, DEFAULT_PURGE_AFTER_MINUTES);
     assert!(!cfg.is_git_status_enabled);
-    assert_eq!(provider.sweeper_interval_secs(), DEFAULT_SWEEPER_INTERVAL_SECS);
-    assert_eq!(provider.dreaming_interval_secs(), DEFAULT_DREAMING_INTERVAL_SECS);
+    assert_eq!(
+        provider.sweeper_interval_secs(),
+        DEFAULT_SWEEPER_INTERVAL_SECS
+    );
+    assert_eq!(
+        provider.dreaming_interval_secs(),
+        DEFAULT_DREAMING_INTERVAL_SECS
+    );
     assert_eq!(
         provider.consistency_check_interval_secs(),
         DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS
@@ -240,9 +256,8 @@ fn test_json_session_config_provider_missing_file_defaults() {
 /// (the file-not-found path is handled with a warn, not an error).
 #[test]
 fn test_json_session_config_provider_nonexistent_file_defaults() {
-    let provider =
-        JsonSessionConfigProvider::new("/tmp/__nonexistent_session_config__.json")
-            .expect("should succeed with defaults");
+    let provider = JsonSessionConfigProvider::new("/tmp/__nonexistent_session_config__.json")
+        .expect("should succeed with defaults");
 
     let cfg = provider.session_config_for("any-agent", AgentRole::MainAgent);
     assert_eq!(cfg.idle_minutes, DEFAULT_IDLE_MINUTES);
@@ -261,8 +276,7 @@ async fn test_archive_sweeper_uses_independent_provider() {
     use closeclaw_gateway::sweeper::ArchiveSweeper;
 
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
-    let provider: Arc<dyn SessionConfigProvider> =
-        Arc::new(MockSessionConfigProvider::defaults());
+    let provider: Arc<dyn SessionConfigProvider> = Arc::new(MockSessionConfigProvider::defaults());
 
     let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&provider));
 
@@ -292,10 +306,8 @@ async fn test_dreaming_scheduler_uses_independent_provider() {
     });
 
     let tmp = tempfile::tempdir().unwrap();
-    let config_manager = Arc::new(
-        ConfigManager::new(tmp.path().join("config"))
-            .expect("ConfigManager::new failed"),
-    );
+    let config_manager =
+        Arc::new(ConfigManager::new(tmp.path().join("config")).expect("ConfigManager::new failed"));
 
     let pipeline = Arc::new(DreamingPipeline::with_config(DreamingConfig {
         enabled: Some(true),
@@ -305,10 +317,7 @@ async fn test_dreaming_scheduler_uses_independent_provider() {
         closeclaw_memory::miner::MinerConfig::default(),
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         tmp.path().join("memory.db"),
-        tmp.path()
-            .join("MEMORY.md")
-            .to_string_lossy()
-            .into_owned(),
+        tmp.path().join("MEMORY.md").to_string_lossy().into_owned(),
     ));
 
     let scheduler = DreamingScheduler::new(
@@ -336,12 +345,9 @@ async fn test_spawn_background_services_with_independent_provider() {
     use crate::Daemon;
 
     let tmp = tempfile::tempdir().unwrap();
-    let provider: Arc<dyn SessionConfigProvider> =
-        Arc::new(MockSessionConfigProvider::defaults());
-    let config_manager = Arc::new(
-        ConfigManager::new(tmp.path().join("config"))
-            .expect("ConfigManager::new failed"),
-    );
+    let provider: Arc<dyn SessionConfigProvider> = Arc::new(MockSessionConfigProvider::defaults());
+    let config_manager =
+        Arc::new(ConfigManager::new(tmp.path().join("config")).expect("ConfigManager::new failed"));
     let session_manager = make_session_manager();
 
     let (sweeper_rx, announce_sweeper_rx, dreaming_rx, plan_archive_rx) = (
@@ -448,9 +454,8 @@ async fn test_consistency_check_interval_from_provider() {
 /// Consistency check interval defaults to 3600 when not configured.
 #[tokio::test]
 async fn test_consistency_check_interval_default() {
-    let provider =
-        JsonSessionConfigProvider::new("/tmp/__nonexistent_consistency_default__.json")
-            .expect("should succeed with defaults for missing file");
+    let provider = JsonSessionConfigProvider::new("/tmp/__nonexistent_consistency_default__.json")
+        .expect("should succeed with defaults for missing file");
     assert_eq!(
         provider.consistency_check_interval_secs(),
         DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS
