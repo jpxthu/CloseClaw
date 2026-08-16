@@ -16,6 +16,7 @@ use closeclaw_common::{
     SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
+use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigSection;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
@@ -156,6 +157,11 @@ pub struct SessionManager {
     /// incremental scan will use 0 (equivalent to full scan) until the
     /// startup full scan sets this value.
     last_consistency_check_time: std::sync::Mutex<Option<i64>>,
+    /// Injected SessionConfigProvider for per-agent idle/purge thresholds.
+    /// When set, `get_session_config_for_agent` uses this directly instead
+    /// of going through ConfigManager, following the layer-2 component
+    /// extraction pattern.
+    session_config_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// In-memory tracker for active-searcher sub-sessions.
     /// Lightweight identity + lifecycle tracking (Running → Injected /
     /// NoResult / Abandoned), no persistence.
@@ -213,6 +219,7 @@ impl SessionManager {
             tool_register_fn: RwLock::new(None),
             gateway_ref: RwLock::new(None),
             last_consistency_check_time: std::sync::Mutex::new(None),
+            session_config_provider: RwLock::new(None),
             searcher_sessions: Arc::new(
                 closeclaw_session::active_searcher_session::SearcherSessionTracker::new(),
             ),
