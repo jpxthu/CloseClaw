@@ -355,7 +355,11 @@ impl IMPlugin for FeishuPlugin {
             return build_text("");
         }
 
-        let (title, elements) = renderer::dispatch_blocks(content_blocks, dsl_result);
+        let (title, elements) = renderer::dispatch_blocks(
+            content_blocks,
+            dsl_result,
+            true,
+        );
         build_card(title, elements)
     }
 

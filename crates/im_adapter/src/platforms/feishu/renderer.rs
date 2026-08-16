@@ -279,6 +279,7 @@ fn render_media_block(name: &str, url: &str, kind: &str) -> Vec<CardElement> {
 pub(crate) fn dispatch_blocks(
     content_blocks: &[ContentBlock],
     dsl_result: Option<&DslParseResult>,
+    allow_select_static: bool,
 ) -> (Option<String>, Vec<CardElement>) {
     let mut title: Option<String> = None;
     let mut elements: Vec<CardElement> = Vec::new();
@@ -319,21 +320,26 @@ pub(crate) fn dispatch_blocks(
 
     if let Some(r) = dsl_result {
         elements.extend(render_buttons(&r.instructions));
-        elements.extend(render_selectors(&r.instructions));
+        elements
+            .extend(render_selectors(&r.instructions, allow_select_static));
     }
 
     (title, elements)
 }
 
-/// Renders DSL selector instructions as Feishu select_static components.
+/// Renders DSL selector instructions as Feishu interactive components.
 ///
-/// Each selector produces its own `Action` element containing a `SelectMenu`.
-/// Feishu requires `select_static` to be inside an action container.
+/// When `allow_select_static` is `true`, each selector produces a native
+/// `SelectMenu` (`select_static`) inside an `Action` element.
 ///
-/// #降级策略
-/// 若飞书 API 返回不支持 select_static，可降级为每个选项一个按钮。
-/// 当前渲染走原生组件，降级路径在 adapter 层处理。
-pub(crate) fn render_selectors(instructions: &[DslInstruction]) -> Vec<CardElement> {
+/// When `allow_select_static` is `false`, each option is rendered as an
+/// individual button — label format `{selector_label}: {option}`, first
+/// option is `primary`, rest are `default`.  The selector's `action`
+/// parameter is preserved on every button.
+pub(crate) fn render_selectors(
+    instructions: &[DslInstruction],
+    allow_select_static: bool,
+) -> Vec<CardElement> {
     let selectors: Vec<&DslInstruction> = instructions
         .iter()
         .filter(|i| i.instruction_type == "selector")
@@ -345,33 +351,61 @@ pub(crate) fn render_selectors(instructions: &[DslInstruction]) -> Vec<CardEleme
 
     selectors
         .into_iter()
-        .map(|inst| {
+        .flat_map(|inst| {
             let label = inst.params.get("label").cloned().unwrap_or_default();
             let options_str = inst.params.get("options").cloned().unwrap_or_default();
             let action_name = inst.params.get("action").cloned();
-
-            let options: Vec<SelectOption> = options_str
+            let options: Vec<String> = options_str
                 .split(',')
-                .map(|s| s.trim())
+                .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
-                .map(|opt| SelectOption {
-                    text: CardText {
-                        tag: "plain_text".into(),
-                        content: opt.to_string(),
-                    },
-                    value: opt.to_string(),
-                })
                 .collect();
 
-            CardElement::Action {
-                actions: vec![CardAction::SelectMenu(SelectMenu {
-                    placeholder: CardText {
-                        tag: "plain_text".into(),
-                        content: label,
-                    },
-                    options,
-                    action_name,
-                })],
+            if allow_select_static {
+                let select_options: Vec<SelectOption> = options
+                    .iter()
+                    .map(|opt| SelectOption {
+                        text: CardText {
+                            tag: "plain_text".into(),
+                            content: opt.clone(),
+                        },
+                        value: opt.clone(),
+                    })
+                    .collect();
+                vec![CardElement::Action {
+                    actions: vec![CardAction::SelectMenu(SelectMenu {
+                        placeholder: CardText {
+                            tag: "plain_text".into(),
+                            content: label,
+                        },
+                        options: select_options,
+                        action_name,
+                    })],
+                }]
+            } else {
+                // Downgrade: one button per option
+                let mut actions = Vec::new();
+                for (idx, opt) in options.iter().enumerate() {
+                    let bt = if idx == 0 {
+                        "primary"
+                    } else {
+                        "default"
+                    };
+                    let btn_label = if label.is_empty() {
+                        opt.clone()
+                    } else {
+                        format!("{label}: {opt}")
+                    };
+                    actions.push(CardAction::Button {
+                        text: CardText {
+                            tag: "plain_text".into(),
+                            content: btn_label,
+                        },
+                        action_type: bt.into(),
+                        url: None,
+                    });
+                }
+                vec![CardElement::Action { actions }]
             }
         })
         .collect()
@@ -569,7 +603,7 @@ mod tests {
             },
             ContentBlock::Text("Hello".into()),
         ];
-        let (_, elements) = dispatch_blocks(&blocks, None);
+        let (_, elements) = dispatch_blocks(&blocks, None, true);
         let has_panel = elements
             .iter()
             .any(|e| matches!(e, CardElement::CollapsiblePanel { .. }));
@@ -668,7 +702,7 @@ mod tests {
             name: "photo.png".into(),
             url: "https://example.com/img.png".into(),
         }];
-        let (_, elements) = dispatch_blocks(&blocks, None);
+        let (_, elements) = dispatch_blocks(&blocks, None, true);
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             CardElement::Image { img_key, alt } => {
@@ -685,7 +719,7 @@ mod tests {
             name: "voice.mp3".into(),
             url: "https://example.com/audio.mp3".into(),
         }];
-        let (_, elements) = dispatch_blocks(&blocks, None);
+        let (_, elements) = dispatch_blocks(&blocks, None, true);
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             CardElement::Audio { file_token } => {
@@ -701,7 +735,7 @@ mod tests {
             name: "doc.pdf".into(),
             url: "https://example.com/doc.pdf".into(),
         }];
-        let (_, elements) = dispatch_blocks(&blocks, None);
+        let (_, elements) = dispatch_blocks(&blocks, None, true);
         assert_eq!(elements.len(), 1);
         match &elements[0] {
             CardElement::File { file_token } => {
@@ -717,7 +751,7 @@ mod tests {
             name: "photo.png".into(),
             url: String::new(),
         }];
-        let (_, elements) = dispatch_blocks(&blocks, None);
+        let (_, elements) = dispatch_blocks(&blocks, None, true);
         // Empty URL → text placeholder rendered as markdown
         let has_text = elements.iter().any(|e| {
             matches!(e, CardElement::Markdown { content } if content.contains("[image: photo.png]"))
@@ -731,7 +765,7 @@ mod tests {
             name: "voice.mp3".into(),
             url: String::new(),
         }];
-        let (_, elements) = dispatch_blocks(&blocks, None);
+        let (_, elements) = dispatch_blocks(&blocks, None, true);
         let has_text = elements.iter().any(|e| {
             matches!(e, CardElement::Markdown { content } if content.contains("[audio: voice.mp3]"))
         });
@@ -744,7 +778,7 @@ mod tests {
             name: "doc.pdf".into(),
             url: String::new(),
         }];
-        let (_, elements) = dispatch_blocks(&blocks, None);
+        let (_, elements) = dispatch_blocks(&blocks, None, true);
         let has_text = elements.iter().any(|e| {
             matches!(e, CardElement::Markdown { content } if content.contains("[file: doc.pdf]"))
         });
@@ -789,5 +823,146 @@ mod tests {
         let json = serde_json::to_value(&el).unwrap();
         assert_eq!(json["tag"], "file");
         assert_eq!(json["file_token"], "file_token_456");
+    }
+
+    // ================================================================
+    // render_selectors — allow_select_static (Step 1.3)
+    // ================================================================
+
+    fn make_selector_inst(label: &str, options: &str, action: &str) -> DslInstruction {
+        let mut params = std::collections::HashMap::new();
+        params.insert("label".into(), label.to_string());
+        params.insert("options".into(), options.to_string());
+        params.insert("action".into(), action.to_string());
+        DslInstruction {
+            instruction_type: "selector".into(),
+            params,
+        }
+    }
+
+    fn assert_single_action<'a>(
+        els: &'a [CardElement],
+    ) -> &'a [CardAction] {
+        assert_eq!(els.len(), 1);
+        match &els[0] {
+            CardElement::Action { actions } => actions,
+            other => panic!("expected Action, got {other:?}"),
+        }
+    }
+
+    fn assert_button(action: &CardAction, label: &str, bt: &str) {
+        match action {
+            CardAction::Button {
+                text,
+                action_type,
+                url,
+            } => {
+                assert_eq!(text.content, label);
+                assert_eq!(action_type, bt);
+                assert!(url.is_none());
+            }
+            other => panic!("expected Button, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_selectors_allow_true_produces_select_menu() {
+        let inst = make_selector_inst("Pick", "A,B,C", "pick_action");
+        let els = render_selectors(&[inst], true);
+        let actions = assert_single_action(&els);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            CardAction::SelectMenu(menu) => {
+                assert_eq!(menu.placeholder.content, "Pick");
+                assert_eq!(menu.options.len(), 3);
+                assert_eq!(menu.options[0].text.content, "A");
+                assert_eq!(menu.options[1].text.content, "B");
+                assert_eq!(menu.options[2].text.content, "C");
+                assert_eq!(menu.action_name.as_deref(), Some("pick_action"));
+            }
+            other => panic!("expected SelectMenu, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_selectors_allow_false_produces_buttons() {
+        let inst = make_selector_inst("Pick", "A,B,C", "pick_action");
+        let els = render_selectors(&[inst], false);
+        let actions = assert_single_action(&els);
+        assert_eq!(actions.len(), 3);
+        assert_button(&actions[0], "Pick: A", "primary");
+        assert_button(&actions[1], "Pick: B", "default");
+        assert_button(&actions[2], "Pick: C", "default");
+    }
+
+    #[test]
+    fn render_selectors_allow_false_empty_label_uses_option_text() {
+        let inst = make_selector_inst("", "X,Y", "do_it");
+        let els = render_selectors(&[inst], false);
+        let actions = assert_single_action(&els);
+        assert_eq!(actions.len(), 2);
+        assert_button(&actions[0], "X", "primary");
+        assert_button(&actions[1], "Y", "default");
+    }
+
+    #[test]
+    fn render_selectors_no_selectors_returns_empty() {
+        let btn = DslInstruction {
+            instruction_type: "button".into(),
+            params: std::collections::HashMap::from([(
+                "label".into(),
+                "Click".into(),
+            )]),
+        };
+        assert!(render_selectors(&[btn], true).is_empty());
+    }
+
+    #[test]
+    fn render_selectors_empty_options_returns_empty_action() {
+        let inst = make_selector_inst("Pick", "", "act");
+        let els = render_selectors(&[inst], true);
+        let actions = assert_single_action(&els);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            CardAction::SelectMenu(menu) => assert!(menu.options.is_empty()),
+            other => panic!("expected SelectMenu, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn render_selectors_allow_false_single_option_primary() {
+        let inst = make_selector_inst("Only", "Solo", "only_act");
+        let els = render_selectors(&[inst], false);
+        let actions = assert_single_action(&els);
+        assert_eq!(actions.len(), 1);
+        assert_button(&actions[0], "Only: Solo", "primary");
+    }
+
+    #[test]
+    fn dispatch_blocks_no_selectors_unchanged_with_param() {
+        let blocks = vec![ContentBlock::Text("Hello".into())];
+        let (_, elements) = dispatch_blocks(&blocks, None, false);
+        assert!(elements.iter().any(|e|
+            matches!(e, CardElement::Markdown { content } if content == "Hello")
+        ));
+    }
+
+    #[test]
+    fn dispatch_blocks_selector_allow_false_downgrades() {
+        let inst = make_selector_inst("Pick", "A,B", "sel_act");
+        let dsl = DslParseResult {
+            instructions: vec![inst],
+        };
+        let blocks = vec![ContentBlock::Text("Choose:".into())];
+        let (_, elements) = dispatch_blocks(&blocks, Some(&dsl), false);
+        let action = elements.iter().find(|e| matches!(e, CardElement::Action { .. }));
+        assert!(action.is_some(), "expected an Action element");
+        match action.unwrap() {
+            CardElement::Action { actions } => {
+                assert!(actions.iter().all(|a| matches!(a, CardAction::Button { .. })),
+                    "expected only buttons when allow_select_static=false");
+            }
+            _ => unreachable!(),
+        }
     }
 }
