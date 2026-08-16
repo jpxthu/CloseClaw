@@ -88,6 +88,20 @@ pub(crate) struct FeishuCardAction {
 
 pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
+/// Returns `true` when the Feishu API error code indicates a platform
+/// capability limitation (e.g. unsupported `select_static` component).
+///
+/// These errors warrant a one-time fallback retry via text message.
+/// Network failures, token errors, and permission errors are NOT
+/// capability errors.
+///
+/// Error code sources (Feishu Open Platform documentation):
+/// - 230001: invalid card element type
+/// - 230002: unsupported component in card template
+pub(crate) fn is_capability_error(code: i32) -> bool {
+    matches!(code, 230001 | 230002)
+}
+
 // ---------------------------------------------------------------------------
 // Quote helpers
 // ---------------------------------------------------------------------------
@@ -154,17 +168,12 @@ struct FeishuGetMessageResponse {
     items: Option<Vec<FeishuMsgItem>>,
 }
 
-#[derive(Serialize)]
-struct SendRequest<'a> {
-    receive_id: &'a str,
-    msg_type: &'a str,
-    content: &'a str,
-}
+
 
 #[derive(Deserialize)]
-struct SendResponse {
-    code: i32,
-    msg: String,
+pub(crate) struct SendResponse {
+    pub(crate) code: i32,
+    pub(crate) msg: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -368,62 +377,30 @@ impl FeishuAdapter {
             msg: String,
             data: Option<FeishuChatData>,
         }
-
         #[derive(Deserialize)]
         struct FeishuChatData {
             name: Option<String>,
         }
 
-        let token = match self.get_tenant_token().await {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!(
-                    chat_id = %chat_id,
-                    error = %e,
-                    "Failed to get tenant token for chat info"
-                );
-                return None;
-            }
-        };
-
-        let resp: FeishuChatResponse = match self
+        let token = self.get_tenant_token().await.ok()?;
+        let resp: FeishuChatResponse = self
             .http_client
             .get(format!("{}/im/v1/chats/{}", self.base_url, chat_id))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-        {
-            Ok(r) => match r.json().await {
-                Ok(j) => j,
-                Err(e) => {
-                    tracing::warn!(
-                        chat_id = %chat_id,
-                        error = %e,
-                        "Failed to parse chat info response"
-                    );
-                    return None;
-                }
-            },
-            Err(e) => {
-                tracing::warn!(
-                    chat_id = %chat_id,
-                    error = %e,
-                    "Failed to fetch chat info"
-                );
-                return None;
-            }
-        };
+            .ok()?
+            .json()
+            .await
+            .ok()?;
 
         if resp.code != 0 {
             tracing::warn!(
-                code = resp.code,
-                msg = %resp.msg,
-                chat_id = %chat_id,
+                code = resp.code, msg = %resp.msg, chat_id = %chat_id,
                 "Failed to fetch chat info"
             );
             return None;
         }
-
         resp.data.and_then(|d| d.name)
     }
 
@@ -769,6 +746,8 @@ impl FeishuAdapter {
             }
         }
     }
+
+
 }
 
 #[async_trait]
@@ -838,40 +817,31 @@ impl IMAdapter for FeishuAdapter {
         message: &Message,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await?;
-
-        let payload = SendRequest {
-            receive_id: &message.to,
-            msg_type: "text",
-            content: &serde_json::json!({ "text": &message.content }).to_string(),
-        };
-
-        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", self.base_url);
-        if let Some(rid) = root_id {
-            let encoded_rid: String =
-                url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
-            url = format!("{}&root_id={}", url, encoded_rid);
-        }
-
-        let resp: SendResponse = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
+        let token = self.get_tenant_token().await.map_err(|e| {
+            tracing::warn!(
+                receive_id = %message.to,
+                error = %e,
+                "Feishu token fetch failed"
+            );
+            e
+        })?;
+        let content =
+            serde_json::json!({ "text": &message.content }).to_string();
+        let resp = self
+            .send_msg(&token, &message.to, "text", &content, root_id)
+            .await?;
         if resp.code != 0 {
+            tracing::warn!(
+                receive_id = %message.to,
+                code = resp.code,
+                msg = %resp.msg,
+                "Feishu send error"
+            );
             return Err(AdapterError::SendFailed(format!(
                 "Feishu send error {}: {}",
                 resp.code, resp.msg
             )));
         }
-
         Ok(())
     }
 
@@ -881,40 +851,54 @@ impl IMAdapter for FeishuAdapter {
         card_json: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await?;
+        let token = self.get_tenant_token().await.map_err(|e| {
+            tracing::warn!(
+                receive_id = %chat_id,
+                error = %e,
+                "Feishu card token fetch failed"
+            );
+            e
+        })?;
 
-        let payload = SendRequest {
-            receive_id: chat_id,
-            msg_type: "interactive",
-            content: card_json,
-        };
-
-        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", self.base_url);
-        if let Some(rid) = root_id {
-            let encoded_rid: String =
-                url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
-            url = format!("{}&root_id={}", url, encoded_rid);
-        }
-
-        let resp: SendResponse = self
-            .http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        let resp = self
+            .send_msg(
+                &token, chat_id, "interactive", card_json, root_id,
+            )
+            .await?;
 
         if resp.code != 0 {
+            tracing::warn!(
+                receive_id = %chat_id,
+                code = resp.code,
+                msg = %resp.msg,
+                "Feishu card send error"
+            );
+            if is_capability_error(resp.code) {
+                if let Err(fb_err) = self
+                    .try_fallback_to_text(
+                        chat_id, card_json, &token, root_id,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        receive_id = %chat_id,
+                        error = %fb_err,
+                        "Text fallback after capability error also failed"
+                    );
+                    return Err(AdapterError::SendFailed(format!(
+                        "Feishu card send error {}: {}",
+                        resp.code, resp.msg
+                    )));
+                }
+                // Fallback succeeded — return Ok so mod.rs won't
+                // attempt a second fallback (avoids duplicate messages).
+                return Ok(());
+            }
             return Err(AdapterError::SendFailed(format!(
                 "Feishu card send error {}: {}",
                 resp.code, resp.msg
             )));
         }
-
         Ok(())
     }
 

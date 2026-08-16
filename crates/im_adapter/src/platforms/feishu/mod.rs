@@ -4,6 +4,7 @@
 //! [`FeishuAdapter`] (HTTP I/O) behind a single [`IMPlugin`] implementation.
 
 mod adapter;
+mod send_helpers;
 mod post_expand;
 mod text_style;
 #[cfg(test)]
@@ -20,6 +21,10 @@ mod cleaner_tests;
 mod feishu_adapter_tests;
 #[cfg(test)]
 mod feishu_tests;
+#[cfg(test)]
+mod send_fallback_tests;
+#[cfg(test)]
+mod send_warn_tests;
 pub mod renderer;
 pub mod tools;
 #[cfg(test)]
@@ -50,6 +55,7 @@ use super::PlatformEntry;
 pub use adapter::CachedToken;
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
+use renderer::extract_card_plain_text;
 pub use renderer::build_text;
 pub use renderer::should_use_card_for_blocks;
 
@@ -57,7 +63,7 @@ pub use renderer::should_use_card_for_blocks;
 #[cfg(test)]
 pub(crate) use adapter::{
     truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
-    FeishuSender, FeishuSenderId, FEISHU_API_BASE,
+    FeishuSender, FeishuSenderId, FEISHU_API_BASE, is_capability_error,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
@@ -270,6 +276,54 @@ impl FeishuPlugin {
     fn identity_resolver(&self) -> Option<&dyn IdentityResolver> {
         self.identity_resolver.as_deref()
     }
+
+    /// Fallback: extract plain text from an interactive card and send
+    /// via text message API.  Logs warnings on failure and always
+    /// returns `Ok(())` so the Agent keeps running.
+    async fn send_interactive_fallback(
+        &self,
+        peer_id: &str,
+        output: &RenderedOutput,
+        thread_id: Option<&str>,
+    ) {
+        let plain_text = extract_card_plain_text(&output.payload);
+        if plain_text.is_empty() {
+            warn!(
+                peer_id = %peer_id,
+                "No extractable text in card payload — returning Ok(())"
+            );
+            return;
+        }
+        let fallback = Self::make_text_message(peer_id, &plain_text);
+        if let Err(e2) = self
+            .adapter
+            .send_message(&fallback, thread_id)
+            .await
+        {
+            warn!(
+                peer_id = %peer_id,
+                error = %e2,
+                "Feishu text fallback also failed — returning Ok(()) per design doc"
+            );
+        }
+    }
+
+    /// Build a text-mode [`Message`] targeting `peer_id`.
+    fn make_text_message(peer_id: &str, text: &str) -> Message {
+        Message {
+            id: String::new(),
+            from: String::new(),
+            to: peer_id.to_string(),
+            content: text.to_string(),
+            channel: "feishu".to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            metadata: HashMap::new(),
+            thread_id: None,
+            platform: None,
+            dsl_result: None,
+            content_blocks: None,
+        }
+    }
 }
 
 #[async_trait]
@@ -352,7 +406,11 @@ impl IMPlugin for FeishuPlugin {
             return build_text("");
         }
 
-        let (title, elements) = renderer::dispatch_blocks(content_blocks, dsl_result);
+        let (title, elements) = renderer::dispatch_blocks(
+            content_blocks,
+            dsl_result,
+            true,
+        );
         build_card(title, elements)
     }
 
@@ -364,37 +422,42 @@ impl IMPlugin for FeishuPlugin {
     ) -> Result<(), CommonAdapterError> {
         match output.msg_type.as_str() {
             "text" => {
-                let text = output
-                    .payload
-                    .get("content")
+                let text = output.payload.get("content")
                     .and_then(|c| c.get("text"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                let message = Message {
-                    id: String::new(),
-                    from: String::new(),
-                    to: peer_id.to_string(),
-                    content: text.to_string(),
-                    channel: "feishu".to_string(),
-                    timestamp: chrono::Utc::now().timestamp(),
-                    metadata: HashMap::new(),
-                    thread_id: None,
-                    platform: None,
-                    dsl_result: None,
-                    content_blocks: None,
-                };
-                self.adapter
-                    .send_message(&message, _thread_id)
-                    .await
-                    .map_err(convert_to_common_error)
+                let message = Self::make_text_message(peer_id, text);
+                if let Err(e) = self.adapter.send_message(&message, _thread_id).await
+                {
+                    warn!(
+                        peer_id = %peer_id,
+                        error = %e,
+                        "Feishu text send failed — returning Ok(()) per design doc"
+                    );
+                    return Ok(());
+                }
+                Ok(())
             }
             "interactive" => {
                 let card_json = serde_json::to_string(&output.payload)
                     .map_err(|e| CommonAdapterError::SendFailed(e.to_string()))?;
-                self.adapter
+                match self
+                    .adapter
                     .send_card_json(peer_id, &card_json, _thread_id)
                     .await
-                    .map_err(convert_to_common_error)
+                {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        warn!(
+                            peer_id = %peer_id,
+                            error = %e,
+                            "Feishu interactive card send failed — falling back to plain text"
+                        );
+                        self.send_interactive_fallback(peer_id, output, _thread_id)
+                            .await;
+                        Ok(())
+                    }
+                }
             }
             _ => Err(CommonAdapterError::UnsupportedOperation),
         }
