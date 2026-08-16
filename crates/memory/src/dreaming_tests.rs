@@ -285,7 +285,6 @@ fn test_deep_entity_type_weight_applied() {
             frequency_weight: Some(1.0),
             recency_weight: Some(1.0),
             explicitness_weight: Some(1.0),
-            entity_type_weight_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -339,7 +338,6 @@ fn test_deep_relative_gate_per_entity_type() {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -913,7 +911,6 @@ fn test_e2e_light_rem_deep_pipeline() {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.5),
             explicitness_weight: Some(1.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()

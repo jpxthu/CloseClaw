@@ -14,7 +14,7 @@ use thiserror::Error;
 
 use closeclaw_config::agents::{
     default_capacity_max_rules, default_diary_path, default_memory_md_path,
-    default_scoring_cross_agent, default_scoring_entity_type_weight, default_scoring_explicitness,
+    default_scoring_cross_agent, default_scoring_explicitness,
     default_scoring_frequency, default_scoring_negative_signal, default_scoring_recency,
     default_threshold_absolute, default_threshold_relative, DreamingConfig, DreamingScoringConfig,
 };
@@ -604,20 +604,18 @@ impl DreamingPipeline {
             }
         };
         let w = &self.scoring;
-        group.score = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
+        let base = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
             + w.recency_weight.unwrap_or_else(default_scoring_recency) * recency
             + w.explicitness_weight
                 .unwrap_or_else(default_scoring_explicitness)
                 * explicitness
-            + w.entity_type_weight_weight
-                .unwrap_or_else(default_scoring_entity_type_weight)
-                * entity_type_weight
             + w.cross_agent_weight
                 .unwrap_or_else(default_scoring_cross_agent)
                 * cross_agent
             + w.negative_signal_weight
                 .unwrap_or_else(default_scoring_negative_signal)
                 * negative_signal;
+        group.score = base * entity_type_weight;
         group
     }
 
