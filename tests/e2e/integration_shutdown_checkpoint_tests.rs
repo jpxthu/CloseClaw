@@ -11,9 +11,9 @@
 #![cfg(feature = "fake-llm")]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_gateway::{GatewayConfig, Message};
 use closeclaw_llm::fake::FakeProvider;
@@ -114,7 +114,7 @@ async fn test_flush_all_writes_checkpoint_to_sqlite() {
     sm.push_pending_message(&sid, msg_unsent).await.unwrap();
 
     // Flush all sessions to storage
-    let saved = sm.flush_all().await.unwrap();
+    let saved = sm.flush_all(ShutdownMode::Graceful).await.unwrap();
     assert_eq!(saved, 1, "flush_all should save 1 session checkpoint");
 
     // Load checkpoint back from a fresh SqliteStorage instance at the same path
@@ -187,7 +187,7 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
     sm.push_pending_message(&sid, msg_sent).await.unwrap();
     sm.push_pending_message(&sid, msg_unsent).await.unwrap();
 
-    let saved = sm.flush_all().await.unwrap();
+    let saved = sm.flush_all(ShutdownMode::Graceful).await.unwrap();
     assert_eq!(saved, 1, "flush_all should save 1 session checkpoint");
 
     // Load checkpoint from a fresh SqliteStorage
@@ -332,7 +332,7 @@ async fn test_full_shutdown_restore_cycle() {
     sm1.push_pending_message(&sid, msg_unsent).await.unwrap();
 
     // flush_all simulates the graceful shutdown path
-    let saved = sm1.flush_all().await.unwrap();
+    let saved = sm1.flush_all(ShutdownMode::Graceful).await.unwrap();
     assert_eq!(saved, 1, "flush_all should save 1 session checkpoint");
 
     // Drop first SessionManager to simulate shutdown
