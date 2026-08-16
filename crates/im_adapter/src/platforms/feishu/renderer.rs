@@ -28,6 +28,20 @@ pub(crate) struct CardHeader {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(crate) struct SelectOption {
+    pub(crate) text: CardText,
+    pub(crate) value: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SelectMenu {
+    pub(crate) placeholder: CardText,
+    pub(crate) options: Vec<SelectOption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) action_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "tag")]
 pub(crate) enum CardElement {
     #[serde(rename = "markdown")]
@@ -62,13 +76,18 @@ impl CardNoteElement {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct CardAction {
-    tag: String,
-    text: CardText,
-    #[serde(rename = "type")]
-    action_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
+#[serde(tag = "tag")]
+pub(crate) enum CardAction {
+    #[serde(rename = "button")]
+    Button {
+        text: CardText,
+        #[serde(rename = "type")]
+        action_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
+    #[serde(rename = "select_static")]
+    SelectMenu(SelectMenu),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -263,9 +282,62 @@ pub(crate) fn dispatch_blocks(
 
     if let Some(r) = dsl_result {
         elements.extend(render_buttons(&r.instructions));
+        elements.extend(render_selectors(&r.instructions));
     }
 
     (title, elements)
+}
+
+/// Renders DSL selector instructions as Feishu select_static components.
+///
+/// Each selector produces its own `Action` element containing a `SelectMenu`.
+/// Feishu requires `select_static` to be inside an action container.
+///
+/// #降级策略
+/// 若飞书 API 返回不支持 select_static，可降级为每个选项一个按钮。
+/// 当前渲染走原生组件，降级路径在 adapter 层处理。
+pub(crate) fn render_selectors(instructions: &[DslInstruction]) -> Vec<CardElement> {
+    let selectors: Vec<&DslInstruction> = instructions
+        .iter()
+        .filter(|i| i.instruction_type == "selector")
+        .collect();
+
+    if selectors.is_empty() {
+        return Vec::new();
+    }
+
+    selectors
+        .into_iter()
+        .map(|inst| {
+            let label = inst.params.get("label").cloned().unwrap_or_default();
+            let options_str = inst.params.get("options").cloned().unwrap_or_default();
+            let action_name = inst.params.get("action").cloned();
+
+            let options: Vec<SelectOption> = options_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|opt| SelectOption {
+                    text: CardText {
+                        tag: "plain_text".into(),
+                        content: opt.to_string(),
+                    },
+                    value: opt.to_string(),
+                })
+                .collect();
+
+            CardElement::Action {
+                actions: vec![CardAction::SelectMenu(SelectMenu {
+                    placeholder: CardText {
+                        tag: "plain_text".into(),
+                        content: label,
+                    },
+                    options,
+                    action_name,
+                })],
+            }
+        })
+        .collect()
 }
 
 /// Renders DSL instructions as buttons.
@@ -288,8 +360,7 @@ fn render_buttons(instructions: &[DslInstruction]) -> Vec<CardElement> {
         } else {
             "default"
         };
-        actions.push(CardAction {
-            tag: "button".into(),
+        actions.push(CardAction::Button {
             text: CardText {
                 tag: "plain_text".into(),
                 content: label,
