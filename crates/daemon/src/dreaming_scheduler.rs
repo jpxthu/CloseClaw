@@ -95,6 +95,22 @@ async fn execute_dreaming_cycle(
         mine_archived_session(&session_id, &agents, storage, memory_miner).await;
     }
 
+    // Step 3: Run forgetting cleanup (delete expired events + orphan entities)
+    match memory_miner.run_forgetting_cleanup().await {
+        Ok(stats) => {
+            if stats.events_deleted > 0 || stats.entities_deleted > 0 {
+                info!(
+                    events_deleted = stats.events_deleted,
+                    entities_deleted = stats.entities_deleted,
+                    "forgetting cleanup stats"
+                );
+            }
+        }
+        Err(e) => {
+            warn!(%e, "forgetting cleanup failed");
+        }
+    }
+
     Ok(())
 }
 

@@ -15,7 +15,8 @@ use crate::miner::{MiningEntity, MiningEvent, MiningEventCategory};
 // ── Shared helpers ───────────────────────────────────────────────────
 
 pub(crate) fn make_event(title: &str, category: MiningEventCategory) -> MiningEvent {
-    let has_lesson = category != MiningEventCategory::Decision;
+    // Decision and Insight events do not carry a lesson per design doc.
+    let has_lesson = !matches!(category, MiningEventCategory::Decision | MiningEventCategory::Insight);
     MiningEvent {
         title: title.to_string(),
         summary: format!("Summary of {title}"),
