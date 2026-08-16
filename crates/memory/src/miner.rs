@@ -462,6 +462,26 @@ impl MemoryMiner {
         events.truncate(max);
         Ok(events)
     }
+
+    /// Run periodic forgetting cleanup: delete expired events and orphan entities.
+    ///
+    /// Uses `spawn_blocking` to keep the SQLite connection off the async
+    /// runtime, matching the pattern of `mine_session_inner`.
+    pub async fn run_forgetting_cleanup(
+        &self,
+    ) -> Result<crate::forgetting::ForgettingCleanupStats, MinerError> {
+        let db_path = self.db_path.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut conn =
+                rusqlite::Connection::open(&db_path)
+                    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            crate::miner::init_schema(&conn)?;
+            let now = chrono::Utc::now().timestamp();
+            crate::forgetting::cleanup_expired(&mut conn, now)
+        })
+        .await
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?
+    }
 }
 
 // ── SQLite operations ─────────────────────────────────────────────────
