@@ -3,6 +3,7 @@ use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::processor::MessageProcessor;
 use closeclaw_common::im_plugin::{MessageType, NormalizedMessage};
 use closeclaw_im_adapter::normalized::{add_code_block_language_hint, normalize_urls};
+use std::collections::HashMap;
 
 // -------------------------------------------------------------------------
 // strip_control_chars

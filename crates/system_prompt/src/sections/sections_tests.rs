@@ -73,6 +73,7 @@ fn test_load_cached_file_section_fresh() {
     assert_eq!(result3, Some("updated content".to_string()));
 }
 
+#[test]
 fn test_git_status_render() {
     let s = Section::GitStatus("On branch master\n?? file.txt".to_string());
     let rendered = s.render();

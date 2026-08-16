@@ -148,6 +148,7 @@ pub async fn build_tools_section(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
     use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_common::PlanState;
     use closeclaw_config::ConfigManager;
@@ -161,8 +162,9 @@ mod tests {
     use closeclaw_session::tools::SessionToolsRegistrar;
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
+    use closeclaw_tools::builtin::SkillTool;
     use closeclaw_tools::{
-        CoreToolsRegistrar, PlanToolsRegistrar, SkillTool, SkillsToolsRegistrar, ToolRegistrar,
+        CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar,
     };
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
@@ -248,8 +250,10 @@ mod tests {
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
                 agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
-                permission_engine,
-                approval_flow.clone(),
+                Arc::new(PermissionEngineAdapter(permission_engine)),
+                Arc::new(tokio::sync::Mutex::new(ApprovalFlowAdapter(
+                    approval_flow.clone(),
+                ))),
             )),
             Box::new(SkillsToolsRegistrar::new(Arc::new(SkillTool::new(
                 disk_registry,
