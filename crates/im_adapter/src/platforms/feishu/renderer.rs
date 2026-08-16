@@ -58,6 +58,19 @@ pub(crate) enum CardElement {
         header: CollapsiblePanelHeader,
         elements: Vec<CardElement>,
     },
+    #[serde(rename = "img")]
+    Image {
+        img_key: String,
+        alt: CardText,
+    },
+    #[serde(rename = "audio")]
+    Audio {
+        file_token: String,
+    },
+    #[serde(rename = "file")]
+    File {
+        file_token: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -268,14 +281,36 @@ pub(crate) fn dispatch_blocks(
             ContentBlock::ToolResult { content, .. } => {
                 elements.push(render_tool_result_block(content));
             }
-            ContentBlock::Image { name, .. } => {
-                elements.extend(to_elements(&format!("[image: {name}]")));
+            ContentBlock::Image { name, url } => {
+                if url.is_empty() {
+                    elements.extend(to_elements(&format!("[image: {name}]")));
+                } else {
+                    elements.push(CardElement::Image {
+                        img_key: url.clone(),
+                        alt: CardText {
+                            tag: "plain_text".into(),
+                            content: name.clone(),
+                        },
+                    });
+                }
             }
-            ContentBlock::Audio { name, .. } => {
-                elements.extend(to_elements(&format!("[audio: {name}]")));
+            ContentBlock::Audio { name, url } => {
+                if url.is_empty() {
+                    elements.extend(to_elements(&format!("[audio: {name}]")));
+                } else {
+                    elements.push(CardElement::Audio {
+                        file_token: url.clone(),
+                    });
+                }
             }
-            ContentBlock::File { name, .. } => {
-                elements.extend(to_elements(&format!("[file: {name}]")));
+            ContentBlock::File { name, url } => {
+                if url.is_empty() {
+                    elements.extend(to_elements(&format!("[file: {name}]")));
+                } else {
+                    elements.push(CardElement::File {
+                        file_token: url.clone(),
+                    });
+                }
             }
         }
     }
