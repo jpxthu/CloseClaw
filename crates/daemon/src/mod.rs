@@ -633,6 +633,7 @@ impl Daemon {
                 announce_sweeper_rx,
                 dreaming_rx,
                 plan_archive_rx,
+                session_config_provider,
             );
         // Create SpawnController as an independent component (depends on AgentRegistry).
         let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
@@ -788,19 +789,13 @@ impl Daemon {
         announce_sweeper_rx: watch::Receiver<()>,
         dreaming_rx: watch::Receiver<()>,
         plan_archive_rx: watch::Receiver<()>,
+        session_config_provider: Arc<dyn SessionConfigProvider>,
     ) -> (
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
     ) {
-        let session_config_provider =
-            config_manager.session_config_provider().unwrap_or_else(|| {
-                tracing::warn!("session config provider not available, using defaults");
-                Arc::new(
-                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
-                )
-            });
         let dreaming_config_provider = Arc::clone(&session_config_provider);
         let storage: Arc<dyn PersistenceService> =
             Arc::new(SqliteStorage::new(data_dir).expect("SqliteStorage already initialized"))
@@ -830,10 +825,8 @@ impl Daemon {
         info!("AnnounceSweeper spawned");
         // Spawn periodic consistency check (low-priority, non-blocking).
         {
-            let check_interval_secs = config_manager
-                .session_config_provider()
-                .map(|p| p.consistency_check_interval_secs())
-                .unwrap_or(closeclaw_config::session::DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS);
+            let check_interval_secs = session_config_provider
+                .consistency_check_interval_secs();
             let check_interval = std::time::Duration::from_secs(check_interval_secs);
             session_manager.spawn_periodic_consistency_check(check_interval);
         }
