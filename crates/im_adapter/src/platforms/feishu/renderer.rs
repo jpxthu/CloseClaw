@@ -313,7 +313,7 @@ pub(crate) fn render_selectors(instructions: &[DslInstruction]) -> Vec<CardEleme
 
             let options: Vec<SelectOption> = options_str
                 .split(',')
- .map(|s| s.trim())
+                .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
                 .map(|opt| SelectOption {
                     text: CardText {

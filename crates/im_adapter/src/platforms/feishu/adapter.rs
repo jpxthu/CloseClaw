@@ -176,38 +176,54 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
     }
 }
 
+/// Check a boolean style flag from the style JSON object.
+fn bool_style(style: &serde_json::Value, key: &str) -> bool {
+    style.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// Wrap text with inline markdown styles based on the style object.
+///
+/// Supported styles: bold, italic, strikethrough, underline.
+/// Combination styles are applied in order: outer styles (strikethrough)
+/// wrap inner styles (bold).
+fn wrap_inline_styles(text: &str, style: &serde_json::Value) -> String {
+    let mut result = text.to_string();
+    if bool_style(style, "bold") {
+        result = format!("**{}**", result);
+    }
+    if bool_style(style, "italic") {
+        result = format!("_{}_", result);
+    }
+    if bool_style(style, "strikethrough") {
+        result = format!("~~{}~~", result);
+    }
+    if bool_style(style, "underline") {
+        result = format!("<u>{}</u>", result);
+    }
+    result
+}
+
+/// Wrap text with a markdown link if the style contains a non-empty URL.
+fn wrap_link(text: &str, style: &serde_json::Value) -> String {
+    if let Some(url) = style
+        .get("link")
+        .and_then(|l| l.get("url"))
+        .and_then(|u| u.as_str())
+        .filter(|u| !u.is_empty())
+    {
+        format!("[{}]({})", text, url)
+    } else {
+        text.to_string()
+    }
+}
+
 /// Apply text styles to a text_run element's content.
 ///
 /// Supported styles: bold, italic, strikethrough, underline, link.
 /// Combination styles are applied in order: inline styles first, then link.
-/// Outer styles (strikethrough) wrap inner styles (bold).
 fn apply_text_style(text: &str, style: &serde_json::Value) -> String {
-    let mut result = text.to_string();
-
-    // Apply inline styles in order: bold, italic, strikethrough, underline
-    if style.get("bold").and_then(|v| v.as_bool()).unwrap_or(false) {
-        result = format!("**{}**", result);
-    }
-    if style.get("italic").and_then(|v| v.as_bool()).unwrap_or(false) {
-        result = format!("_{}_", result);
-    }
-    if style.get("strikethrough").and_then(|v| v.as_bool()).unwrap_or(false) {
-        result = format!("~~{}~~", result);
-    }
-    if style.get("underline").and_then(|v| v.as_bool()).unwrap_or(false) {
-        result = format!("<u>{}</u>", result);
-    }
-
-    // Link wraps the styled text: [styled_text](url)
-    if let Some(link) = style.get("link") {
-        if let Some(url) = link.get("url").and_then(|u| u.as_str()) {
-            if !url.is_empty() {
-                result = format!("[{}]({})", result, url);
-            }
-        }
-    }
-
-    result
+    let styled = wrap_inline_styles(text, style);
+    wrap_link(&styled, style)
 }
 
 // ---------------------------------------------------------------------------
