@@ -20,6 +20,9 @@ pub mod tools_section;
 pub mod workdir;
 
 #[cfg(test)]
+pub mod test_adapters;
+
+#[cfg(test)]
 pub mod inject_tests;
 #[cfg(test)]
 pub mod plan_path_tests;

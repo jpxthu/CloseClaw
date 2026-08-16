@@ -948,6 +948,8 @@ impl Daemon {
 }
 
 #[cfg(test)]
+mod daemon_shutdown_tests;
+#[cfg(test)]
 mod dreaming_scheduler_tests;
 #[cfg(test)]
 mod lifecycle_abort_tests;

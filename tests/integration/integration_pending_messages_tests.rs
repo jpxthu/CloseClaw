@@ -11,7 +11,6 @@
 #![cfg(feature = "fake-llm")]
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 

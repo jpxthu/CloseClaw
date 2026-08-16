@@ -21,3 +21,5 @@ pub use openai::OpenAiProtocol;
 mod anthropic_tests;
 #[cfg(test)]
 mod protocol_tests;
+#[cfg(test)]
+mod sse_tool_calls_tests;

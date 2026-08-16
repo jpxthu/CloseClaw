@@ -1,6 +1,6 @@
-//! Integration tests for OpenAI SSE tool_calls parsing.
-use closeclaw_llm::protocol::{ChatProtocol, IncomingSseStream, OpenAiProtocol};
-use closeclaw_llm::types::{ContentBlockType, ContentDelta, RawSseChunk, StreamEvent};
+//! Unit tests for OpenAI SSE tool_calls parsing.
+use super::{ChatProtocol, IncomingSseStream, OpenAiProtocol};
+use crate::types::{ContentBlockType, ContentDelta, RawSseChunk, StreamEvent};
 use futures::StreamExt;
 
 /// Helper to create SSE chunk matching test pattern

@@ -160,6 +160,8 @@ fn test_agent_config_new_fields_roundtrip() {
             max_spawn_depth: Some(3),
             max_children: Some(10),
             timeout: None,
+            timeout_warning: None,
+            timeout_notify_interval_ratio: None,
             default_child_agent: Some("child-agent".to_string()),
             model: Some(ModelSpec::single("claude-3")),
         },

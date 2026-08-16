@@ -41,6 +41,8 @@ mod client_test;
 pub mod interpreter;
 #[cfg(test)]
 mod interpreter_test;
+#[cfg(test)]
+mod llm_tests;
 pub mod plugin;
 pub mod unified_fallback;
 #[cfg(test)]

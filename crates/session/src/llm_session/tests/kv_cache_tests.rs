@@ -1,16 +1,12 @@
-#![cfg(feature = "fake-llm")]
-
-//! E2E tests for KV cache prefix stability across multi-turn conversations.
+//! Unit tests for KV cache prefix stability across multi-turn conversations.
 //!
 //! Verifies three dimensions:
 //! 1. Cache read tokens accumulate correctly across N rounds
 //! 2. Cache break detection triggers `tracing::warn!` when thresholds are met
 //! 3. Cache hit rate calculation is correct
-//!
-//! Run with: `cargo test --features fake-llm --test e2e_kv_cache_tests`
 
-use closeclaw_llm::types::UnifiedUsage;
-use closeclaw_session::llm_session::ConversationSession;
+use crate::llm_session::ConversationSession;
+use closeclaw_common::UnifiedUsage;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 use tracing::Subscriber;
@@ -113,22 +109,6 @@ fn make_usage(
 #[tokio::test]
 async fn test_cache_hit_accumulation() {
     let n_rounds = 6;
-    let mut builder = closeclaw_llm::fake::FakeProvider::builder();
-
-    // Each round returns increasing cache_read_tokens (1000, 2000, 3000, ...)
-    // with fixed prompt_tokens = 500, completion_tokens = 100.
-    for i in 1..=n_rounds {
-        let cache_read = i as u32 * 1000;
-        builder = builder.then_ok_with_cache(
-            format!("reply {i}"),
-            "glm-5",
-            500,                      // prompt_tokens
-            100,                      // completion_tokens
-            (Some(cache_read), None), // cache_write_tokens
-        );
-    }
-
-    let _fake_provider = builder.or_else("fallback").build();
     let test_root = TempDir::new().unwrap();
     let mut session = ConversationSession::new(
         "test-cache-accum".into(),
@@ -136,7 +116,7 @@ async fn test_cache_hit_accumulation() {
         test_root.path().to_path_buf(),
     );
 
-    // Simulate N rounds by extracting usage from FakeProvider scenarios.
+    // Simulate N rounds of LLM usage accumulation.
     // In production, the session handler calls detect → accumulate after
     // each LLM response. We replicate that flow here.
     for i in 1..=n_rounds {

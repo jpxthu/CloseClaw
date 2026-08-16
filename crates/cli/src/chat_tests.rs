@@ -102,16 +102,17 @@ async fn test_build_gateway_slash_help_dispatchable() {
         None,
         ReasoningLevel::default(),
     ));
-    slash_registry.register(Arc::new(closeclaw_slash::ClearHandler::new(Arc::clone(
-        &session_manager,
-    ))));
+    slash_registry.register(Arc::new(closeclaw_slash::ClearHandler::new(
+        Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+    )));
     let help_handler = closeclaw_slash::HelpHandler::new(Arc::clone(&slash_registry));
     slash_registry.register(Arc::new(help_handler));
     slash_registry.register(Arc::new(closeclaw_slash::NewSessionHandler));
     slash_registry.register(Arc::new(closeclaw_slash::StopHandler));
-    slash_registry.register(Arc::new(closeclaw_slash::StatusHandler::new(Arc::clone(
-        &session_manager,
-    ))));
+    slash_registry
+        .register(Arc::new(closeclaw_slash::StatusHandler::new(
+            Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        )));
 
     let dispatcher = SlashDispatcher::from_shared(slash_registry);
 

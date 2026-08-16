@@ -168,6 +168,8 @@ impl crate::lookup::AgentConfigLookup for AgentRegistry {
 }
 
 #[cfg(test)]
+mod agent_registry_tests;
+#[cfg(test)]
 mod config_tests;
 #[cfg(test)]
 mod registry_query_tests;
