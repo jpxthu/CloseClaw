@@ -293,19 +293,7 @@ impl FeishuPlugin {
             );
             return;
         }
-        let fallback = Message {
-            id: String::new(),
-            from: String::new(),
-            to: peer_id.to_string(),
-            content: plain_text,
-            channel: "feishu".to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
-            metadata: HashMap::new(),
-            thread_id: None,
-            platform: None,
-            dsl_result: None,
-            content_blocks: None,
-        };
+        let fallback = Self::make_text_message(peer_id, &plain_text);
         if let Err(e2) = self
             .adapter
             .send_message(&fallback, thread_id)
@@ -316,6 +304,23 @@ impl FeishuPlugin {
                 error = %e2,
                 "Feishu text fallback also failed — returning Ok(()) per design doc"
             );
+        }
+    }
+
+    /// Build a text-mode [`Message`] targeting `peer_id`.
+    fn make_text_message(peer_id: &str, text: &str) -> Message {
+        Message {
+            id: String::new(),
+            from: String::new(),
+            to: peer_id.to_string(),
+            content: text.to_string(),
+            channel: "feishu".to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            metadata: HashMap::new(),
+            thread_id: None,
+            platform: None,
+            dsl_result: None,
+            content_blocks: None,
         }
     }
 }
@@ -416,29 +421,12 @@ impl IMPlugin for FeishuPlugin {
     ) -> Result<(), CommonAdapterError> {
         match output.msg_type.as_str() {
             "text" => {
-                let text = output
-                    .payload
-                    .get("content")
+                let text = output.payload.get("content")
                     .and_then(|c| c.get("text"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                let message = Message {
-                    id: String::new(),
-                    from: String::new(),
-                    to: peer_id.to_string(),
-                    content: text.to_string(),
-                    channel: "feishu".to_string(),
-                    timestamp: chrono::Utc::now().timestamp(),
-                    metadata: HashMap::new(),
-                    thread_id: None,
-                    platform: None,
-                    dsl_result: None,
-                    content_blocks: None,
-                };
-                if let Err(e) = self
-                    .adapter
-                    .send_message(&message, _thread_id)
-                    .await
+                let message = Self::make_text_message(peer_id, text);
+                if let Err(e) = self.adapter.send_message(&message, _thread_id).await
                 {
                     warn!(
                         peer_id = %peer_id,
