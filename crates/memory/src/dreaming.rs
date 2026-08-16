@@ -14,9 +14,9 @@ use thiserror::Error;
 
 use closeclaw_config::agents::{
     default_capacity_max_rules, default_diary_path, default_memory_md_path,
-    default_scoring_cross_agent, default_scoring_explicitness,
-    default_scoring_frequency, default_scoring_negative_signal, default_scoring_recency,
-    default_threshold_absolute, default_threshold_relative, DreamingConfig, DreamingScoringConfig,
+    default_scoring_cross_agent, default_scoring_explicitness, default_scoring_frequency,
+    default_scoring_negative_signal, default_scoring_recency, default_threshold_absolute,
+    default_threshold_relative, DreamingConfig, DreamingScoringConfig,
 };
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
@@ -479,11 +479,12 @@ impl DreamingPipeline {
             Ok(c) => c,
             Err(_) => return HashMap::new(),
         };
-        let mut stmt =
-            match conn.prepare("SELECT ent.normalized_name, ent.type, ent.agent_id FROM entities ent") {
-                Ok(s) => s,
-                Err(_) => return HashMap::new(),
-            };
+        let sql = "SELECT ent.normalized_name, ent.type, ent.agent_id \
+                FROM entities ent";
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return HashMap::new(),
+        };
         let mut map: HashMap<(String, String), HashSet<String>> = HashMap::new();
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -595,11 +596,14 @@ impl DreamingPipeline {
         // negative_signal: reversal detection — count entries whose
         // category differs from the earliest entry's category.
         let negative_signal = {
-            let mut sorted = group.entries.clone();
-            sorted.sort_by_key(|e| e.timestamp);
-            match sorted.first().map(|e| e.category) {
+            let earliest = group
+                .entries
+                .iter()
+                .min_by_key(|e| e.timestamp)
+                .map(|e| e.category);
+            match earliest {
                 Some(fc) => {
-                    let reversals = sorted.iter().filter(|e| e.category != fc).count();
+                    let reversals = group.entries.iter().filter(|e| e.category != fc).count();
                     reversals as f64 / total
                 }
                 None => 0.0,

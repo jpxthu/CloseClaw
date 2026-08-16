@@ -79,8 +79,7 @@ fn test_multiplier_semantics() {
     let (_tmp, db_path) = make_db();
     let pipeline = make_pipeline_with_db(&db_path);
 
-    let mut subject_entry =
-        make_entry(EntryCategory::Error, "err1", "s1", "subject", "deploy", 10);
+    let mut subject_entry = make_entry(EntryCategory::Error, "err1", "s1", "subject", "deploy", 10);
     subject_entry.event_id = 1;
     let subject_group = EntityGroup {
         entity_name: "deploy".into(),
@@ -91,8 +90,7 @@ fn test_multiplier_semantics() {
         score: 0.0,
     };
 
-    let mut person_entry =
-        make_entry(EntryCategory::Error, "err2", "s1", "person", "alice", 10);
+    let mut person_entry = make_entry(EntryCategory::Error, "err2", "s1", "person", "alice", 10);
     person_entry.event_id = 2;
     let person_group = EntityGroup {
         entity_name: "alice".into(),
@@ -279,11 +277,8 @@ fn test_normalized_name_clustering() {
     {
         let conn = rusqlite::Connection::open(&db_path).unwrap();
         // Session must exist with mined=1 for load_entries_from_sqlite.
-        conn.execute(
-            "INSERT INTO sessions (id, mined) VALUES ('s1', 1)",
-            [],
-        )
-        .unwrap();
+        conn.execute("INSERT INTO sessions (id, mined) VALUES ('s1', 1)", [])
+            .unwrap();
         conn.execute(
             "INSERT INTO entities (agent_id, type, name, normalized_name)
              VALUES ('agent-a', 'product', 'Banana', 'banana')",
@@ -298,16 +293,18 @@ fn test_normalized_name_clustering() {
         .unwrap();
         // Two events linked to each entity.
         conn.execute(
-            "INSERT INTO events (title, summary, content, category, lesson, source_session_id,
-             agent_id, timestamp, updated_at)
-             VALUES ('title1', 'sum1', 'err1', 'error', NULL, 's1', 'agent-a', 1700000000, 1700000000)",
+            "INSERT INTO events (title, summary, content, category, lesson,
+             source_session_id, agent_id, timestamp, updated_at) VALUES \
+             ('title1', 'sum1', 'err1', 'error', NULL, 's1', 'agent-a', \
+             1700000000, 1700000000)",
             [],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO events (title, summary, content, category, lesson, source_session_id,
-             agent_id, timestamp, updated_at)
-             VALUES ('title2', 'sum2', 'err2', 'error', NULL, 's1', 'agent-b', 1700000060, 1700000060)",
+            "INSERT INTO events (title, summary, content, category, lesson,
+             source_session_id, agent_id, timestamp, updated_at) VALUES \
+             ('title2', 'sum2', 'err2', 'error', NULL, 's1', 'agent-b', \
+             1700000060, 1700000060)",
             [],
         )
         .unwrap();
@@ -326,10 +323,7 @@ fn test_normalized_name_clustering() {
 
     let pipeline = make_pipeline_with_db(&db_path);
     let entries = pipeline
-        .load_entries_from_sqlite(
-            &rusqlite::Connection::open(&db_path).unwrap(),
-            "s1",
-        )
+        .load_entries_from_sqlite(&rusqlite::Connection::open(&db_path).unwrap(), "s1")
         .unwrap();
 
     // Both entries should have entity_name = "banana" (normalized).
@@ -353,7 +347,8 @@ fn test_normalized_name_clustering() {
         groups[0].frequency
     );
     assert_eq!(
-        groups[0].entries.len(), 2,
+        groups[0].entries.len(),
+        2,
         "group should contain both entries"
     );
 }
@@ -388,12 +383,20 @@ fn test_normalized_name_cross_agent() {
 
     // Both entries share normalized_name "banana" and type "product".
     let e1 = make_entry(
-        EntryCategory::Error, "err from agent-a", "s1",
-        "product", "banana", 10,
+        EntryCategory::Error,
+        "err from agent-a",
+        "s1",
+        "product",
+        "banana",
+        10,
     );
     let e2 = make_entry(
-        EntryCategory::Error, "err from agent-b", "s2",
-        "product", "banana", 5,
+        EntryCategory::Error,
+        "err from agent-b",
+        "s2",
+        "product",
+        "banana",
+        5,
     );
 
     // REM stage: entries from different sessions with same normalized_name
