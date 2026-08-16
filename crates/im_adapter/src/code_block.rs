@@ -244,4 +244,101 @@ mod tests {
             },]
         );
     }
+
+    // ---- Additional edge-case tests (Step 1.3) ----
+
+    #[test]
+    fn empty_string_input() {
+        let segs = parse_content_segments("");
+        assert!(segs.is_empty());
+    }
+
+    #[test]
+    fn blank_line_outside_code_block_preserved() {
+        let input = "line1\n\nline2";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::Markdown("line1".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("line2".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn multiple_hr_sequential() {
+        let input = "---\n---\n---";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![ContentSegment::Hr, ContentSegment::Hr, ContentSegment::Hr,]
+        );
+    }
+
+    #[test]
+    fn four_backtick_fence_opens_with_language() {
+        // ```` with a language tag: parser strips exactly 3 backticks,
+        // so the 4th backtick is captured as part of the language string.
+        let input = "````rust\nfn main() {}\n````";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![ContentSegment::CodeBlock {
+                language: "`rust".into(),
+                code: "fn main() {}".into(),
+            },]
+        );
+    }
+
+    #[test]
+    fn mixed_segments_long_content() {
+        let input = "# Title\n\nSome introductory text.\n\n```python\ndef hello():\n    print(\"world\")\n\n    return 42\n```\n\n---\n\nMore text after the rule.\n\n```\nraw\ncode\n```\n\nFinal paragraph.";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::Markdown("# Title".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("Some introductory text.".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::CodeBlock {
+                    language: "python".into(),
+                    code: "def hello():\n    print(\"world\")\n\n    return 42".into(),
+                },
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Hr,
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("More text after the rule.".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::CodeBlock {
+                    language: String::new(),
+                    code: "raw\ncode".into(),
+                },
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("Final paragraph.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn backtick_fence_with_extra_backticks_inside_code_block() {
+        // A line of only backticks (>=3) inside a code block closes it
+        // per "全反引号行即关闭围栏" rule. The remaining ``` after line2
+        // is an unclosed fence that falls back to Markdown("```").
+        let input = "```\nline1\n````\nline2\n```";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::CodeBlock {
+                    language: String::new(),
+                    code: "line1".into(),
+                },
+                ContentSegment::Markdown("line2".into()),
+                ContentSegment::Markdown("```".into()),
+            ]
+        );
+    }
 }
