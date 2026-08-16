@@ -23,15 +23,8 @@ pub enum ContentSegment {
 // parse_content_segments
 // ---------------------------------------------------------------------------
 
-/// Parses `content` into [`ContentSegment`]s.
-///
-/// - Fenced code blocks (`` ``` `` … `` ``` ``) are collected as a single
-///   [`ContentSegment::CodeBlock`].
-/// - Outside code blocks: empty lines are skipped, `---` becomes [`Hr`](ContentSegment::Hr),
-///   everything else becomes [`Markdown`](ContentSegment::Markdown).
-/// - An unclosed fence is treated as regular markdown text.
-/// - Backtick fences nested inside a code block are preserved as content.
-///   Emit accumulated code-block lines as regular markdown (unclosed fence).
+/// Emits accumulated code-block lines as [`Markdown`](ContentSegment::Markdown)
+/// segments when the opening fence was never closed.
 fn flush_unclosed_fence(lang: &str, code_lines: &[&str], segments: &mut Vec<ContentSegment>) {
     let opening = if lang.is_empty() {
         "```".to_string()
@@ -49,19 +42,32 @@ fn process_outside_line(line: &str, segments: &mut Vec<ContentSegment>) -> Optio
     let trimmed = line.trim_end();
     if let Some(after_ticks) = trimmed.strip_prefix("```") {
         if after_ticks.is_empty() || !after_ticks.contains(' ') {
-            return Some(after_ticks.to_string()); // opening fence
+            return Some(after_ticks.trim().to_string()); // opening fence, trimmed
         }
         segments.push(ContentSegment::Markdown(line.to_string()));
-    } else if !trimmed.is_empty() {
-        if trimmed == "---" {
-            segments.push(ContentSegment::Hr);
-        } else {
-            segments.push(ContentSegment::Markdown(line.to_string()));
-        }
+    } else if trimmed == "---" {
+        segments.push(ContentSegment::Hr);
+    } else {
+        // Preserve empty lines as empty Markdown segments to maintain
+        // original formatting (blank lines between paragraphs, etc.).
+        segments.push(ContentSegment::Markdown(line.to_string()));
     }
     None
 }
 
+/// Parses `content` into [`ContentSegment`]s.
+///
+/// - Fenced code blocks (`` ``` `` … `` ``` ``) are collected as a single
+///   [`ContentSegment::CodeBlock`].
+/// - Outside code blocks: empty lines are preserved as empty
+///   [`Markdown("")`](ContentSegment::Markdown) segments, `---` becomes
+///   [`Hr`](ContentSegment::Hr), everything else becomes
+///   [`Markdown`](ContentSegment::Markdown).
+/// - An unclosed fence is treated as regular markdown text.
+/// - A line consisting only of backticks (≥3) inside a code block closes
+///   the fence (the backtick line itself is consumed as the closing fence).
+///   Emit accumulated code-block lines as regular [`Markdown`](ContentSegment::Markdown)
+///   segments (the fence was never closed).
 pub fn parse_content_segments(content: &str) -> Vec<ContentSegment> {
     let mut segments: Vec<ContentSegment> = Vec::new();
     let mut in_code = false;
@@ -242,6 +248,117 @@ mod tests {
                 language: "python".into(),
                 code: "print('hi')".into(),
             },]
+        );
+    }
+
+    // ---- Additional edge-case tests (Step 1.3) ----
+
+    #[test]
+    fn empty_string_input() {
+        let segs = parse_content_segments("");
+        assert!(segs.is_empty());
+    }
+
+    #[test]
+    fn blank_line_outside_code_block_preserved() {
+        let input = "line1\n\nline2";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::Markdown("line1".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("line2".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn multiple_hr_sequential() {
+        let input = "---\n---\n---";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![ContentSegment::Hr, ContentSegment::Hr, ContentSegment::Hr,]
+        );
+    }
+
+    #[test]
+    fn trailing_space_in_language_tag() {
+        let input = "```rust \nfn main() {}\n```";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![ContentSegment::CodeBlock {
+                language: "rust".into(),
+                code: "fn main() {}".into(),
+            },]
+        );
+    }
+
+    #[test]
+    fn four_backtick_fence_opens_with_language() {
+        // Known design behavior (not a bug): the parser only strips the leading
+        // 3 backticks from the opening fence; the 4th backtick is retained as
+        // part of the language field, producing language="`rust".
+        let input = "````rust\nfn main() {}\n````";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![ContentSegment::CodeBlock {
+                language: "`rust".into(),
+                code: "fn main() {}".into(),
+            },]
+        );
+    }
+
+    #[test]
+    fn mixed_segments_long_content() {
+        let input = "# Title\n\nSome introductory text.\n\n```python\ndef hello():\n    print(\"world\")\n\n    return 42\n```\n\n---\n\nMore text after the rule.\n\n```\nraw\ncode\n```\n\nFinal paragraph.";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::Markdown("# Title".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("Some introductory text.".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::CodeBlock {
+                    language: "python".into(),
+                    code: "def hello():\n    print(\"world\")\n\n    return 42".into(),
+                },
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Hr,
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("More text after the rule.".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::CodeBlock {
+                    language: String::new(),
+                    code: "raw\ncode".into(),
+                },
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("Final paragraph.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn backtick_fence_with_extra_backticks_inside_code_block() {
+        // A line of only backticks (>=3) inside a code block closes it
+        // per "全反引号行即关闭围栏" rule. The remaining ``` after line2
+        // is an unclosed fence that falls back to Markdown("```").
+        let input = "```\nline1\n````\nline2\n```";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::CodeBlock {
+                    language: String::new(),
+                    code: "line1".into(),
+                },
+                ContentSegment::Markdown("line2".into()),
+                ContentSegment::Markdown("```".into()),
+            ]
         );
     }
 }

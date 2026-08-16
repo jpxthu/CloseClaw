@@ -1,5 +1,4 @@
 pub mod bootstrap;
-pub mod code_block;
 pub mod communication;
 pub mod compaction;
 pub mod execution_types;
