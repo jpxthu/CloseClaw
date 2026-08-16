@@ -123,7 +123,7 @@ Owner 和 User 可以查询和设置当前会话的展示等级。切换等级�
 
 ### F13. 审批指令
 
-Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 对 Agent 操作进行放行或拒绝。三条指令均为 Immediate，仅 Owner 可用，非 Owner 调用时返回权限不足提示。
+Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 对 Agent 操作进行放行或拒绝。三条指令均为 Immediate，仅 Owner 可用。
 
 > **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、ID 规则、超时参数详见 [permission §F5](permission.md)（审批工作流）。指令的 Immediate 标记和身份校验详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
