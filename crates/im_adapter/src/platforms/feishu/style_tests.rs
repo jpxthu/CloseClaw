@@ -109,7 +109,7 @@ fn make_selector_inst(label: &str, options: &str, action: &str) -> DslInstructio
 #[test]
 fn test_render_selectors_single_selector_returns_select_action() {
     let inst = make_selector_inst("Choose", "A,B,C", "pick");
-    let result = render_selectors(&[inst]);
+    let result = render_selectors(&[inst], true);
     assert_eq!(result.len(), 1);
     match &result[0] {
         CardElement::Action { actions } => {
@@ -137,7 +137,7 @@ fn test_render_selectors_mixed_with_buttons() {
         params: [("label".into(), "OK".into())].into_iter().collect(),
     };
     let sel = make_selector_inst("Pick", "X,Y", "choose");
-    let result = render_selectors(&[btn, sel]);
+    let result = render_selectors(&[btn, sel], true);
     // render_selectors only processes selector instructions
     assert_eq!(result.len(), 1);
     match &result[0] {
@@ -154,7 +154,7 @@ fn test_render_selectors_mixed_with_buttons() {
 #[test]
 fn test_render_selectors_empty_options_returns_empty_vec() {
     let inst = make_selector_inst("Pick", "", "choose");
-    let result = render_selectors(&[inst]);
+    let result = render_selectors(&[inst], true);
     assert_eq!(result.len(), 1);
     match &result[0] {
         CardElement::Action { actions } => {
@@ -170,7 +170,7 @@ fn test_render_selectors_empty_options_returns_empty_vec() {
 #[test]
 fn test_render_selectors_options_with_spaces_are_trimmed() {
     let inst = make_selector_inst("Pick", " A , B , C ", "choose");
-    let result = render_selectors(&[inst]);
+    let result = render_selectors(&[inst], true);
     match &result[0] {
         CardElement::Action { actions } => {
             match &actions[0] {
@@ -189,14 +189,14 @@ fn test_render_selectors_options_with_spaces_are_trimmed() {
 
 #[test]
 fn test_render_selectors_no_instructions_returns_empty() {
-    let result = render_selectors(&[]);
+    let result = render_selectors(&[], true);
     assert!(result.is_empty());
 }
 
 #[test]
 fn test_render_selectors_serializes_with_select_static_tag() {
     let inst = make_selector_inst("Choose", "Opt1,Opt2", "my_action");
-    let result = render_selectors(&[inst]);
+    let result = render_selectors(&[inst], true);
     let json = serde_json::to_value(&result[0]).unwrap();
     assert_eq!(json["tag"], "action");
     let actions = json["actions"].as_array().unwrap();
@@ -220,7 +220,7 @@ fn test_render_selectors_no_action_param_omits_action_name() {
         .into_iter()
         .collect(),
     };
-    let result = render_selectors(&[inst]);
+    let result = render_selectors(&[inst], true);
     let json = serde_json::to_value(&result[0]).unwrap();
     let sel = &json["actions"][0];
     assert!(sel.get("action_name").is_none());

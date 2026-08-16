@@ -997,4 +997,3 @@ async fn test_parse_unknown_type_none() {
     assert!(a.parse_message_event(e).await.unwrap().is_none());
 }
 
-
