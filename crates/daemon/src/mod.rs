@@ -403,6 +403,23 @@ impl Daemon {
     }
 }
 
+/// Bundled shutdown receivers for background services.
+///
+/// Groups the individual `watch::Receiver<()>` arguments passed to
+/// [`Daemon::spawn_background_services`] into a single struct to
+/// satisfy clippy's `too_many_arguments` limit while keeping the
+/// internal API ergonomic.
+pub(crate) struct ServiceShutdownReceivers {
+    /// Receiver for ArchiveSweeper shutdown signal.
+    pub sweeper: watch::Receiver<()>,
+    /// Receiver for AnnounceSweeper shutdown signal.
+    pub announce_sweeper: watch::Receiver<()>,
+    /// Receiver for DreamingScheduler shutdown signal.
+    pub dreaming: watch::Receiver<()>,
+    /// Receiver for PlanArchiveTask shutdown signal.
+    pub plan_archive: watch::Receiver<()>,
+}
+
 // --- Phase 4-5 initialization ---
 impl Daemon {
     /// Phase 4: Wiring — ApprovalFlow.
@@ -626,10 +643,12 @@ impl Daemon {
                 config_manager,
                 session_manager,
                 data_dir,
-                sweeper_rx,
-                announce_sweeper_rx,
-                dreaming_rx,
-                plan_archive_rx,
+                ServiceShutdownReceivers {
+                    sweeper: sweeper_rx,
+                    announce_sweeper: announce_sweeper_rx,
+                    dreaming: dreaming_rx,
+                    plan_archive: plan_archive_rx,
+                },
                 session_config_provider,
             );
         // Create SpawnController as an independent component (depends on AgentRegistry).
@@ -782,10 +801,7 @@ impl Daemon {
         config_manager: &Arc<ConfigManager>,
         session_manager: &Arc<SessionManager>,
         data_dir: &std::path::Path,
-        sweeper_rx: watch::Receiver<()>,
-        announce_sweeper_rx: watch::Receiver<()>,
-        dreaming_rx: watch::Receiver<()>,
-        plan_archive_rx: watch::Receiver<()>,
+        shutdown_receivers: ServiceShutdownReceivers,
         session_config_provider: Arc<dyn SessionConfigProvider>,
     ) -> (
         tokio::task::JoinHandle<()>,
@@ -793,6 +809,12 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
     ) {
+        let ServiceShutdownReceivers {
+            sweeper: sweeper_rx,
+            announce_sweeper: announce_sweeper_rx,
+            dreaming: dreaming_rx,
+            plan_archive: plan_archive_rx,
+        } = shutdown_receivers;
         let dreaming_config_provider = Arc::clone(&session_config_provider);
         let storage: Arc<dyn PersistenceService> =
             Arc::new(SqliteStorage::new(data_dir).expect("SqliteStorage already initialized"))

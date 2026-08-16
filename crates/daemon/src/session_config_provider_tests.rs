@@ -356,15 +356,18 @@ async fn test_spawn_background_services_with_independent_provider() {
         tokio::sync::watch::channel(()).1,
         tokio::sync::watch::channel(()).1,
     );
+    let shutdown_receivers = crate::ServiceShutdownReceivers {
+        sweeper: sweeper_rx,
+        announce_sweeper: announce_sweeper_rx,
+        dreaming: dreaming_rx,
+        plan_archive: plan_archive_rx,
+    };
 
     let handles = Daemon::spawn_background_services(
         &config_manager,
         &session_manager,
         tmp.path(),
-        sweeper_rx,
-        announce_sweeper_rx,
-        dreaming_rx,
-        plan_archive_rx,
+        shutdown_receivers,
         Arc::clone(&provider),
     );
 
