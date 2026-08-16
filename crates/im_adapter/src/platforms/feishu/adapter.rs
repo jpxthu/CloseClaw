@@ -98,6 +98,24 @@ pub(crate) struct FeishuReactionType {
     pub(crate) emoji_type: String,
 }
 
+/// Bot added to chat event payload (`bot.added`).
+///
+/// This event is not converted into a `NormalizedMessage`; it is only
+/// logged as an observability signal. The chat session will be created
+/// when the first message arrives.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct FeishuBotAddedEvent {
+    pub(crate) chat_id: String,
+    pub(crate) bot: FeishuBotInfo,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub(crate) struct FeishuBotInfo {
+    pub(crate) open_id: String,
+}
+
 /// Card action event payload (`card.action.trigger`).
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -754,6 +772,34 @@ impl FeishuAdapter {
         Ok(None)
     }
 
+    /// Parse a `bot.added` event, log it, and return `Ok(None)`.
+    ///
+    /// This event does not produce a `NormalizedMessage`; it is recorded as
+    /// an observability signal. The chat session will be created on the
+    /// first message arrival.
+    fn parse_bot_added_event(
+        &self,
+        raw: &serde_json::Value,
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        let event: FeishuBotAddedEvent =
+            serde_json::from_value(raw["event"].clone()).map_err(|e| {
+                AdapterError::InvalidPayload(format!(
+                    "bot.added event parse failed: {}",
+                    e
+                ))
+            })?;
+
+        tracing::info!(
+            platform = "feishu",
+            event_type = "bot.added",
+            chat_id = %event.chat_id,
+            bot_open_id = %event.bot.open_id,
+            "Feishu bot added to chat"
+        );
+
+        Ok(None)
+    }
+
     /// Parse a card.action.trigger event into a CardActionEvent.
     pub(crate) fn parse_card_action_event(
         &self,
@@ -931,6 +977,10 @@ impl IMAdapter for FeishuAdapter {
 
         if event_type == "reaction.created" {
             return self.parse_reaction_event(&raw);
+        }
+
+        if event_type == "bot.added" {
+            return self.parse_bot_added_event(&raw);
         }
 
         let event: FeishuEvent =

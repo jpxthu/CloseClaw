@@ -1073,6 +1073,86 @@ async fn test_parse_inbound_reaction_created_with_top_level_open_id() {
     assert!(result.is_none());
 }
 
+// ===========================================================================
+// bot.added event tests
+// ===========================================================================
+
+/// Build a minimal `bot.added` webhook payload.
+fn make_bot_added_payload(chat_id: &str, bot_open_id: &str) -> Vec<u8> {
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test_bot_added",
+            "event_type": "bot.added",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {
+            "chat_id": chat_id,
+            "bot": {
+                "open_id": bot_open_id
+            }
+        }
+    });
+    serde_json::to_vec(&payload).unwrap()
+}
+
+/// bot.added: returns Ok(None) — not a NormalizedMessage.
+#[tokio::test]
+async fn test_parse_inbound_bot_added_returns_none() {
+    let adapter = make_test_adapter();
+    let payload = make_bot_added_payload("oc_group_chat_001", "ou_bot_xyz");
+    let result = adapter.parse_inbound(&payload).await.unwrap();
+    assert!(result.is_none());
+}
+
+/// bot.added: missing chat_id field — graceful handling.
+#[tokio::test]
+async fn test_parse_inbound_bot_added_missing_chat_id() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test_bot_missing",
+            "event_type": "bot.added",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {
+            "bot": {
+                "open_id": "ou_bot_abc"
+            }
+        }
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let result = adapter.parse_inbound(&bytes).await;
+    assert!(result.is_err(), "missing chat_id should cause parse error");
+}
+
+/// bot.added: missing bot.open_id field — graceful handling.
+#[tokio::test]
+async fn test_parse_inbound_bot_added_missing_bot_open_id() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test_bot_no_openid",
+            "event_type": "bot.added",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {
+            "chat_id": "oc_chat_def"
+        }
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let result = adapter.parse_inbound(&bytes).await;
+    assert!(result.is_err(), "missing bot.open_id should cause parse error");
+}
+
 /// card.action.trigger: still returns Ok(None) — no regression.
 #[tokio::test]
 async fn test_parse_inbound_card_action_still_returns_none() {
