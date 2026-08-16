@@ -1,7 +1,8 @@
 use crate::miner::{MemoryMiner, MinerConfig};
 use crate::miner_llm::MockMinerLlmCaller;
 use closeclaw_config::agents::{
-    default_forgetting_initial_ttl_days, ForgettingConfig, MemoryConfig, MiningConfig,
+    default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
+    ForgettingConfig, MemoryConfig, MiningConfig,
 };
 
 fn make_miner(config: MinerConfig) -> MemoryMiner {
@@ -77,6 +78,16 @@ fn test_miner_config_default_model_is_none() {
 // ── MinerConfig default value tests ────────────────────────────────────
 
 #[test]
+fn test_miner_config_from_mining_config_reidentify_default() {
+    let mc = MiningConfig::default();
+    let config = MinerConfig::from_mining_config(&mc);
+    assert_eq!(
+        config.reidentify_extension_days,
+        default_forgetting_reidentify_extension_days()
+    );
+}
+
+#[test]
 fn test_miner_config_from_mining_config_none_values() {
     let mc = MiningConfig::default();
     let config = MinerConfig::from_mining_config(&mc);
@@ -91,6 +102,10 @@ fn test_miner_config_default_values() {
     assert!(!config.enabled);
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
+    assert_eq!(
+        config.reidentify_extension_days,
+        default_forgetting_reidentify_extension_days()
+    );
 }
 
 // ── MinerConfig from_memory_config tests ──────────────────────────────
@@ -107,6 +122,7 @@ fn test_miner_config_from_memory_config() {
         },
         forgetting: ForgettingConfig {
             initial_ttl_days: Some(60),
+            reidentify_extension_days: Some(45),
             injection_extension_days: Some(10),
         },
         ..Default::default()
@@ -117,6 +133,7 @@ fn test_miner_config_from_memory_config() {
     assert_eq!(config.max_events_per_session, 5);
     assert_eq!(config.dedup_window_days, 14);
     assert_eq!(config.initial_ttl_days, 60);
+    assert_eq!(config.reidentify_extension_days, 45);
 }
 
 #[test]
@@ -127,6 +144,10 @@ fn test_miner_config_from_memory_config_default_forgetting() {
         config.initial_ttl_days,
         default_forgetting_initial_ttl_days()
     );
+    assert_eq!(
+        config.reidentify_extension_days,
+        default_forgetting_reidentify_extension_days()
+    );
 }
 
 #[test]
@@ -134,6 +155,7 @@ fn test_miner_config_from_memory_config_none_forgetting() {
     let mc = MemoryConfig {
         forgetting: ForgettingConfig {
             initial_ttl_days: None,
+            reidentify_extension_days: None,
             ..Default::default()
         },
         ..Default::default()
@@ -142,6 +164,10 @@ fn test_miner_config_from_memory_config_none_forgetting() {
     assert_eq!(
         config.initial_ttl_days,
         default_forgetting_initial_ttl_days()
+    );
+    assert_eq!(
+        config.reidentify_extension_days,
+        default_forgetting_reidentify_extension_days()
     );
 }
 
