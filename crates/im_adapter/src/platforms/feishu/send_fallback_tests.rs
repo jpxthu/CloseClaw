@@ -390,9 +390,7 @@ async fn send_card_capability_error_fallback_to_text_succeeds() {
     let adapter = make_adapter(&url);
     let card = card_payload_with_markdown("fallback content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
-    // Card send fails → fallback text succeeds → send_card_json returns
-    // the original card error, but the fallback text was attempted.
-    assert!(result.is_err(), "should return Err for card failure");
+    assert!(result.is_ok(), "should return Ok when card fails but text fallback succeeds");
     // The text fallback should have been called: total calls = 1 card + 1 text = 2
     assert_eq!(mock.msg_call_count.load(Ordering::SeqCst), 2);
 }

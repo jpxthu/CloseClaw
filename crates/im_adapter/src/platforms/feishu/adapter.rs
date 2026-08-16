@@ -94,6 +94,10 @@ pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 /// These errors warrant a one-time fallback retry via text message.
 /// Network failures, token errors, and permission errors are NOT
 /// capability errors.
+///
+/// Error code sources (Feishu Open Platform documentation):
+/// - 230001: invalid card element type
+/// - 230002: unsupported component in card template
 pub(crate) fn is_capability_error(code: i32) -> bool {
     matches!(code, 230001 | 230002)
 }
@@ -965,9 +969,25 @@ impl IMAdapter for FeishuAdapter {
                 "Feishu card send error"
             );
             if is_capability_error(resp.code) {
-                self.try_fallback_to_text(
-                    chat_id, card_json, &token, root_id,
-                ).await?;
+                if let Err(fb_err) = self
+                    .try_fallback_to_text(
+                        chat_id, card_json, &token, root_id,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        receive_id = %chat_id,
+                        error = %fb_err,
+                        "Text fallback after capability error also failed"
+                    );
+                    return Err(AdapterError::SendFailed(format!(
+                        "Feishu card send error {}: {}",
+                        resp.code, resp.msg
+                    )));
+                }
+                // Fallback succeeded — return Ok so mod.rs won't
+                // attempt a second fallback (avoids duplicate messages).
+                return Ok(());
             }
             return Err(AdapterError::SendFailed(format!(
                 "Feishu card send error {}: {}",

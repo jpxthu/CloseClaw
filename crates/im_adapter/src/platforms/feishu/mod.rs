@@ -275,6 +275,49 @@ impl FeishuPlugin {
     fn identity_resolver(&self) -> Option<&dyn IdentityResolver> {
         self.identity_resolver.as_deref()
     }
+
+    /// Fallback: extract plain text from an interactive card and send
+    /// via text message API.  Logs warnings on failure and always
+    /// returns `Ok(())` so the Agent keeps running.
+    async fn send_interactive_fallback(
+        &self,
+        peer_id: &str,
+        output: &RenderedOutput,
+        thread_id: Option<&str>,
+    ) {
+        let plain_text = extract_card_plain_text(&output.payload);
+        if plain_text.is_empty() {
+            warn!(
+                peer_id = %peer_id,
+                "No extractable text in card payload — returning Ok(())"
+            );
+            return;
+        }
+        let fallback = Message {
+            id: String::new(),
+            from: String::new(),
+            to: peer_id.to_string(),
+            content: plain_text,
+            channel: "feishu".to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            metadata: HashMap::new(),
+            thread_id: None,
+            platform: None,
+            dsl_result: None,
+            content_blocks: None,
+        };
+        if let Err(e2) = self
+            .adapter
+            .send_message(&fallback, thread_id)
+            .await
+        {
+            warn!(
+                peer_id = %peer_id,
+                error = %e2,
+                "Feishu text fallback also failed — returning Ok(()) per design doc"
+            );
+        }
+    }
 }
 
 #[async_trait]
@@ -421,40 +464,8 @@ impl IMPlugin for FeishuPlugin {
                             error = %e,
                             "Feishu interactive card send failed — falling back to plain text"
                         );
-                        // Extract text from card payload and retry as text
-                        let plain_text =
-                            extract_card_plain_text(&output.payload);
-                        if plain_text.is_empty() {
-                            warn!(
-                                peer_id = %peer_id,
-                                "No extractable text in card payload — returning Ok(())"
-                            );
-                            return Ok(());
-                        }
-                        let fallback = Message {
-                            id: String::new(),
-                            from: String::new(),
-                            to: peer_id.to_string(),
-                            content: plain_text,
-                            channel: "feishu".to_string(),
-                            timestamp: chrono::Utc::now().timestamp(),
-                            metadata: HashMap::new(),
-                            thread_id: None,
-                            platform: None,
-                            dsl_result: None,
-                            content_blocks: None,
-                        };
-                        if let Err(e2) = self
-                            .adapter
-                            .send_message(&fallback, _thread_id)
-                            .await
-                        {
-                            warn!(
-                                peer_id = %peer_id,
-                                error = %e2,
-                                "Feishu text fallback also failed — returning Ok(()) per design doc"
-                            );
-                        }
+                        self.send_interactive_fallback(peer_id, output, _thread_id)
+                            .await;
                         Ok(())
                     }
                 }
