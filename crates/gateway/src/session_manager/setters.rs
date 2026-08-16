@@ -248,10 +248,7 @@ impl SessionManager {
     /// [`get_session_config_for_agent`](Self::get_session_config_for_agent)
     /// can resolve per-agent session config without going through
     /// ConfigManager, following the layer-2 component extraction pattern.
-    pub async fn set_session_config_provider(
-        &self,
-        provider: Arc<dyn SessionConfigProvider>,
-    ) {
+    pub async fn set_session_config_provider(&self, provider: Arc<dyn SessionConfigProvider>) {
         *self.session_config_provider.write().await = Some(provider);
     }
 

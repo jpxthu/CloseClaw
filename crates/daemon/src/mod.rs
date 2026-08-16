@@ -191,15 +191,11 @@ impl Daemon {
         )
         .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
-        let session_config_provider = config_manager
-            .session_config_provider()
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    "session config provider not available after load, using defaults"
-                );
+        let session_config_provider =
+            config_manager.session_config_provider().unwrap_or_else(|| {
+                tracing::warn!("session config provider not available after load, using defaults");
                 Arc::new(
-                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null")
-                        .unwrap(),
+                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
                 )
             });
         Ok((
@@ -826,8 +822,7 @@ impl Daemon {
         info!("AnnounceSweeper spawned");
         // Spawn periodic consistency check (low-priority, non-blocking).
         {
-            let check_interval_secs = session_config_provider
-                .consistency_check_interval_secs();
+            let check_interval_secs = session_config_provider.consistency_check_interval_secs();
             let check_interval = std::time::Duration::from_secs(check_interval_secs);
             session_manager.spawn_periodic_consistency_check(check_interval);
         }
