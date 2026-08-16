@@ -98,6 +98,13 @@ fn make_config_manager(dir: &std::path::Path, session_json: Option<&str>) -> Arc
     cm
 }
 
+/// Build a SessionManager with default GatewayConfig.
+fn make_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
+    use closeclaw_gateway::{GatewayConfig, SessionManager};
+    let gateway_config = GatewayConfig::default();
+    Arc::new(SessionManager::new(&gateway_config, None, None, Default::default()))
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // 1. Normal path: init_phase_2_registries returns usable provider
 // ═══════════════════════════════════════════════════════════════════════
@@ -327,23 +334,15 @@ async fn test_dreaming_scheduler_uses_independent_provider() {
 #[tokio::test]
 async fn test_spawn_background_services_with_independent_provider() {
     use crate::Daemon;
-    use closeclaw_gateway::{GatewayConfig, SessionManager};
 
     let tmp = tempfile::tempdir().unwrap();
     let provider: Arc<dyn SessionConfigProvider> =
         Arc::new(MockSessionConfigProvider::defaults());
-
     let config_manager = Arc::new(
         ConfigManager::new(tmp.path().join("config"))
             .expect("ConfigManager::new failed"),
     );
-    let gateway_config = GatewayConfig::default();
-    let session_manager = Arc::new(SessionManager::new(
-        &gateway_config,
-        None,
-        None,
-        Default::default(),
-    ));
+    let session_manager = make_session_manager();
 
     let (sweeper_rx, announce_sweeper_rx, dreaming_rx, plan_archive_rx) = (
         tokio::sync::watch::channel(()).1,
