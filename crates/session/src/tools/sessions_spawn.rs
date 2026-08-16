@@ -6,7 +6,7 @@ use closeclaw_common::permission_types::{CallerInfo, RiskLevel};
 use closeclaw_common::tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
 };
-use closeclaw_config::spawn_validation::SpawnValidator;
+use crate::spawn_validation::SpawnValidator;
 
 use async_trait::async_trait;
 use closeclaw_agent::AgentConfigLookup;
@@ -285,7 +285,7 @@ impl Tool for SessionsSpawnTool {
             .await
         {
             Ok(result) => result,
-            Err(closeclaw_config::spawn_validation::SpawnError::PermissionDenied {
+            Err(crate::spawn_validation::SpawnError::PermissionDenied {
                 agent_id,
                 reason,
             }) => {

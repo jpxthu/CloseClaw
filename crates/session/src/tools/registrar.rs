@@ -12,7 +12,7 @@ use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::permission_types::{SharedApprovalSubmission, SharedPermissionEvaluator};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolRegistry};
 use closeclaw_common::tool_trait::Tool;
-use closeclaw_config::spawn_validation::SpawnValidator;
+use crate::spawn_validation::SpawnValidator;
 
 use super::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool};
 

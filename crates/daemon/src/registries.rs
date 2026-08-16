@@ -188,9 +188,9 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     // Build trait adapters for SessionToolsRegistrar dependencies.
     // Use the late-bound proxy so tool registration (layer 3) can proceed
     // before SessionManager (layer 4) is created.
-    let spawn_validator: Arc<dyn closeclaw_config::spawn_validation::SpawnValidator> =
+    let spawn_validator: Arc<dyn closeclaw_session::spawn_validation::SpawnValidator> =
         Arc::clone(&ctx.spawn_controller)
-            as Arc<dyn closeclaw_config::spawn_validation::SpawnValidator>;
+            as Arc<dyn closeclaw_session::spawn_validation::SpawnValidator>;
     let agent_config_lookup: Arc<dyn AgentConfigLookup> =
         Arc::clone(ctx.agent_registry) as Arc<dyn AgentConfigLookup>;
     let permission_evaluator: Arc<dyn closeclaw_common::permission_types::PermissionEvaluator> =

@@ -87,16 +87,16 @@ impl SessionManagerOps for MockSessionManager {
 struct MockSpawnValidator;
 
 #[async_trait::async_trait]
-impl closeclaw_config::spawn_validation::SpawnValidator for MockSpawnValidator {
+impl crate::spawn_validation::SpawnValidator for MockSpawnValidator {
     async fn validate_spawn(
         &self,
         _parent_session_id: &str,
         _target_agent_id: Option<&str>,
     ) -> Result<
-        closeclaw_config::spawn_validation::SpawnValidationResult,
-        closeclaw_config::spawn_validation::SpawnError,
+        crate::spawn_validation::SpawnValidationResult,
+        crate::spawn_validation::SpawnError,
     > {
-        Err(closeclaw_config::spawn_validation::SpawnError::AgentIdRequired)
+        Err(crate::spawn_validation::SpawnError::AgentIdRequired)
     }
 }
 

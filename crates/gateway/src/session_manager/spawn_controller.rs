@@ -400,45 +400,45 @@ impl SpawnController {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl closeclaw_config::spawn_validation::SpawnValidator for SpawnController {
+impl closeclaw_session::spawn_validation::SpawnValidator for SpawnController {
     async fn validate_spawn(
         &self,
         parent_session_id: &str,
         target_agent_id: Option<&str>,
     ) -> Result<
-        closeclaw_config::spawn_validation::SpawnValidationResult,
-        closeclaw_config::spawn_validation::SpawnError,
+        closeclaw_session::spawn_validation::SpawnValidationResult,
+        closeclaw_session::spawn_validation::SpawnError,
     > {
         let result = self
             .validate(parent_session_id, target_agent_id)
             .await
             .map_err(|e| match e {
                 SpawnError::DepthExceeded { current, max } => {
-                    closeclaw_config::spawn_validation::SpawnError::DepthExceeded { current, max }
+                    closeclaw_session::spawn_validation::SpawnError::DepthExceeded { current, max }
                 }
                 SpawnError::MaxChildrenReached { current, max } => {
-                    closeclaw_config::spawn_validation::SpawnError::MaxChildrenReached {
+                    closeclaw_session::spawn_validation::SpawnError::MaxChildrenReached {
                         current,
                         max,
                     }
                 }
                 SpawnError::AgentNotAllowed { agent_id } => {
-                    closeclaw_config::spawn_validation::SpawnError::AgentNotAllowed { agent_id }
+                    closeclaw_session::spawn_validation::SpawnError::AgentNotAllowed { agent_id }
                 }
                 SpawnError::AgentIdRequired => {
-                    closeclaw_config::spawn_validation::SpawnError::AgentIdRequired
+                    closeclaw_session::spawn_validation::SpawnError::AgentIdRequired
                 }
                 SpawnError::ConfigNotFound(id) => {
-                    closeclaw_config::spawn_validation::SpawnError::ConfigNotFound(id)
+                    closeclaw_session::spawn_validation::SpawnError::ConfigNotFound(id)
                 }
                 SpawnError::PermissionDenied { agent_id, reason } => {
-                    closeclaw_config::spawn_validation::SpawnError::PermissionDenied {
+                    closeclaw_session::spawn_validation::SpawnError::PermissionDenied {
                         agent_id,
                         reason,
                     }
                 }
             })?;
-        Ok(closeclaw_config::spawn_validation::SpawnValidationResult {
+        Ok(closeclaw_session::spawn_validation::SpawnValidationResult {
             config: result.config,
             effective_max_spawn_depth: result.effective_max_spawn_depth,
             spawn_timeout: result.spawn_timeout,
