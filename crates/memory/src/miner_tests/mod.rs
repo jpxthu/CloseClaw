@@ -16,7 +16,10 @@ use crate::miner::{MiningEntity, MiningEvent, MiningEventCategory};
 
 pub(crate) fn make_event(title: &str, category: MiningEventCategory) -> MiningEvent {
     // Decision and Insight events do not carry a lesson per design doc.
-    let has_lesson = !matches!(category, MiningEventCategory::Decision | MiningEventCategory::Insight);
+    let has_lesson = !matches!(
+        category,
+        MiningEventCategory::Decision | MiningEventCategory::Insight
+    );
     MiningEvent {
         title: title.to_string(),
         summary: format!("Summary of {title}"),
