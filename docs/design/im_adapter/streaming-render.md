@@ -39,7 +39,7 @@ ContentBlock[] 增量到达 Gateway（来自 Session 的 LLM 流式响应）
 [Gateway: Processor Chain 增量阶段]
   → VerbosityFilter 过滤
   → DslParser 透传（零开销）
-  → 跳过 OutboundRawLog
+  → 跳过 OutboundRawLog（出站调试日志，仅在 raw_log_dir 配置时注册）
   ↓
 Gateway 交付 ContentBlock[] 给 IMPlugin 流式渲染器
   ↓
@@ -55,7 +55,7 @@ Gateway 交付 ContentBlock[] 给 IMPlugin 流式渲染器
   ├── Image/Audio/File 块
   │     → 不参与流式渲染，交由平台格式渲染器处理
   └── 流错误
-        → 空操作，不产生增量输出，流错误直接交由 Gateway 处理
+        → 空操作，不产生增量输出，流错误的统一降级处理由 Gateway 负责（详见 [Gateway 出站路径](../gateway/README.md#出站路径)）
   ↓
 全部块处理完成 → 刷新所有缓冲 → 输出剩余内容 → 清空块状态和行缓冲上下文
   ↓
