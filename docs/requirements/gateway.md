@@ -23,7 +23,8 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 ### F4. 普通消息路由到对话
 
 - 经类型识别后且不以 `/` 开头的文本消息进入 LLM 对话流程
-- Session 查找、创建与归档恢复由 Session 模块负责（含用户提示语），Gateway 仅传入路由字段，命中 session 后进入下一步路由决策
+- 消息路由到接收该消息的机器人所绑定的 Agent——机器人与 Agent 的绑定关系由配置定义
+- 在命中 Agent 后，Session 查找、创建与归档恢复由 Session 模块负责（含用户提示语），Gateway 仅传入路由字段，命中 session 后进入下一步路由决策
 
 > **交叉引用**：详见 [session §F1](session.md)（对话持久化与恢复）。
 - Session 忙闲判定与消息排队行为由 Session 模块管理，详见 [session §F10](session.md)（消息排队）
