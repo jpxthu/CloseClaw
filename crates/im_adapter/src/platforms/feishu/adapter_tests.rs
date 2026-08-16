@@ -1000,3 +1000,95 @@ async fn test_parse_unknown_type_none() {
     let e = make_message_event("sticker", &serde_json::json!({}).to_string());
     assert!(a.parse_message_event(e).await.unwrap().is_none());
 }
+// ===========================================================================
+// reaction.created event tests
+// ===========================================================================
+
+/// Build a minimal `reaction.created` webhook payload.
+fn make_reaction_payload(
+    message_id: &str,
+    open_id: &str,
+    emoji_type: &str,
+) -> Vec<u8> {
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test_reaction",
+            "event_type": "reaction.created",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {
+            "message_id": message_id,
+            "operator": {
+                "operator_id": {
+                    "open_id": open_id
+                },
+                "operator_type": "user"
+            },
+            "reaction_type": {
+                "emoji_type": emoji_type
+            }
+        }
+    });
+    serde_json::to_vec(&payload).unwrap()
+}
+
+/// reaction.created: returns Ok(None) — not a NormalizedMessage.
+#[tokio::test]
+async fn test_parse_inbound_reaction_created_returns_none() {
+    let adapter = make_test_adapter();
+    let payload = make_reaction_payload("om_test_msg_001", "ou_user_abc", "THUMBSUP");
+    let result = adapter.parse_inbound(&payload).await.unwrap();
+    assert!(result.is_none());
+}
+
+/// reaction.created: operator at top level (open_id field) — graceful handling.
+#[tokio::test]
+async fn test_parse_inbound_reaction_created_with_top_level_open_id() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test_min",
+            "event_type": "reaction.created",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {
+            "message_id": "om_msg_min",
+            "operator": {
+                "open_id": "ou_user_min",
+                "operator_type": "user"
+            },
+            "reaction_type": {
+                "emoji_type": "CLAP"
+            }
+        }
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let result = adapter.parse_inbound(&bytes).await.unwrap();
+    assert!(result.is_none());
+}
+
+/// card.action.trigger: still returns Ok(None) — no regression.
+#[tokio::test]
+async fn test_parse_inbound_card_action_still_returns_none() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_card",
+            "event_type": "card.action.trigger",
+            "create_time": "1700000000000",
+            "token": "test_token",
+            "app_id": "cli_test"
+        },
+        "event": {}
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    let result = adapter.parse_inbound(&bytes).await.unwrap();
+    assert!(result.is_none());
+}
