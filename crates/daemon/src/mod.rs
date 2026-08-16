@@ -17,6 +17,7 @@ use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::NoopMetricsEmitter;
 use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
+use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};
 pub use daemon_struct::*;
 
@@ -176,6 +177,7 @@ impl Daemon {
         Arc<ToolRegistry>,
         Option<SkillWatcherHandle>,
         Arc<RwLock<SectionCache>>,
+        Arc<dyn SessionConfigProvider>,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
@@ -189,12 +191,24 @@ impl Daemon {
         )
         .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
+        let session_config_provider = config_manager
+            .session_config_provider()
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "session config provider not available after load, using defaults"
+                );
+                Arc::new(
+                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null")
+                        .unwrap(),
+                )
+            });
         Ok((
             agent_registry,
             skill_registry,
             tool_registry,
             skill_watcher,
             shared_cache,
+            session_config_provider,
         ))
     }
 
@@ -580,6 +594,7 @@ impl Daemon {
     async fn init_phase_5_background(
         deps: Phase5Deps<'_>,
         data_dir: &std::path::Path,
+        session_config_provider: Arc<dyn closeclaw_config::session::SessionConfigProvider>,
     ) -> anyhow::Result<(
         watch::Sender<()>,
         watch::Sender<()>,
@@ -619,6 +634,7 @@ impl Daemon {
                 announce_sweeper_rx,
                 dreaming_rx,
                 plan_archive_rx,
+                session_config_provider,
             );
         // Create SpawnController as an independent component (depends on AgentRegistry).
         let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
@@ -774,19 +790,13 @@ impl Daemon {
         announce_sweeper_rx: watch::Receiver<()>,
         dreaming_rx: watch::Receiver<()>,
         plan_archive_rx: watch::Receiver<()>,
+        session_config_provider: Arc<dyn SessionConfigProvider>,
     ) -> (
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
     ) {
-        let session_config_provider =
-            config_manager.session_config_provider().unwrap_or_else(|| {
-                tracing::warn!("session config provider not available, using defaults");
-                Arc::new(
-                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
-                )
-            });
         let dreaming_config_provider = Arc::clone(&session_config_provider);
         let storage: Arc<dyn PersistenceService> =
             Arc::new(SqliteStorage::new(data_dir).expect("SqliteStorage already initialized"))
@@ -796,7 +806,7 @@ impl Daemon {
         session_manager.set_mining_notify_tx(mining_notify_tx.clone());
 
         let sweeper = Arc::new(
-            ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)
+            ArchiveSweeper::new(Arc::clone(&storage), session_config_provider.clone())
                 .with_mining_notify_tx(mining_notify_tx)
                 .with_active_query(Arc::clone(session_manager)
                     as Arc<dyn closeclaw_gateway::sweeper::ActiveSessionQuery>),
@@ -816,10 +826,8 @@ impl Daemon {
         info!("AnnounceSweeper spawned");
         // Spawn periodic consistency check (low-priority, non-blocking).
         {
-            let check_interval_secs = config_manager
-                .session_config_provider()
-                .map(|p| p.consistency_check_interval_secs())
-                .unwrap_or(closeclaw_config::session::DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS);
+            let check_interval_secs = session_config_provider
+                .consistency_check_interval_secs();
             let check_interval = std::time::Duration::from_secs(check_interval_secs);
             session_manager.spawn_periodic_consistency_check(check_interval);
         }
@@ -928,6 +936,8 @@ mod dreaming_scheduler_tests;
 mod lifecycle_abort_tests;
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod session_config_provider_tests;
 #[cfg(test)]
 mod shutdown_alignment_tests;
 #[cfg(test)]
