@@ -63,7 +63,7 @@ let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 
 ## 5. Fake LLM 强制
 
-- **禁止真实 LLM API 调用**（无网络、无真实 key）。所有测试用进程内 fake provider。
+- **禁止真实 LLM API 调用与外部网络访问**（无网络、无真实 key，全部 mock）。所有测试用进程内 fake provider。
 - 使用 `closeclaw_llm::fake::FakeProvider`，通过 Builder 场景驱动：
 
 ```rust
@@ -89,13 +89,14 @@ let provider = FakeProvider::builder()
 | e2e | 按场景分级：spawn 独立进程的启动/优雅关闭/沙箱创建等场景设置各自合理的更宽松上限，不套统一 30s |
 
 - 30s 是**硬上限**（防挂死），不是目标值。性能目标：CI 中任何 test case 运行超过 5s 必须修复。
+- 单测中禁止出现 >1s 的等待（sleep、timeout、阻塞 IO）。
 - 禁止 `thread::sleep` 等待异步事件（见 §9），等待用 channel/信号量，避免靠超时掩盖竞态。
 
 ## 7. 并行安全
 
 - 测试间**不共享可变状态**；不依赖前序测试副作用。
 - 涉及端口、文件锁、全局资源（进程全局 env、单例 registry、共享目录）的测试加 `#[serial_test::serial]`。
-- **禁止 `std::env::set_var` / `remove_var`**（修改进程全局环境在多线程/并行测试下数据竞争）。配置值通过参数/config struct 传递，读环境用 `std::env::var`（只读）。全库唯一例外是 `daemon/mod.rs` 的 `load_env_file()`。
+- **禁止 `std::env::set_var` / `remove_var`**（修改进程全局环境在多线程/并行测试下数据竞争）。配置值通过参数/config struct 传递；测试需要隔离配置时用依赖注入或临时文件路径，不用 `set_var`；读环境用 `std::env::var`（只读）。全库唯一例外是 `daemon/mod.rs` 的 `load_env_file()`。违反会被 pre-commit hook 和 CI 拦截。
 - 端口不硬编码，用 port 0 让系统分配。
 
 ## 8. 临时文件与 config（/tmp 约束）
@@ -136,13 +137,3 @@ mod sandbox_tests;
 ```
 
 - 消除现状双编译问题（测试文件内嵌 `mod basic`）与 `#[path]` shim：共享 helper 提取为公共模块或 `tests/fixtures` 下的共享代码，不在单个 case 内重复内嵌 mod。
-
-## 11. 红线
-
-- ❌ 真实 LLM 调用、外部网络访问
-- ❌ `thread::sleep` 等待异步事件
-- ❌ `std::env::set_var` / `remove_var`
-- ❌ 硬编码端口、硬编码临时文件路径
-- ❌ 测试后残留进程/端口/文件
-- ❌ 依赖前序测试副作用
-- ❌ 把 unit 测试放在 `tests/` 根目录平铺

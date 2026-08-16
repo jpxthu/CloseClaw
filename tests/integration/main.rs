@@ -1,7 +1,7 @@
 //! Integration test binary: cross-module tests that do not spin up a full stack.
 //!
 //! Each test case lives in its own module; `main.rs` only declares modules.
-//! See docs/testing/STANDARDS.md for the e2e/integration/unit classification.
+//! See docs/developer/STANDARDS.md for the e2e/integration/unit classification.
 
 mod compaction_async_tests;
 mod fake_integration_tests;
