@@ -60,6 +60,9 @@ pub enum MiningEventCategory {
     Anger,
     /// Owner made an explicit product decision.
     Decision,
+    /// Agent discovered a simple pattern through repeated attempts,
+    /// worth crystallising as experience.
+    Insight,
 }
 
 impl std::fmt::Display for MiningEventCategory {
@@ -68,6 +71,7 @@ impl std::fmt::Display for MiningEventCategory {
             Self::Error => write!(f, "error"),
             Self::Anger => write!(f, "anger"),
             Self::Decision => write!(f, "decision"),
+            Self::Insight => write!(f, "insight"),
         }
     }
 }
