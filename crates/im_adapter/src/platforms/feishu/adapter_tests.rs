@@ -13,9 +13,7 @@ use closeclaw_common::MessageType;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
 use std::collections::HashMap as StdHashMap;
-
 use tokio::net::TcpListener;
-
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
 fn make_test_adapter() -> FeishuAdapter {
     let http_client = reqwest::Client::new();
@@ -990,11 +988,13 @@ fn test_truncate_to_500_empty_string() {
 }
 #[test]
 fn test_extract_unknown_type_err() {
-    assert!(FeishuAdapter::extract_message_content("sticker", &serde_json::json!({})).is_err());
+    assert!(FeishuAdapter::extract_message_content("unsupported", &serde_json::json!({})).is_err());
 }
 #[tokio::test]
 async fn test_parse_unknown_type_none() {
     let a = make_test_adapter();
-    let e = make_message_event("sticker", &serde_json::json!({}).to_string());
+    let e = make_message_event("unsupported_type", &serde_json::json!({}).to_string());
     assert!(a.parse_message_event(e).await.unwrap().is_none());
 }
+
+
