@@ -13,9 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
-// ---------------------------------------------------------------------------
 // Webhook event types
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -86,15 +84,9 @@ pub(crate) struct FeishuCardAction {
     pub(crate) tag: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
-// ---------------------------------------------------------------------------
 // Post content expansion
-// ---------------------------------------------------------------------------
 
 #[allow(dead_code)]
 /// Expand a Feishu post-type content JSON value into plain text.
@@ -862,6 +854,14 @@ impl IMAdapter for FeishuAdapter {
         let event_type = Self::extract_event_type(&raw);
         if event_type == "card.action.trigger" {
             return Ok(None);
+        }
+
+        if event_type == "reaction.created" {
+            return super::events::parse_reaction_event(&raw);
+        }
+
+        if event_type == "bot.added" {
+            return super::events::parse_bot_added_event(&raw);
         }
 
         let event: FeishuEvent =

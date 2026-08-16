@@ -6,6 +6,9 @@
 mod adapter;
 #[cfg(test)]
 mod adapter_tests;
+mod events;
+#[cfg(test)]
+mod events_tests;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;

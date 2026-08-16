@@ -701,9 +701,7 @@ async fn test_parse_inbound_no_resolver_fallback() {
     // No resolver at all → fallback to sender_open_id
     assert_eq!(msg.account_id, "ou_sender");
 }
-// ===========================================================================
 // Quote/reference (parent_id) tests
-// ===========================================================================
 
 /// Start a mock server that supports GET /im/v1/messages/{message_id}.
 /// `messages` maps message_id → (msg_type, body_json_string).
