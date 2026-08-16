@@ -750,7 +750,9 @@ impl FeishuAdapter {
         raw: &serde_json::Value,
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let event: FeishuReactionEvent =
-            serde_json::from_value(raw["event"].clone()).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+            serde_json::from_value(raw["event"].clone()).map_err(|e| {
+                AdapterError::InvalidPayload(e.to_string())
+            })?;
 
         let operator_id = event
             .operator
