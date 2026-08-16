@@ -36,7 +36,7 @@ crates/<crate>/src/<module>_tests.rs   # 单元测试（与代码同 crate）
 
 | 对象 | 规则 | 示例 |
 |------|------|------|
-| 测试文件 | `_tests.rs` 复数后缀统一；前缀标明测试类型 | `sigterm_integration_test.rs`、`session_manager_tests.rs` |
+| 测试文件 | `_tests.rs` 复数后缀统一；前缀标明测试类型 | `sigterm_tests.rs`、`session_manager_tests.rs` |
 | 测试函数 | `test_` 前缀，snake_case | `test_session_compact_on_idle` |
 | fixture 目录 | `tests/fixtures/<module>/` | `tests/fixtures/llm/`、`tests/fixtures/feishu/` |
 
@@ -130,9 +130,9 @@ tests/e2e/<case>.rs
 - `main.rs` 只写 `mod <case>;` 声明，不写业务逻辑：
 
 ```rust
-mod sigterm_integration_test;
-mod integration_shutdown_checkpoint;
-mod sandbox_integration_test;
+mod sigterm_tests;
+mod shutdown_checkpoint_tests;
+mod sandbox_tests;
 ```
 
 - 消除现状双编译问题（测试文件内嵌 `mod basic`）与 `#[path]` shim：共享 helper 提取为公共模块或 `tests/fixtures` 下的共享代码，不在单个 case 内重复内嵌 mod。

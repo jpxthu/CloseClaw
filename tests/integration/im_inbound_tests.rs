@@ -10,7 +10,7 @@
 //!
 //! Step 1.5 removed `RawMessage`; this file now uses `NormalizedMessage`.
 //!
-//! Run with: `cargo test --test im_inbound_e2e_tests`
+//! Run with: `cargo test --test integration`
 
 use std::path::PathBuf;
 

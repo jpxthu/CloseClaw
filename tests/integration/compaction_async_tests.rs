@@ -4,10 +4,8 @@
 //! success, empty input, LLM failure, missing summary, custom instructions,
 //! auto trigger, and system-prompt / message routing.
 //!
-//! Requires the `fake-llm` feature (the compaction tests run under the
-//! standard `cargo test --features fake-llm` invocation).
-
-#![cfg(feature = "fake-llm")]
+//! Uses a mock `ChatFn` (not `FakeProvider`), so these tests do not require
+//! the `fake-llm` feature.
 
 use std::sync::Arc;
 

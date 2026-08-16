@@ -8,7 +8,7 @@ mod fake_integration_tests;
 mod feishu_message_cleaner_tests;
 mod gateway_send_outbound_basic_tests;
 mod gateway_send_outbound_renderer_tests;
-mod im_inbound_e2e_tests;
+mod im_inbound_tests;
 mod integration_llm_busy_tests;
 mod integration_memory_pipeline_tests;
 mod integration_pending_messages_tests;

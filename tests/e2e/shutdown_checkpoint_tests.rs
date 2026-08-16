@@ -324,6 +324,9 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
 
     // Send SIGTERM to trigger graceful shutdown
     let pid = daemon.id().expect("daemon has PID");
+    // SAFETY: `pid` is the PID of the daemon child we spawned above and
+    // verified is still running; the cast to `libc::pid_t` is a lossless
+    // widening conversion, and SIGTERM is a valid signal number.
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGTERM);
     }

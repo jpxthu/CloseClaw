@@ -13,6 +13,7 @@
 
 #![cfg(feature = "fake-llm")]
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -113,6 +114,34 @@ async fn assert_no_pending(sm: &SessionManager, sid: &str) {
         sm.pop_pending_message(sid).await.is_none(),
         "expected no pending messages for session {sid}"
     );
+}
+
+/// Number of currently queued pending messages for a session (read-only).
+async fn pending_count(sm: &SessionManager, sid: &str) -> usize {
+    match sm.get_conversation_session(sid).await {
+        Some(cs) => cs.read().await.get_pending_messages().len(),
+        None => 0,
+    }
+}
+
+/// Poll `cond` until it returns `true` or `timeout` elapses, yielding briefly
+/// between checks. Bounded readiness polling: it asks "is the drain done?"
+/// instead of "has a fixed sleep duration elapsed?".
+async fn wait_until<F, Fut>(timeout: Duration, mut cond: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if cond().await {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// The first message sent to an idle session should return LlmStarted.
@@ -222,20 +251,21 @@ async fn test_fake_provider_call_count_while_busy() {
         "only one LLM call should have been made while busy"
     );
 
-    // Wait for delay (300ms) + drain to complete
-    tokio::time::sleep(Duration::from_millis(700)).await;
-
-    // After drain: session should be idle, both calls made, no pending
+    // Wait for the drain to finish (bounded readiness polling, not a blind
+    // sleep): session idle, both LLM calls recorded, pending queue empty.
+    let drained = wait_until(Duration::from_secs(5), || async {
+        !sm.is_session_busy(&sid).await
+            && provider_ref.captured_internal_requests().len() == 2
+            && pending_count(&sm, &sid).await == 0
+    })
+    .await;
     assert!(
-        !sm.is_session_busy(&sid).await,
-        "session should be idle after drain"
-    );
-    assert_eq!(
+        drained,
+        "drain did not finish within 5s: busy={}, calls={}, pending={}",
+        sm.is_session_busy(&sid).await,
         provider_ref.captured_internal_requests().len(),
-        2,
-        "both LLM calls should have been made after drain"
+        pending_count(&sm, &sid).await
     );
-    assert_no_pending(&sm, &sid).await;
 }
 
 /// Pending messages are consumed in FIFO order after the LLM completes.
@@ -302,8 +332,21 @@ async fn test_pending_fifo_after_delay() {
     let trigger = handler.handle_message(&sid, "trigger".to_string()).await;
     assert!(matches!(trigger, HandleResult::LlmStarted));
 
-    // Wait for the trigger + drain to process all queued messages.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait for the trigger + drain to process all queued messages (bounded
+    // readiness polling, not a blind sleep).
+    let drained = wait_until(Duration::from_secs(5), || async {
+        !sm.is_session_busy(&sid).await
+            && provider_ref.captured_internal_requests().len() == 4
+            && pending_count(&sm, &sid).await == 0
+    })
+    .await;
+    assert!(
+        drained,
+        "drain did not finish within 5s: busy={}, calls={}, pending={}",
+        sm.is_session_busy(&sid).await,
+        provider_ref.captured_internal_requests().len(),
+        pending_count(&sm, &sid).await
+    );
 
     // All 4 calls (trigger + 3 queued) should have been made, in FIFO order.
     let contents: Vec<String> = provider_ref
@@ -363,10 +406,17 @@ async fn test_idle_after_delay_drain() {
     // Queue a second message
     handler.handle_message(&sid, "second".to_string()).await;
 
-    // Wait long enough for delay + both calls to complete
-    tokio::time::sleep(Duration::from_millis(800)).await;
-
-    // Session should be idle
-    assert!(!sm.is_session_busy(&sid).await, "session should be idle");
+    // Wait for the drain to finish (idle + no pending) with bounded
+    // readiness polling, not a blind fixed-duration sleep.
+    let drained = wait_until(Duration::from_secs(5), || async {
+        !sm.is_session_busy(&sid).await && pending_count(&sm, &sid).await == 0
+    })
+    .await;
+    assert!(
+        drained,
+        "drain did not finish within 5s: busy={}, pending={}",
+        sm.is_session_busy(&sid).await,
+        pending_count(&sm, &sid).await
+    );
     assert_no_pending(&sm, &sid).await;
 }
