@@ -107,6 +107,7 @@ fn test_miner_config_from_memory_config() {
         },
         forgetting: ForgettingConfig {
             initial_ttl_days: Some(60),
+            reidentify_extension_days: None,
             injection_extension_days: Some(10),
         },
         ..Default::default()

@@ -145,6 +145,7 @@ fn test_from_agent_config_with_forgetting() {
     memory.search.enabled = Some(true);
     let forgetting = ForgettingConfig {
         initial_ttl_days: Some(30),
+        reidentify_extension_days: None,
         injection_extension_days: Some(30),
     };
 
