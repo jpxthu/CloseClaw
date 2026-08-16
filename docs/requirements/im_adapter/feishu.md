@@ -55,11 +55,11 @@
 |-----------|-------------|
 | 平台标识 | 固定为 feishu |
 | 发送者 | `sender.sender_id` |
-| 会话对端 | `message.chat_id`（私聊对方或群聊） |
-| 账号标识 | 发送者对应的用户 ID（跨平台归并） |
+| 会话对端 | `message.chat_id` |
+| 账号标识 | —（非事件直接字段，经身份映射得到） |
 | 消息正文 | `message.content` |
 
-接收消息的机器人（事件顶层 `app_id`）不进入归一化字段，用于路由到绑定的 Agent，见 [gateway §F4](../gateway.md)（普通消息路由到对话）。归一化字段的完整定义见 [im_adapter §F2](../im_adapter.md)（入站消息归一化）。
+接收消息的机器人（事件顶层 `app_id`）不进入归一化字段，用于路由到绑定的 Agent，见 [gateway §F4](../gateway.md)（普通消息路由到对话）。各字段语义见 [im_adapter §F2](../im_adapter.md)（入站消息归一化）。
 
 ### F2. 飞书消息事件处理
 
