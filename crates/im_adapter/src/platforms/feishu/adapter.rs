@@ -838,7 +838,14 @@ impl IMAdapter for FeishuAdapter {
         message: &Message,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await?;
+        let token = self.get_tenant_token().await.map_err(|e| {
+            tracing::warn!(
+                receive_id = %message.to,
+                error = %e,
+                "Feishu token fetch failed"
+            );
+            e
+        })?;
 
         let payload = SendRequest {
             receive_id: &message.to,
@@ -860,12 +867,32 @@ impl IMAdapter for FeishuAdapter {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
+            .map_err(|e| {
+                tracing::warn!(
+                    receive_id = %message.to,
+                    error = %e,
+                    "Feishu send request failed"
+                );
+                AdapterError::SendFailed(e.to_string())
+            })?
             .json()
             .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+            .map_err(|e| {
+                tracing::warn!(
+                    receive_id = %message.to,
+                    error = %e,
+                    "Feishu send response parse failed"
+                );
+                AdapterError::SendFailed(e.to_string())
+            })?;
 
         if resp.code != 0 {
+            tracing::warn!(
+                receive_id = %message.to,
+                code = resp.code,
+                msg = %resp.msg,
+                "Feishu send error"
+            );
             return Err(AdapterError::SendFailed(format!(
                 "Feishu send error {}: {}",
                 resp.code, resp.msg
@@ -881,7 +908,14 @@ impl IMAdapter for FeishuAdapter {
         card_json: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await?;
+        let token = self.get_tenant_token().await.map_err(|e| {
+            tracing::warn!(
+                receive_id = %chat_id,
+                error = %e,
+                "Feishu card token fetch failed"
+            );
+            e
+        })?;
 
         let payload = SendRequest {
             receive_id: chat_id,
@@ -903,12 +937,32 @@ impl IMAdapter for FeishuAdapter {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
+            .map_err(|e| {
+                tracing::warn!(
+                    receive_id = %chat_id,
+                    error = %e,
+                    "Feishu card send request failed"
+                );
+                AdapterError::SendFailed(e.to_string())
+            })?
             .json()
             .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+            .map_err(|e| {
+                tracing::warn!(
+                    receive_id = %chat_id,
+                    error = %e,
+                    "Feishu card send response parse failed"
+                );
+                AdapterError::SendFailed(e.to_string())
+            })?;
 
         if resp.code != 0 {
+            tracing::warn!(
+                receive_id = %chat_id,
+                code = resp.code,
+                msg = %resp.msg,
+                "Feishu card send error"
+            );
             return Err(AdapterError::SendFailed(format!(
                 "Feishu card send error {}: {}",
                 resp.code, resp.msg
