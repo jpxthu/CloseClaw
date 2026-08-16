@@ -319,7 +319,6 @@ fn test_deep_capacity_limit_considers_existing_rules() {
             frequency_weight: Some(10.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -382,7 +381,6 @@ fn test_deep_capacity_limit_full_drops_all() {
             frequency_weight: Some(10.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -442,7 +440,6 @@ fn test_deep_capacity_limit_no_existing_file() {
             frequency_weight: Some(10.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()

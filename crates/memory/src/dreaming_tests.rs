@@ -285,7 +285,6 @@ fn test_deep_entity_type_weight_applied() {
             frequency_weight: Some(1.0),
             recency_weight: Some(1.0),
             explicitness_weight: Some(1.0),
-            entity_type_weight_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -339,7 +338,6 @@ fn test_deep_relative_gate_per_entity_type() {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -614,10 +612,10 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
     assert_eq!(entries[0].body, "test content");
     assert_eq!(entries[0].lesson.as_deref(), Some("test lesson"));
     assert_eq!(entries[0].category, EntryCategory::Error);
-    assert!(entries[0].tags.contains(&"Test Entity".to_string()));
+    assert!(entries[0].tags.contains(&"test entity".to_string()));
     assert_eq!(entries[0].event_id, 1);
     assert_eq!(entries[0].entity_type, "subject");
-    assert_eq!(entries[0].entity_name, "Test Entity");
+    assert_eq!(entries[0].entity_name, "test entity");
     assert_eq!(entries[0].updated_at, entries[0].timestamp);
     // No db_path → empty.
     let p2 = DreamingPipeline::new();
@@ -913,7 +911,6 @@ fn test_e2e_light_rem_deep_pipeline() {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.5),
             explicitness_weight: Some(1.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()

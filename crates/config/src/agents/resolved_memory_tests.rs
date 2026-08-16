@@ -37,7 +37,6 @@ fn make_global_memory() -> MemoryConfig {
                 explicitness_weight: Some(1.5),
                 cross_agent_weight: Some(1.3),
                 negative_signal_weight: Some(-0.5),
-                entity_type_weight_weight: Some(1.0),
             },
             threshold: DreamingThresholdConfig {
                 absolute: Some(2.0),
