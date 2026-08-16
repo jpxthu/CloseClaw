@@ -426,6 +426,55 @@ pub(crate) fn build_card(title: Option<String>, elements: Vec<CardElement>) -> R
     }
 }
 
+/// Extract plain text content from a card JSON payload.
+///
+/// Traverses `card.elements` and collects `markdown` and `plain_text`
+/// element content, joined by newlines.  Returns an empty string when
+/// the payload has no extractable text.
+pub(crate) fn extract_card_plain_text(payload: &serde_json::Value) -> String {
+    let elements = payload
+        .get("card")
+        .and_then(|c| c.get("elements"))
+        .and_then(|e| e.as_array());
+
+    let Some(elements) = elements else {
+        return String::new();
+    };
+
+    let mut lines = Vec::new();
+    for el in elements {
+        let tag = el.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+        match tag {
+            "markdown" => {
+                if let Some(content) = el.get("content").and_then(|c| c.as_str()) {
+                    lines.push(content.to_string());
+                }
+            }
+            "plain_text" => {
+                if let Some(content) = el.get("content").and_then(|c| c.as_str()) {
+                    lines.push(content.to_string());
+                }
+            }
+            "action" => {
+                // Recurse into action.actions[].text.content for buttons
+                if let Some(actions) = el.get("actions").and_then(|a| a.as_array()) {
+                    for action in actions {
+                        if let Some(text) = action.get("text") {
+                            if let Some(content) =
+                                text.get("content").and_then(|c| c.as_str())
+                            {
+                                lines.push(content.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    lines.join("\n")
+}
+
 /// Returns a plain text [`RenderedOutput`].
 pub fn build_text(content: &str) -> RenderedOutput {
     RenderedOutput {
