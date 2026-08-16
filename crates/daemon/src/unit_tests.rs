@@ -557,3 +557,64 @@ fn test_resolve_extra_dirs_mixed_paths() {
     assert_eq!(result[1], std::path::PathBuf::from("/opt/skills"));
     assert_eq!(result[2], std::path::PathBuf::from("relative/skills"));
 }
+
+// ============================================================
+// Step 1.3: ServiceShutdownReceivers struct tests
+// ============================================================
+
+/// Verify that ServiceShutdownReceivers can be constructed and fields
+/// are correctly assigned and accessible.
+#[test]
+fn test_service_shutdown_receivers_construction() {
+    let (_tx1, rx1) = tokio::sync::watch::channel(());
+    let (_tx2, rx2) = tokio::sync::watch::channel(());
+    let (_tx3, rx3) = tokio::sync::watch::channel(());
+    let (_tx4, rx4) = tokio::sync::watch::channel(());
+
+    let receivers = ServiceShutdownReceivers {
+        sweeper: rx1,
+        announce_sweeper: rx2,
+        dreaming: rx3,
+        plan_archive: rx4,
+    };
+
+    // Verify fields are accessible (destructure)
+    let ServiceShutdownReceivers {
+        sweeper: _,
+        announce_sweeper: _,
+        dreaming: _,
+        plan_archive: _,
+    } = receivers;
+}
+
+/// Verify that ServiceShutdownReceivers destructuring works identically
+/// to how spawn_background_services uses it (binding to local variables).
+#[test]
+fn test_service_shutdown_receivers_destructure_like_spawn() {
+    let (_tx1, rx1) = tokio::sync::watch::channel(());
+    let (_tx2, rx2) = tokio::sync::watch::channel(());
+    let (_tx3, rx3) = tokio::sync::watch::channel(());
+    let (_tx4, rx4) = tokio::sync::watch::channel(());
+
+    let shutdown_receivers = ServiceShutdownReceivers {
+        sweeper: rx1,
+        announce_sweeper: rx2,
+        dreaming: rx3,
+        plan_archive: rx4,
+    };
+
+    // Destructure exactly as spawn_background_services does
+    let ServiceShutdownReceivers {
+        sweeper: sweeper_rx,
+        announce_sweeper: announce_sweeper_rx,
+        dreaming: dreaming_rx,
+        plan_archive: plan_archive_rx,
+    } = shutdown_receivers;
+
+    // Verify each receiver is a valid watch::Receiver<()> by checking
+    // they can be borrowed immutably (no panic).
+    let _ = sweeper_rx.borrow();
+    let _ = announce_sweeper_rx.borrow();
+    let _ = dreaming_rx.borrow();
+    let _ = plan_archive_rx.borrow();
+}
