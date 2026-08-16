@@ -10,6 +10,7 @@
 use super::*;
 use crate::plugin::IMPlugin;
 use axum::{routing::post, Json, Router};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -287,4 +288,145 @@ async fn interactive_empty_text_fallback_returns_ok() {
     };
     let result = plugin.send(&output, "chat_test", None).await;
     assert!(result.is_ok(), "empty text fallback should return Ok(())");
+}
+
+// =====================================================================
+// Step 1.4: send_card_json capability fallback tests
+// =====================================================================
+
+/// Helper: create a FeishuAdapter pointing at a mock server.
+fn make_adapter(base_url: &str) -> FeishuAdapter {
+    let http_client = reqwest::Client::new();
+    FeishuAdapter {
+        app_id: "test_app_id".into(),
+        app_secret: "test_secret".into(),
+        verification_token: "test_token".into(),
+        http_client,
+        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
+        base_url: base_url.to_string(),
+        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+    }
+}
+
+/// Mock server for capability fallback tests.
+///
+/// - Token endpoint always succeeds.
+/// - Message endpoint: first `card_fail` calls return `card_code`,
+///   next calls return `text_code`.
+/// - Tracks how many times the message endpoint was called.
+struct CapabilityMock {
+    msg_call_count: Arc<AtomicUsize>,
+}
+
+async fn start_capability_mock(
+    card_fail_count: usize,
+    card_code: i32,
+    text_code: i32,
+) -> (String, CapabilityMock) {
+    let msg_count = Arc::new(AtomicUsize::new(0));
+    let mc = msg_count.clone();
+    let app = Router::new()
+        .route(
+            "/auth/v3/tenant_access_token/internal",
+            post(|| async {
+                Json(serde_json::json!({
+                    "code": 0,
+                    "msg": "ok",
+                    "tenant_access_token": "mock_token"
+                }))
+            }),
+        )
+        .route(
+            "/im/v1/messages",
+            post(move || async move {
+                let call = mc.fetch_add(1, Ordering::SeqCst);
+                if call < card_fail_count {
+                    Json(serde_json::json!({
+                        "code": card_code,
+                        "msg": "component not supported"
+                    }))
+                } else {
+                    Json(serde_json::json!({
+                        "code": text_code,
+                        "msg": "ok"
+                    }))
+                }
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{}", addr),
+        CapabilityMock {
+            msg_call_count: msg_count,
+        },
+    )
+}
+
+fn card_payload_with_markdown(text: &str) -> String {
+    serde_json::json!({
+        "msg_type": "interactive",
+        "card": {
+            "elements": [
+                { "tag": "markdown", "content": text }
+            ]
+        }
+    })
+    .to_string()
+}
+
+#[test]
+fn test_is_capability_error() {
+    assert!(is_capability_error(230001));
+    assert!(is_capability_error(230002));
+    assert!(!is_capability_error(200));
+    assert!(!is_capability_error(99999));
+}
+
+#[tokio::test]
+async fn send_card_capability_error_fallback_to_text_succeeds() {
+    let (url, mock) = start_capability_mock(1, 230002, 0).await;
+    let adapter = make_adapter(&url);
+    let card = card_payload_with_markdown("fallback content");
+    let result = adapter.send_card_json("oc_chat", &card, None).await;
+    // Card send fails → fallback text succeeds → send_card_json returns
+    // the original card error, but the fallback text was attempted.
+    assert!(result.is_err(), "should return Err for card failure");
+    // The text fallback should have been called: total calls = 1 card + 1 text = 2
+    assert_eq!(mock.msg_call_count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn send_card_capability_error_fallback_text_also_fails() {
+    // Both card and text fallback fail with capability error
+    let (url, mock) = start_capability_mock(2, 230002, 230002).await;
+    let adapter = make_adapter(&url);
+    let card = card_payload_with_markdown("content");
+    let result = adapter.send_card_json("oc_chat", &card, None).await;
+    assert!(result.is_err(), "should return Err when both card and text fail");
+    // 1 card + 1 text fallback = 2 calls
+    assert_eq!(mock.msg_call_count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn send_card_non_capability_error_no_retry() {
+    // Code 99999 is not a capability error → no text fallback
+    let (url, mock) = start_capability_mock(1, 99999, 0).await;
+    let adapter = make_adapter(&url);
+    let card = card_payload_with_markdown("content");
+    let result = adapter.send_card_json("oc_chat", &card, None).await;
+    assert!(result.is_err(), "should return Err");
+    // Only 1 call (the card send), no fallback attempted
+    assert_eq!(mock.msg_call_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn send_card_success_no_fallback() {
+    let (url, mock) = start_capability_mock(0, 0, 0).await;
+    let adapter = make_adapter(&url);
+    let card = card_payload_with_markdown("content");
+    let result = adapter.send_card_json("oc_chat", &card, None).await;
+    assert!(result.is_ok(), "successful card send should return Ok");
+    assert_eq!(mock.msg_call_count.load(Ordering::SeqCst), 1);
 }

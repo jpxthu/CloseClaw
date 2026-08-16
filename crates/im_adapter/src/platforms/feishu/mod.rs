@@ -60,7 +60,7 @@ pub use renderer::should_use_card_for_blocks;
 #[cfg(test)]
 pub(crate) use adapter::{
     truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
-    FeishuSender, FeishuSenderId, FEISHU_API_BASE,
+    FeishuSender, FeishuSenderId, FEISHU_API_BASE, is_capability_error,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
