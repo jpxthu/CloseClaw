@@ -14,8 +14,8 @@ use thiserror::Error;
 
 use closeclaw_config::agents::{
     default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
-    default_mining_dedup_window_days, default_mining_max_events_per_session,
-    MemoryConfig, MiningConfig,
+    default_mining_dedup_window_days, default_mining_max_events_per_session, MemoryConfig,
+    MiningConfig,
 };
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
