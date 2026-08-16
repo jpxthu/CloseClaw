@@ -163,9 +163,9 @@
     "path": "docs/design/im_adapter/README.md",
     "commit": "96d5e1755b1842af63fc702e40b01142fb5333e7",
     "commit_time": "2026-08-16T19:35:40+08:00",
-    "confirmed_time": "2026-08-16T19:47:18.272375+08:00",
+    "confirmed_time": "2026-08-17T05:52:09.394447+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "设计文档 im_adapter/README.md 存在经三轮正反对比仍无法收敛的文档问题：「编译期自动扫描 platforms/ 目录发现所有平台插件并注册」的表述将编译期发现与运行时注册混为一谈，且未描述运行时注册链路；另有 IMAdapter 双层 trait 结构未文档化（三方判定为 code_extra 非差异）。设计文档权威不可由流水线修改，需 Owner 裁决。"
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
