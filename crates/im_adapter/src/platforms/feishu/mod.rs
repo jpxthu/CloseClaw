@@ -4,6 +4,7 @@
 //! [`FeishuAdapter`] (HTTP I/O) behind a single [`IMPlugin`] implementation.
 
 mod adapter;
+mod text_style;
 #[cfg(test)]
 mod adapter_tests;
 mod events;
