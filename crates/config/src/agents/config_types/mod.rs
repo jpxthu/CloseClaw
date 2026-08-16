@@ -516,6 +516,10 @@ pub struct ForgettingConfig {
     /// Initial TTL in days for new events. `None` means inherit global default.
     #[serde(default)]
     pub initial_ttl_days: Option<i64>,
+    /// Days to extend `expires_at` when Miner 1 dedup re-identifies an entity.
+    /// `None` means inherit global default.
+    #[serde(default)]
+    pub reidentify_extension_days: Option<i64>,
     /// Days to extend `expires_at` on active-searcher injection hit.
     /// `None` means inherit global default.
     #[serde(default)]
@@ -527,6 +531,9 @@ impl ForgettingConfig {
     pub fn merge_overrides(&self, agent: &ForgettingConfig) -> ForgettingConfig {
         ForgettingConfig {
             initial_ttl_days: agent.initial_ttl_days.or(self.initial_ttl_days),
+            reidentify_extension_days: agent
+                .reidentify_extension_days
+                .or(self.reidentify_extension_days),
             injection_extension_days: agent
                 .injection_extension_days
                 .or(self.injection_extension_days),
@@ -536,6 +543,11 @@ impl ForgettingConfig {
 
 /// Default initial TTL in days for new events.
 pub fn default_forgetting_initial_ttl_days() -> i64 {
+    90
+}
+
+/// Default reidentify extension days for Miner 1 dedup hits.
+pub fn default_forgetting_reidentify_extension_days() -> i64 {
     90
 }
 

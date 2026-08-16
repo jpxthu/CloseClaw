@@ -818,10 +818,12 @@ fn test_forgetting_config_camel_case_roundtrip() {
 fn test_forgetting_config_merge_agent_overrides_global() {
     let global = ForgettingConfig {
         initial_ttl_days: Some(90),
+        reidentify_extension_days: None,
         injection_extension_days: Some(7),
     };
     let agent = ForgettingConfig {
         initial_ttl_days: Some(30),
+        reidentify_extension_days: None,
         injection_extension_days: None,
     };
     let merged = global.merge_overrides(&agent);
@@ -863,6 +865,7 @@ fn test_memory_config_merge_includes_forgetting() {
     let global = MemoryConfig {
         forgetting: ForgettingConfig {
             initial_ttl_days: Some(90),
+            reidentify_extension_days: None,
             injection_extension_days: Some(7),
         },
         ..Default::default()
@@ -870,6 +873,7 @@ fn test_memory_config_merge_includes_forgetting() {
     let agent = MemoryConfig {
         forgetting: ForgettingConfig {
             initial_ttl_days: Some(30),
+            reidentify_extension_days: None,
             injection_extension_days: None,
         },
         ..Default::default()
