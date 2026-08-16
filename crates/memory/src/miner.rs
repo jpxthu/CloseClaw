@@ -60,6 +60,9 @@ pub enum MiningEventCategory {
     Anger,
     /// Owner made an explicit product decision.
     Decision,
+    /// Agent discovered a simple pattern through repeated attempts,
+    /// worth crystallising as experience.
+    Insight,
 }
 
 impl std::fmt::Display for MiningEventCategory {
@@ -68,6 +71,7 @@ impl std::fmt::Display for MiningEventCategory {
             Self::Error => write!(f, "error"),
             Self::Anger => write!(f, "anger"),
             Self::Decision => write!(f, "decision"),
+            Self::Insight => write!(f, "insight"),
         }
     }
 }
@@ -457,6 +461,26 @@ impl MemoryMiner {
         let max = self.config.read().unwrap().max_events_per_session;
         events.truncate(max);
         Ok(events)
+    }
+
+    /// Run periodic forgetting cleanup: delete expired events and orphan entities.
+    ///
+    /// Uses `spawn_blocking` to keep the SQLite connection off the async
+    /// runtime, matching the pattern of `mine_session_inner`.
+    pub async fn run_forgetting_cleanup(
+        &self,
+    ) -> Result<crate::forgetting::ForgettingCleanupStats, MinerError> {
+        let db_path = self.db_path.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut conn =
+                rusqlite::Connection::open(&db_path)
+                    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            crate::miner::init_schema(&conn)?;
+            let now = chrono::Utc::now().timestamp();
+            crate::forgetting::cleanup_expired(&mut conn, now)
+        })
+        .await
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?
     }
 }
 

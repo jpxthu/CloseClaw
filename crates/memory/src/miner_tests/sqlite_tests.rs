@@ -329,6 +329,101 @@ fn test_load_entity_catalog_excludes_inactive_types() {
     assert!(catalog.contains("## action "));
 }
 
+// ── Insight category tests ─────────────────────────────────────────
+
+/// MiningEventCategory::Insight Display should output "insight".
+#[test]
+fn test_insight_category_display() {
+    let cat = MiningEventCategory::Insight;
+    assert_eq!(cat.to_string(), "insight");
+}
+
+/// write_to_sqlite with an Insight event should persist category = "insight"
+/// and lesson = NULL.
+#[test]
+fn test_write_to_sqlite_insight_category_and_lesson() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let event = crate::miner::MiningEvent {
+        title: "insight title".to_string(),
+        summary: "insight summary".to_string(),
+        body: "insight body".to_string(),
+        category: MiningEventCategory::Insight,
+        lesson: None,
+    };
+    write_to_sqlite(
+        &conn,
+        "sess-insight",
+        "a1",
+        &[event],
+        &[vec![]],
+        default_forgetting_initial_ttl_days(),
+    )
+    .unwrap();
+
+    let category: String = conn
+        .query_row("SELECT category FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(category, "insight");
+
+    let lesson: Option<String> = conn
+        .query_row("SELECT lesson FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(lesson.is_none(), "Insight event lesson should be NULL");
+}
+
+/// write_entries_to_db with Insight event round-trips correctly.
+#[test]
+fn test_write_entries_to_db_insight_round_trip() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let event = crate::miner::MiningEvent {
+        title: "discovered pattern".to_string(),
+        summary: "retry loop yields rule".to_string(),
+        body: "body".to_string(),
+        category: MiningEventCategory::Insight,
+        lesson: None,
+    };
+    let entities = vec![vec![make_entity("retry_pattern", "subject")]];
+
+    super::super::miner::write_entries_to_db(
+        &conn,
+        "sess-insight-round",
+        "a1",
+        &[event],
+        &entities,
+    )
+    .unwrap();
+
+    let category: String = conn
+        .query_row("SELECT category FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(category, "insight");
+
+    let lesson: Option<String> = conn
+        .query_row("SELECT lesson FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(lesson.is_none());
+
+    // Entity should exist
+    let entity_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(entity_count, 1);
+}
+
 // ── expires_at tests ────────────────────────────────────────────────
 
 /// New event written via write_to_sqlite should have expires_at ≈ now + 90 * 86400.
