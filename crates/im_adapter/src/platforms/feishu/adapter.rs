@@ -671,7 +671,11 @@ impl FeishuAdapter {
 
         // Discard empty text content (only for text/post;
         // non-text messages have empty content by design).
-        if matches!(event.event.message_type.as_str(), "text" | "post" | "sticker") && text.trim().is_empty() {
+        let is_text_type = matches!(
+            event.event.message_type.as_str(),
+            "text" | "post" | "sticker"
+        );
+        if is_text_type && text.trim().is_empty() {
             tracing::debug!(
                 message_type = %event.event.message_type,
                 "Discarding empty text content"

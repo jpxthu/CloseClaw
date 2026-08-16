@@ -8,6 +8,8 @@ mod post_expand;
 mod text_style;
 #[cfg(test)]
 mod adapter_tests;
+#[cfg(test)]
+mod adapter_sticker_tests;
 mod events;
 #[cfg(test)]
 mod events_tests;

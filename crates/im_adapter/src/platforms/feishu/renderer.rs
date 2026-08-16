@@ -251,6 +251,30 @@ fn render_tool_result_block(content: &str) -> CardElement {
     }
 }
 
+/// Render a media block (Image/Audio/File) to a card element.
+/// When `url` is empty, falls back to a text placeholder.
+fn render_media_block(name: &str, url: &str, kind: &str) -> Vec<CardElement> {
+    if url.is_empty() {
+        to_elements(&format!("[{kind}: {name}]"))
+    } else {
+        vec![match kind {
+            "image" => CardElement::Image {
+                img_key: url.to_string(),
+                alt: CardText {
+                    tag: "plain_text".into(),
+                    content: name.to_string(),
+                },
+            },
+            "audio" => CardElement::Audio {
+                file_token: url.to_string(),
+            },
+            _ => CardElement::File {
+                file_token: url.to_string(),
+            },
+        }]
+    }
+}
+
 /// Dispatch content blocks by type, producing a title and card elements.
 pub(crate) fn dispatch_blocks(
     content_blocks: &[ContentBlock],
@@ -282,35 +306,13 @@ pub(crate) fn dispatch_blocks(
                 elements.push(render_tool_result_block(content));
             }
             ContentBlock::Image { name, url } => {
-                if url.is_empty() {
-                    elements.extend(to_elements(&format!("[image: {name}]")));
-                } else {
-                    elements.push(CardElement::Image {
-                        img_key: url.clone(),
-                        alt: CardText {
-                            tag: "plain_text".into(),
-                            content: name.clone(),
-                        },
-                    });
-                }
+                elements.extend(render_media_block(name, url, "image"));
             }
             ContentBlock::Audio { name, url } => {
-                if url.is_empty() {
-                    elements.extend(to_elements(&format!("[audio: {name}]")));
-                } else {
-                    elements.push(CardElement::Audio {
-                        file_token: url.clone(),
-                    });
-                }
+                elements.extend(render_media_block(name, url, "audio"));
             }
             ContentBlock::File { name, url } => {
-                if url.is_empty() {
-                    elements.extend(to_elements(&format!("[file: {name}]")));
-                } else {
-                    elements.push(CardElement::File {
-                        file_token: url.clone(),
-                    });
-                }
+                elements.extend(render_media_block(name, url, "file"));
             }
         }
     }
