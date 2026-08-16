@@ -2,7 +2,7 @@
 //!
 //! Verifies:
 //! 1. `flush_all()` writes checkpoint to SqliteStorage
-//! 2. Restored session correctly filters sent=true messages
+//! 2. Restored session re-queues only unsent (sent=false) messages
 //! 3. SIGTERM triggers graceful shutdown with SqliteStorage initialization
 //!
 //! Uses `#[cfg(feature = "fake-llm")]` to gate all tests, consistent with the rest of the
@@ -11,6 +11,7 @@
 #![cfg(feature = "fake-llm")]
 
 use std::collections::HashMap;
+use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
 use closeclaw_common::shutdown::ShutdownMode;
@@ -87,6 +88,32 @@ async fn setup_session_manager_with_storage() -> (Arc<SessionManager>, FakeProvi
     (sm, provider, test_root)
 }
 
+/// Poll the daemon admin socket until it accepts a connection or times out.
+///
+/// The admin socket is created in the daemon's final init phase, so its
+/// availability signals that the daemon is fully initialized and ready to
+/// receive SIGTERM. Bounded, signal-targeted readiness wait (no blind sleep).
+#[cfg(unix)]
+async fn wait_for_daemon_ready(config_dir: &std::path::Path) {
+    const SOCKET_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+    const SOCKET_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+    let socket_path = config_dir.join("admin.sock");
+    let deadline = tokio::time::Instant::now() + SOCKET_WAIT_TIMEOUT;
+    loop {
+        if UnixStream::connect(&socket_path).is_ok() {
+            return;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "daemon admin socket not ready after {:?}: {}",
+                SOCKET_WAIT_TIMEOUT,
+                socket_path.display()
+            );
+        }
+        tokio::time::sleep(SOCKET_POLL_INTERVAL).await;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Test 1.2: flush_all writes checkpoint to SqliteStorage
 // ---------------------------------------------------------------------------
@@ -124,8 +151,7 @@ async fn test_flush_all_writes_checkpoint_to_sqlite() {
     assert!(cp.is_some(), "checkpoint should exist after flush_all");
     let cp = cp.unwrap();
 
-    // The transcript .jsonl stores all entries with sent=true, so both loaded messages
-    // will have sent=true. Verify the count and content instead.
+    // Both pending messages (sent + unsent) are persisted into the checkpoint.
     assert_eq!(
         cp.outbound_pending.len(),
         2,
@@ -150,19 +176,32 @@ async fn test_flush_all_writes_checkpoint_to_sqlite() {
         ids
     );
 
-    // Verify both entries have sent=true (transcript always marks as sent)
-    for m in &cp.outbound_pending {
-        assert!(
-            m.sent,
-            "transcript entries should always have sent=true, but {} had sent=false",
-            m.message_id
-        );
-    }
+    // Persistence preserves the sent flag (outbound_pending is stored as JSON
+    // metadata, not derived from the transcript). msg-sent-1 stays sent=true
+    // and msg-unsent-1 stays sent=false.
+    let msg_sent_cp = cp
+        .outbound_pending
+        .iter()
+        .find(|m| m.message_id == "msg-sent-1")
+        .expect("checkpoint should contain msg-sent-1");
+    assert!(
+        msg_sent_cp.sent,
+        "msg-sent-1 should preserve sent=true after flush_all"
+    );
+    let msg_unsent_cp = cp
+        .outbound_pending
+        .iter()
+        .find(|m| m.message_id == "msg-unsent-1")
+        .expect("checkpoint should contain msg-unsent-1");
+    assert!(
+        !msg_unsent_cp.sent,
+        "msg-unsent-1 should preserve sent=false after flush_all"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// Test 1.3: restore from checkpoint skips all messages (transcript format:
-//           all messages have sent=true, so none should be queued)
+// Test 1.3: restore from checkpoint re-queues only unsent (sent=false)
+//           messages, skipping already-sent (sent=true) messages
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -202,15 +241,23 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
     let mut session = ConversationSession::new(sid.clone(), "fake-model".to_string(), root);
     session.restore_pending_messages(cp.outbound_pending);
 
-    // All checkpoint messages have sent=true (transcript format limitation),
-    // so restore_pending_messages should skip everything.
+    // restore_pending_messages re-queues only messages with sent=false.
+    // msg-sent-1 (sent=true) is skipped; msg-unsent-1 (sent=false) is re-queued.
     let pending = session.get_pending_messages();
     assert_eq!(
         pending.len(),
-        0,
-        "restored session should have 0 pending messages since all from checkpoint \
-         have sent=true (transcript format limitation); got {} pending",
+        1,
+        "restored session should re-queue 1 pending message (msg-unsent-1); got {}",
         pending.len()
+    );
+    assert_eq!(
+        pending[0].message_id, "msg-unsent-1",
+        "re-queued message should be msg-unsent-1, got {}",
+        pending[0].message_id
+    );
+    assert!(
+        !pending[0].sent,
+        "re-queued message should still be unsent (sent=false)"
     );
 }
 
@@ -235,26 +282,31 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_dir = temp_dir.path();
 
-    // Write minimal agents.json so daemon starts successfully
-    std::fs::create_dir_all(config_dir.join("config")).expect("create config dir");
+    // Write minimal agents.json + mandatory configs so daemon starts successfully
+    let agents_dir = config_dir.join("config");
+    std::fs::create_dir_all(&agents_dir).expect("create config dir");
     std::fs::write(
-        config_dir.join("config").join("agents.json"),
+        agents_dir.join("agents.json"),
         r#"{"version":"1.0.0","agents":[]}"#,
     )
     .expect("failed to write agents.json");
+    closeclaw_common::test_helpers::write_mandatory_configs(&agents_dir)
+        .expect("write mandatory config");
 
-    // Start the daemon in background
+    // Start the daemon in --foreground mode so the test owns the daemon PID
+    // and SIGTERM reaches the daemon process itself (not a wrapper).
     let mut daemon = tokio::process::Command::new(&daemon_bin)
         .args(["run", "--config-dir"])
         .arg(config_dir.as_os_str())
+        .arg("--foreground")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .expect("failed to spawn daemon");
 
-    // Wait for daemon to fully initialize
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    // Wait for the daemon admin socket (final init phase) to be ready.
+    wait_for_daemon_ready(config_dir).await;
 
     // Verify daemon is still running (didn't crash on startup)
     match daemon.try_wait().expect("try_wait works") {
@@ -299,16 +351,16 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1.5: full in-process cycle — shutdown checkpoint + restore
+// Test 1.5: full in-process cycle — shutdown checkpoint + session re-find
 //
-// Simulates a complete shutdown/restore cycle:
+// Simulates a complete shutdown/restart cycle:
 // 1. First SessionManager: find_or_create, push 2 pending messages (sent
-//   各异), flush_all() to write checkpoint to SqliteStorage.
-// 2. Second SessionManager (same storage path): find_or_create triggers
-//    restore of the checkpoint.
-// 3. Verify: pending queue is empty (all messages from checkpoint have
-//    sent=true due to transcript format limitation) and FakeProvider
-//    captured_requests is empty (no messages were re-sent).
+//   各异), flush_all() to write the checkpoint to SqliteStorage.
+// 2. Second SessionManager (same storage path): find_or_create re-finds the
+//    persisted active session (self-heal) and returns the same session id.
+// 3. Verify: the session is re-registered and no message is re-sent to the
+//    LLM (FakeProvider captured_requests stays empty). Pending-message
+//    re-queue semantics are covered by tests 1.2/1.3.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -350,26 +402,20 @@ async fn test_full_shutdown_restore_cycle() {
         ReasoningLevel::default(),
     ));
 
-    // Trigger restore by calling find_or_create for the same session
-    let _sid2 = sm2.find_or_create("ch", &make_msg(), None).await.unwrap();
+    // Trigger re-find by calling find_or_create for the same routing fields.
+    let sid2 = sm2.find_or_create("ch", &make_msg(), None).await.unwrap();
 
-    // Give restore_async a moment to complete (it's a spawn, give it a tick)
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-    // All checkpoint messages have sent=true (transcript format), so the
-    // restored pending queue should be empty. Get the ConversationSession
-    // and call get_pending_messages() directly.
-    let cs = sm2
-        .get_conversation_session(&sid)
-        .await
-        .expect("session should exist after find_or_create");
-    let cs = cs.read().await;
-    let pending = cs.get_pending_messages();
+    // Current behavior: find_or_create self-heals the persisted active session
+    // (re-registers it in memory) rather than eagerly rebuilding a
+    // ConversationSession. The checkpoint (with outbound_pending) stays in
+    // storage for the recovery path.
     assert_eq!(
-        pending.len(),
-        0,
-        "restored session should have 0 pending messages (all have sent=true); got {} pending",
-        pending.len()
+        sid2, sid,
+        "find_or_create should re-find the persisted session id after restart"
+    );
+    assert!(
+        sm2.has_session(&sid).await,
+        "re-found session should be registered in the sessions table"
     );
 
     // No new requests should have been sent to the LLM (FakeProvider)
