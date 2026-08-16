@@ -1,6 +1,6 @@
 //! Unit tests for Feishu text_run style rendering and selector rendering.
 use super::adapter::{expand_element, expand_post_content};
-use super::renderer::{render_selectors, CardElement};
+use super::renderer::{render_selectors, CardAction, CardElement};
 use closeclaw_common::processor::DslInstruction;
 
 // ================================================================
@@ -112,18 +112,21 @@ fn render_selectors_single_selector_returns_select_action() {
     let result = render_selectors(&[inst]);
     assert_eq!(result.len(), 1);
     match &result[0] {
-        CardElement::SelectAction { actions } => {
+        CardElement::Action { actions } => {
             assert_eq!(actions.len(), 1);
-            let sel = &actions[0];
-            assert_eq!(sel.tag, "select_static");
-            assert_eq!(sel.placeholder.content, "Choose");
-            assert_eq!(sel.options.len(), 3);
-            assert_eq!(sel.options[0].text.content, "A");
-            assert_eq!(sel.options[0].value, "A");
-            assert_eq!(sel.options[2].text.content, "C");
-            assert_eq!(sel.action_name.as_deref(), Some("pick"));
+            match &actions[0] {
+                CardAction::SelectMenu(sel) => {
+                    assert_eq!(sel.placeholder.content, "Choose");
+                    assert_eq!(sel.options.len(), 3);
+                    assert_eq!(sel.options[0].text.content, "A");
+                    assert_eq!(sel.options[0].value, "A");
+                    assert_eq!(sel.options[2].text.content, "C");
+                    assert_eq!(sel.action_name.as_deref(), Some("pick"));
+                }
+                other => panic!("expected SelectMenu, got {other:?}"),
+            }
         }
-        other => panic!("expected SelectAction, got {other:?}"),
+        other => panic!("expected Action, got {other:?}"),
     }
 }
 
@@ -138,10 +141,13 @@ fn render_selectors_mixed_with_buttons() {
     // render_selectors only processes selector instructions
     assert_eq!(result.len(), 1);
     match &result[0] {
-        CardElement::SelectAction { actions } => {
-            assert_eq!(actions[0].options.len(), 2);
+        CardElement::Action { actions } => {
+            match &actions[0] {
+                CardAction::SelectMenu(sel) => assert_eq!(sel.options.len(), 2),
+                other => panic!("expected SelectMenu, got {other:?}"),
+            }
         }
-        other => panic!("expected SelectAction, got {other:?}"),
+        other => panic!("expected Action, got {other:?}"),
     }
 }
 
@@ -151,10 +157,13 @@ fn render_selectors_empty_options_returns_empty_vec() {
     let result = render_selectors(&[inst]);
     assert_eq!(result.len(), 1);
     match &result[0] {
-        CardElement::SelectAction { actions } => {
-            assert_eq!(actions[0].options.len(), 0);
+        CardElement::Action { actions } => {
+            match &actions[0] {
+                CardAction::SelectMenu(sel) => assert_eq!(sel.options.len(), 0),
+                other => panic!("expected SelectMenu, got {other:?}"),
+            }
         }
-        other => panic!("expected SelectAction, got {other:?}"),
+        other => panic!("expected Action, got {other:?}"),
     }
 }
 
@@ -163,13 +172,18 @@ fn render_selectors_options_with_spaces_are_trimmed() {
     let inst = make_selector_inst("Pick", " A , B , C ", "choose");
     let result = render_selectors(&[inst]);
     match &result[0] {
-        CardElement::SelectAction { actions } => {
-            assert_eq!(actions[0].options.len(), 3);
-            assert_eq!(actions[0].options[0].text.content, "A");
-            assert_eq!(actions[0].options[1].text.content, "B");
-            assert_eq!(actions[0].options[2].text.content, "C");
+        CardElement::Action { actions } => {
+            match &actions[0] {
+                CardAction::SelectMenu(sel) => {
+                    assert_eq!(sel.options.len(), 3);
+                    assert_eq!(sel.options[0].text.content, "A");
+                    assert_eq!(sel.options[1].text.content, "B");
+                    assert_eq!(sel.options[2].text.content, "C");
+                }
+                other => panic!("expected SelectMenu, got {other:?}"),
+            }
         }
-        other => panic!("expected SelectAction, got {other:?}"),
+        other => panic!("expected Action, got {other:?}"),
     }
 }
 

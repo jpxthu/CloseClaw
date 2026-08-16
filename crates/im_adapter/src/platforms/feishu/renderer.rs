@@ -35,7 +35,6 @@ pub(crate) struct SelectOption {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct SelectMenu {
-    pub(crate) tag: String,
     pub(crate) placeholder: CardText,
     pub(crate) options: Vec<SelectOption>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,8 +58,6 @@ pub(crate) enum CardElement {
         header: CollapsiblePanelHeader,
         elements: Vec<CardElement>,
     },
-    #[serde(rename = "action")]
-    SelectAction { actions: Vec<SelectMenu> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,13 +76,18 @@ impl CardNoteElement {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct CardAction {
-    tag: String,
-    text: CardText,
-    #[serde(rename = "type")]
-    action_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
+#[serde(tag = "tag")]
+pub(crate) enum CardAction {
+    #[serde(rename = "button")]
+    Button {
+        text: CardText,
+        #[serde(rename = "type")]
+        action_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
+    #[serde(rename = "select_static")]
+    SelectMenu(SelectMenu),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -324,16 +326,15 @@ pub(crate) fn render_selectors(instructions: &[DslInstruction]) -> Vec<CardEleme
                 })
                 .collect();
 
-            CardElement::SelectAction {
-                actions: vec![SelectMenu {
-                    tag: "select_static".into(),
+            CardElement::Action {
+                actions: vec![CardAction::SelectMenu(SelectMenu {
                     placeholder: CardText {
                         tag: "plain_text".into(),
                         content: label,
                     },
                     options,
                     action_name,
-                }],
+                })],
             }
         })
         .collect()
@@ -359,8 +360,7 @@ fn render_buttons(instructions: &[DslInstruction]) -> Vec<CardElement> {
         } else {
             "default"
         };
-        actions.push(CardAction {
-            tag: "button".into(),
+        actions.push(CardAction::Button {
             text: CardText {
                 tag: "plain_text".into(),
                 content: label,
