@@ -134,6 +134,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
     use closeclaw_permission::engine::engine_types::RuleSet;
 
     #[test]
@@ -221,11 +222,13 @@ mod tests {
                 spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
                 session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
                 agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
-                permission_engine,
-                approval_flow.clone(),
+                Arc::new(PermissionEngineAdapter(permission_engine)),
+                Arc::new(tokio::sync::Mutex::new(ApprovalFlowAdapter(
+                    approval_flow.clone(),
+                ))),
             )),
             Box::new(closeclaw_tools::SkillsToolsRegistrar::new(Arc::new(
-                closeclaw_tools::SkillTool::new(
+                closeclaw_tools::builtin::SkillTool::new(
                     disk_registry,
                     Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
                 ),

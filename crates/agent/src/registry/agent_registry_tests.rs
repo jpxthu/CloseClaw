@@ -1,11 +1,11 @@
-//! E2E integration tests for Agent Registry.
+//! Unit tests for Agent Registry.
 //!
 //! Exercises the public entry point `create_registry` → `populate` → `get` →
 //! `reload` lifecycle, simulating daemon startup fill, runtime query,
 //! and config hot-reload.
 
-use closeclaw::agent::config::SubagentsConfig;
-use closeclaw::agent::registry::create_registry;
+use crate::config::SubagentsConfig;
+use crate::registry::create_registry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 

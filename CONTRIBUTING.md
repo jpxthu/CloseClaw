@@ -175,57 +175,22 @@ Layer 5: daemon（composition root，允许全量依赖）
 
 ## 测试
 
-### 硬性安全规则
+> 测试类型判定、目录组织、命名、fixture、fake LLM、超时、并行安全、临时文件约束、断言风格与单 binary 组织方式的完整规范见 [docs/developer/STANDARDS.md](docs/developer/STANDARDS.md)。本节仅列硬性安全红线。
 
-| 要求 | 说明 |
+### 安全红线
+
+以下红线由 pre-commit hook / CI 强制执行，细则与正确做法见 [docs/developer/STANDARDS.md](docs/developer/STANDARDS.md) 对应章节：
+
+| 红线 | 细则 |
 |------|------|
-| **临时文件/目录** | 用 `tempfile::TempDir`，不可硬编码路径 |
-| **端口** | 不硬编码，用 port 0 系统分配 |
-| **环境变量** | 禁止 `std::env::set_var` / `remove_var`，详见下方「环境变量禁令」 |
-| **网络** | 禁止外部网络访问，全部 mock |
-| **超时** | 单测 30s |
-| **LLM** | 禁止真实 LLM 调用 |
-| **并行安全** | 测试间不共享可变状态；涉及端口/文件锁加 `#[serial_test::serial]` |
-
-### 环境变量禁令
-
-`std::env::set_var` / `std::env::remove_var` 修改进程全局环境，在多线程和并行测试中会导致数据竞争。**全代码库禁止使用**，唯一例外是 `daemon/mod.rs` 中的 `load_env_file()`（启动阶段加载 `.env` 文件）。
-
-正确做法：
-- 配置值通过参数/config struct 传递，不写入全局 env
-- 测试需要隔离配置时，用依赖注入或临时文件路径，不用 `set_var`
-- 需要读取环境变量时用 `std::env::var`（只读，安全）
-
-违反此规则的 commit 会被 pre-commit hook 和 CI 拦截。
-
-### 布局
-
-| 类型 | 位置 |
-|------|------|
-| 单元测试 | `crates/<crate>/src/<module>_tests.rs` |
-| 集成测试 | `tests/integration/` |
-| E2E | `tests/e2e/` |
-
-> UT 与代码分离，不在功能文件中内联 `#[cfg(test)]`。已有内联测试属于历史遗留。
-
-### 命名
-
-| 对象 | 规则 | 示例 |
-|------|------|------|
-| 测试文件 | `_tests.rs` 后缀 | `session_manager_tests.rs` |
-| 测试函数 | `test_` 前缀 | `test_session_compact_on_idle` |
-| Fixture | `tests/fixtures/<module>/` | `tests/fixtures/llm/` |
-
-### 禁止事项
-
-- ❌ `thread::sleep` 等待异步事件
-- ❌ 测试后残留进程、端口、临时文件
-- ❌ 依赖前序测试的副作用
-
-### 性能约束
-
-- 单测中禁止出现 >1s 的等待（sleep、timeout、阻塞 IO）
-- CI 中任何 test case 运行超过 5s 必须修复
+| 禁止真实 LLM 调用、外部网络访问，全部 mock | §5 |
+| 禁止 `std::env::set_var` / `remove_var`（唯一例外 `daemon` 的 `load_env_file`） | §7 |
+| 测试 config 与临时文件必须落在 /tmp（`tempfile::TempDir`），不可硬编码路径 | §8 |
+| 端口不硬编码，用 port 0 系统分配 | §7 |
+| 测试间不共享可变状态；端口/文件锁/全局资源加 `#[serial_test::serial]` | §7 |
+| 单测 30s 硬上限；CI 单用例 >5s 必须修复 | §6 |
+| 禁止 `thread::sleep` 等待异步事件 | §9 |
+| 测试后无残留进程/端口/临时文件 | §8 |
 
 ---
 

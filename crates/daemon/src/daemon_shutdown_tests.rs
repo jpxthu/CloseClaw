@@ -2,7 +2,7 @@
 //!
 //! Covers ShutdownHandle drain state machine scenarios.
 
-use closeclaw::daemon::shutdown::ShutdownHandle;
+use crate::shutdown::ShutdownHandle;
 use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::time::Duration;
 
@@ -25,10 +25,7 @@ async fn test_drain_waits_until_busy_count_zero() {
 
     // Give it a moment to enter ShuttingDown state
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(
-        handle.state(),
-        closeclaw::daemon::shutdown::ShutdownState::ShuttingDown
-    );
+    assert_eq!(handle.state(), crate::shutdown::ShutdownState::ShuttingDown);
     assert_eq!(handle.busy_count(), 3);
 
     // Decrement one at a time and verify state doesn't change yet
@@ -114,7 +111,7 @@ async fn test_daemon_run_sigterm_shutdown() {
     write_mandatory_configs(&config_dir).expect("write mandatory config");
 
     // Do NOT set FEISHU/LLM env vars — Daemon::start will skip those components
-    let mut daemon = closeclaw::daemon::Daemon::start(temp_dir.path().to_str().unwrap())
+    let mut daemon = crate::Daemon::start(temp_dir.path().to_str().unwrap())
         .await
         .expect("daemon start");
 

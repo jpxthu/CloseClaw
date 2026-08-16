@@ -194,4 +194,5 @@ cargo run -- skill list
 
 ### 测试失败
 
-检查是否有环境变量未配置（部分测试需要 MINIMAX_API_KEY）。
+测试全部使用 fake LLM，不需要配置任何真实 API Key（含 MINIMAX_API_KEY），详见
+[../CONTRIBUTING.md](../CONTRIBUTING.md)「测试」章节。若测试失败，请查看具体失败输出排查。

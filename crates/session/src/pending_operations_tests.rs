@@ -1,4 +1,4 @@
-//! Unit tests for pending_operations recovery mechanism (Step 1.4).
+//! Unit tests for pending_operations recovery mechanism.
 //!
 //! Covers:
 //! - collect_pending_operations collects three op_types
@@ -6,21 +6,22 @@
 //! - Recovery injection with non-empty pending_operations
 //! - Recovery flow unaffected when pending_operations is empty
 
-use closeclaw_llm::session_state::{ChildSessionState, ToolExecState};
-use closeclaw_session::llm_session::ConversationSession;
-use closeclaw_session::persistence::{
+use crate::llm_session::ConversationSession;
+use crate::persistence::{
     PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
     PersistenceService, SessionCheckpoint,
 };
+use closeclaw_common::{ChildSessionState, ToolExecState};
 
-// ── Step 1.4: collect_pending_operations ────────────────────────────────
+// ── collect_pending_operations ────────────────────────────────
 
 #[test]
 fn test_collect_pending_operations_empty() {
+    let temp = tempfile::tempdir().expect("temp dir");
     let cs = ConversationSession::new(
         "sess_empty".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        temp.path().to_path_buf(),
     );
     let ops = cs.collect_pending_operations();
     assert!(ops.is_empty(), "fresh session should have no pending ops");
@@ -28,10 +29,11 @@ fn test_collect_pending_operations_empty() {
 
 #[test]
 fn test_collect_pending_operations_tool_calls() {
+    let temp = tempfile::tempdir().expect("temp dir");
     let cs = ConversationSession::new(
         "sess_tools".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        temp.path().to_path_buf(),
     );
 
     // Simulate running tool calls via pub(crate) field
@@ -63,10 +65,11 @@ fn test_collect_pending_operations_tool_calls() {
 
 #[test]
 fn test_collect_pending_operations_skips_completed_tools() {
+    let temp = tempfile::tempdir().expect("temp dir");
     let cs = ConversationSession::new(
         "sess_completed".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        temp.path().to_path_buf(),
     );
 
     {
@@ -87,10 +90,11 @@ fn test_collect_pending_operations_skips_completed_tools() {
 
 #[test]
 fn test_collect_pending_operations_child_sessions() {
+    let temp = tempfile::tempdir().expect("temp dir");
     let cs = ConversationSession::new(
         "sess_children".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        temp.path().to_path_buf(),
     );
 
     {
@@ -109,14 +113,15 @@ fn test_collect_pending_operations_child_sessions() {
 
 #[test]
 fn test_collect_pending_operations_outbound_messages() {
+    let temp = tempfile::tempdir().expect("temp dir");
     let mut cs = ConversationSession::new(
         "sess_outbound".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        temp.path().to_path_buf(),
     );
 
     // Use restore_pending_messages to add unsent messages
-    use closeclaw_session::persistence::PendingMessage;
+    use crate::persistence::PendingMessage;
     let messages = vec![
         {
             let mut pm = PendingMessage::new("msg_1".into(), "content_1".into());
@@ -154,10 +159,11 @@ fn test_collect_pending_operations_outbound_messages() {
 
 #[test]
 fn test_collect_pending_operations_mixed_types() {
+    let temp = tempfile::tempdir().expect("temp dir");
     let mut cs = ConversationSession::new(
         "sess_mixed".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        temp.path().to_path_buf(),
     );
 
     // Add one of each type
@@ -173,7 +179,7 @@ fn test_collect_pending_operations_mixed_types() {
         child_states.insert("child_1".to_string(), (ChildSessionState::Running, None));
     }
     {
-        use closeclaw_session::persistence::PendingMessage;
+        use crate::persistence::PendingMessage;
         let mut pm = PendingMessage::new("msg_1".into(), "content".into());
         pm.sent = false;
         cs.restore_pending_messages(vec![pm]);
@@ -188,7 +194,7 @@ fn test_collect_pending_operations_mixed_types() {
     assert!(op_types.contains(&&PendingOperationType::OutboundMessage));
 }
 
-// ── Step 1.4: checkpoint serialization/deserialization ──────────────────
+// ── checkpoint serialization/deserialization ──────────────────
 
 #[test]
 fn test_checkpoint_pending_operations_roundtrip_empty() {
@@ -334,10 +340,10 @@ fn test_checkpoint_with_pending_operations_builder() {
     assert_eq!(cp.pending_operations[0].op_id, "op_1");
 }
 
-// ── Step 1.4: recovery injection ────────────────────────────────────────
+// ── recovery injection ────────────────────────────────────────
 
-use closeclaw_session::recovery::SessionRecoveryService;
-use closeclaw_session::storage::memory::MemoryStorage;
+use crate::recovery::SessionRecoveryService;
+use crate::storage::memory::MemoryStorage;
 use std::sync::Arc;
 
 fn make_checkpoint_with_pending_ops(session_id: &str) -> SessionCheckpoint {
@@ -549,11 +555,11 @@ async fn test_recovery_report_dirty_sessions_count() {
 
 #[tokio::test]
 async fn test_recovery_callback_receives_notification_and_tool_failures() {
-    use closeclaw_session::persistence::{
+    use crate::persistence::{
         PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
         PersistenceService, SessionCheckpoint,
     };
-    use closeclaw_session::storage::memory::MemoryStorage;
+    use crate::storage::memory::MemoryStorage;
     use std::sync::Arc;
 
     let storage = Arc::new(MemoryStorage::new());
@@ -619,21 +625,27 @@ async fn test_recovery_callback_receives_notification_and_tool_failures() {
     assert!(failures[0].contains("tool_1"));
 }
 
-// ── Step 1.9: ToolCall and SubSessionSpawn active write-in tests ─────
+// ── ToolCall and SubSessionSpawn active write-in tests ─────
 
 use closeclaw_common::tool_session::ToolSession;
 
 /// Helper: create a ConversationSession with checkpoint_storage wired up
 /// so that `persist_pending_checkpoint` actually persists to MemoryStorage.
-fn make_session_with_storage(session_id: &str) -> (ConversationSession, Arc<MemoryStorage>) {
+///
+/// The returned `TempDir` keeps the session's working directory alive for
+/// the test's duration (the session stores the path, not the directory).
+fn make_session_with_storage(
+    session_id: &str,
+) -> (ConversationSession, Arc<MemoryStorage>, tempfile::TempDir) {
     let storage = Arc::new(MemoryStorage::new());
+    let temp = tempfile::tempdir().expect("temp dir");
     let mut cs = ConversationSession::new(
         session_id.into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        temp.path().to_path_buf(),
     );
     cs.set_checkpoint_storage(Arc::clone(&storage) as Arc<dyn PersistenceService>);
-    (cs, storage)
+    (cs, storage, temp)
 }
 
 /// Load the persisted checkpoint and return its pending_operations.
@@ -644,11 +656,16 @@ async fn load_pending_ops(storage: &MemoryStorage, session_id: &str) -> Vec<Pend
 
 #[tokio::test]
 async fn test_tool_call_active_write_in_pending() {
-    let (cs, storage) = make_session_with_storage("tool_pending");
+    let (cs, storage, _temp) = make_session_with_storage("tool_pending");
 
     // register_tool_call writes to tool_states and persists checkpoint.
-    cs.register_tool_call("call_1".into(), "bash".into(), r#"{"cmd":"ls"}"#.into())
-        .await;
+    ToolSession::register_tool_call(
+        &cs,
+        "call_1".into(),
+        "bash".into(),
+        r#"{"cmd":"ls"}"#.into(),
+    )
+    .await;
 
     let ops = load_pending_ops(&storage, "tool_pending").await;
     assert_eq!(
@@ -663,10 +680,11 @@ async fn test_tool_call_active_write_in_pending() {
 
 #[tokio::test]
 async fn test_tool_call_active_write_in_clear() {
-    let (cs, storage) = make_session_with_storage("tool_clear");
+    let (cs, storage, _temp) = make_session_with_storage("tool_clear");
 
     // Register a tool call.
-    cs.register_tool_call(
+    ToolSession::register_tool_call(
+        &cs,
         "call_2".into(),
         "grep".into(),
         r#"{"pattern":"foo"}"#.into(),
@@ -679,7 +697,7 @@ async fn test_tool_call_active_write_in_clear() {
     assert_eq!(ops[0].op_id, "call_2");
 
     // Deregister the tool call — should clear from pending_operations.
-    cs.deregister_tool_call("call_2".into()).await;
+    ToolSession::deregister_tool_call(&cs, "call_2".into()).await;
 
     let ops = load_pending_ops(&storage, "tool_clear").await;
     assert!(
@@ -690,11 +708,16 @@ async fn test_tool_call_active_write_in_clear() {
 
 #[tokio::test]
 async fn test_subs_session_spawn_active_write_in_pending() {
-    let (cs, storage) = make_session_with_storage("child_pending");
+    let (cs, storage, _temp) = make_session_with_storage("child_pending");
 
     // register_child_state writes to child_states and persists checkpoint.
-    cs.register_child_state("child_1".into(), "eda".into(), "implement feature X".into())
-        .await;
+    ToolSession::register_child_state(
+        &cs,
+        "child_1".into(),
+        "eda".into(),
+        "implement feature X".into(),
+    )
+    .await;
 
     let ops = load_pending_ops(&storage, "child_pending").await;
     assert_eq!(
@@ -709,10 +732,10 @@ async fn test_subs_session_spawn_active_write_in_pending() {
 
 #[tokio::test]
 async fn test_subs_session_spawn_active_write_in_clear() {
-    let (cs, storage) = make_session_with_storage("child_clear");
+    let (cs, storage, _temp) = make_session_with_storage("child_clear");
 
     // Register a child session.
-    cs.register_child_state("child_2".into(), "eda".into(), "review PR".into())
+    ToolSession::register_child_state(&cs, "child_2".into(), "eda".into(), "review PR".into())
         .await;
 
     // Verify it's in pending_operations.
@@ -721,7 +744,7 @@ async fn test_subs_session_spawn_active_write_in_clear() {
     assert_eq!(ops[0].op_id, "child_2");
 
     // Deregister the child session — should clear from pending_operations.
-    cs.deregister_child_state("child_2".into()).await;
+    ToolSession::deregister_child_state(&cs, "child_2".into()).await;
 
     let ops = load_pending_ops(&storage, "child_clear").await;
     assert!(

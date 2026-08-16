@@ -554,6 +554,7 @@ fn test_build_api_request_default_reasoning_level() {
 
 mod file_mtime_tests;
 mod file_read_range_tests;
+mod kv_cache_tests;
 mod last_message_at_persist_tests;
 mod stats_integration;
 mod thinking_clean_tests;

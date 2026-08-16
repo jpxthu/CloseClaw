@@ -93,6 +93,9 @@ async fn test_sigterm_triggers_graceful_shutdown() {
     let pid = daemon.id().expect("daemon has a PID");
 
     // Send SIGTERM
+    // SAFETY: `pid` is the PID of the daemon child we spawned above and
+    // verified is still running; the cast to `libc::pid_t` is a lossless
+    // widening conversion, and SIGTERM is a valid signal number.
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGTERM);
     }
@@ -161,6 +164,9 @@ async fn test_sigint_triggers_graceful_shutdown() {
     let pid = daemon.id().expect("daemon has a PID");
 
     // Send SIGINT
+    // SAFETY: `pid` is the PID of the daemon child we spawned above and
+    // verified is still running; the cast to `libc::pid_t` is a lossless
+    // widening conversion, and SIGINT is a valid signal number.
     unsafe {
         libc::kill(pid as libc::pid_t, libc::SIGINT);
     }
