@@ -44,7 +44,6 @@ fn test_negative_signal_same_category() {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(-1.0),
             ..Default::default()
@@ -87,7 +86,6 @@ fn test_negative_signal_mixed_category() {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(-1.0),
             ..Default::default()
@@ -152,7 +150,6 @@ fn test_negative_signal_single_entry() {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(-1.0),
             ..Default::default()
@@ -405,7 +402,6 @@ async fn test_run_once_diary_only_promoted_groups() {
             frequency_weight: Some(1.0),
             recency_weight: Some(1.0),
             explicitness_weight: Some(1.0),
-            entity_type_weight_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -477,10 +473,9 @@ fn test_load_entity_type_weight_active() {
     }];
     let pipeline_scoring = DreamingPipeline::with_config(DreamingConfig {
         scoring: DreamingScoringConfig {
-            frequency_weight: Some(0.0),
+            frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -497,7 +492,7 @@ fn test_load_entity_type_weight_active() {
     .with_db_path(tmp.path().join("test.db"));
     let deep = pipeline_scoring.deep_stage(groups);
     assert_eq!(deep.len(), 1);
-    // score = entity_type_weight_weight(1.0) * load_entity_type_weight(subject=1.5) = 1.5
+    // base = frequency(1)*1.0 = 1.0, final = 1.0 * load_entity_type_weight(subject=1.5) = 1.5
     assert!(
         (deep[0].score - 1.5).abs() < 0.001,
         "subject weight should be 1.5, got {}",
@@ -517,10 +512,9 @@ fn test_load_entity_type_weight_inactive() {
     .unwrap();
     let pipeline = DreamingPipeline::with_config(DreamingConfig {
         scoring: DreamingScoringConfig {
-            frequency_weight: Some(0.0),
+            frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()
@@ -548,7 +542,7 @@ fn test_load_entity_type_weight_inactive() {
     }];
     let deep = pipeline.deep_stage(groups);
     assert_eq!(deep.len(), 1);
-    // person has weight=1.2 but is_active=0 → fallback to 1.0
+    // base = frequency(1)*1.0 = 1.0, final = 1.0 * fallback(1.0) = 1.0
     assert!(
         (deep[0].score - 1.0).abs() < 0.001,
         "inactive person weight should fallback to 1.0, got {}",
@@ -562,10 +556,9 @@ fn test_load_entity_type_weight_unknown() {
     let (tmp, _conn) = make_weight_db();
     let pipeline = DreamingPipeline::with_config(DreamingConfig {
         scoring: DreamingScoringConfig {
-            frequency_weight: Some(0.0),
+            frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
-            entity_type_weight_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
             ..Default::default()

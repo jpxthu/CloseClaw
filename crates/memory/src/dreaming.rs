@@ -14,9 +14,9 @@ use thiserror::Error;
 
 use closeclaw_config::agents::{
     default_capacity_max_rules, default_diary_path, default_memory_md_path,
-    default_scoring_cross_agent, default_scoring_entity_type_weight, default_scoring_explicitness,
-    default_scoring_frequency, default_scoring_negative_signal, default_scoring_recency,
-    default_threshold_absolute, default_threshold_relative, DreamingConfig, DreamingScoringConfig,
+    default_scoring_cross_agent, default_scoring_explicitness, default_scoring_frequency,
+    default_scoring_negative_signal, default_scoring_recency, default_threshold_absolute,
+    default_threshold_relative, DreamingConfig, DreamingScoringConfig,
 };
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
 
@@ -47,6 +47,8 @@ pub struct MemoryEntry {
     pub(crate) score: f64,
     pub event_id: i64,
     pub entity_type: String,
+    /// Normalized entity identifier (lowercase + underscore), used for grouping
+    /// and cross-agent detection across the dreaming pipeline.
     pub entity_name: String,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -307,7 +309,7 @@ impl DreamingPipeline {
         session_id: &str,
     ) -> Result<Vec<MemoryEntry>, DreamingError> {
         let sql = "SELECT e.id, e.content, e.category, e.lesson, e.timestamp,
-                         e.updated_at, ent.type AS entity_type, ent.name AS entity_name
+                         e.updated_at, ent.type AS entity_type, ent.normalized_name AS entity_name
                     FROM events e
                     JOIN sessions s ON s.id = e.source_session_id
                     JOIN event_entities ee ON ee.event_id = e.id
@@ -477,11 +479,12 @@ impl DreamingPipeline {
             Ok(c) => c,
             Err(_) => return HashMap::new(),
         };
-        let mut stmt =
-            match conn.prepare("SELECT ent.name, ent.type, ent.agent_id FROM entities ent") {
-                Ok(s) => s,
-                Err(_) => return HashMap::new(),
-            };
+        let sql = "SELECT ent.normalized_name, ent.type, ent.agent_id \
+                FROM entities ent";
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return HashMap::new(),
+        };
         let mut map: HashMap<(String, String), HashSet<String>> = HashMap::new();
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -593,31 +596,32 @@ impl DreamingPipeline {
         // negative_signal: reversal detection — count entries whose
         // category differs from the earliest entry's category.
         let negative_signal = {
-            let mut sorted = group.entries.clone();
-            sorted.sort_by_key(|e| e.timestamp);
-            match sorted.first().map(|e| e.category) {
+            let earliest = group
+                .entries
+                .iter()
+                .min_by_key(|e| e.timestamp)
+                .map(|e| e.category);
+            match earliest {
                 Some(fc) => {
-                    let reversals = sorted.iter().filter(|e| e.category != fc).count();
+                    let reversals = group.entries.iter().filter(|e| e.category != fc).count();
                     reversals as f64 / total
                 }
                 None => 0.0,
             }
         };
         let w = &self.scoring;
-        group.score = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
+        let base = w.frequency_weight.unwrap_or_else(default_scoring_frequency) * frequency
             + w.recency_weight.unwrap_or_else(default_scoring_recency) * recency
             + w.explicitness_weight
                 .unwrap_or_else(default_scoring_explicitness)
                 * explicitness
-            + w.entity_type_weight_weight
-                .unwrap_or_else(default_scoring_entity_type_weight)
-                * entity_type_weight
             + w.cross_agent_weight
                 .unwrap_or_else(default_scoring_cross_agent)
                 * cross_agent
             + w.negative_signal_weight
                 .unwrap_or_else(default_scoring_negative_signal)
                 * negative_signal;
+        group.score = base * entity_type_weight;
         group
     }
 

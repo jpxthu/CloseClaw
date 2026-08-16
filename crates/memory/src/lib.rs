@@ -22,6 +22,8 @@ pub use embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 #[cfg(test)]
 mod active_searcher_tests;
 #[cfg(test)]
+mod dreaming_design_align_tests;
+#[cfg(test)]
 mod dreaming_gap_fix_tests;
 #[cfg(test)]
 mod dreaming_scoring_tests;
