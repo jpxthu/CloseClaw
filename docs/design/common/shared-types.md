@@ -122,7 +122,7 @@ SlashResult 共 10 种变体：
 
 | 变体 | 用途 | 产出 |
 |------|------|------|
-| SetMode | 设置会话运行模式（Normal/Plan） | ContentBlock::Text（确认信息） |
+| SetMode | 设置会话运行模式（Normal/Plan/Auto） | ContentBlock::Text（确认信息） |
 | SetReasoning | 设置推理深度 | ContentBlock::Text（确认信息） |
 | SetVerbosity | 设置信息展示等级 | ContentBlock::Text（确认信息） |
 | Reply | 纯文本回复，用于 /help、/status 等仅需回复文本的指令 | ContentBlock::Text（回复文本） |

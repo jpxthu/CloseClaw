@@ -17,7 +17,7 @@
 
 ### 模式切换规则
 
-- User 通过斜杠指令显式进入 Plan Mode 或 Auto Mode
+- User 通过斜杠指令进入 Plan Mode，通过 `/execute` 或自然语言触发进入 Auto Mode
 - Plan Mode 与 Auto Mode 相互独立——从 Plan Mode 退出不自动进入 Auto Mode（除非 User 通过 /execute 或自然语言触发执行），进入 Auto Mode 也不需要先经过 Plan Mode
 - Plan Mode 下 User 通过斜杠指令或自然语言触发执行时，退出 Plan Mode 并进入 Auto Mode
 - Auto Mode 下所有任务完成后自动退出并恢复默认模式
@@ -43,6 +43,7 @@
 |--------|------|
 | [plan-mode.md](plan-mode.md) | Plan Mode 专项：标准路径 4 阶段、Interview 路径、Agent 类型、安全机制 |
 | [execution.md](execution.md) | 执行引擎：执行触发、进度管理、中断恢复、失败处理、审计日志 |
+| [plan-browse.md](plan-browse.md) | plan 浏览与管理：`/plans` 命令和自然语言列/看/废弃 plan |
 
 ## 数据流
 
@@ -57,10 +58,10 @@
 
 ### 进入 Auto Mode
 
-1. User `/auto`，或自然语言触发（Agent 调用执行触发工具）
+1. User `/execute <plan名称>`，或自然语言触发（Agent 调用执行触发工具）
 2. session 设置 auto_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
 3. 恢复完整工具集（危险操作受运行时审查）
-4. 注入 Auto Mode 指令
+4. 注入 Auto Mode 指令 + plan 文件上下文
 5. Agent 开始执行 plan 步骤（详见 [execution.md](execution.md) 数据流）
 
 ### 退出 Plan Mode → 进入 Auto Mode
@@ -77,13 +78,19 @@
 2. session 清除 auto_mode 标记
 3. 恢复默认模式
 
+### 退出 Plan Mode
+
+1. User `/mode normal`（不触发执行）
+2. session 清除 plan_mode 标记
+3. 恢复完整工具集与默认模式
+
 ## 模块关系
 
 ### 上游
 
 | 模块 | 调用关系 |
 |------|---------|
-| Slash Command | `/plan`、`/mode`、`/auto`、`/execute` 命令入口 |
+| Slash Command | `/plan`、`/mode`、`/execute`、`/plans` 命令入口 |
 | User | 自然语言触发执行 |
 
 ### 下游
