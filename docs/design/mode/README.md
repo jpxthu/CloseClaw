@@ -35,30 +35,30 @@
 
 每个 plan 以独立文件持久化到 `workspace/plans/`，包含任务标题、Context/Tasks/Verification/Notes 四节。plan 本身无全局状态，只有步骤级状态（未开始/进行中/已完成/失败/已跳过），由 Agent 自行管理。User 可在时间戳格式和随机词组格式间选择文件命名。详细格式和状态定义见 [plan-mode.md](plan-mode.md) 和 [execution.md](execution.md)。
 
-已完成的 plan 在最后访问超过配置天数（由 User 配置，默认见 [config](../config/README.md) 模块）后自动归档到 `workspace/plans/archive/`。
+全部步骤处于终态（已完成 `[x]`、失败 `[!]` 或已跳过 `[~]`）的 plan，在最后访问超过配置天数（由 User 配置，默认见 [config](../config/README.md) 模块）后自动归档到 `workspace/plans/archive/`。
 
 ### 子功能索引
 
 | 子功能 | 说明 |
 |--------|------|
 | [plan-mode.md](plan-mode.md) | Plan Mode 专项：标准路径 4 阶段、Interview 路径、Agent 类型、安全机制 |
-| [execution.md](execution.md) | 执行引擎：执行触发、进度管理、中断恢复、失败处理、拒绝日志 |
+| [execution.md](execution.md) | 执行引擎：执行触发、进度管理、中断恢复、失败处理、审计日志 |
 
 ## 数据流
 
 ### 进入 Plan Mode
 
-1. User `/plan "任务描述"`
-2. session 设置 plan_mode 标记
-3. 系统判断需求清晰度（含明确文件/模块/接口引用且有可量化验收条件 → 标准路径，否则 → Interview 路径）
+1. User `/plan "任务描述"`（描述可选；不带描述时仅切换模式）
+2. session 设置 plan_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
+3. 任务描述作为下一条用户消息注入对话
 4. 工具过滤：完整工具集取交集模式白名单，仅放行 plans/ 目录写操作
-5. 系统提示词注入对应路径指令
-6. Agent 进入对应路径（详见 [plan-mode.md](plan-mode.md) 数据流）
+5. 系统提示词注入统一 Plan Mode 指令（含标准路径与 Interview 路径及路径自选规则）
+6. Agent 读取任务描述自行判断清晰度（含明确文件/模块/接口引用且有可量化验收条件 → 标准路径，否则 → Interview 路径），进入对应路径（详见 [plan-mode.md](plan-mode.md) 数据流）
 
 ### 进入 Auto Mode
 
 1. User `/auto`，或自然语言触发（Agent 调用执行触发工具）
-2. session 设置 auto_mode 标记
+2. session 设置 auto_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
 3. 恢复完整工具集（危险操作受运行时审查）
 4. 注入 Auto Mode 指令
 5. Agent 开始执行 plan 步骤（详见 [execution.md](execution.md) 数据流）
@@ -83,7 +83,7 @@
 
 | 模块 | 调用关系 |
 |------|---------|
-| Slash Command | `/plan`、`/auto`、`/execute` 命令入口 |
+| Slash Command | `/plan`、`/mode`、`/auto`、`/execute` 命令入口 |
 | User | 自然语言触发执行 |
 
 ### 下游

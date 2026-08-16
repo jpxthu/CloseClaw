@@ -4,7 +4,7 @@
 
 Plan Mode 将任务规划与代码执行强制分离——规划阶段 Agent 只读（仅 plan 文件可写），User 说"执行"时才进入 Auto Mode 开始实施。Plan Mode 没有审批栅栏，User 可反复审阅和修改 plan，直到满意为止。
 
-支持两条路径：标准路径（需求明确）和 Interview 路径（需求模糊），由系统自动判断入口。
+支持两条路径：标准路径（需求明确）和 Interview 路径（需求模糊），由 Agent 读取任务描述自行判断入口。
 
 ## 架构
 
@@ -26,7 +26,7 @@ Plan Mode 将任务规划与代码执行强制分离——规划阶段 Agent 只
 
 **Interview 路径**：无固定阶段。Agent 循环"spawn Explore Agent 探索 → 父 Agent 根据探索结果增量更新 plan 文件 → 向 User 提问澄清"直到需求收敛，然后对接标准路径的 Review 和 Final Plan 阶段。每轮探索后由父 Agent（非子 Agent）增量写入 plan 文件。
 
-**需求清晰度判断**：系统在进入 Plan Mode 时分析 User 输入——含明确文件/模块/接口引用且有可量化验收条件 → 标准路径；否则 → Interview 路径。
+**需求清晰度判断**：Agent 在进入 Plan Mode 时读取任务描述自行判断——含明确文件/模块/接口引用且有可量化验收条件 → 标准路径；否则 → Interview 路径。
 
 **阶段切换**：由 Agent 自行判断，无代码层阶段状态机。Research 和 Design 阶段 Agent 可 spawn 子 Agent 并行工作。
 
@@ -91,11 +91,12 @@ Plan 内容在以下场景丢失时按优先级恢复（任一可用即可）：
 
 ### 进入 Plan Mode
 
-1. User `/plan "任务描述"`
+1. User `/plan "任务描述"`（描述可选；不带描述时仅切换模式）
 2. session 设置 plan_mode 标记
-3. 系统 prompt 组装：分析 User 输入清晰度 → 清晰则注入标准路径 4 阶段指令，模糊则注入 Interview 循环指令
+3. 任务描述作为下一条用户消息注入对话
 4. 工具过滤取交集白名单：仅 plan 文件写工具可见
-5. Agent 进入对应路径
+5. 系统 prompt 组装：注入统一 Plan Mode 指令（含标准路径与 Interview 路径及路径自选规则）
+6. Agent 读取任务描述自行判断清晰度，进入对应路径
 
 ### Research 阶段
 
