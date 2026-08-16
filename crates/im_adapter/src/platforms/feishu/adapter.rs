@@ -89,7 +89,6 @@ pub(crate) struct FeishuCardAction {
 pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
 // Post content expansion
-
 #[allow(dead_code)]
 /// Expand a Feishu post-type content JSON value into plain text.
 ///
@@ -125,7 +124,6 @@ pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
             lines.push(row_text);
         }
     }
-
     lines.join("\n")
 }
 
