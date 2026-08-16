@@ -710,13 +710,5 @@
     "confirmed_time": "2026-08-04T04:46:52.686977+08:00",
     "comment": "",
     "blocked_reason": ""
-  },
-  {
-    "path": "~/code/closeclaw/docs/design/mode/README.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-07-09T02:01:50.262071+08:00",
-    "comment": "",
-    "blocked_reason": "contradiction"
   }
 ]
