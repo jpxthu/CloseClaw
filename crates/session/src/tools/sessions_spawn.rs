@@ -2,11 +2,11 @@
 
 use super::prompt_template::PromptTemplate;
 use super::SessionManagerOps;
+use crate::spawn_validation::SpawnValidator;
 use closeclaw_common::permission_types::{CallerInfo, RiskLevel};
 use closeclaw_common::tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
 };
-use crate::spawn_validation::SpawnValidator;
 
 use async_trait::async_trait;
 use closeclaw_agent::AgentConfigLookup;
@@ -285,10 +285,7 @@ impl Tool for SessionsSpawnTool {
             .await
         {
             Ok(result) => result,
-            Err(crate::spawn_validation::SpawnError::PermissionDenied {
-                agent_id,
-                reason,
-            }) => {
+            Err(crate::spawn_validation::SpawnError::PermissionDenied { agent_id, reason }) => {
                 let session_id = ctx.session_id.as_deref().unwrap_or("");
                 let is_sub_agent = self
                     .session_manager
