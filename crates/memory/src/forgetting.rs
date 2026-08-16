@@ -36,8 +36,7 @@ pub(crate) fn cleanup_expired(
     let events_deleted = expire_events(&tx, now)?;
     let entities_deleted = cleanup_orphan_entities(&tx)?;
 
-    tx.commit()
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    tx.commit().map_err(|e| MinerError::Sqlite(e.to_string()))?;
 
     let stats = ForgettingCleanupStats {
         events_deleted,

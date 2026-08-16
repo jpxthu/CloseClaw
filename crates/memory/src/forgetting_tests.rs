@@ -6,10 +6,10 @@
 //! for `write_entries_to_db` + cleanup round-trip and the
 //! `run_forgetting_cleanup` async wrapper.
 
+use crate::forgetting::cleanup_expired;
 use crate::miner::{
     init_schema, write_entries_to_db, MiningEntity, MiningEvent, MiningEventCategory,
 };
-use crate::forgetting::cleanup_expired;
 use crate::test_helpers::{insert_entity_with_event, insert_event};
 
 // ── write_entries_to_db + cleanup round-trip ────────────────────────
@@ -118,10 +118,7 @@ fn test_mixed_events_only_expired_removed() {
     let entity_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(
-        entity_count, 2,
-        "active + zero-TTL entities should survive"
-    );
+    assert_eq!(entity_count, 2, "active + zero-TTL entities should survive");
 }
 
 /// Entity shared by expired and active event: entity survives.
