@@ -52,12 +52,12 @@ fn process_outside_line(line: &str, segments: &mut Vec<ContentSegment>) -> Optio
             return Some(after_ticks.to_string()); // opening fence
         }
         segments.push(ContentSegment::Markdown(line.to_string()));
-    } else if !trimmed.is_empty() {
-        if trimmed == "---" {
-            segments.push(ContentSegment::Hr);
-        } else {
-            segments.push(ContentSegment::Markdown(line.to_string()));
-        }
+    } else if trimmed == "---" {
+        segments.push(ContentSegment::Hr);
+    } else {
+        // Preserve empty lines as empty Markdown segments to maintain
+        // original formatting (blank lines between paragraphs, etc.).
+        segments.push(ContentSegment::Markdown(line.to_string()));
     }
     None
 }
