@@ -594,6 +594,7 @@ impl Daemon {
     async fn init_phase_5_background(
         deps: Phase5Deps<'_>,
         data_dir: &std::path::Path,
+        session_config_provider: Arc<dyn closeclaw_config::session::SessionConfigProvider>,
     ) -> anyhow::Result<(
         watch::Sender<()>,
         watch::Sender<()>,
@@ -805,7 +806,7 @@ impl Daemon {
         session_manager.set_mining_notify_tx(mining_notify_tx.clone());
 
         let sweeper = Arc::new(
-            ArchiveSweeper::new(Arc::clone(&storage), session_config_provider)
+            ArchiveSweeper::new(Arc::clone(&storage), session_config_provider.clone())
                 .with_mining_notify_tx(mining_notify_tx)
                 .with_active_query(Arc::clone(session_manager)
                     as Arc<dyn closeclaw_gateway::sweeper::ActiveSessionQuery>),

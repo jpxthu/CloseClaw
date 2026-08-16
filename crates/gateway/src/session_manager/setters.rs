@@ -12,6 +12,7 @@ use closeclaw_common::{
     SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
+use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_session::bootstrap::loader::BootstrapMode;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::llm_session::ConversationSession;
@@ -241,13 +242,34 @@ impl SessionManager {
         }
     }
 
+    /// Inject the session config provider for per-agent idle/purge thresholds.
+    ///
+    /// Called by daemon (composition root) so that
+    /// [`get_session_config_for_agent`](Self::get_session_config_for_agent)
+    /// can resolve per-agent session config without going through
+    /// ConfigManager, following the layer-2 component extraction pattern.
+    pub async fn set_session_config_provider(
+        &self,
+        provider: Arc<dyn SessionConfigProvider>,
+    ) {
+        *self.session_config_provider.write().await = Some(provider);
+    }
+
     /// Look up session config for an agent by querying the session config
-    /// provider via the config manager.
+    /// provider.
+    ///
+    /// Uses the independently injected provider first; falls back to the
+    /// ConfigManager's internal provider for backward compatibility.
     pub(crate) async fn get_session_config_for_agent(
         &self,
         agent_id: &str,
     ) -> Option<closeclaw_config::session::PerAgentSessionConfig> {
         use closeclaw_common::AgentRole;
+        // Prefer the independently injected provider.
+        if let Some(provider) = self.session_config_provider.read().await.as_ref() {
+            return Some(provider.session_config_for(agent_id, AgentRole::MainAgent));
+        }
+        // Fallback: go through ConfigManager for backward compatibility.
         let cm = self.config_manager.read().await;
         let cm = cm.as_ref()?;
         let provider = cm.session_config_provider()?;

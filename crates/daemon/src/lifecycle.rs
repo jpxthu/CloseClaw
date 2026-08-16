@@ -32,7 +32,7 @@ impl Daemon {
             tool_registry,
             skill_watcher,
             shared_cache,
-            _session_config_provider,
+            session_config_provider,
         ) = Self::init_phase_2_registries(config_dir, &config_manager).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
@@ -48,6 +48,12 @@ impl Daemon {
         let common_sh = crate::bridge::common_shutdown_handle(&shutdown);
         gateway.set_shutdown_handle(Arc::clone(&common_sh));
         session_manager.set_shutdown_handle(common_sh).await;
+        // Inject the independently created SessionConfigProvider into
+        // SessionManager so per-agent idle/purge thresholds resolve
+        // without going through ConfigManager.
+        session_manager
+            .set_session_config_provider(session_config_provider.clone())
+            .await;
         // Initialize DebugLog from config and inject into Gateway.
         // Config missing or invalid → Gateway runs without debug logging.
         if let Some(debug_log) = Self::init_debug_log(config_dir).await {
@@ -89,6 +95,7 @@ impl Daemon {
                 shared_cache: &shared_cache,
             },
             &data_dir,
+            Arc::clone(&session_config_provider),
         )
         .await?;
         // Inject recovery notifications into dirty sessions at startup.
