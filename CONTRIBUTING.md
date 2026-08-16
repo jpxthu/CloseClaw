@@ -175,6 +175,8 @@ Layer 5: daemon（composition root，允许全量依赖）
 
 ## 测试
 
+> 测试类型判定、目录组织、命名、fixture、fake LLM、超时、并行安全、临时文件约束、断言风格与单 binary 组织方式的完整规范见 [docs/testing/STANDARDS.md](docs/testing/STANDARDS.md)。本节仅列硬性规则摘要。
+
 ### 硬性安全规则
 
 | 要求 | 说明 |
