@@ -169,9 +169,9 @@
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
-    "commit": "7cff111af671176aec722634fa183328a3d3d9f8",
-    "commit_time": "2026-06-24T00:32:37+08:00",
-    "confirmed_time": "2026-06-24T00:40:07.513102+08:00",
+    "commit": "2d54d8e8d7a6b30fa143ecb23ed776229c613c5f",
+    "commit_time": "2026-08-17T04:52:18+08:00",
+    "confirmed_time": "2026-08-17T05:29:11.451991+08:00",
     "comment": "",
     "blocked_reason": ""
   },
