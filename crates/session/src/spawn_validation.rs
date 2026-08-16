@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 
-use crate::agents::ResolvedAgentConfig;
+use closeclaw_config::agents::ResolvedAgentConfig;
 
 /// Errors returned by spawn validation.
 #[derive(Debug, thiserror::Error)]

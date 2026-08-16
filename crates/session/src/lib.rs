@@ -21,6 +21,7 @@ pub mod plan_file;
 pub mod recovery;
 pub mod run_health;
 pub mod spawn;
+pub mod spawn_validation;
 pub mod storage;
 pub mod tools;
 pub mod workflow_handler;
@@ -28,6 +29,8 @@ pub mod workflow_handler;
 mod workflow_handler_tests;
 pub mod workflow_recovery;
 pub mod workspace;
+
+pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 
 #[cfg(test)]
 mod active_searcher_session_tests;
