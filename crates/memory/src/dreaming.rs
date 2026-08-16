@@ -47,6 +47,8 @@ pub struct MemoryEntry {
     pub(crate) score: f64,
     pub event_id: i64,
     pub entity_type: String,
+    /// Normalized entity identifier (lowercase + underscore), used for grouping
+    /// and cross-agent detection across the dreaming pipeline.
     pub entity_name: String,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -307,7 +309,7 @@ impl DreamingPipeline {
         session_id: &str,
     ) -> Result<Vec<MemoryEntry>, DreamingError> {
         let sql = "SELECT e.id, e.content, e.category, e.lesson, e.timestamp,
-                         e.updated_at, ent.type AS entity_type, ent.name AS entity_name
+                         e.updated_at, ent.type AS entity_type, ent.normalized_name AS entity_name
                     FROM events e
                     JOIN sessions s ON s.id = e.source_session_id
                     JOIN event_entities ee ON ee.event_id = e.id
@@ -478,7 +480,7 @@ impl DreamingPipeline {
             Err(_) => return HashMap::new(),
         };
         let mut stmt =
-            match conn.prepare("SELECT ent.name, ent.type, ent.agent_id FROM entities ent") {
+            match conn.prepare("SELECT ent.normalized_name, ent.type, ent.agent_id FROM entities ent") {
                 Ok(s) => s,
                 Err(_) => return HashMap::new(),
             };
