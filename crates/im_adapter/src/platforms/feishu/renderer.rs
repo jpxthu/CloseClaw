@@ -294,7 +294,7 @@ pub(crate) fn dispatch_blocks(
 /// #降级策略
 /// 若飞书 API 返回不支持 select_static，可降级为每个选项一个按钮。
 /// 当前渲染走原生组件，降级路径在 adapter 层处理。
-fn render_selectors(instructions: &[DslInstruction]) -> Vec<CardElement> {
+pub(crate) fn render_selectors(instructions: &[DslInstruction]) -> Vec<CardElement> {
     let selectors: Vec<&DslInstruction> = instructions
         .iter()
         .filter(|i| i.instruction_type == "selector")

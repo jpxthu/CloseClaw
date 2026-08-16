@@ -180,14 +180,16 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
 ///
 /// Supported styles: bold, italic, strikethrough, underline, link.
 /// Combination styles are applied in order: inline styles first, then link.
+/// Outer styles (strikethrough) wrap inner styles (bold).
 fn apply_text_style(text: &str, style: &serde_json::Value) -> String {
     let mut result = text.to_string();
 
+    // Apply inline styles in order: bold, italic, strikethrough, underline
     if style.get("bold").and_then(|v| v.as_bool()).unwrap_or(false) {
         result = format!("**{}**", result);
     }
     if style.get("italic").and_then(|v| v.as_bool()).unwrap_or(false) {
-        result = format!("_{}", result);
+        result = format!("_{}_", result);
     }
     if style.get("strikethrough").and_then(|v| v.as_bool()).unwrap_or(false) {
         result = format!("~~{}~~", result);

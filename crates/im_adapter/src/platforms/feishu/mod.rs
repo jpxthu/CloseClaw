@@ -17,6 +17,8 @@ mod feishu_tests;
 pub mod renderer;
 pub mod tools;
 #[cfg(test)]
+mod style_tests;
+#[cfg(test)]
 mod trace_id_tests;
 
 use crate::error::AdapterError;
