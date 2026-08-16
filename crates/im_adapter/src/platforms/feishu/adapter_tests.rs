@@ -989,12 +989,63 @@ fn test_truncate_to_500_empty_string() {
     assert_eq!(truncate_to_500(""), "");
 }
 #[test]
+fn test_extract_sticker_with_emoji_type() {
+    let (text, media) = FeishuAdapter::extract_message_content(
+        "sticker",
+        &serde_json::json!({"emoji_type": "OK"}),
+    )
+    .unwrap();
+    assert_eq!(text, "[OK]");
+    assert!(media.is_empty());
+}
+
+#[test]
+fn test_extract_sticker_without_emoji_type() {
+    let (text, media) = FeishuAdapter::extract_message_content(
+        "sticker",
+        &serde_json::json!({}),
+    )
+    .unwrap();
+    assert_eq!(text, "[]");
+    assert!(media.is_empty());
+}
+
+#[test]
+fn test_extract_sticker_empty_emoji_type() {
+    let (text, media) = FeishuAdapter::extract_message_content(
+        "sticker",
+        &serde_json::json!({"emoji_type": ""}),
+    )
+    .unwrap();
+    assert_eq!(text, "[]");
+    assert!(media.is_empty());
+}
+
+#[test]
 fn test_extract_unknown_type_err() {
-    assert!(FeishuAdapter::extract_message_content("sticker", &serde_json::json!({})).is_err());
+    assert!(FeishuAdapter::extract_message_content("unsupported", &serde_json::json!({})).is_err());
 }
 #[tokio::test]
 async fn test_parse_unknown_type_none() {
     let a = make_test_adapter();
-    let e = make_message_event("sticker", &serde_json::json!({}).to_string());
+    let e = make_message_event("unsupported_type", &serde_json::json!({}).to_string());
     assert!(a.parse_message_event(e).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_parse_sticker_with_emoji_type() {
+    let a = make_test_adapter();
+    let e = make_message_event("sticker", &serde_json::json!({"emoji_type": "THUMBSUP"}).to_string());
+    let msg = a.parse_message_event(e).await.unwrap().unwrap();
+    assert_eq!(msg.content, "[THUMBSUP]");
+    assert!(msg.media_refs.is_empty());
+}
+
+#[tokio::test]
+async fn test_parse_sticker_without_emoji_type() {
+    let a = make_test_adapter();
+    let e = make_message_event("sticker", &serde_json::json!({}).to_string());
+    let msg = a.parse_message_event(e).await.unwrap().unwrap();
+    assert_eq!(msg.content, "[]");
+    assert!(msg.media_refs.is_empty());
 }

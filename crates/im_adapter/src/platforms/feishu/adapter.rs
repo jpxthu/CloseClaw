@@ -671,7 +671,7 @@ impl FeishuAdapter {
 
         // Discard empty text content (only for text/post;
         // non-text messages have empty content by design).
-        if matches!(event.event.message_type.as_str(), "text" | "post") && text.trim().is_empty() {
+        if matches!(event.event.message_type.as_str(), "text" | "post" | "sticker") && text.trim().is_empty() {
             tracing::debug!(
                 message_type = %event.event.message_type,
                 "Discarding empty text content"
@@ -745,6 +745,18 @@ impl FeishuAdapter {
                 String::new(),
                 vec![Self::make_media_ref(content, "file_key")],
             )),
+            "sticker" => {
+                let emoji_type = content
+                    .get("emoji_type")
+                    .and_then(|e| e.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("");
+                if emoji_type.is_empty() {
+                    Ok(("[]".to_string(), vec![]))
+                } else {
+                    Ok((format!("[{}]", emoji_type), vec![]))
+                }
+            }
             other => {
                 tracing::debug!(message_type = other, "Discarding unsupported message type");
                 Err(AdapterError::InvalidPayload(
