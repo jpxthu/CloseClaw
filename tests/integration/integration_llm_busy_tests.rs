@@ -12,79 +12,36 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use closeclaw_gateway::session_handler::{HandleResult, SessionMessageHandler};
+use closeclaw_gateway::session_handler::{
+    ActiveSearcherLlmCaller, HandleResult, SessionMessageHandler,
+};
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_gateway::{GatewayConfig, Message};
-use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::fake::{FakeProvider, Scenario};
 use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
-use closeclaw_llm::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
 use closeclaw_llm::provider::Provider;
-use closeclaw_llm::types::{InternalRequest, InternalResponse, ProtocolId, SseStateMachine};
+use closeclaw_llm::retry::CooldownManager;
+use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
 use closeclaw_session::persistence::ReasoningLevel;
-use reqwest::header::HeaderMap;
-
-// ---------------------------------------------------------------------------
-// Minimal stub types for UnifiedChatClient construction
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-struct StubProtocol {
-    id: ProtocolId,
-}
-
-#[async_trait]
-impl ChatProtocol for StubProtocol {
-    fn protocol_id(&self) -> &ProtocolId {
-        &self.id
-    }
-    fn path(&self) -> &str {
-        "/chat"
-    }
-    fn build_request(
-        &self,
-        _req: &InternalRequest,
-    ) -> closeclaw_llm::protocol::Result<serde_json::Value> {
-        Ok(serde_json::json!({}))
-    }
-    fn parse_response(
-        &self,
-        _body: serde_json::Value,
-    ) -> closeclaw_llm::protocol::Result<InternalResponse> {
-        unimplemented!("stub protocol")
-    }
-    fn decorate_headers(&self, _headers: &mut HeaderMap) -> closeclaw_llm::protocol::Result<()> {
-        Ok(())
-    }
-    fn create_sse_machine(&self) -> SseStateMachine {
-        unimplemented!("stub protocol")
-    }
-    async fn parse_sse_stream(
-        &self,
-        _incoming: IncomingSseStream,
-        _machine: SseStateMachine,
-    ) -> OutgoingEventStream {
-        unimplemented!("stub protocol")
-    }
-}
 
 /// Wrap a FakeProvider into `Arc<dyn Provider>`.
 fn wrap_provider(provider: FakeProvider) -> Arc<dyn Provider> {
     Arc::new(provider)
 }
 
-/// Build a `UnifiedChatClient` from a wrapped provider.
-fn make_unified_client(provider: Arc<dyn Provider>) -> Arc<UnifiedChatClient> {
-    Arc::new(UnifiedChatClient::with_noop_cache_adapter(
-        provider,
-        Arc::new(StubProtocol {
-            id: ProtocolId::from("stub"),
-        }),
-        Default::default(),
-        Default::default(),
-    ))
+/// Build a no-op active-searcher LLM caller.
+///
+/// The busy/pending state machine tests exercise `fallback_client` directly;
+/// the active-searcher caller is only held by the handler and never invoked.
+fn make_active_searcher_caller() -> Arc<ActiveSearcherLlmCaller> {
+    Arc::new(ActiveSearcherLlmCaller {
+        client: Arc::new(UnifiedFallbackClient::new(
+            vec![],
+            Arc::new(CooldownManager::new()),
+        )),
+        model: String::new(),
+    })
 }
 
 /// Create a minimal GatewayConfig for testing.
@@ -158,11 +115,7 @@ async fn test_idle_message_returns_llm_started() {
     let handler = SessionMessageHandler::new_no_output(
         sm.clone(),
         fallback,
-        make_unified_client(wrap_provider(
-            FakeProvider::builder()
-                .then_ok("dummy", "fake-model")
-                .build(),
-        )),
+        make_active_searcher_caller(),
         closeclaw_session::compaction::CompactConfig::default(),
     );
 
@@ -209,11 +162,7 @@ async fn test_busy_message_returns_queued() {
     let handler = SessionMessageHandler::new_no_output(
         sm.clone(),
         fallback,
-        make_unified_client(wrap_provider(
-            FakeProvider::builder()
-                .then_ok("dummy", "fake-model")
-                .build(),
-        )),
+        make_active_searcher_caller(),
         closeclaw_session::compaction::CompactConfig::default(),
     );
 
@@ -264,11 +213,7 @@ async fn test_fake_provider_call_count_while_busy() {
     let handler = SessionMessageHandler::new_no_output(
         sm.clone(),
         fallback,
-        make_unified_client(wrap_provider(
-            FakeProvider::builder()
-                .then_ok("dummy", "fake-model")
-                .build(),
-        )),
+        make_active_searcher_caller(),
         closeclaw_session::compaction::CompactConfig::default(),
     );
 
@@ -344,11 +289,7 @@ async fn test_pending_fifo_after_delay() {
     let handler = SessionMessageHandler::new_no_output(
         sm.clone(),
         fallback,
-        make_unified_client(wrap_provider(
-            FakeProvider::builder()
-                .then_ok("dummy", "fake-model")
-                .build(),
-        )),
+        make_active_searcher_caller(),
         closeclaw_session::compaction::CompactConfig::default(),
     );
 
@@ -417,11 +358,7 @@ async fn test_idle_after_delay_drain() {
     let handler = SessionMessageHandler::new_no_output(
         sm.clone(),
         fallback,
-        make_unified_client(wrap_provider(
-            FakeProvider::builder()
-                .then_ok("dummy", "fake-model")
-                .build(),
-        )),
+        make_active_searcher_caller(),
         closeclaw_session::compaction::CompactConfig::default(),
     );
 

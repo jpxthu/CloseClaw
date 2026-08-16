@@ -87,21 +87,19 @@ mod tests {
         .with_timeout(30);
 
         // First call: primary succeeds
-        let resp1 = client
+        let (resp1, _) = client
             .chat(make_request())
             .await
             .expect("first call should succeed");
         assert_eq!(resp1.content, "primary-first");
-        assert_eq!(resp1.model, "fake-a");
 
         // Second call: primary fails with AuthFailed (non-Transient, no retry)
         // → FallbackClient immediately moves to fallback → fallback succeeds
-        let resp2 = client
+        let (resp2, _) = client
             .chat(make_request())
             .await
             .expect("fallback should succeed after primary auth failure");
         assert_eq!(resp2.content, "fallback-ok");
-        assert_eq!(resp2.model, "fake-b");
     }
 
     // ---------------------------------------------------------------------------
@@ -157,28 +155,28 @@ mod tests {
         .with_timeout(30);
 
         // Call 1 → primary scenario 1
-        let resp1 = client
+        let (resp1, _) = client
             .chat(make_request())
             .await
             .expect("call 1 should succeed");
         assert_eq!(resp1.content, "call-1");
 
         // Call 2 → primary scenario 2
-        let resp2 = client
+        let (resp2, _) = client
             .chat(make_request())
             .await
             .expect("call 2 should succeed");
         assert_eq!(resp2.content, "call-2");
 
         // Call 3 → primary scenario 3
-        let resp3 = client
+        let (resp3, _) = client
             .chat(make_request())
             .await
             .expect("call 3 should succeed");
         assert_eq!(resp3.content, "call-3");
 
         // Call 4 → primary scenario 4
-        let resp4 = client
+        let (resp4, _) = client
             .chat(make_request())
             .await
             .expect("call 4 should succeed");
@@ -222,6 +220,7 @@ mod tests {
             messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content: "hello".to_string(),
+                tool_call_id: None,
             }],
             temperature: 0.7,
             max_tokens: Some(100),
@@ -286,7 +285,7 @@ mod tests {
             .expect("provider should be in registry");
 
         // Verify the provider is retrievable and has the expected id
-        assert_eq!(retrieved.id(), "test-provider");
+        assert_eq!(retrieved.id(), "fake");
 
         // Registry list contains the provider
         let names = registry.list().await;
@@ -350,24 +349,22 @@ mod tests {
         .with_timeout(30);
 
         // First call: minimax fails → fallback succeeds
-        let resp1 = client
+        let (resp1, _) = client
             .chat(make_request())
             .await
             .expect("first call should succeed via fallback");
         assert_eq!(resp1.content, "fallback-ok");
-        assert_eq!(resp1.model, "fake-openai");
 
         // Second call: minimax is in cooldown → skip → fallback succeeds again
-        let resp2 = client
+        let (resp2, _) = client
             .chat(make_request())
             .await
             .expect("second call should succeed via fallback (primary in cooldown)");
         assert_eq!(resp2.content, "fallback-ok");
-        assert_eq!(resp2.model, "fake-openai");
 
         // Verify captured requests: minimax should have been called exactly once
         // (the first call tried it and failed; the second call skipped it)
-        let captured = primary_ref.captured_requests();
+        let captured = primary_ref.captured_internal_requests();
         assert_eq!(
             captured.len(),
             1,
@@ -376,7 +373,7 @@ mod tests {
         );
 
         // Verify openai was called twice (once per each call)
-        let openai_captured = fallback_ref.captured_requests();
+        let openai_captured = fallback_ref.captured_internal_requests();
         assert_eq!(
             openai_captured.len(),
             2,

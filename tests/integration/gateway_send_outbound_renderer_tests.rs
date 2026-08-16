@@ -3,8 +3,6 @@
 //! Verifies that the unified plugin path (render → send) works correctly
 //! for text, interactive, suppress, and dsl_result scenarios.
 
-mod gateway_send_outbound_basic;
-
 use async_trait::async_trait;
 use closeclaw::processor_chain::{
     MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
@@ -16,7 +14,9 @@ use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::{Arc, Mutex};
 
-use gateway_send_outbound_basic::{make_config, make_outbound_gw, make_outbound_message};
+use crate::gateway_send_outbound_basic_tests::{
+    make_config, make_outbound_gw, make_outbound_message,
+};
 
 // ---------------------------------------------------------------------------
 // Mocks
