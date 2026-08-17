@@ -21,7 +21,7 @@
 SessionManager 在会话查找与创建中对注入的处理分为三个分支：
 
 - **命中 active session**：直接返回已有 session，不触发注入。已有 session 的 system prompt 保持不变。
-- **命中 archived session**：从 SessionCheckpoint 恢复 ConversationSession 后，触发完整注入流程——与"新 session"分支相同的 builder 调用，用新构建的 system prompt 替换空值。
+- **命中 archived session**：从 SessionCheckpoint 恢复 ConversationSession 后，触发完整注入流程——与"新 session"分支相同的 builder 调用，用新构建的 system prompt 替换空值（重建细节详见 [system_prompt/README 恢复](../system_prompt/README.md#恢复)）。
 - **新 session**：触发完整注入流程。builder 内部通过 Bootstrap Loader 加载 bootstrap 文件，注入完成后 system prompt 存入 ConversationSession。
 
 注入链路的参数契约：
@@ -38,10 +38,6 @@ AppendSection 是独立于动态层的第三分区（详见 system_prompt/README
 
 动态层的 Section 类型和拼接规则在 [system_prompt/dynamic-layer.md](../system_prompt/dynamic-layer.md) 定义。
 
-### Session 恢复时的注入
-
-Archived session 被重新访问时触发完整重建，流程与新 session 相同。详见 [system_prompt/README 恢复](../system_prompt/README.md#恢复)。
-
 ### 条件激活 skill 消息注入
 
 技能清单的基础部分已迁入 System Prompt 静态层（SkillsSection），由 SP Builder 在组装时注入，详见 [system_prompt/static-layer](../system_prompt/static-layer.md)。本模块仅在条件激活时负责 per-turn 增量注入。
@@ -50,12 +46,12 @@ Archived session 被重新访问时触发完整重建，流程与新 session 相
 
 **注入流程**：
 1. 路径匹配后，Session 模块内部标记该 skill 为激活
-2. 下一 turn 组装消息时，Session 以系统消息形式注入该 skill 的清单条目（含 ⚡ 标记，不含正文）
+2. 下一 turn 组装消息时，Session 以系统消息形式注入该 skill 的清单条目（含 ⚡ 标记，不含正文）  ← 日志：消息注入事件（条件激活 skill 清单条目注入）
 3. 注入的清单条目格式与 SkillsSection 保持一致，详见 [skills/skill-listing-injection](../skills/skill-listing-injection.md) §格式化
 4. 激活标记随当前 session 生命周期，session 结束时清空
 5. 下次 SP 重建时，SkillsFragmentProvider 从 Session 读取激活标记，将已激活技能纳入完整清单统一渲染
 
-**与基础清单的关系**：条件激活注入仅处理增量（新激活的单个条目），基础清单在 SP 组装时由 SkillsFragmentProvider 统一注入。SP 重建后，条件激活条目自然并入静态层，不再需要 per-turn 增量注入。
+**与基础清单的关系**：条件激活注入仅处理增量（新激活的单个条目），基础清单在 SP 组装时由 SkillsFragmentProvider 统一注入。SP 重建时 SkillsFragmentProvider 读取激活标记统一渲染后清空对应激活标记（标记并入静态层即清除，避免重复渲染；新激活的技能重新标记），此后不再需要 per-turn 增量注入。
 
 ### 消息级注入：memory_injection 槽位
 
@@ -75,12 +71,12 @@ session 暴露一个 `memory_injection` 槽位，供 memory 模块的 active-sea
 ```
 1. 取消息历史
 2. 新消息到达（用户消息 / 工具返回）
-3. 检查 memory_injection 槽位，读取摘要内容和位置模式
+3. 检查 memory_injection 槽位，读取摘要内容和位置模式（槽位仅由 active-searcher 写入，触发源为用户/agent 消息）
 4. 追加新消息到消息列表
 5. 按模式插入摘要：
-   ├── BeforeNext → 摘要插入消息列表（新消息之前）
-   └── AfterCurrent → 摘要插入消息列表（新消息之后）
-6. 清空槽位
+   - BeforeNext → 摘要插入消息列表（新消息之前）
+   - AfterCurrent → 摘要插入消息列表（新消息之后）
+6. 清空槽位  ← 日志：消息注入事件（记忆注入）
 7. 发送给 LLM
 ```
 
@@ -103,7 +99,7 @@ session 暴露一个 `memory_injection` 槽位，供 memory 模块的 active-sea
 
 ### System Prompt 注入流程
 
-1. 触发条件（新 session / archive 恢复 / compaction）
+1. 触发条件（新 session / archive 恢复 / compaction）  ← 日志：会话创建/查找/归档恢复（触发注入的会话事件）
 2. SessionManager 调用 System Prompt Builder
    - 传参：agent_id
    - 传参：ToolRegistry 引用

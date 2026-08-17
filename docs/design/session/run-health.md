@@ -13,18 +13,18 @@ Run Health 和运行快照（Runtime Snapshot）构成 Session 执行层的运�
 
 Session 执行循环嵌入 health check：
 
-1. Session turn 执行
-2. 硬规则检测（超时、空响应、结构异常、重试耗尽）
+1. Session turn 执行  ← 日志：健康检查检测开始
+2. 硬规则检测（超时、空响应、结构异常、重试耗尽）  ← 日志：健康检查与异常检测结果（硬规则命中项）
    - 命中 -> unhealthy，按失败类别分流（见下方「不健康时的处理分流」）
    - 通过 -> 继续步骤 3
-3. 可选 Hook 审查（按 agent 配置挂载 0-N 个轻量 LLM 质量门禁）
+3. 可选 Hook 审查（按 agent 配置挂载 0-N 个轻量 LLM 质量门禁）  ← 日志：健康检查与异常检测结果（hook 判定结果）
    - 无 hook 配置 -> healthy，turn 正常结束，结果出站
    - 有 hook -> 并行调用 -> 任一标记异常 -> unhealthy（按失败类别分流），全部通过 -> healthy（turn 正常结束）
 4. 重试闭环：unhealthy 分流中可重试/响应无效类别的重试成功后，重新发起 LLM 调用（回到当前 turn 的 LLM 请求阶段，复用同一上下文，不回到用户输入步骤）。重走步骤 2-3 的硬规则+Hook 检测形成闭环。
 
 核心组件：
 
-- **硬规则检测器**：纯代码逻辑，不依赖 LLM。检测超时、空响应、结构异常、重试耗尽。检测到即判 unhealthy。
+- **硬规则检测器**：纯代码逻辑，不依赖 LLM。检测超时、空响应、结构异常、重试耗尽。检测到即判 unhealthy。其中「重试耗尽」指可重试/响应无效类别的重试次数达上限（区别于「上下文彻底耗尽」的容量语义）。
 - **Hook 审查器**：可选组件，按 agent 配置决定挂载 0 到 N 个。每个 hook 是固定 prompt 的轻量 LLM 调用，审查当前 turn 的输出质量（如是否只计划未执行、是否陷入工具调用循环）。Hook 调用与主对话隔离，不进入 transcript。
 - **运行快照管理器**：在毁坏性操作前自动创建 transcript 快照，提供回滚能力。每个 session 最多保留 25 个快照，旧的自动淘汰。与持久化层的 CheckpointManager（管理 SessionCheckpoint 的读写缓存和持久化）职责不同。
 - **转录修改分类器**：所有修改 transcript 的代码路径必须声明操作类型。Session 层根据类型决定是否触发运行快照。
@@ -70,7 +70,7 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 
 **第一层：即时检测**。父 agent spawn 子 agent 后，每轮对话开始时系统注入当前活跃子 Session 摘要（详见 [session/README.md](README.md) Session 运行时）。父 agent 可据此判断子 agent 是否仍在执行中，是否继续等待。
 
-**第二层：定时巡检**。Run Health 模块内置 AnnounceSweeper，定时扫描 spawn_tree 中的子 session 节点（含活跃与完成待回收，见 [spawn-tree.md](spawn-tree.md)），执行两类检查：
+**第二层：定时巡检**。Run Health 模块内置 AnnounceSweeper，定时扫描 spawn_tree 中的子 session 节点（含活跃与完成待回收，见 [spawn-tree.md](spawn-tree.md)），执行两类检查：  ← 日志：健康检查与异常检测结果（巡检发现：补推/僵死）
 
 - **补推**：子 agent 已结束（四维执行状态全部归零且已产出最终 assistant 消息）但完成通知未成功送达父 Session → 补推完成通知，成功后回收节点。若父 Session 已归档则跳过补推并回收节点。
 - **僵死检测**：子 agent 未结束且超过五分钟无新产出（无新 assistant 消息、无工具执行结果变化）→ 判定为僵死，自动终止该子 agent（级联终止其所有后代），向父 Session 注入僵死通知。若父 Session 已归档则跳过。
@@ -86,7 +86,7 @@ unhealthy 不细分状态名，处理方式由失败类别决定：
 | 失败类别 | 判定条件 | 处理方式 | 通知方式 |
 |---------|---------|---------|---------|
 | 可重试 | LLM API 瞬时错误、超时 | 退避重试，耗尽后升级为不可重试 | 耗尽时：注入 assistant 消息到 transcript |
-| 响应无效 | 空响应、纯推理无文本、纯计划不执行 | 给 LLM retry instruction（有限次），耗尽后通知用户 | 耗尽时：注入 assistant 消息到 transcript |
+| 响应无效 | 空响应、结构异常（响应解析失败、格式损坏）、纯推理无文本、纯计划不执行 | 给 LLM retry instruction（有限次），耗尽后通知用户 | 耗尽时：注入 assistant 消息到 transcript |
 | 不可重试 | auth 失效、模型不存在、上下文彻底耗尽 | 立即通知用户，保留 session 状态 | 注入 assistant 消息到 transcript（含失败原因） |
 
 ## 数据流
@@ -101,7 +101,7 @@ unhealthy 不细分状态名，处理方式由失败类别决定：
 3. 检查 hook 配置
    - 无 hook -> healthy
    - 有 hook -> 并行调用各 hook
-     - 任一 hook 标记异常 -> unhealthy
+     - 任一 hook 标记异常 -> unhealthy（按失败类别分流，同硬规则命中）
      - 全部通过 -> healthy
 ```
 
@@ -138,7 +138,8 @@ unhealthy
 1. 用户选择回滚（或系统自动触发）
 2. 创建 pre-rollback 快照：保留回滚前的现场（回滚可撤销）
 3. 加载目标快照，用备份文件替换 transcript
-4. Transcript 恢复完成 -> session 回到 healthy
+4. 记录回滚 audit（回滚目标快照、触发原因、时间）
+5. Transcript 恢复完成 -> session 回到 healthy
 ```
 
 ## 模块关系
@@ -147,7 +148,7 @@ unhealthy
 
 | 模块 | 调用关系 |
 |------|---------|
-| Session 执行循环 | 每次 turn 结束后触发 hard rule 检测和 hook 审查 |
+| Session 执行循环 | 每次 turn 结束后触发硬规则检测和 Hook 审查 |
 | Compaction 流程 | 压缩前触发运行快照创建；压缩异常触发 unhealthy |
 | Slash Command | `/system` 指令触发运行快照创建；`/stop` 指令可能触发运行快照保存 |
 
