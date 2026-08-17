@@ -77,6 +77,7 @@ fn make_scheduler(
         Arc::new(MemoryMiner::new(
             closeclaw_memory::miner::MinerConfig::default(),
             Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+            Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
             std::path::PathBuf::from("/tmp/test-memory.db"),
             "/tmp/test-MEMORY.md".to_string(),
         )),
@@ -359,6 +360,7 @@ async fn test_config_change_memory_section_updates_components() {
             ..Default::default()
         },
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         std::path::PathBuf::from("/tmp/test-memory-reload.db"),
         "/tmp/test-MEMORY-reload.md".to_string(),
     ));
@@ -440,6 +442,7 @@ async fn test_config_change_non_memory_ignored() {
             enabled: false,
             ..Default::default()
         },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         std::path::PathBuf::from("/tmp/test-memory-ignore.db"),
         "/tmp/test-MEMORY-ignore.md".to_string(),
@@ -557,6 +560,7 @@ async fn test_immediate_hook_triggers_mining() {
             enabled: true,
             ..Default::default()
         },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         tmp_db.path().join("memory-miner-test.db"),
         "/tmp/test-MEMORY-hook.md".to_string(),

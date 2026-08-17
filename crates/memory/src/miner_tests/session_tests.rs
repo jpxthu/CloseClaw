@@ -32,7 +32,7 @@ async fn test_mine_session_skips_when_disabled() {
     };
     let llm = Box::new(MockMinerLlmCaller::default());
     let tmp = TempDir::new().unwrap();
-    let miner = MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
         .mine_session("sess-1", "Owner: hi\nAgent: bye", "a1", &storage)
@@ -57,7 +57,7 @@ async fn test_mine_session_skips_already_mined() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner = MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
         .mine_session("sess-1", "Owner: hi\nAgent: bye", "a1", &storage)
@@ -82,7 +82,7 @@ async fn test_mine_session_empty_transcript() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner = MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
         .mine_session("sess-1", "Owner: hi", "a1", &storage)
@@ -100,7 +100,7 @@ async fn test_mine_session_nonexistent_returns_error() {
     };
     let llm = Box::new(MockMinerLlmCaller::default());
     let tmp = TempDir::new().unwrap();
-    let miner = MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
         .mine_session("does-not-exist", "Owner: hi\nAgent: bye", "a1", &storage)
@@ -132,7 +132,7 @@ async fn test_mine_session_happy_path() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("mining.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
 
     let result = miner
         .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
@@ -173,7 +173,7 @@ async fn test_mine_session_respects_max_events_limit() {
         ..Default::default()
     });
     let tmp = TempDir::new().unwrap();
-    let miner = MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md");
 
     let result = miner
         .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)
@@ -209,7 +209,7 @@ async fn test_mine_session_persists_to_sqlite() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("persist.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
 
     miner
         .mine_session("sess-1", "Owner: hello\nAgent: response", "a1", &storage)

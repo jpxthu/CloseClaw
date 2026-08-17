@@ -48,17 +48,31 @@ fn test_load_entity_type_thresholds_excludes_inactive() {
 
 // ── Miner session similarity filter tests ────────────────────────────
 
-/// High-threshold entity filtered when loosely related to event.
+/// Entity↔entity: candidate similar to existing entity of same type is reused.
 #[tokio::test]
 async fn test_mine_session_filters_high_threshold_entity() {
     let storage = TestStorage::default();
     let mut cp = SessionCheckpoint::new("sess-ht".into());
     cp.mined = false;
     storage.add_checkpoint(cp);
+    // Pre-populate DB with an existing time entity.
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("ht.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        crate::miner::init_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+             VALUES ('a1', 'time', 'January 2025', 'january_2025', 'a month in 2025')",
+            [],
+        )
+        .unwrap();
+    }
     let events = vec![make_event(
         "Rust language basics",
         crate::miner::MiningEventCategory::Error,
     )];
+    // Candidate similar to existing time entity → reused (existing_id set).
     let entities = vec![vec![make_entity("January 2025", "time")]];
     let config = MinerConfig {
         enabled: true,
@@ -70,18 +84,14 @@ async fn test_mine_session_filters_high_threshold_entity() {
         entities_response: entities,
         ..Default::default()
     });
-    let tmp = TempDir::new().unwrap();
-    let db_path = tmp.path().join("ht.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-ht", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
-    assert_eq!(
-        result.entity_names[0].len(),
-        0,
-        "high-threshold time entity should be filtered"
-    );
+    // Entity reused — name adopted from existing entity.
+    assert_eq!(result.entity_names[0].len(), 1);
+    assert_eq!(result.entity_names[0][0], "January 2025");
 }
 
 /// Low-threshold entity retained when similar to event.
@@ -108,7 +118,7 @@ async fn test_mine_session_keeps_low_threshold_entity() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("lt.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-lt", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -144,7 +154,7 @@ async fn test_mine_session_boundary_at_threshold_keeps_entity() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("bt.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-bt", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -156,7 +166,7 @@ async fn test_mine_session_boundary_at_threshold_keeps_entity() {
     );
 }
 
-/// All entities filtered → empty entity_names.
+/// All entities have no similar existing counterpart → all kept as new.
 #[tokio::test]
 async fn test_mine_session_all_entities_filtered() {
     let storage = TestStorage::default();
@@ -181,16 +191,13 @@ async fn test_mine_session_all_entities_filtered() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("all.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-all", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
-    assert_eq!(
-        result.entity_names[0].len(),
-        0,
-        "all loosely-related entities should be filtered"
-    );
+    // No existing time entities in DB → all kept as new entities.
+    assert_eq!(result.entity_names[0].len(), 3);
 }
 
 // ── NgramEmbedder direct similarity verification ────────────────────
@@ -287,19 +294,33 @@ fn test_partial_overlap_mid_range() {
 
 // ── Per-entity-type threshold filtering tests ───────────────────────
 
-/// Verify that the `action` type threshold (0.78) is correctly applied:
-/// similar entity passes, dissimilar entity is filtered.
+/// Entity↔entity: candidate similar to existing action entity is reused,
+/// dissimilar candidate stays as new.
 #[tokio::test]
 async fn test_action_type_threshold_filtering() {
     let storage = TestStorage::default();
     let mut cp = SessionCheckpoint::new("sess-action".into());
     cp.mined = false;
     storage.add_checkpoint(cp);
+    // Pre-populate DB with an existing action entity.
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("action.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        crate::miner::init_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+             VALUES ('a1', 'action', 'Wrong deployment', 'wrong_deployment',
+                     'Deployed to prod without testing')",
+            [],
+        )
+        .unwrap();
+    }
     let events = vec![make_event(
         "Wrong deployment",
         crate::miner::MiningEventCategory::Error,
     )];
-    // Two action entities: one similar (passes 0.78), one dissimilar.
+    // Two action entities: one similar to existing (reused), one dissimilar (new).
     let entities = vec![vec![
         make_entity("wrong deployment", "action"),
         make_entity("quantum physics", "action"),
@@ -314,9 +335,7 @@ async fn test_action_type_threshold_filtering() {
         entities_response: entities,
         ..Default::default()
     });
-    let tmp = TempDir::new().unwrap();
-    let db_path = tmp.path().join("action.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session(
             "sess-action",
@@ -326,12 +345,10 @@ async fn test_action_type_threshold_filtering() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        result.entity_names[0].len(),
-        1,
-        "only above-threshold action entity should be retained"
-    );
+    // "wrong deployment" reused (similar to existing), "quantum physics" new.
+    assert_eq!(result.entity_names[0].len(), 2);
     assert_eq!(result.entity_names[0][0], "wrong deployment");
+    assert_eq!(result.entity_names[0][1], "quantum physics");
 }
 
 /// Verify that the `tags` type threshold (0.70) is correctly applied:
@@ -359,7 +376,7 @@ async fn test_tags_type_threshold_filtering() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("tags.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-tags", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -371,24 +388,46 @@ async fn test_tags_type_threshold_filtering() {
     );
 }
 
-/// Verify that the `time` type threshold (0.90) is correctly applied:
-/// loosely related entity is filtered by the high threshold.
+/// Verify entity↔entity matching with high time threshold (0.90):
+/// candidate similar to existing time entity is reused, dissimilar stays new.
 #[tokio::test]
 async fn test_time_type_threshold_filtering() {
     let storage = TestStorage::default();
     let mut cp = SessionCheckpoint::new("sess-time".into());
     cp.mined = false;
     storage.add_checkpoint(cp);
+    // Pre-populate DB with an existing time entity.
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("time.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        crate::miner::init_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+             VALUES ('a1', 'time', 'January 2025', 'january_2025', 'a month in 2025')",
+            [],
+        )
+        .unwrap();
+    }
     let events = vec![make_event(
         "Rust language basics",
         crate::miner::MiningEventCategory::Error,
     )];
-    let entities = vec![vec![MiningEntity {
-        entity_type: "time".into(),
-        name: "January 2025".into(),
-        description: "a month in 2025".into(),
-        existing_id: None,
-    }]];
+    // One candidate similar to existing (reused), one dissimilar (new).
+    let entities = vec![vec![
+        MiningEntity {
+            entity_type: "time".into(),
+            name: "January 2025".into(),
+            description: "a month in 2025".into(),
+            existing_id: None,
+        },
+        MiningEntity {
+            entity_type: "time".into(),
+            name: "Quantum era".into(),
+            description: "future technology period".into(),
+            existing_id: None,
+        },
+    ]];
     let config = MinerConfig {
         enabled: true,
         clean_rules: lenient_rules(),
@@ -399,18 +438,15 @@ async fn test_time_type_threshold_filtering() {
         entities_response: entities,
         ..Default::default()
     });
-    let tmp = TempDir::new().unwrap();
-    let db_path = tmp.path().join("time.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-time", "Owner: hello\nAgent: response", "a1", &storage)
         .await
         .unwrap();
-    assert_eq!(
-        result.entity_names[0].len(),
-        0,
-        "time entity with low similarity should be filtered"
-    );
+    // "January 2025" reused (exact match), "Quantum era" kept as new (no similar existing).
+    assert_eq!(result.entity_names[0].len(), 2);
+    assert_eq!(result.entity_names[0][0], "January 2025");
+    assert_eq!(result.entity_names[0][1], "Quantum era");
 }
 
 /// All entity types have correct thresholds loaded from SQLite.

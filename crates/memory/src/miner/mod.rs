@@ -218,14 +218,18 @@ struct DbReadData {
     catalog: String,
     /// Entity type → similarity_threshold mapping.
     type_thresholds: HashMap<String, f64>,
+    /// Existing entities grouped by type for vector fallback matching.
+    existing_entities_by_type: HashMap<String, Vec<(i64, String, String, String)>>,
 }
 
 /// Memory miner — extracts structured entries from session transcripts.
 pub struct MemoryMiner {
     /// Mining configuration.
     config: Arc<RwLock<MinerConfig>>,
-    /// LLM caller for extraction and assignment.
-    llm: Box<dyn MinerLlmCaller>,
+    /// LLM caller for Miner 1 (event extraction).
+    miner1_llm: Box<dyn MinerLlmCaller>,
+    /// LLM caller for Miner 2 (entity assignment).
+    miner2_llm: Box<dyn MinerLlmCaller>,
     /// Path to the SQLite database.
     db_path: PathBuf,
     /// Path to MEMORY.md for dedup.
@@ -236,13 +240,15 @@ impl MemoryMiner {
     /// Create a new miner with the given dependencies.
     pub fn new(
         config: MinerConfig,
-        llm: Box<dyn MinerLlmCaller>,
+        miner1_llm: Box<dyn MinerLlmCaller>,
+        miner2_llm: Box<dyn MinerLlmCaller>,
         db_path: impl AsRef<Path>,
         memory_md_path: impl Into<String>,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
-            llm,
+            miner1_llm,
+            miner2_llm,
             db_path: db_path.as_ref().to_path_buf(),
             memory_md_path: memory_md_path.into(),
         }
@@ -364,14 +370,18 @@ impl MemoryMiner {
         let events = self
             .extract_events(&cleaned, &db_data.recent_events_text, &db_data.memory_md)
             .await?;
-        let mut entities = self.llm.assign_entities(&events, &db_data.catalog).await?;
+        let mut entities = self.miner2_llm.assign_entities(&events, &db_data.catalog).await?;
         for e in &mut entities {
             truncate_entity_names(e);
         }
         // Phase 3.2: Name-first matching (reuse existing entities).
         // This runs before similarity filtering — name priority > vector fallback.
         match_entities_by_name(&self.db_path, agent_id, &mut entities)?;
-        filter_entities_by_similarity(&events, &mut entities, &db_data.type_thresholds);
+        filter_entities_by_similarity(
+            &mut entities,
+            &db_data.type_thresholds,
+            &db_data.existing_entities_by_type,
+        );
         let write_cfg = {
             let cfg = self.config.read().unwrap();
             WriteConfig {
@@ -403,7 +413,7 @@ impl MemoryMiner {
         existing_memory: &str,
     ) -> Result<Vec<MiningEvent>, MinerError> {
         let mut events = self
-            .llm
+            .miner1_llm
             .extract_events(cleaned, existing_events, existing_memory)
             .await?;
         let max = self.config.read().unwrap().max_events_per_session;
@@ -458,11 +468,14 @@ async fn read_db_data(
         let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
         let catalog = load_entity_catalog(&conn, &agent_id)?;
         let type_thresholds = load_entity_type_thresholds(&conn)?;
+        let existing_entities_by_type =
+            load_existing_entities_by_type(&conn, &agent_id)?;
         Ok(DbReadData {
             recent_events_text,
             memory_md,
             catalog,
             type_thresholds,
+            existing_entities_by_type,
         })
     })
     .await
@@ -497,39 +510,79 @@ pub(crate) fn match_entities_by_name(
     Ok(())
 }
 
-/// Phase 3.5: Filter entities by similarity threshold.
+/// Phase 3.5: Vector fallback entity matching.
 ///
-/// Builds a shared corpus from events and entities, embeds each
-/// entity, and retains only those whose cosine similarity to the
-/// parent event exceeds the per-type threshold.
+/// For each candidate entity not matched by name (i.e. `existing_id` is
+/// `None`), computes its vector similarity to existing entities of the
+/// same type already stored in SQLite. If the highest similarity score
+/// meets or exceeds the per-type `similarity_threshold`, the candidate
+/// is replaced by the existing entity (reusing its name and description).
+/// Otherwise the candidate is kept as a new entity.
+///
+/// Candidates already matched by name (`existing_id` is `Some`) are
+/// never modified.
 fn filter_entities_by_similarity(
-    events: &[MiningEvent],
     entities: &mut [Vec<MiningEntity>],
     type_thresholds: &HashMap<String, f64>,
+    existing_entities_by_type: &HashMap<String, Vec<(i64, String, String, String)>>,
 ) {
+    // Build a corpus from all candidate entities and all existing entities
+    // so the NgramEmbedder vocabulary covers every text we need to embed.
     let mut corpus: Vec<String> = Vec::new();
-    for event in events {
-        corpus.push(format!("{} {}", event.title, event.summary));
-    }
     for event_entities in entities.iter() {
         for entity in event_entities {
             corpus.push(format!("{} {}", entity.name, entity.description));
         }
     }
+    for existing_list in existing_entities_by_type.values() {
+        for (_id, name, desc, _norm) in existing_list {
+            corpus.push(format!("{name} {desc}"));
+        }
+    }
+    if corpus.is_empty() {
+        return;
+    }
     let corpus_refs: Vec<&str> = corpus.iter().map(|s| s.as_str()).collect();
-    let filter_embedder = NgramEmbedder::new(&corpus_refs);
-    for (event, event_entities) in events.iter().zip(entities.iter_mut()) {
-        let event_text = format!("{} {}", event.title, event.summary);
-        let event_emb = filter_embedder.embed(&event_text);
-        event_entities.retain(|entity| {
+    let embedder = NgramEmbedder::new(&corpus_refs);
+
+    for event_entities in entities.iter_mut() {
+        for candidate in event_entities.iter_mut() {
+            // Skip entities already matched by name (Phase 3.2).
+            if candidate.existing_id.is_some() {
+                continue;
+            }
             let threshold = type_thresholds
-                .get(&entity.entity_type)
+                .get(&candidate.entity_type)
                 .copied()
                 .unwrap_or(0.80);
-            let entity_text = format!("{} {}", entity.name, entity.description);
-            let entity_emb = filter_embedder.embed(&entity_text);
-            cosine_similarity(&event_emb, &entity_emb) >= threshold
-        });
+            let existing_list = match existing_entities_by_type.get(&candidate.entity_type) {
+                Some(list) => list,
+                None => continue,
+            };
+            if existing_list.is_empty() {
+                continue;
+            }
+            let candidate_text = format!("{} {}", candidate.name, candidate.description);
+            let candidate_emb = embedder.embed(&candidate_text);
+            // Find the existing entity with the highest similarity.
+            let best = existing_list
+                .iter()
+                .map(|(id, name, desc, _norm)| {
+                    let text = format!("{name} {desc}");
+                    let emb = embedder.embed(&text);
+                    let sim = cosine_similarity(&candidate_emb, &emb);
+                    (sim, id, name, desc)
+                })
+                .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some((sim, id, name, desc)) = best {
+                if sim >= threshold {
+                    // Reuse the existing entity — adopt its name and description.
+                    candidate.existing_id = Some(*id);
+                    candidate.name = name.clone();
+                    candidate.description = desc.clone();
+                }
+            }
+        }
     }
 }
 
