@@ -8,7 +8,6 @@ use crate::dreaming_llm::PromotedGroupInfo;
 use crate::test_helpers::TestStorage;
 use closeclaw_config::agents::{DreamingConfig, DreamingDiaryConfig};
 use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
-
 use tempfile::TempDir;
 
 /// Dreaming pipeline does not reprocess sessions already marked Completed.

@@ -558,3 +558,182 @@ fn test_init_schema_events_has_expires_at_column() {
         .is_ok();
     assert!(column_exists, "events table should have expires_at column");
 }
+
+// ── Re-identify extends expires_at tests ──────────────────────────────
+
+/// write_to_sqlite with reidentified_event_id = Some(id) extends the
+/// existing event's expires_at instead of inserting a new row.
+#[test]
+fn test_reidentify_extends_expires_at() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    // Insert an original event with a known expires_at.
+    let original_ts = chrono::Utc::now().timestamp();
+    let original_expires = original_ts + 30 * 86400; // 30 days from now
+    let original_id: i64 = conn
+        .query_row(
+            "INSERT INTO events (title, summary, content, category, lesson,
+             source_session_id, agent_id, timestamp, updated_at, expires_at)
+             VALUES ('orig', 'orig', 'body', 'error', NULL, 'sess-1', 'a1',
+             ?1, ?1, ?2)
+             RETURNING id",
+            params![original_ts, original_expires],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    // Re-identify: should UPDATE expires_at, not INSERT.
+    let extension_days: i64 = 60;
+    let reidentify_event = crate::miner::MiningEvent {
+        title: "reoccurrence".to_string(),
+        summary: "same event again".to_string(),
+        body: "body".to_string(),
+        category: MiningEventCategory::Error,
+        lesson: None,
+        reidentified_event_id: Some(original_id),
+    };
+    write_to_sqlite(
+        &conn,
+        "sess-2",
+        "a1",
+        &[reidentify_event],
+        &[vec![]],
+        90, // initial_ttl_days (not used for re-identify)
+        extension_days,
+    )
+    .unwrap();
+
+    // Should still be exactly 1 event (no new row inserted).
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "re-identify should not insert a new row");
+
+    // expires_at should be extended: MAX(original_expires, now) + extension.
+    let now = chrono::Utc::now().timestamp();
+    let new_expires: i64 = conn
+        .query_row(
+            "SELECT expires_at FROM events WHERE id = ?1",
+            params![original_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let expected_base = now.max(original_expires);
+    let expected = expected_base + extension_days * 86400;
+    assert!(
+        (new_expires - expected).abs() < 120,
+        "expires_at should be MAX(now, original) + extension, got {new_expires}, expected ~{expected}"
+    );
+    assert!(
+        new_expires > original_expires,
+        "new expires_at {new_expires} should be > original {original_expires}"
+    );
+}
+
+/// write_to_sqlite with reidentified_event_id = None still INSERTs normally.
+#[test]
+fn test_normal_insert_unchanged() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let event = crate::miner::MiningEvent {
+        title: "normal".to_string(),
+        summary: "summary".to_string(),
+        body: "body".to_string(),
+        category: MiningEventCategory::Decision,
+        lesson: None,
+        reidentified_event_id: None,
+    };
+    write_to_sqlite(&conn, "sess-normal", "a1", &[event], &[vec![]], 90, 90).unwrap();
+
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "None reidentified_event_id should INSERT");
+
+    let title: String = conn
+        .query_row("SELECT title FROM events WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(title, "normal");
+}
+
+/// Re-identifying M events out of N leaves total count at N.
+#[test]
+fn test_reidentify_event_count_unchanged() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let n: usize = 5;
+    let m: usize = 3;
+
+    // Insert N original events.
+    let mut original_ids = Vec::new();
+    let base_ts = chrono::Utc::now().timestamp();
+    for i in 0..n {
+        let id: i64 = conn
+            .query_row(
+                "INSERT INTO events (title, summary, content, category, lesson,
+                 source_session_id, agent_id, timestamp, updated_at, expires_at)
+                 VALUES (?1, ?1, 'body', 'error', NULL, 'sess-1', 'a1',
+                 ?2, ?2, ?3)
+                 RETURNING id",
+                params![format!("event {}", i), base_ts, base_ts + 30 * 86400],
+                |row| row.get(0),
+            )
+            .unwrap();
+        original_ids.push(id);
+    }
+
+    // Re-identify the first M events.
+    let reidentify_events: Vec<crate::miner::MiningEvent> = original_ids[..m]
+        .iter()
+        .enumerate()
+        .map(|(i, &id)| crate::miner::MiningEvent {
+            title: format!("reocc {}", i),
+            summary: format!("reocc summary {}", i),
+            body: "body".to_string(),
+            category: MiningEventCategory::Error,
+            lesson: None,
+            reidentified_event_id: Some(id),
+        })
+        .collect();
+    let reidentify_entities: Vec<Vec<crate::miner::MiningEntity>> =
+        reidentify_events.iter().map(|_| vec![]).collect();
+
+    write_to_sqlite(
+        &conn,
+        "sess-2",
+        "a1",
+        &reidentify_events,
+        &reidentify_entities,
+        90,
+        60,
+    )
+    .unwrap();
+
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, n as i64, "total event count should remain {n}");
+
+    // Verify expires_at was extended on all M re-identified events.
+    for &id in &original_ids[..m] {
+        let expires: i64 = conn
+            .query_row(
+                "SELECT expires_at FROM events WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            expires > base_ts + 30 * 86400,
+            "re-identified event {id} should have extended expires_at"
+        );
+    }
+}
