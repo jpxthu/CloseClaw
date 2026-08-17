@@ -181,7 +181,13 @@ fn test_update_config_reflects_new_enabled() {
         ..Default::default()
     };
     let llm = Box::new(MockMinerLlmCaller::default());
-    let miner = crate::miner::MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md");
+    let miner = crate::miner::MemoryMiner::new(
+        config,
+        llm.clone(),
+        llm,
+        tmp.path().join("db"),
+        "memory.md",
+    );
     assert!(!miner.is_enabled(), "should start disabled");
 
     let new_config = MinerConfig {

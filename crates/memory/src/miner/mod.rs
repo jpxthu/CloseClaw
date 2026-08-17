@@ -370,7 +370,10 @@ impl MemoryMiner {
         let events = self
             .extract_events(&cleaned, &db_data.recent_events_text, &db_data.memory_md)
             .await?;
-        let mut entities = self.miner2_llm.assign_entities(&events, &db_data.catalog).await?;
+        let mut entities = self
+            .miner2_llm
+            .assign_entities(&events, &db_data.catalog)
+            .await?;
         for e in &mut entities {
             truncate_entity_names(e);
         }
@@ -468,8 +471,7 @@ async fn read_db_data(
         let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
         let catalog = load_entity_catalog(&conn, &agent_id)?;
         let type_thresholds = load_entity_type_thresholds(&conn)?;
-        let existing_entities_by_type =
-            load_existing_entities_by_type(&conn, &agent_id)?;
+        let existing_entities_by_type = load_existing_entities_by_type(&conn, &agent_id)?;
         Ok(DbReadData {
             recent_events_text,
             memory_md,
