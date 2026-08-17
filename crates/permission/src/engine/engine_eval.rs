@@ -1,5 +1,6 @@
 //! Permission Engine - Evaluation logic.
 
+use super::audit_log::{build_audit_log, AuditDisposition, AuditLogger};
 use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
 use super::engine_risk::{assess_risk_level, RiskLevel};
@@ -68,6 +69,9 @@ pub struct PermissionEngine {
     /// Optional rejection logger. When set and `evaluate` returns `Denied`,
     /// a structured rejection log entry is recorded.
     rejection_logger: Option<Arc<dyn RejectionLogger>>,
+    /// Optional audit logger for recording both approved and rejected
+    /// permission requests in Auto Mode.
+    audit_logger: Option<Arc<dyn AuditLogger>>,
 }
 
 // --- Construction & index management ---
@@ -84,6 +88,7 @@ impl PermissionEngine {
             data_root,
             session_mode_query: None,
             rejection_logger: None,
+            audit_logger: None,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -143,29 +148,71 @@ impl PermissionEngine {
         self.rejection_logger.as_ref()
     }
 
+    /// Inject an audit logger for recording approved and rejected permission requests.
+    pub fn with_audit_logger(mut self, logger: Arc<dyn AuditLogger>) -> Self {
+        self.audit_logger = Some(logger);
+        self
+    }
+
+    /// Get a reference to the audit logger, if set.
+    pub fn audit_logger(&self) -> Option<&Arc<dyn AuditLogger>> {
+        self.audit_logger.as_ref()
+    }
+
     /// Log a rejection if the logger is set, the response is `Denied`,
     /// and the session is in Auto Mode.
     ///
     /// Per design doc: rejection logs are only generated for Auto Mode
     /// sessions (Plan/Normal/unknown modes do not produce logs).
+    ///
+    /// When an audit logger is also configured, the rejection is additionally
+    /// recorded in the audit log with `AuditDisposition::Rejected`.
     fn log_rejection(&self, response: &PermissionResponse, body: &PermissionRequestBody) {
-        if let Some(logger) = &self.rejection_logger {
-            if let PermissionResponse::Denied {
-                reason, risk_level, ..
-            } = response
-            {
-                // Determine session mode from query (best-effort).
-                let session_mode = self
-                    .session_mode_query
-                    .as_ref()
-                    .and_then(|q| q.get_session_mode(body.agent_id()));
-                // Only record rejection logs in Auto Mode.
-                if session_mode != Some(SessionMode::Auto) {
-                    return;
+        if let PermissionResponse::Denied {
+            reason, risk_level, ..
+        } = response
+        {
+            // Determine session mode from query (best-effort).
+            let session_mode = self
+                .session_mode_query
+                .as_ref()
+                .and_then(|q| q.get_session_mode(body.agent_id()));
+
+            // Record rejection log (Auto Mode only).
+            if let Some(logger) = &self.rejection_logger {
+                if session_mode == Some(SessionMode::Auto) {
+                    let entry = build_rejection_log(
+                        body,
+                        reason.clone(),
+                        *risk_level,
+                        session_mode,
+                    );
+                    logger.log(&entry);
                 }
-                let entry = build_rejection_log(body, reason.clone(), *risk_level, session_mode);
-                logger.log(&entry);
             }
+
+            // Also record in audit log (Auto Mode only).
+            if session_mode == Some(SessionMode::Auto) {
+                self.log_audit(AuditDisposition::Rejected, body, reason.clone(), *risk_level, session_mode);
+            }
+        }
+    }
+
+    /// Record an entry in the audit log with the given disposition.
+    ///
+    /// Only writes when an audit logger is configured and the session
+    /// is in Auto Mode.
+    pub fn log_audit(
+        &self,
+        disposition: AuditDisposition,
+        body: &PermissionRequestBody,
+        reason: String,
+        risk_level: RiskLevel,
+        session_mode: Option<SessionMode>,
+    ) {
+        if let Some(logger) = &self.audit_logger {
+            let entry = build_audit_log(body, disposition, reason, risk_level, session_mode);
+            logger.log(&entry);
         }
     }
 }
