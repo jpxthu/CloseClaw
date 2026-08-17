@@ -399,22 +399,25 @@ impl Gateway {
             return Err(());
         }
         drop(_ack_rx);
-        {
-            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-            debug_log_emitter::emit_debug_event(
-                guard.as_ref(),
-                &trace_id,
-                None,
-                closeclaw_debug_log::LogLevel::Info,
-                "gateway",
-                "queue.replayed",
-                serde_json::json!({
-                    "platform": platform,
-                    "peer_id": peer_id,
-                }),
-            );
-        }
+        self.emit_replayed_event(&trace_id, &platform, &peer_id);
         Ok(())
+    }
+
+    /// Emit a `queue.replayed` debug event for a successfully replayed entry.
+    fn emit_replayed_event(&self, trace_id: &str, platform: &str, peer_id: &str) {
+        let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+        debug_log_emitter::emit_debug_event(
+            guard.as_ref(),
+            trace_id,
+            None,
+            closeclaw_debug_log::LogLevel::Info,
+            "gateway",
+            "queue.replayed",
+            serde_json::json!({
+                "platform": platform,
+                "peer_id": peer_id,
+            }),
+        );
     }
 
     /// Enqueue an inbound request into the bounded queue.
