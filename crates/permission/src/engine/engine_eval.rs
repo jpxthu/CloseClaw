@@ -193,7 +193,13 @@ impl PermissionEngine {
 
             // Also record in audit log (Auto Mode only).
             if session_mode == Some(SessionMode::Auto) {
-                self.log_audit(AuditDisposition::Rejected, body, reason.clone(), *risk_level, session_mode);
+                self.log_audit(
+                    AuditDisposition::Rejected,
+                    body,
+                    reason.clone(),
+                    *risk_level,
+                    session_mode,
+                );
             }
         }
     }
@@ -202,7 +208,7 @@ impl PermissionEngine {
     ///
     /// Only writes when an audit logger is configured and the session
     /// is in Auto Mode.
-    pub fn log_audit(
+    fn log_audit(
         &self,
         disposition: AuditDisposition,
         body: &PermissionRequestBody,

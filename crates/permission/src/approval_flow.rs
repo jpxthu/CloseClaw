@@ -585,6 +585,7 @@ impl ApprovalFlow {
                 p.request.clone(),
                 p.snapshotted_rules.clone(),
                 p.rule_version.clone(),
+                p.risk_level.clone(),
             )
         });
 
@@ -593,21 +594,20 @@ impl ApprovalFlow {
         let final_mode = effective_mode.unwrap_or(mode);
         let result = self.queue.approve(request_id, final_mode)?;
 
-        // Audit log: record approved operation.
-        if let Some(ref logger) = audit_logger {
-            if let Some((_, _, ref body, _, _)) = pending_info {
-                let entry = build_audit_log(
-                    body,
-                    AuditDisposition::Approved,
-                    if result {
-                        "user approved".to_string()
-                    } else {
-                        "approval failed".to_string()
-                    },
-                    RiskLevel::Low,
-                    None,
-                );
-                logger.log(&entry);
+        // Audit log: record approved operation only when
+        // the approval actually succeeded.
+        if result {
+            if let Some(ref logger) = audit_logger {
+                if let Some((_, _, ref body, _, _, ref rl)) = pending_info {
+                    let entry = build_audit_log(
+                        body,
+                        AuditDisposition::Approved,
+                        "user approved".to_string(),
+                        rl.clone(),
+                        None,
+                    );
+                    logger.log(&entry);
+                }
             }
         }
 
@@ -636,32 +636,37 @@ impl ApprovalFlow {
         let audit_logger = self.audit_logger.clone();
 
         // Extract details BEFORE resolving (entry is removed on resolve).
-        let pending_info = self
-            .queue
-            .get_pending(request_id)
-            .map(|p| (p.session_resume.clone(), p.caller.clone(), p.request.clone()));
+        let pending_info = self.queue.get_pending(request_id).map(|p| {
+            (
+                p.session_resume.clone(),
+                p.caller.clone(),
+                p.request.clone(),
+                p.risk_level.clone(),
+            )
+        });
 
-        let session_resume = pending_info.as_ref().map(|(sid, _, _)| sid.clone());
+        let session_resume = pending_info
+            .as_ref()
+            .map(|(sid, _, _, _)| sid.clone());
 
         let result = self.queue.deny(request_id);
 
-        // Audit log: record rejected operation.
         if result {
+            // Audit log: record rejected operation.
             if let Some(ref logger) = audit_logger {
-                if let Some((_, _, ref body)) = pending_info {
+                if let Some((_, _, ref body, ref rl)) = pending_info {
                     let entry = build_audit_log(
                         body,
                         AuditDisposition::Rejected,
                         "user denied".to_string(),
-                        RiskLevel::Low,
+                        rl.clone(),
                         None,
                     );
                     logger.log(&entry);
                 }
             }
-        }
 
-        if result {
+            // Push rejection message to session.
             if let Some(session_id) = session_resume {
                 let sm = Arc::clone(&self.session_manager);
                 let handle = self.runtime_handle.clone();
@@ -670,7 +675,10 @@ impl ApprovalFlow {
                 handle.spawn(async move {
                     let content = format!("[审批 {}] 操作已拒绝", rid);
                     let msg = PendingMessage::with_role(
-                        format!("approval-{}", chrono::Utc::now().timestamp_millis()),
+                        format!(
+                            "approval-{}",
+                            chrono::Utc::now().timestamp_millis()
+                        ),
                         content,
                         "assistant".to_string(),
                     );
@@ -704,6 +712,7 @@ type PendingInfo = (
     PermissionRequestBody, // request
     RuleSet,               // snapshotted_rules
     String,                // rule_version
+    RiskLevel,             // risk_level
 );
 
 impl ApprovalFlow {
@@ -715,7 +724,7 @@ impl ApprovalFlow {
         pending_info: &Option<PendingInfo>,
         _mode: ApprovalMode,
     ) -> Option<ApprovalMode> {
-        let (_, ref caller, ref request, ref snapshotted_rules, _) = pending_info.as_ref()?;
+        let (_, ref caller, ref request, ref snapshotted_rules, _, _) = pending_info.as_ref()?;
         let temp_engine = PermissionEngine::new_with_default_data_root(snapshotted_rules.clone());
         let perm_request = PermissionRequest::WithCaller {
             caller: caller.clone(),
@@ -749,7 +758,7 @@ impl ApprovalFlow {
         if !result {
             return;
         }
-        if let Some((_, ref caller, ref request, _, ref rule_version)) = pending_info {
+        if let Some((_, ref caller, ref request, _, ref rule_version, _)) = pending_info {
             let name = format!(
                 "whitelist-{}-{}",
                 chrono::Utc::now().timestamp_millis(),
@@ -789,7 +798,7 @@ impl ApprovalFlow {
             return;
         }
         let session_id = match pending_info {
-            Some((sid, _, _, _, _)) => sid.clone(),
+            Some((sid, _, _, _, _, _)) => sid.clone(),
             None => return,
         };
         let sm = Arc::clone(&self.session_manager);

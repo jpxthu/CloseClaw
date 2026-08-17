@@ -14,7 +14,10 @@ impl Daemon {
     /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
         let audit_logger = Self::create_audit_logger(config_dir);
-        let permission_engine = Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
+        let permission_engine = Self::build_permission_engine(
+            config_dir,
+            audit_logger.as_ref().cloned(),
+        );
         Self::start_with_engine(config_dir, permission_engine, audit_logger).await
     }
 
@@ -111,7 +114,11 @@ impl Daemon {
         // Recovery injection may have created new ConversationSession / Session
         // entries. Rebuild key_registry so they are resolvable by routing key.
         if let Err(e) = session_manager.rebuild_key_registry().await {
-            tracing::warn!(error = %e, "failed to rebuild key_registry after recovery injection — continuing");
+            tracing::warn!(
+            error = %e,
+            "failed to rebuild key_registry after recovery injection \
+             — continuing"
+        );
         }
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
