@@ -105,6 +105,9 @@ pub struct MiningEntity {
     pub name: String,
     /// Brief entity description.
     pub description: String,
+    /// If set, the entity already exists in SQLite with this id.
+    /// Used by name-first matching to avoid duplicate inserts.
+    pub existing_id: Option<i64>,
 }
 
 /// Result of a single mining operation.
@@ -365,6 +368,9 @@ impl MemoryMiner {
         for e in &mut entities {
             truncate_entity_names(e);
         }
+        // Phase 3.2: Name-first matching (reuse existing entities).
+        // This runs before similarity filtering — name priority > vector fallback.
+        match_entities_by_name(&self.db_path, agent_id, &mut entities)?;
         filter_entities_by_similarity(&events, &mut entities, &db_data.type_thresholds);
         let write_cfg = {
             let cfg = self.config.read().unwrap();
@@ -461,6 +467,34 @@ async fn read_db_data(
     })
     .await
     .map_err(|e| MinerError::Sqlite(e.to_string()))?
+}
+
+/// Phase 3.2: Name-first entity matching.
+///
+/// For each LLM-produced entity, checks SQLite for an existing entity
+/// with the same agent_id + type + normalized_name. If found, replaces
+/// the LLM entity's description with the existing one and sets
+/// `existing_id` so the write phase reuses the row instead of inserting.
+pub(crate) fn match_entities_by_name(
+    db_path: &Path,
+    agent_id: &str,
+    entities: &mut [Vec<MiningEntity>],
+) -> Result<(), MinerError> {
+    let db_path = db_path.to_path_buf();
+    let agent_id = agent_id.to_string();
+    let existing_map = load_existing_entities_for_agent(&db_path, &agent_id)?;
+    for event_entities in entities.iter_mut() {
+        for entity in event_entities.iter_mut() {
+            let norm = normalize_entity_name(&entity.name);
+            if let Some(&(existing_id, ref existing_desc)) =
+                existing_map.get(&(entity.entity_type.clone(), norm))
+            {
+                entity.existing_id = Some(existing_id);
+                entity.description = existing_desc.clone();
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Phase 3.5: Filter entities by similarity threshold.
@@ -568,6 +602,7 @@ mod tests {
             entity_type: "subject".to_string(),
             name: "one two three four five six seven eight nine ten eleven".to_string(),
             description: "".to_string(),
+            existing_id: None,
         }];
         truncate_entity_names(&mut entities);
         assert_eq!(
@@ -582,6 +617,7 @@ mod tests {
             entity_type: "subject".to_string(),
             name: "short name".to_string(),
             description: "".to_string(),
+            existing_id: None,
         }];
         truncate_entity_names(&mut entities);
         assert_eq!(entities[0].name, "short name");

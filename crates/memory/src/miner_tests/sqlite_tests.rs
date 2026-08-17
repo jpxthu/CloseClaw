@@ -1,5 +1,6 @@
 use crate::miner::{
-    load_entity_catalog, load_recent_events, write_to_sqlite, MiningEventCategory, WriteConfig,
+    load_entity_catalog, load_existing_entities_for_agent, load_recent_events,
+    match_entities_by_name, write_to_sqlite, MiningEntity, MiningEventCategory, WriteConfig,
 };
 use closeclaw_config::agents::default_forgetting_initial_ttl_days;
 
@@ -583,6 +584,183 @@ fn test_init_schema_events_has_expires_at_column() {
         .prepare("SELECT expires_at FROM events WHERE 0")
         .is_ok();
     assert!(column_exists, "events table should have expires_at column");
+}
+
+// ── Name-first matching tests ─────────────────────────────────────────
+
+/// LLM entity name matches existing entity → reuse existing (same description).
+#[test]
+fn test_match_entities_by_name_reuses_existing() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    // Seed an existing entity.
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a1', 'subject', 'Rust Language', 'rust_language', 'existing desc')",
+        [],
+    )
+    .unwrap();
+    let entity_id: i64 = conn
+        .query_row("SELECT id FROM entities WHERE normalized_name = 'rust_language'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+
+    let db_path = tmp.path().join("test.db");
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "Rust Language".to_string(),
+        description: "new desc from LLM".to_string(),
+        existing_id: None,
+    }]];
+
+    match_entities_by_name(&db_path, "a1", &mut entities).unwrap();
+
+    assert_eq!(entities[0][0].existing_id, Some(entity_id));
+    assert_eq!(entities[0][0].description, "existing desc");
+}
+
+/// LLM entity name has no match → keep as new (existing_id stays None).
+#[test]
+fn test_match_entities_by_name_no_match() {
+    let tmp = TempDir::new().unwrap();
+    let db_path = tmp.path().join("test.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "New Concept".to_string(),
+        description: "brand new".to_string(),
+        existing_id: None,
+    }]];
+
+    match_entities_by_name(&db_path, "a1", &mut entities).unwrap();
+
+    assert_eq!(entities[0][0].existing_id, None);
+    assert_eq!(entities[0][0].description, "brand new");
+}
+
+/// Case / space differences should match after normalization.
+#[test]
+fn test_match_entities_by_name_case_space_normalization() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a1', 'subject', 'My Entity', 'my_entity', 'norm desc')",
+        [],
+    )
+    .unwrap();
+    let entity_id: i64 = conn
+        .query_row("SELECT id FROM entities WHERE normalized_name = 'my_entity'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+
+    let db_path = tmp.path().join("test.db");
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "MY ENTITY".to_string(),
+        description: "upper case".to_string(),
+        existing_id: None,
+    }]];
+
+    match_entities_by_name(&db_path, "a1", &mut entities).unwrap();
+
+    assert_eq!(entities[0][0].existing_id, Some(entity_id));
+    assert_eq!(entities[0][0].description, "norm desc");
+}
+
+/// Same name but different type → should NOT match (create new).
+#[test]
+fn test_match_entities_by_name_same_name_different_type() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a1', 'subject', 'rust', 'rust', 'subject desc')",
+        [],
+    )
+    .unwrap();
+
+    let db_path = tmp.path().join("test.db");
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "action".to_string(),
+        name: "rust".to_string(),
+        description: "action desc".to_string(),
+        existing_id: None,
+    }]];
+
+    match_entities_by_name(&db_path, "a1", &mut entities).unwrap();
+
+    assert_eq!(entities[0][0].existing_id, None);
+    assert_eq!(entities[0][0].description, "action desc");
+}
+
+/// Cross-agent isolation: same name + type in different agent → no match.
+#[test]
+fn test_match_entities_by_name_cross_agent_isolation() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('other-agent', 'subject', 'shared', 'shared', 'other desc')",
+        [],
+    )
+    .unwrap();
+
+    let db_path = tmp.path().join("test.db");
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "shared".to_string(),
+        description: "my desc".to_string(),
+        existing_id: None,
+    }]];
+
+    match_entities_by_name(&db_path, "a1", &mut entities).unwrap();
+
+    assert_eq!(entities[0][0].existing_id, None);
+    assert_eq!(entities[0][0].description, "my desc");
+}
+
+/// load_existing_entities_for_agent returns correct map.
+#[test]
+fn test_load_existing_entities_for_agent_basic() {
+    let tmp = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a1', 'subject', 'Alpha', 'alpha', 'desc a')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a1', 'action', 'Beta', 'beta', 'desc b')",
+        [],
+    )
+    .unwrap();
+    // Different agent should not appear.
+    conn.execute(
+        "INSERT INTO entities (agent_id, type, name, normalized_name, description)
+         VALUES ('a2', 'subject', 'Gamma', 'gamma', 'desc g')",
+        [],
+    )
+    .unwrap();
+
+    let db_path = tmp.path().join("test.db");
+    let map = load_existing_entities_for_agent(&db_path, "a1").unwrap();
+
+    assert_eq!(map.len(), 2);
+    assert!(map.contains_key(&("subject".to_string(), "alpha".to_string())));
+    assert!(map.contains_key(&("action".to_string(), "beta".to_string())));
+    assert!(!map.contains_key(&("subject".to_string(), "gamma".to_string())));
 }
 
 // ── Re-identify extends expires_at tests ──────────────────────────────
