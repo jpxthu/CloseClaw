@@ -28,17 +28,11 @@ impl JsonlFileWriter {
     }
 
     /// Create a new writer with a maximum entry limit.
-    pub fn new_with_limit(
-        path: PathBuf,
-        max_entries: Option<usize>,
-    ) -> std::io::Result<Self> {
+    pub fn new_with_limit(path: PathBuf, max_entries: Option<usize>) -> std::io::Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self {
             path,
             max_entries,
@@ -75,18 +69,11 @@ impl JsonlFileWriter {
             Ok(c) => c,
             Err(_) => return,
         };
-        let lines: Vec<&str> = content
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .collect();
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
         if lines.len() <= keep {
             return;
         }
-        let kept: String = lines
-            .iter()
-            .take(keep)
-            .map(|l| format!("{l}\n"))
-            .collect();
+        let kept: String = lines.iter().take(keep).map(|l| format!("{l}\n")).collect();
         let _ = std::fs::write(path, kept);
     }
 
@@ -100,8 +87,7 @@ impl JsonlFileWriter {
             }
             Err(_) => return,
         };
-        let existing =
-            std::fs::read_to_string(&self.path).unwrap_or_default();
+        let existing = std::fs::read_to_string(&self.path).unwrap_or_default();
         let mut combined = new_line;
         combined.extend_from_slice(existing.as_bytes());
         let _ = std::fs::write(&self.path, combined);
@@ -162,11 +148,7 @@ mod tests {
     fn test_count_entries_skips_blank_lines() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.log");
-        std::fs::write(
-            &path,
-            "line1\n\nline2\n  \nline3\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "line1\n\nline2\n  \nline3\n").unwrap();
         assert_eq!(JsonlFileWriter::count_entries(&path), 3);
     }
 
@@ -183,8 +165,7 @@ mod tests {
         writer.write(&entry);
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let parsed: TestEntry =
-            serde_json::from_str(content.trim()).unwrap();
+        let parsed: TestEntry = serde_json::from_str(content.trim()).unwrap();
         assert_eq!(parsed, entry);
     }
 
@@ -202,13 +183,11 @@ mod tests {
         }
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
+        let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
         // Newest first
         for (i, line) in lines.iter().enumerate() {
-            let parsed: TestEntry =
-                serde_json::from_str(line).unwrap();
+            let parsed: TestEntry = serde_json::from_str(line).unwrap();
             assert_eq!(parsed.name, format!("e{}", 2 - i));
         }
     }
@@ -217,9 +196,7 @@ mod tests {
     fn test_write_with_limit_truncates() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.jsonl");
-        let writer =
-            JsonlFileWriter::new_with_limit(path.clone(), Some(3))
-                .unwrap();
+        let writer = JsonlFileWriter::new_with_limit(path.clone(), Some(3)).unwrap();
 
         for i in 0..5 {
             writer.write(&TestEntry {
@@ -232,12 +209,10 @@ mod tests {
         assert_eq!(count, 3);
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
+        let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
         for (i, line) in lines.iter().enumerate() {
-            let parsed: TestEntry =
-                serde_json::from_str(line).unwrap();
+            let parsed: TestEntry = serde_json::from_str(line).unwrap();
             assert_eq!(parsed.name, format!("e{}", 4 - i));
         }
     }
@@ -245,8 +220,7 @@ mod tests {
     #[test]
     fn test_write_creates_parent_dirs() {
         let dir = tempfile::tempdir().unwrap();
-        let path =
-            dir.path().join("sub").join("dir").join("out.jsonl");
+        let path = dir.path().join("sub").join("dir").join("out.jsonl");
         let writer = JsonlFileWriter::new(path.clone()).unwrap();
         writer.write(&TestEntry {
             name: "a".into(),
@@ -276,8 +250,7 @@ mod tests {
     fn test_new_with_limit_with_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.jsonl");
-        let writer =
-            JsonlFileWriter::new_with_limit(path, Some(5)).unwrap();
+        let writer = JsonlFileWriter::new_with_limit(path, Some(5)).unwrap();
         assert_eq!(writer.max_entries(), Some(5));
     }
 }

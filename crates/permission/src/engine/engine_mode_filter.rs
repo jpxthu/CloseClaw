@@ -7,8 +7,7 @@ use super::engine_eval::PermissionEngine;
 use super::engine_helpers::generate_token;
 use super::engine_risk::{assess_risk_level, RiskLevel};
 use super::engine_types::{
-    MessageDirection, PermissionRequest, PermissionRequestBody,
-    PermissionResponse,
+    MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use closeclaw_common::session_mode::SessionMode;
 use tracing::info;
@@ -38,9 +37,7 @@ impl PermissionEngine {
 
         let body = request.body();
         match body {
-            PermissionRequestBody::FileOp { op, path, .. }
-                if op == "write" =>
-            {
+            PermissionRequestBody::FileOp { op, path, .. } if op == "write" => {
                 if is_plans_path(path) {
                     return None;
                 }
@@ -52,8 +49,7 @@ impl PermissionEngine {
                     "permission check completed"
                 );
                 Some(PermissionResponse::Denied {
-                    reason: "write operation denied in Plan mode"
-                        .to_string(),
+                    reason: "write operation denied in Plan mode".to_string(),
                     rule: "<plan_mode_filter>".to_string(),
                     risk_level: assess_risk_level(body),
                 })
@@ -66,9 +62,7 @@ impl PermissionEngine {
                     "permission check completed"
                 );
                 Some(PermissionResponse::Denied {
-                    reason:
-                        "command execution denied in Plan mode"
-                            .to_string(),
+                    reason: "command execution denied in Plan mode".to_string(),
                     rule: "<plan_mode_filter>".to_string(),
                     risk_level: assess_risk_level(body),
                 })
@@ -81,15 +75,12 @@ impl PermissionEngine {
                     "permission check completed"
                 );
                 Some(PermissionResponse::Denied {
-                    reason: "config write denied in Plan mode"
-                        .to_string(),
+                    reason: "config write denied in Plan mode".to_string(),
                     rule: "<plan_mode_filter>".to_string(),
                     risk_level: assess_risk_level(body),
                 })
             }
-            PermissionRequestBody::ToolCall {
-                skill, ..
-            } if skill == "ask_user_question" => {
+            PermissionRequestBody::ToolCall { skill, .. } if skill == "ask_user_question" => {
                 info!(
                     agent = agent_id,
                     result = "allowed_with_context",

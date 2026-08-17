@@ -648,9 +648,7 @@ impl ApprovalFlow {
             )
         });
 
-        let session_resume = pending_info
-            .as_ref()
-            .map(|(sid, _, _, _)| sid.clone());
+        let session_resume = pending_info.as_ref().map(|(sid, _, _, _)| sid.clone());
 
         let result = self.queue.deny(request_id);
 
@@ -678,10 +676,7 @@ impl ApprovalFlow {
                 handle.spawn(async move {
                     let content = format!("[审批 {}] 操作已拒绝", rid);
                     let msg = PendingMessage::with_role(
-                        format!(
-                            "approval-{}",
-                            chrono::Utc::now().timestamp_millis()
-                        ),
+                        format!("approval-{}", chrono::Utc::now().timestamp_millis()),
                         content,
                         "assistant".to_string(),
                     );

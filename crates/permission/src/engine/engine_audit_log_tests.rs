@@ -126,11 +126,7 @@ fn test_engine_logs_rejection_to_audit_log() {
 
     // Rejection log should have one entry.
     let rejection_entries = rejection_logger.entries();
-    assert_eq!(
-        rejection_entries.len(),
-        1,
-        "expected 1 rejection log entry"
-    );
+    assert_eq!(rejection_entries.len(), 1, "expected 1 rejection log entry");
     assert_eq!(rejection_entries[0].agent_id, "agent-auto");
 
     // Audit log should also have one entry.
@@ -211,10 +207,9 @@ fn test_engine_audit_log_auto_mode_only() {
         .default_config(Effect::Deny)
         .build()
         .unwrap();
-    let engine_no_query =
-        PermissionEngine::new_with_default_data_root(ruleset)
-            .with_rejection_logger(rejection_logger.clone())
-            .with_audit_logger(audit_logger.clone());
+    let engine_no_query = PermissionEngine::new_with_default_data_root(ruleset)
+        .with_rejection_logger(rejection_logger.clone())
+        .with_audit_logger(audit_logger.clone());
     let resp_no_query = engine_no_query.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "agent-none".to_string(),
@@ -245,11 +240,7 @@ fn test_engine_audit_log_auto_mode_only() {
     );
     assert!(matches!(resp_auto, PermissionResponse::Denied { .. }));
     let entries = audit_logger.entries();
-    assert_eq!(
-        entries.len(),
-        1,
-        "expected 1 audit log entry in Auto Mode"
-    );
+    assert_eq!(entries.len(), 1, "expected 1 audit log entry in Auto Mode");
     assert_eq!(entries[0].disposition, AuditDisposition::Rejected);
     assert_eq!(entries[0].session_mode, Some(SessionMode::Auto));
 }

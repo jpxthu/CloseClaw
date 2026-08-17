@@ -21,10 +21,7 @@ pub enum AuditDisposition {
 }
 
 impl std::fmt::Display for AuditDisposition {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuditDisposition::Approved => write!(f, "approved"),
             AuditDisposition::Rejected => write!(f, "rejected"),
@@ -75,10 +72,7 @@ impl FileAuditLogger {
     }
 
     /// Create a new file logger with a maximum entry limit.
-    pub fn new_with_limit(
-        path: PathBuf,
-        max_entries: Option<usize>,
-    ) -> std::io::Result<Self> {
+    pub fn new_with_limit(path: PathBuf, max_entries: Option<usize>) -> std::io::Result<Self> {
         let inner = JsonlFileWriter::new_with_limit(path, max_entries)?;
         Ok(Self { inner })
     }
@@ -106,10 +100,7 @@ impl AuditLogger for FileAuditLogger {
 }
 
 impl std::fmt::Debug for FileAuditLogger {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FileAuditLogger")
             .field("path", self.inner.path())
             .field("max_entries", &self.inner.max_entries())
@@ -130,10 +121,9 @@ pub fn build_audit_log(
         PermissionRequestBody::FileOp { path, op, .. } => {
             ("file".to_string(), format!("{} {}", op, path))
         }
-        PermissionRequestBody::CommandExec { cmd, args, .. } => (
-            "command".to_string(),
-            format!("{} {}", cmd, args.join(" ")),
-        ),
+        PermissionRequestBody::CommandExec { cmd, args, .. } => {
+            ("command".to_string(), format!("{} {}", cmd, args.join(" ")))
+        }
         PermissionRequestBody::NetOp { host, port, .. } => {
             ("network".to_string(), format!("{}:{}", host, port))
         }
@@ -150,13 +140,8 @@ pub fn build_audit_log(
             ("slash_command".to_string(), command.clone())
         }
         PermissionRequestBody::MessageSend {
-            direction,
-            target,
-            ..
-        } => (
-            "message".to_string(),
-            format!("{:?} {}", direction, target),
-        ),
+            direction, target, ..
+        } => ("message".to_string(), format!("{:?} {}", direction, target)),
     };
 
     AuditLogEntry {
@@ -189,8 +174,7 @@ mod tests {
         };
 
         let json = serde_json::to_string(&entry).unwrap();
-        let parsed: AuditLogEntry =
-            serde_json::from_str(&json).unwrap();
+        let parsed: AuditLogEntry = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.agent_id, "agent-1");
         assert_eq!(parsed.tool_name, "file");
@@ -201,14 +185,8 @@ mod tests {
 
     #[test]
     fn test_audit_disposition_display() {
-        assert_eq!(
-            AuditDisposition::Approved.to_string(),
-            "approved"
-        );
-        assert_eq!(
-            AuditDisposition::Rejected.to_string(),
-            "rejected"
-        );
+        assert_eq!(AuditDisposition::Approved.to_string(), "approved");
+        assert_eq!(AuditDisposition::Rejected.to_string(), "rejected");
     }
 
     #[test]
@@ -216,15 +194,13 @@ mod tests {
         let approved = AuditDisposition::Approved;
         let json = serde_json::to_string(&approved).unwrap();
         assert_eq!(json, "\"approved\"");
-        let parsed: AuditDisposition =
-            serde_json::from_str(&json).unwrap();
+        let parsed: AuditDisposition = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, AuditDisposition::Approved);
 
         let rejected = AuditDisposition::Rejected;
         let json = serde_json::to_string(&rejected).unwrap();
         assert_eq!(json, "\"rejected\"");
-        let parsed: AuditDisposition =
-            serde_json::from_str(&json).unwrap();
+        let parsed: AuditDisposition = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, AuditDisposition::Rejected);
     }
 
@@ -290,8 +266,7 @@ mod tests {
         logger.log(&entry);
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let parsed: AuditLogEntry =
-            serde_json::from_str(content.trim()).unwrap();
+        let parsed: AuditLogEntry = serde_json::from_str(content.trim()).unwrap();
         assert_eq!(parsed.agent_id, "agent-1");
         assert_eq!(parsed.tool_name, "file");
         assert_eq!(parsed.disposition, AuditDisposition::Approved);
@@ -305,10 +280,7 @@ mod tests {
 
         for i in 0..3 {
             let entry = AuditLogEntry {
-                timestamp: format!(
-                    "2026-01-01T00:00:{:02}Z",
-                    i
-                ),
+                timestamp: format!("2026-01-01T00:00:{:02}Z", i),
                 agent_id: format!("agent-{}", i),
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
@@ -321,16 +293,11 @@ mod tests {
         }
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
+        let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
         for (i, line) in lines.iter().enumerate() {
-            let parsed: AuditLogEntry =
-                serde_json::from_str(line).unwrap();
-            assert_eq!(
-                parsed.agent_id,
-                format!("agent-{}", 2 - i)
-            );
+            let parsed: AuditLogEntry = serde_json::from_str(line).unwrap();
+            assert_eq!(parsed.agent_id, format!("agent-{}", 2 - i));
         }
     }
 
@@ -338,18 +305,11 @@ mod tests {
     fn test_file_audit_logger_with_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("audit.log");
-        let logger = FileAuditLogger::new_with_limit(
-            path.clone(),
-            Some(3),
-        )
-        .unwrap();
+        let logger = FileAuditLogger::new_with_limit(path.clone(), Some(3)).unwrap();
 
         for i in 0..5 {
             let entry = AuditLogEntry {
-                timestamp: format!(
-                    "2026-01-01T00:00:{:02}Z",
-                    i
-                ),
+                timestamp: format!("2026-01-01T00:00:{:02}Z", i),
                 agent_id: format!("agent-{}", i),
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
@@ -365,27 +325,18 @@ mod tests {
         assert_eq!(count, 3);
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
+        let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
         for (i, line) in lines.iter().enumerate() {
-            let parsed: AuditLogEntry =
-                serde_json::from_str(line).unwrap();
-            assert_eq!(
-                parsed.agent_id,
-                format!("agent-{}", 4 - i)
-            );
+            let parsed: AuditLogEntry = serde_json::from_str(line).unwrap();
+            assert_eq!(parsed.agent_id, format!("agent-{}", 4 - i));
         }
     }
 
     #[test]
     fn test_file_audit_logger_creates_parent_dirs() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir
-            .path()
-            .join("sub")
-            .join("dir")
-            .join("audit.log");
+        let path = dir.path().join("sub").join("dir").join("audit.log");
         let logger = FileAuditLogger::new(path.clone()).unwrap();
         let entry = AuditLogEntry {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -414,8 +365,7 @@ mod tests {
     fn test_new_with_limit_no_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("audit.log");
-        let logger =
-            FileAuditLogger::new_with_limit(path, None).unwrap();
+        let logger = FileAuditLogger::new_with_limit(path, None).unwrap();
         assert_eq!(logger.max_entries(), None);
     }
 
@@ -423,8 +373,7 @@ mod tests {
     fn test_new_with_limit_with_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("audit.log");
-        let logger =
-            FileAuditLogger::new_with_limit(path, Some(5)).unwrap();
+        let logger = FileAuditLogger::new_with_limit(path, Some(5)).unwrap();
         assert_eq!(logger.max_entries(), Some(5));
     }
 }
