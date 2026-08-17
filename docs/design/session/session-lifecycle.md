@@ -143,7 +143,7 @@ Sweeper 定时触发
 上列流程中各组件的职责划分：
 - **SqliteStorage**：数据层（文件移回 + 数据库状态更新），输出 SessionCheckpoint
 - **SessionManager**：运行时层（重建 ConversationSession + 触发注入 + 注册映射表），向 Gateway 返回恢复标志
-- **Gateway**：用户通知（发送「正在恢复会话…」消息）
+- **Gateway**：经系统通知接口发送 Session 生成的「正在恢复会话…」提示语
 
 ### Archived → Purge 清理
 
@@ -184,7 +184,7 @@ SessionManager 在启动时和定期维护中执行 SQLite 与文件系统的双
 
 - **Daemon**：启动时初始化 SqliteStorage、SessionConfigProvider、Sweeper。数据一致性校验由 SessionManager 在其初始化过程中自动执行。
 - **SessionManager**：session 创建/切换时通过 CheckpointManager 触发持久化。
-- **Gateway**：通过 SessionManager 的返回结果获知 session 是否由归档恢复，如是则向用户发送「正在恢复会话...」通知。
+- **Gateway**：通过 SessionManager 的返回结果获知 session 是否由归档恢复，如是则由 Session 生成「正在恢复会话...」提示语，经 Gateway 系统通知接口发送。
 
 ### 下游
 

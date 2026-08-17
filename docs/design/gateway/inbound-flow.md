@@ -6,40 +6,23 @@
 
 ## 架构
 
-```
-webhook → webhook → webhook → ...（高并发）
-  ↓
-[Gateway 入站消息队列]
-  有界缓冲（默认 256）→ 满则拒 + 回复"服务繁忙，请稍后重试"。重启清空，消息由 IM 平台 webhook 重试补偿
-  ↓
-[IM 插件]
-  平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, message_type, media_refs, timestamp }
-  ↓
-[Processor Chain 入站]
-  RawLog（priority 10）        → 日志记录 → 透传（仅在 raw_log_dir 配置时注册）
-    ↓
-  SessionRouter（priority 20） → session_key = {timestamp_ms}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)）
-                               → 写入 metadata，不创建 session
-    ↓
-  ContentNormalizer（priority 30） → 文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格）
-  ↓
-[ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key, message_type }）
-  ↓
-[Gateway]
-  → message_type 非 text（image/file/audio）？
-    ├─ 是 → 构造错误回复 ContentBlock[] → 简化出站（详见 [Gateway README](README.md#入站路径) 非文本消息处理）
-    └─ 否（text）→ 从 metadata 取出 session_key
-                    → session_key 为空？
-                      ├─ 是 → 记录 warning 日志，仍通过路由字段（platform, sender_id, peer_id, account_id）继续
-                      └─ 否 → 正常流转
-                    → SessionManager 执行 session 查找/创建（传入 session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id  ← 日志：session 查找结果
-                    → content_blocks[0] 标准化文本 以 / 开头？  ← 日志：路由决策结果
-                        ├─ 是 → 先拦截 /approve-once、/approve-whitelist、/deny（不进 SlashDispatcher，非 Owner 调用直接回复"权限不足"）
-                        │       其余斜杠 → SlashDispatcher（不进入 LLM）
-                        └─ 否 → Session → LLM
-                                           ↓
-                                      ContentBlock[]（进入出站）
-```
+1. 多个 IM 平台 webhook 到达 Gateway，进入入站消息队列（有界持久化缓冲，默认 256）。
+   - 队列满 → 拒收 + 回复"服务繁忙，请稍后重试"。
+   - 消息入队即持久化，重启时重放未完成消息（详见 [Gateway README](README.md#消息队列与排队语义)）。
+2. IM 插件解析平台格式 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, message_type, media_refs, timestamp }。
+3. Processor Chain 入站按 priority 升序执行：
+   - RawLog（priority 10）：日志记录，透传（仅在 raw_log_dir 配置时注册）。
+   - SessionRouter（priority 20）：计算 session_key = {timestamp_ms}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)），写入 metadata，不创建 session。
+   - ContentNormalizer（priority 30）：文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格）。
+4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key, message_type }）。
+5. Gateway 处理：
+   - message_type 非 text（image/file/audio）→ 构造错误回复 ContentBlock[] → 简化出站（详见 [Gateway README](README.md#入站路径) 非文本消息处理），流程结束。
+   - text 消息 → 从 metadata 取出 session_key；session_key 为空 → 记录 warning 日志，仍通过路由字段（platform, sender_id, peer_id, account_id）继续。
+   - Gateway 根据配置定义的机器人→Agent 绑定确定对应的 Agent，得到 agent_id。
+   - SessionManager 执行 session 查找/创建（传入 agent_id + session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id。
+   - 按 content_blocks[0] 标准化文本前缀判断：
+     - 以 `/` 开头 → 先拦截 `/approve-once`、`/approve-whitelist`、`/deny`（不进 SlashDispatcher，非 Owner 调用直接回复"权限不足"）；其余斜杠 → SlashDispatcher（不进入 LLM）。
+     - 不以 `/` 开头 → Session → LLM → ContentBlock[]（进入出站）。
 
 ### 关键设计
 
@@ -82,7 +65,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 Gateway 先检查消息的 message_type——若为非文本（image/file/audio），直接构造"暂不支持该消息类型"的错误回复（ContentBlock[]），经简化出站路径发送（详见 [Gateway README](README.md#入站路径) 非文本消息处理），不过 Session 和 LLM。流程到此结束。
 
-若 message_type 为 text，Gateway 从 content_blocks[0] 取标准化文本做前缀判断，同时从 metadata 取出 `session_key`。session_key 的降级处理（为空时仍通过路由字段继续）与路由语义（不参与 session 路由）见 [Gateway README](README.md#数据流) Session 解析节。Gateway 将 session_key 连同路由字段传给 SessionManager 做 session 查找/创建，获得 `session_id`。
+若 message_type 为 text，Gateway 从 content_blocks[0] 取标准化文本做前缀判断，同时从 metadata 取出 `session_key`。session_key 的降级处理（为空时仍通过路由字段继续）与路由语义（不参与 session 路由）见 [Gateway README](README.md#数据流) Session 解析节。Gateway 根据配置定义的机器人→Agent 绑定确定对应的 Agent，得到 agent_id，将 agent_id 连同 session_key、路由字段传给 SessionManager 做 session 查找/创建，获得 `session_id`。
 
 Gateway 检查 content 第一个字符：
 
