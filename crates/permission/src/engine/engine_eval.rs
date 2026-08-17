@@ -5,8 +5,8 @@ use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_tem
 use super::engine_matching::action_matches_request;
 use super::engine_risk::{assess_risk_level, RiskLevel};
 use super::engine_types::{
-    Defaults, Effect, PermissionRequest, PermissionRequestBody,
-    PermissionResponse, Rule, RuleSet, Subject,
+    Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet,
+    Subject,
 };
 use super::engine_workspace;
 use super::rejection_log::{build_rejection_log, RejectionLogger};
@@ -181,12 +181,8 @@ impl PermissionEngine {
             // Record rejection log (Auto Mode only).
             if let Some(logger) = &self.rejection_logger {
                 if session_mode == Some(SessionMode::Auto) {
-                    let entry = build_rejection_log(
-                        body,
-                        reason.clone(),
-                        *risk_level,
-                        session_mode,
-                    );
+                    let entry =
+                        build_rejection_log(body, reason.clone(), *risk_level, session_mode);
                     logger.log(&entry);
                 }
             }
@@ -838,4 +834,3 @@ impl PermissionEngine {
 }
 
 // --- Plan Mode helpers ---
-
