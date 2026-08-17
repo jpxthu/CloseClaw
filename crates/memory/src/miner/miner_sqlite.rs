@@ -501,7 +501,6 @@ pub(crate) fn load_existing_entities_for_agent(
 type ExistingEntitiesByType = HashMap<String, Vec<(i64, String, String, String)>>;
 
 /// Load all existing entities for an agent, grouped by entity type.
-
 /// Returns a HashMap where the key is the entity type name and the value
 /// is a list of `(entity_id, name, description, normalized_name)` tuples.
 /// Used by the vector fallback phase in Miner 2 to find candidate entities
