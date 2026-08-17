@@ -875,6 +875,7 @@ impl Daemon {
         let memory_miner = Arc::new(MemoryMiner::new(
             closeclaw_memory::miner::MinerConfig::from_memory_config(&memory_config.config),
             Box::new(noop_miner_llm::NoopMinerLlmCaller),
+            Box::new(noop_miner_llm::NoopMinerLlmCaller),
             data_dir.join(db_path),
             data_dir.join(md_path).to_string_lossy().into_owned(),
         ));

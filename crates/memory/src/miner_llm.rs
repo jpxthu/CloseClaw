@@ -60,7 +60,7 @@ pub trait MinerLlmCaller: Send + Sync {
 ///
 /// Returns canned responses for `extract_events` and `assign_entities`.
 /// Configure via the builder methods or use [`MockMinerLlmCaller::default`].
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MockMinerLlmCaller {
     /// Events to return from `extract_events`.
     pub events_response: Vec<MiningEvent>,

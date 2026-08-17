@@ -562,14 +562,13 @@ pub struct MemoryStorageConfig {
 }
 
 impl MemoryStorageConfig {
-    /// Field-level merge: agent's declared fields override global.
+    /// Field-level merge: agent's declared fields override global,
+    /// except `memory_md_path` which is always global (shared across all agents,
+    /// per design doc: "MEMORY.md is a globally shared single rules file").
     pub fn merge_overrides(&self, agent: &MemoryStorageConfig) -> MemoryStorageConfig {
         MemoryStorageConfig {
             db_path: agent.db_path.clone().or_else(|| self.db_path.clone()),
-            memory_md_path: agent
-                .memory_md_path
-                .clone()
-                .or_else(|| self.memory_md_path.clone()),
+            memory_md_path: self.memory_md_path.clone(),
         }
     }
 }

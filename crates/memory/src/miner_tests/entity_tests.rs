@@ -69,7 +69,7 @@ async fn test_per_agent_isolation_different_agent_ids() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("isolation.db");
-    let miner_a = MemoryMiner::new(config.clone(), llm_a, &db_path, "memory.md");
+    let miner_a = MemoryMiner::new(config.clone(), llm_a.clone(), llm_a, &db_path, "memory.md");
     miner_a
         .mine_session(
             "sess-a",
@@ -87,7 +87,7 @@ async fn test_per_agent_isolation_different_agent_ids() {
         entities_response: entities_b,
         ..Default::default()
     });
-    let miner_b = MemoryMiner::new(config, llm_b, &db_path, "memory.md");
+    let miner_b = MemoryMiner::new(config, llm_b.clone(), llm_b, &db_path, "memory.md");
     miner_b
         .mine_session(
             "sess-b",
@@ -142,7 +142,7 @@ async fn test_per_agent_empty_agent_id_no_panic() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("empty_agent.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
 
     let result = miner
         .mine_session("sess-empty", "Owner: hi\nAgent: bye", "", &storage)

@@ -346,7 +346,7 @@ impl ActiveSearcher {
             (1..=event_ids.len()).map(|i| format!("?{i}")).collect();
         let ext_idx = event_ids.len() + 1;
         let sql = format!(
-            "UPDATE events SET expires_at = expires_at + ?{ext_idx} WHERE id IN ({}) AND expires_at > 0",
+            "UPDATE events SET expires_at = MAX(expires_at, CAST(strftime('%s','now') AS INTEGER)) + ?{ext_idx} WHERE id IN ({}) AND expires_at > 0",
             event_placeholders.join(", "),
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = event_ids
