@@ -45,17 +45,12 @@ pub struct FileRejectionLogger {
 impl FileRejectionLogger {
     /// Create a new file logger that appends to the given path.
     /// Parent directories are created if they don't exist.
-    pub fn new(
-        path: PathBuf,
-    ) -> std::io::Result<Self> {
+    pub fn new(path: PathBuf) -> std::io::Result<Self> {
         Self::new_with_limit(path, None)
     }
 
     /// Create a new file logger with a maximum entry limit.
-    pub fn new_with_limit(
-        path: PathBuf,
-        max_entries: Option<usize>,
-    ) -> std::io::Result<Self> {
+    pub fn new_with_limit(path: PathBuf, max_entries: Option<usize>) -> std::io::Result<Self> {
         let inner = JsonlFileWriter::new_with_limit(path, max_entries)?;
         Ok(Self { inner })
     }
@@ -83,10 +78,7 @@ impl RejectionLogger for FileRejectionLogger {
 }
 
 impl std::fmt::Debug for FileRejectionLogger {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FileRejectionLogger")
             .field("path", self.inner.path())
             .field("max_entries", &self.inner.max_entries())
@@ -105,10 +97,9 @@ pub fn build_rejection_log(
         PermissionRequestBody::FileOp { path, op, .. } => {
             ("file".to_string(), format!("{} {}", op, path))
         }
-        PermissionRequestBody::CommandExec { cmd, args, .. } => (
-            "command".to_string(),
-            format!("{} {}", cmd, args.join(" ")),
-        ),
+        PermissionRequestBody::CommandExec { cmd, args, .. } => {
+            ("command".to_string(), format!("{} {}", cmd, args.join(" ")))
+        }
         PermissionRequestBody::NetOp { host, port, .. } => {
             ("network".to_string(), format!("{}:{}", host, port))
         }
@@ -125,13 +116,8 @@ pub fn build_rejection_log(
             ("slash_command".to_string(), command.clone())
         }
         PermissionRequestBody::MessageSend {
-            direction,
-            target,
-            ..
-        } => (
-            "message".to_string(),
-            format!("{:?} {}", direction, target),
-        ),
+            direction, target, ..
+        } => ("message".to_string(), format!("{:?} {}", direction, target)),
     };
 
     RejectionLog {
@@ -156,12 +142,7 @@ mod tests {
             path: "/repo/src/main.rs".to_string(),
             op: "write".to_string(),
         };
-        let log = build_rejection_log(
-            &body,
-            "denied".to_string(),
-            RiskLevel::Low,
-            None,
-        );
+        let log = build_rejection_log(&body, "denied".to_string(), RiskLevel::Low, None);
         assert_eq!(log.agent_id, "agent-1");
         assert_eq!(log.tool_name, "file");
         assert_eq!(log.operation, "write /repo/src/main.rs");
@@ -192,8 +173,7 @@ mod tests {
     fn test_file_logger_writes_jsonl() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger =
-            FileRejectionLogger::new(path.clone()).unwrap();
+        let logger = FileRejectionLogger::new(path.clone()).unwrap();
 
         let entry = RejectionLog {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -207,8 +187,7 @@ mod tests {
         logger.log(&entry);
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let parsed: RejectionLog =
-            serde_json::from_str(content.trim()).unwrap();
+        let parsed: RejectionLog = serde_json::from_str(content.trim()).unwrap();
         assert_eq!(parsed.agent_id, "agent-1");
         assert_eq!(parsed.tool_name, "file");
     }
@@ -217,15 +196,11 @@ mod tests {
     fn test_file_logger_prepends_multiple() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger =
-            FileRejectionLogger::new(path.clone()).unwrap();
+        let logger = FileRejectionLogger::new(path.clone()).unwrap();
 
         for i in 0..3 {
             let entry = RejectionLog {
-                timestamp: format!(
-                    "2026-01-01T00:00:{:02}Z",
-                    i
-                ),
+                timestamp: format!("2026-01-01T00:00:{:02}Z", i),
                 agent_id: format!("agent-{}", i),
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
@@ -237,16 +212,11 @@ mod tests {
         }
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
+        let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
         for (i, line) in lines.iter().enumerate() {
-            let parsed: RejectionLog =
-                serde_json::from_str(line).unwrap();
-            assert_eq!(
-                parsed.agent_id,
-                format!("agent-{}", 2 - i)
-            );
+            let parsed: RejectionLog = serde_json::from_str(line).unwrap();
+            assert_eq!(parsed.agent_id, format!("agent-{}", 2 - i));
         }
     }
 
@@ -254,8 +224,7 @@ mod tests {
     fn test_file_logger_debug_impl() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger =
-            FileRejectionLogger::new(path.clone()).unwrap();
+        let logger = FileRejectionLogger::new(path.clone()).unwrap();
         let debug_str = format!("{:?}", logger);
         assert!(debug_str.contains("FileRejectionLogger"));
     }
@@ -263,13 +232,8 @@ mod tests {
     #[test]
     fn test_file_logger_creates_parent_dirs() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir
-            .path()
-            .join("sub")
-            .join("dir")
-            .join("rejections.log");
-        let logger =
-            FileRejectionLogger::new(path.clone()).unwrap();
+        let path = dir.path().join("sub").join("dir").join("rejections.log");
+        let logger = FileRejectionLogger::new(path.clone()).unwrap();
         let entry = RejectionLog {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             agent_id: "a".to_string(),
@@ -285,10 +249,7 @@ mod tests {
 
     fn make_entry(i: usize) -> RejectionLog {
         RejectionLog {
-            timestamp: format!(
-                "2026-01-01T00:00:{:02}Z",
-                i
-            ),
+            timestamp: format!("2026-01-01T00:00:{:02}Z", i),
             agent_id: format!("agent-{}", i),
             tool_name: "file".to_string(),
             operation: "write /x".to_string(),
@@ -318,11 +279,7 @@ mod tests {
     fn test_count_entries_skips_blank_lines() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.log");
-        std::fs::write(
-            &path,
-            "line1\n\nline2\n  \nline3\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "line1\n\nline2\n  \nline3\n").unwrap();
         assert_eq!(FileRejectionLogger::count_entries(&path), 3);
     }
 
@@ -337,8 +294,7 @@ mod tests {
     fn test_new_with_limit_no_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger =
-            FileRejectionLogger::new_with_limit(path, None).unwrap();
+        let logger = FileRejectionLogger::new_with_limit(path, None).unwrap();
         assert_eq!(logger.max_entries(), None);
     }
 
@@ -346,9 +302,7 @@ mod tests {
     fn test_new_with_limit_with_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger =
-            FileRejectionLogger::new_with_limit(path, Some(5))
-                .unwrap();
+        let logger = FileRejectionLogger::new_with_limit(path, Some(5)).unwrap();
         assert_eq!(logger.max_entries(), Some(5));
     }
 
@@ -356,9 +310,7 @@ mod tests {
     fn test_log_unlimited_appends_all() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger =
-            FileRejectionLogger::new_with_limit(path.clone(), None)
-                .unwrap();
+        let logger = FileRejectionLogger::new_with_limit(path.clone(), None).unwrap();
 
         for i in 0..20 {
             logger.log(&make_entry(i));
@@ -372,11 +324,7 @@ mod tests {
     fn test_log_with_limit_truncates_old() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger = FileRejectionLogger::new_with_limit(
-            path.clone(),
-            Some(3),
-        )
-        .unwrap();
+        let logger = FileRejectionLogger::new_with_limit(path.clone(), Some(3)).unwrap();
 
         for i in 0..5 {
             logger.log(&make_entry(i));
@@ -386,16 +334,11 @@ mod tests {
         assert_eq!(count, 3);
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
+        let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 3);
         for (i, line) in lines.iter().enumerate() {
-            let parsed: RejectionLog =
-                serde_json::from_str(line).unwrap();
-            assert_eq!(
-                parsed.agent_id,
-                format!("agent-{}", 4 - i)
-            );
+            let parsed: RejectionLog = serde_json::from_str(line).unwrap();
+            assert_eq!(parsed.agent_id, format!("agent-{}", 4 - i));
         }
     }
 
@@ -403,11 +346,7 @@ mod tests {
     fn test_log_with_limit_exact_boundary() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger = FileRejectionLogger::new_with_limit(
-            path.clone(),
-            Some(3),
-        )
-        .unwrap();
+        let logger = FileRejectionLogger::new_with_limit(path.clone(), Some(3)).unwrap();
 
         for i in 0..3 {
             logger.log(&make_entry(i));
@@ -418,16 +357,12 @@ mod tests {
         assert_eq!(FileRejectionLogger::count_entries(&path), 3);
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
-        let parsed: RejectionLog =
-            serde_json::from_str(lines[0]).unwrap();
+        let lines: Vec<&str> = content.trim().lines().collect();
+        let parsed: RejectionLog = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(parsed.agent_id, "agent-3");
-        let parsed: RejectionLog =
-            serde_json::from_str(lines[1]).unwrap();
+        let parsed: RejectionLog = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(parsed.agent_id, "agent-2");
-        let parsed: RejectionLog =
-            serde_json::from_str(lines[2]).unwrap();
+        let parsed: RejectionLog = serde_json::from_str(lines[2]).unwrap();
         assert_eq!(parsed.agent_id, "agent-1");
     }
 
@@ -435,26 +370,19 @@ mod tests {
     fn test_log_with_limit_preserves_newest() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("rejections.log");
-        let logger = FileRejectionLogger::new_with_limit(
-            path.clone(),
-            Some(2),
-        )
-        .unwrap();
+        let logger = FileRejectionLogger::new_with_limit(path.clone(), Some(2)).unwrap();
 
         logger.log(&make_entry(0));
         logger.log(&make_entry(1));
         logger.log(&make_entry(2));
 
         let content = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> =
-            content.trim().lines().collect();
+        let lines: Vec<&str> = content.trim().lines().collect();
         assert_eq!(lines.len(), 2);
 
-        let first: RejectionLog =
-            serde_json::from_str(lines[0]).unwrap();
+        let first: RejectionLog = serde_json::from_str(lines[0]).unwrap();
         assert_eq!(first.agent_id, "agent-2");
-        let second: RejectionLog =
-            serde_json::from_str(lines[1]).unwrap();
+        let second: RejectionLog = serde_json::from_str(lines[1]).unwrap();
         assert_eq!(second.agent_id, "agent-1");
     }
 }

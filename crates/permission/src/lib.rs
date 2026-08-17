@@ -23,10 +23,11 @@ pub mod mock_session_lookup;
 mod tests;
 
 pub use engine::{
-    build_audit_log, build_rejection_log, glob_match, is_config_file_path, Action, AuditDisposition,
-    AuditLogEntry, AuditLogger, Caller, CommandArgs, Defaults, Effect, FileAuditLogger,
-    FileRejectionLogger, MatchType, PermissionEngine, PermissionRequest, PermissionRequestBody,
-    PermissionResponse, RejectionLog, RejectionLogger, Rule, RuleSet, Subject, TemplateRef,
+    build_audit_log, build_rejection_log, glob_match, is_config_file_path, Action,
+    AuditDisposition, AuditLogEntry, AuditLogger, Caller, CommandArgs, Defaults, Effect,
+    FileAuditLogger, FileRejectionLogger, MatchType, PermissionEngine, PermissionRequest,
+    PermissionRequestBody, PermissionResponse, RejectionLog, RejectionLogger, Rule, RuleSet,
+    Subject, TemplateRef,
 };
 pub use rules::{validation, RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError};
 pub use user_registry::{RegistryError, UserRegistry};

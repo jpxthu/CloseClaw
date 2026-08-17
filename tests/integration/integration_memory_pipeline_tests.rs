@@ -517,11 +517,8 @@ async fn test_duplicate_events_deduplicated() {
         fail_extract: false,
         fail_assign: false,
     };
-    let (tmp, miner, _dreaming) = setup_with_config(
-        Box::new(llm),
-        Box::new(llm2),
-        test_miner_config(),
-    );
+    let (tmp, miner, _dreaming) =
+        setup_with_config(Box::new(llm), Box::new(llm2), test_miner_config());
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello"), ("assistant", "hi")];

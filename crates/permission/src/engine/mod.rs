@@ -16,6 +16,9 @@ pub mod engine_workspace;
 pub mod jsonl_writer;
 pub mod rejection_log;
 
+pub use audit_log::{
+    build_audit_log, AuditDisposition, AuditLogEntry, AuditLogger, FileAuditLogger,
+};
 pub use engine_eval::PermissionEngine;
 pub use engine_matching::{action_matches_request, glob_match};
 pub use engine_risk::RiskLevel;
@@ -24,10 +27,6 @@ pub use engine_types::{
     PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
 };
 pub use engine_workspace::is_config_file_path;
-pub use audit_log::{
-    build_audit_log, AuditDisposition, AuditLogEntry, AuditLogger,
-    FileAuditLogger,
-};
 pub use jsonl_writer::JsonlFileWriter;
 pub use rejection_log::{build_rejection_log, FileRejectionLogger, RejectionLog, RejectionLogger};
 

@@ -994,5 +994,3 @@ async fn test_new_session_step_selection_metadata() {
     assert_eq!(p.phase, PlanPhase::FinalPlan);
     drop(d);
 }
-
-
