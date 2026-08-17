@@ -31,6 +31,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::engine::audit_log::{build_audit_log, AuditDisposition, AuditLogger};
 use crate::engine::engine_eval::PermissionEngine;
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{
@@ -177,6 +178,9 @@ pub struct ApprovalFlow {
     /// without a direct dependency on `SessionManager`. When `None`,
     /// the new-session execution path falls back to same-session behavior.
     create_child_session_fn: Option<CreateChildSessionFn>,
+    /// Optional audit logger for recording approved and rejected
+    /// permission requests in Auto Mode.
+    audit_logger: Option<Arc<dyn AuditLogger>>,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -224,6 +228,7 @@ impl ApprovalFlow {
             force_deny: false,
             plan_exec_metadata: HashMap::new(),
             create_child_session_fn: None,
+            audit_logger: None,
         }
     }
 
@@ -254,7 +259,19 @@ impl ApprovalFlow {
             force_deny: true,
             plan_exec_metadata: HashMap::new(),
             create_child_session_fn: None,
+            audit_logger: None,
         }
+    }
+}
+
+// ── Audit logger ─────────────────────────────────────────────────────────
+
+impl ApprovalFlow {
+    /// Inject an audit logger for recording approved and rejected
+    /// permission requests in Auto Mode.
+    pub fn with_audit_logger(mut self, logger: Arc<dyn AuditLogger>) -> Self {
+        self.audit_logger = Some(logger);
+        self
     }
 }
 
@@ -557,6 +574,9 @@ impl ApprovalFlow {
             return Ok(registered);
         }
 
+        // Capture audit logger reference before borrowing self mutably.
+        let audit_logger = self.audit_logger.clone();
+
         // Extract details BEFORE resolving (entry is removed on resolve).
         let pending_info = self.queue.get_pending(request_id).map(|p| {
             (
@@ -572,6 +592,24 @@ impl ApprovalFlow {
             self.reevaluate_with_snapshotted_rules(request_id, &pending_info, mode);
         let final_mode = effective_mode.unwrap_or(mode);
         let result = self.queue.approve(request_id, final_mode)?;
+
+        // Audit log: record approved operation.
+        if let Some(ref logger) = audit_logger {
+            if let Some((_, _, ref body, _, _)) = pending_info {
+                let entry = build_audit_log(
+                    body,
+                    AuditDisposition::Approved,
+                    if result {
+                        "user approved".to_string()
+                    } else {
+                        "approval failed".to_string()
+                    },
+                    RiskLevel::Low,
+                    None,
+                );
+                logger.log(&entry);
+            }
+        }
 
         self.persist_whitelist(request_id, &pending_info, final_mode, result);
         self.handle_plan_exec_approval(request_id, &pending_info, result)
@@ -594,13 +632,34 @@ impl ApprovalFlow {
             return true;
         }
 
-        // Extract session_id BEFORE resolving (entry is removed on resolve).
-        let session_resume = self
+        // Capture audit logger reference before borrowing self mutably.
+        let audit_logger = self.audit_logger.clone();
+
+        // Extract details BEFORE resolving (entry is removed on resolve).
+        let pending_info = self
             .queue
             .get_pending(request_id)
-            .map(|p| p.session_resume.clone());
+            .map(|p| (p.session_resume.clone(), p.caller.clone(), p.request.clone()));
+
+        let session_resume = pending_info.as_ref().map(|(sid, _, _)| sid.clone());
 
         let result = self.queue.deny(request_id);
+
+        // Audit log: record rejected operation.
+        if result {
+            if let Some(ref logger) = audit_logger {
+                if let Some((_, _, ref body)) = pending_info {
+                    let entry = build_audit_log(
+                        body,
+                        AuditDisposition::Rejected,
+                        "user denied".to_string(),
+                        RiskLevel::Low,
+                        None,
+                    );
+                    logger.log(&entry);
+                }
+            }
+        }
 
         if result {
             if let Some(session_id) = session_resume {
