@@ -46,7 +46,7 @@ Gateway / SessionManager  -- 生命周期协调者
       child_handles  -- 子 Session 句柄（spawn 时注册）
       <- 日志：子 Session 创建/完成
     Message Queue  -- 优先级 now > next > later（后台结果注入，与 ConversationSession 并列）
-      <- 日志：消息注入事件（后台结果 + 记忆注入）
+      <- 日志：消息注入事件（后台任务结果 + 记忆注入）
 ```
 
 SessionManager 维护会话路由键 -> session_id 映射表，路由到最近活跃 session。
@@ -66,11 +66,11 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   - 运行时：SessionManager 收到会话解析请求，从消息路由字段中提取会话路由键，查映射表获取已有 session
     - 命中 → 校验 session status：
       - active → 返回已有 session
-      - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite，取 last_message_at 最新的 archived session 恢复并注册。等待时通知用户「会话归档中，稍后恢复…」
+      - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite，取 last_message_at 最新的 archived session 恢复并注册。等待时通知用户「会话归档中，稍后恢复…」等待方式：Sweeper 归档不主动通知，SessionManager 以短间隔轮询 status（归档仅文件移动 + 状态更新，秒级完成，轮询即 lookup status 校验的重复执行）
       - archived → 从映射表移除该条目 → 查询 SQLite，取 last_message_at 最新的 archived session 恢复并注册
     - 未命中 → 通过会话路由键查询 SQLite
       - 查到 active → 取 last_message_at 最大的直接注册到映射表（自愈：映射表因重启丢失但 SQLite 中保有 active 记录）
-      - 查到 migrating → 等待归档完成后 status 变为 archived → 按 archived 路径恢复。等待时通知用户「会话归档中，稍后恢复…」
+      - 查到 migrating → 等待归档完成后 status 变为 archived → 按 archived 路径恢复（等待方式同上：短间隔轮询 status）。等待时通知用户「会话归档中，稍后恢复…」
       - 查到 archived → 取 last_message_at 最新的一条恢复并注册
       - 查不到 → 双重确认该会话路由键下无 active session（防御性检查）后，创建新 session 并注册。若双重确认发现 active → 注册已有 session（自愈）
   - 创建新 session 后覆盖映射。`/new` 指令同理
@@ -83,8 +83,8 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。默认 idle 30 分钟触发归档、归档数据不立即删除（由独立清理阈值触发删除），各配置项独立回退到系统默认值。
 
 - **执行层组件**：
-  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。
-  - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle。
+  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。对话模式（normal/plan/auto）标记持久化在 SessionCheckpoint 的 mode 字段中，模式切换时更新并随 checkpoint 持久化（压缩保护详见 [compact-process.md](compact-process.md)，模式的行为约束详见 [mode/README.md](../mode/README.md)）。
+  - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle；若崩溃前存在未完成操作，恢复扫描会注入恢复通知（详见 [session-recovery.md](session-recovery.md)），未完成操作在后续 turn 中处理。
 
     **idle（输入就绪）**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新输入。background_tool_active 和 child_active 不影响 idle 判定。
 
@@ -111,11 +111,11 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
    - **查映射表**
    - **命中**：校验 session status：
      - active → 返回已有 session
-     - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方 recovery 步骤 1-7 恢复。等待时通知用户「会话归档中，稍后恢复…」
+     - migrating → 等待 Sweeper 归档完成后 status 变为 archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方 recovery 步骤 1-7 恢复。等待时通知用户「会话归档中，稍后恢复…」（等待方式：短间隔轮询 status，见架构节 key registry）
      - archived → 从映射表移除该条目 → 查询 SQLite 取 last_message_at 最新的 archived session，按下方 recovery 步骤 1-7 恢复
    - **未命中**：通过会话路由键查询 SQLite
      - **查到 active**：直接注册到映射表（自愈：映射表因重启丢失但 SQLite 保有 active 记录）
-     - **查到 migrating**：等待归档完成后 status 变为 archived → 按 archived 路径恢复。等待时通知用户「会话归档中，稍后恢复…」
+     - **查到 migrating**：等待归档完成后 status 变为 archived → 按 archived 路径恢复（等待方式同上）。等待时通知用户「会话归档中，稍后恢复…」
      - **查到 archived**：取 last_message_at 最新的一条，按以下 recovery 步骤恢复：
        1. transcript 移回活跃区
        2. status 更新为 active
@@ -220,7 +220,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
   |------|-------------------|
   | 会话生命周期 | `/new` 创建新 session、`/stop` 终止运行（默认仅停当前 session，`--cascade` 标记启用级联终止子 Session） |
   | 工作目录 | `/cd` `/pwd` `/git` 读写 working directory |
-  | 模式控制 | `/plan` `/mode` 切换对话模式 |
+  | 模式控制 | `/plan` `/mode` `/execute` 切换对话模式，模式标记由 Session 持久化（见下） |
   | 推理控制 | `/reasoning` 设置推理深度 |
   | 展示控制 | `/verbose` 设置信息展示等级 |
   | 上下文管理 | `/compact` 压缩对话历史、`/system` 管理 system prompt 追加区 |
