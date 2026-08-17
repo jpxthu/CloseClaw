@@ -1,7 +1,6 @@
 use crate::miner::{
-    load_entity_catalog, match_entities_by_name, normalize_entity_name,
-    write_to_sqlite, MemoryMiner, MinerConfig, MiningEntity,
-    MiningEventCategory, WriteConfig,
+    load_entity_catalog, match_entities_by_name, normalize_entity_name, write_to_sqlite,
+    MemoryMiner, MinerConfig, MiningEntity, MiningEventCategory, WriteConfig,
 };
 use crate::miner_llm::MockMinerLlmCaller;
 use crate::test_helpers::TestStorage;
@@ -210,8 +209,7 @@ fn setup_db_with_entities(
     agent_id: &str,
     entities: &[(&str, &str, &str, &str)], // (type, name, norm_name, desc)
 ) {
-    let conn = rusqlite::Connection::open(tmp.path().join("test.db"))
-        .unwrap();
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
     crate::miner::init_schema(&conn).unwrap();
     for (typ, name, norm, desc) in entities {
         conn.execute(
@@ -238,12 +236,7 @@ fn test_match_entities_reuses_existing() {
         description: "new desc".to_string(),
         existing_id: None,
     }]];
-    match_entities_by_name(
-        &tmp.path().join("test.db"),
-        "agent-1",
-        &mut entities,
-    )
-    .unwrap();
+    match_entities_by_name(&tmp.path().join("test.db"), "agent-1", &mut entities).unwrap();
     let e = &entities[0][0];
     assert_eq!(e.existing_id, Some(1), "should reuse existing entity");
     assert_eq!(
@@ -266,17 +259,9 @@ fn test_match_entities_no_match_creates_new() {
         description: "new desc".to_string(),
         existing_id: None,
     }]];
-    match_entities_by_name(
-        &tmp.path().join("test.db"),
-        "agent-1",
-        &mut entities,
-    )
-    .unwrap();
+    match_entities_by_name(&tmp.path().join("test.db"), "agent-1", &mut entities).unwrap();
     let e = &entities[0][0];
-    assert!(
-        e.existing_id.is_none(),
-        "should not match unrelated entity"
-    );
+    assert!(e.existing_id.is_none(), "should not match unrelated entity");
     assert_eq!(e.description, "new desc");
 }
 
@@ -295,12 +280,7 @@ fn test_match_entities_case_and_space_insensitive() {
         description: "llm desc".to_string(),
         existing_id: None,
     }]];
-    match_entities_by_name(
-        &tmp.path().join("test.db"),
-        "agent-1",
-        &mut entities,
-    )
-    .unwrap();
+    match_entities_by_name(&tmp.path().join("test.db"), "agent-1", &mut entities).unwrap();
     assert_eq!(
         entities[0][0].existing_id,
         Some(1),
@@ -311,23 +291,14 @@ fn test_match_entities_case_and_space_insensitive() {
 #[test]
 fn test_match_entities_same_name_different_type_no_reuse() {
     let tmp = TempDir::new().unwrap();
-    setup_db_with_entities(
-        &tmp,
-        "agent-1",
-        &[("subject", "Rust", "rust", "lang desc")],
-    );
+    setup_db_with_entities(&tmp, "agent-1", &[("subject", "Rust", "rust", "lang desc")]);
     let mut entities = vec![vec![MiningEntity {
         entity_type: "action".to_string(),
         name: "Rust".to_string(),
         description: "action desc".to_string(),
         existing_id: None,
     }]];
-    match_entities_by_name(
-        &tmp.path().join("test.db"),
-        "agent-1",
-        &mut entities,
-    )
-    .unwrap();
+    match_entities_by_name(&tmp.path().join("test.db"), "agent-1", &mut entities).unwrap();
     assert!(
         entities[0][0].existing_id.is_none(),
         "same name different type should NOT reuse"
@@ -338,23 +309,14 @@ fn test_match_entities_same_name_different_type_no_reuse() {
 #[test]
 fn test_match_entities_cross_agent_isolation() {
     let tmp = TempDir::new().unwrap();
-    setup_db_with_entities(
-        &tmp,
-        "agent-1",
-        &[("subject", "Rust", "rust", "desc")],
-    );
+    setup_db_with_entities(&tmp, "agent-1", &[("subject", "Rust", "rust", "desc")]);
     let mut entities = vec![vec![MiningEntity {
         entity_type: "subject".to_string(),
         name: "Rust".to_string(),
         description: "other desc".to_string(),
         existing_id: None,
     }]];
-    match_entities_by_name(
-        &tmp.path().join("test.db"),
-        "agent-2",
-        &mut entities,
-    )
-    .unwrap();
+    match_entities_by_name(&tmp.path().join("test.db"), "agent-2", &mut entities).unwrap();
     assert!(
         entities[0][0].existing_id.is_none(),
         "different agent should not match"

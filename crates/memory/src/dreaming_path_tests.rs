@@ -15,8 +15,7 @@ fn test_dreaming_pipeline_default_memory_md_path() {
     // Create parent dir so write_memory_md doesn't fail.
     std::fs::create_dir_all(md_path.parent().unwrap()).unwrap();
     // Re-create pipeline pointing to our temp path to verify the setter works.
-    let pipeline =
-        DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
+    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
     pipeline
         .write_memory_md(&["test rule".to_string()])
         .unwrap();
@@ -30,8 +29,7 @@ fn test_dreaming_pipeline_default_memory_md_path() {
 fn test_dreaming_pipeline_with_memory_md_path_custom() {
     let tmp = TempDir::new().unwrap();
     let md_path = tmp.path().join("custom/MEMORY.md");
-    let pipeline =
-        DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
+    let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
     pipeline
         .write_memory_md(&["custom rule".to_string()])
         .unwrap();

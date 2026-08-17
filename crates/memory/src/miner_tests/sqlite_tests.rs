@@ -602,9 +602,11 @@ fn test_match_entities_by_name_reuses_existing() {
     )
     .unwrap();
     let entity_id: i64 = conn
-        .query_row("SELECT id FROM entities WHERE normalized_name = 'rust_language'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT id FROM entities WHERE normalized_name = 'rust_language'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
 
     let db_path = tmp.path().join("test.db");
@@ -655,9 +657,11 @@ fn test_match_entities_by_name_case_space_normalization() {
     )
     .unwrap();
     let entity_id: i64 = conn
-        .query_row("SELECT id FROM entities WHERE normalized_name = 'my_entity'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT id FROM entities WHERE normalized_name = 'my_entity'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
 
     let db_path = tmp.path().join("test.db");

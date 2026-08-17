@@ -489,8 +489,7 @@ pub(crate) fn load_existing_entities_for_agent(
         .map_err(|e| MinerError::Sqlite(e.to_string()))?;
     let mut map = HashMap::new();
     for row in rows {
-        let (id, typ, norm_name, desc) =
-            row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        let (id, typ, norm_name, desc) = row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
         map.insert((typ, norm_name), (id, desc));
     }
     Ok(map)
