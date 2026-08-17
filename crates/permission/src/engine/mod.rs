@@ -2,6 +2,7 @@
 //!
 //! Runs as a separate OS process, evaluates access rules for agents.
 
+pub mod audit_log;
 pub mod engine_chain;
 pub mod engine_check;
 pub mod engine_eval;
@@ -21,6 +22,10 @@ pub use engine_types::{
     PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
 };
 pub use engine_workspace::is_config_file_path;
+pub use audit_log::{
+    build_audit_log, AuditDisposition, AuditLogEntry, AuditLogger,
+    FileAuditLogger,
+};
 pub use rejection_log::{build_rejection_log, FileRejectionLogger, RejectionLog, RejectionLogger};
 
 #[cfg(test)]
