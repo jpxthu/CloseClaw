@@ -12,5 +12,7 @@ const EXCLUDED_ROLES: &[&str] = &["memory-miner", "dreaming"];
 /// Returns `false` for roles that are excluded (e.g. memory-miner, dreaming)
 /// to avoid circular memory writes.
 pub fn should_trigger_role(role: &str) -> bool {
-    !EXCLUDED_ROLES.iter().any(|excluded| role.starts_with(excluded))
+    !EXCLUDED_ROLES
+        .iter()
+        .any(|excluded| role.starts_with(excluded))
 }
