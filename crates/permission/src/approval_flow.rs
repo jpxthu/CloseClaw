@@ -588,7 +588,7 @@ impl ApprovalFlow {
                 p.request.clone(),
                 p.snapshotted_rules.clone(),
                 p.rule_version.clone(),
-                p.risk_level.clone(),
+                p.risk_level,
             )
         });
 
@@ -606,7 +606,7 @@ impl ApprovalFlow {
                         body,
                         AuditDisposition::Approved,
                         "user approved".to_string(),
-                        rl.clone(),
+                        *rl,
                         Some(SessionMode::Auto),
                     );
                     logger.log(&entry);
@@ -644,7 +644,7 @@ impl ApprovalFlow {
                 p.session_resume.clone(),
                 p.caller.clone(),
                 p.request.clone(),
-                p.risk_level.clone(),
+                p.risk_level,
             )
         });
 
@@ -660,7 +660,7 @@ impl ApprovalFlow {
                         body,
                         AuditDisposition::Rejected,
                         "user denied".to_string(),
-                        rl.clone(),
+                        *rl,
                         Some(SessionMode::Auto),
                     );
                     logger.log(&entry);

@@ -83,6 +83,7 @@ async fn test_approval_flow_logs_approved_to_audit_log() {
     assert_eq!(entries[0].tool_name, "tool_call");
     assert_eq!(entries[0].operation, "test_skill.test_method");
     assert_eq!(entries[0].reason, "user approved");
+    assert_eq!(entries[0].risk_level, RiskLevel::Low);
 }
 
 #[tokio::test]
@@ -104,6 +105,7 @@ async fn test_approval_flow_logs_denied_to_audit_log() {
     assert_eq!(entries[0].tool_name, "tool_call");
     assert_eq!(entries[0].operation, "test_skill.test_method");
     assert_eq!(entries[0].reason, "user denied");
+    assert_eq!(entries[0].risk_level, RiskLevel::Low);
 }
 
 #[test]
@@ -143,4 +145,41 @@ async fn test_file_audit_logger_integration() {
     let entry: AuditLogEntry = serde_json::from_str(content.trim()).unwrap();
     assert_eq!(entry.disposition, AuditDisposition::Approved);
     assert_eq!(entry.agent_id, "agent_1");
+}
+
+#[tokio::test]
+async fn test_approved_audit_log_records_high_risk_level() {
+    let logger = Arc::new(TestAuditLogger::new());
+    let mut flow = flow_with_audit_logger(logger.clone() as Arc<dyn AuditLogger>);
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::High, "session_1", false)
+        .unwrap();
+    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+
+    let entries = logger.entries();
+    assert_eq!(entries.len(), 1, "should have one audit log entry");
+    assert_eq!(entries[0].disposition, AuditDisposition::Approved);
+    assert_eq!(entries[0].risk_level, RiskLevel::High);
+}
+
+#[tokio::test]
+async fn test_denied_audit_log_records_high_risk_level() {
+    let logger = Arc::new(TestAuditLogger::new());
+    let mut flow = flow_with_audit_logger(logger.clone() as Arc<dyn AuditLogger>);
+    let caller = test_caller();
+    let request = test_request();
+    let request_id = flow
+        .submit_denial(&caller, &request, RiskLevel::High, "session_1", false)
+        .unwrap();
+    let result = flow.deny_request(&request_id);
+    assert!(result);
+
+    let entries = logger.entries();
+    assert_eq!(entries.len(), 1, "should have one audit log entry");
+    assert_eq!(entries[0].disposition, AuditDisposition::Rejected);
+    assert_eq!(entries[0].risk_level, RiskLevel::High);
 }
