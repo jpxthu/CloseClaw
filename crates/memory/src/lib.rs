@@ -33,6 +33,8 @@ mod dreaming_scoring_tests;
 #[cfg(test)]
 mod dreaming_status_tests;
 #[cfg(test)]
+mod dreaming_path_tests;
+#[cfg(test)]
 mod dreaming_tests;
 #[cfg(test)]
 mod embedding_tests;
