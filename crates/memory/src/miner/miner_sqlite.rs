@@ -495,6 +495,47 @@ pub(crate) fn load_existing_entities_for_agent(
     Ok(map)
 }
 
+// ── Vector fallback helpers ───────────────────────────────────────────
+
+/// Map from entity type → list of (id, name, description, normalized_name).
+type ExistingEntitiesByType = HashMap<String, Vec<(i64, String, String, String)>>;
+
+/// Load all existing entities for an agent, grouped by entity type.
+
+/// Returns a HashMap where the key is the entity type name and the value
+/// is a list of `(entity_id, name, description, normalized_name)` tuples.
+/// Used by the vector fallback phase in Miner 2 to find candidate entities
+/// that are semantically similar to existing entities of the same type.
+pub(crate) fn load_existing_entities_by_type(
+    conn: &rusqlite::Connection,
+    agent_id: &str,
+) -> Result<ExistingEntitiesByType, MinerError> {
+    let sql = "SELECT id, type, name, description, normalized_name
+               FROM entities WHERE agent_id = ?1
+               ORDER BY type, normalized_name";
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let rows = stmt
+        .query_map(params![agent_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let mut map: ExistingEntitiesByType = HashMap::new();
+    for row in rows {
+        let (id, typ, name, desc, norm_name) =
+            row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        map.entry(typ).or_default().push((id, name, desc, norm_name));
+    }
+    Ok(map)
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────
 
 /// Normalize an entity name: lowercase, replace spaces with underscores.
