@@ -82,6 +82,12 @@ impl WorkflowHandler {
         self.run.phase == Phase::Complete
     }
 
+    /// Returns `true` if the session idle condition should trigger
+    /// a verify injection (phase == Executing).
+    pub fn on_session_idle(&self) -> bool {
+        WorkflowEngine::on_session_idle(&self.run)
+    }
+
     /// Process a workflow tool result from the LLM response.
     ///
     /// Parses the `ContentBlock::ToolResult` content as JSON and routes

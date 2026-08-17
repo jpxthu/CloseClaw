@@ -11,6 +11,7 @@ pub mod debug_log_tests;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
+pub(crate) mod idle_verify_hook;
 #[cfg(test)]
 mod im_adapter;
 pub mod inbound_queue;
@@ -1003,6 +1004,8 @@ pub mod session_routing_tests;
 pub mod shutdown_handle_tests;
 #[cfg(test)]
 pub mod shutdown_phase_tests;
+#[cfg(test)]
+pub mod step1_4_idle_verify_tests;
 #[cfg(feature = "full-tests")]
 pub mod step1_5_tests;
 #[cfg(feature = "full-tests")]
