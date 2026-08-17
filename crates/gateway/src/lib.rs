@@ -21,6 +21,7 @@ mod inbound_queue_ack_tests;
 mod inbound_queue_test_utils;
 #[cfg(test)]
 mod inbound_queue_tests;
+pub mod inbound_wal;
 pub mod llm_caller_impl;
 mod memory;
 pub mod message;
