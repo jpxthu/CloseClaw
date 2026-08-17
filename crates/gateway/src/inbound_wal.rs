@@ -8,7 +8,9 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(test)]
+use std::path::Path;
 use std::sync::Mutex;
 use thiserror::Error;
 
@@ -72,6 +74,7 @@ impl InboundWalEntry {
 /// blocking I/O is performed under a `Mutex` that never crosses await
 /// points.
 pub struct InboundWal {
+    #[allow(dead_code)] // read by `dir()` which is cfg(test)-only
     dir: PathBuf,
     file_path: PathBuf,
     lock: Mutex<()>,
@@ -167,7 +170,8 @@ impl InboundWal {
     }
 
     /// Return the directory this WAL resides in.
-    pub fn dir(&self) -> &Path {
+    #[cfg(test)]
+    pub(crate) fn dir(&self) -> &Path {
         &self.dir
     }
 }
