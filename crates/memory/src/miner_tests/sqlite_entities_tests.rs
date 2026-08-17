@@ -91,7 +91,10 @@ fn test_load_existing_entities_by_type_empty_agent() {
     .unwrap();
 
     let map = load_existing_entities_by_type(&conn, "a1").unwrap();
-    assert!(map.is_empty(), "agent with no entities should return empty HashMap");
+    assert!(
+        map.is_empty(),
+        "agent with no entities should return empty HashMap"
+    );
 }
 
 /// Empty DB (no entities at all) should return an empty HashMap.
