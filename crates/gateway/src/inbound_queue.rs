@@ -10,6 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::Gateway;
 use closeclaw_common::MessageType;
+use super::inbound_wal::{InboundWal, InboundWalEntry};
 
 /// An inbound message awaiting processing.
 ///
@@ -196,6 +197,7 @@ pub(crate) fn start_inbound_consumer(
     mut rx: mpsc::Receiver<QueuedInbound>,
     gateway: Arc<Gateway>,
     capacity: usize,
+    wal: Option<Arc<InboundWal>>,
 ) {
     tokio::spawn(async move {
         tracing::info!(capacity, "inbound queue consumer started");
@@ -226,6 +228,16 @@ pub(crate) fn start_inbound_consumer(
                 continue;
             };
             process_single_request(gateway.as_ref(), &req, &plugin).await;
+            // WAL: mark entry done and remove after full processing.
+            if let Some(ref wal) = wal {
+                if let Err(e) = wal.mark_done_and_delete(&req.trace_id) {
+                    tracing::warn!(
+                        trace_id = %req.trace_id,
+                        error = %e,
+                        "WAL: failed to mark done after processing"
+                    );
+                }
+            }
         }
         tracing::info!("inbound queue consumer stopped");
     });
@@ -290,6 +302,25 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
             return;
         }
     };
+
+    // WAL: persist before sending to channel.
+    if let Ok(wal_guard) = gateway.inbound_wal.lock() {
+        if let Some(ref wal) = *wal_guard {
+            let entry = InboundWalEntry::new(
+                request.trace_id.clone(),
+                request.platform.clone(),
+                &request.raw_payload,
+                request.peer_id.clone(),
+            );
+            if let Err(e) = wal.append(&entry) {
+                tracing::warn!(
+                    trace_id = %request.trace_id,
+                    error = %e,
+                    "WAL: append failed — continuing with in-memory queue"
+                );
+            }
+        }
+    }
 
     // Create oneshot channel for dequeue ack.
     let (ack_tx, ack_rx) = oneshot::channel::<()>();

@@ -175,7 +175,7 @@ async fn test_ack_normal_path_enqueue_waits_for_dequeue() {
     let (tx, rx) = mpsc::channel::<QueuedInbound>(4);
     let (ack_tx, mut ack_rx) = oneshot::channel::<()>();
     let capacity = 4;
-    start_inbound_consumer(rx, Arc::clone(&gw), capacity);
+    start_inbound_consumer(rx, Arc::clone(&gw), capacity, None);
 
     let req = make_request("ack-test");
     let queued = QueuedInbound {

@@ -138,6 +138,9 @@ pub struct Gateway {
     metrics_emitter: std::sync::RwLock<Option<Arc<dyn closeclaw_common::MetricsEmitter>>>,
     /// Debug log framework instance for structured event logging.
     debug_log: std::sync::RwLock<Option<DebugLog>>,
+    /// WAL persistence for inbound queue durability.
+    /// `None` when `inbound_wal_dir` is not configured.
+    inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
 }
 
 impl Gateway {
@@ -161,6 +164,7 @@ impl Gateway {
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
+            inbound_wal: std::sync::Mutex::new(None),
         };
         register_default_middlewares(&gw);
         gw
@@ -189,6 +193,7 @@ impl Gateway {
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
+            inbound_wal: std::sync::Mutex::new(None),
         };
         register_default_middlewares(&gw);
         gw
@@ -288,7 +293,29 @@ impl Gateway {
         if let Ok(mut slot) = self.inbound_tx.lock() {
             *slot = Some(tx.clone());
         }
-        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity);
+        // Initialize WAL persistence if configured.
+        if let Some(ref wal_dir) = self.config.inbound_wal_dir {
+            match inbound_wal::InboundWal::open(wal_dir) {
+                Ok(wal) => {
+                    if let Ok(mut slot) = self.inbound_wal.lock() {
+                        *slot = Some(Arc::new(wal));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        wal_dir = %wal_dir.display(),
+                        error = %e,
+                        "failed to open inbound WAL — falling back to in-memory queue"
+                    );
+                }
+            }
+        }
+        let wal = self
+            .inbound_wal
+            .lock()
+            .ok()
+            .and_then(|s| s.as_ref().cloned());
+        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity, wal);
         inbound_queue::InboundQueueHandle::new(tx)
     }
 
