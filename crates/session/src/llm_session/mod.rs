@@ -55,6 +55,7 @@ pub mod streaming_assembly;
 pub mod transcript_ops;
 mod workflow;
 mod workflow_cleanup;
+mod workflow_lifecycle;
 pub use streaming_assembly::SessionStream;
 
 /// A single message in a conversation session.

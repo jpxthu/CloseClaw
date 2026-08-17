@@ -368,3 +368,70 @@ fn test_round_trip_serde() {
     assert_eq!(wf.allow_blocked, deserialized.allow_blocked);
     assert_eq!(wf.verify_retry_limit, deserialized.verify_retry_limit);
 }
+
+// ---------------------------------------------------------------------------
+// build_verify_message: basic rendering
+// ---------------------------------------------------------------------------
+
+use crate::definition::{build_verify_message, Step};
+
+fn make_step(id: usize, name: &str, verify: Vec<&str>) -> Step {
+    Step {
+        id,
+        name: name.to_string(),
+        allow_blocked: None,
+        goal: "test goal".to_string(),
+        verify: verify.into_iter().map(String::from).collect(),
+        jump: vec![],
+        transitions: vec![],
+    }
+}
+
+#[test]
+fn test_build_verify_message_with_checklist() {
+    let step = make_step(2, "Deploy", vec!["Build succeeds", "Tests pass"]);
+    let msg = build_verify_message(&step, false);
+    assert!(msg.starts_with("Verify Step 2 (Deploy):"));
+    assert!(msg.contains("Build succeeds"));
+    assert!(msg.contains("Tests pass"));
+    assert!(!msg.contains("workflow_blocked"));
+}
+
+#[test]
+fn test_build_verify_message_without_checklist() {
+    let step = make_step(0, "Analyze", vec![]);
+    let msg = build_verify_message(&step, false);
+    assert!(msg.contains("\u{2014} no explicit checklist."));
+    assert!(!msg.contains("workflow_blocked"));
+}
+
+#[test]
+fn test_build_verify_message_allow_blocked_true() {
+    let step = make_step(1, "Fix", vec!["Issue resolved"]);
+    let msg = build_verify_message(&step, true);
+    assert!(msg.contains("workflow_blocked"));
+    assert!(msg.contains("如果确认任务无法继续"));
+}
+
+#[test]
+fn test_build_verify_message_allow_blocked_false() {
+    let step = make_step(1, "Fix", vec!["Issue resolved"]);
+    let msg = build_verify_message(&step, false);
+    assert!(!msg.contains("workflow_blocked"));
+}
+
+#[test]
+fn test_build_verify_message_empty_name() {
+    let step = make_step(0, "", vec!["Check"]);
+    let msg = build_verify_message(&step, false);
+    assert!(msg.starts_with("Verify Step 0 ():"));
+    assert!(msg.contains("Check"));
+}
+
+#[test]
+fn test_build_verify_message_empty_name_with_allow_blocked() {
+    let step = make_step(0, "", vec![]);
+    let msg = build_verify_message(&step, true);
+    assert!(msg.contains("\u{2014} no explicit checklist."));
+    assert!(msg.contains("workflow_blocked"));
+}

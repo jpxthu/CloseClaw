@@ -135,6 +135,36 @@ pub struct Step {
     pub transitions: Vec<Transition>,
 }
 
+/// Build the verify message for a step.
+///
+/// Renders the verification checklist and, when `allow_blocked` is
+/// `true`, appends a hint prompting the agent to call `workflow_blocked`.
+///
+/// # Arguments
+///
+/// * `step` - The current workflow step.
+/// * `allow_blocked` - Whether blocking is allowed for this step
+///   (effective value after resolving step override vs workflow default).
+pub fn build_verify_message(step: &Step, allow_blocked: bool) -> String {
+    let mut msg = if !step.verify.is_empty() {
+        format!(
+            "Verify Step {} ({}):\n{}",
+            step.id,
+            step.name,
+            step.verify.join("\n")
+        )
+    } else {
+        format!(
+            "Verify Step {} ({}) \u{2014} no explicit checklist.",
+            step.id, step.name
+        )
+    };
+    if allow_blocked {
+        msg.push_str("\n\n如果确认任务无法继续，调用 workflow_blocked({reason: \"原因\"})");
+    }
+    msg
+}
+
 /// A question asked during the jumping phase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JumpQuestion {

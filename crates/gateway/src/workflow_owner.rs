@@ -97,19 +97,11 @@ impl Gateway {
             handler.on_owner_resolve();
         }
         if let Some(step) = definition_snapshot.steps.get(current_step) {
-            let verify_msg = if !step.verify.is_empty() {
-                format!(
-                    "Verify Step {} ({}):\n{}",
-                    current_step,
-                    step.name,
-                    step.verify.join("\n")
-                )
-            } else {
-                format!(
-                    "Verify Step {} ({}) — no explicit checklist.",
-                    current_step, step.name
-                )
-            };
+            let allow_blocked = step
+                .allow_blocked
+                .unwrap_or(definition_snapshot.allow_blocked);
+            let verify_msg =
+                closeclaw_workflow::definition::build_verify_message(step, allow_blocked);
             cs.inject_workflow_message(&verify_msg);
         }
         cs.set_workflow_run(Some(run_snapshot.clone()));

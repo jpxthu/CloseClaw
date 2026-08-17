@@ -152,6 +152,11 @@ impl SessionMessageHandler {
         // queued announce events or pending messages normally.
         Self::drain_pending_loop(session_manager, session_id, output_tx, metrics_emitter).await;
 
+        // Step 1.3: idle→verify hook — inject verify message when session
+        // becomes idle during workflow execution.
+        super::idle_verify_hook::maybe_inject_workflow_verify(session_manager, session_id, gateway)
+            .await;
+
         // NOTE: Decrement is handled by the caller (spawned task in
         // `session_handler_dispatch.rs`), NOT here. This avoids a
         // double-decrement when both `finish_llm` and the spawned task
@@ -554,7 +559,7 @@ impl SessionMessageHandler {
     /// After each LLM turn, checks if the workflow handler has queued a
     /// blocked notification and sends it to the owner via the Gateway's
     /// outbound channel (IM plugin).
-    async fn drain_workflow_notification(
+    pub(super) async fn drain_workflow_notification(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         gateway: Option<&Arc<crate::Gateway>>,
@@ -686,7 +691,7 @@ impl SessionMessageHandler {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use closeclaw_llm::ProviderModelKnowledge;
     use closeclaw_session::persistence::ReasoningLevel;
