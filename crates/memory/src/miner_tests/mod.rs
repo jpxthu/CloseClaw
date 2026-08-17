@@ -7,6 +7,7 @@ mod config_tests;
 mod entity_tests;
 mod session_tests;
 mod similarity_filter_tests;
+mod sqlite_entities_tests;
 mod sqlite_tests;
 mod transcript_tests;
 
