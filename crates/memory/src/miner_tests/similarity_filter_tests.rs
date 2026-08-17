@@ -387,6 +387,7 @@ async fn test_time_type_threshold_filtering() {
         entity_type: "time".into(),
         name: "January 2025".into(),
         description: "a month in 2025".into(),
+        existing_id: None,
     }]];
     let config = MinerConfig {
         enabled: true,

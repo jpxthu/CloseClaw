@@ -34,6 +34,7 @@ fn test_write_entries_to_db_insight_category() {
         entity_type: "subject".to_string(),
         name: "retry".to_string(),
         description: "retry logic".to_string(),
+        existing_id: None,
     }]];
 
     write_entries_to_db(&conn, "sess-1", "a1", &[event], &entities).unwrap();

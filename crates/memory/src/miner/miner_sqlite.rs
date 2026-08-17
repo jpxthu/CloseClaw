@@ -190,6 +190,10 @@ fn extend_reidentified_event(
 }
 
 /// Upsert entities and link them to a newly inserted event.
+///
+/// When `entity.existing_id` is `Some(id)`, the entity already exists in
+/// SQLite (matched by name-first logic) and we skip the INSERT, linking
+/// directly to the existing row.
 fn assign_entities_to_event(
     conn: &rusqlite::Connection,
     agent_id: &str,
@@ -197,21 +201,23 @@ fn assign_entities_to_event(
     entities: &[MiningEntity],
 ) -> Result<(), MinerError> {
     for entity in entities {
-        let norm_name = normalize_entity_name(&entity.name);
-        conn.execute(
-            "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                agent_id,
-                entity.entity_type,
-                entity.name,
-                norm_name,
-                entity.description
-            ],
-        )
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-        let entity_id: i64 = conn
-            .query_row(
+        let entity_id = if let Some(existing_id) = entity.existing_id {
+            existing_id
+        } else {
+            let norm_name = normalize_entity_name(&entity.name);
+            conn.execute(
+                "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    agent_id,
+                    entity.entity_type,
+                    entity.name,
+                    norm_name,
+                    entity.description
+                ],
+            )
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            conn.query_row(
                 "SELECT id FROM entities
                  WHERE agent_id = ?1
                  AND type = ?2
@@ -219,7 +225,8 @@ fn assign_entities_to_event(
                 params![agent_id, entity.entity_type, norm_name],
                 |row| row.get(0),
             )
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?
+        };
         conn.execute(
             "INSERT OR IGNORE INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
             params![event_id, entity_id],
@@ -444,6 +451,47 @@ pub(crate) fn load_entity_type_thresholds(
     for row in rows {
         let (typ, threshold) = row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
         map.insert(typ, threshold);
+    }
+    Ok(map)
+}
+
+// ── Name-first matching helpers ────────────────────────────────────────
+
+/// Map from (type, normalized_name) → (entity_id, description).
+type ExistingEntityMap = HashMap<(String, String), (i64, String)>;
+
+/// Load all existing entities for an agent, grouped by (type, normalized_name).
+///
+/// Returns a HashMap where the key is `(type, normalized_name)` and the value
+/// is `(entity_id, description)`. Used by name-first matching in Miner 2 to
+/// detect duplicate entities before the write phase.
+pub(crate) fn load_existing_entities_for_agent(
+    db_path: &std::path::Path,
+    agent_id: &str,
+) -> Result<ExistingEntityMap, MinerError> {
+    let conn =
+        rusqlite::Connection::open(db_path).map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    init_schema(&conn)?;
+    let sql = "SELECT id, type, normalized_name, description
+               FROM entities WHERE agent_id = ?1";
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let rows = stmt
+        .query_map(params![agent_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (id, typ, norm_name, desc) =
+            row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        map.insert((typ, norm_name), (id, desc));
     }
     Ok(map)
 }

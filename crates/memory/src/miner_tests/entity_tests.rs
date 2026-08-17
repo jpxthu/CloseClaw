@@ -1,5 +1,6 @@
 use crate::miner::{
-    load_entity_catalog, normalize_entity_name, write_to_sqlite, MemoryMiner, MinerConfig,
+    load_entity_catalog, match_entities_by_name, normalize_entity_name,
+    write_to_sqlite, MemoryMiner, MinerConfig, MiningEntity,
     MiningEventCategory, WriteConfig,
 };
 use crate::miner_llm::MockMinerLlmCaller;
@@ -199,4 +200,163 @@ fn test_per_agent_dedup_same_agent_type_name() {
         .query_row("SELECT COUNT(*) FROM event_entities", [], |row| row.get(0))
         .unwrap();
     assert_eq!(link_count, 2);
+}
+
+// ── match_entities_by_name tests ────────────────────────────────────
+
+/// Helper: create a temp DB and insert existing entities.
+fn setup_db_with_entities(
+    tmp: &TempDir,
+    agent_id: &str,
+    entities: &[(&str, &str, &str, &str)], // (type, name, norm_name, desc)
+) {
+    let conn = rusqlite::Connection::open(tmp.path().join("test.db"))
+        .unwrap();
+    crate::miner::init_schema(&conn).unwrap();
+    for (typ, name, norm, desc) in entities {
+        conn.execute(
+            "INSERT INTO entities \
+             (agent_id, type, name, normalized_name, description) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![agent_id, typ, name, norm, desc],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn test_match_entities_reuses_existing() {
+    let tmp = TempDir::new().unwrap();
+    setup_db_with_entities(
+        &tmp,
+        "agent-1",
+        &[("subject", "Rust", "rust", "existing desc")],
+    );
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "Rust".to_string(),
+        description: "new desc".to_string(),
+        existing_id: None,
+    }]];
+    match_entities_by_name(
+        &tmp.path().join("test.db"),
+        "agent-1",
+        &mut entities,
+    )
+    .unwrap();
+    let e = &entities[0][0];
+    assert_eq!(e.existing_id, Some(1), "should reuse existing entity");
+    assert_eq!(
+        e.description, "existing desc",
+        "should adopt existing description"
+    );
+}
+
+#[test]
+fn test_match_entities_no_match_creates_new() {
+    let tmp = TempDir::new().unwrap();
+    setup_db_with_entities(
+        &tmp,
+        "agent-1",
+        &[("subject", "Rust", "rust", "existing desc")],
+    );
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "Python".to_string(),
+        description: "new desc".to_string(),
+        existing_id: None,
+    }]];
+    match_entities_by_name(
+        &tmp.path().join("test.db"),
+        "agent-1",
+        &mut entities,
+    )
+    .unwrap();
+    let e = &entities[0][0];
+    assert!(
+        e.existing_id.is_none(),
+        "should not match unrelated entity"
+    );
+    assert_eq!(e.description, "new desc");
+}
+
+#[test]
+fn test_match_entities_case_and_space_insensitive() {
+    let tmp = TempDir::new().unwrap();
+    setup_db_with_entities(
+        &tmp,
+        "agent-1",
+        &[("subject", "My Entity", "my_entity", "desc")],
+    );
+    // LLM produces different casing — single space normalizes the same.
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "MY ENTITY".to_string(),
+        description: "llm desc".to_string(),
+        existing_id: None,
+    }]];
+    match_entities_by_name(
+        &tmp.path().join("test.db"),
+        "agent-1",
+        &mut entities,
+    )
+    .unwrap();
+    assert_eq!(
+        entities[0][0].existing_id,
+        Some(1),
+        "case differences should still match after normalization"
+    );
+}
+
+#[test]
+fn test_match_entities_same_name_different_type_no_reuse() {
+    let tmp = TempDir::new().unwrap();
+    setup_db_with_entities(
+        &tmp,
+        "agent-1",
+        &[("subject", "Rust", "rust", "lang desc")],
+    );
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "action".to_string(),
+        name: "Rust".to_string(),
+        description: "action desc".to_string(),
+        existing_id: None,
+    }]];
+    match_entities_by_name(
+        &tmp.path().join("test.db"),
+        "agent-1",
+        &mut entities,
+    )
+    .unwrap();
+    assert!(
+        entities[0][0].existing_id.is_none(),
+        "same name different type should NOT reuse"
+    );
+    assert_eq!(entities[0][0].description, "action desc");
+}
+
+#[test]
+fn test_match_entities_cross_agent_isolation() {
+    let tmp = TempDir::new().unwrap();
+    setup_db_with_entities(
+        &tmp,
+        "agent-1",
+        &[("subject", "Rust", "rust", "desc")],
+    );
+    let mut entities = vec![vec![MiningEntity {
+        entity_type: "subject".to_string(),
+        name: "Rust".to_string(),
+        description: "other desc".to_string(),
+        existing_id: None,
+    }]];
+    match_entities_by_name(
+        &tmp.path().join("test.db"),
+        "agent-2",
+        &mut entities,
+    )
+    .unwrap();
+    assert!(
+        entities[0][0].existing_id.is_none(),
+        "different agent should not match"
+    );
 }

@@ -868,9 +868,10 @@ impl Daemon {
             .memory_md_path
             .as_deref()
             .unwrap_or("memory/MEMORY.md");
-        let dreaming_pipeline = Arc::new(DreamingPipeline::with_config(
-            memory_config.config.dreaming.clone(),
-        ));
+        let dreaming_pipeline = Arc::new(
+            DreamingPipeline::with_config(memory_config.config.dreaming.clone())
+                .with_memory_md_path(md_path),
+        );
         let memory_miner = Arc::new(MemoryMiner::new(
             closeclaw_memory::miner::MinerConfig::from_memory_config(&memory_config.config),
             Box::new(noop_miner_llm::NoopMinerLlmCaller),
