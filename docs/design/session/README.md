@@ -80,7 +80,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 - **持久化层组件**：
   - **CheckpointManager**：协调 SessionCheckpoint 的读写缓存和持久化。需要持久化时调用 PersistenceService。
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
-  - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。默认 idle 30 分钟触发归档、归档数据不自动删除，各配置项独立回退到系统默认值。
+  - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。默认 idle 30 分钟触发归档、归档数据不立即删除（由独立清理阈值触发删除），各配置项独立回退到系统默认值。
 
 - **执行层组件**：
   - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。
@@ -91,12 +91,12 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
     **inactive（归档判定）**：四维均为 false 且距上次用户活动超过 idle 时长——触发归档。后两维（background_tool_active、child_active）为 true 时阻断归档，四维任一为 true 时 session 不被判定为 inactive。llm_active 是 llm_state 的布尔投影：llm_state 在 Requesting 或 Receiving 时 llm_active 为真，Idle 时为假。llm_state 自身有三态内部状态机（Idle / Requesting / Receiving），详见 [session-execution.md](session-execution.md) 四维执行状态节。
   - **级联停止**：级联停止是通用机制——当触发级联停止时，递归停止其所有子 Session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。具体行为受停止模式影响：Graceful 模式等待 in-flight 操作完成后停（级联子 Session 纳入超时保护），Forceful 模式立即终止。是否启用级联由调用方决定：`/stop` 默认不级联（仅停当前 session），`--cascade` 标记启用级联；父 session 停止和系统关闭对所有子 Session 执行相同模式的级联停止。
   - **后台结果注入**：后台工具完成或子 Session 完成时，结果通过优先级消息队列（now > next > later）作为消息注入对话流，agent 在下一轮 turn 中消费。
-  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Gateway 回复"⏳ 正在排队..."通知用户。斜杠指令由 Gateway 层拦截路由至 SlashDispatcher（详见 [Gateway 路由决策](../gateway/README.md)），不进入此队列。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
+  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Session 生成"⏳ 正在排队..."提示语，经 Gateway 系统通知接口发送。斜杠指令由 Gateway 层拦截路由至 SlashDispatcher（详见 [Gateway 路由决策](../gateway/README.md)），不进入此队列。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
 
 各子功能的关系：
 - **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Migrating / Archived）描述持久化状态，与执行状态无关。
 - **执行状态**是运行时骨架：四维状态跟踪（llm_active / foreground_tool_active / background_tool_active / child_active）贯穿每次会话交互，级联停止依赖执行状态做决策，后台结果注入依赖统一消息队列调度。
-- **注入**是 session 生命周期事件——决定何时构建 system prompt。触发时机（详见 session-injection.md）包括：session 创建、archive 恢复、compaction 完成。注入链路不关心 system prompt 的 Section 组装细节，只负责在正确时机调用 builder 并存储结果。
+- **注入**是 session 生命周期事件——决定何时构建 system prompt。触发时机（详见 session-injection.md）包括：session 创建、归档恢复、compaction 完成。注入链路不关心 system prompt 的 Section 组装细节，只负责在正确时机调用 builder 并存储结果。
 - **压缩**在 session 运行时发生：对过长的对话历史做 summarization。支持手动触发（`/compact`）和自动触发（token 用量阈值），内含熔断保护和分级告警。system prompt 独立于对话消息流，不参与压缩（详见 [compact-process.md](compact-process.md#概述)），确保角色定义在任意次压缩后完整无损。
 - **LLM 增强**贯穿每次 API 调用：流式推送、reasoning level 控制、cache hit 统计在每次会话交互中生效。
 - **健康检测**在每个 turn 边界触发：硬规则检查（响应超时、空响应）+ 可选的 Hook 质量门禁（plan-check / loop-check / progress-check）。详见 [run-health.md](run-health.md)。
@@ -123,7 +123,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
        4. SessionManager 用 checkpoint 重建 ConversationSession（重新走注入流程，保证 prompt 内容最新）
        5. 注册到映射表
        6. 执行状态初始为 Idle
-       7. Gateway 通知用户「正在恢复会话…」，返回恢复后的 session
+       7. Session 生成「正在恢复会话…」提示语，经 Gateway 系统通知接口发送，返回恢复后的 session
      - **查不到**：双重确认该会话路由键下无 active session（防御性检查）
        - 若有 active → 注册已有 session 到映射表（自愈，不创建新 session）
        - 若无 active → 创建新 session：
