@@ -1,6 +1,6 @@
 use crate::miner::{
     load_entity_catalog, normalize_entity_name, write_to_sqlite, MemoryMiner, MinerConfig,
-    MiningEventCategory,
+    MiningEventCategory, WriteConfig,
 };
 use crate::miner_llm::MockMinerLlmCaller;
 use crate::test_helpers::TestStorage;
@@ -178,12 +178,14 @@ fn test_per_agent_dedup_same_agent_type_name() {
 
     write_to_sqlite(
         &conn,
-        "sess-1",
-        "agent-A",
-        &events,
-        &entities,
-        default_forgetting_initial_ttl_days(),
-        default_forgetting_initial_ttl_days(),
+        &WriteConfig {
+            session_id: "sess-1",
+            agent_id: "agent-A",
+            events: &events,
+            entities: &entities,
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_initial_ttl_days(),
+        },
     )
     .unwrap();
     let entity_count: i64 = conn

@@ -1,4 +1,6 @@
-use crate::miner::{load_entity_catalog, load_recent_events, write_to_sqlite, MiningEventCategory};
+use crate::miner::{
+    load_entity_catalog, load_recent_events, write_to_sqlite, MiningEventCategory, WriteConfig,
+};
 use closeclaw_config::agents::default_forgetting_initial_ttl_days;
 
 use rusqlite::params;
@@ -19,12 +21,14 @@ fn test_write_to_sqlite_creates_events() {
 
     write_to_sqlite(
         &conn,
-        "sess-1",
-        "a1",
-        &events,
-        &entities,
-        default_forgetting_initial_ttl_days(),
-        default_forgetting_initial_ttl_days(),
+        &WriteConfig {
+            session_id: "sess-1",
+            agent_id: "a1",
+            events: &events,
+            entities: &entities,
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_initial_ttl_days(),
+        },
     )
     .unwrap();
 
@@ -61,12 +65,14 @@ fn test_write_to_sqlite_deduplicates_entities() {
 
     write_to_sqlite(
         &conn,
-        "sess-1",
-        "a1",
-        &events,
-        &entities,
-        default_forgetting_initial_ttl_days(),
-        default_forgetting_initial_ttl_days(),
+        &WriteConfig {
+            session_id: "sess-1",
+            agent_id: "a1",
+            events: &events,
+            entities: &entities,
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_initial_ttl_days(),
+        },
     )
     .unwrap();
 
@@ -97,12 +103,14 @@ fn test_write_to_sqlite_stores_event_fields() {
     };
     write_to_sqlite(
         &conn,
-        "sess-1",
-        "a1",
-        &[event],
-        &[vec![]],
-        default_forgetting_initial_ttl_days(),
-        default_forgetting_initial_ttl_days(),
+        &WriteConfig {
+            session_id: "sess-1",
+            agent_id: "a1",
+            events: &[event],
+            entities: &[vec![]],
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_initial_ttl_days(),
+        },
     )
     .unwrap();
 
@@ -365,12 +373,14 @@ fn test_write_to_sqlite_insight_category_and_lesson() {
     };
     write_to_sqlite(
         &conn,
-        "sess-insight",
-        "a1",
-        &[event],
-        &[vec![]],
-        default_forgetting_initial_ttl_days(),
-        default_forgetting_initial_ttl_days(),
+        &WriteConfig {
+            session_id: "sess-insight",
+            agent_id: "a1",
+            events: &[event],
+            entities: &[vec![]],
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_initial_ttl_days(),
+        },
     )
     .unwrap();
 
@@ -449,7 +459,15 @@ fn test_write_to_sqlite_sets_expires_at() {
     let entities = vec![vec![]];
     let ttl_days = default_forgetting_initial_ttl_days();
     write_to_sqlite(
-        &conn, "sess-1", "a1", &events, &entities, ttl_days, ttl_days,
+        &conn,
+        &WriteConfig {
+            session_id: "sess-1",
+            agent_id: "a1",
+            events: &events,
+            entities: &entities,
+            initial_ttl_days: ttl_days,
+            reidentify_extension_days: ttl_days,
+        },
     )
     .unwrap();
 
@@ -478,7 +496,15 @@ fn test_write_to_sqlite_custom_ttl_days() {
     let entities = vec![vec![]];
     let custom_ttl: i64 = 30;
     write_to_sqlite(
-        &conn, "sess-1", "a1", &events, &entities, custom_ttl, custom_ttl,
+        &conn,
+        &WriteConfig {
+            session_id: "sess-1",
+            agent_id: "a1",
+            events: &events,
+            entities: &entities,
+            initial_ttl_days: custom_ttl,
+            reidentify_extension_days: custom_ttl,
+        },
     )
     .unwrap();
 
@@ -596,12 +622,14 @@ fn test_reidentify_extends_expires_at() {
     };
     write_to_sqlite(
         &conn,
-        "sess-2",
-        "a1",
-        &[reidentify_event],
-        &[vec![]],
-        90, // initial_ttl_days (not used for re-identify)
-        extension_days,
+        &WriteConfig {
+            session_id: "sess-2",
+            agent_id: "a1",
+            events: &[reidentify_event],
+            entities: &[vec![]],
+            initial_ttl_days: 90,
+            reidentify_extension_days: extension_days,
+        },
     )
     .unwrap();
 
@@ -647,7 +675,18 @@ fn test_normal_insert_unchanged() {
         lesson: None,
         reidentified_event_id: None,
     };
-    write_to_sqlite(&conn, "sess-normal", "a1", &[event], &[vec![]], 90, 90).unwrap();
+    write_to_sqlite(
+        &conn,
+        &WriteConfig {
+            session_id: "sess-normal",
+            agent_id: "a1",
+            events: &[event],
+            entities: &[vec![]],
+            initial_ttl_days: 90,
+            reidentify_extension_days: 90,
+        },
+    )
+    .unwrap();
 
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
@@ -708,12 +747,14 @@ fn test_reidentify_event_count_unchanged() {
 
     write_to_sqlite(
         &conn,
-        "sess-2",
-        "a1",
-        &reidentify_events,
-        &reidentify_entities,
-        90,
-        60,
+        &WriteConfig {
+            session_id: "sess-2",
+            agent_id: "a1",
+            events: &reidentify_events,
+            entities: &reidentify_entities,
+            initial_ttl_days: 90,
+            reidentify_extension_days: 60,
+        },
     )
     .unwrap();
 

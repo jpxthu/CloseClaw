@@ -16,14 +16,75 @@ use closeclaw_config::agents::{
 
 use super::{MinerError, MiningEntity, MiningEvent};
 
+// ── WriteConfig ───────────────────────────────────────────────────────
+
+/// Parameters for [`write_to_sqlite`], bundled to stay within the
+/// 6-parameter function limit.
+pub(crate) struct WriteConfig<'a> {
+    /// Session ID these events belong to.
+    pub session_id: &'a str,
+    /// Agent that produced the events.
+    pub agent_id: &'a str,
+    /// Events to write.
+    pub events: &'a [MiningEvent],
+    /// Per-event entity lists (same length as `events`).
+    pub entities: &'a [Vec<MiningEntity>],
+    /// Initial TTL in days for new event `expires_at`.
+    pub initial_ttl_days: i64,
+    /// Days to extend `expires_at` on re-identified events.
+    pub reidentify_extension_days: i64,
+}
+
 // ── Schema ────────────────────────────────────────────────────────────
 
-/// Initialize the SQLite schema for mining tables.
+/// Seed the 11 SAG entity types into `entity_types`.
 ///
-/// Creates the `events`, `entities`, `event_entities`, and `entity_types`
-/// tables. The `entity_types` table is seeded with the 11 SAG entity types
-/// (INSERT OR IGNORE ensures idempotency).
-pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError> {
+/// Uses `INSERT OR IGNORE` so repeated calls are idempotent.
+fn seed_entity_types(conn: &rusqlite::Connection) -> Result<(), MinerError> {
+    conn.execute_batch(
+        "INSERT OR IGNORE INTO entity_types \
+         (id, type, name, description, weight, \
+          similarity_threshold, is_default, is_active) \
+         VALUES \
+         (1, 'time', '时间', \
+          '时间点、时期、日期、年份等时间表达', \
+          1.0, 0.90, 0, 1), \
+         (2, 'location', '地点', \
+          '国家、城市、地区、地点等物理位置', \
+          1.0, 0.75, 0, 1), \
+         (3, 'person', '人物', \
+          '人物和具名个体（含 agent 角色、用户身份）', \
+          1.2, 0.80, 0, 1), \
+         (4, 'organization', '组织', \
+          '公司、机构、团队等组织', \
+          1.1, 0.80, 0, 1), \
+         (5, 'subject', '主题', \
+          '主要主题、概念和课题', \
+          1.5, 0.78, 1, 1), \
+         (6, 'product', '产品', \
+          '产品、服务、项目和命名交付物', \
+          1.1, 0.80, 0, 1), \
+         (7, 'metric', '指标', \
+          '数字、指标、度量、金额和统计数据', \
+          1.2, 0.85, 0, 1), \
+         (8, 'action', '动作', \
+          '重要动作、变更、决策和操作', \
+          1.3, 0.78, 1, 1), \
+         (9, 'work', '作品', \
+          '创作物、文档、论文、书籍、报告', \
+          1.0, 0.80, 0, 1), \
+         (10, 'group', '群体', \
+          '群体、社区、受众和人口', \
+          1.0, 0.78, 0, 1), \
+         (11, 'tags', '标签', \
+          '兜底标签，当无特定类型匹配时使用', \
+          0.5, 0.70, 1, 1);",
+    )
+    .map_err(|e| MinerError::Sqlite(e.to_string()))
+}
+
+/// Create all mining tables (DDL only, no seed data).
+fn create_tables(conn: &rusqlite::Connection) -> Result<(), MinerError> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,31 +125,21 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             is_default INTEGER NOT NULL DEFAULT 0,
             is_active INTEGER NOT NULL DEFAULT 1
         );
-        INSERT OR IGNORE INTO entity_types (id, type, name, description, weight, similarity_threshold, is_default, is_active) VALUES
-            (1,  'time',         '时间',     '时间点、时期、日期、年份等时间表达', 1.0, 0.90, 0, 1),
-            (2,  'location',      '地点',     '国家、城市、地区、地点等物理位置', 1.0, 0.75, 0, 1),
-            (3,  'person',        '人物',     '人物和具名个体（含 agent 角色、用户身份）', 1.2, 0.80, 0, 1),
-            (4,  'organization',  '组织',     '公司、机构、团队等组织', 1.1, 0.80, 0, 1),
-            (5,  'subject',       '主题',     '主要主题、概念和课题', 1.5, 0.78, 1, 1),
-            (6,  'product',       '产品',     '产品、服务、项目和命名交付物', 1.1, 0.80, 0, 1),
-            (7,  'metric',        '指标',     '数字、指标、度量、金额和统计数据', 1.2, 0.85, 0, 1),
-            (8,  'action',        '动作',     '重要动作、变更、决策和操作', 1.3, 0.78, 1, 1),
-            (9,  'work',          '作品',     '创作物、文档、论文、书籍、报告', 1.0, 0.80, 0, 1),
-            (10, 'group',         '群体',     '群体、社区、受众和人口', 1.0, 0.78, 0, 1),
-            (11, 'tags',          '标签',     '兜底标签，当无特定类型匹配时使用', 0.5, 0.70, 1, 1);
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             mined INTEGER NOT NULL DEFAULT 0,
             mined_at INTEGER
-        );"
+        );",
     )
-    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    .map_err(|e| MinerError::Sqlite(e.to_string()))
+}
 
-    // Idempotent migration: add expires_at column to existing databases.
-    // SQLite has no ADD COLUMN IF NOT EXISTS, so we catch the duplicate
-    // column error and ignore it.
+/// Add `expires_at` column to existing databases (idempotent).
+fn migrate_add_expires_at(conn: &rusqlite::Connection) -> Result<(), MinerError> {
     match conn.execute(
-        "ALTER TABLE events ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE events \
+         ADD COLUMN expires_at INTEGER \
+         NOT NULL DEFAULT 0",
         [],
     ) {
         Ok(_) => {}
@@ -99,8 +150,16 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
             }
         }
     }
-
     Ok(())
+}
+
+/// Initialize the SQLite schema for mining tables.
+///
+/// Creates tables, seeds entity types, and runs migrations.
+pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError> {
+    create_tables(conn)?;
+    seed_entity_types(conn)?;
+    migrate_add_expires_at(conn)
 }
 
 // ── Write helpers ─────────────────────────────────────────────────────
@@ -178,26 +237,23 @@ fn assign_entities_to_event(
 /// the event is inserted normally.
 pub(crate) fn write_to_sqlite(
     conn: &rusqlite::Connection,
-    session_id: &str,
-    agent_id: &str,
-    events: &[MiningEvent],
-    entities: &[Vec<MiningEntity>],
-    initial_ttl_days: i64,
-    reidentify_extension_days: i64,
+    cfg: &WriteConfig<'_>,
 ) -> Result<(), MinerError> {
     let now = Utc::now().timestamp();
-    for (event, event_entities) in events.iter().zip(entities.iter()) {
+    for (event, event_entities) in cfg.events.iter().zip(cfg.entities.iter()) {
         if let Some(existing_id) = event.reidentified_event_id {
-            extend_reidentified_event(conn, existing_id, reidentify_extension_days)?;
+            extend_reidentified_event(conn, existing_id, cfg.reidentify_extension_days)?;
             continue;
         }
-
-        let expires_at = now + initial_ttl_days * 86400;
+        let expires_at = now + cfg.initial_ttl_days * 86400;
         let event_id: i64 = conn
             .query_row(
-                "INSERT INTO events (title, summary, content,
-                 category, lesson, source_session_id, agent_id, timestamp, updated_at, expires_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
+                "INSERT INTO events \
+                 (title, summary, content, category, lesson, \
+                  source_session_id, agent_id, timestamp, \
+                  updated_at, expires_at) \
+                 VALUES \
+                 (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9) \
                  RETURNING id",
                 params![
                     event.title,
@@ -205,25 +261,24 @@ pub(crate) fn write_to_sqlite(
                     event.body,
                     event.category.to_string(),
                     event.lesson,
-                    session_id,
-                    agent_id,
+                    cfg.session_id,
+                    cfg.agent_id,
                     now,
                     expires_at,
                 ],
                 |row| row.get(0),
             )
             .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-        assign_entities_to_event(conn, agent_id, event_id, event_entities)?;
+        assign_entities_to_event(conn, cfg.agent_id, event_id, event_entities)?;
     }
-
-    // Mark session as mined so dreaming can JOIN on it.
     conn.execute(
-        "INSERT INTO sessions (id, mined, mined_at) VALUES (?1, 1, ?2)
-         ON CONFLICT(id) DO UPDATE SET mined = 1, mined_at = ?2",
-        params![session_id, now],
+        "INSERT INTO sessions (id, mined, mined_at) \
+         VALUES (?1, 1, ?2) \
+         ON CONFLICT(id) \
+         DO UPDATE SET mined = 1, mined_at = ?2",
+        params![cfg.session_id, now],
     )
     .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-
     Ok(())
 }
 
@@ -241,12 +296,14 @@ pub fn write_entries_to_db(
     init_schema(conn)?;
     write_to_sqlite(
         conn,
-        session_id,
-        agent_id,
-        events,
-        entities,
-        default_forgetting_initial_ttl_days(),
-        default_forgetting_reidentify_extension_days(),
+        &WriteConfig {
+            session_id,
+            agent_id,
+            events,
+            entities,
+            initial_ttl_days: default_forgetting_initial_ttl_days(),
+            reidentify_extension_days: default_forgetting_reidentify_extension_days(),
+        },
     )
 }
 
@@ -288,58 +345,19 @@ pub(crate) fn load_recent_events(
     Ok((text, ids))
 }
 
-/// Load entity/type catalog from SQLite, sorted by type → normalized_name.
+/// Build catalog sections from type definitions and entities.
 ///
-/// Merges `entity_types` table (type definitions) with `entities` table
-/// (existing entities). Output groups by type: each section starts with
-/// a type header (`## type (name): description`), followed by entity lines
-/// (`- entity_name: description`). All 11 types are always listed even
-/// when no entities exist for that type.
-pub(crate) fn load_entity_catalog(
-    conn: &rusqlite::Connection,
-    agent_id: &str,
-) -> Result<String, MinerError> {
-    // Load all entity type definitions, sorted alphabetically by type.
-    let type_sql =
-        "SELECT type, name, description FROM entity_types WHERE is_active = 1 ORDER BY type";
-    let mut type_stmt = conn
-        .prepare(type_sql)
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let types: Vec<(String, String, String)> = type_stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    // Load existing entities for this agent, sorted by type → normalized_name.
-    let entity_sql = "SELECT type, name, description FROM entities
-                      WHERE agent_id = ?1
-                      ORDER BY type, normalized_name";
-    let mut entity_stmt = conn
-        .prepare(entity_sql)
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let entities: Vec<(String, String, String)> = entity_stmt
-        .query_map(params![agent_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    // Group entities by type.
-    let mut entities_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    let mut extra_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (typ, name, desc) in entities {
-        entities_by_type
-            .entry(typ.clone())
-            .or_default()
-            .push((name, desc));
-        extra_types.insert(typ);
-    }
-
-    // Build output: type header + entities for each defined type.
+/// Returns a list of sections, one per entity type. Each section
+/// starts with a type header (`## type (name): description`),
+/// followed by entity lines (`- entity_name: description`).
+fn build_catalog_sections(
+    types: &[(String, String, String)],
+    entities_by_type: &HashMap<String, Vec<(String, String)>>,
+) -> Vec<String> {
+    let mut extra_types: std::collections::HashSet<String> =
+        entities_by_type.keys().cloned().collect();
     let mut sections = Vec::new();
-    for (typ, name, desc) in &types {
+    for (typ, name, desc) in types {
         let mut section = format!("## {typ} ({name}): {desc}");
         if let Some(type_entities) = entities_by_type.get(typ) {
             for (entity_name, entity_desc) in type_entities {
@@ -349,8 +367,6 @@ pub(crate) fn load_entity_catalog(
         sections.push(section);
         extra_types.remove(typ);
     }
-
-    // Handle entity types not present in entity_types table.
     let mut remaining: Vec<_> = extra_types.into_iter().collect();
     remaining.sort();
     for typ in remaining {
@@ -362,7 +378,49 @@ pub(crate) fn load_entity_catalog(
             sections.push(section);
         }
     }
+    sections
+}
 
+/// Load entity/type catalog from SQLite, sorted by type → normalized_name.
+///
+/// Merges `entity_types` table (type definitions) with `entities` table
+/// (existing entities). Output groups by type: each section starts with
+/// a type header (`## type (name): description`), followed by entity lines
+/// (`- entity_name: description`). All 11 types are always listed even
+/// when no entities exist for that type.
+pub(crate) fn load_entity_catalog(
+    conn: &rusqlite::Connection,
+    agent_id: &str,
+) -> Result<String, MinerError> {
+    let type_sql = "SELECT type, name, description \
+         FROM entity_types WHERE is_active = 1 \
+         ORDER BY type";
+    let mut type_stmt = conn
+        .prepare(type_sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let types: Vec<(String, String, String)> = type_stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
+    let entity_sql = "SELECT type, name, description \
+         FROM entities WHERE agent_id = ?1 \
+         ORDER BY type, normalized_name";
+    let mut entity_stmt = conn
+        .prepare(entity_sql)
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    let entities: Vec<(String, String, String)> = entity_stmt
+        .query_map(params![agent_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?
+        .filter_map(|r| r.ok())
+        .collect();
+    let mut entities_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (typ, name, desc) in entities {
+        entities_by_type.entry(typ).or_default().push((name, desc));
+    }
+    let sections = build_catalog_sections(&types, &entities_by_type);
     Ok(sections.join("\n\n"))
 }
 
