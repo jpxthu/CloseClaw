@@ -11,6 +11,7 @@ pub mod debug_log_tests;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
+pub(crate) mod idle_verify_hook;
 #[cfg(test)]
 mod im_adapter;
 pub mod inbound_queue;

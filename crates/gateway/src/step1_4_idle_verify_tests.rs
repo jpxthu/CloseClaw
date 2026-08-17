@@ -13,7 +13,7 @@ use closeclaw_session::workflow_handler::WorkflowHandler;
 use closeclaw_workflow::definition::{Step, Workflow};
 use closeclaw_workflow::run::{Phase, WorkflowRun};
 
-use crate::session_handler_announce::tests::test_maybe_inject_workflow_verify;
+use crate::idle_verify_hook::tests::test_maybe_inject_workflow_verify;
 use crate::session_manager::SessionManager;
 use crate::GatewayConfig;
 
