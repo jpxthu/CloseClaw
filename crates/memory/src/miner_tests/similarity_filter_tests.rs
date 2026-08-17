@@ -72,7 +72,7 @@ async fn test_mine_session_filters_high_threshold_entity() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("ht.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-ht", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -108,7 +108,7 @@ async fn test_mine_session_keeps_low_threshold_entity() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("lt.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-lt", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -144,7 +144,7 @@ async fn test_mine_session_boundary_at_threshold_keeps_entity() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("bt.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-bt", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -181,7 +181,7 @@ async fn test_mine_session_all_entities_filtered() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("all.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-all", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -316,7 +316,7 @@ async fn test_action_type_threshold_filtering() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("action.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session(
             "sess-action",
@@ -359,7 +359,7 @@ async fn test_tags_type_threshold_filtering() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("tags.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-tags", "Owner: hello\nAgent: response", "a1", &storage)
         .await
@@ -401,7 +401,7 @@ async fn test_time_type_threshold_filtering() {
     });
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("time.db");
-    let miner = MemoryMiner::new(config, llm, &db_path, "memory.md");
+    let miner = MemoryMiner::new(config, llm.clone(), llm, &db_path, "memory.md");
     let result = miner
         .mine_session("sess-time", "Owner: hello\nAgent: response", "a1", &storage)
         .await

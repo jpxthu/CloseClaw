@@ -224,8 +224,10 @@ struct DbReadData {
 pub struct MemoryMiner {
     /// Mining configuration.
     config: Arc<RwLock<MinerConfig>>,
-    /// LLM caller for extraction and assignment.
-    llm: Box<dyn MinerLlmCaller>,
+    /// LLM caller for Miner 1 (event extraction).
+    miner1_llm: Box<dyn MinerLlmCaller>,
+    /// LLM caller for Miner 2 (entity assignment).
+    miner2_llm: Box<dyn MinerLlmCaller>,
     /// Path to the SQLite database.
     db_path: PathBuf,
     /// Path to MEMORY.md for dedup.
@@ -236,13 +238,15 @@ impl MemoryMiner {
     /// Create a new miner with the given dependencies.
     pub fn new(
         config: MinerConfig,
-        llm: Box<dyn MinerLlmCaller>,
+        miner1_llm: Box<dyn MinerLlmCaller>,
+        miner2_llm: Box<dyn MinerLlmCaller>,
         db_path: impl AsRef<Path>,
         memory_md_path: impl Into<String>,
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
-            llm,
+            miner1_llm,
+            miner2_llm,
             db_path: db_path.as_ref().to_path_buf(),
             memory_md_path: memory_md_path.into(),
         }
@@ -364,7 +368,7 @@ impl MemoryMiner {
         let events = self
             .extract_events(&cleaned, &db_data.recent_events_text, &db_data.memory_md)
             .await?;
-        let mut entities = self.llm.assign_entities(&events, &db_data.catalog).await?;
+        let mut entities = self.miner2_llm.assign_entities(&events, &db_data.catalog).await?;
         for e in &mut entities {
             truncate_entity_names(e);
         }
@@ -403,7 +407,7 @@ impl MemoryMiner {
         existing_memory: &str,
     ) -> Result<Vec<MiningEvent>, MinerError> {
         let mut events = self
-            .llm
+            .miner1_llm
             .extract_events(cleaned, existing_events, existing_memory)
             .await?;
         let max = self.config.read().unwrap().max_events_per_session;

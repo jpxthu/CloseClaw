@@ -316,6 +316,7 @@ async fn test_dreaming_scheduler_uses_independent_provider() {
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig::default(),
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         tmp.path().join("memory.db"),
         tmp.path().join("MEMORY.md").to_string_lossy().into_owned(),
     ));

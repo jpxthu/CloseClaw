@@ -8,7 +8,7 @@ use closeclaw_config::agents::{
 fn make_miner(config: MinerConfig) -> MemoryMiner {
     let tmp = tempfile::TempDir::new().unwrap();
     let llm = Box::new(MockMinerLlmCaller::default());
-    crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md")
+    crate::miner::MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md")
 }
 
 // ── MinerConfig from_mining_config tests ───────────────────────────────
@@ -181,7 +181,7 @@ fn test_update_config_reflects_new_enabled() {
         ..Default::default()
     };
     let llm = Box::new(MockMinerLlmCaller::default());
-    let miner = crate::miner::MemoryMiner::new(config, llm, tmp.path().join("db"), "memory.md");
+    let miner = crate::miner::MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md");
     assert!(!miner.is_enabled(), "should start disabled");
 
     let new_config = MinerConfig {
