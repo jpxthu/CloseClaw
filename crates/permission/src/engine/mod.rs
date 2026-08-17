@@ -59,6 +59,9 @@ mod engine_auto_mode_tests;
 mod engine_rejection_log_tests;
 
 #[cfg(test)]
+mod engine_audit_log_tests;
+
+#[cfg(test)]
 mod engine_matching_tests;
 
 #[cfg(test)]
