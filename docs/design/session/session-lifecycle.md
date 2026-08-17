@@ -9,15 +9,15 @@
 ### 数据模型
 
 **SessionCheckpoint** 是 session 持久化的核心数据结构，包含：
-- 标识：session_id（格式 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒、random_suffix 为 8 位小写 hex 随机字符串）、agent_id、role（主 agent / 子 agent）、last_message_id
+- 标识：session_id（格式 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒、random_suffix 为 8 位小写 hex 随机字符串）、agent_id、role（主 agent / 子 agent）
 - 会话路由键：platform（如 feishu）、sender_id（发送者平台内 ID）、peer_id（会话对端：群聊 chat_id 或私聊对方 ID）、account_id（CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。一个 CloseClaw 账号可绑定多个平台的 sender_id）
 - 出站定向字段：thread_id（话题 ID，可选。不参与 session_key 计算，仅用于出站时定向回复到正确的话题线）
 - 生命周期状态：status（active / migrating / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：normal/plan/auto）、mode_state（推理步骤状态）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
-- 统计：last_message_at（最后消息时间，含用户和非用户消息）、last_user_activity_at（最后用户活动时间，仅含用户消息，Sweeper 用来判断 idle）、message_count
-- 其他：ttl_seconds、updated_at（最后 checkpoint 更新时间）
+- 统计：last_message_at（最后消息时间，含用户和非用户消息，恢复查询与 Sweeper 判定使用）、last_user_activity_at（最后用户活动时间，仅含用户消息，Sweeper 用来判断 idle）
+- 其他：updated_at（最后 checkpoint 更新时间）
 
 > `archived_at` 和扩展元数据（metadata JSON）作为 SQLite 表列存储，由 SqliteStorage 维护，不进入 Checkpoint struct。归档时间和自定义扩展字段通过 SQLite 层查询。
 
@@ -36,7 +36,7 @@
 
 **SessionStatus** 是三态枚举：
 - `Active`：正常运行中或待恢复
-- `Migrating`：归档进行中——Sweeper 已将状态置为 migrating、正在移动 transcript。若此时崩溃，恢复扫描将重建 session（详见 [session-recovery.md](session-recovery.md) 启动扫描节）。归档完成后状态变为 Archived
+- `Migrating`：归档进行中——Sweeper 已将状态置为 migrating、正在移动 transcript。若此时崩溃，由恢复扫描处置：存在未完成操作的恢复为 active，无未完成操作的完成归档（详见 [session-recovery.md](session-recovery.md) 启动扫描节）。归档完成后状态变为 Archived
 - `Archived`：已归档，transcript 从 sessions/ 移至 archived_sessions/
 
 ### 存储架构
@@ -53,9 +53,9 @@
 **SqliteStorage** 是生产级持久化后端，实现 PersistenceService 接口：
 - 元数据存储在 SQLite 中：每个 session 一条记录，含状态、时间戳、统计等。
 - Transcript 以 JSONL 格式存储在 `sessions/<id>.jsonl`（active）或 `archived_sessions/<id>.jsonl`（archived）。
-- archive 操作：更新 SQLite status → 将 transcript 文件从 sessions/ move 到 archived_sessions/。
+- archive 操作：先使 CheckpointManager 内存缓存中该 session 的条目失效，再更新 SQLite status → 将 transcript 文件从 sessions/ move 到 archived_sessions/。restore / purge 操作的缓存失效同理，见各自操作条目。
 - restore 操作：将 transcript 文件 move 回 sessions/ → 更新 SQLite status 为 active。
-- purge 操作：删除 SQLite 记录 → 删除 transcript 文件。
+- purge 操作：先失效缓存条目，再删除 SQLite 记录 → 删除 transcript 文件。
 
 SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 
@@ -72,7 +72,7 @@ SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 
 归档后 Sweeper 不与 SessionManager 通信——映射表同步由 SessionManager 在下次 lookup 时通过 status 校验被动完成（详见 [README.md](README.md) key_registry 自愈逻辑）。migrating session 由恢复扫描处理（详见 [session-recovery.md](session-recovery.md)），Sweeper 不操作 migrating 状态的 session。
 
-**SessionManager.is_active()**：SessionManager 向 Sweeper 暴露的只读查询接口。传入 session_id，存在 ConversationSession 实例则返回其四维活跃维度（llm_active / foreground_tool_active / background_tool_active / child_active），不存在则返回全 false——session 不在内存中意味着没有活跃操作。SessionManager 按 agent_id 串行化所有操作，Sweeper 查询时 session 的四维状态不会被并发修改。
+**SessionManager.is_active()**：SessionManager 向 Sweeper 暴露的只读查询接口。传入 session_id，存在 ConversationSession 实例则返回其四维活跃维度（llm_active / foreground_tool_active / background_tool_active / child_active），不存在则返回全 false——session 不在内存中意味着没有活跃操作。SessionManager 按 agent_id 串行化所有操作，Sweeper 查询时 session 的四维状态不会被并发修改。活跃维度变化时记录调试日志（任一维度开启或关闭，见 F12）。
 
 **child_active 保护**：child_active 为 true 时，父 Session 不被判定为 inactive，不触发归档。此规则在 F6 需求中定义，Sweeper 通过 is_active() 查询的 child_active 维度统一实施——即"任一维度为 true → 跳过"逻辑已覆盖此场景。若因系统错误导致有活跃子 Session 的父 Session 被归档，记录告警日志并丢弃该子 Session 的完成通知。
 2. **Purge**：扫描 status=archived 且 archived_at 超过 purgeAfterMinutes 的 session → 调用 purge，彻底删除。
@@ -116,19 +116,20 @@ Sweeper 定时触发
           → 更新 session 状态为 archived，记录归档时间
 ```
 
-归档分两步写入以覆盖崩溃窗口：先置 migrating（此时 transcript 仍在 sessions/ 下），再移动文件，最后置 archived。若移动文件过程中崩溃，恢复扫描通过 migrating 状态发现该 session 并完成恢复。Sweeper 归档前通过 SessionManager.is_active() 查询活跃维度——任一维度为 true 则跳过，因此活跃 session 不会被置为 migrating。
+归档分两步写入以覆盖崩溃窗口：先置 migrating（此时 transcript 仍在 sessions/ 下），再移动文件，最后置 archived。若移动文件过程中崩溃，恢复扫描通过 migrating 状态发现该 session 并完成恢复。Sweeper 归档前通过 SessionManager.is_active() 查询活跃维度——任一维度为 true 则跳过，因此活跃 session 不会被置为 migrating。SessionManager 在 lookup 命中 migrating session 时的等待方式（短间隔轮询 status）见 [README.md](README.md) key registry 节。
 
 归档完成后不通知 SessionManager。SessionManager 在下次 lookup 命中该 key 时，通过 status 校验发现 session 已归档，自行从映射表移除并走未命中回退路径。
 
 ### Archived → Active 恢复
 
 ```
-入站消息到达，映射表未命中
+入站消息到达，映射表未命中  ← 日志：会话查找与归档恢复
   → SessionManager 通过会话路由字段查询 SQLite
   → 查到一条或多条 archived session → 取 last_message_at 最新的一条
     → transcript 从归档区移回活跃区
     → session 状态更新为 active，清除归档时间
     → 返回 SessionCheckpoint
+  → 查不到任何 session → 走新 session 创建路径（见 [README.md](README.md) Session 创建与查找）
   → SessionManager 用 checkpoint 重建 ConversationSession
     → 工作目录重新初始化为默认值（不进持久化存储）
     → 重新走注入流程，保证 system prompt 内容最新

@@ -56,6 +56,10 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 
 此设计确保角色定义在任意次压缩后依然完整，无需哈希校验或重新注入。
 
+### Checkpoint 非对话字段隔离
+
+压缩仅替换 checkpoint 中的对话消息（transcript）。其余持久化字段不参与压缩、跨压缩保持：mode（对话模式）、mode_state（推理步骤状态）、system_appends（追加区）、pending_operations（未完成操作）等运行时快照字段均不受压缩影响。
+
 ## 数据流
 
 ### 手动压缩
@@ -64,13 +68,13 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 2. 从消息历史中提取对话消息（排除 system prompt）
 3. 创建运行快照（Run Health 模块，详见 run-health.md）
 4. 统计 before token 数（已返回消息用精确 usage + 待发送消息用字符估算）
-5. 构建压缩 prompt（含自定义指令），调用 LLM 执行压缩
-6. 从响应中提取摘要，组装 boundary 消息
-7. 用 boundary 消息替换对话消息
+5. 构建压缩 prompt（含自定义指令），调用 LLM 执行压缩  ← 日志：上下文压缩事件（触发原因：手动，压缩前后 token 数）
+6. 从响应中提取摘要，组装 boundary 消息（含压缩时间、触发方式元信息）
+7. 用 boundary 消息替换对话消息  ← 日志：对话轮次追加与历史截断（transcript 全量替换为 boundary 消息）
 8. 统计 after token 数（boundary 消息用字符估算）
 9. 通知 SessionManager，触发注入流程重建 system prompt 静态层
 10. 持久化压缩后的 transcript（仅 boundary 消息）
-11. 熔断器复位
+11. 熔断器复位（成功后执行；手动压缩失败不触发复位，也不递增计数器）
 12. 返回 before/after token 统计给用户
 
 失败时（LLM 调用异常、摘要解析失败）：回传错误信息，chat_history 保持不变。手动压缩失败不递增熔断计数器。
@@ -78,14 +82,15 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 ### 自动压缩
 
 1. 写入用户消息到对话历史
-2. 按消息上限截断历史
+2. 按消息上限截断历史  ← 日志：对话轮次追加与历史截断（消息上限截断）
 3. 估算 token 数 + 熔断器检查 + 阈值判断
 4. 分支判断：
+   - 若熔断器处于触发状态：跳过压缩；首次触发时已注入 assistant 提示消息，不重复注入
    - 若处于预警阶段且未提示过：提示用户「对话即将压缩，可输入 /compact 手动管理」，标记已提示
    - 若空间回升至告警阈值以上：告警自动取消，清空已提示标记——下次再跌破告警阈值时重新触发提示
    - 若触发自动压缩：
      a. 创建运行快照（Run Health 模块，详见 run-health.md）
-     b. 执行压缩，用 boundary 消息替换对话消息
+     b. 执行压缩，用 boundary 消息替换对话消息  ← 日志：上下文压缩事件（触发原因：自动，压缩前后 token 数）
      c. 通知 SessionManager，触发注入流程重建 system prompt 静态层
      d. 持久化压缩后的 transcript（仅 boundary 消息）
 5. 继续调用 LLM 处理用户消息

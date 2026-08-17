@@ -101,7 +101,7 @@ Session 的整体状态由四维组合判定：
 
 **分发规则**：
 - llm_active 或 foreground_tool_active 为 true 时：消息保留在队列中，不解队
-- llm_active 和 foreground_tool_active 均为 false 时：消息立即出队分发（无论 background_tool_active / child_active 状态）
+- llm_active 和 foreground_tool_active 均为 false 时：消息立即出队分发，注入对话流（无论 background_tool_active / child_active 状态）  ← 日志：消息注入事件（后台任务结果注入）
 
 **优先级用途**：
 - **now**：系统级紧急通知，排在队头
@@ -167,7 +167,7 @@ Agent 在 spawn 子 Session 后不应主动查询子 Session 状态。子 Sessio
   → 组装 LLM 请求 → LLM 状态变为 Requesting
     → 流式：首 token 到 → Receiving → 流结束 → Idle
     → 非流式：完整响应后 → Idle
-  ↓
+  ↓  ← 日志：活跃维度变化（任一维度开启或关闭）
 LLM 返回 tool call
   → 创建工具调用 → 状态为 Pending
     → 前台执行 → 阻塞等待完成 → 完成后注销
@@ -228,7 +228,7 @@ Forceful 模式：
 ### 子 session 完成注入
 
 ```
-子 session 执行完成
+子 session 执行完成  ← 日志：子 Session 创建与完成
   → 提取子 session 的最后一条 assistant 消息作为结果
   → 生成结构化通知消息
   → 入队父 session 消息队列（优先级 next）
