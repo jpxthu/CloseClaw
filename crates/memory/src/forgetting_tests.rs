@@ -28,6 +28,7 @@ fn test_write_entries_to_db_insight_category() {
         body: "body".to_string(),
         category: MiningEventCategory::Insight,
         lesson: None,
+        reidentified_event_id: None,
     };
     let entities = vec![vec![MiningEntity {
         entity_type: "subject".to_string(),

@@ -89,6 +89,10 @@ pub struct MiningEvent {
     pub category: MiningEventCategory,
     /// Actionable lesson (required for Error/Anger, optional for Decision).
     pub lesson: Option<String>,
+    /// If set, the LLM identified this event as a re-occurrence of an
+    /// existing event. `write_to_sqlite` will extend `expires_at` on the
+    /// referenced event instead of inserting a new row.
+    pub reidentified_event_id: Option<i64>,
 }
 
 /// An entity assigned to an event by Miner 2.
@@ -203,7 +207,7 @@ impl Default for MinerConfig {
 /// code without holding a `rusqlite::Connection` across `.await` points.
 struct DbReadData {
     /// Recent events text for Miner 1 dedup context.
-    recent_events: String,
+    recent_events_text: String,
     /// Current MEMORY.md content for Miner 1 dedup context.
     memory_md: String,
     /// Entity/type catalog text for Miner 2.
@@ -356,14 +360,14 @@ impl MemoryMiner {
                 .map_err(|e| MinerError::Sqlite(e.to_string()))?;
             init_schema(&conn)?;
 
-            let recent_events =
+            let (recent_events_text, _recent_event_ids) =
                 load_recent_events(&conn, &session_id_owned, &agent_id_owned, dedup_days)?;
             let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
             let catalog = load_entity_catalog(&conn, &agent_id_owned)?;
             let type_thresholds = load_entity_type_thresholds(&conn)?;
 
             Ok(DbReadData {
-                recent_events,
+                recent_events_text,
                 memory_md,
                 catalog,
                 type_thresholds,
@@ -374,7 +378,7 @@ impl MemoryMiner {
 
         // ── Phase 2: Async LLM extraction (no Connection in scope) ─
         let events = self
-            .extract_events(&cleaned, &db_data.recent_events, &db_data.memory_md)
+            .extract_events(&cleaned, &db_data.recent_events_text, &db_data.memory_md)
             .await?;
 
         // ── Phase 3: Async LLM entity assignment ──────────────────
@@ -418,7 +422,10 @@ impl MemoryMiner {
         let session_id_owned = session_id.to_string();
         let events_clone = events.clone();
         let entities_clone = entities.clone();
-        let initial_ttl_days = self.config.read().unwrap().initial_ttl_days;
+        let (initial_ttl_days, reidentify_extension_days) = {
+            let cfg = self.config.read().unwrap();
+            (cfg.initial_ttl_days, cfg.reidentify_extension_days)
+        };
         tokio::task::spawn_blocking(move || -> Result<(), MinerError> {
             let conn = rusqlite::Connection::open(&db_path)
                 .map_err(|e| MinerError::Sqlite(e.to_string()))?;
@@ -429,6 +436,7 @@ impl MemoryMiner {
                 &events_clone,
                 &entities_clone,
                 initial_ttl_days,
+                reidentify_extension_days,
             )
         })
         .await
@@ -571,6 +579,11 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
 }
 
 /// Write events and entities to SQLite.
+///
+/// When `reidentified_event_id` is `Some(id)`, the event is treated as
+/// a re-occurrence: `expires_at` on the existing row is extended by
+/// `reidentify_extension_days` and no new row is inserted.  Otherwise
+/// the event is inserted normally.
 pub(crate) fn write_to_sqlite(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -578,8 +591,21 @@ pub(crate) fn write_to_sqlite(
     events: &[MiningEvent],
     entities: &[Vec<MiningEntity>],
     initial_ttl_days: i64,
+    reidentify_extension_days: i64,
 ) -> Result<(), MinerError> {
     for (event, event_entities) in events.iter().zip(entities.iter()) {
+        if let Some(existing_id) = event.reidentified_event_id {
+            // Re-identify: extend expires_at instead of inserting.
+            let extension = reidentify_extension_days * 86400;
+            let now = Utc::now().timestamp();
+            conn.execute(
+                "UPDATE events SET expires_at = MAX(expires_at, ?1) + ?2 WHERE id = ?3",
+                params![now, extension, existing_id],
+            )
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            continue;
+        }
+
         let ts = Utc::now().timestamp();
         let expires_at = ts + initial_ttl_days * 86400;
         let event_id: i64 = conn
@@ -659,36 +685,44 @@ pub fn write_entries_to_db(
         events,
         entities,
         default_forgetting_initial_ttl_days(),
+        default_forgetting_reidentify_extension_days(),
     )
 }
 
 /// Load recent events within the dedup window for Miner 1 context.
+///
+/// Returns a tuple of `(formatted_text, event_ids)` where the formatted
+/// text includes `[{id}]` prefixes so the LLM can reference specific
+/// events for re-identification. The `event_ids` vector contains the
+/// corresponding database IDs in the same order.
 pub(crate) fn load_recent_events(
     conn: &rusqlite::Connection,
     exclude_session: &str,
     agent_id: &str,
     dedup_window_days: i32,
-) -> Result<String, MinerError> {
+) -> Result<(String, Vec<i64>), MinerError> {
     let cutoff = Utc::now().timestamp() - (dedup_window_days as i64 * 86400);
-    let sql = "SELECT title, summary, category FROM events
+    let sql = "SELECT id, title, summary, category FROM events
                WHERE source_session_id != ?1 AND timestamp >= ?2 AND agent_id = ?3
                ORDER BY timestamp DESC LIMIT 20";
     let mut stmt = conn
         .prepare(sql)
         .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let rows: Vec<(String, String, String)> = stmt
+    let rows: Vec<(i64, String, String, String)> = stmt
         .query_map(params![exclude_session, cutoff, agent_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })
         .map_err(|e| MinerError::Sqlite(e.to_string()))?
         .filter_map(|r| r.ok())
         .collect();
 
-    Ok(rows
+    let ids: Vec<i64> = rows.iter().map(|(id, _, _, _)| *id).collect();
+    let text = rows
         .iter()
-        .map(|(title, summary, category)| format!("- [{category}] {title}: {summary}"))
+        .map(|(id, title, summary, category)| format!("- [{id}] [{category}] {title}: {summary}"))
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n");
+    Ok((text, ids))
 }
 
 /// Load entity/type catalog from SQLite, sorted by type → normalized_name.
@@ -858,8 +892,9 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
         init_schema(&conn).unwrap();
-        let result = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
+        let (result, ids) = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
         assert!(result.is_empty());
+        assert!(ids.is_empty());
     }
 
     #[test]
@@ -876,9 +911,11 @@ mod tests {
             params![ts],
         )
         .unwrap();
-        let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
+        let (result, ids) = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
         assert!(result.contains("title"));
         assert!(result.contains("[error]"));
+        assert_eq!(ids.len(), 1);
+        assert!(ids[0] > 0);
     }
 
     #[test]
@@ -895,8 +932,9 @@ mod tests {
             params![old_ts],
         )
         .unwrap();
-        let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
+        let (result, ids) = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
         assert!(result.is_empty());
+        assert!(ids.is_empty());
     }
 
     #[test]
@@ -921,12 +959,14 @@ mod tests {
             params![ts],
         )
         .unwrap();
-        let result_a1 = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
+        let (result_a1, ids_a1) = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
         assert!(result_a1.contains("a1-event"));
         assert!(!result_a1.contains("a2-event"));
-        let result_a2 = load_recent_events(&conn, "other", "agent-2", 30).unwrap();
+        assert_eq!(ids_a1.len(), 1);
+        let (result_a2, ids_a2) = load_recent_events(&conn, "other", "agent-2", 30).unwrap();
         assert!(result_a2.contains("a2-event"));
         assert!(!result_a2.contains("a1-event"));
+        assert_eq!(ids_a2.len(), 1);
     }
 
     #[test]

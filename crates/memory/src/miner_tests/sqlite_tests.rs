@@ -24,6 +24,7 @@ fn test_write_to_sqlite_creates_events() {
         &events,
         &entities,
         default_forgetting_initial_ttl_days(),
+        default_forgetting_initial_ttl_days(),
     )
     .unwrap();
 
@@ -65,6 +66,7 @@ fn test_write_to_sqlite_deduplicates_entities() {
         &events,
         &entities,
         default_forgetting_initial_ttl_days(),
+        default_forgetting_initial_ttl_days(),
     )
     .unwrap();
 
@@ -91,6 +93,7 @@ fn test_write_to_sqlite_stores_event_fields() {
         body: "My Body".to_string(),
         category: MiningEventCategory::Anger,
         lesson: Some("My Lesson".to_string()),
+        reidentified_event_id: None,
     };
     write_to_sqlite(
         &conn,
@@ -98,6 +101,7 @@ fn test_write_to_sqlite_stores_event_fields() {
         "a1",
         &[event],
         &[vec![]],
+        default_forgetting_initial_ttl_days(),
         default_forgetting_initial_ttl_days(),
     )
     .unwrap();
@@ -198,8 +202,9 @@ fn test_load_recent_events_empty_db() {
     let tmp = TempDir::new().unwrap();
     let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
     crate::miner::init_schema(&conn).unwrap();
-    let result = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
+    let (result, ids) = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
     assert!(result.is_empty());
+    assert!(ids.is_empty());
 }
 
 #[test]
@@ -218,10 +223,12 @@ fn test_load_recent_events_with_data() {
     )
     .unwrap();
 
-    let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
+    let (result, ids) = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
     assert!(result.contains("[error]"));
     assert!(result.contains("Bug Fix"));
     assert!(result.contains("Fixed a bug"));
+    assert_eq!(ids.len(), 1);
+    assert!(ids[0] > 0);
 }
 
 #[test]
@@ -239,8 +246,9 @@ fn test_load_recent_events_excludes_old() {
         params![old_ts],
     )
     .unwrap();
-    let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
+    let (result, ids) = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
     assert!(result.is_empty());
+    assert!(ids.is_empty());
 }
 
 #[test]
@@ -259,8 +267,9 @@ fn test_load_recent_events_excludes_current_session() {
     )
     .unwrap();
 
-    let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
+    let (result, ids) = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
     assert!(result.is_empty());
+    assert!(ids.is_empty());
 }
 
 // ── entity_types table tests ──────────────────────────────────────────
@@ -352,6 +361,7 @@ fn test_write_to_sqlite_insight_category_and_lesson() {
         body: "insight body".to_string(),
         category: MiningEventCategory::Insight,
         lesson: None,
+        reidentified_event_id: None,
     };
     write_to_sqlite(
         &conn,
@@ -359,6 +369,7 @@ fn test_write_to_sqlite_insight_category_and_lesson() {
         "a1",
         &[event],
         &[vec![]],
+        default_forgetting_initial_ttl_days(),
         default_forgetting_initial_ttl_days(),
     )
     .unwrap();
@@ -391,6 +402,7 @@ fn test_write_entries_to_db_insight_round_trip() {
         body: "body".to_string(),
         category: MiningEventCategory::Insight,
         lesson: None,
+        reidentified_event_id: None,
     };
     let entities = vec![vec![make_entity("retry_pattern", "subject")]];
 
@@ -436,7 +448,10 @@ fn test_write_to_sqlite_sets_expires_at() {
     let events = vec![make_event("expiring event", MiningEventCategory::Error)];
     let entities = vec![vec![]];
     let ttl_days = default_forgetting_initial_ttl_days();
-    write_to_sqlite(&conn, "sess-1", "a1", &events, &entities, ttl_days).unwrap();
+    write_to_sqlite(
+        &conn, "sess-1", "a1", &events, &entities, ttl_days, ttl_days,
+    )
+    .unwrap();
 
     let now = chrono::Utc::now().timestamp();
     let expires_at: i64 = conn
@@ -462,7 +477,10 @@ fn test_write_to_sqlite_custom_ttl_days() {
     let events = vec![make_event("short ttl", MiningEventCategory::Error)];
     let entities = vec![vec![]];
     let custom_ttl: i64 = 30;
-    write_to_sqlite(&conn, "sess-1", "a1", &events, &entities, custom_ttl).unwrap();
+    write_to_sqlite(
+        &conn, "sess-1", "a1", &events, &entities, custom_ttl, custom_ttl,
+    )
+    .unwrap();
 
     let now = chrono::Utc::now().timestamp();
     let expires_at: i64 = conn
