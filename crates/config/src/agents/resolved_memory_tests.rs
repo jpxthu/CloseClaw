@@ -198,9 +198,10 @@ fn test_merge_memory_full_agent_override() {
     assert_eq!(merged.search.context_turns, Some(2));
 
     assert_eq!(merged.storage.db_path.as_deref(), Some("agent/db.sqlite"));
+    // memory_md_path is always global (design doc: "globally shared single rules file")
     assert_eq!(
         merged.storage.memory_md_path.as_deref(),
-        Some("agent/NOTES.md")
+        Some("global/MEMORY.md")
     );
 }
 
@@ -312,6 +313,29 @@ fn test_merge_memory_dreaming_scoring_override() {
     // Other scoring weights inherit global defaults (not overridden by agent)
     assert_eq!(merged.dreaming.scoring.recency_weight, Some(0.5));
     assert_eq!(merged.dreaming.scoring.explicitness_weight, Some(1.5));
+}
+
+// --- memory_md_path is always global (design doc: globally shared single rules file) ---
+
+#[test]
+fn test_merge_memory_md_path_ignores_agent_override() {
+    let global = make_global_memory();
+    let agent = MemoryConfig {
+        storage: MemoryStorageConfig {
+            db_path: Some("agent/db.sqlite".into()),
+            memory_md_path: Some("agent/NOTES.md".into()),
+        },
+        ..Default::default()
+    };
+    let merged = global.merge_overrides(&agent);
+
+    // db_path overridden per-agent
+    assert_eq!(merged.storage.db_path.as_deref(), Some("agent/db.sqlite"));
+    // memory_md_path always global — agent override is ignored
+    assert_eq!(
+        merged.storage.memory_md_path.as_deref(),
+        Some("global/MEMORY.md")
+    );
 }
 
 // --- from_single with memory ---
