@@ -580,6 +580,71 @@ pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError>
 
 /// Write events and entities to SQLite.
 ///
+/// Extend `expires_at` on an existing event row (re-identify path).
+///
+/// Returns an error if the `UPDATE` matched zero rows, which indicates a
+/// stale or invalid `existing_id`.
+fn extend_reidentified_event(
+    conn: &rusqlite::Connection,
+    existing_id: i64,
+    extension_days: i64,
+) -> Result<(), MinerError> {
+    let now = Utc::now().timestamp();
+    let extension = extension_days * 86400;
+    let changed = conn
+        .execute(
+            "UPDATE events SET expires_at = MAX(expires_at, ?1) + ?2 WHERE id = ?3",
+            params![now, extension, existing_id],
+        )
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    if changed == 0 {
+        return Err(MinerError::Sqlite(format!(
+            "re-identify UPDATE matched 0 rows for event id={existing_id}"
+        )));
+    }
+    Ok(())
+}
+
+/// Upsert entities and link them to a newly inserted event.
+fn assign_entities_to_event(
+    conn: &rusqlite::Connection,
+    agent_id: &str,
+    event_id: i64,
+    entities: &[MiningEntity],
+) -> Result<(), MinerError> {
+    for entity in entities {
+        let norm_name = normalize_entity_name(&entity.name);
+        conn.execute(
+            "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                agent_id,
+                entity.entity_type,
+                entity.name,
+                norm_name,
+                entity.description
+            ],
+        )
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        let entity_id: i64 = conn
+            .query_row(
+                "SELECT id FROM entities
+                 WHERE agent_id = ?1
+                 AND type = ?2
+                 AND normalized_name = ?3",
+                params![agent_id, entity.entity_type, norm_name],
+                |row| row.get(0),
+            )
+            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
+            params![event_id, entity_id],
+        )
+        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    }
+    Ok(())
+}
+
 /// When `reidentified_event_id` is `Some(id)`, the event is treated as
 /// a re-occurrence: `expires_at` on the existing row is extended by
 /// `reidentify_extension_days` and no new row is inserted.  Otherwise
@@ -593,21 +658,14 @@ pub(crate) fn write_to_sqlite(
     initial_ttl_days: i64,
     reidentify_extension_days: i64,
 ) -> Result<(), MinerError> {
+    let now = Utc::now().timestamp();
     for (event, event_entities) in events.iter().zip(entities.iter()) {
         if let Some(existing_id) = event.reidentified_event_id {
-            // Re-identify: extend expires_at instead of inserting.
-            let extension = reidentify_extension_days * 86400;
-            let now = Utc::now().timestamp();
-            conn.execute(
-                "UPDATE events SET expires_at = MAX(expires_at, ?1) + ?2 WHERE id = ?3",
-                params![now, extension, existing_id],
-            )
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            extend_reidentified_event(conn, existing_id, reidentify_extension_days)?;
             continue;
         }
 
-        let ts = Utc::now().timestamp();
-        let expires_at = ts + initial_ttl_days * 86400;
+        let expires_at = now + initial_ttl_days * 86400;
         let event_id: i64 = conn
             .query_row(
                 "INSERT INTO events (title, summary, content,
@@ -622,45 +680,20 @@ pub(crate) fn write_to_sqlite(
                     event.lesson,
                     session_id,
                     agent_id,
-                    ts,
+                    now,
                     expires_at,
                 ],
                 |row| row.get(0),
             )
             .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-
-        for entity in event_entities {
-            let norm_name = normalize_entity_name(&entity.name);
-            conn.execute(
-                "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![agent_id, entity.entity_type, entity.name, norm_name, entity.description],
-            )
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-            let entity_id: i64 = conn
-                .query_row(
-                    "SELECT id FROM entities 
-                     WHERE agent_id = ?1 
-                     AND type = ?2 
-                     AND normalized_name = ?3",
-                    params![agent_id, entity.entity_type, norm_name],
-                    |row| row.get(0),
-                )
-                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-            conn.execute(
-                "INSERT OR IGNORE INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
-                params![event_id, entity_id],
-            )
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-        }
+        assign_entities_to_event(conn, agent_id, event_id, event_entities)?;
     }
 
     // Mark session as mined so dreaming can JOIN on it.
-    let mined_at = Utc::now().timestamp();
     conn.execute(
         "INSERT INTO sessions (id, mined, mined_at) VALUES (?1, 1, ?2)
          ON CONFLICT(id) DO UPDATE SET mined = 1, mined_at = ?2",
-        params![session_id, mined_at],
+        params![session_id, now],
     )
     .map_err(|e| MinerError::Sqlite(e.to_string()))?;
 
