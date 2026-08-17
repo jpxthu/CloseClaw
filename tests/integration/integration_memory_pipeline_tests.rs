@@ -207,13 +207,17 @@ impl MinerLlmCaller for MockMinerLlm {
 
 /// Create a temp dir, SqliteStorage-backed miner, and dreaming pipeline
 /// configured for integration testing.
-fn setup(miner_llm: Box<dyn MinerLlmCaller>) -> (TempDir, MemoryMiner, DreamingPipeline) {
-    setup_with_config(miner_llm, MinerConfig::default())
+fn setup(
+    miner1_llm: Box<dyn MinerLlmCaller>,
+    miner2_llm: Box<dyn MinerLlmCaller>,
+) -> (TempDir, MemoryMiner, DreamingPipeline) {
+    setup_with_config(miner1_llm, miner2_llm, MinerConfig::default())
 }
 
 /// Like [`setup`] but accepts a custom [`MinerConfig`].
 fn setup_with_config(
-    miner_llm: Box<dyn MinerLlmCaller>,
+    miner1_llm: Box<dyn MinerLlmCaller>,
+    miner2_llm: Box<dyn MinerLlmCaller>,
     miner_config: MinerConfig,
 ) -> (TempDir, MemoryMiner, DreamingPipeline) {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -226,7 +230,8 @@ fn setup_with_config(
 
     let miner = MemoryMiner::new(
         miner_config,
-        miner_llm,
+        miner1_llm,
+        miner2_llm,
         &db_path,
         memory_md_path.to_str().unwrap(),
     );
@@ -287,6 +292,7 @@ fn make_archived_checkpoint(
 #[tokio::test]
 async fn test_full_pipeline_transcript_to_memory_md() {
     let (tmp, miner, dreaming) = setup_with_config(
+        Box::new(MockMinerLlm::single_error_event()),
         Box::new(MockMinerLlm::single_error_event()),
         test_miner_config(),
     );
@@ -387,7 +393,10 @@ async fn test_full_pipeline_transcript_to_memory_md() {
 /// Edge case: empty transcript produces no events.
 #[tokio::test]
 async fn test_empty_transcript_no_events() {
-    let (_tmp, miner, _dreaming) = setup(Box::new(MockMinerLlm::empty()));
+    let (_tmp, miner, _dreaming) = setup(
+        Box::new(MockMinerLlm::empty()),
+        Box::new(MockMinerLlm::empty()),
+    );
     let storage = Arc::new(TestPersistence::default());
 
     // Checkpoint with no pending messages (empty transcript).
@@ -418,8 +427,11 @@ async fn test_empty_transcript_no_events() {
 /// Edge case: LLM failure during mining degrades gracefully.
 #[tokio::test]
 async fn test_llm_failure_during_mining() {
-    let (_tmp, miner, _dreaming) =
-        setup_with_config(Box::new(MockMinerLlm::failing()), test_miner_config());
+    let (_tmp, miner, _dreaming) = setup_with_config(
+        Box::new(MockMinerLlm::failing()),
+        Box::new(MockMinerLlm::empty()),
+        test_miner_config(),
+    );
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello"), ("assistant", "hi")];
@@ -486,7 +498,30 @@ async fn test_duplicate_events_deduplicated() {
         fail_assign: false,
     };
 
-    let (tmp, miner, _dreaming) = setup_with_config(Box::new(llm), test_miner_config());
+    let llm2 = MockMinerLlm {
+        events: Vec::new(),
+        entities: vec![
+            vec![MiningEntity {
+                entity_type: "subject".into(),
+                name: "same event testing".into(),
+                description: "dedup".into(),
+                existing_id: None,
+            }],
+            vec![MiningEntity {
+                entity_type: "subject".into(),
+                name: "same event testing".into(),
+                description: "dedup".into(),
+                existing_id: None,
+            }],
+        ],
+        fail_extract: false,
+        fail_assign: false,
+    };
+    let (tmp, miner, _dreaming) = setup_with_config(
+        Box::new(llm),
+        Box::new(llm2),
+        test_miner_config(),
+    );
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello"), ("assistant", "hi")];
@@ -531,7 +566,10 @@ async fn test_duplicate_events_deduplicated() {
 /// Edge case: already-mined session is skipped.
 #[tokio::test]
 async fn test_already_mined_session_skipped() {
-    let (_tmp, miner, _dreaming) = setup(Box::new(MockMinerLlm::single_error_event()));
+    let (_tmp, miner, _dreaming) = setup(
+        Box::new(MockMinerLlm::single_error_event()),
+        Box::new(MockMinerLlm::empty()),
+    );
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello")];
@@ -566,7 +604,10 @@ async fn test_already_mined_session_skipped() {
 /// Edge case: dreaming with no mined sessions is a no-op.
 #[tokio::test]
 async fn test_dreaming_no_mined_sessions_noop() {
-    let (_tmp, _miner, dreaming) = setup(Box::new(MockMinerLlm::empty()));
+    let (_tmp, _miner, dreaming) = setup(
+        Box::new(MockMinerLlm::empty()),
+        Box::new(MockMinerLlm::empty()),
+    );
     let storage = Arc::new(TestPersistence::default());
 
     // No sessions at all — dreaming should succeed without error.
