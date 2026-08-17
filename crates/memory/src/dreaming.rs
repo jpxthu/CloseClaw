@@ -79,6 +79,7 @@ pub enum EntryCategory {
     Error,
     Anger,
     Decision,
+    Insight,
 }
 
 /// Errors specific to the dreaming pipeline.
@@ -354,6 +355,7 @@ impl DreamingPipeline {
                 "error" => EntryCategory::Error,
                 "anger" => EntryCategory::Anger,
                 "decision" => EntryCategory::Decision,
+                "insight" => EntryCategory::Insight,
                 _ => continue,
             };
 
