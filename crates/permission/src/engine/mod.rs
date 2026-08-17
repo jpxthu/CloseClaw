@@ -2,15 +2,18 @@
 //!
 //! Runs as a separate OS process, evaluates access rules for agents.
 
+pub mod audit_log;
 pub mod engine_chain;
 pub mod engine_check;
 pub mod engine_eval;
 pub mod engine_helpers;
 pub mod engine_matching;
+pub mod engine_mode_filter;
 pub mod engine_risk;
 pub mod engine_spawn;
 pub mod engine_types;
 pub mod engine_workspace;
+pub mod jsonl_writer;
 pub mod rejection_log;
 
 pub use engine_eval::PermissionEngine;
@@ -21,6 +24,11 @@ pub use engine_types::{
     PermissionRequestBody, PermissionResponse, Rule, RuleSet, Subject, TemplateRef,
 };
 pub use engine_workspace::is_config_file_path;
+pub use audit_log::{
+    build_audit_log, AuditDisposition, AuditLogEntry, AuditLogger,
+    FileAuditLogger,
+};
+pub use jsonl_writer::JsonlFileWriter;
 pub use rejection_log::{build_rejection_log, FileRejectionLogger, RejectionLog, RejectionLogger};
 
 #[cfg(test)]
@@ -52,6 +60,9 @@ mod engine_auto_mode_tests;
 
 #[cfg(test)]
 mod engine_rejection_log_tests;
+
+#[cfg(test)]
+mod engine_audit_log_tests;
 
 #[cfg(test)]
 mod engine_matching_tests;

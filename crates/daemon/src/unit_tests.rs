@@ -134,7 +134,7 @@ fn test_build_permission_engine_empty_dir() {
     let dir = TempDir::new().unwrap();
     // Config dir has no templates/ subdirectory — engine should initialize
     // without error and contain the correct user_defaults.
-    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap());
+    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap(), None);
     let guard = engine.blocking_read();
     let rs = guard.rules();
     assert!(rs.rules.is_empty(), "no templates should yield empty rules");
@@ -170,7 +170,7 @@ fn test_build_permission_engine_with_templates_dir() {
     });
     std::fs::write(&template_path, template_json.to_string()).unwrap();
 
-    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap());
+    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap(), None);
     // Should create without panic; engine has 1 rule from template
     assert!(Arc::ptr_eq(&engine, &engine)); // just check it's a valid Arc
 }
