@@ -812,7 +812,7 @@ impl SessionMessageHandler {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use closeclaw_common::ContentBlock;
     use closeclaw_llm::ProviderModelKnowledge;
@@ -836,6 +836,20 @@ mod tests {
         params: &super::VerifyInjectParams,
     ) {
         super::SessionMessageHandler::inject_verify_message(cs, params)
+    }
+
+    /// Test wrapper: expose `maybe_inject_workflow_verify` for integration tests.
+    pub(crate) async fn test_maybe_inject_workflow_verify(
+        session_manager: &Arc<crate::SessionManager>,
+        session_id: &str,
+        gateway: Option<&Arc<crate::Gateway>>,
+    ) {
+        super::SessionMessageHandler::maybe_inject_workflow_verify(
+            session_manager,
+            session_id,
+            gateway,
+        )
+        .await;
     }
 
     // ── helpers ──────────────────────────────────────────────────────
