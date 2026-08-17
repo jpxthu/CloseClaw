@@ -77,15 +77,15 @@ Session 的整体状态由四维组合判定：
 
 ### 停止入口
 
-停止操作统一支持两种模式：
+停止操作按执行方式分两种模式，由触发入口携带：
 
-- **Graceful（默认）**：等待 in-flight 操作完成后再停。等待中的工具调用允许自然完成，当前的 LLM turn 允许执行完毕。超时后不强制终止，而是向调用方报告进度和等待项。适用场景：Daemon 首次 SIGTERM、用户 `/stop`
-- **Forceful**：立即终止所有操作。工具进程直接 kill，LLM 请求直接 cancel。调用方接受数据不一致风险。适用场景：Daemon 重复 SIGTERM 或 SIGINT、用户 `/stop --force`
+- **Graceful**：等待 in-flight 操作完成后再停。等待中的工具调用允许自然完成，当前的 LLM turn 允许执行完毕。超时后不强制终止，而是向调用方报告进度和等待项。适用场景：Daemon 首次 SIGTERM
+- **Forceful**：立即终止所有操作。工具进程直接 kill，LLM 请求直接 cancel。调用方接受数据不一致风险。适用场景：Daemon 重复 SIGTERM 或 SIGINT、用户 `/stop`
 
-三种停止入口：
+三种停止入口，均级联终止子 session：
 
-- **斜杠指令**（`/stop`）：用户在 session 内输入，停当前 session。支持 `--cascade`（级联子 session）和 `--force`（强制终止）标记，可组合使用
-- **父 session 停止**：父 session 被停时，对子 session 采用相同的停止模式（graceful 或 forceful）
+- **斜杠指令**（`/stop`）：用户在 session 内输入，强制终止当前运行。/stop 为 Immediate 指令（指令分发属性，非停止模式）——绕过统一消息队列立即分发，LLM 运行中立即生效。无参数、无标记，固定 Forceful 语义：级联终止所有子 session、终止全部工具进程（前台+后台）、cancel 进行中的 LLM 请求、清空统一消息队列中的排队消息。停止后四维执行状态归零、session 转为 idle 待命——`/stop` 停止运行、不结束会话，对话历史完整保留，用户可继续对话（会话结束统一走归档，见 [session-lifecycle.md](session-lifecycle.md)）
+- **父 session 停止**：父 session 被停时，对所有子 session 采用相同的模式和语义级联停止
 - **系统关闭**：由 Daemon 触发，调用 SessionManager 统一关闭所有活跃 session。SessionManager 内部负责 session 树遍历和停止顺序，Daemon 只传模式参数和超时。所有 session 关闭完毕后，未在超时内完成的 session 留有未清除的 pending_operations——下次启动时由恢复扫描检测为 dirty 并注入恢复通知
 
 ### 统一消息队列
@@ -186,15 +186,32 @@ Session resume（从 archived 恢复）
 ### 停止流程
 
 ```
-触发停止（/stop 或级联或系统关闭）
+触发停止（/stop、级联停止或系统关闭）
   ↓
-  确定模式
+  确定模式：/stop 固定 Forceful；系统关闭由 Daemon 按信号判定；
+  级联停止继承父 session 的模式
 
-Graceful 模式：
+Forceful 模式（/stop、Daemon 重复信号）：
+  →
+  1. 遍历子 session，对每个递归 force 停止
+  ↓
+  2. 杀工具进程：遍历所有活跃工具调用 → 全部 kill
+  ↓
+  3. cancel LLM 请求
+  ↓
+  4. 清理运行时状态：清空内存中的工具状态和子 session 状态（进程句柄、运行时跟踪），不涉及 checkpoint 持久化字段——pending_operations 保持原样，下次启动由恢复扫描处理。LLM 状态置 Idle
+  ↓
+  5. 清空统一消息队列（仅 /stop 入口）：排队消息全部丢弃
+  ↓
+  6. 持久化对话记录和元数据
+     /stop 入口：session 保留，转为 idle 待命，SessionManager 不移除引用
+     系统关闭入口：SessionManager 移除运行时引用
+
+Graceful 模式（Daemon 首次 SIGTERM）：
   →
   1. 暂停外部输入：停止接受新消息，暂停触发新自主 turn
   ↓
-  2. 若 cascade：遍历子 session，对每个递归 graceful 停止
+  2. 遍历子 session，对每个递归 graceful 停止
   ↓
   3. 等待 in-flight 操作完成：
       ├─ 当前 LLM stream → 收完
@@ -209,18 +226,6 @@ Graceful 模式：
   ↓
   5. 清理：清空工具状态、清空子 session 状态、LLM 状态置 Idle
      SessionManager 移除运行时引用 → 持久化对话记录和元数据
-
-Forceful 模式：
-  →
-  1. 若 cascade：遍历子 session，对每个递归 force 停止
-  ↓
-  2. 杀工具进程：遍历所有活跃工具调用 → 全部 kill
-  ↓
-  3. cancel LLM 请求
-  ↓
-  4. 清理运行时状态：清空内存中的工具状态和子 session 状态（进程句柄、运行时跟踪），不涉及 checkpoint 持久化字段——pending_operations 保持原样，下次启动由恢复扫描处理。LLM 状态置 Idle
-  ↓
-  5. 持久化对话记录和元数据
 ```
 
 系统关闭时，SessionManager 遍历所有活跃 session 构建父子树，叶子→根顺序、同级 session 并行停止，级联机制同步处理子 session。

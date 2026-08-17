@@ -59,7 +59,7 @@ TerminalRenderer 接收 ContentBlock[]（定义见 [common ContentBlock](../comm
 
 用户通过 `--agent-id` 指定目标 agent。agent 级别的 session 隔离由 per-agent SessionManager 提供——不同 agent 各自维护独立的 key_registry 和 session 集合，同一用户对不同 agent 的对话天然隔离，无需 agent_id 参与 session_key 计算。
 
-通过 `/stop` 斜杠指令终止会话；不活跃的 session 由 SessionManager 自动归档。
+通过 `/stop` 斜杠指令强制终止当前运行（固定 Forceful，级联终止子 session；停运行不停会话，详见 [slash/session-management.md](../slash/session-management.md)）；不活跃的 session 由 SessionManager 自动归档。
 
 ## 数据流
 
@@ -73,7 +73,7 @@ Processor Chain 入站
   ├── SessionRouter：根据平台、用户和端点计算 session key
   └── ContentNormalizer：文本标准化（去除控制字符和 ANSI 转义序列、压缩空行、去尾空格）
   ↓
-Processor Chain 出产的处理后消息 → Gateway 路由
+Processor Chain 产出的处理后消息 → Gateway 路由
   ├── / 开头 → SlashDispatcher（与飞书等渠道共享同一套）
   └── 普通文本 → Session → LLM → ContentBlock[]
   ↓

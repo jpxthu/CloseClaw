@@ -88,8 +88,8 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 
     **idle（输入就绪）**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新输入。background_tool_active 和 child_active 不影响 idle 判定。
 
-    **inactive（归档判定）**：四维均为 false 且距上次用户活动超过 idle 时长——触发归档。后两维（background_tool_active、child_active）为 true 时阻断归档，四维任一为 true 时 session 不被判定为 inactive。llm_active 是 llm_state 的布尔投影：llm_state 在 Requesting 或 Receiving 时 llm_active 为真，Idle 时为假。llm_state 自身有三态内部状态机（Idle / Requesting / Receiving），详见 [session-execution.md](session-execution.md) 四维执行状态节。
-  - **级联停止**：级联停止是通用机制——当触发级联停止时，递归停止其所有子 Session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。具体行为受停止模式影响：Graceful 模式等待 in-flight 操作完成后停（级联子 Session 纳入超时保护），Forceful 模式立即终止。是否启用级联由调用方决定：`/stop` 默认不级联（仅停当前 session），`--cascade` 标记启用级联；父 session 停止和系统关闭对所有子 Session 执行相同模式的级联停止。
+    **inactive（归档判定）**：四维均为 false 且距上次用户活动超过配置的 inactive 时长——触发归档。与 idle 判定的区别：background_tool_active、child_active 不影响 idle（session 可继续接收输入），但四维任一为 true 时 session 不被判定为 inactive——后台工具和子 Session 稍后还会注入消息，不能归档。llm_active 是 llm_state 的布尔投影：llm_state 在 Requesting 或 Receiving 时 llm_active 为真，Idle 时为假。llm_state 自身有三态内部状态机（Idle / Requesting / Receiving），详见 [session-execution.md](session-execution.md) 四维执行状态节。
+  - **级联停止**：级联停止是通用机制——当触发级联停止时，递归停止其所有子 Session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。具体行为受停止模式影响：Graceful 模式等待 in-flight 操作完成后停（级联子 Session 纳入超时保护），Forceful 模式立即终止。所有停止入口（/stop、父 session 停止、系统关闭）均级联终止子 Session，无「仅停单个 session」的模式（见 [session-execution.md](session-execution.md) 停止入口节）。
   - **后台结果注入**：后台工具完成或子 Session 完成时，结果通过优先级消息队列（now > next > later）作为消息注入对话流，agent 在下一轮 turn 中消费。
   - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Session 生成"⏳ 正在排队..."提示语，经 Gateway 系统通知接口发送。斜杠指令由 Gateway 层拦截路由至 SlashDispatcher（详见 [Gateway 路由决策](../gateway/README.md)），不进入此队列。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
 
@@ -169,17 +169,15 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 
 停止支持 Graceful 和 Forceful 两种模式。Graceful 等待 in-flight 操作完成后停止，超时后报告进度不强制 kill；Forceful 立即终止所有操作。停止入口有三种（详见 [session-execution.md](session-execution.md) 停止入口节）：
 
-- **斜杠指令**（`/stop`）：用户在 session 内输入，停当前 session。支持 `--cascade`（级联子 Session）和 `--force`（强制终止）标记
-- **父 session 停止**：父 session 被停时，对子 Session 采用相同的停止模式
+- **斜杠指令**（`/stop`）：用户在 session 内输入，强制终止当前运行（固定 Forceful）：级联终止子 Session、终止全部工具进程、cancel LLM 请求、清空消息队列。停止后 session 转 idle 待命，不结束会话
+- **父 session 停止**：父 session 被停时，对所有子 session 采用相同的模式和语义级联停止
 - **系统关闭**：由 Daemon 触发，委托 SessionManager 统一关闭所有活跃 session。Daemon 不直接操作单个 session。首个信号为 Graceful，重复信号为 Forceful
 
 ### Session 结束路径
 
-两种结束路径：
-- **主动结束**：用户关闭会话或 `/stop`，SessionManager 移除运行时引用，CheckpointManager 最终保存。
-- **强制归档**：Sweeper 检测用户不活跃超时（last_user_activity_at 超过配置的 idle 时长）→ 检查四维活跃维度均为 false。若有活跃子 Session（child_active 为 true），父 Session 不被判定为 inactive，跳过本次归档；若因系统错误被归档，记录告警日志并丢弃该子 Session 的完成通知 → 状态置为 migrating → transcript 移入 archived_sessions/ → 状态更新为 archived。分两步写入以覆盖崩溃窗口：先置 migrating，移动文件后再置 archived，避免移动过程中崩溃导致 session 状态不可恢复。Sweeper 不通知 SessionManager——映射表在下次 lookup 命中时通过 status 校验感知到归档，自行移除已失效条目。
+会话结束路径（会话结束统一走闲置归档，`/stop` 只停运行不结束会话）：
+- **闲置归档**：用户不再使用后，Sweeper 检测用户不活跃超时（last_user_activity_at 超过配置的 inactive 时长）→ 检查四维活跃维度均为 false。若有活跃子 Session（child_active 为 true），父 Session 不被判定为 inactive，跳过本次归档；若因系统错误被归档，记录告警日志并丢弃该子 Session 的完成通知 → 状态置为 migrating → transcript 移入 archived_sessions/ → 状态更新为 archived。分两步写入以覆盖崩溃窗口：先置 migrating，移动文件后再置 archived，避免移动过程中崩溃导致 session 状态不可恢复。Sweeper 不通知 SessionManager——映射表在下次 lookup 命中时通过 status 校验感知到归档，自行移除已失效条目。`/stop` 不属于会话结束：它停止运行、不结束会话，session 保留待命，会话结束统一走闲置归档
 - **自动清理**：Sweeper 检测 archived 超过 purge TTL → 删除元数据 + transcript 文件。
-
 ### 重启恢复
 
 Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=active 的 session），然后执行启动恢复扫描：对存在未完成操作（PendingOperation）的 active session 注入恢复通知；同时扫描 status=migrating 的 session——其中残留未完成操作的恢复为 active 并重新注册到映射表，无未完成操作的则完成归档（transcript 移至 archived_sessions/，状态更新为 archived）。OutboundMessage 类未完成操作由系统自动重投递，ToolCall 和 SubSessionSpawn 类未完成操作注入恢复通知，由 LLM 自主决定处理。详细设计见 [session-recovery.md](session-recovery.md)。
@@ -218,7 +216,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 
   | 类别 | 涉及 Session 的操作 |
   |------|-------------------|
-  | 会话生命周期 | `/new` 创建新 session、`/stop` 终止运行（默认仅停当前 session，`--cascade` 标记启用级联终止子 Session） |
+  | 会话生命周期 | `/new` 创建新 session、`/stop` 强制终止当前运行（级联终止子 Session，session 保留待命） |
   | 工作目录 | `/cd` `/pwd` `/git` 读写 working directory |
   | 模式控制 | `/plan` `/mode` `/execute` 切换对话模式，模式标记由 Session 持久化（见下） |
   | 推理控制 | `/reasoning` 设置推理深度 |
