@@ -39,5 +39,6 @@ pub(crate) fn make_entity(name: &str, typ: &str) -> MiningEntity {
         entity_type: typ.to_string(),
         name: name.to_string(),
         description: format!("Desc of {name}"),
+        existing_id: None,
     }
 }
