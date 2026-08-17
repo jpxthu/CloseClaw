@@ -3,6 +3,7 @@
 use super::{Daemon, Phase5Deps};
 use closeclaw_config::SystemConfigData;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig};
+use closeclaw_permission::engine::audit_log::{AuditLogger, FileAuditLogger};
 use closeclaw_permission::engine::rejection_log::FileRejectionLogger;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
@@ -12,14 +13,16 @@ use tracing::{error, info, warn};
 impl Daemon {
     /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
-        let permission_engine = Self::build_permission_engine(config_dir);
-        Self::start_with_engine(config_dir, permission_engine).await
+        let audit_logger = Self::create_audit_logger(config_dir);
+        let permission_engine = Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
+        Self::start_with_engine(config_dir, permission_engine, audit_logger).await
     }
 
     /// Start the daemon with a custom permission engine (useful for testing).
     pub async fn start_with_engine(
         config_dir: &str,
         permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+        audit_logger: Option<Arc<dyn AuditLogger>>,
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
@@ -66,6 +69,7 @@ impl Daemon {
             &permission_engine,
             &config_manager,
             config_dir,
+            audit_logger,
         )
         .await;
         let (
@@ -623,6 +627,7 @@ impl Daemon {
     /// injected via [`PermissionEngine::with_rejection_logger`].
     pub(crate) fn build_permission_engine(
         config_dir: &str,
+        audit_logger: Option<Arc<dyn AuditLogger>>,
     ) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let rule_set = RuleSet {
             rules: Vec::new(),
@@ -651,6 +656,12 @@ impl Daemon {
         }
         // Inject rejection log logger if configured in system.json.
         let engine = Self::wire_rejection_logger(engine, config_dir);
+        // Inject audit log logger if provided.
+        let engine = if let Some(logger) = audit_logger {
+            engine.with_audit_logger(logger)
+        } else {
+            engine
+        };
         info!("Permission engine initialized");
         Arc::new(tokio::sync::RwLock::new(engine))
     }
@@ -693,6 +704,49 @@ impl Daemon {
             }
         }
         engine
+    }
+
+    /// Read `audit_log` config from `system.json` and create a
+    /// [`FileAuditLogger`] if configured.
+    fn create_audit_logger(config_dir: &str) -> Option<Arc<dyn AuditLogger>> {
+        let system_path = std::path::Path::new(config_dir).join("system.json");
+        if !system_path.exists() {
+            return None;
+        }
+        match SystemConfigData::from_file(&system_path) {
+            Ok(sys_cfg) => {
+                if let Some(audit_cfg) = sys_cfg.audit_log {
+                    let log_path = std::path::Path::new(config_dir)
+                        .join("logs")
+                        .join("audit.log");
+                    match FileAuditLogger::new_with_limit(log_path, audit_cfg.max_entries) {
+                        Ok(logger) => {
+                            info!(
+                                max_entries = ?audit_cfg.max_entries,
+                                "Audit log logger configured"
+                            );
+                            Some(Arc::new(logger))
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                "Failed to create audit log logger — continuing without"
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    "system.json not found or invalid — skipping audit log config"
+                );
+                None
+            }
+        }
     }
 
     /// Migrate legacy openclaw.json if present (non-fatal on error).

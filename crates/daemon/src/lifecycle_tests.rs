@@ -81,7 +81,7 @@ fn test_user_defaults_differs_from_engine_default() {
 #[test]
 fn test_build_permission_engine_user_defaults_are_all_deny() {
     let dir = TempDir::new().unwrap();
-    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap());
+    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap(), None);
     let guard = engine.blocking_read();
     let ud = &guard.rules().user_defaults;
 
@@ -102,7 +102,7 @@ fn test_build_permission_engine_user_defaults_are_all_deny() {
 #[test]
 fn test_build_permission_engine_user_defaults_not_engine_default() {
     let dir = TempDir::new().unwrap();
-    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap());
+    let engine = Daemon::build_permission_engine(dir.path().to_str().unwrap(), None);
     let guard = engine.blocking_read();
     let ud = &guard.rules().user_defaults;
 
