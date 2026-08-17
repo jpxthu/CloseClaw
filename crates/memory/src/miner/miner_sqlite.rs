@@ -531,7 +531,9 @@ pub(crate) fn load_existing_entities_by_type(
     for row in rows {
         let (id, typ, name, desc, norm_name) =
             row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
-        map.entry(typ).or_default().push((id, name, desc, norm_name));
+        map.entry(typ)
+            .or_default()
+            .push((id, name, desc, norm_name));
     }
     Ok(map)
 }
