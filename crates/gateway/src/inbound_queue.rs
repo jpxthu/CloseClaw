@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
+use super::inbound_wal::{InboundWal, InboundWalEntry};
 use super::Gateway;
 use closeclaw_common::MessageType;
-use super::inbound_wal::{InboundWal, InboundWalEntry};
 
 /// An inbound message awaiting processing.
 ///
@@ -288,6 +288,32 @@ fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
     );
 }
 
+/// Persist the inbound request to WAL if configured.
+///
+/// Failures are logged and do not block the enqueue path (best-effort
+/// durability, consistent with the webhook-ack-before-processing design).
+fn append_wal_if_configured(gateway: &Gateway, request: &InboundRequest) {
+    let Ok(wal_guard) = gateway.inbound_wal.lock() else {
+        return;
+    };
+    let Some(ref wal) = *wal_guard else {
+        return;
+    };
+    let entry = InboundWalEntry::new(
+        request.trace_id.clone(),
+        request.platform.clone(),
+        &request.raw_payload,
+        request.peer_id.clone(),
+    );
+    if let Err(e) = wal.append(&entry) {
+        tracing::warn!(
+            trace_id = %request.trace_id,
+            error = %e,
+            "WAL: append failed — continuing with in-memory queue"
+        );
+    }
+}
+
 pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
     ensure_trace_id(&mut request);
     let tx = match gateway
@@ -303,24 +329,7 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
         }
     };
 
-    // WAL: persist before sending to channel.
-    if let Ok(wal_guard) = gateway.inbound_wal.lock() {
-        if let Some(ref wal) = *wal_guard {
-            let entry = InboundWalEntry::new(
-                request.trace_id.clone(),
-                request.platform.clone(),
-                &request.raw_payload,
-                request.peer_id.clone(),
-            );
-            if let Err(e) = wal.append(&entry) {
-                tracing::warn!(
-                    trace_id = %request.trace_id,
-                    error = %e,
-                    "WAL: append failed — continuing with in-memory queue"
-                );
-            }
-        }
-    }
+    append_wal_if_configured(gateway, &request);
 
     // Create oneshot channel for dequeue ack.
     let (ack_tx, ack_rx) = oneshot::channel::<()>();

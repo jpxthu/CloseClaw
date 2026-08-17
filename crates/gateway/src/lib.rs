@@ -23,7 +23,7 @@ mod inbound_queue_test_utils;
 mod inbound_queue_tests;
 pub mod inbound_wal;
 #[cfg(test)]
-pub mod inbound_wal_tests;
+mod inbound_wal_tests;
 pub mod llm_caller_impl;
 mod memory;
 pub mod message;
@@ -295,7 +295,19 @@ impl Gateway {
         if let Ok(mut slot) = self.inbound_tx.lock() {
             *slot = Some(tx.clone());
         }
-        // Initialize WAL persistence if configured.
+        self.init_inbound_wal();
+        self.replay_wal_entries(&tx);
+        let wal = self
+            .inbound_wal
+            .lock()
+            .ok()
+            .and_then(|s| s.as_ref().cloned());
+        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity, wal);
+        inbound_queue::InboundQueueHandle::new(tx)
+    }
+
+    /// Open the inbound WAL directory if configured.
+    fn init_inbound_wal(&self) {
         if let Some(ref wal_dir) = self.config.inbound_wal_dir {
             match inbound_wal::InboundWal::open(wal_dir) {
                 Ok(wal) => {
@@ -312,93 +324,84 @@ impl Gateway {
                 }
             }
         }
-        // Replay unfinished WAL entries before starting the consumer.
-        // Deduplicate by trace_id (keep first occurrence per trace_id).
-        if let Ok(wal_guard) = self.inbound_wal.lock() {
-            if let Some(ref wal) = *wal_guard {
-                match wal.load_all() {
-                    Ok(entries) => {
-                        let mut seen = std::collections::HashSet::new();
-                        let mut replayed = 0u64;
-                        for entry in entries {
-                            if !seen.insert(entry.trace_id.clone()) {
-                                continue;
-                            }
-                            let payload = match entry.decoded_payload() {
-                                Ok(p) => p,
-                                Err(e) => {
-                                    tracing::warn!(
-                                        trace_id = %entry.trace_id,
-                                        error = %e,
-                                        "WAL replay: failed to decode payload — skipping"
-                                    );
-                                    continue;
-                                }
-                            };
-                            let req = inbound_queue::InboundRequest {
-                                platform: entry.platform,
-                                raw_payload: payload,
-                                peer_id: entry.peer_id,
-                                trace_id: entry.trace_id,
-                            };
-                            let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel::<()>();
-                            let queued = inbound_queue::QueuedInbound {
-                                request: req,
-                                ack_tx,
-                            };
-                            let trace_id = queued.request.trace_id.clone();
-                            let platform = queued.request.platform.clone();
-                            let peer_id = queued.request.peer_id.clone();
-                            if tx.try_send(queued).is_err() {
-                                tracing::warn!(
-                                    trace_id = %trace_id,
-                                    "WAL replay: queue full — dropping"
-                                );
-                                continue;
-                            }
-                            // Drop receiver — replayed messages have no producer waiting.
-                            drop(_ack_rx);
-                            replayed += 1;
-                            // Emit debug event for replayed message.
-                            {
-                                let guard = self
-                                    .debug_log
-                                    .read()
-                                    .unwrap_or_else(|e| e.into_inner());
-                                debug_log_emitter::emit_debug_event(
-                                    guard.as_ref(),
-                                    &trace_id,
-                                    None,
-                                    closeclaw_debug_log::LogLevel::Info,
-                                    "gateway",
-                                    "queue.replayed",
-                                    serde_json::json!({
-                                        "platform": platform,
-                                        "peer_id": peer_id,
-                                    }),
-                                );
-                            }
-                        }
-                        if replayed > 0 {
-                            tracing::info!(count = replayed, "WAL replay complete");
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "WAL replay: failed to load entries"
-                        );
-                    }
+    }
+
+    /// Replay unfinished WAL entries into the inbound channel.
+    ///
+    /// Loads all WAL entries, deduplicates by trace_id, and sends each
+    /// unfinished entry into the provided channel. Emits a `queue.replayed`
+    /// debug event per replayed message.
+    fn replay_wal_entries(&self, tx: &mpsc::Sender<inbound_queue::QueuedInbound>) {
+        let wal_guard = match self.inbound_wal.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        let Some(ref wal) = *wal_guard else {
+            return;
+        };
+        let entries = match wal.load_all() {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(error = %e, "WAL replay: failed to load entries");
+                return;
+            }
+        };
+        let mut seen = std::collections::HashSet::new();
+        let mut replayed = 0u64;
+        for entry in entries {
+            if !seen.insert(entry.trace_id.clone()) {
+                continue;
+            }
+            let payload = match entry.decoded_payload() {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!(
+                        trace_id = %entry.trace_id,
+                        error = %e,
+                        "WAL replay: failed to decode payload — skipping"
+                    );
+                    continue;
                 }
+            };
+            let req = inbound_queue::InboundRequest {
+                platform: entry.platform,
+                raw_payload: payload,
+                peer_id: entry.peer_id,
+                trace_id: entry.trace_id,
+            };
+            let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel::<()>();
+            let queued = inbound_queue::QueuedInbound {
+                request: req,
+                ack_tx,
+            };
+            let trace_id = queued.request.trace_id.clone();
+            let platform = queued.request.platform.clone();
+            let peer_id = queued.request.peer_id.clone();
+            if tx.try_send(queued).is_err() {
+                tracing::warn!(trace_id = %trace_id, "WAL replay: queue full — dropping");
+                continue;
+            }
+            drop(_ack_rx);
+            replayed += 1;
+            {
+                let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+                debug_log_emitter::emit_debug_event(
+                    guard.as_ref(),
+                    &trace_id,
+                    None,
+                    closeclaw_debug_log::LogLevel::Info,
+                    "gateway",
+                    "queue.replayed",
+                    serde_json::json!({
+                        "platform": platform,
+                        "peer_id": peer_id,
+                    }),
+                );
             }
         }
-        let wal = self
-            .inbound_wal
-            .lock()
-            .ok()
-            .and_then(|s| s.as_ref().cloned());
-        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity, wal);
-        inbound_queue::InboundQueueHandle::new(tx)
+        if replayed > 0 {
+            tracing::info!(count = replayed, "WAL replay complete");
+        }
     }
 
     /// Enqueue an inbound request into the bounded queue.

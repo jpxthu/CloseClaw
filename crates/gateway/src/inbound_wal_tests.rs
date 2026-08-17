@@ -194,23 +194,13 @@ fn test_open_creates_nested_directory() {
 #[test]
 fn test_binary_payload_base64_roundtrip() {
     let payload = b"\xff\xfe\x00binary\x01data";
-    let entry = InboundWalEntry::new(
-        "tr-bin".into(),
-        "test".into(),
-        payload,
-        "peer".into(),
-    );
+    let entry = InboundWalEntry::new("tr-bin".into(), "test".into(), payload, "peer".into());
     assert_eq!(entry.decoded_payload().unwrap(), payload);
 }
 
 #[test]
 fn test_empty_payload_base64_roundtrip() {
-    let entry = InboundWalEntry::new(
-        "tr-empty".into(),
-        "test".into(),
-        b"",
-        "peer".into(),
-    );
+    let entry = InboundWalEntry::new("tr-empty".into(), "test".into(), b"", "peer".into());
     assert_eq!(entry.decoded_payload().unwrap(), b"");
 }
 
@@ -282,7 +272,7 @@ impl SendCapturePlugin {
             sends: std::sync::Mutex::new(Vec::new()),
         }
     }
-#[allow(dead_code)]
+    #[allow(dead_code)]
     fn send_count(&self) -> usize {
         self.sends.lock().unwrap().len()
     }
@@ -474,7 +464,11 @@ fn test_restart_replay_deduplicates_trace_ids() {
         .iter()
         .filter(|e| seen.insert(e.trace_id.clone()))
         .collect();
-    assert_eq!(deduped.len(), 1, "duplicate trace_id should be deduplicated");
+    assert_eq!(
+        deduped.len(),
+        1,
+        "duplicate trace_id should be deduplicated"
+    );
     assert_eq!(deduped[0].trace_id, "tr-dup");
 }
 

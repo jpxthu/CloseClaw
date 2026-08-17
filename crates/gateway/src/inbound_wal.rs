@@ -49,12 +49,7 @@ pub struct InboundWalEntry {
 
 impl InboundWalEntry {
     /// Create a new pending entry from raw bytes.
-    pub fn new(
-        trace_id: String,
-        platform: String,
-        raw_payload: &[u8],
-        peer_id: String,
-    ) -> Self {
+    pub fn new(trace_id: String, platform: String, raw_payload: &[u8], peer_id: String) -> Self {
         Self {
             trace_id,
             platform,
@@ -162,16 +157,11 @@ impl InboundWal {
     /// entry.  A full rewrite is acceptable because:
     /// - Entries are removed promptly after processing.
     /// - The file is small (bounded by queue capacity).
-    pub fn mark_done_and_delete(
-        &self,
-        trace_id: &str,
-    ) -> Result<(), InboundWalError> {
+    pub fn mark_done_and_delete(&self, trace_id: &str) -> Result<(), InboundWalError> {
         let _guard = self.lock.lock().expect("WAL lock poisoned");
         let entries = self.read_entries_unlocked()?;
-        let remaining: Vec<&InboundWalEntry> = entries
-            .iter()
-            .filter(|e| e.trace_id != trace_id)
-            .collect();
+        let remaining: Vec<&InboundWalEntry> =
+            entries.iter().filter(|e| e.trace_id != trace_id).collect();
         self.write_entries_unlocked(&remaining)?;
         Ok(())
     }
@@ -180,9 +170,11 @@ impl InboundWal {
     pub fn dir(&self) -> &Path {
         &self.dir
     }
+}
 
-    // ── internal helpers (called while lock is held) ──────────
+// ── internal helpers (called while lock is held) ──────────────
 
+impl InboundWal {
     fn read_entries_unlocked(&self) -> Result<Vec<InboundWalEntry>, InboundWalError> {
         let file = match File::open(&self.file_path) {
             Ok(f) => f,
@@ -203,16 +195,16 @@ impl InboundWal {
             if let Ok(entry) = serde_json::from_str::<InboundWalEntry>(trimmed) {
                 entries.push(entry);
             } else {
-                tracing::warn!(line = idx + 1, "WAL: skipping malformed line during rewrite");
+                tracing::warn!(
+                    line = idx + 1,
+                    "WAL: skipping malformed line during rewrite"
+                );
             }
         }
         Ok(entries)
     }
 
-    fn write_entries_unlocked(
-        &self,
-        entries: &[&InboundWalEntry],
-    ) -> Result<(), InboundWalError> {
+    fn write_entries_unlocked(&self, entries: &[&InboundWalEntry]) -> Result<(), InboundWalError> {
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -318,12 +310,7 @@ mod tests {
     #[test]
     fn payload_base64_roundtrip() {
         let payload = b"\xff\xfe binary \x00 data";
-        let entry = InboundWalEntry::new(
-            "tr-bin".into(),
-            "test".into(),
-            payload,
-            "peer".into(),
-        );
+        let entry = InboundWalEntry::new("tr-bin".into(), "test".into(), payload, "peer".into());
         let decoded = entry.decoded_payload().unwrap();
         assert_eq!(decoded, payload);
     }
