@@ -31,7 +31,12 @@ pub trait MinerLlmCaller: Send + Sync {
     /// Extract mining events from a cleaned transcript.
     ///
     /// `transcript` is the cleaned session transcript in markdown format.
-    /// `existing_events` is a summary of recent events for dedup context.
+    /// `existing_events` is a summary of recent events for dedup context,
+    /// with each line prefixed by `[{id}]` so the LLM can reference
+    /// specific events. When the LLM identifies a new event as a
+    /// re-occurrence of an existing event, it should set
+    /// [`MiningEvent::reidentified_event_id`] to the existing event's ID
+    /// and leave `title`/`summary`/`body` as the new occurrence's data.
     /// `existing_memory` is the current MEMORY.md content for dedup.
     async fn extract_events(
         &self,
@@ -109,6 +114,7 @@ mod tests {
             body: format!("Body of {title}"),
             category,
             lesson: None,
+            reidentified_event_id: None,
         }
     }
 

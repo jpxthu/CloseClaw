@@ -8,8 +8,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use chrono::Utc;
-use rusqlite::params;
 use thiserror::Error;
 
 use closeclaw_config::agents::{
@@ -22,6 +20,9 @@ use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use crate::miner_llm::{MinerLlmCaller, MinerLlmError};
 use crate::miner_transcript::clean_transcript;
+
+mod miner_sqlite;
+pub(crate) use miner_sqlite::*;
 
 /// Errors specific to the memory-miner.
 #[derive(Debug, Error)]
@@ -89,6 +90,10 @@ pub struct MiningEvent {
     pub category: MiningEventCategory,
     /// Actionable lesson (required for Error/Anger, optional for Decision).
     pub lesson: Option<String>,
+    /// If set, the LLM identified this event as a re-occurrence of an
+    /// existing event. `write_to_sqlite` will extend `expires_at` on the
+    /// referenced event instead of inserting a new row.
+    pub reidentified_event_id: Option<i64>,
 }
 
 /// An entity assigned to an event by Miner 2.
@@ -203,7 +208,7 @@ impl Default for MinerConfig {
 /// code without holding a `rusqlite::Connection` across `.await` points.
 struct DbReadData {
     /// Recent events text for Miner 1 dedup context.
-    recent_events: String,
+    recent_events_text: String,
     /// Current MEMORY.md content for Miner 1 dedup context.
     memory_md: String,
     /// Entity/type catalog text for Miner 2.
@@ -323,6 +328,13 @@ impl MemoryMiner {
     /// Separates blocking SQLite operations from async LLM calls to
     /// ensure the `rusqlite::Connection` (which is not `Send`) is dropped
     /// before any `.await` point.
+    /// Read config, clean transcript, return (cleaned, dedup_days).
+    fn prepare_transcript(&self, raw_transcript: &str) -> Result<(String, i32), MinerError> {
+        let cfg = self.config.read().unwrap();
+        let cleaned = clean_transcript(raw_transcript, &cfg.clean_rules);
+        Ok((cleaned, cfg.dedup_window_days))
+    }
+
     async fn mine_session_inner(
         &self,
         session_id: &str,
@@ -331,116 +343,46 @@ impl MemoryMiner {
         _checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
         storage: &dyn PersistenceService,
     ) -> Result<MineResult, MinerError> {
-        let (cleaned, dedup_days) = {
-            let cfg = self.config.read().unwrap();
-            let cleaned = clean_transcript(raw_transcript, &cfg.clean_rules);
-            (cleaned, cfg.dedup_window_days)
-        };
+        let (cleaned, dedup_days) = self.prepare_transcript(raw_transcript)?;
         if cleaned.is_empty() {
             return Ok(MineResult {
                 events: Vec::new(),
                 entity_names: Vec::new(),
             });
         }
-
-        // ── Phase 1: Blocking SQLite reads ────────────────────────
-        // All Connection usage is confined to this closure; the
-        // connection is dropped before we hit any `.await`.
-        let db_path = self.db_path.clone();
-        let agent_id_owned = agent_id.to_string();
-        let memory_md_path = self.memory_md_path.clone();
-        let session_id_owned = session_id.to_string();
-
-        let db_data = tokio::task::spawn_blocking(move || -> Result<DbReadData, MinerError> {
-            let conn = rusqlite::Connection::open(&db_path)
-                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-            init_schema(&conn)?;
-
-            let recent_events =
-                load_recent_events(&conn, &session_id_owned, &agent_id_owned, dedup_days)?;
-            let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
-            let catalog = load_entity_catalog(&conn, &agent_id_owned)?;
-            let type_thresholds = load_entity_type_thresholds(&conn)?;
-
-            Ok(DbReadData {
-                recent_events,
-                memory_md,
-                catalog,
-                type_thresholds,
-            })
-        })
-        .await
-        .map_err(|e| MinerError::Sqlite(e.to_string()))??;
-
-        // ── Phase 2: Async LLM extraction (no Connection in scope) ─
+        let db_data = read_db_data(
+            &self.db_path,
+            session_id,
+            agent_id,
+            dedup_days,
+            &self.memory_md_path,
+        )
+        .await?;
         let events = self
-            .extract_events(&cleaned, &db_data.recent_events, &db_data.memory_md)
+            .extract_events(&cleaned, &db_data.recent_events_text, &db_data.memory_md)
             .await?;
-
-        // ── Phase 3: Async LLM entity assignment ──────────────────
         let mut entities = self.llm.assign_entities(&events, &db_data.catalog).await?;
-        for event_entities in &mut entities {
-            truncate_entity_names(event_entities);
+        for e in &mut entities {
+            truncate_entity_names(e);
         }
-
-        // ── Phase 3.5: Similarity threshold filtering ─────────────
-        // Build a shared corpus so all embeddings use the same vocabulary.
-        let mut corpus: Vec<String> = Vec::new();
-        for event in &events {
-            corpus.push(format!("{} {}", event.title, event.summary));
-        }
-        for event_entities in &entities {
-            for entity in event_entities {
-                corpus.push(format!("{} {}", entity.name, entity.description));
+        filter_entities_by_similarity(&events, &mut entities, &db_data.type_thresholds);
+        let write_cfg = {
+            let cfg = self.config.read().unwrap();
+            WriteConfig {
+                session_id,
+                agent_id,
+                events: &events,
+                entities: &entities,
+                initial_ttl_days: cfg.initial_ttl_days,
+                reidentify_extension_days: cfg.reidentify_extension_days,
             }
-        }
-        let corpus_refs: Vec<&str> = corpus.iter().map(|s| s.as_str()).collect();
-        let filter_embedder = NgramEmbedder::new(&corpus_refs);
-
-        for (event, event_entities) in events.iter().zip(entities.iter_mut()) {
-            let event_text = format!("{} {}", event.title, event.summary);
-            let event_emb = filter_embedder.embed(&event_text);
-            event_entities.retain(|entity| {
-                let threshold = db_data
-                    .type_thresholds
-                    .get(&entity.entity_type)
-                    .copied()
-                    .unwrap_or(0.80);
-                let entity_text = format!("{} {}", entity.name, entity.description);
-                let entity_emb = filter_embedder.embed(&entity_text);
-                cosine_similarity(&event_emb, &entity_emb) >= threshold
-            });
-        }
-
-        // ── Phase 4: Blocking SQLite writes ───────────────────────
-        let db_path = self.db_path.clone();
-        let agent_id_owned = agent_id.to_string();
-        let session_id_owned = session_id.to_string();
-        let events_clone = events.clone();
-        let entities_clone = entities.clone();
-        let initial_ttl_days = self.config.read().unwrap().initial_ttl_days;
-        tokio::task::spawn_blocking(move || -> Result<(), MinerError> {
-            let conn = rusqlite::Connection::open(&db_path)
-                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-            write_to_sqlite(
-                &conn,
-                &session_id_owned,
-                &agent_id_owned,
-                &events_clone,
-                &entities_clone,
-                initial_ttl_days,
-            )
-        })
-        .await
-        .map_err(|e| MinerError::Sqlite(e.to_string()))??;
-
+        };
+        write_mining_results(&self.db_path, &write_cfg).await?;
         storage.mark_mined(session_id).await?;
-
         let entity_names: Vec<Vec<String>> = entities
             .iter()
             .map(|es| es.iter().map(|e| e.name.clone()).collect())
             .collect();
-
         Ok(MineResult {
             events,
             entity_names,
@@ -483,319 +425,109 @@ impl MemoryMiner {
     }
 }
 
-// ── SQLite operations ─────────────────────────────────────────────────
+// ── Extracted mining phases ───────────────────────────────────────────
 
-/// Initialize the SQLite schema for mining tables.
+/// Phase 1: Blocking SQLite reads (spawn_blocking).
 ///
-/// Creates the `events`, `entities`, `event_entities`, and `entity_types`
-/// tables. The `entity_types` table is seeded with the 11 SAG entity types
-/// (INSERT OR IGNORE ensures idempotency).
-pub(crate) fn init_schema(conn: &rusqlite::Connection) -> Result<(), MinerError> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            summary TEXT NOT NULL,
-            content TEXT NOT NULL,
-            category TEXT NOT NULL,
-            lesson TEXT,
-            source_session_id TEXT NOT NULL,
-            agent_id TEXT NOT NULL DEFAULT '',
-            timestamp INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL DEFAULT 0,
-            expires_at INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS entities (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_id TEXT NOT NULL,
-            type TEXT NOT NULL,
-            name TEXT NOT NULL,
-            normalized_name TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            UNIQUE(agent_id, type, normalized_name)
-        );
-        CREATE TABLE IF NOT EXISTS event_entities (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id INTEGER NOT NULL,
-            entity_id INTEGER NOT NULL,
-            FOREIGN KEY (event_id) REFERENCES events(id),
-            FOREIGN KEY (entity_id) REFERENCES entities(id)
-        );
-        CREATE TABLE IF NOT EXISTS entity_types (
-            id INTEGER PRIMARY KEY,
-            type TEXT NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT,
-            weight REAL NOT NULL DEFAULT 1.0,
-            similarity_threshold REAL NOT NULL DEFAULT 0.80,
-            is_default INTEGER NOT NULL DEFAULT 0,
-            is_active INTEGER NOT NULL DEFAULT 1
-        );
-        INSERT OR IGNORE INTO entity_types (id, type, name, description, weight, similarity_threshold, is_default, is_active) VALUES
-            (1,  'time',         '时间',     '时间点、时期、日期、年份等时间表达', 1.0, 0.90, 0, 1),
-            (2,  'location',      '地点',     '国家、城市、地区、地点等物理位置', 1.0, 0.75, 0, 1),
-            (3,  'person',        '人物',     '人物和具名个体（含 agent 角色、用户身份）', 1.2, 0.80, 0, 1),
-            (4,  'organization',  '组织',     '公司、机构、团队等组织', 1.1, 0.80, 0, 1),
-            (5,  'subject',       '主题',     '主要主题、概念和课题', 1.5, 0.78, 1, 1),
-            (6,  'product',       '产品',     '产品、服务、项目和命名交付物', 1.1, 0.80, 0, 1),
-            (7,  'metric',        '指标',     '数字、指标、度量、金额和统计数据', 1.2, 0.85, 0, 1),
-            (8,  'action',        '动作',     '重要动作、变更、决策和操作', 1.3, 0.78, 1, 1),
-            (9,  'work',          '作品',     '创作物、文档、论文、书籍、报告', 1.0, 0.80, 0, 1),
-            (10, 'group',         '群体',     '群体、社区、受众和人口', 1.0, 0.78, 0, 1),
-            (11, 'tags',          '标签',     '兜底标签，当无特定类型匹配时使用', 0.5, 0.70, 1, 1);
-        CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY,
-            mined INTEGER NOT NULL DEFAULT 0,
-            mined_at INTEGER
-        );"
-    )
-    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-
-    // Idempotent migration: add expires_at column to existing databases.
-    // SQLite has no ADD COLUMN IF NOT EXISTS, so we catch the duplicate
-    // column error and ignore it.
-    match conn.execute(
-        "ALTER TABLE events ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
-        [],
-    ) {
-        Ok(_) => {}
-        Err(e) => {
-            let msg = e.to_string();
-            if !msg.contains("duplicate column") {
-                return Err(MinerError::Sqlite(msg));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Write events and entities to SQLite.
-pub(crate) fn write_to_sqlite(
-    conn: &rusqlite::Connection,
+/// Opens a temporary connection, initialises the schema, and loads
+/// recent events, MEMORY.md, the entity catalog, and type thresholds.
+/// The connection is dropped before any `.await`.
+async fn read_db_data(
+    db_path: &Path,
     session_id: &str,
     agent_id: &str,
-    events: &[MiningEvent],
-    entities: &[Vec<MiningEntity>],
-    initial_ttl_days: i64,
-) -> Result<(), MinerError> {
-    for (event, event_entities) in events.iter().zip(entities.iter()) {
-        let ts = Utc::now().timestamp();
-        let expires_at = ts + initial_ttl_days * 86400;
-        let event_id: i64 = conn
-            .query_row(
-                "INSERT INTO events (title, summary, content,
-                 category, lesson, source_session_id, agent_id, timestamp, updated_at, expires_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
-                 RETURNING id",
-                params![
-                    event.title,
-                    event.summary,
-                    event.body,
-                    event.category.to_string(),
-                    event.lesson,
-                    session_id,
-                    agent_id,
-                    ts,
-                    expires_at,
-                ],
-                |row| row.get(0),
-            )
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+    dedup_days: i32,
+    memory_md_path: &str,
+) -> Result<DbReadData, MinerError> {
+    let db_path = db_path.to_path_buf();
+    let session_id = session_id.to_string();
+    let agent_id = agent_id.to_string();
+    let memory_md_path = memory_md_path.to_string();
+    tokio::task::spawn_blocking(move || -> Result<DbReadData, MinerError> {
+        let conn =
+            rusqlite::Connection::open(&db_path).map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        init_schema(&conn)?;
+        let (recent_events_text, _recent_event_ids) =
+            load_recent_events(&conn, &session_id, &agent_id, dedup_days)?;
+        let memory_md = std::fs::read_to_string(&memory_md_path).unwrap_or_default();
+        let catalog = load_entity_catalog(&conn, &agent_id)?;
+        let type_thresholds = load_entity_type_thresholds(&conn)?;
+        Ok(DbReadData {
+            recent_events_text,
+            memory_md,
+            catalog,
+            type_thresholds,
+        })
+    })
+    .await
+    .map_err(|e| MinerError::Sqlite(e.to_string()))?
+}
 
+/// Phase 3.5: Filter entities by similarity threshold.
+///
+/// Builds a shared corpus from events and entities, embeds each
+/// entity, and retains only those whose cosine similarity to the
+/// parent event exceeds the per-type threshold.
+fn filter_entities_by_similarity(
+    events: &[MiningEvent],
+    entities: &mut [Vec<MiningEntity>],
+    type_thresholds: &HashMap<String, f64>,
+) {
+    let mut corpus: Vec<String> = Vec::new();
+    for event in events {
+        corpus.push(format!("{} {}", event.title, event.summary));
+    }
+    for event_entities in entities.iter() {
         for entity in event_entities {
-            let norm_name = normalize_entity_name(&entity.name);
-            conn.execute(
-                "INSERT OR IGNORE INTO entities (agent_id, type, name, normalized_name, description)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![agent_id, entity.entity_type, entity.name, norm_name, entity.description],
-            )
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-            let entity_id: i64 = conn
-                .query_row(
-                    "SELECT id FROM entities 
-                     WHERE agent_id = ?1 
-                     AND type = ?2 
-                     AND normalized_name = ?3",
-                    params![agent_id, entity.entity_type, norm_name],
-                    |row| row.get(0),
-                )
-                .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-            conn.execute(
-                "INSERT OR IGNORE INTO event_entities (event_id, entity_id) VALUES (?1, ?2)",
-                params![event_id, entity_id],
-            )
-            .map_err(|e| MinerError::Sqlite(e.to_string()))?;
+            corpus.push(format!("{} {}", entity.name, entity.description));
         }
     }
-
-    // Mark session as mined so dreaming can JOIN on it.
-    let mined_at = Utc::now().timestamp();
-    conn.execute(
-        "INSERT INTO sessions (id, mined, mined_at) VALUES (?1, 1, ?2)
-         ON CONFLICT(id) DO UPDATE SET mined = 1, mined_at = ?2",
-        params![session_id, mined_at],
-    )
-    .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-
-    Ok(())
+    let corpus_refs: Vec<&str> = corpus.iter().map(|s| s.as_str()).collect();
+    let filter_embedder = NgramEmbedder::new(&corpus_refs);
+    for (event, event_entities) in events.iter().zip(entities.iter_mut()) {
+        let event_text = format!("{} {}", event.title, event.summary);
+        let event_emb = filter_embedder.embed(&event_text);
+        event_entities.retain(|entity| {
+            let threshold = type_thresholds
+                .get(&entity.entity_type)
+                .copied()
+                .unwrap_or(0.80);
+            let entity_text = format!("{} {}", entity.name, entity.description);
+            let entity_emb = filter_embedder.embed(&entity_text);
+            cosine_similarity(&event_emb, &entity_emb) >= threshold
+        });
+    }
 }
 
-/// Write entries to SQLite (public interface).
-//
-// NOTE: uses default initial_ttl_days; prefer write_to_sqlite for configured TTL.
-pub fn write_entries_to_db(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-    agent_id: &str,
-    events: &[MiningEvent],
-    entities: &[Vec<MiningEntity>],
+/// Phase 4: Blocking SQLite writes (spawn_blocking).
+async fn write_mining_results(
+    db_path: &Path,
+    write_cfg: &WriteConfig<'_>,
 ) -> Result<(), MinerError> {
-    init_schema(conn)?;
-    write_to_sqlite(
-        conn,
-        session_id,
-        agent_id,
-        events,
-        entities,
-        default_forgetting_initial_ttl_days(),
-    )
-}
-
-/// Load recent events within the dedup window for Miner 1 context.
-pub(crate) fn load_recent_events(
-    conn: &rusqlite::Connection,
-    exclude_session: &str,
-    agent_id: &str,
-    dedup_window_days: i32,
-) -> Result<String, MinerError> {
-    let cutoff = Utc::now().timestamp() - (dedup_window_days as i64 * 86400);
-    let sql = "SELECT title, summary, category FROM events
-               WHERE source_session_id != ?1 AND timestamp >= ?2 AND agent_id = ?3
-               ORDER BY timestamp DESC LIMIT 20";
-    let mut stmt = conn
-        .prepare(sql)
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let rows: Vec<(String, String, String)> = stmt
-        .query_map(params![exclude_session, cutoff, agent_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(rows
-        .iter()
-        .map(|(title, summary, category)| format!("- [{category}] {title}: {summary}"))
-        .collect::<Vec<_>>()
-        .join("\n"))
-}
-
-/// Load entity/type catalog from SQLite, sorted by type → normalized_name.
-///
-/// Merges `entity_types` table (type definitions) with `entities` table
-/// (existing entities). Output groups by type: each section starts with
-/// a type header (`## type (name): description`), followed by entity lines
-/// (`- entity_name: description`). All 11 types are always listed even
-/// when no entities exist for that type.
-pub(crate) fn load_entity_catalog(
-    conn: &rusqlite::Connection,
-    agent_id: &str,
-) -> Result<String, MinerError> {
-    // Load all entity type definitions, sorted alphabetically by type.
-    let type_sql =
-        "SELECT type, name, description FROM entity_types WHERE is_active = 1 ORDER BY type";
-    let mut type_stmt = conn
-        .prepare(type_sql)
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let types: Vec<(String, String, String)> = type_stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    // Load existing entities for this agent, sorted by type → normalized_name.
-    let entity_sql = "SELECT type, name, description FROM entities
-                      WHERE agent_id = ?1
-                      ORDER BY type, normalized_name";
-    let mut entity_stmt = conn
-        .prepare(entity_sql)
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let entities: Vec<(String, String, String)> = entity_stmt
-        .query_map(params![agent_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    // Group entities by type.
-    let mut entities_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    let mut extra_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (typ, name, desc) in entities {
-        entities_by_type
-            .entry(typ.clone())
-            .or_default()
-            .push((name, desc));
-        extra_types.insert(typ);
-    }
-
-    // Build output: type header + entities for each defined type.
-    let mut sections = Vec::new();
-    for (typ, name, desc) in &types {
-        let mut section = format!("## {typ} ({name}): {desc}");
-        if let Some(type_entities) = entities_by_type.get(typ) {
-            for (entity_name, entity_desc) in type_entities {
-                section.push_str(&format!("\n- {entity_name}: {entity_desc}"));
-            }
-        }
-        sections.push(section);
-        extra_types.remove(typ);
-    }
-
-    // Handle entity types not present in entity_types table.
-    let mut remaining: Vec<_> = extra_types.into_iter().collect();
-    remaining.sort();
-    for typ in remaining {
-        if let Some(type_entities) = entities_by_type.get(&typ) {
-            let mut section = format!("## {typ}");
-            for (entity_name, entity_desc) in type_entities {
-                section.push_str(&format!("\n- {entity_name}: {entity_desc}"));
-            }
-            sections.push(section);
-        }
-    }
-
-    Ok(sections.join("\n\n"))
-}
-
-/// Load entity type → similarity_threshold mapping from SQLite.
-///
-/// Returns a HashMap where keys are entity type names (e.g. "time",
-/// "subject") and values are the similarity_threshold thresholds.
-pub(crate) fn load_entity_type_thresholds(
-    conn: &rusqlite::Connection,
-) -> Result<HashMap<String, f64>, MinerError> {
-    let sql = "SELECT type, similarity_threshold FROM entity_types WHERE is_active = 1";
-    let mut stmt = conn
-        .prepare(sql)
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
-        })
-        .map_err(|e| MinerError::Sqlite(e.to_string()))?;
-    let mut map = HashMap::new();
-    for row in rows {
-        let (typ, threshold) = row.map_err(|e| MinerError::Sqlite(e.to_string()))?;
-        map.insert(typ, threshold);
-    }
-    Ok(map)
-}
-
-/// Normalize an entity name: lowercase, replace spaces with underscores.
-pub(crate) fn normalize_entity_name(name: &str) -> String {
-    name.to_lowercase().replace(' ', "_")
+    let db_path = db_path.to_path_buf();
+    let session_id = write_cfg.session_id.to_string();
+    let agent_id = write_cfg.agent_id.to_string();
+    let events: Vec<MiningEvent> = write_cfg.events.to_vec();
+    let entities: Vec<Vec<MiningEntity>> = write_cfg.entities.to_vec();
+    let initial_ttl_days = write_cfg.initial_ttl_days;
+    let reidentify_extension_days = write_cfg.reidentify_extension_days;
+    tokio::task::spawn_blocking(move || {
+        let conn =
+            rusqlite::Connection::open(&db_path).map_err(|e| MinerError::Sqlite(e.to_string()))?;
+        write_to_sqlite(
+            &conn,
+            &WriteConfig {
+                session_id: &session_id,
+                agent_id: &agent_id,
+                events: &events,
+                entities: &entities,
+                initial_ttl_days,
+                reidentify_extension_days,
+            },
+        )
+    })
+    .await
+    .map_err(|e| MinerError::Sqlite(e.to_string()))?
 }
 
 /// Truncate entity names to 10 words maximum.
@@ -811,6 +543,8 @@ pub(crate) fn truncate_entity_names(entities: &mut [MiningEntity]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use rusqlite::params;
 
     #[test]
     fn test_miner_config_default_enabled_is_false() {
@@ -858,8 +592,9 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let conn = rusqlite::Connection::open(tmp.path().join("test.db")).unwrap();
         init_schema(&conn).unwrap();
-        let result = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
+        let (result, ids) = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
         assert!(result.is_empty());
+        assert!(ids.is_empty());
     }
 
     #[test]
@@ -876,9 +611,11 @@ mod tests {
             params![ts],
         )
         .unwrap();
-        let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
+        let (result, ids) = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
         assert!(result.contains("title"));
         assert!(result.contains("[error]"));
+        assert_eq!(ids.len(), 1);
+        assert!(ids[0] > 0);
     }
 
     #[test]
@@ -895,8 +632,9 @@ mod tests {
             params![old_ts],
         )
         .unwrap();
-        let result = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
+        let (result, ids) = load_recent_events(&conn, "my-sess", "agent-1", 30).unwrap();
         assert!(result.is_empty());
+        assert!(ids.is_empty());
     }
 
     #[test]
@@ -921,12 +659,14 @@ mod tests {
             params![ts],
         )
         .unwrap();
-        let result_a1 = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
+        let (result_a1, ids_a1) = load_recent_events(&conn, "other", "agent-1", 30).unwrap();
         assert!(result_a1.contains("a1-event"));
         assert!(!result_a1.contains("a2-event"));
-        let result_a2 = load_recent_events(&conn, "other", "agent-2", 30).unwrap();
+        assert_eq!(ids_a1.len(), 1);
+        let (result_a2, ids_a2) = load_recent_events(&conn, "other", "agent-2", 30).unwrap();
         assert!(result_a2.contains("a2-event"));
         assert!(!result_a2.contains("a1-event"));
+        assert_eq!(ids_a2.len(), 1);
     }
 
     #[test]

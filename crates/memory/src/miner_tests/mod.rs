@@ -30,6 +30,7 @@ pub(crate) fn make_event(title: &str, category: MiningEventCategory) -> MiningEv
         } else {
             None
         },
+        reidentified_event_id: None,
     }
 }
 

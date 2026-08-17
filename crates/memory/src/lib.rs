@@ -27,6 +27,8 @@ mod dreaming_design_align_tests;
 #[cfg(test)]
 mod dreaming_gap_fix_tests;
 #[cfg(test)]
+mod dreaming_insight_tests;
+#[cfg(test)]
 mod dreaming_scoring_tests;
 #[cfg(test)]
 mod dreaming_status_tests;

@@ -144,6 +144,7 @@ impl MockMinerLlm {
                 body: "Owner asked to deploy. Agent deployed without running tests first.".into(),
                 category: MiningEventCategory::Error,
                 lesson: Some("Always run tests before deploying".into()),
+                reidentified_event_id: None,
             }],
             entities: vec![vec![MiningEntity {
                 entity_type: "action".into(),
@@ -455,6 +456,7 @@ async fn test_duplicate_events_deduplicated() {
                 body: "Same body".into(),
                 category: MiningEventCategory::Decision,
                 lesson: None,
+                reidentified_event_id: None,
             },
             MiningEvent {
                 title: "Test dedup event".into(),
@@ -462,6 +464,7 @@ async fn test_duplicate_events_deduplicated() {
                 body: "Same body".into(),
                 category: MiningEventCategory::Decision,
                 lesson: None,
+                reidentified_event_id: None,
             },
         ],
         entities: vec![
