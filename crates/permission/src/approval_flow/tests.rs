@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[path = "tests_audit.rs"]
+mod tests_audit;
+
 /// Default whitelist mode for tests.
 fn whitelist_auto() -> ApprovalMode {
     ApprovalMode::WithWhitelist {
@@ -991,3 +994,5 @@ async fn test_new_session_step_selection_metadata() {
     assert_eq!(p.phase, PlanPhase::FinalPlan);
     drop(d);
 }
+
+

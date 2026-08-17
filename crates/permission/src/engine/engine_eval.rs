@@ -1,10 +1,11 @@
 //! Permission Engine - Evaluation logic.
 
+use super::audit_log::{build_audit_log, AuditDisposition, AuditLogger};
 use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
 use super::engine_risk::{assess_risk_level, RiskLevel};
 use super::engine_types::{
-    Defaults, Effect, MessageDirection, PermissionRequest, PermissionRequestBody,
+    Defaults, Effect, PermissionRequest, PermissionRequestBody,
     PermissionResponse, Rule, RuleSet, Subject,
 };
 use super::engine_workspace;
@@ -68,6 +69,9 @@ pub struct PermissionEngine {
     /// Optional rejection logger. When set and `evaluate` returns `Denied`,
     /// a structured rejection log entry is recorded.
     rejection_logger: Option<Arc<dyn RejectionLogger>>,
+    /// Optional audit logger for recording both approved and rejected
+    /// permission requests in Auto Mode.
+    audit_logger: Option<Arc<dyn AuditLogger>>,
 }
 
 // --- Construction & index management ---
@@ -84,6 +88,7 @@ impl PermissionEngine {
             data_root,
             session_mode_query: None,
             rejection_logger: None,
+            audit_logger: None,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -143,29 +148,77 @@ impl PermissionEngine {
         self.rejection_logger.as_ref()
     }
 
+    /// Inject an audit logger for recording approved and rejected permission requests.
+    pub fn with_audit_logger(mut self, logger: Arc<dyn AuditLogger>) -> Self {
+        self.audit_logger = Some(logger);
+        self
+    }
+
+    /// Get a reference to the audit logger, if set.
+    pub fn audit_logger(&self) -> Option<&Arc<dyn AuditLogger>> {
+        self.audit_logger.as_ref()
+    }
+
     /// Log a rejection if the logger is set, the response is `Denied`,
     /// and the session is in Auto Mode.
     ///
     /// Per design doc: rejection logs are only generated for Auto Mode
     /// sessions (Plan/Normal/unknown modes do not produce logs).
+    ///
+    /// When an audit logger is also configured, the rejection is additionally
+    /// recorded in the audit log with `AuditDisposition::Rejected`.
     fn log_rejection(&self, response: &PermissionResponse, body: &PermissionRequestBody) {
-        if let Some(logger) = &self.rejection_logger {
-            if let PermissionResponse::Denied {
-                reason, risk_level, ..
-            } = response
-            {
-                // Determine session mode from query (best-effort).
-                let session_mode = self
-                    .session_mode_query
-                    .as_ref()
-                    .and_then(|q| q.get_session_mode(body.agent_id()));
-                // Only record rejection logs in Auto Mode.
-                if session_mode != Some(SessionMode::Auto) {
-                    return;
+        if let PermissionResponse::Denied {
+            reason, risk_level, ..
+        } = response
+        {
+            // Determine session mode from query (best-effort).
+            let session_mode = self
+                .session_mode_query
+                .as_ref()
+                .and_then(|q| q.get_session_mode(body.agent_id()));
+
+            // Record rejection log (Auto Mode only).
+            if let Some(logger) = &self.rejection_logger {
+                if session_mode == Some(SessionMode::Auto) {
+                    let entry = build_rejection_log(
+                        body,
+                        reason.clone(),
+                        *risk_level,
+                        session_mode,
+                    );
+                    logger.log(&entry);
                 }
-                let entry = build_rejection_log(body, reason.clone(), *risk_level, session_mode);
-                logger.log(&entry);
             }
+
+            // Also record in audit log (Auto Mode only).
+            if session_mode == Some(SessionMode::Auto) {
+                self.log_audit(
+                    AuditDisposition::Rejected,
+                    body,
+                    reason.clone(),
+                    *risk_level,
+                    session_mode,
+                );
+            }
+        }
+    }
+
+    /// Record an entry in the audit log with the given disposition.
+    ///
+    /// Only writes when an audit logger is configured and the session
+    /// is in Auto Mode.
+    fn log_audit(
+        &self,
+        disposition: AuditDisposition,
+        body: &PermissionRequestBody,
+        reason: String,
+        risk_level: RiskLevel,
+        session_mode: Option<SessionMode>,
+    ) {
+        if let Some(logger) = &self.audit_logger {
+            let entry = build_audit_log(body, disposition, reason, risk_level, session_mode);
+            logger.log(&entry);
         }
     }
 }
@@ -450,180 +503,6 @@ impl PermissionEngine {
         }
 
         response
-    }
-
-    /// Plan Mode write-operation filtering.
-    ///
-    /// When the agent's session mode is `Plan`, the following operations are
-    /// denied:
-    /// - `FileOp` with op = "write" (unless the path is under plans/)
-    /// - `CommandExec`
-    /// - `ConfigWrite`
-    ///
-    /// The plans/ directory check: path starts with "plans/" or contains "/plans/".
-    ///
-    /// Returns `Some(Denied)` if the operation should be blocked, `None` to
-    /// proceed with normal evaluation.
-    ///
-    /// # Design Note: Runtime Evaluation vs. Static Binding
-    ///
-    /// The design doc (`docs/design/mode/README.md`) states that tool filtering
-    /// and permission boundaries are "determined at session creation and statically
-    /// effective" ("静态生效"). This method, however, evaluates the session mode
-    /// at runtime on every permission request via `session_mode_query`.
-    ///
-    /// This is intentional: runtime evaluation ensures that when the session mode
-    /// changes (e.g., Plan → Auto via `/execute`), the new permission set takes
-    /// effect immediately without requiring session reconstruction. The alternative
-    /// — static binding at session creation — would introduce a stale-tool-set risk
-    /// where mode switches leave the old tool filter active until the session is
-    /// torn down and rebuilt.
-    ///
-    /// The doc's "静态生效" describes the *behavioral* contract: for any given
-    /// mode, the set of allowed/denied tools is deterministic and does not vary
-    /// within a single permission check. It does not prescribe the *implementation*
-    /// mechanism. Runtime lookup satisfies this contract while also supporting
-    /// seamless mode transitions.
-    fn check_plan_mode_filter(
-        &self,
-        request: &PermissionRequest,
-        agent_id: &str,
-    ) -> Option<PermissionResponse> {
-        let query = self.session_mode_query.as_ref()?;
-        let mode = query.get_session_mode(agent_id)?;
-        if mode != SessionMode::Plan {
-            return None;
-        }
-
-        let body = request.body();
-        match body {
-            PermissionRequestBody::FileOp { op, path, .. } if op == "write" => {
-                if is_plans_path(path) {
-                    return None;
-                }
-                info!(
-                    agent = agent_id,
-                    result = "denied",
-                    reason = "plan_mode_write_denied",
-                    path = %path,
-                    "permission check completed"
-                );
-                Some(PermissionResponse::Denied {
-                    reason: "write operation denied in Plan mode".to_string(),
-                    rule: "<plan_mode_filter>".to_string(),
-                    risk_level: assess_risk_level(body),
-                })
-            }
-            PermissionRequestBody::CommandExec { .. } => {
-                info!(
-                    agent = agent_id,
-                    result = "denied",
-                    reason = "plan_mode_command_denied",
-                    "permission check completed"
-                );
-                Some(PermissionResponse::Denied {
-                    reason: "command execution denied in Plan mode".to_string(),
-                    rule: "<plan_mode_filter>".to_string(),
-                    risk_level: assess_risk_level(body),
-                })
-            }
-            PermissionRequestBody::ConfigWrite { .. } => {
-                info!(
-                    agent = agent_id,
-                    result = "denied",
-                    reason = "plan_mode_config_write_denied",
-                    "permission check completed"
-                );
-                Some(PermissionResponse::Denied {
-                    reason: "config write denied in Plan mode".to_string(),
-                    rule: "<plan_mode_filter>".to_string(),
-                    risk_level: assess_risk_level(body),
-                })
-            }
-            // AskUserQuestion: allow for clarification, but inject context
-            // marker so the agent knows it cannot be used as an approval
-            // substitute (design doc: "禁止用 AskUserQuestion 替代审批").
-            PermissionRequestBody::ToolCall { skill, .. } if skill == "ask_user_question" => {
-                info!(
-                    agent = agent_id,
-                    result = "allowed_with_context",
-                    reason = "plan_mode_ask_user_question_clarification_only",
-                    "permission check completed"
-                );
-                Some(PermissionResponse::Allowed {
-                    token: generate_token(),
-                    context_modifier: Some(
-                        "[plan_mode_context] AskUserQuestion is for requirement \
-                         clarification only. Do NOT use it as an approval \
-                         substitute."
-                            .to_string(),
-                    ),
-                })
-            }
-            _ => None,
-        }
-    }
-
-    /// Auto Mode runtime dangerous-operation review.
-    ///
-    /// Design doc: "Auto Mode 下完整工具集可见，但危险操作需运行时审查" and
-    /// "不擅自向外部平台发送消息". Dangerous operations (High/Critical risk)
-    /// and outgoing MessageSend are denied in Auto Mode.
-    ///
-    /// Owner is exempt — Owner has the highest privilege level.
-    ///
-    /// Returns `Some(Denied)` if the operation should be blocked, `None` to
-    /// proceed with normal evaluation.
-    fn check_auto_mode_filter(
-        &self,
-        request: &PermissionRequest,
-        agent_id: &str,
-    ) -> Option<PermissionResponse> {
-        let query = self.session_mode_query.as_ref()?;
-        let mode = query.get_session_mode(agent_id)?;
-        if mode != SessionMode::Auto {
-            return None;
-        }
-
-        let body = request.body();
-
-        // High/Critical risk operations require approval in Auto Mode
-        let risk = assess_risk_level(body);
-        if risk.is_high_or_critical() {
-            info!(
-                agent = agent_id,
-                result = "denied",
-                reason = "auto_mode_risk_gate",
-                risk_level = ?risk,
-                "permission check completed"
-            );
-            return Some(PermissionResponse::Denied {
-                reason: "Auto Mode: dangerous operation requires user approval".to_string(),
-                rule: "<auto_mode_filter>".to_string(),
-                risk_level: risk,
-            });
-        }
-
-        // Auto Mode must not proactively send messages to external platforms
-        if let PermissionRequestBody::MessageSend {
-            direction: MessageDirection::Send,
-            ..
-        } = body
-        {
-            info!(
-                agent = agent_id,
-                result = "denied",
-                reason = "auto_mode_message_send_denied",
-                "permission check completed"
-            );
-            return Some(PermissionResponse::Denied {
-                reason: "Auto Mode: proactive message sending is not allowed".to_string(),
-                rule: "<auto_mode_filter>".to_string(),
-                risk_level: RiskLevel::Low,
-            });
-        }
-
-        None
     }
 
     /// Step 0: Check creator rule — if the caller is the agent's creator, allow immediately.
@@ -960,9 +839,3 @@ impl PermissionEngine {
 
 // --- Plan Mode helpers ---
 
-/// Check if a file path belongs to the plans/ directory.
-///
-/// Returns `true` if path starts with `plans/` or contains `/plans/`.
-fn is_plans_path(path: &str) -> bool {
-    path.starts_with("plans/") || path.contains("/plans/")
-}

@@ -429,6 +429,7 @@ impl Daemon {
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
         config_manager: &Arc<closeclaw_config::ConfigManager>,
         config_dir: &str,
+        audit_logger: Option<Arc<dyn closeclaw_permission::AuditLogger>>,
     ) -> (
         Arc<tokio::sync::Mutex<ApprovalFlow>>,
         Arc<BuiltinSkillRegistry>,
@@ -575,6 +576,9 @@ impl Daemon {
             std::path::PathBuf::from(config_dir),
             RuleSet::default(),
         );
+        if let Some(logger) = audit_logger {
+            af = af.with_audit_logger(logger);
+        }
         af.set_create_child_session_fn(create_child_fn);
         let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
         // Wire the approval flow into the whitelist callback so hot-reload
