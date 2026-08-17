@@ -329,8 +329,7 @@ impl Gateway {
     /// Replay unfinished WAL entries into the inbound channel.
     ///
     /// Loads all WAL entries, deduplicates by trace_id, and sends each
-    /// unfinished entry into the provided channel. Emits a `queue.replayed`
-    /// debug event per replayed message.
+    /// unfinished entry into the provided channel.
     fn replay_wal_entries(&self, tx: &mpsc::Sender<inbound_queue::QueuedInbound>) {
         let wal_guard = match self.inbound_wal.lock() {
             Ok(guard) => guard,
@@ -352,56 +351,70 @@ impl Gateway {
             if !seen.insert(entry.trace_id.clone()) {
                 continue;
             }
-            let payload = match entry.decoded_payload() {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::warn!(
-                        trace_id = %entry.trace_id,
-                        error = %e,
-                        "WAL replay: failed to decode payload — skipping"
-                    );
-                    continue;
-                }
-            };
-            let req = inbound_queue::InboundRequest {
-                platform: entry.platform,
-                raw_payload: payload,
-                peer_id: entry.peer_id,
-                trace_id: entry.trace_id,
-            };
-            let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel::<()>();
-            let queued = inbound_queue::QueuedInbound {
-                request: req,
-                ack_tx,
-            };
-            let trace_id = queued.request.trace_id.clone();
-            let platform = queued.request.platform.clone();
-            let peer_id = queued.request.peer_id.clone();
-            if tx.try_send(queued).is_err() {
-                tracing::warn!(trace_id = %trace_id, "WAL replay: queue full — dropping");
-                continue;
-            }
-            drop(_ack_rx);
-            replayed += 1;
-            {
-                let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
-                    &trace_id,
-                    None,
-                    closeclaw_debug_log::LogLevel::Info,
-                    "gateway",
-                    "queue.replayed",
-                    serde_json::json!({
-                        "platform": platform,
-                        "peer_id": peer_id,
-                    }),
-                );
+            if self.try_replay_entry(entry, tx).is_ok() {
+                replayed += 1;
             }
         }
         if replayed > 0 {
             tracing::info!(count = replayed, "WAL replay complete");
         }
+    }
+
+    /// Attempt to replay a single WAL entry into the channel.
+    ///
+    /// Decodes the payload, constructs a [`QueuedInbound`], sends it,
+    /// and emits a `queue.replayed` debug event on success.
+    fn try_replay_entry(
+        &self,
+        entry: inbound_wal::InboundWalEntry,
+        tx: &mpsc::Sender<inbound_queue::QueuedInbound>,
+    ) -> Result<(), ()> {
+        let payload = entry.decoded_payload().map_err(|e| {
+            tracing::warn!(
+                trace_id = %entry.trace_id,
+                error = %e,
+                "WAL replay: failed to decode payload — skipping"
+            );
+        })?;
+        let req = inbound_queue::InboundRequest {
+            platform: entry.platform,
+            raw_payload: payload,
+            peer_id: entry.peer_id,
+            trace_id: entry.trace_id,
+        };
+        // ack_tx is a oneshot placeholder — WAL-replayed entries are not
+        // awaited for acknowledgment; the receiver is dropped immediately
+        // after try_send below.  This satisfies the QueuedInbound contract
+        // without adding unnecessary back-pressure during replay.
+        let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel::<()>();
+        let queued = inbound_queue::QueuedInbound {
+            request: req,
+            ack_tx,
+        };
+        let trace_id = queued.request.trace_id.clone();
+        let platform = queued.request.platform.clone();
+        let peer_id = queued.request.peer_id.clone();
+        if tx.try_send(queued).is_err() {
+            tracing::warn!(trace_id = %trace_id, "WAL replay: queue full — dropping");
+            return Err(());
+        }
+        drop(_ack_rx);
+        {
+            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+            debug_log_emitter::emit_debug_event(
+                guard.as_ref(),
+                &trace_id,
+                None,
+                closeclaw_debug_log::LogLevel::Info,
+                "gateway",
+                "queue.replayed",
+                serde_json::json!({
+                    "platform": platform,
+                    "peer_id": peer_id,
+                }),
+            );
+        }
+        Ok(())
     }
 
     /// Enqueue an inbound request into the bounded queue.
