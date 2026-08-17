@@ -162,5 +162,7 @@ const EXCLUDED_ROLES: &[&str] = &["memory-miner", "dreaming"];
 /// `memory-miner` and `dreaming` sessions are excluded to avoid
 /// circular memory writes.
 pub(crate) fn should_trigger_role(session_role: &str) -> bool {
-    !EXCLUDED_ROLES.contains(&session_role)
+    !EXCLUDED_ROLES
+        .iter()
+        .any(|excluded| session_role.starts_with(excluded))
 }

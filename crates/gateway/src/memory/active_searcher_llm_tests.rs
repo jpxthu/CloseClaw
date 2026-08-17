@@ -18,9 +18,19 @@ fn test_dreaming_excluded() {
 }
 
 #[test]
-fn test_memory_miner_v2_not_excluded() {
-    // "memory-miner-v2" should NOT be excluded by exact matching
-    assert!(should_trigger_role("memory-miner-v2"));
+fn test_memory_miner_v2_excluded() {
+    assert!(!should_trigger_role("memory-miner-v2"));
+}
+
+#[test]
+fn test_memory_miner_custom_excluded() {
+    assert!(!should_trigger_role("memory-miner-custom"));
+}
+
+#[test]
+fn test_memory_not_excluded() {
+    // "memory" is not a prefix match for "memory-miner"
+    assert!(should_trigger_role("memory"));
 }
 
 #[test]
