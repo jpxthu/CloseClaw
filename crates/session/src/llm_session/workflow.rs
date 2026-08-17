@@ -218,7 +218,18 @@ mod tests {
     fn write_skill_md(dir: &std::path::Path, workflow_name: &str) {
         let wf_dir = dir.join("workflows").join(workflow_name);
         std::fs::create_dir_all(&wf_dir).unwrap();
-        let yaml = "id: test-wf\nname: Test Workflow\ndescription: A test workflow\nsteps:\n  - id: 0\n    name: Step 0\n    goal: Do first thing\n    allow_blocked: true\n    verify:\n      - Check output";
+        let yaml = concat!(
+            "id: test-wf\n",
+            "name: Test Workflow\n",
+            "description: A test workflow\n",
+            "steps:\n",
+            "  - id: 0\n",
+            "    name: Step 0\n",
+            "    goal: Do first thing\n",
+            "    allow_blocked: true\n",
+            "    verify:\n",
+            "      - Check output",
+        );
         let content = format!("---\n{yaml}\n---\n\nBody.\n");
         std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
     }

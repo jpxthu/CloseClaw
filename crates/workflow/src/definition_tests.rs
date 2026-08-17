@@ -410,9 +410,7 @@ fn test_build_verify_message_allow_blocked_true() {
     let step = make_step(1, "Fix", vec!["Issue resolved"]);
     let msg = build_verify_message(&step, true);
     assert!(msg.contains("workflow_blocked"));
-    assert!(msg.contains(
-        "\u{5982}\u{679c}\u{786e}\u{8ba4}\u{4efb}\u{52a1}\u{65e0}\u{6cd5}\u{7ee7}\u{7eed}"
-    ));
+    assert!(msg.contains("如果确认任务无法继续"));
 }
 
 #[test]
