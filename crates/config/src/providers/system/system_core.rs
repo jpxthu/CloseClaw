@@ -291,6 +291,23 @@ impl Default for RejectionLogConfig {
     }
 }
 
+/// Audit log configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditLogConfig {
+    /// Maximum number of log entries to retain. `None` means unlimited.
+    #[serde(default)]
+    pub max_entries: Option<usize>,
+}
+
+impl Default for AuditLogConfig {
+    fn default() -> Self {
+        Self {
+            max_entries: Some(1000),
+        }
+    }
+}
+
 /// Plan archive configuration.
 ///
 /// Controls automatic archival of completed plan files.
@@ -361,6 +378,8 @@ pub struct SystemConfigData {
     pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub rejection_log: Option<RejectionLogConfig>,
+    #[serde(default)]
+    pub audit_log: Option<AuditLogConfig>,
     #[serde(default)]
     pub plan_archive: Option<PlanArchiveConfig>,
     #[serde(default)]
@@ -442,6 +461,10 @@ impl ConfigProvider for SystemConfigData {
                 .rejection_log
                 .as_ref()
                 .is_none_or(|r| r == &RejectionLogConfig::default())
+            && self
+                .audit_log
+                .as_ref()
+                .is_none_or(|a| a == &AuditLogConfig::default())
             && self
                 .plan_archive
                 .as_ref()
