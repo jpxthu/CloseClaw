@@ -6,6 +6,7 @@
 use chrono::Local;
 use closeclaw_config::IdentifierFormat;
 use rand::seq::SliceRandom;
+use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -370,4 +371,103 @@ fn slugify(title: &str) -> String {
     } else {
         truncated
     }
+}
+
+// ── Plan browsing functions ─────────────────────────────────────────────
+
+/// Summary information for a single plan file.
+#[derive(Debug, Clone)]
+pub struct PlanSummary {
+    /// File stem (filename without `.md` extension).
+    pub stem: String,
+    /// Plan title extracted from the first heading line.
+    pub title: String,
+    /// Number of tasks in a terminal state (`[x]`, `[!]`, `[~]`).
+    pub completed: usize,
+    /// Total number of tasks (all checkbox lines in Tasks section).
+    pub total: usize,
+}
+
+/// List all plan summaries in `{workdir}/plans/`.
+
+/// Scans for `.md` files, parses each plan's title and task
+/// completion counts, and returns results sorted by modification
+/// time (most recent first). If the plans directory does not
+/// exist, returns an empty vector.
+pub fn list_plan_summaries(workdir: &Path) -> io::Result<Vec<PlanSummary>> {
+    let plans_dir = workdir.join("plans");
+    if !plans_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(&plans_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| plan_file_stem(&e.path()).is_some())
+        .collect();
+    entries.sort_by(|a, b| {
+        let time_a = a.metadata().and_then(|m| m.modified()).ok();
+        let time_b = b.metadata().and_then(|m| m.modified()).ok();
+        time_b.cmp(&time_a)
+    });
+    let mut summaries = Vec::new();
+    for entry in entries {
+        let path = entry.path();
+        let stem = plan_file_stem(&path).unwrap_or_default();
+        let content = std::fs::read_to_string(&path)?;
+        let title = extract_title(&content);
+        let (completed, total) = count_tasks(&content);
+        summaries.push(PlanSummary {
+            stem,
+            title,
+            completed,
+            total,
+        });
+    }
+    Ok(summaries)
+}
+
+/// Read the full content of a plan file at the given path.
+pub fn read_plan_content(path: &Path) -> io::Result<String> {
+    std::fs::read_to_string(path)
+}
+
+/// Extract the title from the first `# ` heading line.
+fn extract_title(content: &str) -> String {
+    content
+        .lines()
+        .find_map(|line| line.strip_prefix("# ").map(|t| t.trim().to_string()))
+        .unwrap_or_default()
+}
+
+/// Count completed and total tasks in the Tasks section.
+///
+/// Completed: lines matching `[x]`, `[!]`, or `[~]`.
+/// Total: all lines in the Tasks section starting with `- [`.
+fn count_tasks(content: &str) -> (usize, usize) {
+    let mut in_tasks = false;
+    let mut completed = 0usize;
+    let mut total = 0usize;
+    for line in content.lines() {
+        if line.trim().starts_with("## Tasks") {
+            in_tasks = true;
+            continue;
+        }
+        if in_tasks && line.trim().starts_with("## ") {
+            break;
+        }
+        if !in_tasks {
+            continue;
+        }
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- [") {
+            continue;
+        }
+        total += 1;
+        if trimmed.starts_with("- [x]")
+            || trimmed.starts_with("- [!]")
+            || trimmed.starts_with("- [~]")
+        {
+            completed += 1;
+        }
+    }
+    (completed, total)
 }
