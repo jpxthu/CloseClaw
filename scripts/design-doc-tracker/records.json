@@ -145,9 +145,9 @@
   },
   {
     "path": "docs/design/gateway/README.md",
-    "commit": "90144791d27c71f5028c889a9f6228fff46bc49f",
-    "commit_time": "2026-08-13T08:58:18+08:00",
-    "confirmed_time": "2026-08-13T09:21:50.979837+08:00",
+    "commit": "511d1a677e37d9cfce034b80a9cadddaec3241d3",
+    "commit_time": "2026-08-19T03:22:38+08:00",
+    "confirmed_time": "2026-08-19T03:50:00.899206+08:00",
     "comment": "",
     "blocked_reason": ""
   },
