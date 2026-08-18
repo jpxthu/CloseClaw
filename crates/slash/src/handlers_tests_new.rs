@@ -95,7 +95,7 @@ fn test_stop_handler_immediate() {
 }
 
 #[tokio::test]
-async fn test_stop_handler_handle() {
+async fn test_stop_handler_handle_no_args() {
     let result = StopHandler.handle("", &dummy_ctx()).await;
     assert!(matches!(
         result,

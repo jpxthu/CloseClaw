@@ -490,12 +490,13 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
         }
 
         let trimmed = processed.text_content().unwrap_or("").trim();
-        let is_stop = trimmed.eq_ignore_ascii_case("/stop");
 
         if trimmed.eq_ignore_ascii_case("quit") || trimmed.eq_ignore_ascii_case("exit") {
             println!("Goodbye!");
             return ExitReason::Quit;
         }
+
+        let is_stop = trimmed.eq_ignore_ascii_case("/stop");
 
         // Extract session routing fields for streaming completion wait.
         let session_key = processed
