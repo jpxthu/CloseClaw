@@ -55,6 +55,86 @@ impl Gateway {
         }
     }
 
+    /// Emit a `route.decision` debug log entry for the given trace context.
+    fn emit_route_debug_log(
+        &self,
+        trace_id: Option<&str>,
+        session_key: Option<&str>,
+        session_id: &str,
+    ) {
+        if let Some(tid) = trace_id {
+            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+            debug_log_emitter::emit_debug_event(
+                guard.as_ref(),
+                tid,
+                session_key,
+                LogLevel::Info,
+                "gateway",
+                "route.decision",
+                serde_json::json!({
+                    "session_key": session_key.unwrap_or_default(),
+                    "session_id": session_id,
+                }),
+            );
+        }
+    }
+
+    /// Resolve and forward via `session_key` (new path).
+    ///
+    /// Calls `SessionManager::resolve()`, sends any pending restore
+    /// notification, then forwards to the plugin.
+    async fn route_via_session_key(
+        &self,
+        channel: &str,
+        message: &Message,
+        session_key: &str,
+        account_id: Option<&str>,
+    ) -> Result<(), GatewayError> {
+        let session_id = self
+            .session_manager
+            .resolve(session_key, channel, message, account_id)
+            .await
+            .map_err(|e| GatewayError::AdapterError(e.to_string()))?;
+
+        self.emit_route_debug_log(
+            message.metadata.get("trace_id").map(|s| s.as_str()),
+            Some(session_key),
+            &session_id,
+        );
+
+        if let Some((chat_id, custom_msg)) = self
+            .session_manager
+            .take_restore_notification(&session_id)
+            .await
+        {
+            let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
+            if let Err(e) = self.send_outbound_simplified(&chat_id, channel, msg).await {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to send restore notification via simplified outbound"
+                );
+            }
+        }
+
+        self.forward_to_plugin(channel, message, &session_id).await
+    }
+
+    /// Forward via explicit `session_id` (old path, backward compatible).
+    async fn route_via_session_id(
+        &self,
+        channel: &str,
+        message: &Message,
+        session_id: &str,
+    ) -> Result<(), GatewayError> {
+        self.emit_route_debug_log(
+            message.metadata.get("trace_id").map(|s| s.as_str()),
+            None,
+            session_id,
+        );
+        self.forward_to_plugin(channel, message, session_id).await
+    }
+
     /// Route an incoming message to the appropriate agent.
     ///
     /// Supports two metadata formats for session resolution:
@@ -69,72 +149,22 @@ impl Gateway {
         message: Message,
         account_id: Option<&str>,
     ) -> Result<(), GatewayError> {
-        // --- New path: session_key → SessionManager::resolve() ---
         if let Some(session_key) = message.metadata.get("session_key") {
             if !session_key.is_empty() {
-                let session_id = self
-                    .session_manager
-                    .resolve(session_key, channel, &message, account_id)
-                    .await
-                    .map_err(|e| GatewayError::AdapterError(e.to_string()))?;
-                // Debug log: route.decision (new path)
-                if let Some(trace_id) = message.metadata.get("trace_id") {
-                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                    debug_log_emitter::emit_debug_event(
-                        guard.as_ref(),
-                        trace_id,
-                        Some(session_key),
-                        LogLevel::Info,
-                        "gateway",
-                        "route.decision",
-                        serde_json::json!({
-                            "session_key": session_key,
-                            "session_id": session_id,
-                        }),
-                    );
-                }
-                // Send restore notification through outbound chain (if any).
-                if let Some((chat_id, custom_msg)) = self
-                    .session_manager
-                    .take_restore_notification(&session_id)
-                    .await
-                {
-                    let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-                    if let Err(e) = self.send_outbound_simplified(&chat_id, channel, msg).await {
-                        tracing::warn!(
-                            session_id = %session_id,
-                            error = %e,
-                            "failed to send restore notification via simplified outbound"
-                        );
-                    }
-                }
-                return self.forward_to_plugin(channel, &message, &session_id).await;
+                return self
+                    .route_via_session_key(channel, &message, session_key, account_id)
+                    .await;
             }
         }
 
-        // --- Fallback: session_id (old path, backward compatible) ---
         if let Some(session_id) = message.metadata.get("session_id") {
             if !session_id.is_empty() {
-                // Debug log: route.decision (fallback path)
-                if let Some(trace_id) = message.metadata.get("trace_id") {
-                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                    debug_log_emitter::emit_debug_event(
-                        guard.as_ref(),
-                        trace_id,
-                        None,
-                        LogLevel::Info,
-                        "gateway",
-                        "route.decision",
-                        serde_json::json!({
-                            "session_id": session_id,
-                        }),
-                    );
-                }
-                return self.forward_to_plugin(channel, &message, session_id).await;
+                return self
+                    .route_via_session_id(channel, &message, session_id)
+                    .await;
             }
         }
 
-        // --- No key fallback: both missing/empty ---
         self.send_user_error(channel, &message).await;
         Err(GatewayError::NoRoutingKey)
     }

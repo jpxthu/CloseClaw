@@ -6,6 +6,9 @@
 //! - Step 1.2: `/approve-once` still intercepted at Gateway level
 
 use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
+use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
+use closeclaw_common::processor::DslParseResult;
+use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,6 +36,67 @@ fn make_gw(bindings: HashMap<String, String>) -> Gateway {
     Gateway::new(config, sm)
 }
 
+/// Shared mock plugin that captures all sent messages.
+struct CapturePlugin {
+    sends: std::sync::Mutex<Vec<String>>,
+}
+
+impl CapturePlugin {
+    fn new() -> Self {
+        Self {
+            sends: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn get_sends(&self) -> Vec<String> {
+        self.sends.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl IMPlugin for CapturePlugin {
+    fn platform(&self) -> &str {
+        "mock"
+    }
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+    async fn send(
+        &self,
+        output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        let text = output.payload["content"]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        self.sends.lock().unwrap().push(text);
+        Ok(())
+    }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Step 1.1: Bot→Agent Binding Resolution
 // ═════════════════════════════════════════════════════════════════════════════
@@ -44,15 +108,13 @@ fn test_resolve_agent_id_binding_hit() {
     bindings.insert("bot_x".to_string(), "agent-a".to_string());
     bindings.insert("bot_y".to_string(), "agent-b".to_string());
 
-    let gw = make_gw(bindings);
-
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "bot_x"),
+        Gateway::resolve_agent_id(&bindings, "bot_x"),
         "agent-a",
         "binding lookup must return bound agent_id for bot_x"
     );
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "bot_y"),
+        Gateway::resolve_agent_id(&bindings, "bot_y"),
         "agent-b",
         "binding lookup must return bound agent_id for bot_y"
     );
@@ -64,10 +126,8 @@ fn test_resolve_agent_id_binding_miss_fallback() {
     let mut bindings = HashMap::new();
     bindings.insert("bot_x".to_string(), "agent-a".to_string());
 
-    let gw = make_gw(bindings);
-
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "unknown_bot"),
+        Gateway::resolve_agent_id(&bindings, "unknown_bot"),
         "unknown_bot",
         "binding miss must fallback to peer_id"
     );
@@ -76,15 +136,15 @@ fn test_resolve_agent_id_binding_miss_fallback() {
 /// Empty bindings map: all lookups fall back to peer_id.
 #[test]
 fn test_resolve_agent_id_empty_bindings_fallback() {
-    let gw = make_gw(HashMap::new());
+    let bindings = HashMap::new();
 
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "any_bot"),
+        Gateway::resolve_agent_id(&bindings, "any_bot"),
         "any_bot",
         "empty bindings must fallback to peer_id"
     );
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, ""),
+        Gateway::resolve_agent_id(&bindings, ""),
         "",
         "empty peer_id with empty bindings must return empty string"
     );
@@ -97,11 +157,9 @@ fn test_resolve_agent_id_no_matching_key() {
     bindings.insert("bot_a".to_string(), "agent-a".to_string());
     bindings.insert("bot_b".to_string(), "agent-b".to_string());
 
-    let gw = make_gw(bindings);
-
     // bot_c is not in the map — should fall back to peer_id
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "bot_c"),
+        Gateway::resolve_agent_id(&bindings, "bot_c"),
         "bot_c",
         "non-matching key must fallback to peer_id"
     );
@@ -115,18 +173,16 @@ fn test_resolve_agent_id_multiple_bindings() {
     bindings.insert("telegram_bot".to_string(), "agent-telegram".to_string());
     bindings.insert("slack_bot".to_string(), "agent-slack".to_string());
 
-    let gw = make_gw(bindings);
-
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "feishu_bot"),
+        Gateway::resolve_agent_id(&bindings, "feishu_bot"),
         "agent-feishu"
     );
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "telegram_bot"),
+        Gateway::resolve_agent_id(&bindings, "telegram_bot"),
         "agent-telegram"
     );
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "slack_bot"),
+        Gateway::resolve_agent_id(&bindings, "slack_bot"),
         "agent-slack"
     );
 }
@@ -134,10 +190,10 @@ fn test_resolve_agent_id_multiple_bindings() {
 /// Peer_id that is also an agent_id: when not in bindings, returns itself.
 #[test]
 fn test_resolve_agent_id_peer_id_is_agent_id() {
-    let gw = make_gw(HashMap::new());
+    let bindings = HashMap::new();
 
     assert_eq!(
-        Gateway::resolve_agent_id(&gw.config, "agent-123"),
+        Gateway::resolve_agent_id(&bindings, "agent-123"),
         "agent-123",
         "peer_id not in bindings should return peer_id unchanged"
     );
@@ -173,66 +229,6 @@ async fn test_approve_once_no_flow_falls_through() {
 /// Non-owner `/approve-once` is intercepted and rejected at Gateway level.
 #[tokio::test]
 async fn test_approve_once_non_owner_rejected() {
-    use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
-    use closeclaw_common::processor::DslParseResult;
-    use closeclaw_llm::types::ContentBlock;
-
-    struct CapturePlugin {
-        sends: std::sync::Mutex<Vec<String>>,
-    }
-
-    impl CapturePlugin {
-        fn new() -> Self {
-            Self {
-                sends: std::sync::Mutex::new(Vec::new()),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl IMPlugin for CapturePlugin {
-        fn platform(&self) -> &str {
-            "mock"
-        }
-        async fn parse_inbound(
-            &self,
-            _payload: &[u8],
-        ) -> Result<Option<NormalizedMessage>, AdapterError> {
-            Ok(None)
-        }
-        fn render(
-            &self,
-            content_blocks: &[ContentBlock],
-            _dsl_result: Option<&DslParseResult>,
-        ) -> RenderedOutput {
-            let text = content_blocks
-                .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Text(t) => Some(t.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("");
-            RenderedOutput {
-                msg_type: "text".into(),
-                payload: serde_json::json!({"content": {"text": text}}),
-            }
-        }
-        async fn send(
-            &self,
-            output: &RenderedOutput,
-            _peer_id: &str,
-            _thread_id: Option<&str>,
-        ) -> Result<(), AdapterError> {
-            let text = output.payload["content"]["text"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
-            self.sends.lock().unwrap().push(text);
-            Ok(())
-        }
-    }
-
     let gw = make_gw(HashMap::new());
     let plugin = Arc::new(CapturePlugin::new());
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn closeclaw_common::IMPlugin>)
@@ -254,7 +250,7 @@ async fn test_approve_once_non_owner_rejected() {
         "non-owner /approve-once should return ApprovalProcessed"
     );
 
-    let sends = plugin.sends.lock().unwrap();
+    let sends = plugin.get_sends();
     assert_eq!(sends.len(), 1, "should send one rejection message");
     assert!(
         sends[0].contains("权限不足"),
@@ -302,66 +298,6 @@ async fn test_deny_no_flow_falls_through() {
 /// Non-owner `/deny` is intercepted and rejected at Gateway level.
 #[tokio::test]
 async fn test_deny_non_owner_rejected() {
-    use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
-    use closeclaw_common::processor::DslParseResult;
-    use closeclaw_llm::types::ContentBlock;
-
-    struct CapturePlugin {
-        sends: std::sync::Mutex<Vec<String>>,
-    }
-
-    impl CapturePlugin {
-        fn new() -> Self {
-            Self {
-                sends: std::sync::Mutex::new(Vec::new()),
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl IMPlugin for CapturePlugin {
-        fn platform(&self) -> &str {
-            "mock"
-        }
-        async fn parse_inbound(
-            &self,
-            _payload: &[u8],
-        ) -> Result<Option<NormalizedMessage>, AdapterError> {
-            Ok(None)
-        }
-        fn render(
-            &self,
-            content_blocks: &[ContentBlock],
-            _dsl_result: Option<&DslParseResult>,
-        ) -> RenderedOutput {
-            let text = content_blocks
-                .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Text(t) => Some(t.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("");
-            RenderedOutput {
-                msg_type: "text".into(),
-                payload: serde_json::json!({"content": {"text": text}}),
-            }
-        }
-        async fn send(
-            &self,
-            output: &RenderedOutput,
-            _peer_id: &str,
-            _thread_id: Option<&str>,
-        ) -> Result<(), AdapterError> {
-            let text = output.payload["content"]["text"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
-            self.sends.lock().unwrap().push(text);
-            Ok(())
-        }
-    }
-
     let gw = make_gw(HashMap::new());
     let plugin = Arc::new(CapturePlugin::new());
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn closeclaw_common::IMPlugin>)
@@ -382,7 +318,7 @@ async fn test_deny_non_owner_rejected() {
         "non-owner /deny should return ApprovalProcessed"
     );
 
-    let sends = plugin.sends.lock().unwrap();
+    let sends = plugin.get_sends();
     assert_eq!(sends.len(), 1, "should send one rejection message");
     assert!(
         sends[0].contains("权限不足"),
