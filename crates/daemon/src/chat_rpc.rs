@@ -514,7 +514,9 @@ pub fn chat_socket_path(config_dir: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use closeclaw_common::im_plugin::RenderedOutput;
+    use closeclaw_gateway::SessionManager;
     use serde_json::json;
+    use std::sync::Arc;
 
     #[test]
     fn test_extract_text_from_content_payload() {
@@ -755,5 +757,191 @@ mod tests {
         let req = ChatRequest::Ping;
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("ping"));
+    }
+
+    // ── Step 1.10: supplementary tests ──────────────────────────────────────
+
+    /// sender_id must be the system UID, not agent_id.
+    #[test]
+    fn test_build_inbound_input_sender_id_is_system_uid() {
+        let input = build_inbound_input("test content".to_string());
+        let expected_uid = closeclaw_platform::current_uid();
+        assert_eq!(
+            input.sender_id, expected_uid,
+            "sender_id should be system UID, not agent_id"
+        );
+    }
+
+    /// RpcTerminalPlugin::render() must correctly render Thinking blocks.
+    #[test]
+    fn test_rpc_terminal_plugin_render_thinking() {
+        let plugin = RpcTerminalPlugin::new();
+        let blocks = vec![ContentBlock::Thinking {
+            thinking: "reasoning here".to_string(),
+            signature: None,
+        }];
+        let output = plugin.render(&blocks, None);
+        assert_eq!(output.msg_type, "text");
+        let text = output.payload.as_str().unwrap_or("");
+        assert!(
+            text.contains("[Thinking]"),
+            "rendered output should contain [Thinking] marker"
+        );
+        assert!(
+            text.contains("reasoning here"),
+            "rendered output should contain thinking content"
+        );
+        assert!(
+            text.contains("[end of thinking]"),
+            "rendered output should contain [end of thinking] marker"
+        );
+    }
+
+    /// RpcTerminalPlugin::render() must correctly render ToolUse blocks.
+    #[test]
+    fn test_rpc_terminal_plugin_render_tool_use() {
+        let plugin = RpcTerminalPlugin::new();
+        let blocks = vec![ContentBlock::ToolUse {
+            name: "web_search".to_string(),
+            input: r#"{"query":"rust async"}"#.to_string(),
+            id: "tool-1".to_string(),
+        }];
+        let output = plugin.render(&blocks, None);
+        assert_eq!(output.msg_type, "text");
+        let text = output.payload.as_str().unwrap_or("");
+        assert!(
+            text.contains("web_search"),
+            "rendered output should contain tool name"
+        );
+        assert!(
+            text.contains("rust async"),
+            "rendered output should contain tool input"
+        );
+    }
+
+    /// RpcTerminalPlugin::render() must correctly render ToolResult blocks.
+    #[test]
+    fn test_rpc_terminal_plugin_render_tool_result() {
+        let plugin = RpcTerminalPlugin::new();
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tool-1".to_string(),
+            content: "found 3 results".to_string(),
+        }];
+        let output = plugin.render(&blocks, None);
+        assert_eq!(output.msg_type, "text");
+        let text = output.payload.as_str().unwrap_or("");
+        assert!(
+            text.contains("found 3 results"),
+            "rendered output should contain tool result content"
+        );
+    }
+
+    /// RpcTerminalPlugin::render() handles mixed block types in one call.
+    #[test]
+    fn test_rpc_terminal_plugin_render_mixed_blocks() {
+        let plugin = RpcTerminalPlugin::new();
+        let blocks = vec![
+            ContentBlock::Thinking {
+                thinking: "step 1".to_string(),
+                signature: None,
+            },
+            ContentBlock::ToolUse {
+                name: "read".to_string(),
+                input: "{}".to_string(),
+                id: "t1".to_string(),
+            },
+            ContentBlock::ToolResult {
+                tool_call_id: "t1".to_string(),
+                content: "file contents".to_string(),
+            },
+            ContentBlock::Text("final answer".to_string()),
+        ];
+        let output = plugin.render(&blocks, None);
+        let text = output.payload.as_str().unwrap_or("");
+        assert!(text.contains("[Thinking]"));
+        assert!(text.contains("step 1"));
+        assert!(text.contains("read"));
+        assert!(text.contains("file contents"));
+        assert!(text.contains("final answer"));
+    }
+
+    /// Concurrent RPC connections must not interfere with each other.
+    #[tokio::test]
+    async fn test_concurrent_rpc_connections_no_race() {
+        let plugin = Arc::new(RpcTerminalPlugin::new());
+        let num_connections = 5;
+
+        // Set up channels for each connection.
+        let mut receivers: Vec<mpsc::Receiver<RenderedOutput>> = Vec::new();
+        for i in 0..num_connections {
+            let (tx, rx) = mpsc::channel(4);
+            plugin.register_sender(i as u64, tx).await;
+            receivers.push(rx);
+        }
+
+        // Simulate concurrent sends on each connection.
+        let mut handles = Vec::new();
+        for i in 0..num_connections {
+            let plugin = Arc::clone(&plugin);
+            let handle = tokio::spawn(async move {
+                let out = RenderedOutput {
+                    msg_type: "text".to_string(),
+                    payload: json!(format!("msg-{}", i)),
+                };
+                CHAT_CONN_ID
+                    .scope(i as u64, plugin.send(&out, "peer", None))
+                    .await
+            });
+            handles.push((i, handle));
+        }
+
+        // Wait for all sends to complete.
+        for (_i, handle) in handles {
+            handle.await.unwrap().unwrap();
+        }
+
+        // Verify each connection received exactly its own message.
+        for (i, mut rx) in receivers.into_iter().enumerate() {
+            let output = rx.recv().await.unwrap();
+            assert_eq!(
+                output.payload,
+                json!(format!("msg-{}", i)),
+                "connection {} should receive its own message",
+                i
+            );
+            // Ensure no extra messages leaked from other connections.
+            assert!(
+                rx.try_recv().is_err(),
+                "connection {} should not have extra messages",
+                i
+            );
+        }
+
+        // Clean up.
+        for i in 0..num_connections {
+            plugin.unregister_sender(i as u64).await;
+        }
+    }
+
+    /// dispatch() with ChatRequest::Ping must return ChatResponse::Pong
+    /// without side effects.
+    #[tokio::test]
+    async fn test_dispatch_ping_returns_pong_actual() {
+        let req = ChatRequest::Ping;
+        let context = ChatContext {
+            gateway: Arc::new(closeclaw_gateway::Gateway::new(
+                closeclaw_gateway::types::GatewayConfig::default(),
+                Arc::new(SessionManager::new(
+                    &closeclaw_gateway::types::GatewayConfig::default(),
+                    None,
+                    None,
+                    closeclaw_common::ReasoningLevel::default(),
+                )),
+            )),
+            rpc_plugin: Arc::new(RpcTerminalPlugin::new()),
+        };
+        let responses = dispatch(req, &context).await;
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0], ChatResponse::Pong);
     }
 }
