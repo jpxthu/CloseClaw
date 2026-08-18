@@ -752,6 +752,10 @@ impl Gateway {
     /// Post-stream pipeline: select content blocks, run the full
     /// Processor Chain (VerbosityFilter → DslParser → OutboundRawLog),
     /// and build the final [`StreamResult`].
+    ///
+    /// Note: VerbosityFilter runs in the chain here as well, but
+    /// Thinking blocks at Normal/Off verbosity were already filtered
+    /// in the incremental phase (see [`process_stream_event`]).
     async fn finish_streaming_pipeline(
         &self,
         session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
@@ -767,8 +771,10 @@ impl Gateway {
 
         // Run the full outbound Processor Chain (VerbosityFilter →
         // DslParser → OutboundRawLog). VerbosityFilter executes within
-        // the chain by priority, matching the design doc requirement
-        // that the finish phase runs the complete chain.
+        // the chain for the finish phase, but Thinking blocks at
+        // Normal/Off verbosity were already filtered in the incremental
+        // phase (see process_stream_event). At Full verbosity,
+        // VerbosityFilter is a no-op.
         let meta = Self::make_outbound_meta(&[
             ("channel", channel),
             ("session_id", session_id),
@@ -819,9 +825,18 @@ impl Gateway {
     ) -> Result<(), GatewayError> {
         match event {
             StreamEvent::BlockDelta { index, delta } => {
+                // Skip Thinking deltas entirely at Normal/Off verbosity.
+                if should_skip_thinking(delta.block_type(), state.verbosity_level) {
+                    return Ok(());
+                }
                 self.handle_block_delta(ctx, index, delta, state).await?;
             }
             StreamEvent::BlockEnd { block_type, .. } => {
+                // Skip Thinking blocks entirely at Normal/Off verbosity:
+                // no thinking indicator, no plugin dispatch.
+                if should_skip_thinking(block_type, state.verbosity_level) {
+                    return Ok(());
+                }
                 // Thinking indicator: send stop signal before verbosity filtering.
                 if block_type == ContentBlockType::Thinking
                     && state.verbosity_level != VerbosityLevel::Off
@@ -856,6 +871,10 @@ impl Gateway {
                 });
             }
             StreamEvent::BlockStart { index, block_type } => {
+                // Skip Thinking BlockStart entirely at Normal/Off verbosity.
+                if should_skip_thinking(block_type, state.verbosity_level) {
+                    return Ok(());
+                }
                 // Thinking indicator: send start signal on Thinking BlockStart.
                 if block_type == ContentBlockType::Thinking
                     && state.verbosity_level != VerbosityLevel::Off
@@ -900,8 +919,9 @@ impl Gateway {
     }
 
     /// Handle a [`StreamEvent::BlockEnd`]: send non-text render blocks
-    /// and dispatch remaining text. Verbosity filtering is delegated to
-    /// the post-stream Processor Chain in [`finish_streaming_pipeline`].
+    /// and dispatch remaining text. At Normal/Off verbosity, Thinking blocks
+    /// are already filtered in [`process_stream_event`] before reaching here.
+    /// Only Full-verbosity Thinking blocks pass through to this handler.
     async fn handle_block_end(
         &self,
         ctx: &StreamContext<'_>,
@@ -919,9 +939,10 @@ impl Gateway {
                 state.content_blocks.push(block);
             } else {
                 let render_blocks = std::mem::take(&mut out.render_blocks);
-                // Non-Text blocks are sent directly in the incremental
-                // phase. Verbosity filtering is delegated to the
-                // post-stream Processor Chain in finish_streaming_pipeline.
+                // Non-Text blocks (non-Thinking at Full, or ToolUse/etc.):
+                // send directly via send_render_block.
+                // VerbosityFilter for Thinking already ran in
+                // process_stream_event's BlockEnd arm.
                 for block in &render_blocks {
                     send_render_block(ctx, block).await?;
                 }
@@ -964,4 +985,14 @@ impl Gateway {
             chat_id: chat_id.to_string(),
         }
     }
+}
+
+/// Check whether a Thinking block should be skipped based on the verbosity
+/// level. Returns `true` when `block_type` is `Thinking` and verbosity is
+/// not `Full` (i.e. `Normal` or `Off`).
+fn should_skip_thinking(
+    block_type: ContentBlockType,
+    verbosity_level: VerbosityLevel,
+) -> bool {
+    block_type == ContentBlockType::Thinking && verbosity_level != VerbosityLevel::Full
 }

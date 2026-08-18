@@ -401,7 +401,7 @@ pub(crate) async fn setup_streaming_gw(
         },
     );
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    gw.register_plugin(plugin).await;
+    gw.register_plugin(plugin.clone()).await;
     gw
 }
 
@@ -582,12 +582,46 @@ async fn test_stream_error_preserves_multiple_blocks() {
 }
 
 /// Step 1.5 — Thinking BlockStart → send_thinking_indicator(true).
+/// At Full verbosity, Thinking blocks are not filtered.
 #[tokio::test]
 async fn test_thinking_indicator_sends_on_block_start() {
+    use closeclaw_common::VerbosityLevel;
+
     let mock = ThinkingIndicatorMock::new("mock");
     let calls_ref = mock.thinking_calls.clone();
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
-    let gw = setup_streaming_gw("sess-think-1", Arc::clone(&plugin)).await;
+    let session_id = "sess-think-1";
+    let config = streaming_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::Session {
+            id: session_id.to_string(),
+            agent_id: "chat_test".to_string(),
+            channel: "mock".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+    // Set verbosity to Full so Thinking blocks pass through incremental phase.
+    let cs = closeclaw_session::llm_session::ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
+    cs_arc.write().await.set_verbosity_level(VerbosityLevel::Full);
+    sm.conversation_sessions
+        .write()
+        .await
+        .insert(session_id.to_string(), cs_arc);
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
         Ok(StreamEvent::BlockStart {
@@ -733,12 +767,46 @@ async fn test_thinking_indicator_suppressed_at_off() {
 }
 
 /// Step 1.5 — Thinking BlockEnd → send_thinking_indicator(false) (stop).
+/// At Full verbosity, Thinking blocks are not filtered.
 #[tokio::test]
 async fn test_thinking_indicator_stops_on_block_end() {
+    use closeclaw_common::VerbosityLevel;
+
     let mock = ThinkingIndicatorMock::new("mock");
     let calls_ref = mock.thinking_calls.clone();
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
-    let gw = setup_streaming_gw("sess-think-end", Arc::clone(&plugin)).await;
+    let session_id = "sess-think-end";
+    let config = streaming_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::Session {
+            id: session_id.to_string(),
+            agent_id: "chat_test".to_string(),
+            channel: "mock".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+    // Set verbosity to Full so Thinking blocks pass through incremental phase.
+    let cs = closeclaw_session::llm_session::ConversationSession::new(
+        session_id.to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
+    cs_arc.write().await.set_verbosity_level(VerbosityLevel::Full);
+    sm.conversation_sessions
+        .write()
+        .await
+        .insert(session_id.to_string(), cs_arc);
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
         Ok(StreamEvent::BlockStart {

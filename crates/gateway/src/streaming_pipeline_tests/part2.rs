@@ -447,9 +447,9 @@ fn thinking_then_text_events() -> Vec<Result<StreamEvent, String>> {
     ]
 }
 
-/// At VerbosityLevel::Off, Thinking blocks are sent during streaming
-/// (no inline filtering) but filtered from the final content_blocks
-/// by the post-stream VerbosityFilter in the processor chain.
+/// At VerbosityLevel::Off, Thinking blocks are filtered in the incremental
+/// phase (no plugin dispatch, no indicator). Only Text blocks are sent.
+/// Post-stream VerbosityFilter is a no-op (no Thinking blocks remain).
 #[tokio::test]
 async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
     let plugin = Arc::new(CapturingPlugin::new("mock"));
@@ -463,17 +463,16 @@ async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
         .await
         .unwrap();
 
-    // Step 1.2: In Off mode, non-Text blocks are sent directly during
-    // streaming (no inline VerbosityFilter). Both Thinking and Text
-    // blocks are sent.
+    // Step 1.2: In Off mode, Thinking blocks are filtered in the
+    // incremental phase — no plugin dispatch, no thinking indicator.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        2,
-        "both Thinking and Text should be sent during streaming in Off mode"
+        1,
+        "only Text block should be sent during streaming in Off mode"
     );
 
-    // Post-stream pipeline: VerbosityFilter filters Thinking from final result.
+    // Post-stream pipeline: no Thinking blocks remain to filter.
     let has_thinking = result
         .content_blocks
         .iter()
@@ -489,9 +488,9 @@ async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
     assert!(has_text, "Text block should pass through at Off level");
 }
 
-/// At VerbosityLevel::Normal, Thinking blocks are sent during streaming
-/// (no inline filtering) but filtered from the final content_blocks
-/// by the post-stream VerbosityFilter in the processor chain.
+/// At VerbosityLevel::Normal, Thinking blocks are filtered in the incremental
+/// phase (no plugin dispatch, no indicator). Only Text blocks are sent.
+/// Post-stream VerbosityFilter is a no-op (no Thinking blocks remain).
 #[tokio::test]
 async fn test_streaming_verbosity_normal_filters_thinking_post_stream() {
     let plugin = Arc::new(CapturingPlugin::new("mock"));
@@ -505,17 +504,16 @@ async fn test_streaming_verbosity_normal_filters_thinking_post_stream() {
         .await
         .unwrap();
 
-    // Step 1.2: In Normal mode, non-Text blocks are sent directly during
-    // streaming (no inline VerbosityFilter). Both Thinking and Text
-    // blocks are sent.
+    // Step 1.2: In Normal mode, Thinking blocks are filtered in the
+    // incremental phase — no plugin dispatch, no thinking indicator.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        2,
-        "both Thinking and Text should be sent during streaming in Normal mode"
+        1,
+        "only Text block should be sent during streaming in Normal mode"
     );
 
-    // Post-stream pipeline: VerbosityFilter removes Thinking at Normal level.
+    // Post-stream pipeline: no Thinking blocks remain to filter.
     let has_thinking = result
         .content_blocks
         .iter()

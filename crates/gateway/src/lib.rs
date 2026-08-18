@@ -422,11 +422,16 @@ impl Gateway {
 
     /// Enqueue an inbound request into the bounded queue.
     ///
-    /// When the queue is full, a busy reply is sent via the IM plugin.
+    /// When the queue is full, a busy reply is sent via the IM plugin
+    /// and `Err(InboundQueueFull)` is returned so the caller can decide
+    /// the HTTP response status.
     /// If the queue has not been started, the message is processed
-    /// directly (bypass mode).
-    pub async fn enqueue_inbound(&self, request: inbound_queue::InboundRequest) {
-        inbound_queue::enqueue_inbound(self, request).await;
+    /// directly (bypass mode) and `Ok(())` is returned.
+    pub async fn enqueue_inbound(
+        &self,
+        request: inbound_queue::InboundRequest,
+    ) -> Result<(), inbound_queue::InboundQueueFull> {
+        inbound_queue::enqueue_inbound(self, request).await
     }
 
     /// Get a clone of the shutdown handle, if set.

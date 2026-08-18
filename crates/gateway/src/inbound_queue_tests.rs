@@ -121,7 +121,7 @@ async fn test_enqueue_inbound_without_queue_bypasses() {
     // processes the message directly without going through the channel.
     let gw = make_gateway();
     // No start_inbound_queue() call — inbound_tx remains None.
-    gw.enqueue_inbound(make_request("direct")).await;
+    let _ = gw.enqueue_inbound(make_request("direct")).await;
     // If we got here without panic, bypass mode works.
 }
 
@@ -149,7 +149,8 @@ async fn test_gateway_enqueue_inbound_full_triggers_busy_reply() {
             .unwrap();
     }
     // Next enqueue should trigger busy reply path (no plugin → silently skipped).
-    gw.enqueue_inbound(make_request("overflow")).await;
+    let result = gw.enqueue_inbound(make_request("overflow")).await;
+    assert!(result.is_err(), "queue full should return Err");
     // No panic = busy reply path handled gracefully with no plugin.
 }
 
@@ -269,7 +270,7 @@ impl IMPlugin for NonTextEmptyContentPlugin {
 async fn test_process_inbound_direct_drops_empty_text() {
     let gw = make_gateway();
     gw.register_plugin(Arc::new(EmptyTextBypassPlugin)).await;
-    gw.enqueue_inbound(make_request("empty-text")).await;
+    let _ = gw.enqueue_inbound(make_request("empty-text")).await;
 }
 
 #[tokio::test]
@@ -277,7 +278,7 @@ async fn test_process_inbound_direct_passes_non_text_empty_content() {
     let gw = make_gateway();
     gw.register_plugin(Arc::new(NonTextEmptyContentPlugin))
         .await;
-    gw.enqueue_inbound(make_request("img-empty")).await;
+    let _ = gw.enqueue_inbound(make_request("img-empty")).await;
 }
 
 #[tokio::test]
@@ -425,14 +426,14 @@ async fn test_consumer_passes_normal_text() {
 async fn test_fallback_drops_empty_string_text() {
     let gw = make_gateway();
     gw.register_plugin(Arc::new(EmptyStringTextPlugin)).await;
-    gw.enqueue_inbound(make_request("empty-str-fb")).await;
+    let _ = gw.enqueue_inbound(make_request("empty-str-fb")).await;
 }
 
 #[tokio::test]
 async fn test_fallback_passes_normal_text() {
     let gw = make_gateway();
     gw.register_plugin(Arc::new(NormalTextPlugin)).await;
-    gw.enqueue_inbound(make_request("normal-fb")).await;
+    let _ = gw.enqueue_inbound(make_request("normal-fb")).await;
 }
 // ---------------------------------------------------------------------------
 // Busy reply uses simplified outbound path (Step 1.3)
@@ -527,7 +528,7 @@ async fn test_busy_reply_uses_simplified_outbound_path() {
             .unwrap();
     }
 
-    gw.enqueue_inbound(make_request("overflow-mw-test")).await;
+    let _ = gw.enqueue_inbound(make_request("overflow-mw-test")).await;
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     assert!(
@@ -623,7 +624,7 @@ async fn test_busy_reply_timeout_drops_after_2s() {
     }
 
     let start = std::time::Instant::now();
-    gw.enqueue_inbound(make_request("overflow-slow")).await;
+    let _ = gw.enqueue_inbound(make_request("overflow-slow")).await;
     let elapsed = start.elapsed();
 
     assert!(
@@ -717,7 +718,8 @@ async fn test_busy_reply_text_matches_design_doc() {
             .try_send(queued(make_request(&format!("fill-{i}"))))
             .unwrap();
     }
-    gw.enqueue_inbound(make_request("overflow-text-check"))
+    let _ = gw
+        .enqueue_inbound(make_request("overflow-text-check"))
         .await;
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -753,7 +755,8 @@ async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
     let handle = gw.start_inbound_queue();
 
     handle.try_send(queued(make_request("first"))).unwrap();
-    gw.enqueue_inbound(make_request("second")).await;
+    let result = gw.enqueue_inbound(make_request("second")).await;
+    assert!(result.is_err(), "queue full should return Err");
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
@@ -784,3 +787,51 @@ async fn test_queue_not_full_no_busy_reply() {
         "no busy reply should be sent when queue is not full"
     );
 }
+
+// ---------------------------------------------------------------------------
+// enqueue_inbound returns Result (Step 1.3)
+// ---------------------------------------------------------------------------
+
+/// Verify that enqueue_inbound returns Err(InboundQueueFull) when the queue
+/// is at capacity, while still sending the busy reply.
+#[tokio::test]
+async fn test_enqueue_inbound_returns_err_when_queue_full() {
+    let gw = make_gateway();
+    let plugin = Arc::new(TrackingSendPlugin::new());
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
+    let handle = gw.start_inbound_queue();
+
+    // Fill queue to capacity (4).
+    for i in 0..4 {
+        handle
+            .try_send(queued(make_request(&format!("fill-{i}"))))
+            .unwrap();
+    }
+
+    // Enqueue one more — should return Err.
+    let result = gw.enqueue_inbound(make_request("overflow-result")).await;
+    assert!(result.is_err(), "queue full should return Err");
+    let err = result.unwrap_err();
+    assert_eq!(err.request.peer_id, "p1");
+    assert_eq!(err.request.platform, "feishu");
+
+    // Busy reply should still have been sent.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        plugin.was_send_called(),
+        "busy reply should still be sent even though we return Err"
+    );
+}
+
+/// Verify that enqueue_inbound returns Ok(()) when the queue has space.
+#[tokio::test]
+async fn test_enqueue_inbound_returns_ok_when_queue_has_space() {
+    let gw = make_gateway();
+    let _handle = gw.start_inbound_queue();
+
+    // Queue has capacity 4, enqueue one — should succeed.
+    let result = gw.enqueue_inbound(make_request("ok-msg")).await;
+    assert!(result.is_ok(), "queue has space should return Ok");
+}
+

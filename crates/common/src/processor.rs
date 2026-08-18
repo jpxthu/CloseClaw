@@ -120,6 +120,23 @@ pub enum ContentDelta {
     FileRef { name: String, url: String },
 }
 
+impl ContentDelta {
+    /// Return the [`ContentBlockType`] corresponding to this delta variant.
+    pub fn block_type(&self) -> ContentBlockType {
+        match self {
+            Self::Text { .. } => ContentBlockType::Text,
+            Self::Thinking { .. } => ContentBlockType::Thinking,
+            Self::ToolUseId { .. }
+            | Self::ToolUseName { .. }
+            | Self::ToolUseInputChunk { .. } => ContentBlockType::ToolUse,
+            Self::ToolResultText { .. } => ContentBlockType::ToolResult,
+            Self::ImageRef { .. } => ContentBlockType::Image,
+            Self::AudioRef { .. } => ContentBlockType::Audio,
+            Self::FileRef { .. } => ContentBlockType::File,
+        }
+    }
+}
+
 /// Stream event emitted during streaming responses.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
