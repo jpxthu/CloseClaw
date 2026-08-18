@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use super::session_handler::{MessageMetadata, SessionMessageHandler};
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
-use crate::types::GatewayError;
+use crate::types::{GatewayError, Message};
 use crate::Gateway;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::StreamingSink;
@@ -98,6 +98,21 @@ impl SessionMessageHandler {
             cs.read().await.set_llm_state(LlmState::Idle);
         }
 
+        // StreamError degradation path:
+        // Send IM notification + persist checkpoint in a single
+        // extracted function to keep nesting ≤ 3 levels.
+        if let Err(ref e) = dispatch_result {
+            if let Err(degrad_err) =
+                handle_streaming_degradation(gateway, session_manager, session_id, channel, e).await
+            {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %degrad_err,
+                    "streaming degradation failed"
+                );
+            }
+        }
+
         let stream_result = dispatch_result.map_err(|e| {
             if let Some(ref s) = sink {
                 handle_stream_error(e, s.as_ref())
@@ -130,6 +145,111 @@ impl SessionMessageHandler {
         }
         Ok(stream_result)
     }
+}
+
+/// Handle streaming error degradation: send IM notification and persist
+/// the partial content checkpoint.
+///
+/// This is an independent async function extracted from
+/// `call_llm_streaming` to keep nesting ≤ 3 levels. Uses `let-else`
+/// for early returns to reduce nesting.
+///
+/// # Errors
+/// Returns `GatewayError` if chat_id is unavailable or notification
+/// fails (logged as warn, not propagated to caller).
+pub(crate) async fn handle_streaming_degradation(
+    gateway: &Arc<Gateway>,
+    session_manager: &Arc<SessionManager>,
+    session_id: &str,
+    channel: &str,
+    dispatch_result: &GatewayError,
+) -> Result<(), GatewayError> {
+    let GatewayError::StreamError {
+        ref partial_content,
+        ..
+    } = *dispatch_result
+    else {
+        return Ok(());
+    };
+
+    let Some(chat_id) = session_manager.get_chat_id(session_id).await else {
+        tracing::warn!(
+            session_id = %session_id,
+            "chat_id unavailable, skipping streaming degradation"
+        );
+        return Ok(());
+    };
+
+    // IM error notification.
+    if let Err(notif_err) = gateway
+        .send_outbound_simplified(
+            &chat_id,
+            channel,
+            "⚠️ 回复中断：流式响应异常终止，已发送部分内容可能不完整",
+        )
+        .await
+    {
+        tracing::warn!(
+            session_id = %session_id,
+            error = %notif_err,
+            "failed to send streaming error notification \
+             via simplified outbound"
+        );
+    }
+
+    // Checkpoint persistence: write partial content as outbound
+    // history with an error marker. Skip if partial_content is
+    // empty (nothing was sent before the error).
+    if !partial_content.is_empty() {
+        persist_streaming_checkpoint(gateway, session_id, &chat_id, channel, partial_content).await;
+    }
+
+    Ok(())
+}
+
+/// Build a [`Message`] for checkpoint persistence from partial streaming
+/// content blocks.
+fn build_checkpoint_message(
+    chat_id: &str,
+    channel: &str,
+    partial_content: &[ContentBlock],
+) -> Message {
+    let text = partial_content
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    let content_blocks_json = serde_json::to_string(partial_content).unwrap_or_default();
+    Message {
+        id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
+        from: "agent".to_string(),
+        to: chat_id.to_string(),
+        content: text,
+        channel: channel.to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+        platform: Some(channel.to_string()),
+        dsl_result: None,
+        content_blocks: Some(content_blocks_json),
+    }
+}
+
+/// Persist partial streaming content as an outbound checkpoint.
+async fn persist_streaming_checkpoint(
+    gateway: &Gateway,
+    session_id: &str,
+    chat_id: &str,
+    channel: &str,
+    partial_content: &[ContentBlock],
+) {
+    let msg = build_checkpoint_message(chat_id, channel, partial_content);
+    gateway
+        .persist_outbound_checkpoint(session_id, &msg, true)
+        .await;
 }
 
 /// Handle a streaming error by sending partial content to the user
