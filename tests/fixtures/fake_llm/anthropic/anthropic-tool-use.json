@@ -1,0 +1,65 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-tool-use",
+  "model": "fake-model",
+  "expect": "tool_use",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How's the weather in San Francisco?"
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_01_tooluse_fake_model_c3d4e5f6a7b8c9d0",
+    "type": "message",
+    "role": "assistant",
+    "model": "fake-model",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "The user wants the current weather in San Francisco. I have a get_weather tool available, so I'll invoke it with the location.",
+        "signature": "sig_tooluse_c3d4e5f6a7b8c9d0"
+      },
+      {
+        "type": "tool_use",
+        "id": "toolu_fake_01_Vau98RhEyykRxCrGkYDe1551",
+        "name": "get_weather",
+        "input": {
+          "location": "San Francisco"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 39,
+      "output_tokens": 45,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "service_tier": "standard"
+    }
+  },
+  "tools_sent": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather in a given location.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City name, e.g. Tokyo"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ],
+  "max_tokens_sent": 2048
+}

@@ -1,0 +1,29 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-rate-limit",
+  "model": "fake-model",
+  "expect": "error",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 429,
+    "reason": "Too Many Requests",
+    "body": {
+      "error": {
+        "message": "Rate limit reached for requests in a 1-minute window. Please slow down. See https://platform.openai.com/docs/guides/rate-limits for details.",
+        "type": "rate_limit_error",
+        "param": null,
+        "code": "rate_limit_exceeded"
+      }
+    }
+  }
+}

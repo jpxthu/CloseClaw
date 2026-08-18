@@ -1,0 +1,17 @@
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_fake_002","type":"function","function":{"name":"get_weather","arguments":""}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\""}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"location"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\""}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"Tokyo"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fake-toolstream-009","object":"chat.completion.chunk","created":1700000009,"model":"fake-model","system_fingerprint":"fp_fake","choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":18,"completion_tokens":12,"total_tokens":30,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":0}}}
+
+data: [DONE]
