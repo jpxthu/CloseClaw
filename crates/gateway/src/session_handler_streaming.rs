@@ -18,6 +18,14 @@ use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
 use crate::types::{GatewayError, Message};
 use crate::Gateway;
+
+/// Metadata key: marks a checkpoint message as having been interrupted
+/// by a streaming error (as opposed to normal completion).
+pub(crate) const META_STREAMING_INTERRUPTED: &str = "streaming_interrupted";
+
+/// Metadata key: stores the human-readable reason for the streaming
+/// interruption.
+pub(crate) const META_STREAMING_INTERRUPT_REASON: &str = "streaming_interrupt_reason";
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::StreamingSink;
 use closeclaw_llm::session_state::LlmState;
@@ -239,8 +247,11 @@ pub(crate) fn build_checkpoint_message(
     let content_blocks_json = serde_json::to_string(partial_content).unwrap_or_default();
     let mut metadata = std::collections::HashMap::new();
     if let Some(reason) = error_reason {
-        metadata.insert("streaming_interrupted".to_string(), "true".to_string());
-        metadata.insert("streaming_interrupt_reason".to_string(), reason.to_string());
+        metadata.insert(META_STREAMING_INTERRUPTED.to_string(), "true".to_string());
+        metadata.insert(
+            META_STREAMING_INTERRUPT_REASON.to_string(),
+            reason.to_string(),
+        );
     }
     Message {
         id: format!("out-{}", chrono::Utc::now().timestamp_millis()),

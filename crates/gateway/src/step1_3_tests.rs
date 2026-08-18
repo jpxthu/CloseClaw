@@ -8,8 +8,12 @@ use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
 use closeclaw_common::IMPlugin;
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
 
 use super::session_handler_streaming::build_checkpoint_message;
+use super::session_handler_streaming::{
+    META_STREAMING_INTERRUPTED, META_STREAMING_INTERRUPT_REASON,
+};
 use crate::types::{GatewayConfig, GatewayError};
 use crate::{Gateway, HandleResult, SessionManager};
 
@@ -237,6 +241,106 @@ async fn make_session_idle(sm: &SessionManager, session_id: &str) {
         .insert(session_id.to_string(), cs_arc);
 }
 
+// ── Shared MemPersist for degradation tests ─────────────────────────────────
+
+/// In-memory [`PersistenceService`] implementation for tests.
+struct MemPersist {
+    saved: std::sync::Mutex<Vec<SessionCheckpoint>>,
+}
+
+impl MemPersist {
+    fn new() -> Self {
+        Self {
+            saved: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+    fn take(&self) -> Vec<SessionCheckpoint> {
+        std::mem::take(&mut *self.saved.lock().unwrap())
+    }
+}
+
+#[async_trait::async_trait]
+impl PersistenceService for MemPersist {
+    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        self.saved.lock().unwrap().push(cp.clone());
+        Ok(())
+    }
+    async fn load_checkpoint(
+        &self,
+        _: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(None)
+    }
+    async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(vec![])
+    }
+    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(vec![])
+    }
+    async fn purge_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn invalidate_session(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn archive_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn restore_checkpoint(
+        &self,
+        _: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(None)
+    }
+    async fn list_idle_sessions_for_agent(
+        &self,
+        _: &str,
+        _: closeclaw_session::persistence::AgentRole,
+        _: i64,
+    ) -> Result<Vec<String>, PersistenceError> {
+        Ok(vec![])
+    }
+    async fn sync(&self) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+}
+
+/// Build a degradation test environment: MemPersist + SessionManager + Gateway.
+///
+/// Returns `(gateway, session_manager, persist)`.
+async fn build_degradation_env(
+    session_id: &str,
+    agent_id: &str,
+) -> (Arc<Gateway>, Arc<SessionManager>, Arc<MemPersist>) {
+    let persist = Arc::new(MemPersist::new());
+    let sm = Arc::new(SessionManager::new(
+        &test_config(),
+        Some(Arc::clone(&persist) as Arc<dyn PersistenceService>),
+        None,
+        ReasoningLevel::default(),
+    ));
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::Session {
+            id: session_id.to_string(),
+            agent_id: agent_id.to_string(),
+            channel: "mock".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+    let cm = Arc::new(
+        closeclaw_session::checkpoint_manager::CheckpointManager::new(
+            Arc::clone(&persist) as Arc<dyn PersistenceService>
+        ),
+    );
+    let gw = Arc::new(Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm));
+    (gw, sm, persist)
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Step 1.1: Slash command queuing notification tests
 // ═════════════════════════════════════════════════════════════════════════════
@@ -385,12 +489,12 @@ fn test_checkpoint_with_error_has_markers() {
         Some("stream broken mid-response"),
     );
     assert_eq!(
-        msg.metadata.get("streaming_interrupted").unwrap(),
+        msg.metadata.get(META_STREAMING_INTERRUPTED).unwrap(),
         "true",
         "should mark streaming_interrupted"
     );
     assert_eq!(
-        msg.metadata.get("streaming_interrupt_reason").unwrap(),
+        msg.metadata.get(META_STREAMING_INTERRUPT_REASON).unwrap(),
         "stream broken mid-response",
         "should include interrupt reason"
     );
@@ -401,12 +505,12 @@ fn test_checkpoint_with_error_has_markers() {
 fn test_checkpoint_error_with_empty_content_has_markers() {
     let msg = build_checkpoint_message("chat3", "feishu", &[], Some("timeout"));
     assert_eq!(
-        msg.metadata.get("streaming_interrupted").unwrap(),
+        msg.metadata.get(META_STREAMING_INTERRUPTED).unwrap(),
         "true",
         "markers should be set even with empty partial content"
     );
     assert_eq!(
-        msg.metadata.get("streaming_interrupt_reason").unwrap(),
+        msg.metadata.get(META_STREAMING_INTERRUPT_REASON).unwrap(),
         "timeout"
     );
     assert!(
@@ -419,115 +523,7 @@ fn test_checkpoint_error_with_empty_content_has_markers() {
 /// checkpoint whose message metadata contains error markers.
 #[tokio::test]
 async fn test_degradation_checkpoint_has_error_markers() {
-    use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
-    use std::sync::Mutex;
-
-    struct MemPersist {
-        saved: Mutex<Vec<SessionCheckpoint>>,
-    }
-    impl MemPersist {
-        fn new() -> Self {
-            Self {
-                saved: Mutex::new(Vec::new()),
-            }
-        }
-        fn take(&self) -> Vec<SessionCheckpoint> {
-            std::mem::take(&mut *self.saved.lock().unwrap())
-        }
-    }
-    #[async_trait::async_trait]
-    impl PersistenceService for MemPersist {
-        async fn save_checkpoint(
-            &self,
-            cp: &SessionCheckpoint,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            self.saved.lock().unwrap().push(cp.clone());
-            Ok(())
-        }
-        async fn load_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
-        {
-            Ok(None)
-        }
-        async fn delete_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn list_active_sessions(
-            &self,
-        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-            Ok(vec![])
-        }
-        async fn list_archived_sessions(
-            &self,
-        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-            Ok(vec![])
-        }
-        async fn purge_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn invalidate_session(
-            &self,
-            _: &str,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn archive_checkpoint(
-            &self,
-            _: &SessionCheckpoint,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn restore_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
-        {
-            Ok(None)
-        }
-        async fn list_idle_sessions_for_agent(
-            &self,
-            _: &str,
-            _: closeclaw_session::persistence::AgentRole,
-            _: i64,
-        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-            Ok(vec![])
-        }
-        async fn sync(&self) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-    }
-
-    let persist = Arc::new(MemPersist::new());
-    let sm = Arc::new(SessionManager::new(
-        &test_config(),
-        Some(Arc::clone(&persist) as Arc<dyn PersistenceService>),
-        None,
-        ReasoningLevel::default(),
-    ));
-    sm.sessions.write().await.insert(
-        "s-degrad".into(),
-        crate::Session {
-            id: "s-degrad".into(),
-            agent_id: "chat_u".into(),
-            channel: "mock".into(),
-            created_at: 0,
-            depth: 0,
-        },
-    );
-    let cm = Arc::new(
-        closeclaw_session::checkpoint_manager::CheckpointManager::new(
-            Arc::clone(&persist) as Arc<dyn PersistenceService>
-        ),
-    );
-    let gw = Arc::new(Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm));
+    let (gw, sm, persist) = build_degradation_env("s-degrad", "chat_u").await;
 
     let dispatch_err = GatewayError::StreamError {
         message: "stream broken".into(),
@@ -568,110 +564,7 @@ async fn test_degradation_checkpoint_has_error_markers() {
 /// markers in checkpoint.
 #[tokio::test]
 async fn test_degradation_non_stream_error_skips_checkpoint() {
-    use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
-    use std::sync::Mutex;
-
-    struct MemPersist {
-        saved: Mutex<Vec<SessionCheckpoint>>,
-    }
-    impl MemPersist {
-        fn new() -> Self {
-            Self {
-                saved: Mutex::new(Vec::new()),
-            }
-        }
-        fn take(&self) -> Vec<SessionCheckpoint> {
-            std::mem::take(&mut *self.saved.lock().unwrap())
-        }
-    }
-    #[async_trait::async_trait]
-    impl PersistenceService for MemPersist {
-        async fn save_checkpoint(
-            &self,
-            cp: &SessionCheckpoint,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            self.saved.lock().unwrap().push(cp.clone());
-            Ok(())
-        }
-        async fn load_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
-        {
-            Ok(None)
-        }
-        async fn delete_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn list_active_sessions(
-            &self,
-        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-            Ok(vec![])
-        }
-        async fn list_archived_sessions(
-            &self,
-        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-            Ok(vec![])
-        }
-        async fn purge_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn invalidate_session(
-            &self,
-            _: &str,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn archive_checkpoint(
-            &self,
-            _: &SessionCheckpoint,
-        ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-        async fn restore_checkpoint(
-            &self,
-            _: &str,
-        ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError>
-        {
-            Ok(None)
-        }
-        async fn list_idle_sessions_for_agent(
-            &self,
-            _: &str,
-            _: closeclaw_session::persistence::AgentRole,
-            _: i64,
-        ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-            Ok(vec![])
-        }
-        async fn sync(&self) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-            Ok(())
-        }
-    }
-
-    let persist = Arc::new(MemPersist::new());
-    let sm = Arc::new(SessionManager::new(
-        &test_config(),
-        Some(Arc::clone(&persist) as Arc<dyn PersistenceService>),
-        None,
-        ReasoningLevel::default(),
-    ));
-    sm.sessions.write().await.insert(
-        "s-normal".into(),
-        crate::Session {
-            id: "s-normal".into(),
-            agent_id: "chat_u2".into(),
-            channel: "mock".into(),
-            created_at: 0,
-            depth: 0,
-        },
-    );
-    let gw = Arc::new(Gateway::new(test_config(), Arc::clone(&sm)));
+    let (gw, sm, persist) = build_degradation_env("s-normal", "chat_u2").await;
 
     // Non-StreamError: degradation path returns Ok(()) without persisting.
     let err = GatewayError::AdapterError("not a stream error".into());
@@ -698,7 +591,10 @@ fn test_raw_log_dir_config_does_not_affect_error_markers() {
     // With raw_log_dir configured.
     let msg_with_dir = build_checkpoint_message("c1", "feishu", &blocks, Some("err A"));
     assert_eq!(
-        msg_with_dir.metadata.get("streaming_interrupted").unwrap(),
+        msg_with_dir
+            .metadata
+            .get(META_STREAMING_INTERRUPTED)
+            .unwrap(),
         "true"
     );
 
@@ -707,7 +603,7 @@ fn test_raw_log_dir_config_does_not_affect_error_markers() {
     assert_eq!(
         msg_without_dir
             .metadata
-            .get("streaming_interrupted")
+            .get(META_STREAMING_INTERRUPTED)
             .unwrap(),
         "true"
     );
