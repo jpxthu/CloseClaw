@@ -551,3 +551,225 @@ fn test_resolve_ambiguous_error_display() {
     assert!(msg.contains("test-a"));
     assert!(msg.contains("test-b"));
 }
+
+// ── list_plan_summaries tests ──────────────────────────────────────────
+
+/// Create a plan file with the given content.
+fn create_plan_file_with_content(dir: &Path, stem: &str, content: &str) {
+    let plans = dir.join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    std::fs::write(plans.join(format!("{stem}.md")), content).unwrap();
+}
+
+/// Set the modification time of a file.
+fn set_mtime(path: &Path, seconds_since_epoch: u64) {
+    let time = filetime::FileTime::from_unix_time(seconds_since_epoch as i64, 0);
+    filetime::set_file_mtime(path, time).unwrap();
+}
+
+#[test]
+fn test_list_summaries_empty_when_no_plans_dir() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert!(summaries.is_empty());
+}
+
+#[test]
+fn test_list_summaries_empty_when_no_files() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("plans")).unwrap();
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert!(summaries.is_empty());
+}
+
+#[test]
+fn test_list_summaries_ignores_non_md_files() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let plans = dir.path().join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    std::fs::write(plans.join("notes.txt"), "hello").unwrap();
+    std::fs::write(plans.join("plan.json"), "{}").unwrap();
+    std::fs::write(plans.join("real.md"), "# Real Plan").unwrap();
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].stem, "real");
+}
+
+#[test]
+fn test_list_summaries_sorted_by_mtime_desc() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(dir.path(), "old-plan", "# Old Plan");
+    create_plan_file_with_content(dir.path(), "new-plan", "# New Plan");
+
+    let old_path = dir.path().join("plans/old-plan.md");
+    let new_path = dir.path().join("plans/new-plan.md");
+    set_mtime(&old_path, 1000);
+    set_mtime(&new_path, 2000);
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries.len(), 2);
+    assert_eq!(summaries[0].stem, "new-plan");
+    assert_eq!(summaries[1].stem, "old-plan");
+}
+
+#[test]
+fn test_list_summaries_extracts_title() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(dir.path(), "plan-a", "# 用户认证功能\n\nSome content.");
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries[0].title, "用户认证功能");
+}
+
+#[test]
+fn test_list_summaries_counts_checkboxes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-a",
+        "# Plan A\n\n## Tasks\n\n- [x] Done task\n- [!] Important done\n- [~] In progress\n- [ ] Pending task\n- [ ] Another pending\n",
+    );
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries[0].completed, 3); // [x] + [!] + [~]
+    assert_eq!(summaries[0].total, 5); // all - [ lines
+}
+
+#[test]
+fn test_list_summaries_no_tasks_section_zero_counts() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-b",
+        "# Plan B\n\n## Context\n\nSome context.",
+    );
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries[0].completed, 0);
+    assert_eq!(summaries[0].total, 0);
+}
+
+#[test]
+fn test_list_summaries_tasks_no_checkboxes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-c",
+        "# Plan C\n\n## Tasks\n\nSome notes here\n- Item without checkbox\n",
+    );
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries[0].completed, 0);
+    assert_eq!(summaries[0].total, 0);
+}
+
+#[test]
+fn test_list_summaries_chinese_title() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(dir.path(), "plan-zh", "# 实现用户认证功能");
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries[0].title, "实现用户认证功能");
+}
+
+#[test]
+fn test_list_summaries_only_completed_checkboxes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-done",
+        "# Plan Done\n\n## Tasks\n\n- [x] Task 1\n- [x] Task 2\n- [x] Task 3\n",
+    );
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries[0].completed, 3);
+    assert_eq!(summaries[0].total, 3);
+}
+
+#[test]
+fn test_list_summaries_only_pending_checkboxes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-pending",
+        "# Plan Pending\n\n## Tasks\n\n- [ ] Task A\n- [ ] Task B\n",
+    );
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries[0].completed, 0);
+    assert_eq!(summaries[0].total, 2);
+}
+
+#[test]
+fn test_list_summaries_multiple_plans_mixed_states() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-1",
+        "# Plan 1\n\n## Tasks\n\n- [x] Done\n- [ ] Pending\n",
+    );
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-2",
+        "# Plan 2\n\n## Tasks\n\n- [~] WIP\n- [!] Critical\n",
+    );
+    create_plan_file_with_content(dir.path(), "plan-3", "# Plan 3\n");
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    assert_eq!(summaries.len(), 3);
+
+    let plan1 = summaries.iter().find(|s| s.stem == "plan-1").unwrap();
+    assert_eq!(plan1.completed, 1);
+    assert_eq!(plan1.total, 2);
+
+    let plan2 = summaries.iter().find(|s| s.stem == "plan-2").unwrap();
+    assert_eq!(plan2.completed, 2);
+    assert_eq!(plan2.total, 2);
+
+    let plan3 = summaries.iter().find(|s| s.stem == "plan-3").unwrap();
+    assert_eq!(plan3.completed, 0);
+    assert_eq!(plan3.total, 0);
+}
+
+#[test]
+fn test_list_summaries_stops_at_next_section() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_plan_file_with_content(
+        dir.path(),
+        "plan-sec",
+        "# Plan Sec\n\n## Tasks\n\n- [x] Done\n\n## Verification\n\n- [ ] Verify\n",
+    );
+
+    let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
+    // Only the task in the Tasks section counts
+    assert_eq!(summaries[0].completed, 1);
+    assert_eq!(summaries[0].total, 1);
+}
+
+#[test]
+fn test_read_plan_content_success() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("test.md");
+    std::fs::write(&path, "# Hello\n\nContent here.").unwrap();
+
+    let content = plan_file::read_plan_content(&path).unwrap();
+    assert_eq!(content, "# Hello\n\nContent here.");
+}
+
+#[test]
+fn test_read_plan_content_not_found() {
+    let result = plan_file::read_plan_content(Path::new("/nonexistent/plan.md"));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_read_plan_content_chinese_content() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("plan.md");
+    std::fs::write(&path, "# 中文标题\n\n这是中文内容。").unwrap();
+
+    let content = plan_file::read_plan_content(&path).unwrap();
+    assert!(content.contains("中文标题"));
+    assert!(content.contains("中文内容"));
+}

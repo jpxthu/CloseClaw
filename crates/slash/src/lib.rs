@@ -58,3 +58,6 @@ mod pause_handler_tests;
 
 #[cfg(test)]
 pub mod handlers_user_tests;
+
+#[cfg(test)]
+pub mod handlers_plans_browse_tests;
