@@ -222,7 +222,7 @@ pub(crate) async fn handle_streaming_degradation(
 /// When `error_reason` is `Some`, the message metadata is populated with
 /// error event markers so that recovery/replay can distinguish error
 /// interrupts from normal completions.
-fn build_checkpoint_message(
+pub(crate) fn build_checkpoint_message(
     chat_id: &str,
     channel: &str,
     partial_content: &[ContentBlock],
