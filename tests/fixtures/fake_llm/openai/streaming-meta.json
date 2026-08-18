@@ -12,6 +12,9 @@
         "content": "Say hello in 3 words."
       }
     ],
-    "stream": true
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    }
   }
 }

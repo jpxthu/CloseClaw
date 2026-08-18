@@ -3,7 +3,7 @@
   "streaming": true,
   "scenario": "tool-use-streaming",
   "model": "fake-model",
-  "expect": "tool_calls_streaming",
+  "expect": "tool_calls",
   "request": {
     "model": "fake-model",
     "messages": [
@@ -12,7 +12,10 @@
         "content": "What's the weather in Tokyo?"
       }
     ],
-    "stream": true
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    }
   },
   "tools_sent": [
     {
@@ -28,7 +31,9 @@
               "description": "City name, e.g. Tokyo"
             }
           },
-          "required": ["location"]
+          "required": [
+            "location"
+          ]
         }
       }
     }
