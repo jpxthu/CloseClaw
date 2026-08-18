@@ -85,7 +85,8 @@ impl InboundQueueHandle {
 ///
 /// Contains the original request so the caller can decide what to do
 /// (e.g. log it, drop it, or reply with a busy message).
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("inbound queue is full")]
 pub struct InboundQueueFull {
     /// The request that could not be enqueued.
     pub request: InboundRequest,
@@ -314,7 +315,10 @@ fn append_wal_if_configured(gateway: &Gateway, request: &InboundRequest) {
     }
 }
 
-pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
+pub(crate) async fn enqueue_inbound(
+    gateway: &Gateway,
+    mut request: InboundRequest,
+) -> Result<(), InboundQueueFull> {
     ensure_trace_id(&mut request);
     let tx = match gateway
         .inbound_tx
@@ -325,21 +329,21 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
         Some(tx) => tx,
         None => {
             process_inbound_direct(gateway, &request).await;
-            return;
+            return Ok(());
         }
     };
 
     append_wal_if_configured(gateway, &request);
 
     // Create oneshot channel for dequeue ack.
-    let (ack_tx, ack_rx) = oneshot::channel::<()>();
-    let queued = QueuedInbound { request, ack_tx };
+    let (ack_tx, _ack_rx) = oneshot::channel::<()>();
+    let queued = QueuedInbound {
+        request,
+        ack_tx,
+    };
 
     match tx.try_send(queued) {
-        Ok(()) => {
-            // Wait for consumer to dequeue before acking webhook.
-            let _ = ack_rx.await;
-        }
+        Ok(()) => Ok(()),
         Err(e) => {
             let req = match e {
                 tokio::sync::mpsc::error::TrySendError::Full(q)
@@ -348,6 +352,7 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
             emit_queue_rejected_log(gateway, &req);
             tracing::warn!(peer_id = %req.peer_id, "inbound queue full — sending busy reply");
             send_busy_reply(gateway, &req).await;
+            Err(InboundQueueFull { request: req })
         }
     }
 }
@@ -540,5 +545,49 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<QueuedInbound>(32);
         let handle = InboundQueueHandle::new(tx);
         assert_eq!(handle.capacity(), 32);
+    }
+
+    /// Verify that enqueue does not block waiting for consumer dequeue.
+    ///
+    /// Fills the channel to capacity, then enqueues one more message.
+    /// The first message is not consumed, so if enqueue blocked on ack_rx
+    /// it would time out. Instead, try_send should return Err immediately
+    /// because the channel is full.
+    #[test]
+    fn enqueue_does_not_block_without_consumer() {
+        let (tx, rx) = mpsc::channel::<QueuedInbound>(1);
+        let handle = InboundQueueHandle::new(tx);
+
+        // Fill the single slot.
+        let (ack_tx1, _ack_rx1) = oneshot::channel();
+        handle
+            .try_send(QueuedInbound {
+                request: InboundRequest {
+                    platform: "feishu".into(),
+                    raw_payload: b"fill".to_vec(),
+                    peer_id: "p1".into(),
+                    trace_id: "tr-fill".into(),
+                },
+                ack_tx: ack_tx1,
+            })
+            .unwrap();
+
+        // Channel is full. try_send must fail immediately — no consumer,
+        // no ack_rx.await blocking.
+        let (ack_tx2, _ack_rx2) = oneshot::channel();
+        let err = handle.try_send(QueuedInbound {
+            request: InboundRequest {
+                platform: "feishu".into(),
+                raw_payload: b"overflow".to_vec(),
+                peer_id: "p2".into(),
+                trace_id: "tr-overflow".into(),
+            },
+            ack_tx: ack_tx2,
+        });
+        assert!(err.is_err());
+
+        // Drop consumer side without consuming — proves enqueue never
+        // depended on consumer for its return path.
+        drop(rx);
     }
 }

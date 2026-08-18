@@ -577,13 +577,14 @@ async fn test_consumer_processes_and_cleans_wal() {
     let _handle = gw.start_inbound_queue();
 
     // Enqueue a message (this triggers WAL append + channel send).
-    gw.enqueue_inbound(InboundRequest {
-        platform: "feishu".into(),
-        raw_payload: b"{\"test\":\"data\"}".to_vec(),
-        peer_id: "p1".into(),
-        trace_id: "tr-consumer-e2e".into(),
-    })
-    .await;
+    let _ = gw
+        .enqueue_inbound(InboundRequest {
+            platform: "feishu".into(),
+            raw_payload: b"{\"test\":\"data\"}".to_vec(),
+            peer_id: "p1".into(),
+            trace_id: "tr-consumer-e2e".into(),
+        })
+        .await;
 
     // Poll WAL until the consumer has processed the entry and deleted it,
     // with a timeout to avoid hanging on failure.
