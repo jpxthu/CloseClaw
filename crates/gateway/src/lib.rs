@@ -169,7 +169,7 @@ impl Gateway {
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
         };
-        register_default_middlewares(&gw);
+        register_default_middlewares(&gw, &gw.config);
         gw
     }
 
@@ -198,7 +198,7 @@ impl Gateway {
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
         };
-        register_default_middlewares(&gw);
+        register_default_middlewares(&gw, &gw.config);
         gw
     }
 
