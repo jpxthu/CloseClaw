@@ -7,6 +7,22 @@ use chrono::Local;
 use closeclaw_config::IdentifierFormat;
 use rand::seq::SliceRandom;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+/// Errors that can occur when resolving a plan file by name.
+#[derive(Debug, Error)]
+pub enum PlanResolveError {
+    /// No plan file matched the given name.
+    #[error("plan not found: {name}")]
+    NotFound { name: String },
+
+    /// Multiple plan files matched the given name.
+    #[error("ambiguous plan name '{name}': {candidates:?}")]
+    Ambiguous {
+        name: String,
+        candidates: Vec<String>,
+    },
+}
 
 /// Adjective word list for random identifiers (50 words).
 const ADJECTIVES: &[&str] = &[
@@ -150,6 +166,138 @@ pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error>
             format!("update time line not found in plan file: {plan_file_path}"),
         )),
     }
+}
+
+/// Resolve a plan file path by name within a workspace.
+///
+/// Searches `{workdir}/plans/` for `.md` files and applies the following
+/// matching strategy:
+///
+/// 1. **Exact match** — `{name}.md` (or `{name}` if it already ends with `.md`)
+/// 2. **Unique prefix** — exactly one file whose stem starts with `name`
+/// 3. **Unique fuzzy** — exactly one file whose stem contains `name`
+///
+/// Returns the matching [`PathBuf`] on success, or a [`PlanResolveError`]
+/// if zero or more than one file matches.
+///
+/// # Errors
+///
+/// - [`PlanResolveError::NotFound`] — no file matched
+/// - [`PlanResolveError::Ambiguous`] — more than one file matched
+pub fn resolve_plan_by_name(workdir: &Path, name: &str) -> Result<PathBuf, PlanResolveError> {
+    let plans_dir = workdir.join("plans");
+    let files = list_plan_stems(&plans_dir)?;
+
+    let query = strip_md_extension(name);
+
+    if query.is_empty() {
+        return Err(PlanResolveError::NotFound {
+            name: name.to_string(),
+        });
+    }
+
+    match_plan_by_stem(&files, &query, name)
+}
+
+/// List `.md` file stems in a directory.
+///
+/// Returns the set of stems (filename without `.md` extension).
+/// Returns [`PlanResolveError::NotFound`] if the directory does not
+/// exist or contains no `.md` files.
+fn list_plan_stems(dir: &Path) -> Result<Vec<String>, PlanResolveError> {
+    let entries = std::fs::read_dir(dir).map_err(|_| PlanResolveError::NotFound {
+        name: String::new(),
+    })?;
+
+    let mut stems = Vec::new();
+    for entry in entries.flatten() {
+        if let Some(stem) = plan_file_stem(&entry.path()) {
+            stems.push(stem);
+        }
+    }
+    Ok(stems)
+}
+
+/// Extract the stem from a plan file path, if it is a `.md` file.
+fn plan_file_stem(path: &Path) -> Option<String> {
+    let ext = path.extension()?;
+    if ext != "md" {
+        return None;
+    }
+    path.file_stem()?.to_str().map(|s| s.to_string())
+}
+
+/// Strip a trailing `.md` extension from a name, if present.
+fn strip_md_extension(name: &str) -> String {
+    if let Some(stripped) = name.strip_suffix(".md") {
+        stripped.to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// Match a query against plan file stems using the three-tier strategy.
+fn match_plan_by_stem(
+    stems: &[String],
+    query: &str,
+    original_name: &str,
+) -> Result<PathBuf, PlanResolveError> {
+    // Tier 1: exact match
+    let exact: Vec<&str> = stems
+        .iter()
+        .filter(|s| s.as_str() == query)
+        .map(|s| s.as_str())
+        .collect();
+    if exact.len() == 1 {
+        return Ok(plan_file_path(exact[0]));
+    }
+    if exact.len() > 1 {
+        return Err(PlanResolveError::Ambiguous {
+            name: original_name.to_string(),
+            candidates: exact.into_iter().map(String::from).collect(),
+        });
+    }
+
+    // Tier 2: prefix match
+    let prefix: Vec<&str> = stems
+        .iter()
+        .filter(|s| s.starts_with(query))
+        .map(|s| s.as_str())
+        .collect();
+    if prefix.len() == 1 {
+        return Ok(plan_file_path(prefix[0]));
+    }
+    if prefix.len() > 1 {
+        return Err(PlanResolveError::Ambiguous {
+            name: original_name.to_string(),
+            candidates: prefix.into_iter().map(String::from).collect(),
+        });
+    }
+
+    // Tier 3: fuzzy (substring) match
+    let fuzzy: Vec<&str> = stems
+        .iter()
+        .filter(|s| s.contains(query))
+        .map(|s| s.as_str())
+        .collect();
+    if fuzzy.len() == 1 {
+        return Ok(plan_file_path(fuzzy[0]));
+    }
+    if fuzzy.len() > 1 {
+        return Err(PlanResolveError::Ambiguous {
+            name: original_name.to_string(),
+            candidates: fuzzy.into_iter().map(String::from).collect(),
+        });
+    }
+
+    Err(PlanResolveError::NotFound {
+        name: original_name.to_string(),
+    })
+}
+
+/// Build a plan file path from a stem.
+fn plan_file_path(stem: &str) -> PathBuf {
+    PathBuf::from(format!("plans/{stem}.md"))
 }
 
 /// Replace the `| 更新时间 | xxx |` line with the given timestamp.
