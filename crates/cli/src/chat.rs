@@ -37,7 +37,7 @@ pub(crate) fn should_wait_for_streaming(result: Option<HandleResult>, session_ke
 
 /// Why the REPL loop exited.
 enum ExitReason {
-    /// User typed quit/exit or /stop.
+    /// User typed quit or exit.
     Quit,
     /// unrecoverable error occurred.
     Error(anyhow::Error),
@@ -495,11 +495,8 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
             println!("Goodbye!");
             return ExitReason::Quit;
         }
-        if trimmed.eq_ignore_ascii_case("/stop") {
-            println!("Session stopped.");
-            println!("Goodbye!");
-            return ExitReason::Quit;
-        }
+
+        let is_stop = trimmed.eq_ignore_ascii_case("/stop");
 
         // Extract session routing fields for streaming completion wait.
         let session_key = processed
@@ -526,6 +523,12 @@ async fn repl_loop(gateway: &Arc<Gateway>, agent_id: &str, _sender_id: &str) -> 
         let result = gateway
             .handle_inbound_message(processed, Some(&msg_sender_id), &msg_platform)
             .await;
+
+        if is_stop {
+            println!("Session stopped.");
+            println!();
+            continue;
+        }
 
         if result.is_none() {
             eprintln!("(no response — session handler not configured)");
