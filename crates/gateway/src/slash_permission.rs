@@ -63,7 +63,13 @@ impl Gateway {
     }
 
     /// Enqueue a non-immediate slash command when the session is busy.
-    async fn enqueue_pending_slash(&self, session_id: &str, content: &str) {
+    async fn enqueue_pending_slash(
+        &self,
+        session_id: &str,
+        content: &str,
+        peer_id: &str,
+        channel: &str,
+    ) {
         let msg = PendingMessage::with_role(
             format!("pending-{}", chrono::Utc::now().timestamp_millis()),
             content.to_owned(),
@@ -80,8 +86,15 @@ impl Gateway {
                 "failed to enqueue pending slash command"
             );
         }
-        if let Some(sh) = self.session_handler.as_ref() {
-            sh.send_reply("⏳ 正在排队...".to_owned()).await;
+        if let Err(e) = self
+            .send_outbound_simplified(peer_id, channel, "⏳ 正在排队...")
+            .await
+        {
+            tracing::warn!(
+                session_id,
+                error = %e,
+                "failed to send slash queuing notification"
+            );
         }
     }
 
@@ -107,6 +120,7 @@ impl Gateway {
         content: &str,
         sender_id: Option<&str>,
         channel: &str,
+        peer_id: Option<&str>,
     ) -> Option<HandleResult> {
         let dispatcher_guard = self.slash_dispatcher.read().await;
         let dispatcher = dispatcher_guard.as_ref()?;
@@ -123,7 +137,8 @@ impl Gateway {
 
         // Non-immediate commands: if session is busy, enqueue for later.
         if !dispatcher.is_immediate(cmd) && self.session_manager.is_session_busy(session_id).await {
-            self.enqueue_pending_slash(session_id, content).await;
+            self.enqueue_pending_slash(session_id, content, peer_id.unwrap_or(""), channel)
+                .await;
             return Some(HandleResult::SlashHandled);
         }
 
