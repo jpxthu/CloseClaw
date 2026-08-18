@@ -856,6 +856,8 @@ pub use processor_registry_builder::build_processor_registry;
 use processor_registry_builder::register_default_middlewares;
 
 #[cfg(test)]
+pub mod binding_resolution_tests;
+#[cfg(test)]
 pub mod compute_session_key_tests;
 #[cfg(test)]
 pub mod construction_tests;

@@ -2,11 +2,24 @@
 //!
 //! Extracted from `lib.rs` to keep the main file under the 1000-line limit.
 
-use crate::Message;
+use crate::{GatewayConfig, Message};
 use closeclaw_common::processor::ProcessedMessage;
 use std::collections::HashMap;
 
 impl super::Gateway {
+    /// Resolve agent_id from bot→Agent bindings.
+    ///
+    /// When `peer_id` matches a key in `config.bot_agent_bindings`,
+    /// returns the bound agent_id; otherwise returns `peer_id` itself
+    /// (backward compatible fallback).
+    pub(crate) fn resolve_agent_id(config: &GatewayConfig, peer_id: &str) -> String {
+        config
+            .bot_agent_bindings
+            .get(peer_id)
+            .cloned()
+            .unwrap_or_else(|| peer_id.to_string())
+    }
+
     /// Resolve a session_id from a [`ProcessedMessage`]'s `session_key`.
     ///
     /// Extracts `session_key` from `metadata` and calls
@@ -47,12 +60,7 @@ impl super::Gateway {
             .to_string();
         // Resolve agent_id from bot→Agent bindings.
         // Design doc: "Gateway 根据配置定义的机器人→Agent 绑定确定对应的 Agent".
-        let agent_id = self
-            .config
-            .bot_agent_bindings
-            .get(&peer_id)
-            .cloned()
-            .unwrap_or_else(|| peer_id.clone());
+        let agent_id = Self::resolve_agent_id(&self.config, &peer_id);
         let message = Message {
             id: String::new(),
             from: sender_id,
