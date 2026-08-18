@@ -5,6 +5,8 @@
 //! [`SessionMessageHandler`], and runs a read-eval-print loop that routes
 //! user input through the full inbound/outbound message pipeline.
 
+pub mod rpc;
+
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
