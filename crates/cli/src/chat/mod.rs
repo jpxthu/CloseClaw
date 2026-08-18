@@ -51,6 +51,14 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     }
 }
 
+/// Action to take after handling an RPC response chunk.
+enum ChunkAction {
+    /// Continue reading more chunks.
+    Continue,
+    /// Break out of the streaming inner loop (e.g., Done received).
+    Break,
+}
+
 /// Run the read-eval-print loop over RPC.
 ///
 /// Returns [`ExitReason::Quit`] when the user exits normally, or
@@ -90,34 +98,10 @@ async fn repl_loop(client: &ChatRpcClient, agent_id: &str) -> ExitReason {
         // Read streaming response chunks.
         loop {
             match stream.next().await {
-                Ok(Some(ChatResponse::ContentChunk { text })) => {
-                    print!("{}", text);
-                    let _ = io::stdout().flush();
-                }
-                Ok(Some(ChatResponse::ThinkingChunk { text })) => {
-                    // Thinking content — display as collapsed block.
-                    if !text.is_empty() {
-                        eprint!("[Thinking] ");
-                        eprint!("{}", text);
-                        eprintln!("[end of thinking]");
-                    }
-                }
-                Ok(Some(ChatResponse::ToolUseChunk { name, input })) => {
-                    eprintln!("(tool use: {} — {})", name, input);
-                }
-                Ok(Some(ChatResponse::ToolResultChunk { name, output })) => {
-                    eprintln!("(tool result: {} — {})", name, output);
-                }
-                Ok(Some(ChatResponse::SessionStarted { session_key })) => {
-                    eprintln!("[session: {}]", session_key);
-                }
-                Ok(Some(ChatResponse::Error { message })) => {
-                    eprintln!("Error: {}", message);
-                }
-                Ok(Some(ChatResponse::Done)) => break,
-                Ok(Some(ChatResponse::Pong)) => {
-                    // Ping response — unexpected in REPL stream, ignore.
-                }
+                Ok(Some(response)) => match handle_rpc_response_chunk(response) {
+                    ChunkAction::Continue => {}
+                    ChunkAction::Break => break,
+                },
                 Ok(None) => break,
                 Err(e) => {
                     return ExitReason::Error(anyhow::anyhow!("RPC receive failed: {}", e));
@@ -126,6 +110,46 @@ async fn repl_loop(client: &ChatRpcClient, agent_id: &str) -> ExitReason {
         }
 
         println!();
+    }
+}
+
+/// Handle a single RPC response chunk.
+///
+/// Returns an action indicating whether to continue reading or break the
+/// streaming loop.
+fn handle_rpc_response_chunk(response: ChatResponse) -> ChunkAction {
+    match response {
+        ChatResponse::ContentChunk { text } => {
+            print!("{}", text);
+            let _ = io::stdout().flush();
+            ChunkAction::Continue
+        }
+        ChatResponse::ThinkingChunk { text } => {
+            if !text.is_empty() {
+                eprint!("[Thinking] ");
+                eprint!("{}", text);
+                eprintln!("[end of thinking]");
+            }
+            ChunkAction::Continue
+        }
+        ChatResponse::ToolUseChunk { name, input } => {
+            eprintln!("(tool use: {} — {})", name, input);
+            ChunkAction::Continue
+        }
+        ChatResponse::ToolResultChunk { name, output } => {
+            eprintln!("(tool result: {} — {})", name, output);
+            ChunkAction::Continue
+        }
+        ChatResponse::SessionStarted { session_key } => {
+            eprintln!("[session: {}]", session_key);
+            ChunkAction::Continue
+        }
+        ChatResponse::Error { message } => {
+            eprintln!("Error: {}", message);
+            ChunkAction::Continue
+        }
+        ChatResponse::Done => ChunkAction::Break,
+        ChatResponse::Pong => ChunkAction::Continue,
     }
 }
 

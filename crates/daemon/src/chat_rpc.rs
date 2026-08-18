@@ -23,7 +23,7 @@ use closeclaw_common::im_plugin::{
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
 use closeclaw_common::streaming::DefaultStreamingRenderer;
 use closeclaw_gateway::types::InboundChainInput;
-use closeclaw_gateway::Gateway;
+use closeclaw_gateway::{Gateway, HandleResult};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
@@ -170,59 +170,12 @@ fn drain_channel(rx: &mut mpsc::Receiver<RenderedOutput>, out: &mut Vec<ChatResp
     }
 }
 
-/// Handle a chat message: route through Gateway's full inbound/outbound
-/// pipeline.
-///
-/// Registers a per-request channel on the shared RpcTerminalPlugin,
-/// calls the Gateway, and reads responses from the channel until done.
-async fn dispatch_chat_message(
-    agent_id: String,
-    content: String,
-    context: &ChatContext,
-) -> Vec<ChatResponse> {
-    let (tx, mut rx) = mpsc::channel::<RenderedOutput>(64);
-
-    // Generate a unique connection ID for this request.
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let conn_id = COUNTER.fetch_add(1, Ordering::Relaxed);
-
-    // Register our channel sender on the shared RpcTerminalPlugin.
-    context.rpc_plugin.register_sender(conn_id, tx).await;
-
-    // Compute timestamp once for reuse.
-    let now_ms = chrono::Utc::now().timestamp_millis();
-
-    // Build InboundChainInput from the chat message.
-    let input = InboundChainInput {
-        platform: "terminal".to_string(),
-        sender_id: closeclaw_platform::current_uid(),
-        peer_id: "cli".to_string(),
-        content,
-        message_id: format!("chat-{}", now_ms),
-        timestamp_ms: now_ms,
-        account_id: Some("owner".to_string()),
-        thread_id: None,
-        message_type: MessageType::Text,
-        media_refs: vec![],
-        chat_name: None,
-        trace_id: Some(format!("chat-{}", now_ms)),
-    };
-
-    // Run the inbound processor chain
-    // (RawLog → SessionRouter → ContentNormalizer).
-    let processed = context.gateway.process_inbound_chain(&input).await;
-
-    // Dispatch through Gateway: resolves session, routes to LLM or slash
-    // command.
-    let gw = Arc::clone(&context.gateway);
-    let mut handle = tokio::spawn(CHAT_CONN_ID.scope(conn_id, async move {
-        gw.handle_inbound_message(processed, Some(&agent_id), "terminal")
-            .await
-    }));
-
-    // Collect responses from the channel until Done or channel closes.
+/// Collect responses from the channel and gateway handle until done.
+async fn collect_responses(
+    mut rx: mpsc::Receiver<RenderedOutput>,
+    mut handle: tokio::task::JoinHandle<Option<HandleResult>>,
+) -> (Vec<ChatResponse>, mpsc::Receiver<RenderedOutput>) {
     let mut responses = Vec::new();
-
     loop {
         tokio::select! {
             rendered = rx.recv() => {
@@ -252,22 +205,95 @@ async fn dispatch_chat_message(
     // Unified drain after the select! loop.
     drain_channel(&mut rx, &mut responses);
 
-    // Unregister the channel sender.
-    context.rpc_plugin.unregister_sender(conn_id).await;
+    (responses, rx)
+}
 
-    // Append Done marker if we got any content.
-    if !responses.is_empty() && !responses.iter().any(|r| matches!(r, ChatResponse::Done)) {
-        responses.push(ChatResponse::Done);
-    }
-
-    // If no responses at all, send an error.
+/// Finalize the response list: append Done or Error as appropriate.
+fn finalize_responses(mut responses: Vec<ChatResponse>) -> Vec<ChatResponse> {
     if responses.is_empty() {
         responses.push(ChatResponse::Error {
             message: "no response from gateway".to_string(),
         });
+    } else if !responses.iter().any(|r| matches!(r, ChatResponse::Done)) {
+        responses.push(ChatResponse::Done);
     }
-
     responses
+}
+
+/// Set up an RPC channel and register it with the plugin.
+///
+/// Returns the channel receiver and a unique connection ID.
+async fn setup_rpc_channel(context: &ChatContext) -> (mpsc::Receiver<RenderedOutput>, u64) {
+    let (tx, rx) = mpsc::channel::<RenderedOutput>(64);
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let conn_id = COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    context.rpc_plugin.register_sender(conn_id, tx).await;
+    (rx, conn_id)
+}
+
+/// Build an [`InboundChainInput`] from the chat message content.
+fn build_inbound_input(content: String) -> InboundChainInput {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    InboundChainInput {
+        platform: "terminal".to_string(),
+        sender_id: closeclaw_platform::current_uid(),
+        peer_id: "cli".to_string(),
+        content,
+        message_id: format!("chat-{}", now_ms),
+        timestamp_ms: now_ms,
+        account_id: Some("owner".to_string()),
+        thread_id: None,
+        message_type: MessageType::Text,
+        media_refs: vec![],
+        chat_name: None,
+        trace_id: Some(format!("chat-{}", now_ms)),
+    }
+}
+
+/// Process gateway responses and finalize the response list.
+async fn process_gateway_response(
+    rx: mpsc::Receiver<RenderedOutput>,
+    conn_id: u64,
+    agent_id: String,
+    content: String,
+    context: &ChatContext,
+) -> Vec<ChatResponse> {
+    let input = build_inbound_input(content);
+
+    // Run the inbound processor chain
+    // (RawLog → SessionRouter → ContentNormalizer).
+    let processed = context.gateway.process_inbound_chain(&input).await;
+
+    // Dispatch through Gateway: resolves session, routes to LLM or slash
+    // command.
+    let gw = Arc::clone(&context.gateway);
+    let handle = tokio::spawn(CHAT_CONN_ID.scope(conn_id, async move {
+        gw.handle_inbound_message(processed, Some(&agent_id), "terminal")
+            .await
+    }));
+
+    let (responses, _rx) = collect_responses(rx, handle).await;
+
+    // Unregister the channel sender.
+    context.rpc_plugin.unregister_sender(conn_id).await;
+
+    finalize_responses(responses)
+}
+
+/// Handle a chat message: route through Gateway's full inbound/outbound
+/// pipeline.
+///
+/// Registers a per-request channel on the shared RpcTerminalPlugin,
+/// calls the Gateway, and reads responses from the channel until done.
+async fn dispatch_chat_message(
+    agent_id: String,
+    content: String,
+    context: &ChatContext,
+) -> Vec<ChatResponse> {
+    let (rx, conn_id) = setup_rpc_channel(context).await;
+    process_gateway_response(rx, conn_id, agent_id, content, context).await
 }
 
 /// Convert a [`RenderedOutput`] to a [`ChatResponse`].
