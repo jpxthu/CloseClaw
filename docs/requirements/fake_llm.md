@@ -72,6 +72,12 @@ Fake LLM Server 能模拟模型发出工具调用请求，含流式分片、多�
 
 Fake LLM Server 能模拟模型列表查询端点，返回模型列表；可注入认证失败、超时、服务端错误、未知模型，用于验证 CloseClaw 的模型发现、过滤未知模型、以及失败时回退到内置知识库的逻辑。
 
+### F11. 协议 fixture 与单元测试
+
+Fake LLM Server 配有一套 JSON 格式的协议 fixture，覆盖 OpenAI 与 Anthropic 两种协议的完整协议面——响应结构、流式事件序列、工具调用、推理/思考、用量字段、错误形态。
+
+这套 fixture 作为协议形状的权威来源，用于单元测试：既验证 Fake LLM Server 生成的响应与协议形状一致，也验证 CloseClaw 的协议解析正确性。
+
 ## 关联设计文档
 
 - [README](../design/fake_llm/README.md)
