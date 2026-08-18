@@ -330,7 +330,6 @@ impl Daemon {
                 }
             }
         };
-
         if let Err(e) = session_manager.rebuild_key_registry().await {
             tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
         }
@@ -522,7 +521,6 @@ impl Daemon {
 
                     // Determine parent session depth.
                     let depth = sm.get_session_depth(&parent_session_id).await.unwrap_or(0);
-
                     // Build task description and inject plan content as initial context.
                     let task = format!(
                         "Execute plan (new session). Step selection: {:?}",
@@ -959,10 +957,15 @@ impl Daemon {
         gateway: &Arc<closeclaw_gateway::Gateway>,
         config_dir: &str,
     ) -> (tokio::task::JoinHandle<()>, PathBuf) {
-        use crate::chat_rpc::{chat_socket_path, ChatContext, ChatRpcServer};
+        use crate::chat_rpc::{chat_socket_path, ChatContext, ChatRpcServer, RpcTerminalPlugin};
         let sock_path = chat_socket_path(Path::new(config_dir));
+        let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
+        gateway
+            .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
+            .await;
         let context = ChatContext {
             gateway: Arc::clone(gateway),
+            rpc_plugin,
         };
         let chat_server = ChatRpcServer::new(&sock_path, context);
         let chat_handle = tokio::spawn(async move {
@@ -974,7 +977,6 @@ impl Daemon {
         (chat_handle, sock_path)
     }
 }
-
 #[cfg(test)]
 mod daemon_shutdown_tests;
 #[cfg(test)]

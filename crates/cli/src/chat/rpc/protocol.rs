@@ -28,6 +28,8 @@ pub enum ChatRequest {
     },
     /// Exit the chat session.
     Quit,
+    /// Lightweight health check — server responds with Pong.
+    Ping,
 }
 
 /// Response sent from the chat RPC server back to the CLI client.
@@ -70,6 +72,8 @@ pub enum ChatResponse {
     },
     /// Current response stream is complete.
     Done,
+    /// Health check response.
+    Pong,
 }
 
 #[cfg(test)]
@@ -146,6 +150,24 @@ mod tests {
         let json = serde_json::to_string(&req).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["type"], "quit");
+    }
+
+    // ── Ping request tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_ping_request_roundtrip() {
+        let req = ChatRequest::Ping;
+        let json = serde_json::to_vec(&req).unwrap();
+        let deserialized: ChatRequest = serde_json::from_slice(&json).unwrap();
+        assert!(matches!(deserialized, ChatRequest::Ping));
+    }
+
+    #[test]
+    fn test_ping_request_json_structure() {
+        let req = ChatRequest::Ping;
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "ping");
     }
 
     #[test]
@@ -347,6 +369,24 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["type"], "done");
+    }
+
+    // ── Pong response tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_pong_response_roundtrip() {
+        let resp = ChatResponse::Pong;
+        let json = serde_json::to_vec(&resp).unwrap();
+        let deserialized: ChatResponse = serde_json::from_slice(&json).unwrap();
+        assert_eq!(deserialized, ChatResponse::Pong);
+    }
+
+    #[test]
+    fn test_pong_response_json_structure() {
+        let resp = ChatResponse::Pong;
+        let json = serde_json::to_string(&resp).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "pong");
     }
 
     // ── Edge case tests ─────────────────────────────────────────────────

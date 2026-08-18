@@ -57,6 +57,7 @@ closeclaw-skills = { path = "../skills" }
 closeclaw-system-prompt = { path = "../system_prompt" }
 closeclaw-tools = { path = "../tools" }
 closeclaw-im-adapter = { path = "../im_adapter" }
+closeclaw-platform = { path = "../platform" }
 closeclaw-slash = { path = "../slash" }
 closeclaw-tasks = { path = "../tasks" }
 

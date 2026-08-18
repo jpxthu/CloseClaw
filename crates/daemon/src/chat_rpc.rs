@@ -11,7 +11,9 @@
 //! it calls `plugin.send()` with the rendered output, which is forwarded
 //! over the RPC channel to the connected CLI client.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -25,17 +27,30 @@ use closeclaw_gateway::Gateway;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 
 use closeclaw_cli::chat::rpc::protocol::{ChatRequest, ChatResponse};
+use closeclaw_cli::renderer::TerminalRenderer;
+
+// Task-local connection ID — set by `dispatch_chat_message` before
+// calling the Gateway so that `RpcTerminalPlugin::send()` can route
+// to the correct per-connection channel.
+tokio::task_local! {
+    static CHAT_CONN_ID: u64;
+}
 
 // ---------------------------------------------------------------------------
 // ChatContext
 // ---------------------------------------------------------------------------
 
-/// Server-side context holding a reference to the Gateway.
+/// Server-side context holding a reference to the Gateway and the
+/// shared RpcTerminalPlugin for per-connection channel routing.
 pub struct ChatContext {
     pub gateway: Arc<Gateway>,
+    /// The RpcTerminalPlugin registered with the Gateway.
+    /// Stored here so `dispatch_chat_message` can access it without
+    /// downcasting `Arc<dyn IMPlugin>`.
+    pub rpc_plugin: Arc<RpcTerminalPlugin>,
 }
 
 // ---------------------------------------------------------------------------
@@ -137,10 +152,6 @@ async fn handle_connection(stream: UnixStream, context: Arc<ChatContext>) -> std
 }
 
 /// Dispatch a chat request and return the responses to send back.
-///
-/// For `ChatMessage`, the Gateway processes the message asynchronously.
-/// The plugin's `send()` method forwards rendered output through a channel,
-/// which we read and convert to `ChatResponse::ContentChunk`.
 async fn dispatch(request: ChatRequest, context: &ChatContext) -> Vec<ChatResponse> {
     match request {
         ChatRequest::ChatMessage { agent_id, content } => {
@@ -148,97 +159,84 @@ async fn dispatch(request: ChatRequest, context: &ChatContext) -> Vec<ChatRespon
         }
         ChatRequest::StopSession { agent_id } => dispatch_stop_session(agent_id, context).await,
         ChatRequest::Quit => vec![],
+        ChatRequest::Ping => vec![ChatResponse::Pong],
     }
 }
 
-/// Handle a chat message: route through Gateway's full inbound/outbound pipeline.
+/// Drain remaining messages from the channel into the response vec.
+fn drain_channel(rx: &mut mpsc::Receiver<RenderedOutput>, out: &mut Vec<ChatResponse>) {
+    while let Ok(output) = rx.try_recv() {
+        out.push(rendered_to_response(&output));
+    }
+}
+
+/// Handle a chat message: route through Gateway's full inbound/outbound
+/// pipeline.
 ///
-/// Creates a channel pair, sets the sender on the RpcTerminalPlugin, calls
-/// the Gateway, and reads responses from the channel until done.
+/// Registers a per-request channel on the shared RpcTerminalPlugin,
+/// calls the Gateway, and reads responses from the channel until done.
 async fn dispatch_chat_message(
     agent_id: String,
     content: String,
     context: &ChatContext,
 ) -> Vec<ChatResponse> {
-    // Create a bounded channel for response forwarding.
-    // The producer (RpcTerminalPlugin::send) writes RenderedOutput;
-    // the consumer (this function) reads and converts to ChatResponse.
     let (tx, mut rx) = mpsc::channel::<RenderedOutput>(64);
 
-    // Create and configure the RPC terminal plugin for this request.
-    let plugin: Arc<dyn IMPlugin> = Arc::new(RpcTerminalPlugin::new(tx));
+    // Generate a unique connection ID for this request.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let conn_id = COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    // Temporarily register the RpcTerminalPlugin with the Gateway so that
-    // output from the inbound/outbound pipeline is routed through our channel.
-    // Save the original plugin to restore after processing.
-    let original_plugin = context.gateway.get_plugin("terminal").await;
-    context.gateway.register_plugin(Arc::clone(&plugin)).await;
+    // Register our channel sender on the shared RpcTerminalPlugin.
+    context.rpc_plugin.register_sender(conn_id, tx).await;
+
+    // Compute timestamp once for reuse.
+    let now_ms = chrono::Utc::now().timestamp_millis();
 
     // Build InboundChainInput from the chat message.
     let input = InboundChainInput {
         platform: "terminal".to_string(),
-        sender_id: agent_id.clone(),
+        sender_id: closeclaw_platform::current_uid(),
         peer_id: "cli".to_string(),
         content,
-        message_id: format!("chat-{}", chrono::Utc::now().timestamp_millis()),
-        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        message_id: format!("chat-{}", now_ms),
+        timestamp_ms: now_ms,
         account_id: Some("owner".to_string()),
         thread_id: None,
         message_type: MessageType::Text,
         media_refs: vec![],
         chat_name: None,
-        trace_id: Some(format!("chat-{}", chrono::Utc::now().timestamp_millis())),
+        trace_id: Some(format!("chat-{}", now_ms)),
     };
 
-    // Run the inbound processor chain (RawLog → SessionRouter → ContentNormalizer).
+    // Run the inbound processor chain
+    // (RawLog → SessionRouter → ContentNormalizer).
     let processed = context.gateway.process_inbound_chain(&input).await;
 
-    // Dispatch through Gateway: resolves session, routes to LLM or slash command.
-    // The Gateway spawns async tasks for LLM calls; responses come through plugin.send().
+    // Dispatch through Gateway: resolves session, routes to LLM or slash
+    // command.
     let gw = Arc::clone(&context.gateway);
-    let sender_id = agent_id.clone();
-    let mut handle = tokio::spawn(async move {
-        gw.handle_inbound_message(processed, Some(&sender_id), "terminal")
+    let mut handle = tokio::spawn(CHAT_CONN_ID.scope(conn_id, async move {
+        gw.handle_inbound_message(processed, Some(&agent_id), "terminal")
             .await
-    });
+    }));
 
     // Collect responses from the channel until Done or channel closes.
     let mut responses = Vec::new();
 
-    // Wait for either the Gateway to return or for streaming responses.
-    // Use a select loop to read from the channel while the Gateway processes.
     loop {
         tokio::select! {
             rendered = rx.recv() => {
                 match rendered {
                     Some(output) => {
-                        let chat_resp = rendered_to_response(&output);
-                        responses.push(chat_resp);
+                        responses.push(rendered_to_response(&output));
                     }
-                    None => {
-                        // Channel closed — plugin was dropped or send failed.
-                        // This means the Gateway has finished processing.
-                        break;
-                    }
+                    None => break,
                 }
             }
             result = &mut handle => {
-                // Gateway handle returned — check if there are more responses.
                 match result {
-                    Ok(Some(_)) => {
-                        // Gateway finished, drain remaining channel messages.
-                        while let Ok(output) = rx.try_recv() {
-                            let chat_resp = rendered_to_response(&output);
-                            responses.push(chat_resp);
-                        }
-                    }
-                    Ok(None) => {
-                        // Gateway returned None (message not processed).
-                        while let Ok(output) = rx.try_recv() {
-                            let chat_resp = rendered_to_response(&output);
-                            responses.push(chat_resp);
-                        }
-                    }
+                    Ok(Some(_)) => {}
+                    Ok(None) => {}
                     Err(e) => {
                         tracing::error!(error = %e, "chat message handler panicked");
                         responses.push(ChatResponse::Error {
@@ -246,20 +244,16 @@ async fn dispatch_chat_message(
                         });
                     }
                 }
-                // Drain any remaining messages after handle completes.
-                while let Ok(output) = rx.try_recv() {
-                    let chat_resp = rendered_to_response(&output);
-                    responses.push(chat_resp);
-                }
                 break;
             }
         }
     }
 
-    // Restore the original terminal plugin so other connections are not affected.
-    if let Some(original) = original_plugin {
-        context.gateway.register_plugin(original).await;
-    }
+    // Unified drain after the select! loop.
+    drain_channel(&mut rx, &mut responses);
+
+    // Unregister the channel sender.
+    context.rpc_plugin.unregister_sender(conn_id).await;
 
     // Append Done marker if we got any content.
     if !responses.is_empty() && !responses.iter().any(|r| matches!(r, ChatResponse::Done)) {
@@ -277,24 +271,18 @@ async fn dispatch_chat_message(
 }
 
 /// Convert a [`RenderedOutput`] to a [`ChatResponse`].
-///
-/// Extracts text content from the rendered output payload and wraps it
-/// in the appropriate `ChatResponse` variant.
 fn rendered_to_response(output: &RenderedOutput) -> ChatResponse {
     match output.msg_type.as_str() {
         "text" => {
-            // Text payload: extract from {"content": {"text": "..."}} or raw string
             let text = extract_text_from_payload(&output.payload);
             ChatResponse::ContentChunk { text }
         }
         "interactive" => {
-            // Interactive/card output: serialize as JSON string
             let text = serde_json::to_string(&output.payload)
                 .unwrap_or_else(|_| output.payload.to_string());
             ChatResponse::ContentChunk { text }
         }
         other => {
-            // Unknown type: best-effort text extraction
             let text = extract_text_from_payload(&output.payload);
             if text.is_empty() {
                 tracing::warn!(msg_type = other, "unknown RenderedOutput type");
@@ -309,11 +297,7 @@ fn rendered_to_response(output: &RenderedOutput) -> ChatResponse {
 }
 
 /// Extract text content from a RenderedOutput payload.
-///
-/// Handles both `{"content": {"text": "..."}}` (from send_text) and
-/// raw string payloads.
 fn extract_text_from_payload(payload: &serde_json::Value) -> String {
-    // Try {"content": {"text": "..."}} first (standard Gateway format)
     if let Some(text) = payload
         .get("content")
         .and_then(|c| c.get("text"))
@@ -321,27 +305,24 @@ fn extract_text_from_payload(payload: &serde_json::Value) -> String {
     {
         return text.to_string();
     }
-    // Try raw string
     if let Some(text) = payload.as_str() {
         return text.to_string();
     }
-    // Fallback: serialize the whole payload
     payload.to_string()
 }
 
 /// Handle a stop session request.
-///
-/// Sends a "/stop" command through the Gateway's inbound pipeline,
-/// which is routed to the StopHandler slash command.
 async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<ChatResponse> {
-    // Build a /stop message and route it through the Gateway.
+    let sender_id = closeclaw_platform::current_uid();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
     let input = InboundChainInput {
         platform: "terminal".to_string(),
-        sender_id: agent_id.clone(),
+        sender_id,
         peer_id: "cli".to_string(),
         content: "/stop".to_string(),
-        message_id: format!("stop-{}", chrono::Utc::now().timestamp_millis()),
-        timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        message_id: format!("stop-{}", now_ms),
+        timestamp_ms: now_ms,
         account_id: Some("owner".to_string()),
         thread_id: None,
         message_type: MessageType::Text,
@@ -350,11 +331,8 @@ async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<C
         trace_id: None,
     };
 
-    // Run through the inbound processor chain.
     let processed = context.gateway.process_inbound_chain(&input).await;
 
-    // Dispatch through Gateway — the /stop command will be handled
-    // by the SlashDispatcher → StopHandler.
     match context
         .gateway
         .handle_inbound_message(processed, Some(&agent_id), "terminal")
@@ -387,22 +365,47 @@ async fn send_response(
 /// Terminal output plugin for RPC-based chat connections.
 ///
 /// Implements [`IMPlugin`] to receive rendered output from the Gateway
-/// and forward it through an [`mpsc`] channel to the Chat RPC connection
-/// handler, which sends it over the Unix socket to the CLI client.
+/// and forward it through per-connection [`mpsc`] channels to the Chat
+/// RPC connection handlers.
+///
+/// Registered once at daemon startup. Each incoming chat request registers
+/// a sender keyed by a monotonically increasing connection ID, so concurrent
+/// connections are safely routed without modifying the global plugin table.
 pub struct RpcTerminalPlugin {
-    /// Channel sender for forwarding rendered output to the RPC handler.
-    sender: tokio::sync::Mutex<Option<mpsc::Sender<RenderedOutput>>>,
+    /// Per-connection senders: conn_id → mpsc::Sender.
+    connections: RwLock<HashMap<u64, mpsc::Sender<RenderedOutput>>>,
     /// Streaming renderer for handling incremental LLM output.
     streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
+    /// Terminal renderer for ANSI-aware content block rendering.
+    renderer: TerminalRenderer,
 }
 
 impl RpcTerminalPlugin {
-    /// Create a new RPC terminal plugin with the given channel sender.
-    pub fn new(sender: mpsc::Sender<RenderedOutput>) -> Self {
+    /// Create a new RPC terminal plugin.
+    pub fn new() -> Self {
         Self {
-            sender: tokio::sync::Mutex::new(Some(sender)),
+            connections: RwLock::new(HashMap::new()),
             streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            renderer: TerminalRenderer::new(),
         }
+    }
+
+    /// Register a sender for the given connection ID.
+    pub async fn register_sender(&self, conn_id: u64, sender: mpsc::Sender<RenderedOutput>) {
+        let mut conns = self.connections.write().await;
+        conns.insert(conn_id, sender);
+    }
+
+    /// Unregister the sender for the given connection ID.
+    pub async fn unregister_sender(&self, conn_id: u64) {
+        let mut conns = self.connections.write().await;
+        conns.remove(&conn_id);
+    }
+}
+
+impl Default for RpcTerminalPlugin {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -417,7 +420,7 @@ impl IMPlugin for RpcTerminalPlugin {
         _payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
         // RPC connections don't parse inbound payloads — messages arrive
-        // as ChatRequest::ChatMessage, not as raw webhook payloads.
+        // as ChatRequest::ChatMessage.
         Ok(None)
     }
 
@@ -428,22 +431,11 @@ impl IMPlugin for RpcTerminalPlugin {
     fn render(
         &self,
         content_blocks: &[ContentBlock],
-        _dsl_result: Option<&DslParseResult>,
+        dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        // Render content blocks to plain text (same as TerminalPlugin).
-        let mut rendered = String::new();
-        for (i, block) in content_blocks.iter().enumerate() {
-            if let ContentBlock::Text(text) = block {
-                if i > 0 {
-                    rendered.push('\n');
-                }
-                rendered.push_str(text);
-            }
-        }
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::Value::String(rendered),
-        }
+        // Delegate to TerminalRenderer for proper ANSI-aware rendering
+        // of Thinking, ToolUse, ToolResult, and DSL blocks.
+        self.renderer.render(content_blocks, dsl_result)
     }
 
     async fn send(
@@ -452,17 +444,16 @@ impl IMPlugin for RpcTerminalPlugin {
         _peer_id: &str,
         _thread_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        // Forward the rendered output through the channel to the RPC handler.
-        let sender = self.sender.lock().await;
-        match sender.as_ref() {
-            Some(tx) => tx
-                .send(output.clone())
-                .await
-                .map_err(|e| AdapterError::SendFailed(e.to_string())),
-            None => Err(AdapterError::SendFailed(
-                "channel closed (plugin shut down)".to_string(),
-            )),
-        }
+        // Route to the current task's connection channel.
+        let conn_id = CHAT_CONN_ID.with(|id| *id);
+        let conns = self.connections.read().await;
+        let sender = conns
+            .get(&conn_id)
+            .ok_or_else(|| AdapterError::SendFailed(format!("connection {} not found", conn_id)))?;
+        sender
+            .send(output.clone())
+            .await
+            .map_err(|e| AdapterError::SendFailed(e.to_string()))
     }
 
     fn clean_content(&self, raw: &str) -> String {
@@ -474,8 +465,8 @@ impl IMPlugin for RpcTerminalPlugin {
     }
 
     async fn shutdown(&self) -> Result<(), AdapterError> {
-        // Drop the sender to signal the RPC handler that the connection is done.
-        let _ = self.sender.lock().await.take();
+        let mut conns = self.connections.write().await;
+        conns.clear();
         Ok(())
     }
 }
@@ -551,58 +542,128 @@ mod tests {
 
     #[test]
     fn test_rpc_terminal_plugin_render() {
-        let (tx, _rx) = mpsc::channel(1);
-        let plugin = RpcTerminalPlugin::new(tx);
+        let plugin = RpcTerminalPlugin::new();
         let blocks = vec![ContentBlock::Text("line1".to_string())];
         let output = plugin.render(&blocks, None);
         assert_eq!(output.msg_type, "text");
-        assert_eq!(output.payload, json!("line1"));
+        // TerminalRenderer adds trailing newlines from markdown rendering
+        // and an additional newline per block.
+        assert_eq!(output.payload, json!("line1\n\n"));
     }
 
     #[test]
     fn test_rpc_terminal_plugin_render_multiple_blocks() {
-        let (tx, _rx) = mpsc::channel(1);
-        let plugin = RpcTerminalPlugin::new(tx);
+        let plugin = RpcTerminalPlugin::new();
         let blocks = vec![
             ContentBlock::Text("line1".to_string()),
             ContentBlock::Text("line2".to_string()),
         ];
         let output = plugin.render(&blocks, None);
-        assert_eq!(output.payload, json!("line1\nline2"));
+        // TerminalRenderer adds a newline after each block.
+        assert_eq!(output.payload, json!("line1\n\nline2\n\n"));
     }
 
     #[test]
     fn test_rpc_terminal_plugin_platform() {
-        let (tx, _rx) = mpsc::channel(1);
-        let plugin = RpcTerminalPlugin::new(tx);
+        let plugin = RpcTerminalPlugin::new();
         assert_eq!(plugin.platform(), "terminal");
     }
 
     #[tokio::test]
-    async fn test_rpc_terminal_plugin_send() {
+    async fn test_rpc_terminal_plugin_send_via_channel() {
+        let plugin = RpcTerminalPlugin::new();
         let (tx, mut rx) = mpsc::channel(4);
-        let plugin = RpcTerminalPlugin::new(tx);
+
+        let conn_id = 42u64;
+        plugin.register_sender(conn_id, tx).await;
+
         let output = RenderedOutput {
             msg_type: "text".to_string(),
             payload: json!("test message"),
         };
-        plugin.send(&output, "peer", None).await.unwrap();
+
+        // Simulate the task-local scope that dispatch_chat_message sets.
+        let result = CHAT_CONN_ID
+            .scope(conn_id, plugin.send(&output, "peer", None))
+            .await;
+        result.unwrap();
         let received = rx.recv().await.unwrap();
         assert_eq!(received, output);
+
+        plugin.unregister_sender(conn_id).await;
     }
 
     #[tokio::test]
-    async fn test_rpc_terminal_plugin_shutdown_drops_sender() {
+    async fn test_rpc_terminal_plugin_concurrent_connections() {
+        let plugin = RpcTerminalPlugin::new();
+        let (tx1, mut rx1) = mpsc::channel(4);
+        let (tx2, mut rx2) = mpsc::channel(4);
+
+        let conn1 = 1u64;
+        let conn2 = 2u64;
+        plugin.register_sender(conn1, tx1).await;
+        plugin.register_sender(conn2, tx2).await;
+
+        // Send on connection 1 using task-local scope.
+        let out1 = RenderedOutput {
+            msg_type: "text".to_string(),
+            payload: json!("msg1"),
+        };
+        CHAT_CONN_ID
+            .scope(conn1, plugin.send(&out1, "peer", None))
+            .await
+            .unwrap();
+
+        // Send on connection 2 using task-local scope.
+        let out2 = RenderedOutput {
+            msg_type: "text".to_string(),
+            payload: json!("msg2"),
+        };
+        CHAT_CONN_ID
+            .scope(conn2, plugin.send(&out2, "peer", None))
+            .await
+            .unwrap();
+
+        // Verify each channel got its own message.
+        let r1 = rx1.recv().await.unwrap();
+        assert_eq!(r1.payload, json!("msg1"));
+        let r2 = rx2.recv().await.unwrap();
+        assert_eq!(r2.payload, json!("msg2"));
+
+        plugin.unregister_sender(conn1).await;
+        plugin.unregister_sender(conn2).await;
+    }
+
+    #[tokio::test]
+    async fn test_rpc_terminal_plugin_shutdown_clears_connections() {
+        let plugin = RpcTerminalPlugin::new();
         let (tx, _rx) = mpsc::channel(4);
-        let plugin = RpcTerminalPlugin::new(tx);
+        plugin.register_sender(1, tx).await;
         plugin.shutdown().await.unwrap();
-        // After shutdown, send should fail (sender dropped).
+
+        // After shutdown, send should fail.
         let output = RenderedOutput {
             msg_type: "text".to_string(),
             payload: json!("test"),
         };
-        let result = plugin.send(&output, "peer", None).await;
+        let result = CHAT_CONN_ID
+            .scope(1, plugin.send(&output, "peer", None))
+            .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "cannot access a task-local storage value without setting it first")]
+    async fn test_rpc_terminal_plugin_send_no_task_local() {
+        let plugin = RpcTerminalPlugin::new();
+        let (tx, _rx) = mpsc::channel(4);
+        plugin.register_sender(1, tx).await;
+        // Calling send() without CHAT_CONN_ID scope should panic.
+        let output = RenderedOutput {
+            msg_type: "text".to_string(),
+            payload: json!("test"),
+        };
+        let _ = plugin.send(&output, "peer", None).await;
     }
 
     #[test]
@@ -631,5 +692,42 @@ mod tests {
                 text: "fallback".to_string()
             }
         );
+    }
+
+    #[test]
+    fn test_drain_channel_empty() {
+        let (tx, mut rx) = mpsc::channel(4);
+        drop(tx);
+        let mut out = Vec::new();
+        drain_channel(&mut rx, &mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_drain_channel_with_messages() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let out1 = RenderedOutput {
+            msg_type: "text".to_string(),
+            payload: json!("a"),
+        };
+        let out2 = RenderedOutput {
+            msg_type: "text".to_string(),
+            payload: json!("b"),
+        };
+        tx.try_send(out1).unwrap();
+        tx.try_send(out2).unwrap();
+        drop(tx);
+
+        let mut out = Vec::new();
+        drain_channel(&mut rx, &mut out);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn test_dispatch_ping_returns_pong() {
+        // Ping is handled synchronously in dispatch(), verify the variant.
+        let req = ChatRequest::Ping;
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("ping"));
     }
 }

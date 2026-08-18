@@ -91,8 +91,20 @@ impl ChatRpcClient {
     }
 
     /// Attempt a lightweight connect to verify the daemon is reachable.
+    /// Sends a Ping request and expects a Pong response.
     pub async fn ping(&self) -> bool {
-        self.quit().await.is_ok()
+        matches!(self.ping_detailed().await, Ok(ChatResponse::Pong))
+    }
+
+    /// Send a Ping request and return the server's response.
+    pub async fn ping_detailed(&self) -> std::io::Result<ChatResponse> {
+        let stream = self.connect_inner().await?;
+        let (reader, mut writer) = stream.into_split();
+
+        send_frame(&mut writer, &ChatRequest::Ping).await?;
+
+        let mut reader = BufReader::new(reader);
+        read_frame(&mut reader).await
     }
 
     /// Connect to the chat socket with the configured timeout.
@@ -206,6 +218,21 @@ mod tests {
     async fn test_client_ping_to_nonexistent_socket() {
         let client = ChatRpcClient::with_timeout("/tmp/nonexistent-chat-test.sock", 100);
         assert!(!client.ping().await);
+    }
+
+    #[tokio::test]
+    async fn test_ping_roundtrip() {
+        let handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync> =
+            Arc::new(|req| match req {
+                ChatRequest::Ping => Some(ChatResponse::Pong),
+                _ => Some(ChatResponse::Error {
+                    message: "unexpected".to_string(),
+                }),
+            });
+        let sock = spawn_mock_server(handler).await;
+        let client = ChatRpcClient::with_timeout(&sock, 5000);
+        let resp = client.ping_detailed().await.unwrap();
+        assert!(matches!(resp, ChatResponse::Pong));
     }
 
     /// Helper: spin up a mock chat RPC server and return the socket path.

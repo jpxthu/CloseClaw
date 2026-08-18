@@ -115,6 +115,9 @@ async fn repl_loop(client: &ChatRpcClient, agent_id: &str) -> ExitReason {
                     eprintln!("Error: {}", message);
                 }
                 Ok(Some(ChatResponse::Done)) => break,
+                Ok(Some(ChatResponse::Pong)) => {
+                    // Ping response — unexpected in REPL stream, ignore.
+                }
                 Ok(None) => break,
                 Err(e) => {
                     return ExitReason::Error(anyhow::anyhow!("RPC receive failed: {}", e));

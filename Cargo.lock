@@ -587,6 +587,7 @@ dependencies = [
  "closeclaw-llm",
  "closeclaw-memory",
  "closeclaw-permission",
+ "closeclaw-platform",
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-slash",
