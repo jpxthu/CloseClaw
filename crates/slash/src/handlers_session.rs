@@ -61,17 +61,12 @@ impl SlashHandler for StopHandler {
         true
     }
 
-    async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
-        let mut cascade = false;
-        let mut force = false;
-        for arg in args.split_whitespace() {
-            match arg {
-                "--cascade" => cascade = true,
-                "--force" => force = true,
-                _ => {}
-            }
+    async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
+        // No arguments, no flags — always Forceful semantics per design doc.
+        SlashResult::Stop {
+            cascade: true,
+            force: true,
         }
-        SlashResult::Stop { cascade, force }
     }
 }
 
