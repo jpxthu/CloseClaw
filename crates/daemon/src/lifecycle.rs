@@ -836,8 +836,8 @@ impl Daemon {
         use closeclaw_slash::registry::HandlerRegistry;
         use closeclaw_slash::{
             AutoModeHandler, ClearHandler, CompactHandler, ExecHandler, ExecuteHandler,
-            HelpHandler, ModeHandler, NewSessionHandler, PauseHandler, PlanModeHandler,
-            StatusHandler, StopHandler, VerboseHandler,
+            HelpHandler, ModeHandler, NewSessionHandler, PauseHandler, PlanBrowseHandler,
+            PlanModeHandler, StatusHandler, StopHandler, VerboseHandler,
         };
 
         let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
@@ -866,6 +866,7 @@ impl Daemon {
         slash_registry.register(Arc::new(ExecuteHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(PauseHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(BackgroundHandler::new(Arc::clone(&sm_query))));
+        slash_registry.register(Arc::new(PlanBrowseHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(PermissionSlashHandler));
         if let Some(config_dir) = gateway.get_config_dir().await {
             slash_registry.register(Arc::new(UserSlashHandler::new(config_dir)));

@@ -6,6 +6,7 @@ pub mod handlers;
 pub mod handlers_bg;
 pub mod handlers_mode;
 pub mod handlers_permission;
+pub mod handlers_plans_browse;
 pub mod handlers_session;
 pub mod handlers_user;
 pub mod handlers_workflow;
@@ -23,6 +24,7 @@ pub use handlers_mode::{
     AutoModeHandler, ExecuteHandler, ModeHandler, PauseHandler, PlanModeHandler,
 };
 pub use handlers_permission::PermissionSlashHandler;
+pub use handlers_plans_browse::PlanBrowseHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 pub use handlers_user::UserSlashHandler;
 pub use handlers_workflow::WorkflowSlashHandler;
