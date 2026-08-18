@@ -568,3 +568,391 @@ async fn test_streaming_verbosity_full_sends_thinking_block() {
     );
     assert!(has_text, "Text block should pass through at Full level");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mixed Thinking + Text + DSL: streaming pipeline consistency tests
+// (Step 1.3 — VerbosityFilter streaming consistency + DslParser passthrough)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Streaming: Mixed Thinking + Text + DSL at Normal verbosity.
+/// Thinking blocks are filtered in incremental phase (not sent).
+/// Text + DSL lines are sent as-is (DslParser deferred to post-stream).
+/// Post-stream: VerbosityFilter removes Thinking (none left), DslParser
+/// strips DSL lines from content_blocks.
+#[tokio::test]
+async fn test_streaming_mixed_thinking_text_dsl_normal_verbosity() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let (gw, sid) =
+        setup_verbosity_session(closeclaw_common::VerbosityLevel::Normal, plugin.clone()).await;
+
+    let events = vec![
+        Ok::<_, String>(StreamEvent::BlockStart {
+            index: 0,
+            block_type: ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Thinking {
+                thinking: "internal reasoning".to_string(),
+                signature: None,
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockStart {
+            index: 1,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::Text {
+                text: "Please choose:\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::Text {
+                text: "::button[label:Yes;action:confirm;value:1]\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 1,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(default_usage()),
+            finish_reason: Some("stop".to_string()),
+        }),
+    ];
+    let stream = stream::iter(events);
+    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
+    let result = gw
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .await
+        .unwrap();
+
+    // Normal: Thinking filtered in incremental phase — only Text lines sent.
+    // LineBuffer produces 2 sends: one per newline-terminated line.
+    let sent = plugin.drain_sent();
+    assert_eq!(
+        sent.len(),
+        2,
+        "Text lines should be sent at Normal verbosity (1 per newline)"
+    );
+    assert_eq!(extract_text(&sent[0]), "Please choose:\n");
+    assert_eq!(
+        extract_text(&sent[1]),
+        "::button[label:Yes;action:confirm;value:1]\n"
+    );
+
+    // Post-stream: no Thinking in result (filtered), DSL stripped from content.
+    let has_thinking = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Thinking { .. }));
+    assert!(!has_thinking, "Thinking should be filtered at Normal level");
+
+    // DslResult should contain the parsed instruction.
+    let dsl = result
+        .dsl_result
+        .as_ref()
+        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
+    assert!(dsl.is_some(), "dsl_result should be present");
+    assert_eq!(dsl.unwrap().instructions.len(), 1);
+}
+
+/// Streaming: Mixed Thinking + Text + DSL at Full verbosity.
+/// Thinking blocks are NOT filtered — sent via send_render_block.
+/// Text + DSL lines sent as-is (DslParser deferred to post-stream).
+/// Post-stream: VerbosityFilter keeps all, DslParser strips DSL.
+#[tokio::test]
+async fn test_streaming_mixed_thinking_text_dsl_full_verbosity() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let (gw, sid) =
+        setup_verbosity_session(closeclaw_common::VerbosityLevel::Full, plugin.clone()).await;
+
+    let events = vec![
+        Ok::<_, String>(StreamEvent::BlockStart {
+            index: 0,
+            block_type: ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Thinking {
+                thinking: "reasoning".to_string(),
+                signature: None,
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockStart {
+            index: 1,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::Text {
+                text: "Click below:\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::Text {
+                text: "::button[label:OK;action:submit;value:yes]\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 1,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(default_usage()),
+            finish_reason: Some("stop".to_string()),
+        }),
+    ];
+    let stream = stream::iter(events);
+    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
+    let result = gw
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .await
+        .unwrap();
+
+    // Full: Thinking sent via send_render_block + Text sent via LineBuffer.
+    // LineBuffer produces 2 sends (one per newline), Thinking produces 1 send.
+    let sent = plugin.drain_sent();
+    assert_eq!(
+        sent.len(),
+        3,
+        "Thinking (1) + Text (2 from LineBuffer) should be sent at Full verbosity"
+    );
+
+    // Post-stream: Thinking preserved at Full level.
+    let has_thinking = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Thinking { .. }));
+    assert!(has_thinking, "Thinking should be preserved at Full level");
+
+    // DslResult should contain the parsed instruction.
+    let dsl = result
+        .dsl_result
+        .as_ref()
+        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
+    assert!(dsl.is_some(), "dsl_result should be present");
+    assert_eq!(dsl.unwrap().instructions.len(), 1);
+}
+
+/// Streaming: Mixed Thinking + Text + DSL at Off verbosity.
+/// Thinking blocks filtered, only Text sent.
+/// DSL lines sent as-is during streaming, parsed post-stream.
+#[tokio::test]
+async fn test_streaming_mixed_thinking_text_dsl_off_verbosity() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let (gw, sid) =
+        setup_verbosity_session(closeclaw_common::VerbosityLevel::Off, plugin.clone()).await;
+
+    let events = vec![
+        Ok::<_, String>(StreamEvent::BlockStart {
+            index: 0,
+            block_type: ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Thinking {
+                thinking: "hidden".to_string(),
+                signature: None,
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: ContentBlockType::Thinking,
+        }),
+        Ok(StreamEvent::BlockStart {
+            index: 1,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::Text {
+                text: "::button[label:Go;action:run;value:1]\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 1,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(default_usage()),
+            finish_reason: Some("stop".to_string()),
+        }),
+    ];
+    let stream = stream::iter(events);
+    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
+    let result = gw
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .await
+        .unwrap();
+
+    // Off: Thinking filtered, only DSL Text line sent.
+    let sent = plugin.drain_sent();
+    assert_eq!(
+        sent.len(),
+        1,
+        "only Text line should be sent at Off verbosity"
+    );
+    assert_eq!(
+        extract_text(&sent[0]),
+        "::button[label:Go;action:run;value:1]\n"
+    );
+
+    // Post-stream: no Thinking, DSL stripped.
+    let has_thinking = result
+        .content_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Thinking { .. }));
+    assert!(!has_thinking, "Thinking should be filtered at Off level");
+
+    let dsl = result
+        .dsl_result
+        .as_ref()
+        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
+    assert!(dsl.is_some(), "dsl_result should be present");
+    assert_eq!(dsl.unwrap().instructions.len(), 1);
+}
+
+/// Streaming: DSL instruction line appears mid-stream mixed with regular text.
+/// All lines sent as-is during streaming. Post-stream DslParser extracts
+/// DSL instructions and strips them from content_blocks.
+#[tokio::test]
+async fn test_streaming_dsl_instruction_mixed_with_text_lines() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let (gw, sid) =
+        setup_verbosity_session(closeclaw_common::VerbosityLevel::Normal, plugin.clone()).await;
+
+    let events = vec![
+        Ok::<_, String>(StreamEvent::BlockStart {
+            index: 0,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "Line 1\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "::button[label:Click;action:go;value:ok]\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "Line 3\n".to_string(),
+            },
+        }),
+        Ok(StreamEvent::BlockEnd {
+            index: 0,
+            block_type: ContentBlockType::Text,
+        }),
+        Ok(StreamEvent::MessageEnd {
+            usage: Some(default_usage()),
+            finish_reason: Some("stop".to_string()),
+        }),
+    ];
+    let stream = stream::iter(events);
+    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
+    let result = gw
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .await
+        .unwrap();
+
+    // All 3 lines sent as-is during streaming.
+    let sent = plugin.drain_sent();
+    assert_eq!(sent.len(), 3, "all 3 lines should be sent");
+
+    // Post-stream: DSL parsed, instruction extracted.
+    let dsl = result
+        .dsl_result
+        .as_ref()
+        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
+    assert!(dsl.is_some(), "dsl_result should be present");
+    let instructions = dsl.unwrap().instructions;
+    assert_eq!(instructions.len(), 1, "should extract 1 DSL instruction");
+    assert_eq!(instructions[0].instruction_type, "button");
+    assert_eq!(instructions[0].params["label"], "Click");
+}
+
+/// Streaming: VerbosityFilter consistency — batch filter and streaming
+/// per-block filter produce the same result for mixed content.
+/// This verifies the plan requirement: "流式路径和批量路径对相同输入产生相同过滤结果".
+#[tokio::test]
+async fn test_streaming_batch_consistency_verbos_filter() {
+    use closeclaw_common::VerbosityLevel;
+
+    // Same input blocks for both paths.
+    let blocks = vec![
+        ContentBlock::Thinking {
+            thinking: "reasoning".to_string(),
+            signature: None,
+        },
+        ContentBlock::Text("Hello".to_string()),
+        ContentBlock::Thinking {
+            thinking: "more reasoning".to_string(),
+            signature: None,
+        },
+        ContentBlock::Text("World".to_string()),
+        ContentBlock::ToolUse {
+            id: "c1".into(),
+            name: "tool".into(),
+            input: "{}".into(),
+        },
+    ];
+
+    let levels = [
+        VerbosityLevel::Full,
+        VerbosityLevel::Normal,
+        VerbosityLevel::Off,
+    ];
+
+    for level in levels {
+        // Batch path: full filter
+        let batch_result = closeclaw_processor_chain::verbosity_filter::VerbosityFilter::filter(
+            blocks.clone(),
+            level,
+        );
+
+        // Streaming path: per-block should_keep_block filter
+        let streaming_result: Vec<_> = blocks
+            .iter()
+            .filter(|b| {
+                closeclaw_processor_chain::verbosity_filter::VerbosityFilter::should_keep_block(
+                    b, level,
+                )
+            })
+            .cloned()
+            .collect();
+
+        assert_eq!(
+            batch_result.len(),
+            streaming_result.len(),
+            "block count mismatch at {:?}",
+            level
+        );
+
+        // Verify the same blocks are kept (by discriminant)
+        for (batch_block, stream_block) in batch_result.iter().zip(streaming_result.iter()) {
+            assert_eq!(
+                std::mem::discriminant(batch_block),
+                std::mem::discriminant(stream_block),
+                "block type mismatch at {:?}",
+                level
+            );
+        }
+    }
+}
