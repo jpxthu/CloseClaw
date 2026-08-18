@@ -41,7 +41,7 @@ Session 执行循环嵌入 health check：
 | `/system` 指令修改 system prompt | 局部改写 | 是 |
 | 从快照回滚 | 全量改写 | 是（回滚前自动创建 pre-rollback 快照，保留回滚前的现场） |
 
-Session 层暴露一个携带操作类型声明的 transcript 修改通道，强制所有调用方声明本次修改属于增量追加、全量改写还是局部改写。未来新增操作类型也逃不掉这个约束。
+Session 层暴露一个携带操作类型声明的 transcript 修改通道，强制所有调用方声明本次修改属于增量追加、全量改写还是局部改写。未来新增操作类型也逃不掉这个约束。不修改 transcript 的操作（如 `/stop` 的纯运行时清理）不经过此通道，永不触发快照。
 
 ### 运行快照回滚方式
 
@@ -150,7 +150,7 @@ unhealthy
 |------|---------|
 | Session 执行循环 | 每次 turn 结束后触发硬规则检测和 Hook 审查 |
 | Compaction 流程 | 压缩前触发运行快照创建；压缩异常触发 unhealthy |
-| Slash Command | `/system` 指令触发运行快照创建；`/stop` 指令可能触发运行快照保存 |
+| Slash Command | `/system` 指令触发运行快照创建。`/stop` 不触发快照——它是纯运行时清理（cancel LLM、杀工具、清队列、级联停子 session），不修改 transcript，不属于毁坏性操作（见 [session-execution.md](session-execution.md) 停止流程） |
 
 ### 下游
 
