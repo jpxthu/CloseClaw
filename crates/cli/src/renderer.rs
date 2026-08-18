@@ -626,16 +626,22 @@ pub struct TerminalRenderer {
     ansi: bool,
 }
 
+impl Default for TerminalRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TerminalRenderer {
     /// Create a new renderer with auto-detected ANSI capability.
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             ansi: closeclaw_platform::terminal::supports_ansi(),
         }
     }
 
     /// Create a renderer with explicit ANSI mode.
-    pub(crate) fn with_ansi(ansi: bool) -> Self {
+    pub fn with_ansi(ansi: bool) -> Self {
         Self { ansi }
     }
 
@@ -786,7 +792,7 @@ impl TerminalRenderer {
     }
 
     /// Render content blocks and DSL results into a `RenderedOutput`.
-    pub(crate) fn render(
+    pub fn render(
         &self,
         content_blocks: &[ContentBlock],
         dsl_result: Option<&DslParseResult>,
