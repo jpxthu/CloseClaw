@@ -337,8 +337,10 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
 
     match tx.try_send(queued) {
         Ok(()) => {
-            // Wait for consumer to dequeue before acking webhook.
-            let _ = ack_rx.await;
+            // Webhook ack is returned immediately after enqueue + WAL persist.
+            // ack_tx/ack_rx remain in QueuedInbound for future use, but the
+            // producer no longer blocks waiting for consumer dequeue.
+            drop(ack_rx);
         }
         Err(e) => {
             let req = match e {
@@ -540,5 +542,49 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<QueuedInbound>(32);
         let handle = InboundQueueHandle::new(tx);
         assert_eq!(handle.capacity(), 32);
+    }
+
+    /// Verify that enqueue does not block waiting for consumer dequeue.
+    ///
+    /// Fills the channel to capacity, then enqueues one more message.
+    /// The first message is not consumed, so if enqueue blocked on ack_rx
+    /// it would time out. Instead, try_send should return Err immediately
+    /// because the channel is full.
+    #[test]
+    fn enqueue_does_not_block_without_consumer() {
+        let (tx, rx) = mpsc::channel::<QueuedInbound>(1);
+        let handle = InboundQueueHandle::new(tx);
+
+        // Fill the single slot.
+        let (ack_tx1, _ack_rx1) = oneshot::channel();
+        handle
+            .try_send(QueuedInbound {
+                request: InboundRequest {
+                    platform: "feishu".into(),
+                    raw_payload: b"fill".to_vec(),
+                    peer_id: "p1".into(),
+                    trace_id: "tr-fill".into(),
+                },
+                ack_tx: ack_tx1,
+            })
+            .unwrap();
+
+        // Channel is full. try_send must fail immediately — no consumer,
+        // no ack_rx.await blocking.
+        let (ack_tx2, _ack_rx2) = oneshot::channel();
+        let err = handle.try_send(QueuedInbound {
+            request: InboundRequest {
+                platform: "feishu".into(),
+                raw_payload: b"overflow".to_vec(),
+                peer_id: "p2".into(),
+                trace_id: "tr-overflow".into(),
+            },
+            ack_tx: ack_tx2,
+        });
+        assert!(err.is_err());
+
+        // Drop consumer side without consuming — proves enqueue never
+        // depended on consumer for its return path.
+        drop(rx);
     }
 }
