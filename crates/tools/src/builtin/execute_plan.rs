@@ -17,6 +17,7 @@ use async_trait::async_trait;
 use closeclaw_common::SessionMode;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_session::plan_file::{resolve_plan_by_name, PlanResolveError};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
@@ -60,7 +61,7 @@ impl Tool for ExecutePlanTool {
     }
 
     fn detail(&self) -> String {
-        "Trigger execution of the current plan. This is the natural-language \
+        "Trigger execution of a plan by name. This is the natural-language \
          equivalent of the `/execute` slash command. The tool returns an \
          approval_pending result, prompting the user to confirm execution. \
          \n\nOn approval, the session transitions from Plan Mode to Auto Mode \
@@ -68,7 +69,9 @@ impl Tool for ExecutePlanTool {
          \n\nSupports two execution paths: \
          \n- Same session: the current session enters Auto Mode. \
          \n- New session: a new child session is created with the plan \
-         content injected as initial context."
+         content injected as initial context. \
+         \n\nAn optional additional instruction can be provided to inject a user \
+         message when the plan enters Auto Mode."
             .to_string()
     }
 
@@ -76,10 +79,24 @@ impl Tool for ExecutePlanTool {
         json!({
             "type": "object",
             "properties": {
+                "plan_name": {
+                    "type": "string",
+                    "description": "Name of the plan to execute (resolved under \
+                        workspace/plans/). Exact match takes priority, then prefix, \
+                        then substring. If omitted, uses the plan from the current \
+                        session's plan state."
+                },
                 "plan_file_path": {
                     "type": "string",
-                    "description": "Path to the plan file to execute. \
-                        If omitted, uses the plan file from the current session's plan state."
+                    "description": "Full path to the plan file to execute (legacy). \
+                        Prefer plan_name. If omitted, uses plan_name or the current \
+                        session's plan state."
+                },
+                "additional_instruction": {
+                    "type": "string",
+                    "description": "Optional instruction injected as a user message \
+                        when the plan enters Auto Mode. Empty or whitespace-only \
+                        values are treated as absent."
                 },
                 "step_selection": {
                     "type": "array",
@@ -118,15 +135,24 @@ impl Tool for ExecutePlanTool {
 
         self.validate_plan_mode(session_id).await?;
 
+        let plan_name = Self::parse_plan_name(&args);
         let plan_file_path = Self::parse_plan_file_path(&args);
+        let additional_instruction = Self::parse_additional_instruction(&args);
         let plan_state = self.load_plan_state(session_id).await?;
-        let effective_path = Self::resolve_plan_path(&plan_file_path, &plan_state)?;
+        let effective_path =
+            self.resolve_effective_path(&plan_name, &plan_file_path, &plan_state, ctx)?;
         let step_selection = Self::parse_step_selection(&args);
         let new_session = Self::parse_new_session(&args);
 
         let request_id = uuid::Uuid::new_v4().to_string();
-        self.store_plan_exec_metadata(&request_id, &effective_path, &step_selection, new_session)
-            .await;
+        self.store_plan_exec_metadata(
+            &request_id,
+            &effective_path,
+            &step_selection,
+            new_session,
+            additional_instruction,
+        )
+        .await;
 
         Ok(ToolResult {
             data: json!({
@@ -162,10 +188,27 @@ impl ExecutePlanTool {
         Ok(())
     }
 
+    /// Parse optional `plan_name` from tool arguments.
+    fn parse_plan_name(args: &Value) -> Option<String> {
+        args.get("plan_name")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string())
+    }
+
     /// Parse optional `plan_file_path` from tool arguments.
     fn parse_plan_file_path(args: &Value) -> Option<String> {
         args.get("plan_file_path")
             .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string())
+    }
+
+    /// Parse optional `additional_instruction` from tool arguments.
+    fn parse_additional_instruction(args: &Value) -> Option<String> {
+        args.get("additional_instruction")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
             .map(|s| s.to_string())
     }
 
@@ -185,6 +228,36 @@ impl ExecutePlanTool {
     }
 
     /// Resolve the effective plan file path.
+    ///
+    /// Resolution order:
+    /// 1. `plan_name` — resolved under workspace/plans/ by name
+    /// 2. `plan_file_path` — direct path (legacy)
+    /// 3. `plan_state.plan_file_path` — fallback from session
+    fn resolve_effective_path(
+        &self,
+        plan_name: &Option<String>,
+        plan_file_path: &Option<String>,
+        plan_state: &closeclaw_common::PlanState,
+        ctx: &ToolContext,
+    ) -> Result<String, ToolCallError> {
+        if let Some(name) = plan_name {
+            let workdir_path = ctx.workdir.as_ref().map(|w| w.path.as_str()).unwrap_or(".");
+            let workdir = std::path::Path::new(workdir_path);
+            return resolve_plan_by_name(workdir, name)
+                .map(|p| p.to_string_lossy().into_owned())
+                .map_err(|e| match e {
+                    PlanResolveError::NotFound { name } => {
+                        ToolCallError::InvalidArgs(format!("未找到名为 '{}' 的 plan", name))
+                    }
+                    PlanResolveError::Ambiguous { name, candidates } => ToolCallError::InvalidArgs(
+                        format!("plan 名称 '{}' 歧义，候选：{}", name, candidates.join(", ")),
+                    ),
+                });
+        }
+        Self::resolve_plan_path(plan_file_path, plan_state)
+    }
+
+    /// Resolve the effective plan file path from a direct path or plan state.
     ///
     /// Uses the provided `plan_file_path` if given, otherwise falls back
     /// to the path stored in `plan_state`.
@@ -240,6 +313,7 @@ impl ExecutePlanTool {
         effective_path: &str,
         step_selection: &Option<Vec<usize>>,
         new_session: bool,
+        additional_instruction: Option<String>,
     ) {
         let mut flow = self.approval_flow.lock().await;
         flow.set_plan_exec_metadata(
@@ -247,6 +321,7 @@ impl ExecutePlanTool {
             effective_path.to_string(),
             step_selection.clone(),
             new_session,
+            additional_instruction,
         );
     }
 }

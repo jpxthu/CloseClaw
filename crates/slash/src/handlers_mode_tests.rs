@@ -10,6 +10,7 @@ use crate::handlers_mode::{
 };
 use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::SlashSessionQuery;
 use closeclaw_gateway::session_manager::SessionManager;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -438,7 +439,10 @@ fn test_execute_handler_commands_and_description() {
     let sm = make_session_manager();
     let h = ExecuteHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
     assert_eq!(h.commands(), &["execute"]);
-    assert_eq!(h.description(), "从 Plan Mode 进入 Auto Mode 执行");
+    assert_eq!(
+        h.description(),
+        "/execute <plan名称> [附加指令] — 进入 Auto Mode 执行 plan"
+    );
 }
 
 #[test]
@@ -574,33 +578,6 @@ async fn test_execute_handler_plan_confirmed() {
             assert_eq!(reply_message.as_deref(), Some("开始执行"));
         }
         other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_execute_handler_plan_state_with_confirmed_status() {
-    use std::fs;
-    let tmp = tempfile::tempdir().unwrap();
-    let plan_file = tmp.path().join("test-plan.md");
-    fs::write(
-        &plan_file,
-        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | draft |\n",
-    )
-    .unwrap();
-    let sm = make_session_manager_with_storage();
-    let sid = create_session_with_plan_mode(&sm).await;
-    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
-    let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("", &ctx).await {
-        SlashResult::SetMode { mode, .. } => {
-            assert_eq!(
-                mode, "auto",
-                "should switch to auto mode based on in-memory status"
-            );
-        }
-        other => panic!("expected SetMode, got {other:?}"),
     }
 }
 
@@ -887,50 +864,137 @@ async fn test_mode_delegation_equivalence() {
     }
 }
 
-// ── /execute reply_message tests (Step 1.6) ──────────────────────────
+// ── parse_execute_args tests ────────────────────────────────────────────
+
+use crate::handlers_mode::parse_execute_args;
+
+#[test]
+fn test_parse_execute_args_all_cases() {
+    // Empty / whitespace-only → no name, no instruction
+    let (n, i) = parse_execute_args("");
+    assert!(n.is_none() && i.is_none());
+    let (n, i) = parse_execute_args("   ");
+    assert!(n.is_none() && i.is_none());
+    // Name only
+    let (n, i) = parse_execute_args("foo");
+    assert_eq!(n.as_deref(), Some("foo"));
+    assert!(i.is_none());
+    // Name + instruction
+    let (n, i) = parse_execute_args("foo bar baz");
+    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(i.as_deref(), Some("bar baz"));
+    // Extra whitespace trimmed around name
+    let (n, i) = parse_execute_args("  foo  bar baz  ");
+    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(i.as_deref(), Some("bar baz"));
+    // Whitespace-only instruction → None
+    let (n, i) = parse_execute_args("foo   ");
+    assert_eq!(n.as_deref(), Some("foo"));
+    assert!(i.is_none());
+    // Name with .md suffix works
+    let (n, i) = parse_execute_args("plan.md instruction");
+    assert_eq!(n.as_deref(), Some("plan.md"));
+    assert_eq!(i.as_deref(), Some("instruction"));
+    // Chinese name + instruction
+    let (n, i) = parse_execute_args("修复登录 请优先处理");
+    assert_eq!(n.as_deref(), Some("修复登录"));
+    assert_eq!(i.as_deref(), Some("请优先处理"));
+}
+
+// ── ExecuteHandler with name/instruction tests ─────────────────────────
 
 #[tokio::test]
-async fn test_execute_reply_message_from_all_modes() {
+async fn test_execute_plan_mode_with_name_resolves_plan() {
     use std::fs;
-
-    let sm = make_session_manager_with_storage();
-    // From Plan Mode with plan file
     let tmp = tempfile::tempdir().unwrap();
-    let plan_file = tmp.path().join("test-plan.md");
-    fs::write(
-        &plan_file,
-        "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n",
-    )
-    .unwrap();
+    let plans_dir = tmp.path().join("plans");
+    fs::create_dir_all(&plans_dir).unwrap();
+    let plan_file = plans_dir.join("my-plan.md");
+    fs::write(&plan_file, "# My Plan\n").unwrap();
+    let sm = make_session_manager_with_storage();
     let sid = create_session_with_plan_mode(&sm).await;
-    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
+    sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
     let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
-    match h.handle("", &ctx).await {
+    // name only
+    match h.handle("my-plan", &ctx).await {
         SlashResult::SetMode {
             mode,
+            plan_file_path,
+            initial_input,
             reply_message,
             ..
         } => {
             assert_eq!(mode, "auto");
+            let path = plan_file_path.unwrap();
+            assert!(path.to_string_lossy().ends_with("my-plan.md"));
+            assert!(initial_input.is_none());
             assert_eq!(reply_message.as_deref(), Some("开始执行"));
         }
-        other => panic!("expected SetMode from Plan Mode, got {other:?}"),
+        other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
     }
-    // From non-Plan Mode (Normal)
-    let sid = create_test_session(&sm).await;
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("", &ctx).await {
+    // name + instruction
+    match h.handle("my-plan 请优先处理", &ctx).await {
         SlashResult::SetMode {
             mode,
-            reply_message,
+            plan_file_path,
+            initial_input,
             ..
         } => {
             assert_eq!(mode, "auto");
-            assert_eq!(reply_message.as_deref(), Some("开始执行"));
+            assert!(plan_file_path.is_some());
+            assert_eq!(initial_input.as_deref(), Some("请优先处理"));
         }
-        other => panic!("expected SetMode from non-Plan Mode, got {other:?}"),
+        other => panic!("expected SetMode, got {other:?}"),
     }
 }
+#[tokio::test]
+async fn test_execute_non_plan_mode_with_name_and_instruction() {
+    use std::fs;
+    let tmp = tempfile::tempdir().unwrap();
+    let plans_dir = tmp.path().join("plans");
+    fs::create_dir_all(&plans_dir).unwrap();
+    let plan_file = plans_dir.join("my-plan.md");
+    fs::write(&plan_file, "# My Plan\n").unwrap();
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
+    let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    // name only → plan_file_path set, no instruction
+    match h.handle("my-plan", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+            initial_input,
+            ..
+        } => {
+            assert_eq!(mode, "auto");
+            assert!(plan_file_path.is_some());
+            assert!(initial_input.is_none());
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+    // name + instruction → both set
+    match h.handle("my-plan 请先完成 lint", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+            initial_input,
+            ..
+        } => {
+            assert_eq!(mode, "auto");
+            assert!(plan_file_path.is_some());
+            assert_eq!(initial_input.as_deref(), Some("请先完成 lint"));
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
+// ── ExecuteHandler error path tests (Step 1.4) ───────────────────────────
+// Split into handlers_execute_tests.rs to keep this file under
+// the 1000-line limit.
+#[path = "handlers_execute_tests.rs"]
+mod handlers_execute_tests;
