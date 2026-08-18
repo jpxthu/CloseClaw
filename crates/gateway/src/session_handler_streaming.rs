@@ -18,14 +18,6 @@ use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
 use crate::types::{GatewayError, Message};
 use crate::Gateway;
-
-/// Metadata key: marks a checkpoint message as having been interrupted
-/// by a streaming error (as opposed to normal completion).
-pub(crate) const META_STREAMING_INTERRUPTED: &str = "streaming_interrupted";
-
-/// Metadata key: stores the human-readable reason for the streaming
-/// interruption.
-pub(crate) const META_STREAMING_INTERRUPT_REASON: &str = "streaming_interrupt_reason";
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::StreamingSink;
 use closeclaw_llm::session_state::LlmState;
@@ -34,6 +26,14 @@ use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::LLMError;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::llm_session::SessionStream;
+
+/// Metadata key: marks a checkpoint message as having been interrupted
+/// by a streaming error (as opposed to normal completion).
+pub(crate) const META_STREAMING_INTERRUPTED: &str = "streaming_interrupted";
+
+/// Metadata key: stores the human-readable reason for the streaming
+/// interruption.
+pub(crate) const META_STREAMING_INTERRUPT_REASON: &str = "streaming_interrupt_reason";
 
 impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's

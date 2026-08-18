@@ -134,6 +134,7 @@ impl IMPlugin for CapturingPlugin {
 /// Plugin whose `send` always fails — for non-blocking failure test.
 struct FailingPlugin {
     platform: String,
+    send_attempt_count: std::sync::atomic::AtomicU32,
 }
 
 #[async_trait::async_trait]
@@ -171,7 +172,16 @@ impl IMPlugin for FailingPlugin {
         _peer_id: &str,
         _thread_id: Option<&str>,
     ) -> Result<(), AdapterError> {
+        self.send_attempt_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Err(AdapterError::SendFailed("mock failure".into()))
+    }
+}
+
+impl FailingPlugin {
+    fn send_attempt_count(&self) -> u32 {
+        self.send_attempt_count
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -407,7 +417,9 @@ async fn test_immediate_slash_skips_queue_and_notification() {
 async fn test_slash_notification_failure_does_not_block_enqueue() {
     let failing = Arc::new(FailingPlugin {
         platform: "mock".to_string(),
+        send_attempt_count: std::sync::atomic::AtomicU32::new(0),
     });
+    let failing_ref = Arc::clone(&failing);
     let (gw, sm) = build_env("s3", "mock", failing).await;
     make_session_busy(&sm, "s3").await;
 
@@ -428,6 +440,11 @@ async fn test_slash_notification_failure_does_not_block_enqueue() {
     assert!(
         pending.unwrap().content.contains("compact"),
         "enqueued content should be the slash command"
+    );
+    assert_eq!(
+        failing_ref.send_attempt_count(),
+        2,
+        "notification should attempt initial + fallback = 2 sends"
     );
 }
 
