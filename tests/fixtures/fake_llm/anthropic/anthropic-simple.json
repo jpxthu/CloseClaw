@@ -1,0 +1,38 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-simple",
+  "model": "fake-model",
+  "expect": "text",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_01_simple_fake_model_a1b2c3d4e5f6a7b8",
+    "type": "message",
+    "role": "assistant",
+    "model": "fake-model",
+    "content": [
+      {
+        "type": "text",
+        "text": "Hello there friend."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 11,
+      "output_tokens": 4,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 1024
+}

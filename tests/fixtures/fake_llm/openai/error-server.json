@@ -1,0 +1,29 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-server",
+  "model": "fake-model",
+  "expect": "error",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 500,
+    "reason": "Internal Server Error",
+    "body": {
+      "error": {
+        "message": "The server had an error while processing your request. Sorry about that! You can retry your request, or contact us through our help center at https://help.openai.com if the error persists.",
+        "type": "api_error",
+        "param": null,
+        "code": null
+      }
+    }
+  }
+}

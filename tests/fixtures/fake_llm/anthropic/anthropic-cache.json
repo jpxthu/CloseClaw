@@ -1,0 +1,52 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-cache",
+  "model": "fake-model",
+  "expect": "cache",
+  "request": {
+    "model": "fake-model",
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a helpful assistant that explains technical concepts in detail.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the difference between HTTP/1.1 and HTTP/2 multiplexing?"
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_01_cache_fake_model_d4e5f6a7b8c9d0e1",
+    "type": "message",
+    "role": "assistant",
+    "model": "fake-model",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system prompt is cached from a previous request, so I should report cache_read_input_tokens > 0 to indicate a cache hit.",
+        "signature": "sig_cache_d4e5f6a7b8c9d0e1"
+      },
+      {
+        "type": "text",
+        "text": "HTTP/1.1 uses a request-per-connection model (or keep-alive with head-of-line blocking), while HTTP/2 multiplexes many request/response streams over a single TCP connection using binary framing.\n\nKey differences:\n- HTTP/2 sends interleaved binary frames for multiple streams on one connection.\n- HTTP/1.1 requires serial responses, leading to head-of-line blocking.\n- HTTP/2 supports stream priorities and per-stream flow control.\n\nIn short, HTTP/2 multiplexing eliminates the need to open many TCP connections and avoids the head-of-line blocking that hurts HTTP/1.1 performance."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 22,
+      "output_tokens": 110,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 256,
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 2048
+}

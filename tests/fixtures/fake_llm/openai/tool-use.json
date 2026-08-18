@@ -1,0 +1,75 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "tool-use",
+  "model": "fake-model",
+  "expect": "tool_calls",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What's the weather in Tokyo?"
+      }
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-fake-tooluse-003",
+    "object": "chat.completion",
+    "created": 1700000003,
+    "model": "fake-model",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "refusal": null,
+          "tool_calls": [
+            {
+              "id": "call_fake_001",
+              "type": "function",
+              "function": {
+                "name": "get_weather",
+                "arguments": "{\"location\":\"Tokyo\"}"
+              }
+            }
+          ]
+        },
+        "logprobs": null,
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 18,
+      "completion_tokens": 12,
+      "total_tokens": 30,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "system_fingerprint": "fp_fake"
+  },
+  "tools_sent": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Get the current weather for a location.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City name, e.g. Tokyo"
+            }
+          },
+          "required": ["location"]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-error",
+  "model": "fake-model",
+  "expect": "error",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": ""
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 400,
+    "reason": "Bad Request",
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "invalid_request_error",
+        "message": "messages: text content blocks must contain non-whitespace text"
+      }
+    }
+  },
+  "max_tokens_sent": 1024
+}
