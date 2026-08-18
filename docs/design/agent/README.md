@@ -91,7 +91,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
    - agentId 解析
    - 白名单检查
 3. 前置检查通过后，经 tools 模块触发 PermissionEngine 权限检查
-4. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task、过滤工具集）
+4. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task 到 system prompt、过滤工具集）
 5. 子 session 执行 task
 6. 子 session 完成，结果通过 announce 机制入队到父 session
 7. 父 session 下一轮 turn 处理 announce
@@ -113,6 +113,9 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 | Session | 创建 session 时读取 agent 配置各字段并分发到对应子系统（模型选择、工作目录、bootstrap 模式、工具/技能过滤、spawn 控制参数） |
 | Permission | 读取权限基线配置，在 spawn 时与其他维度共同计算继承权限 |
 | System Prompt | 读取 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，加载身份人格定义 |
+| Skills Registry | 通过 [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) 接口按 agent 的 skills 白名单过滤技能列表 |
+| Tools Registry | 通过 [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery) 接口按 agent 的 tools/disallowedTools 过滤工具列表 |
+| AgentRegistry | 接收 Config 填充的 ResolvedAgentConfig，以 agent_id 为键提供只读查询（实现 [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) / [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery)） |
 
 ### 无关（无调用关系、名称或功能易混淆）
 

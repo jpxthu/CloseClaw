@@ -77,6 +77,32 @@
 
 工具注册编排和 Tool trait 的实现规范详见 [tools 模块](../tools/README.md)。
 
+### AgentSkillsQuery
+
+**用途**：按 agent 查询可用技能范围的接口契约。Agent Registry 实现此 trait，Skills 模块消费——根据 agent 的 skills 白名单过滤技能列表。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 输入 | agent_id（或无 agent 上下文时返回全局技能） |
+| 查询结果 | 该 agent 可用的技能名列表；白名单为 `["*"]` 或空时表示不限制 |
+
+具体实现和调用链详见 [agent-registry](../agent/agent-registry.md)、[skills 模块](../skills/README.md)。
+
+### AgentToolsConfigQuery
+
+**用途**：按 agent 查询可用工具范围的接口契约。Agent Registry 实现此 trait，Tools 模块消费——根据 agent 的 tools 白名单和 disallowedTools 黑名单过滤工具列表。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 输入 | agent_id（或无 agent 上下文时返回全局工具） |
+| 查询结果 | 可用工具白名单和禁用黑名单；白名单为 `["*"]` 或空时表示不限制；白名单与黑名单交集时黑名单优先 |
+
+具体实现和调用链详见 [agent-registry](../agent/agent-registry.md)、[tools 模块](../tools/README.md)。
+
 ### IMPlugin
 
 **用途**：统一抽象各消息平台的插件契约。Gateway 通过收集已注册的 IMPlugin 管理跨平台的消息入站解析、出站格式渲染和消息发送。每个消息平台（飞书、Discord、Telegram、Terminal）封装为一个独立插件，实现此 trait 的四个方法分组。
@@ -124,9 +150,10 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 BootstrapFragmentProvider，System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 ToolsFragmentProvider 和 CoreToolsRegistrar，提供 ToolRegistry 具体实现，收集 ToolRegistrar 实现者并编排调用）
+  - **tools**（实现 ToolsFragmentProvider 和 CoreToolsRegistrar，提供 ToolRegistry 具体实现，收集 ToolRegistrar 实现者并编排调用；消费 AgentToolsConfigQuery 查询 agent 工具白名单/黑名单）
   - **session**（实现 SessionToolsRegistrar）
-  - **skills**（实现 SkillsToolsRegistrar 和 SkillsFragmentProvider）
+  - **skills**（实现 SkillsToolsRegistrar 和 SkillsFragmentProvider；消费 AgentSkillsQuery 查询 agent 技能白名单）
+  - **agent**（实现 AgentSkillsQuery 和 AgentToolsConfigQuery，按 agent_id 提供技能/工具的按需查询）
   - **memory**（实现 MemoryFragmentProvider）
   - **im_adapter**（实现 ImAdapterToolsRegistrar；各平台插件实现 IMPlugin trait，Gateway 通过 Plugin Registry 消费）
   - **gateway**（消费 IMPlugin trait，维护平台到插件的 Plugin Registry 映射）

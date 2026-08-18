@@ -2,9 +2,9 @@
 
 ## 概述
 
-Agent 配置档案定义每个 agent 的静态属性和能力边界。每个 agent 对应一个独立的配置目录，在 session 创建时被读取并分发到各相关模块。
+- 一句话：Agent 配置档案定义每个 agent 的静态属性和能力边界，在 session 创建时被读取并分发到各相关模块。
 
-Agent 配置（JSON）和 Bootstrap 文件（Markdown）是两层独立的事：配置定义"能力边界"（模型、工具、权限、spawn 控制），Bootstrap 定义"身份人格"（AGENTS.md、SOUL.md 等）。配置不混入 Markdown 正文。
+每个 agent 对应一个独立的配置目录。Agent 配置（JSON）和 Bootstrap 文件（Markdown）是两层独立的事：配置定义"能力边界"（模型、工具、权限、spawn 控制），Bootstrap 定义"身份人格"（AGENTS.md、SOUL.md 等）。配置不混入 Markdown 正文。
 
 Agent 配置档案是纯配置值对象，不包含运行时可变字段。运行时状态（执行状态、对话状态）由 Session 模块管理。
 
@@ -30,8 +30,10 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `memory` | per-agent memory 配置覆盖（active_searcher 参数等），仅在明确需要覆盖默认值时使用，详见 [memory 模块设计文档](../memory/config.md) | 否 | null |
 
 `bootstrapMode` 取值：
-- `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、BOOTSTRAP.md、MEMORY.md）
-- `"minimal"`：仅加载核心文件，减少上下文占用
+- `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、BOOTSTRAP.md）
+- `"minimal"`：仅加载核心文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md），减少上下文占用
+
+> Minimal / Full 两种模式的文件集合以 system_prompt 模块为权威源：完整清单见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载。MEMORY.md 不属于 bootstrap 集合——它作为长期记忆由 MemorySection 独立管理（Full 模式生成），详见该文档。
 
 `subagents` 子字段：
 
@@ -50,7 +52,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 
 ### 权限配置（permissions.json）
 
-权限规则独立存储于 `permissions.json`，与 `config.json` 同目录。两个文件独立读写、独立热更新：修改权限不影响 agent 配置，反之亦然。权限文件不存在时不阻塞 agent 加载，使用系统默认权限基线。
+权限规则独立存储于 `permissions.json`，与 `config.json` 同目录。两个文件独立读写、独立热更新：修改权限不影响 agent 配置，反之亦然。权限文件不存在时不阻塞 agent 加载，使用系统默认权限基线——默认基线定义为：Agent 维度默认仅可收发消息（无文件读写、无命令行、无网络），User 维度默认无任何权限（需 Owner 显式授予）。详见 [permission 模块](../permission/README.md) 身份体系。
 
 ### 配置存储位置和优先级
 
@@ -73,7 +75,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 用户级：~/.closeclaw/agents/<id>/{config.json, permissions.json}      ← 次优先级
 ```
 
-初始 Agent（ID 为 `master`）由 CLI 配置向导在首次运行时创建。
+初始 Agent（ID 为 `master`）由 CLI 配置向导在首次运行时创建。master 作为系统的基础入口，具备全部工具和技能的访问权限（`tools` / `skills` 均为 `["*"]`，对应需求 agent.md §F5）。
 
 ### Agent 能力模型
 
@@ -84,6 +86,8 @@ Agent 能力完全由配置字段组合决定，不依赖预定义的类型枚�
 | 行为限制 | `tools` / `disallowedTools` | 控制可见工具集 |
 | 上下文大小 | `bootstrapMode` | `"minimal"` 减少 context 占用 |
 | 繁衍能力 | `subagents.allowAgents` / `maxSpawnDepth` | 控制能否 spawn 子 agent |
+
+能力维度以配置字段自由组合，不依赖预定义类型枚举——新增能力维度时通过新增配置字段即可生效，无需系统升级（对应需求可扩展性 NFR）。
 
 ### 配置示例
 
@@ -120,6 +124,8 @@ Agent 能力完全由配置字段组合决定，不依赖预定义的类型枚�
 
 各模板的完整 prompt 内容定义见 [mode/references/prompts.md](../mode/references/prompts.md) 第 7 节。模板不影响 agent 配置，仅在 spawn 子 agent 时作为 prompt 前缀注入。
 
+> Agent 层的工具使用指导定制统一通过上述 Prompt 模板机制（spawn 时按需选择）达成，不在 agent 配置中提供独立的工具使用指导覆盖字段——避免在 agent 配置层重复定义本应由行为模板管理的上下文注入。
+
 ## 数据流
 
 ### 配置加载流程
@@ -135,15 +141,21 @@ ID 取并集，去重（注册清单中注释掉的 ID 跳过）
   ↓
 对每个注册 ID：
   优先加载项目级 agents/<id>/config.json（不存在回退用户级）
+  ID 在注册表但无 config.json → WARN 跳过
   permissions.json 遵循同路径解析规则和同优先级（实际由 Permission 模块在 evaluate() 时延迟加载）
   ↓
 字段级覆盖合并（项目级字段覆盖用户级字段）
   ↓
-ID 在注册表但无 config.json → WARN 跳过
-目录中有 config.json 但 ID 不在注册表 → 忽略
-  ↓
-生成 ResolvedAgentConfig（所有字段已补齐默认值），返回给调用方（Daemon → AgentRegistry）
+生成 ResolvedAgentConfig（所有字段已补齐默认值）
+
+目录中有 config.json 但 ID 不在注册表 → 在注册清单核对阶段即忽略，不进入上述加载循环
+
+生成的 ResolvedAgentConfig 返回给调用方（Daemon → AgentRegistry）
 ```
+
+### 配置热重载
+
+config.json 变更检测与重新解析由 Config 模块的热重载机制负责：ConfigReloadManager 监听配置目录变更，agent 配置变更后 AgentDirectoryProvider 按最新注册清单重新扫描、重新合并并补齐默认值，Daemon 触发 AgentRegistry 全量替换。已运行 session 是否感知变更由各消费模块自行决定——AgentRegistry 只提供最新数据，不推送变更。机制详见 [config/hot-reload.md](../config/hot-reload.md)、[agent-registry.md](agent-registry.md) §热重载。permissions.json 的独立热更新见 [§权限配置](#权限配置permissionsjson)。
 
 ### ResolvedAgentConfig
 
@@ -186,6 +198,7 @@ spawn 子 agent 时，模型的最终选择按以下顺序确定：
 | AgentRegistry | 接收 Config 填充的 ResolvedAgentConfig 作为运行时查询数据源 |
 | Skills Registry | 查询 agent 的 skills 白名单过滤可用 skill 列表 |
 | Tools Registry | 查询 agent 的 tools/disallowedTools 过滤工具列表 |
+| Permission | 延迟加载 agent 配置目录下的 permissions.json，作为该 agent 的权限基线（详见 agent-permissions.md） |
 
 ### 无关
 
