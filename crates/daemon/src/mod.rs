@@ -256,6 +256,7 @@ impl Daemon {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
             max_message_size: 16_384,
+            inbound_wal_dir: Some(std::path::PathBuf::from(config_dir).join("inbound_wal")),
             ..Default::default()
         };
         let llm_config = config_manager

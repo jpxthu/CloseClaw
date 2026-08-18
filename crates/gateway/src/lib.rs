@@ -21,6 +21,9 @@ mod inbound_queue_ack_tests;
 mod inbound_queue_test_utils;
 #[cfg(test)]
 mod inbound_queue_tests;
+pub(crate) mod inbound_wal;
+#[cfg(test)]
+mod inbound_wal_tests;
 pub mod llm_caller_impl;
 mod memory;
 pub mod message;
@@ -137,6 +140,9 @@ pub struct Gateway {
     metrics_emitter: std::sync::RwLock<Option<Arc<dyn closeclaw_common::MetricsEmitter>>>,
     /// Debug log framework instance for structured event logging.
     debug_log: std::sync::RwLock<Option<DebugLog>>,
+    /// WAL persistence for inbound queue durability.
+    /// `None` when `inbound_wal_dir` is not configured.
+    inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
 }
 
 impl Gateway {
@@ -160,6 +166,7 @@ impl Gateway {
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
+            inbound_wal: std::sync::Mutex::new(None),
         };
         register_default_middlewares(&gw);
         gw
@@ -188,6 +195,7 @@ impl Gateway {
             config_dir: RwLock::new(None),
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
+            inbound_wal: std::sync::Mutex::new(None),
         };
         register_default_middlewares(&gw);
         gw
@@ -287,8 +295,129 @@ impl Gateway {
         if let Ok(mut slot) = self.inbound_tx.lock() {
             *slot = Some(tx.clone());
         }
-        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity);
+        self.init_inbound_wal();
+        self.replay_wal_entries(&tx);
+        let wal = self
+            .inbound_wal
+            .lock()
+            .ok()
+            .and_then(|s| s.as_ref().cloned());
+        inbound_queue::start_inbound_consumer(rx, Arc::clone(self), capacity, wal);
         inbound_queue::InboundQueueHandle::new(tx)
+    }
+
+    /// Open the inbound WAL directory if configured.
+    fn init_inbound_wal(&self) {
+        if let Some(ref wal_dir) = self.config.inbound_wal_dir {
+            match inbound_wal::InboundWal::open(wal_dir) {
+                Ok(wal) => {
+                    if let Ok(mut slot) = self.inbound_wal.lock() {
+                        *slot = Some(Arc::new(wal));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        wal_dir = %wal_dir.display(),
+                        error = %e,
+                        "failed to open inbound WAL — falling back to in-memory queue"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Replay unfinished WAL entries into the inbound channel.
+    ///
+    /// Loads all WAL entries, deduplicates by trace_id, and sends each
+    /// unfinished entry into the provided channel.
+    fn replay_wal_entries(&self, tx: &mpsc::Sender<inbound_queue::QueuedInbound>) {
+        let wal_guard = match self.inbound_wal.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        let Some(ref wal) = *wal_guard else {
+            return;
+        };
+        let entries = match wal.load_all() {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(error = %e, "WAL replay: failed to load entries");
+                return;
+            }
+        };
+        let mut seen = std::collections::HashSet::new();
+        let mut replayed = 0u64;
+        for entry in entries {
+            if !seen.insert(entry.trace_id.clone()) {
+                continue;
+            }
+            if self.try_replay_entry(entry, tx).is_ok() {
+                replayed += 1;
+            }
+        }
+        if replayed > 0 {
+            tracing::info!(count = replayed, "WAL replay complete");
+        }
+    }
+
+    /// Attempt to replay a single WAL entry into the channel.
+    ///
+    /// Decodes the payload, constructs a [`QueuedInbound`], sends it,
+    /// and emits a `queue.replayed` debug event on success.
+    fn try_replay_entry(
+        &self,
+        entry: inbound_wal::InboundWalEntry,
+        tx: &mpsc::Sender<inbound_queue::QueuedInbound>,
+    ) -> Result<(), ()> {
+        let payload = entry.decoded_payload().map_err(|e| {
+            tracing::warn!(
+                trace_id = %entry.trace_id,
+                error = %e,
+                "WAL replay: failed to decode payload — skipping"
+            );
+        })?;
+        let req = inbound_queue::InboundRequest {
+            platform: entry.platform,
+            raw_payload: payload,
+            peer_id: entry.peer_id,
+            trace_id: entry.trace_id,
+        };
+        // ack_tx is a oneshot placeholder — WAL-replayed entries are not
+        // awaited for acknowledgment; the receiver is dropped immediately
+        // after try_send below.  This satisfies the QueuedInbound contract
+        // without adding unnecessary back-pressure during replay.
+        let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel::<()>();
+        let queued = inbound_queue::QueuedInbound {
+            request: req,
+            ack_tx,
+        };
+        let trace_id = queued.request.trace_id.clone();
+        let platform = queued.request.platform.clone();
+        let peer_id = queued.request.peer_id.clone();
+        if tx.try_send(queued).is_err() {
+            tracing::warn!(trace_id = %trace_id, "WAL replay: queue full — dropping");
+            return Err(());
+        }
+        drop(_ack_rx);
+        self.emit_replayed_event(&trace_id, &platform, &peer_id);
+        Ok(())
+    }
+
+    /// Emit a `queue.replayed` debug event for a successfully replayed entry.
+    fn emit_replayed_event(&self, trace_id: &str, platform: &str, peer_id: &str) {
+        let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+        debug_log_emitter::emit_debug_event(
+            guard.as_ref(),
+            trace_id,
+            None,
+            closeclaw_debug_log::LogLevel::Info,
+            "gateway",
+            "queue.replayed",
+            serde_json::json!({
+                "platform": platform,
+                "peer_id": peer_id,
+            }),
+        );
     }
 
     /// Enqueue an inbound request into the bounded queue.
