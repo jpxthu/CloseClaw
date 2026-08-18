@@ -314,7 +314,10 @@ fn append_wal_if_configured(gateway: &Gateway, request: &InboundRequest) {
     }
 }
 
-pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundRequest) {
+pub(crate) async fn enqueue_inbound(
+    gateway: &Gateway,
+    mut request: InboundRequest,
+) -> Result<(), InboundQueueFull> {
     ensure_trace_id(&mut request);
     let tx = match gateway
         .inbound_tx
@@ -325,23 +328,21 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
         Some(tx) => tx,
         None => {
             process_inbound_direct(gateway, &request).await;
-            return;
+            return Ok(());
         }
     };
 
     append_wal_if_configured(gateway, &request);
 
     // Create oneshot channel for dequeue ack.
-    let (ack_tx, ack_rx) = oneshot::channel::<()>();
-    let queued = QueuedInbound { request, ack_tx };
+    let (ack_tx, _ack_rx) = oneshot::channel::<()>();
+    let queued = QueuedInbound {
+        request,
+        ack_tx,
+    };
 
     match tx.try_send(queued) {
-        Ok(()) => {
-            // Webhook ack is returned immediately after enqueue + WAL persist.
-            // ack_tx/ack_rx remain in QueuedInbound for future use, but the
-            // producer no longer blocks waiting for consumer dequeue.
-            drop(ack_rx);
-        }
+        Ok(()) => Ok(()),
         Err(e) => {
             let req = match e {
                 tokio::sync::mpsc::error::TrySendError::Full(q)
@@ -350,6 +351,7 @@ pub(crate) async fn enqueue_inbound(gateway: &Gateway, mut request: InboundReque
             emit_queue_rejected_log(gateway, &req);
             tracing::warn!(peer_id = %req.peer_id, "inbound queue full — sending busy reply");
             send_busy_reply(gateway, &req).await;
+            Err(InboundQueueFull { request: req })
         }
     }
 }

@@ -219,13 +219,15 @@ async fn test_queue_full_rejection_emits_debug_event() {
         .expect("first send should succeed");
 
     // This enqueue triggers queue-full rejection + emit_debug_event.
-    gw.enqueue_inbound(InboundRequest {
-        platform: "feishu".to_string(),
-        raw_payload: b"{}".to_vec(),
-        peer_id: "p_rejected".to_string(),
-        trace_id: "trace-rejected".to_string(),
-    })
-    .await;
+    let result = gw
+        .enqueue_inbound(InboundRequest {
+            platform: "feishu".to_string(),
+            raw_payload: b"{}".to_vec(),
+            peer_id: "p_rejected".to_string(),
+            trace_id: "trace-rejected".to_string(),
+        })
+        .await;
+    assert!(result.is_err(), "queue full should return Err");
 
     // Give the spawned debug-log task time to write.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;

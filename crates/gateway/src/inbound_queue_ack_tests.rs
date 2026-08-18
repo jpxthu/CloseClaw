@@ -262,7 +262,7 @@ async fn test_ack_concurrent_independent_acks() {
         let gw_c = Arc::clone(&gw_clone);
         let req = make_request(&format!("concurrent-{i}"));
         handles.push(tokio::spawn(async move {
-            gw_c.enqueue_inbound(req).await;
+            let _ = gw_c.enqueue_inbound(req).await;
         }));
     }
 
