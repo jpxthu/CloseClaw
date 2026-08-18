@@ -52,6 +52,11 @@ pub struct Daemon {
     pub(crate) admin_handle: Option<tokio::task::JoinHandle<()>>,
     /// Path to the admin RPC socket file (cleaned up on shutdown)
     pub(crate) admin_socket_path: PathBuf,
+    /// Chat RPC server task handle (drop cancels the task)
+    #[allow(dead_code)]
+    pub(crate) chat_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Path to the chat RPC socket file (cleaned up on shutdown)
+    pub(crate) chat_socket_path: PathBuf,
     /// Join handle for ArchiveSweeper background task
     pub(crate) archive_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
     /// Join handle for AnnounceSweeper background task

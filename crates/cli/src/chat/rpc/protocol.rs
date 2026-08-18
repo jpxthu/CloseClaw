@@ -31,7 +31,7 @@ pub enum ChatRequest {
 }
 
 /// Response sent from the chat RPC server back to the CLI client.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatResponse {
     /// Streaming text content chunk.

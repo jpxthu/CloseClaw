@@ -125,6 +125,7 @@ impl Daemon {
             config_dir,
         )
         .await;
+        let (chat_handle, chat_sock_path) = Self::init_phase_6_chat_rpc(&gateway, config_dir).await;
         info!(
             "Gateway initialized — CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -148,6 +149,8 @@ impl Daemon {
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
+            chat_handle: Some(chat_handle),
+            chat_socket_path: chat_sock_path,
             archive_sweeper_handle: Some(sweeper_handle),
             announce_sweeper_handle: Some(announce_sweeper_handle),
             dreaming_scheduler_handle: Some(dreaming_handle),
@@ -598,6 +601,8 @@ impl Daemon {
         }
         // Clean up admin socket file
         let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
+        // Clean up chat socket file
+        let _ = tokio::fs::remove_file(&self.chat_socket_path).await;
     }
 }
 

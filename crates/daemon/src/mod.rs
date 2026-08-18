@@ -3,6 +3,7 @@
 //! Orchestrates all components: Gateway, AgentRegistry, PermissionEngine.
 //! Handles graceful shutdown via ShutdownCoordinator.
 pub mod bridge;
+pub mod chat_rpc;
 pub mod config_reload;
 pub mod config_watcher;
 mod daemon_struct;
@@ -951,6 +952,26 @@ impl Daemon {
         });
         info!("admin RPC server started on {}", admin_sock_path.display());
         (admin_handle, admin_sock_path)
+    }
+
+    /// Phase 6: Chat RPC Server — depends on Gateway (Layer 5).
+    async fn init_phase_6_chat_rpc(
+        gateway: &Arc<closeclaw_gateway::Gateway>,
+        config_dir: &str,
+    ) -> (tokio::task::JoinHandle<()>, PathBuf) {
+        use crate::chat_rpc::{chat_socket_path, ChatContext, ChatRpcServer};
+        let sock_path = chat_socket_path(Path::new(config_dir));
+        let context = ChatContext {
+            gateway: Arc::clone(gateway),
+        };
+        let chat_server = ChatRpcServer::new(&sock_path, context);
+        let chat_handle = tokio::spawn(async move {
+            if let Err(e) = chat_server.serve().await {
+                tracing::error!(error = %e, "chat RPC server failed");
+            }
+        });
+        info!("chat RPC server started on {}", sock_path.display());
+        (chat_handle, sock_path)
     }
 }
 
