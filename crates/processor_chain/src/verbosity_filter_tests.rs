@@ -303,3 +303,103 @@ fn test_filter_full_no_filtering() {
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Full);
     assert_eq!(result.len(), 4, "Full mode should not filter anything");
 }
+
+// -----------------------------------------------------------------------
+// Streaming consistency: should_keep_block / should_keep_thinking
+// must agree with batch filter() for individual blocks
+// -----------------------------------------------------------------------
+
+/// Verify that `should_keep_block` returns the same result as `filter`
+/// for every (block_type, verbosity_level) combination.
+#[test]
+fn test_should_keep_block_matches_filter_for_all_levels() {
+    let all_blocks: Vec<ContentBlock> = vec![
+        text_block("hello"),
+        thinking_block("thinking"),
+        tool_use_block("search"),
+        tool_result_block("result"),
+        ContentBlock::Image {
+            name: "img.png".to_string(),
+            url: "https://example.com/img.png".to_string(),
+        },
+        ContentBlock::Audio {
+            name: "audio.wav".to_string(),
+            url: "https://example.com/audio.wav".to_string(),
+        },
+        ContentBlock::File {
+            name: "doc.pdf".to_string(),
+            url: "https://example.com/doc.pdf".to_string(),
+        },
+    ];
+    let levels = [
+        VerbosityLevel::Full,
+        VerbosityLevel::Normal,
+        VerbosityLevel::Off,
+    ];
+    for level in levels {
+        let batch_result = VerbosityFilter::filter(all_blocks.clone(), level);
+        for block in &all_blocks {
+            let per_block = VerbosityFilter::should_keep_block(block, level);
+            let in_batch = batch_result
+                .iter()
+                .any(|b| std::mem::discriminant(b) == std::mem::discriminant(block));
+            assert_eq!(
+                per_block, in_batch,
+                "should_keep_block mismatch for {:?} at {:?}",
+                block, level
+            );
+        }
+    }
+}
+
+/// Verify that `should_keep_thinking` is consistent with `filter` for
+/// Thinking blocks across all verbosity levels.
+#[test]
+fn test_should_keep_thinking_matches_filter() {
+    let levels = [
+        VerbosityLevel::Full,
+        VerbosityLevel::Normal,
+        VerbosityLevel::Off,
+    ];
+    for level in levels {
+        let batch = VerbosityFilter::filter(vec![thinking_block("t")], level);
+        let per_block = VerbosityFilter::should_keep_thinking(level);
+        assert_eq!(
+            per_block,
+            !batch.is_empty(),
+            "should_keep_thinking({:?}) should match filter result",
+            level
+        );
+    }
+}
+
+/// Verify batch filter and per-block filter produce the same block count
+/// for a mixed content input at each verbosity level.
+#[test]
+fn test_streaming_batch_consistency_block_count() {
+    let blocks = vec![
+        thinking_block("think1"),
+        text_block("text1"),
+        thinking_block("think2"),
+        text_block("text2"),
+        tool_use_block("tool"),
+    ];
+    let levels = [
+        VerbosityLevel::Full,
+        VerbosityLevel::Normal,
+        VerbosityLevel::Off,
+    ];
+    for level in levels {
+        let batch = VerbosityFilter::filter(blocks.clone(), level);
+        let per_block_count = blocks
+            .iter()
+            .filter(|b| VerbosityFilter::should_keep_block(b, level))
+            .count();
+        assert_eq!(
+            batch.len(),
+            per_block_count,
+            "block count mismatch at {:?}",
+            level
+        );
+    }
+}

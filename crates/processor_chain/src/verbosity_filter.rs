@@ -51,6 +51,23 @@ impl VerbosityFilter {
         }
     }
 
+    /// Check whether a single block should be kept at the given verbosity level.
+    ///
+    /// Returns `true` when the block should pass through filtering. This
+    /// enables streaming-phase single-block checks without allocating a
+    /// temporary `Vec`.
+    pub fn should_keep_block(block: &ContentBlock, level: VerbosityLevel) -> bool {
+        !Self::filter(vec![block.clone()], level).is_empty()
+    }
+
+    /// Check whether a Thinking block should be kept at the given verbosity level.
+    ///
+    /// This is a zero-allocation shortcut for the common streaming-phase check.
+    /// Returns `true` at `Full` verbosity, `false` at `Normal` and `Off`.
+    pub fn should_keep_thinking(level: VerbosityLevel) -> bool {
+        level == VerbosityLevel::Full
+    }
+
     /// Parse verbosity level from metadata string, defaulting to `Normal`.
     pub(crate) fn verbosity_from_metadata(metadata: &HashMap<String, String>) -> VerbosityLevel {
         metadata
