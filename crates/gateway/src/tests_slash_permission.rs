@@ -1,11 +1,4 @@
-//! Integration tests for Gateway slash-command permission routing.
-//!
-//! Covers the three-branch permission routing introduced in Step 1.2:
-//! 1. Owner short-circuit — owner bypasses permission engine for any command.
-//! 2. Non-owner + `requires_permission() == true` — routed through the engine;
-//!    `Denied` consumes the command (handler IS invoked but execute is skipped) and replies
-//!    "权限不足".
-//! 3. Non-owner + `requires_permission() == false` — directly dispatched.
+//! Tests for Gateway slash-command permission routing.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -18,10 +11,7 @@ use closeclaw_permission::engine::engine_types::{
     Action, Defaults, Effect, Rule, RuleSet, Subject,
 };
 use closeclaw_session::persistence::ReasoningLevel;
-// ---------------------------------------------------------------------------
-// Mock handlers
-// ---------------------------------------------------------------------------
-/// Simple handler with configurable `requires_permission`.
+
 struct SimpleHandler {
     command: &'static str,
     requires_permission: bool,
@@ -41,10 +31,6 @@ impl SlashHandler for SimpleHandler {
         SlashResult::Reply(format!("{}: {args}", self.command))
     }
 }
-/// Handler that records how many times `handle()` was invoked.
-///
-/// Used to assert that `dispatch_slash` either invokes or skips a handler
-/// based on the permission routing branch.
 struct CountingHandler {
     command: &'static str,
     requires_permission: bool,
@@ -66,15 +52,10 @@ impl SlashHandler for CountingHandler {
         SlashResult::Reply("counted".to_owned())
     }
 }
-/// Handler that captures the most recent `SlashContext` it was invoked with.
-///
-/// Used to verify that `dispatch_slash` populates `SlashContext.channel`
-/// with the `channel` argument from the call site.
 struct CapturingHandler {
     command: &'static str,
     last_ctx: Arc<Mutex<Option<SlashContext>>>,
 }
-
 #[async_trait::async_trait]
 impl SlashHandler for CapturingHandler {
     fn commands(&self) -> &[&str] {
@@ -93,13 +74,6 @@ impl SlashHandler for CapturingHandler {
         SlashResult::Reply("captured".to_owned())
     }
 }
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Mock routers (implement SlashRouter)
-// ---------------------------------------------------------------------------
-/// A router that dispatches to SimpleHandler for "help" and "exec".
 struct DefaultTestRouter;
 
 #[async_trait::async_trait]
@@ -124,7 +98,6 @@ impl SlashRouter for DefaultTestRouter {
         }
     }
 }
-/// A router that handles no commands (empty registry equivalent).
 struct EmptyRouter;
 
 #[async_trait::async_trait]
@@ -139,7 +112,6 @@ impl SlashRouter for EmptyRouter {
         None
     }
 }
-/// A router that dispatches to a single CountingHandler.
 struct CountingRouter {
     command: &'static str,
     requires_permission: bool,
@@ -166,7 +138,6 @@ impl SlashRouter for CountingRouter {
         }
     }
 }
-/// A router that dispatches to a single CapturingHandler.
 struct CapturingRouter {
     command: &'static str,
     last_ctx: Arc<Mutex<Option<SlashContext>>>,
@@ -191,7 +162,6 @@ impl SlashRouter for CapturingRouter {
         }
     }
 }
-/// A router that dispatches to a single ImmediateCountingHandler.
 struct ImmediateCountingRouter {
     command: &'static str,
     counter: Arc<AtomicU32>,
@@ -217,8 +187,6 @@ impl SlashRouter for ImmediateCountingRouter {
     }
 }
 
-// NOTE: Keep in sync with SlashResult variants in crates/common/src/slash_router.rs
-/// Clone a `SlashResult` (which doesn't implement `Clone`).
 fn clone_result(r: &SlashResult) -> SlashResult {
     match r {
         SlashResult::Reply(t) => SlashResult::Reply(t.clone()),
@@ -259,7 +227,6 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         },
     }
 }
-/// A router that dispatches to a single ResultHandler.
 struct ResultRouter {
     command: &'static str,
     result: SlashResult,
@@ -287,9 +254,6 @@ impl SlashRouter for ResultRouter {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 fn make_gateway() -> Arc<Gateway> {
     let config = GatewayConfig {
         name: "test".to_owned(),
@@ -308,7 +272,6 @@ fn make_gateway() -> Arc<Gateway> {
 fn make_dispatcher() -> Arc<dyn SlashRouter> {
     Arc::new(DefaultTestRouter)
 }
-/// Build a dispatcher that contains a `CountingHandler` for a given command.
 fn counting_dispatcher(
     command: &'static str,
     requires_permission: bool,
@@ -320,14 +283,12 @@ fn counting_dispatcher(
         counter,
     })
 }
-/// Build a dispatcher that contains a `CapturingHandler` for a given command.
 fn capturing_dispatcher(
     command: &'static str,
     last_ctx: Arc<Mutex<Option<SlashContext>>>,
 ) -> Arc<dyn SlashRouter> {
     Arc::new(CapturingRouter { command, last_ctx })
 }
-/// A PermissionEngine that always denies.
 fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let rules = RuleSet {
         rules: vec![Rule {
@@ -350,7 +311,6 @@ fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         PermissionEngine::new_with_default_data_root(rules),
     ))
 }
-/// A PermissionEngine that always allows (all rules are Allow).
 fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let rules = RuleSet {
         rules: vec![Rule {
@@ -988,22 +948,13 @@ async fn test_git_commit_owner_bypasses_permission_engine() {
     );
 }
 
-// ============================================================================
-// Gateway-level permission interception tests (Step 1.5)
-//
-// These verify that permission commands (/perm, /user approve, /user reject)
-// are intercepted at the Gateway level BEFORE reaching SlashDispatcher,
-// consistent with the design doc.
-// ============================================================================
+// SlashDispatcher routing tests (post Step 1.2)
 
-/// /perm command is intercepted at Gateway level and never reaches SlashDispatcher.
+/// `/perm` enters SlashDispatcher (no longer intercepted at Gateway level).
 #[tokio::test]
-async fn test_perm_cmd_intercepted_at_gateway_level() {
+async fn test_perm_cmd_enters_slash_dispatcher() {
     let gw = make_gateway();
-    let dispatcher = Arc::new(DefaultTestRouter);
-    gw.set_slash_dispatcher(dispatcher).await;
-
-    // /perm allow-cmd git commit "允许提交代码"
+    gw.set_slash_dispatcher(Arc::new(DefaultTestRouter)).await;
     let result = gw
         .dispatch_slash(
             "sess_perm",
@@ -1012,20 +963,14 @@ async fn test_perm_cmd_intercepted_at_gateway_level() {
             "feishu",
         )
         .await;
-
-    assert!(
-        matches!(result, Some(HandleResult::SlashHandled)),
-        "/perm should be intercepted at Gateway level"
-    );
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
 
-/// /user approve command is intercepted at Gateway level.
+/// `/user approve` enters SlashDispatcher (no longer intercepted at Gateway level).
 #[tokio::test]
-async fn test_user_approve_cmd_intercepted_at_gateway_level() {
+async fn test_user_approve_enters_slash_dispatcher() {
     let gw = make_gateway();
-    let dispatcher = Arc::new(DefaultTestRouter);
-    gw.set_slash_dispatcher(dispatcher).await;
-
+    gw.set_slash_dispatcher(Arc::new(DefaultTestRouter)).await;
     let result = gw
         .dispatch_slash(
             "sess_user",
@@ -1034,44 +979,16 @@ async fn test_user_approve_cmd_intercepted_at_gateway_level() {
             "feishu",
         )
         .await;
-
-    assert!(
-        matches!(result, Some(HandleResult::SlashHandled)),
-        "/user approve should be intercepted at Gateway level"
-    );
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
 
-/// /user reject command is intercepted at Gateway level.
+/// `/user reject` enters SlashDispatcher (no longer intercepted at Gateway level).
 #[tokio::test]
-async fn test_user_reject_cmd_intercepted_at_gateway_level() {
+async fn test_user_reject_enters_slash_dispatcher() {
     let gw = make_gateway();
-    let dispatcher = Arc::new(DefaultTestRouter);
-    gw.set_slash_dispatcher(dispatcher).await;
-
+    gw.set_slash_dispatcher(Arc::new(DefaultTestRouter)).await;
     let result = gw
         .dispatch_slash("sess_user", "/user reject req-456", Some("owner"), "feishu")
         .await;
-
-    assert!(
-        matches!(result, Some(HandleResult::SlashHandled)),
-        "/user reject should be intercepted at Gateway level"
-    );
-}
-
-/// /user list is NOT intercepted (falls through to SlashDispatcher).
-#[tokio::test]
-async fn test_user_list_not_intercepted() {
-    let gw = make_gateway();
-    let dispatcher = Arc::new(DefaultTestRouter);
-    gw.set_slash_dispatcher(dispatcher).await;
-
-    let result = gw
-        .dispatch_slash("sess_user", "/user list", Some("owner"), "feishu")
-        .await;
-
-    // /user list falls through to the dispatcher, which returns None for unknown commands.
-    assert!(
-        result.is_none(),
-        "/user list should fall through to SlashDispatcher"
-    );
+    assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
