@@ -1,0 +1,43 @@
+{
+  "protocol": "anthropic",
+  "streaming": false,
+  "scenario": "anthropic-thinking",
+  "model": "fake-model",
+  "expect": "reasoning",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17*23? Show your work step by step."
+      }
+    ]
+  },
+  "response": {
+    "id": "msg_01_thinking_fake_model_b2c3d4e5f6a7b8c9",
+    "type": "message",
+    "role": "assistant",
+    "model": "fake-model",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "We need to compute 17 * 23. Using the distributive property: (10 + 7) * (20 + 3) = 10*20 + 10*3 + 7*20 + 7*3 = 200 + 30 + 140 + 21 = 391.",
+        "signature": "sig_thinking_b2c3d4e5f6a7b8c9"
+      },
+      {
+        "type": "text",
+        "text": "To compute 17 * 23, we break it down using the distributive property:\n\n17 * 23 = (10 + 7) * (20 + 3)\n\nMultiplying each term:\n- 10 * 20 = 200\n- 10 * 3 = 30\n- 7 * 20 = 140\n- 7 * 3 = 21\n\nAdding the results: 200 + 30 + 140 + 21 = 391.\n\nThus, 17 * 23 = 391."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 18,
+      "output_tokens": 90,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "service_tier": "standard"
+    }
+  },
+  "max_tokens_sent": 2048
+}

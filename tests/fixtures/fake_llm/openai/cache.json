@@ -1,0 +1,50 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "cache",
+  "model": "fake-model",
+  "expect": "cache",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful coding assistant. Always answer concisely and prefer concrete code examples over abstract explanations."
+      },
+      {
+        "role": "user",
+        "content": "Explain how HTTP keep-alive works in one paragraph."
+      }
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-fake-cache-004",
+    "object": "chat.completion",
+    "created": 1700000004,
+    "model": "fake-model",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "HTTP keep-alive allows a single TCP connection to be reused for multiple HTTP request/response cycles instead of opening a new connection per request. The client sends `Connection: keep-alive` (or omits `Connection: close` on HTTP/1.1, where keep-alive is the default), and the server holds the socket open after sending the response. Subsequent requests reuse the same socket, avoiding the cost of TCP handshake, slow-start, and TLS negotiation (for HTTPS).",
+          "refusal": null
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 38,
+      "completion_tokens": 72,
+      "total_tokens": 110,
+      "prompt_tokens_details": {
+        "cached_tokens": 28
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "system_fingerprint": "fp_fake"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "reasoning",
+  "model": "fake-model",
+  "expect": "reasoning",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 17 * 23?"
+      }
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-fake-reasoning-002",
+    "object": "chat.completion",
+    "created": 1700000002,
+    "model": "fake-model",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "391",
+          "refusal": null,
+          "reasoning_content": "The user asks for 17 * 23. Compute: 17 * 20 = 340, 17 * 3 = 51, sum = 391."
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 14,
+      "completion_tokens": 24,
+      "total_tokens": 38,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 21
+      }
+    },
+    "system_fingerprint": "fp_fake"
+  }
+}

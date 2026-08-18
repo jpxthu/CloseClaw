@@ -1,0 +1,18 @@
+{
+  "protocol": "anthropic",
+  "streaming": true,
+  "scenario": "anthropic-streaming",
+  "model": "fake-model",
+  "expect": "text",
+  "request": {
+    "model": "fake-model",
+    "stream": true,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ]
+  },
+  "max_tokens_sent": 1024
+}

@@ -1,0 +1,20 @@
+{
+  "protocol": "openai",
+  "streaming": true,
+  "scenario": "streaming",
+  "model": "fake-model",
+  "expect": "streaming",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in 3 words."
+      }
+    ],
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    }
+  }
+}

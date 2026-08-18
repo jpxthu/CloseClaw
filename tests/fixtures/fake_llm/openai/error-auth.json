@@ -1,0 +1,29 @@
+{
+  "protocol": "openai",
+  "streaming": false,
+  "scenario": "error-auth",
+  "model": "fake-model",
+  "expect": "error",
+  "request": {
+    "model": "fake-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "response": {
+    "error": true,
+    "http_code": 401,
+    "reason": "Unauthorized",
+    "body": {
+      "error": {
+        "message": "Incorrect API key provided: ****_fake. You can obtain an API key from https://platform.openai.com/account/api-keys.",
+        "type": "authentication_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    }
+  }
+}
