@@ -205,23 +205,42 @@ pub(crate) async fn handle_streaming_degradation(
         );
     }
 
-    // Checkpoint persistence: write partial content as outbound
-    // history with an error marker. Skip if partial_content is
-    // empty (nothing was sent before the error).
-    let error_reason = &dispatch_result.to_string();
-    if !partial_content.is_empty() {
-        persist_streaming_checkpoint(
-            gateway,
-            session_id,
-            &chat_id,
-            channel,
-            partial_content,
-            Some(error_reason),
-        )
-        .await;
-    }
-
+    // Checkpoint persistence — skip when partial_content is empty.
+    persist_degradation_checkpoint(
+        gateway,
+        session_id,
+        &chat_id,
+        channel,
+        partial_content,
+        &dispatch_result.to_string(),
+    )
+    .await;
     Ok(())
+}
+
+/// Persist the degradation checkpoint for streaming partial content.
+/// Skips persistence when `partial_content` is empty (nothing was
+/// sent before the error).
+async fn persist_degradation_checkpoint(
+    gateway: &Gateway,
+    session_id: &str,
+    chat_id: &str,
+    channel: &str,
+    partial_content: &[ContentBlock],
+    error_reason: &str,
+) {
+    if partial_content.is_empty() {
+        return;
+    }
+    persist_streaming_checkpoint(
+        gateway,
+        session_id,
+        chat_id,
+        channel,
+        partial_content,
+        Some(error_reason),
+    )
+    .await;
 }
 
 /// Build a [`Message`] for checkpoint persistence from partial streaming

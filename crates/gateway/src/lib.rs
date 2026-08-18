@@ -885,7 +885,7 @@ pub mod shutdown_handle_tests;
 #[cfg(test)]
 pub mod shutdown_phase_tests;
 #[cfg(test)]
-pub mod step1_3_tests;
+mod step1_3_tests;
 #[cfg(test)]
 pub mod step1_4_idle_verify_tests;
 #[cfg(feature = "full-tests")]
