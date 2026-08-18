@@ -834,15 +834,6 @@ impl Gateway {
         plugins.values().cloned().collect()
     }
 
-    /// Route an incoming message to the appropriate agent.
-    ///
-    /// Supports two metadata formats for session resolution:
-    /// 1. New path: `session_key` → call `SessionManager::resolve()` to get session_id
-    /// 2. Old path: `session_id` → validate directly in active sessions table
-    ///
-    /// If both are missing, sends a user-visible error via the plugin and
-    /// returns `NoRoutingKey`.
-
     /// Get active sessions for an agent (proxied to SessionManager).
     pub async fn get_agent_sessions(&self, agent_id: &str) -> Vec<Session> {
         self.session_manager.get_agent_sessions(agent_id).await
