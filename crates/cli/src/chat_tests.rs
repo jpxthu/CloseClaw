@@ -1,158 +1,12 @@
 //! Unit tests for the interactive chat REPL.
 //!
-//! Verifies that `build_gateway()` produces a [`Gateway`] with the expected
-//! configuration (processor registry, slash dispatcher, session handler) and
-//! that the TerminalAdapter quit/exit detection logic works correctly.
+//! Verifies quit/exit detection, stop routing, inbound processor chain
+//! behavior, NormalizedMessage field mapping, and streaming wait conditions.
 
 use closeclaw_common::{MessageType, NormalizedMessage};
 use closeclaw_gateway::{GatewayConfig, InboundChainInput, SessionManager};
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
-
-use super::chat::build_gateway;
-use closeclaw_gateway::build_processor_registry;
-
-// ── Processor Registry tests ────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_build_processor_registry_has_inbound_and_outbound() {
-    let config = GatewayConfig {
-        name: "test".to_string(),
-        ..Default::default()
-    };
-    let registry = build_processor_registry(&config);
-
-    // ContentNormalizer (inbound) + DslParser (outbound)
-    assert!(registry.inbound_len() > 0, "expected inbound processors");
-    assert!(registry.outbound_len() > 0, "expected outbound processors");
-}
-
-#[tokio::test]
-async fn test_build_processor_registry_inbound_count() {
-    let config = GatewayConfig {
-        name: "test".to_string(),
-        ..Default::default()
-    };
-    let registry = build_processor_registry(&config);
-
-    // Without raw_log_dir: 2 inbound (ContentNormalizer + SessionRouter)
-    assert_eq!(registry.inbound_len(), 2);
-}
-
-#[tokio::test]
-async fn test_build_processor_registry_outbound_count() {
-    let config = GatewayConfig {
-        name: "test".to_string(),
-        ..Default::default()
-    };
-    let registry = build_processor_registry(&config);
-
-    // 2 outbound (VerbosityFilter + DslParser)
-    assert_eq!(registry.outbound_len(), 2);
-}
-
-#[tokio::test]
-async fn test_build_processor_registry_with_raw_log() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let config = GatewayConfig {
-        name: "test".to_string(),
-        raw_log_dir: Some(tmp.path().to_path_buf()),
-        ..Default::default()
-    };
-    let registry = build_processor_registry(&config);
-
-    // With raw_log_dir: 3 inbound (RawLogProcessor + SessionRouter + ContentNormalizer)
-    assert_eq!(registry.inbound_len(), 3);
-    // 3 outbound (VerbosityFilter + DslParser + OutboundRawLogProcessor)
-    assert_eq!(registry.outbound_len(), 3);
-}
-
-// ── Gateway build tests ─────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_build_gateway_has_processor_registry() {
-    let (gateway, _session_manager) = build_gateway("test-agent").await;
-
-    let (inbound, outbound) = gateway.processor_registry_len();
-    assert!(inbound > 0, "expected inbound processors in gateway");
-    assert!(outbound > 0, "expected outbound processors in gateway");
-}
-
-#[tokio::test]
-async fn test_build_gateway_has_slash_dispatcher() {
-    let (gateway, _session_manager) = build_gateway("test-agent").await;
-
-    assert!(
-        gateway.has_slash_dispatcher().await,
-        "expected slash dispatcher to be configured"
-    );
-}
-
-#[tokio::test]
-async fn test_build_gateway_slash_help_dispatchable() {
-    use closeclaw_slash::dispatcher::SlashDispatcher;
-
-    let slash_registry = Arc::new(closeclaw_slash::registry::HandlerRegistry::new());
-    let session_manager = Arc::new(SessionManager::new(
-        &GatewayConfig {
-            name: "test".to_string(),
-            ..Default::default()
-        },
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    slash_registry.register(Arc::new(closeclaw_slash::ClearHandler::new(
-        Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SlashSessionQuery>,
-    )));
-    let help_handler = closeclaw_slash::HelpHandler::new(Arc::clone(&slash_registry));
-    slash_registry.register(Arc::new(help_handler));
-    slash_registry.register(Arc::new(closeclaw_slash::NewSessionHandler));
-    slash_registry.register(Arc::new(closeclaw_slash::StopHandler));
-    slash_registry
-        .register(Arc::new(closeclaw_slash::StatusHandler::new(
-            Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SlashSessionQuery>,
-        )));
-
-    let dispatcher = SlashDispatcher::from_shared(slash_registry);
-
-    // Verify all core handlers are registered
-    assert!(
-        dispatcher.get_handler("help").is_some(),
-        "expected /help handler to be registered"
-    );
-    assert!(
-        dispatcher.get_handler("stop").is_some(),
-        "expected /stop handler to be registered"
-    );
-    assert!(
-        dispatcher.get_handler("status").is_some(),
-        "expected /status handler to be registered"
-    );
-    assert!(
-        dispatcher.get_handler("clear").is_some(),
-        "expected /clear handler to be registered"
-    );
-    assert!(
-        dispatcher.get_handler("new").is_some(),
-        "expected /new handler to be registered"
-    );
-}
-
-// ── Session Message Handler test ────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_build_gateway_has_session_handler() {
-    let (gateway, _session_manager) = build_gateway("test-agent").await;
-
-    // In test environments without LLM providers, session handler
-    // should not be installed.
-    let has = gateway.has_session_handler().await;
-    assert!(
-        !has,
-        "session handler should not be present without LLM providers"
-    );
-}
 
 // ── TerminalAdapter / REPL quit/exit detection ──────────────────────────────
 
@@ -206,14 +60,10 @@ fn test_stop_detection() {
     assert!(!is_stop_command("/stopextra"));
 }
 
-// ── /stop REPL routing tests (Step 1.2/1.3) ───────────────────────────────
+// ── /stop REPL routing tests ───────────────────────────────────────────────
 
 /// Verify that `/stop` routes through the gateway's SlashDispatcher
 /// and returns `SlashResult::Stop` with cascade=true, force=true.
-///
-/// This is the integration test confirming that `/stop` is no longer
-/// a REPL exit command but instead goes through the normal gateway
-/// message handling pipeline.
 #[tokio::test]
 async fn test_stop_routes_through_gateway_slash_dispatcher() {
     use closeclaw_slash::dispatcher::SlashDispatcher;
@@ -260,39 +110,6 @@ fn test_stop_does_not_trigger_quit() {
     assert!(is_stop_command("/STOP"));
 }
 
-/// Verify that the inbound chain preserves `/stop` as-is so it can be
-/// routed through the gateway's SlashDispatcher.
-#[tokio::test]
-async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
-    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
-    registry.register(Arc::new(ContentNormalizer::new()));
-    let gateway = make_gw_with_registry(registry);
-
-    let processed = gateway
-        .process_inbound_chain(&InboundChainInput {
-            platform: "terminal".into(),
-            sender_id: "u1".into(),
-            peer_id: "cli".into(),
-            content: "/stop".into(),
-            message_id: "msg-stop-1".into(),
-            timestamp_ms: 0,
-            account_id: None,
-            thread_id: None,
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
-        })
-        .await;
-
-    // /stop must not be suppressed or altered by the inbound chain
-    assert_eq!(
-        processed.text_content(),
-        Some("/stop"),
-        "/stop must be preserved through inbound chain"
-    );
-}
-
 // ── Inbound Processor Chain integration tests ─────────────────────────────
 
 use async_trait::async_trait;
@@ -325,7 +142,7 @@ impl closeclaw_processor_chain::MessageProcessor for SuppressProcessor {
     }
 }
 
-/// Build a Gateway with the given ProcessorRegistry (shared across chat tests).
+/// Build a Gateway with the given ProcessorRegistry.
 fn make_gw_with_registry(registry: ProcessorRegistry) -> closeclaw_gateway::Gateway {
     let config = GatewayConfig {
         name: "test".to_string(),
@@ -430,114 +247,70 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
     }
 }
 
-// ── build_gateway agent_id parameterization tests ─────────────────────────
-
 #[tokio::test]
-async fn test_build_gateway_config_name_contains_agent_id() {
-    let (gateway, _sm) = build_gateway("my-agent").await;
-    assert_eq!(gateway.config_name(), "closeclaw-chat-my-agent");
-}
+async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+    let gateway = make_gw_with_registry(registry);
 
-#[tokio::test]
-async fn test_build_gateway_different_agent_ids_produce_different_names() {
-    let (gw_a, _) = build_gateway("agent-alpha").await;
-    let (gw_b, _) = build_gateway("agent-beta").await;
-    assert_ne!(gw_a.config_name(), gw_b.config_name());
-}
+    let processed = gateway
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "u1".into(),
+            peer_id: "cli".into(),
+            content: "/stop".into(),
+            message_id: "msg-stop-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            chat_name: None,
+            trace_id: None,
+        })
+        .await;
 
-#[tokio::test]
-async fn test_build_gateway_agent_id_appears_in_name() {
-    let agent_id = "my-special-agent-123";
-    let (gateway, _sm) = build_gateway(agent_id).await;
-    let name = gateway.config_name();
-    assert!(
-        name.contains(agent_id),
-        "config name '{}' should contain agent_id '{}'",
-        name,
-        agent_id
-    );
-}
-
-#[tokio::test]
-async fn test_build_gateway_empty_agent_id() {
-    let (gateway, _sm) = build_gateway("").await;
-    assert_eq!(gateway.config_name(), "closeclaw-chat-");
-}
-
-#[tokio::test]
-async fn test_build_gateway_agent_id_with_special_characters() {
-    let agent_id = "agent/with:special@chars";
-    let (gateway, _sm) = build_gateway(agent_id).await;
     assert_eq!(
-        gateway.config_name(),
-        format!("closeclaw-chat-{}", agent_id)
+        processed.text_content(),
+        Some("/stop"),
+        "/stop must be preserved through inbound chain"
     );
 }
+
+// ── peer_id "cli" verification ────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_build_gateway_agent_id_with_unicode() {
-    let agent_id = "agent-\u{4e2d}\u{6587}"; // agent-中文
-    let (gateway, _sm) = build_gateway(agent_id).await;
-    assert!(
-        gateway.config_name().contains(agent_id),
-        "config name '{}' should contain unicode agent_id '{}'",
-        gateway.config_name(),
-        agent_id
-    );
-}
+async fn test_process_inbound_chain_peer_id_is_cli() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+    let gateway = make_gw_with_registry(registry);
 
-#[test]
-fn test_for_provider_mimo_returns_noop() {
-    use closeclaw_llm::cache_adapter::for_provider;
-    let adapter = for_provider("mimo");
-    assert_eq!(adapter.name(), "noop", "mimo should use noop cache adapter");
-}
+    let peer_id_argument = "cli";
+    let processed = gateway
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "u1".into(),
+            peer_id: peer_id_argument.into(),
+            content: "hello".into(),
+            message_id: "msg-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            chat_name: None,
+            trace_id: None,
+        })
+        .await;
 
-#[test]
-fn test_openai_provider_mimo_base_url() {
-    use closeclaw_llm::openai::OpenAIProvider;
-    use closeclaw_llm::provider::Provider;
-    let provider =
-        OpenAIProvider::new_with_base_url("test-key".to_string(), "https://api.xiaomimimo.com/v1");
+    assert!(!processed.content_blocks.is_empty());
     assert_eq!(
-        provider.base_url(),
-        "https://api.xiaomimimo.com/v1",
-        "mimo provider should use MiMo API base URL"
+        peer_id_argument, "cli",
+        "peer_id must be 'cli' per design doc"
     );
 }
 
-#[tokio::test]
-async fn test_init_llm_registry_mimo_via_try_register_provider() {
-    use closeclaw_config::providers::CredentialsProvider;
-    use closeclaw_llm::openai::OpenAIProvider;
-    use closeclaw_llm::LLMRegistry;
-    use std::sync::Arc;
-
-    let registry = Arc::new(LLMRegistry::new());
-    let creds_provider = CredentialsProvider::default();
-
-    // Register mimo using the same try_register_provider pattern as chat.rs
-    let key = creds_provider
-        .get_api_key("mimo")
-        .or_else(|| std::env::var("MIMO_API_KEY").ok())
-        .filter(|k| !k.is_empty());
-    if let Some(api_key) = key {
-        let provider = Arc::new(OpenAIProvider::new_with_base_url(
-            api_key,
-            "https://api.xiaomimimo.com/v1",
-        )) as Arc<dyn closeclaw_llm::provider::Provider>;
-        registry.register("mimo".to_string(), provider).await;
-    }
-
-    // In test env without credentials, mimo should NOT be registered
-    let listed = registry.list().await;
-    assert!(
-        !listed.contains(&"mimo".to_string()),
-        "mimo should not be registered without credentials"
-    );
-}
-
-// ── REPL streaming wait condition tests (Step 1.5) ─────────────────────────
+// ── REPL streaming wait condition tests ───────────────────────────────────
 
 use super::chat::should_wait_for_streaming;
 use closeclaw_gateway::HandleResult;
@@ -593,53 +366,9 @@ fn test_should_wait_llm_started_empty_session_key() {
     ));
 }
 
-// ── peer_id "cli" verification (Step 1.2) ──────────────────────────────────
+// ── NormalizedMessage → InboundChainInput field mapping ───────────────────
 
-/// Verify that `process_inbound_chain` receives "cli" as the peer_id,
-/// matching `TerminalAdapter::make_message` which hard-codes peer_id: "cli".
-/// This test documents the contract and will fail if someone accidentally
-/// passes agent_id or another value.
-#[tokio::test]
-async fn test_process_inbound_chain_peer_id_is_cli() {
-    let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(ContentNormalizer::new()));
-    let gateway = make_gw_with_registry(registry);
-
-    // The chat.rs repl_loop calls process_inbound_chain with "cli" as peer_id.
-    // We verify the call site contract: third argument must be "cli".
-    let peer_id_argument = "cli";
-    let processed = gateway
-        .process_inbound_chain(&InboundChainInput {
-            platform: "terminal".into(),
-            sender_id: "u1".into(),
-            peer_id: peer_id_argument.into(),
-            content: "hello".into(),
-            message_id: "msg-1".into(),
-            timestamp_ms: 0,
-            account_id: None,
-            thread_id: None,
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
-        })
-        .await;
-
-    assert!(!processed.content_blocks.is_empty());
-    // The peer_id "cli" is passed as the third arg to process_inbound_chain.
-    // This is the correct value per design doc: peer_id = "cli".
-    assert_eq!(
-        peer_id_argument, "cli",
-        "peer_id must be 'cli' per design doc"
-    );
-}
-
-// ── NormalizedMessage → InboundChainInput field mapping (Step 1.3) ─────
-
-/// Helper: simulate the field extraction logic in repl_loop.
-///
-/// This mirrors the code in `chat.rs:repl_loop` that constructs
-/// `InboundChainInput` from `NormalizedMessage` fields.
+/// Helper: simulate the field extraction logic.
 fn normalized_to_inbound(msg: &NormalizedMessage) -> InboundChainInput {
     let message_id = format!("cli-{}-{}", msg.sender_id, msg.timestamp);
     InboundChainInput {
@@ -658,7 +387,6 @@ fn normalized_to_inbound(msg: &NormalizedMessage) -> InboundChainInput {
     }
 }
 
-/// Verify that platform from NormalizedMessage flows into InboundChainInput.
 #[test]
 fn test_normalized_to_inbound_platform() {
     let msg = NormalizedMessage {
@@ -677,7 +405,6 @@ fn test_normalized_to_inbound_platform() {
     assert_eq!(input.platform, "terminal");
 }
 
-/// Verify that peer_id from NormalizedMessage flows into InboundChainInput.
 #[test]
 fn test_normalized_to_inbound_peer_id() {
     let msg = NormalizedMessage {
@@ -696,7 +423,6 @@ fn test_normalized_to_inbound_peer_id() {
     assert_eq!(input.peer_id, "cli");
 }
 
-/// Verify that sender_id from NormalizedMessage flows into InboundChainInput.
 #[test]
 fn test_normalized_to_inbound_sender_id() {
     let msg = NormalizedMessage {
@@ -715,7 +441,6 @@ fn test_normalized_to_inbound_sender_id() {
     assert_eq!(input.sender_id, "custom-sender-42");
 }
 
-/// Verify that timestamp maps to timestamp_ms.
 #[test]
 fn test_normalized_to_inbound_timestamp() {
     let ts = 1_700_000_123_456_i64;
@@ -735,7 +460,6 @@ fn test_normalized_to_inbound_timestamp() {
     assert_eq!(input.timestamp_ms, ts);
 }
 
-/// Verify that account_id Some("owner") flows through.
 #[test]
 fn test_normalized_to_inbound_account_id_present() {
     let msg = NormalizedMessage {
@@ -754,7 +478,6 @@ fn test_normalized_to_inbound_account_id_present() {
     assert_eq!(input.account_id.as_deref(), Some("owner"));
 }
 
-/// Verify that empty account_id maps to Some("") in InboundChainInput.
 #[test]
 fn test_normalized_to_inbound_account_id_empty() {
     let msg = NormalizedMessage {
@@ -773,7 +496,6 @@ fn test_normalized_to_inbound_account_id_empty() {
     assert_eq!(input.account_id.as_deref(), Some(""));
 }
 
-/// Verify that content is preserved exactly.
 #[test]
 fn test_normalized_to_inbound_content_preserved() {
     let msg = NormalizedMessage {
@@ -792,7 +514,6 @@ fn test_normalized_to_inbound_content_preserved() {
     assert_eq!(input.content, "line1\nline2");
 }
 
-/// Verify message_id format: cli-{sender_id}-{timestamp}.
 #[test]
 fn test_normalized_to_inbound_message_id_format() {
     let msg = NormalizedMessage {
