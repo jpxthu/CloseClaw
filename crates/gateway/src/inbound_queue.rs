@@ -85,7 +85,8 @@ impl InboundQueueHandle {
 ///
 /// Contains the original request so the caller can decide what to do
 /// (e.g. log it, drop it, or reply with a busy message).
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("inbound queue is full")]
 pub struct InboundQueueFull {
     /// The request that could not be enqueued.
     pub request: InboundRequest,
