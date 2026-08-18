@@ -217,7 +217,13 @@ async fn test_cross_step_mode_not_immediate_enqueues_when_busy() {
         .set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
 
     let result = gw
-        .dispatch_slash("sess-mode-busy", "/mode", Some("user1"), "feishu")
+        .dispatch_slash(
+            "sess-mode-busy",
+            "/mode",
+            Some("user1"),
+            "feishu",
+            Some("peer_id"),
+        )
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -278,7 +284,13 @@ async fn test_cross_step_git_all_subcommands_route_to_exec() {
     let supported = ["status", "log", "diff", "branch", "show"];
     for sub in supported {
         let result = gw
-            .dispatch_slash("sess-git", &format!("/git {sub}"), Some("user1"), "feishu")
+            .dispatch_slash(
+                "sess-git",
+                &format!("/git {sub}"),
+                Some("user1"),
+                "feishu",
+                Some("peer_id"),
+            )
             .await;
         assert!(
             matches!(result, Some(HandleResult::SlashHandled)),

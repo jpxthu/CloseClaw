@@ -80,6 +80,9 @@ mod sweeper_tests;
 pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;
+
+#[cfg(test)]
+mod tests_slash_dispatcher_routing;
 #[cfg(feature = "full-tests")]
 mod tests_slash_permission;
 #[cfg(feature = "full-tests")]
@@ -669,7 +672,7 @@ impl Gateway {
             // Slash commands are intercepted here and never appended to
             // conversation history (design doc requirement).
             if let Some(result) = self
-                .dispatch_slash(&session_id, &content, sender_id, channel)
+                .dispatch_slash(&session_id, &content, sender_id, channel, Some(peer_id))
                 .await
             {
                 return Some(result);
@@ -881,6 +884,8 @@ pub mod session_routing_tests;
 pub mod shutdown_handle_tests;
 #[cfg(test)]
 pub mod shutdown_phase_tests;
+#[cfg(test)]
+mod step1_3_tests;
 #[cfg(test)]
 pub mod step1_4_idle_verify_tests;
 #[cfg(feature = "full-tests")]

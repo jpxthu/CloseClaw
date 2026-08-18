@@ -27,6 +27,14 @@ use closeclaw_llm::LLMError;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::llm_session::SessionStream;
 
+/// Metadata key: marks a checkpoint message as having been interrupted
+/// by a streaming error (as opposed to normal completion).
+pub(crate) const META_STREAMING_INTERRUPTED: &str = "streaming_interrupted";
+
+/// Metadata key: stores the human-readable reason for the streaming
+/// interruption.
+pub(crate) const META_STREAMING_INTERRUPT_REASON: &str = "streaming_interrupt_reason";
+
 impl SessionMessageHandler {
     /// Make a streaming LLM call and dispatch it through Gateway's
     /// streaming outbound pipeline.
@@ -197,22 +205,55 @@ pub(crate) async fn handle_streaming_degradation(
         );
     }
 
-    // Checkpoint persistence: write partial content as outbound
-    // history with an error marker. Skip if partial_content is
-    // empty (nothing was sent before the error).
-    if !partial_content.is_empty() {
-        persist_streaming_checkpoint(gateway, session_id, &chat_id, channel, partial_content).await;
-    }
-
+    // Checkpoint persistence — skip when partial_content is empty.
+    persist_degradation_checkpoint(
+        gateway,
+        session_id,
+        &chat_id,
+        channel,
+        partial_content,
+        &dispatch_result.to_string(),
+    )
+    .await;
     Ok(())
+}
+
+/// Persist the degradation checkpoint for streaming partial content.
+/// Skips persistence when `partial_content` is empty (nothing was
+/// sent before the error).
+async fn persist_degradation_checkpoint(
+    gateway: &Gateway,
+    session_id: &str,
+    chat_id: &str,
+    channel: &str,
+    partial_content: &[ContentBlock],
+    error_reason: &str,
+) {
+    if partial_content.is_empty() {
+        return;
+    }
+    persist_streaming_checkpoint(
+        gateway,
+        session_id,
+        chat_id,
+        channel,
+        partial_content,
+        Some(error_reason),
+    )
+    .await;
 }
 
 /// Build a [`Message`] for checkpoint persistence from partial streaming
 /// content blocks.
-fn build_checkpoint_message(
+///
+/// When `error_reason` is `Some`, the message metadata is populated with
+/// error event markers so that recovery/replay can distinguish error
+/// interrupts from normal completions.
+pub(crate) fn build_checkpoint_message(
     chat_id: &str,
     channel: &str,
     partial_content: &[ContentBlock],
+    error_reason: Option<&str>,
 ) -> Message {
     let text = partial_content
         .iter()
@@ -223,6 +264,14 @@ fn build_checkpoint_message(
         .collect::<Vec<_>>()
         .join("");
     let content_blocks_json = serde_json::to_string(partial_content).unwrap_or_default();
+    let mut metadata = std::collections::HashMap::new();
+    if let Some(reason) = error_reason {
+        metadata.insert(META_STREAMING_INTERRUPTED.to_string(), "true".to_string());
+        metadata.insert(
+            META_STREAMING_INTERRUPT_REASON.to_string(),
+            reason.to_string(),
+        );
+    }
     Message {
         id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
         from: "agent".to_string(),
@@ -230,7 +279,7 @@ fn build_checkpoint_message(
         content: text,
         channel: channel.to_string(),
         timestamp: chrono::Utc::now().timestamp(),
-        metadata: std::collections::HashMap::new(),
+        metadata,
         thread_id: None,
         platform: Some(channel.to_string()),
         dsl_result: None,
@@ -239,14 +288,18 @@ fn build_checkpoint_message(
 }
 
 /// Persist partial streaming content as an outbound checkpoint.
+///
+/// When `error_reason` is provided, the checkpoint message metadata
+/// includes error event markers for recovery/replay.
 async fn persist_streaming_checkpoint(
     gateway: &Gateway,
     session_id: &str,
     chat_id: &str,
     channel: &str,
     partial_content: &[ContentBlock],
+    error_reason: Option<&str>,
 ) {
-    let msg = build_checkpoint_message(chat_id, channel, partial_content);
+    let msg = build_checkpoint_message(chat_id, channel, partial_content, error_reason);
     gateway
         .persist_outbound_checkpoint(session_id, &msg, true)
         .await;

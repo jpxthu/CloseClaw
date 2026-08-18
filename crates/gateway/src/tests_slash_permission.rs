@@ -354,13 +354,13 @@ async fn test_slash_not_entering_agent_session() {
     // dispatch_slash returns Some(HandleResult::SlashHandled) for recognized
     // commands, which the session handler uses to skip normal processing.
     let result = gw
-        .dispatch_slash("sess1", "/help", Some("user123"), "feishu")
+        .dispatch_slash("sess1", "/help", Some("user123"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 
     // Non-slash content returns None → falls through to agent session.
     let result = gw
-        .dispatch_slash("sess1", "hello", Some("user123"), "feishu")
+        .dispatch_slash("sess1", "hello", Some("user123"), "feishu", Some("p"))
         .await;
     assert!(result.is_none());
 }
@@ -372,7 +372,13 @@ async fn test_unknown_slash_command_returns_reply() {
 
     // 发送一个不存在的 slash 命令
     let result = gw
-        .dispatch_slash("sess1", "/xyz_unknown", Some("user123"), "feishu")
+        .dispatch_slash(
+            "sess1",
+            "/xyz_unknown",
+            Some("user123"),
+            "feishu",
+            Some("p"),
+        )
         .await;
     // 应该返回 Some(HandleResult::SlashHandled)，不是 None
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -387,7 +393,7 @@ async fn test_slash_context_channel_propagates() {
         .await;
 
     let result = gw
-        .dispatch_slash("sess42", "/help", Some("user123"), "telegram")
+        .dispatch_slash("sess42", "/help", Some("user123"), "telegram", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -474,7 +480,9 @@ async fn test_execute_route_reply_variant() {
         SlashResult::Reply("pong".to_owned()),
     ))
     .await;
-    let result = gw.dispatch_slash("s1", "/echo", Some("u1"), "feishu").await;
+    let result = gw
+        .dispatch_slash("s1", "/echo", Some("u1"), "feishu", Some("p"))
+        .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
 #[tokio::test]
@@ -489,7 +497,13 @@ async fn test_execute_route_system_append_variant() {
     ))
     .await;
     let result = gw
-        .dispatch_slash("s1", "/sys add test instruction", Some("u1"), "feishu")
+        .dispatch_slash(
+            "s1",
+            "/sys add test instruction",
+            Some("u1"),
+            "feishu",
+            Some("p"),
+        )
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
@@ -531,7 +545,7 @@ async fn test_non_immediate_busy_enqueues_and_returns_slash_handled() {
         .set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
 
     let result = gw
-        .dispatch_slash("sess-busy", "/help", Some("user1"), "feishu")
+        .dispatch_slash("sess-busy", "/help", Some("user1"), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -574,7 +588,13 @@ async fn test_immediate_busy_executes_normally() {
         .set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
 
     let result = gw
-        .dispatch_slash("sess-busy-stop", "/stop", Some("user1"), "feishu")
+        .dispatch_slash(
+            "sess-busy-stop",
+            "/stop",
+            Some("user1"),
+            "feishu",
+            Some("p"),
+        )
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -611,7 +631,7 @@ async fn test_non_immediate_idle_executes_normally() {
         .set_llm_state(closeclaw_llm::session_state::LlmState::Idle);
 
     let result = gw
-        .dispatch_slash("sess-idle", "/help", Some("user1"), "feishu")
+        .dispatch_slash("sess-idle", "/help", Some("user1"), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -683,7 +703,7 @@ async fn test_permission_denied_empty_rule_name() {
     .await;
 
     let result = gw
-        .dispatch_slash("sess-empty", "/exec ls", Some("user1"), "feishu")
+        .dispatch_slash("sess-empty", "/exec ls", Some("user1"), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -705,7 +725,7 @@ async fn test_permission_allow_after_deny_transition() {
     gw.set_permission_engine(allow_engine()).await;
 
     let result = gw
-        .dispatch_slash("sess-allow", "/exec ls", Some("user1"), "feishu")
+        .dispatch_slash("sess-allow", "/exec ls", Some("user1"), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -731,7 +751,7 @@ async fn test_owner_slash_direct_dispatch() {
     gw.set_permission_engine(deny_engine()).await;
 
     let result = gw
-        .dispatch_slash("sess-owner", "/exec ls", Some("owner"), "feishu")
+        .dispatch_slash("sess-owner", "/exec ls", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -798,7 +818,13 @@ async fn test_exec_no_permission_bypass() {
     // Non-owner with deny-all engine should still succeed because
     // requires_permission: false skips the permission check.
     let result = gw
-        .dispatch_slash("sess-git", "/git status", Some("user1"), "feishu")
+        .dispatch_slash(
+            "sess-git",
+            "/git status",
+            Some("user1"),
+            "feishu",
+            Some("p"),
+        )
         .await;
 
     assert!(
@@ -881,7 +907,13 @@ async fn test_git_commit_non_owner_triggers_permission_engine() {
     gw.set_permission_engine(deny_engine()).await;
 
     let result = gw
-        .dispatch_slash("sess1", "/git commit -m test", Some("user1"), "feishu")
+        .dispatch_slash(
+            "sess1",
+            "/git commit -m test",
+            Some("user1"),
+            "feishu",
+            Some("p"),
+        )
         .await;
 
     assert!(
@@ -898,7 +930,7 @@ async fn test_git_status_readonly_bypasses_permission_engine() {
     gw.set_permission_engine(deny_engine()).await;
 
     let result = gw
-        .dispatch_slash("sess2", "/git status", Some("user1"), "feishu")
+        .dispatch_slash("sess2", "/git status", Some("user1"), "feishu", Some("p"))
         .await;
 
     assert!(
@@ -914,7 +946,7 @@ async fn test_cd_pwd_unaffected_by_permission_engine() {
     gw.set_permission_engine(deny_engine()).await;
 
     let result_cd = gw
-        .dispatch_slash("sess3", "/cd /tmp", Some("user1"), "feishu")
+        .dispatch_slash("sess3", "/cd /tmp", Some("user1"), "feishu", Some("p"))
         .await;
     assert!(
         matches!(result_cd, Some(HandleResult::SlashHandled)),
@@ -922,7 +954,7 @@ async fn test_cd_pwd_unaffected_by_permission_engine() {
     );
 
     let result_pwd = gw
-        .dispatch_slash("sess3", "/pwd", Some("user1"), "feishu")
+        .dispatch_slash("sess3", "/pwd", Some("user1"), "feishu", Some("p"))
         .await;
     assert!(
         matches!(result_pwd, Some(HandleResult::SlashHandled)),
@@ -939,7 +971,13 @@ async fn test_git_commit_owner_bypasses_permission_engine() {
     gw.set_permission_engine(deny_engine()).await;
 
     let result = gw
-        .dispatch_slash("sess4", "/git commit -m test", Some("owner"), "feishu")
+        .dispatch_slash(
+            "sess4",
+            "/git commit -m test",
+            Some("owner"),
+            "feishu",
+            Some("p"),
+        )
         .await;
 
     assert!(
@@ -948,47 +986,4 @@ async fn test_git_commit_owner_bypasses_permission_engine() {
     );
 }
 
-// SlashDispatcher routing tests (post Step 1.2)
-
-/// `/perm` enters SlashDispatcher (no longer intercepted at Gateway level).
-#[tokio::test]
-async fn test_perm_cmd_enters_slash_dispatcher() {
-    let gw = make_gateway();
-    gw.set_slash_dispatcher(Arc::new(DefaultTestRouter)).await;
-    let result = gw
-        .dispatch_slash(
-            "sess_perm",
-            "/perm allow-cmd git commit 允许提交代码",
-            Some("owner"),
-            "feishu",
-        )
-        .await;
-    assert!(matches!(result, Some(HandleResult::SlashHandled)));
-}
-
-/// `/user approve` enters SlashDispatcher (no longer intercepted at Gateway level).
-#[tokio::test]
-async fn test_user_approve_enters_slash_dispatcher() {
-    let gw = make_gateway();
-    gw.set_slash_dispatcher(Arc::new(DefaultTestRouter)).await;
-    let result = gw
-        .dispatch_slash(
-            "sess_user",
-            "/user approve req-123",
-            Some("owner"),
-            "feishu",
-        )
-        .await;
-    assert!(matches!(result, Some(HandleResult::SlashHandled)));
-}
-
-/// `/user reject` enters SlashDispatcher (no longer intercepted at Gateway level).
-#[tokio::test]
-async fn test_user_reject_enters_slash_dispatcher() {
-    let gw = make_gateway();
-    gw.set_slash_dispatcher(Arc::new(DefaultTestRouter)).await;
-    let result = gw
-        .dispatch_slash("sess_user", "/user reject req-456", Some("owner"), "feishu")
-        .await;
-    assert!(matches!(result, Some(HandleResult::SlashHandled)));
-}
+// SlashDispatcher routing tests moved to tests_slash_dispatcher_routing.rs

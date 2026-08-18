@@ -157,7 +157,7 @@ async fn test_system_clear_invalidates_cache() {
     let (gw, flag) = setup(SystemAppendAction::Clear).await;
 
     let result = gw
-        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu")
+        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -173,7 +173,7 @@ async fn test_system_add_does_not_invalidate_cache() {
     let (gw, flag) = setup(SystemAppendAction::Add("new rule".to_owned())).await;
 
     let result = gw
-        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu")
+        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
@@ -190,7 +190,7 @@ async fn test_state_transition_clear_then_add() {
 
     // Step 1: clear should invalidate
     let _ = gw
-        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu")
+        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu", Some("p"))
         .await;
     assert!(
         flag.load(Ordering::SeqCst),
@@ -204,7 +204,7 @@ async fn test_state_transition_clear_then_add() {
     }))
     .await;
     let _ = gw
-        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu")
+        .dispatch_slash("sess-sys", "/system", Some("owner"), "feishu", Some("p"))
         .await;
     assert!(
         !flag.load(Ordering::SeqCst),
@@ -221,7 +221,7 @@ async fn test_clear_with_callback_set() {
     // Normal path: callback injected → clear fires it
     let (gw, flag) = setup(SystemAppendAction::Clear).await;
 
-    gw.dispatch_slash("sess-sys", "/system", Some("owner"), "feishu")
+    gw.dispatch_slash("sess-sys", "/system", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(
@@ -235,7 +235,7 @@ async fn test_add_with_callback_set() {
     // Boundary: callback injected → add does NOT fire it
     let (gw, flag) = setup(SystemAppendAction::Add("new rule".to_owned())).await;
 
-    gw.dispatch_slash("sess-sys", "/system", Some("owner"), "feishu")
+    gw.dispatch_slash("sess-sys", "/system", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(
@@ -279,7 +279,7 @@ async fn test_clear_without_callback_no_panic() {
     // Do NOT set a cache_invalidator — invalidate_static_cache() should be a no-op.
 
     let result = gw
-        .dispatch_slash("sess-nocb", "/system", Some("owner"), "feishu")
+        .dispatch_slash("sess-nocb", "/system", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(
@@ -327,7 +327,7 @@ async fn test_callback_called_on_clear() {
     }))
     .await;
 
-    gw.dispatch_slash("sess-cb", "/system", Some("owner"), "feishu")
+    gw.dispatch_slash("sess-cb", "/system", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(
@@ -532,7 +532,7 @@ async fn test_non_owner_high_risk_permitted_handler_executes() {
         .await;
     gw.set_permission_engine(allow_engine()).await;
     let result = gw
-        .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
+        .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -546,7 +546,7 @@ async fn test_owner_short_circuit_bypasses_deny() {
         .await;
     gw.set_permission_engine(deny_engine()).await;
     let result = gw
-        .dispatch_slash("sess1", "/exec ls", Some("owner"), "feishu")
+        .dispatch_slash("sess1", "/exec ls", Some("owner"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -560,7 +560,7 @@ async fn test_non_owner_high_risk_denied_handler_called_execute_skipped() {
         .await;
     gw.set_permission_engine(deny_engine()).await;
     let result = gw
-        .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
+        .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -574,7 +574,7 @@ async fn test_non_owner_safe_handler_direct_dispatch() {
         .await;
     gw.set_permission_engine(deny_engine()).await;
     let result = gw
-        .dispatch_slash("sess1", "/help", Some("user123"), "feishu")
+        .dispatch_slash("sess1", "/help", Some("user123"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -588,7 +588,7 @@ async fn test_auto_mode_slash_permitted_handler_executes() {
         .await;
     gw.set_permission_engine(auto_mode_allow_engine()).await;
     let result = gw
-        .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu")
+        .dispatch_slash("sess1", "/exec ls", Some("user123"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -651,7 +651,9 @@ async fn test_execute_route_stop_cascade() {
         force: false,
     }))
     .await;
-    let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
+    let result = gw
+        .dispatch_slash("s1", "/stop", Some("u1"), "feishu", Some("p"))
+        .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
 
@@ -664,7 +666,9 @@ async fn test_execute_route_stop_force() {
         force: true,
     }))
     .await;
-    let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
+    let result = gw
+        .dispatch_slash("s1", "/stop", Some("u1"), "feishu", Some("p"))
+        .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
 
@@ -677,7 +681,9 @@ async fn test_execute_route_stop_cascade_and_force() {
         force: true,
     }))
     .await;
-    let result = gw.dispatch_slash("s1", "/stop", Some("u1"), "feishu").await;
+    let result = gw
+        .dispatch_slash("s1", "/stop", Some("u1"), "feishu", Some("p"))
+        .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
 
@@ -711,7 +717,7 @@ async fn test_system_add_creates_partial_rewrite_snapshot() {
     .await;
 
     let result = gw
-        .dispatch_slash("sess-snap", "/system", Some("owner"), "feishu")
+        .dispatch_slash("sess-snap", "/system", Some("owner"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 
@@ -734,7 +740,7 @@ async fn test_system_clear_creates_partial_rewrite_snapshot() {
     .await;
 
     let result = gw
-        .dispatch_slash("sess-snap", "/system", Some("owner"), "feishu")
+        .dispatch_slash("sess-snap", "/system", Some("owner"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 
@@ -762,7 +768,7 @@ async fn test_unknown_command_routes_through_outbound_chain() {
     // through route_slash_reply (which attempts outbound, falls back to
     // send_reply when no outbound chain is configured).
     let result = gw
-        .dispatch_slash("sess-unk", "/foobar", Some("owner"), "feishu")
+        .dispatch_slash("sess-unk", "/foobar", Some("owner"), "feishu", Some("p"))
         .await;
 
     assert!(
@@ -899,7 +905,13 @@ async fn test_cross_step_mode_not_immediate_enqueues_when_busy() {
         .set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
 
     let result = gw
-        .dispatch_slash("sess-mode-busy", "/mode", Some("user1"), "feishu")
+        .dispatch_slash(
+            "sess-mode-busy",
+            "/mode",
+            Some("user1"),
+            "feishu",
+            Some("p"),
+        )
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));

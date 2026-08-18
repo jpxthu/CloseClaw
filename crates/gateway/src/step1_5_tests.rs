@@ -508,7 +508,13 @@ async fn test_permission_check_after_handler_before_execute() {
     gw.set_permission_engine(allow_engine()).await;
 
     let result = gw
-        .dispatch_slash("sess-timing", "/timing", Some("user1"), "feishu")
+        .dispatch_slash(
+            "sess-timing",
+            "/timing",
+            Some("user1"),
+            "feishu",
+            Some("peer_id"),
+        )
         .await;
 
     assert!(matches!(result, Some(crate::HandleResult::SlashHandled)));
@@ -569,7 +575,13 @@ async fn test_permission_denied_handler_still_invoked() {
     .await;
 
     let result = gw
-        .dispatch_slash("sess-deny", "/timing", Some("user1"), "feishu")
+        .dispatch_slash(
+            "sess-deny",
+            "/timing",
+            Some("user1"),
+            "feishu",
+            Some("peer_id"),
+        )
         .await;
 
     assert!(matches!(result, Some(crate::HandleResult::SlashHandled)));
