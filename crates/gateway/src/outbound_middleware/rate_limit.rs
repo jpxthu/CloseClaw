@@ -14,7 +14,7 @@ use closeclaw_common::middleware::{MiddlewareContext, MiddlewareError, OutboundM
 use tokio::sync::RwLock;
 
 /// Default maximum messages per session per 60-second window.
-const DEFAULT_MAX_PER_MINUTE: usize = 30;
+pub(crate) const DEFAULT_MAX_PER_MINUTE: usize = 30;
 
 /// Sliding window that tracks message send timestamps for one session.
 pub(crate) struct SlidingWindow {

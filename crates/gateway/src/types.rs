@@ -60,6 +60,12 @@ pub struct GatewayConfig {
     /// behaves as an in-memory buffer only.
     #[serde(default)]
     pub inbound_wal_dir: Option<std::path::PathBuf>,
+    /// Bot → Agent binding map.
+    /// Key is the bot identifier (peer_id), value is the agent_id to route to.
+    /// When a message's peer_id matches a key, the bound agent_id is used;
+    /// otherwise peer_id is used as agent_id (backward compatible).
+    #[serde(default)]
+    pub bot_agent_bindings: HashMap<String, String>,
 }
 
 pub(crate) fn default_inbound_queue_capacity() -> usize {
@@ -76,6 +82,7 @@ impl Default for GatewayConfig {
             raw_log_dir: None,
             inbound_queue_capacity: default_inbound_queue_capacity(),
             inbound_wal_dir: None,
+            bot_agent_bindings: HashMap::new(),
         }
     }
 }

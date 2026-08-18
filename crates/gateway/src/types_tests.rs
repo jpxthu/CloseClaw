@@ -41,3 +41,44 @@ fn test_serde_deserialize_without_inbound_queue_capacity_defaults_to_256() {
         "missing inbound_queue_capacity must default to 256"
     );
 }
+
+// ── bot_agent_bindings ─────────────────────────────────────────────────────
+
+/// GatewayConfig::default() must set bot_agent_bindings to an empty map.
+#[test]
+fn test_gateway_config_default_bot_agent_bindings_empty() {
+    let config = GatewayConfig::default();
+    assert!(
+        config.bot_agent_bindings.is_empty(),
+        "GatewayConfig::default() bot_agent_bindings must be empty"
+    );
+}
+
+/// Deserializing JSON with bot_agent_bindings must populate the map.
+#[test]
+fn test_serde_deserialize_with_bot_agent_bindings() {
+    let json = r#"{
+        "name": "test",
+        "bot_agent_bindings": {
+            "bot_x": "agent-a",
+            "bot_y": "agent-b"
+        }
+    }"#;
+    let config: GatewayConfig = serde_json::from_str(json).expect("deserialization should succeed");
+    assert_eq!(config.bot_agent_bindings.len(), 2);
+    assert_eq!(config.bot_agent_bindings["bot_x"], "agent-a");
+    assert_eq!(config.bot_agent_bindings["bot_y"], "agent-b");
+}
+
+/// Deserializing JSON without bot_agent_bindings must default to empty map.
+#[test]
+fn test_serde_deserialize_without_bot_agent_bindings_defaults_to_empty() {
+    let json = r#"{
+        "name": "test"
+    }"#;
+    let config: GatewayConfig = serde_json::from_str(json).expect("deserialization should succeed");
+    assert!(
+        config.bot_agent_bindings.is_empty(),
+        "missing bot_agent_bindings must default to empty map"
+    );
+}
