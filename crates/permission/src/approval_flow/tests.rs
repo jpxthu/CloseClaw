@@ -954,7 +954,7 @@ async fn test_new_session_creates_child() {
     let rid = f
         .submit_denial(&test_caller(), &test_request(), RiskLevel::Low, "s1", false)
         .unwrap();
-    f.set_plan_exec_metadata(&rid, ps, Some(vec![0, 2]), true);
+    f.set_plan_exec_metadata(&rid, ps, Some(vec![0, 2]), true, None);
     assert!(f.approve_request(&rid, ApprovalMode::Once).await.unwrap());
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(c.load(Ordering::SeqCst), 1);
@@ -970,7 +970,7 @@ async fn test_new_session_fallback_without_callback() {
     let rid = f
         .submit_denial(&test_caller(), &test_request(), RiskLevel::Low, "s1", false)
         .unwrap();
-    f.set_plan_exec_metadata(&rid, ps, None, true);
+    f.set_plan_exec_metadata(&rid, ps, None, true, None);
     assert!(f.approve_request(&rid, ApprovalMode::Once).await.unwrap());
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(
@@ -987,7 +987,7 @@ async fn test_new_session_step_selection_metadata() {
     let rid = f
         .submit_denial(&test_caller(), &test_request(), RiskLevel::Low, "s1", false)
         .unwrap();
-    f.set_plan_exec_metadata(&rid, ps, Some(vec![1, 3]), false);
+    f.set_plan_exec_metadata(&rid, ps, Some(vec![1, 3]), false, None);
     assert!(f.approve_request(&rid, ApprovalMode::Once).await.unwrap());
     tokio::time::sleep(Duration::from_millis(500)).await;
     let p = m.get_tracked_plan_state("s1").unwrap();
