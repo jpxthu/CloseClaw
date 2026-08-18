@@ -200,8 +200,17 @@ pub(crate) async fn handle_streaming_degradation(
     // Checkpoint persistence: write partial content as outbound
     // history with an error marker. Skip if partial_content is
     // empty (nothing was sent before the error).
+    let error_reason = &dispatch_result.to_string();
     if !partial_content.is_empty() {
-        persist_streaming_checkpoint(gateway, session_id, &chat_id, channel, partial_content).await;
+        persist_streaming_checkpoint(
+            gateway,
+            session_id,
+            &chat_id,
+            channel,
+            partial_content,
+            Some(error_reason),
+        )
+        .await;
     }
 
     Ok(())
@@ -209,10 +218,15 @@ pub(crate) async fn handle_streaming_degradation(
 
 /// Build a [`Message`] for checkpoint persistence from partial streaming
 /// content blocks.
+///
+/// When `error_reason` is `Some`, the message metadata is populated with
+/// error event markers so that recovery/replay can distinguish error
+/// interrupts from normal completions.
 fn build_checkpoint_message(
     chat_id: &str,
     channel: &str,
     partial_content: &[ContentBlock],
+    error_reason: Option<&str>,
 ) -> Message {
     let text = partial_content
         .iter()
@@ -223,6 +237,11 @@ fn build_checkpoint_message(
         .collect::<Vec<_>>()
         .join("");
     let content_blocks_json = serde_json::to_string(partial_content).unwrap_or_default();
+    let mut metadata = std::collections::HashMap::new();
+    if let Some(reason) = error_reason {
+        metadata.insert("streaming_interrupted".to_string(), "true".to_string());
+        metadata.insert("streaming_interrupt_reason".to_string(), reason.to_string());
+    }
     Message {
         id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
         from: "agent".to_string(),
@@ -230,7 +249,7 @@ fn build_checkpoint_message(
         content: text,
         channel: channel.to_string(),
         timestamp: chrono::Utc::now().timestamp(),
-        metadata: std::collections::HashMap::new(),
+        metadata,
         thread_id: None,
         platform: Some(channel.to_string()),
         dsl_result: None,
@@ -239,14 +258,18 @@ fn build_checkpoint_message(
 }
 
 /// Persist partial streaming content as an outbound checkpoint.
+///
+/// When `error_reason` is provided, the checkpoint message metadata
+/// includes error event markers for recovery/replay.
 async fn persist_streaming_checkpoint(
     gateway: &Gateway,
     session_id: &str,
     chat_id: &str,
     channel: &str,
     partial_content: &[ContentBlock],
+    error_reason: Option<&str>,
 ) {
-    let msg = build_checkpoint_message(chat_id, channel, partial_content);
+    let msg = build_checkpoint_message(chat_id, channel, partial_content, error_reason);
     gateway
         .persist_outbound_checkpoint(session_id, &msg, true)
         .await;
