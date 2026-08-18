@@ -615,7 +615,10 @@ async fn test_thinking_indicator_sends_on_block_start() {
         std::path::PathBuf::from("/tmp"),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
-    cs_arc.write().await.set_verbosity_level(VerbosityLevel::Full);
+    cs_arc
+        .write()
+        .await
+        .set_verbosity_level(VerbosityLevel::Full);
     sm.conversation_sessions
         .write()
         .await
@@ -800,7 +803,10 @@ async fn test_thinking_indicator_stops_on_block_end() {
         std::path::PathBuf::from("/tmp"),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
-    cs_arc.write().await.set_verbosity_level(VerbosityLevel::Full);
+    cs_arc
+        .write()
+        .await
+        .set_verbosity_level(VerbosityLevel::Full);
     sm.conversation_sessions
         .write()
         .await

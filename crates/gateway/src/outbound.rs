@@ -990,9 +990,6 @@ impl Gateway {
 /// Check whether a Thinking block should be skipped based on the verbosity
 /// level. Returns `true` when `block_type` is `Thinking` and verbosity is
 /// not `Full` (i.e. `Normal` or `Off`).
-fn should_skip_thinking(
-    block_type: ContentBlockType,
-    verbosity_level: VerbosityLevel,
-) -> bool {
+fn should_skip_thinking(block_type: ContentBlockType, verbosity_level: VerbosityLevel) -> bool {
     block_type == ContentBlockType::Thinking && verbosity_level != VerbosityLevel::Full
 }
