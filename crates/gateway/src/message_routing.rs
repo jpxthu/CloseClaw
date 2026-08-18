@@ -10,6 +10,10 @@ use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_debug_log::LogLevel;
 use std::collections::HashMap;
 
+/// 会话路由失败，请重试
+const ROUTE_FAILED_MSG: &str =
+    "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}";
+
 impl Gateway {
     /// Forward a resolved message to the IM plugin for the given channel.
     pub(crate) async fn forward_to_plugin(
@@ -47,7 +51,7 @@ impl Gateway {
                 payload: serde_json::json!({
                     "content": {
                         "text":
-                            "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}"
+                            ROUTE_FAILED_MSG
                     }
                 }),
             };
