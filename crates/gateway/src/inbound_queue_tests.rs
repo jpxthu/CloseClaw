@@ -64,7 +64,7 @@ async fn test_consumer_fires_parse_and_process() {
     let gw = make_gateway();
     let (tx, rx) = mpsc::channel::<QueuedInbound>(8);
     let capacity = 8;
-    start_inbound_consumer(rx, Arc::clone(&gw), capacity);
+    start_inbound_consumer(rx, Arc::clone(&gw), capacity, None);
 
     // Send a message through the channel directly.
     tx.send(queued(make_request("hello"))).await.unwrap();
@@ -83,7 +83,7 @@ async fn test_consumer_fifo_order() {
     // and ensuring none are dropped.
     let gw = make_gateway();
     let (tx, rx) = mpsc::channel::<QueuedInbound>(16);
-    start_inbound_consumer(rx, Arc::clone(&gw), 16);
+    start_inbound_consumer(rx, Arc::clone(&gw), 16, None);
 
     for i in 0..10 {
         tx.send(queued(make_request(&format!("msg-{i}"))))
@@ -101,7 +101,7 @@ async fn test_consumer_fifo_order() {
 async fn test_consumer_stops_on_channel_close() {
     let gw = make_gateway();
     let (tx, rx) = mpsc::channel::<QueuedInbound>(4);
-    start_inbound_consumer(rx, Arc::clone(&gw), 4);
+    start_inbound_consumer(rx, Arc::clone(&gw), 4, None);
 
     tx.send(queued(make_request("before"))).await.unwrap();
     drop(tx); // close sender — consumer should exit its loop

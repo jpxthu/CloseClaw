@@ -55,6 +55,11 @@ pub struct GatewayConfig {
     /// Defaults to 256.
     #[serde(default = "default_inbound_queue_capacity")]
     pub inbound_queue_capacity: usize,
+    /// Directory for inbound WAL persistence.
+    /// When `None` (default), WAL persistence is disabled and the queue
+    /// behaves as an in-memory buffer only.
+    #[serde(default)]
+    pub inbound_wal_dir: Option<std::path::PathBuf>,
 }
 
 pub(crate) fn default_inbound_queue_capacity() -> usize {
@@ -70,6 +75,7 @@ impl Default for GatewayConfig {
             max_message_size: 0,
             raw_log_dir: None,
             inbound_queue_capacity: default_inbound_queue_capacity(),
+            inbound_wal_dir: None,
         }
     }
 }

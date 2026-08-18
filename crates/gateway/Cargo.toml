@@ -53,6 +53,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 # Hashing
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 
 # Shell lexing for command parsing
 shlex = "1.3"
