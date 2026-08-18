@@ -389,7 +389,7 @@ pub struct PlanSummary {
 }
 
 /// List all plan summaries in `{workdir}/plans/`.
-
+///
 /// Scans for `.md` files, parses each plan's title and task
 /// completion counts, and returns results sorted by modification
 /// time (most recent first). If the plans directory does not
