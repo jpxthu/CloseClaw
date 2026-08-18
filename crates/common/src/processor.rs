@@ -126,9 +126,9 @@ impl ContentDelta {
         match self {
             Self::Text { .. } => ContentBlockType::Text,
             Self::Thinking { .. } => ContentBlockType::Thinking,
-            Self::ToolUseId { .. }
-            | Self::ToolUseName { .. }
-            | Self::ToolUseInputChunk { .. } => ContentBlockType::ToolUse,
+            Self::ToolUseId { .. } | Self::ToolUseName { .. } | Self::ToolUseInputChunk { .. } => {
+                ContentBlockType::ToolUse
+            }
             Self::ToolResultText { .. } => ContentBlockType::ToolResult,
             Self::ImageRef { .. } => ContentBlockType::Image,
             Self::AudioRef { .. } => ContentBlockType::Audio,

@@ -834,4 +834,3 @@ async fn test_enqueue_inbound_returns_ok_when_queue_has_space() {
     let result = gw.enqueue_inbound(make_request("ok-msg")).await;
     assert!(result.is_ok(), "queue has space should return Ok");
 }
-
