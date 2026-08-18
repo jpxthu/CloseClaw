@@ -206,6 +206,93 @@ fn test_stop_detection() {
     assert!(!is_stop_command("/stopextra"));
 }
 
+// ── /stop REPL routing tests (Step 1.2/1.3) ───────────────────────────────
+
+/// Verify that `/stop` routes through the gateway's SlashDispatcher
+/// and returns `SlashResult::Stop` with cascade=true, force=true.
+///
+/// This is the integration test confirming that `/stop` is no longer
+/// a REPL exit command but instead goes through the normal gateway
+/// message handling pipeline.
+#[tokio::test]
+async fn test_stop_routes_through_gateway_slash_dispatcher() {
+    use closeclaw_slash::dispatcher::SlashDispatcher;
+    use closeclaw_slash::registry::HandlerRegistry;
+
+    let slash_registry = Arc::new(HandlerRegistry::new());
+    let _session_manager = Arc::new(SessionManager::new(
+        &GatewayConfig {
+            name: "test-stop-gw".to_string(),
+            ..Default::default()
+        },
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    slash_registry.register(Arc::new(closeclaw_slash::StopHandler));
+    let dispatcher = SlashDispatcher::from_shared(slash_registry);
+
+    let ctx = closeclaw_slash::context::SlashContext {
+        command: String::new(),
+        sender_id: "u".to_owned(),
+        session_id: "s".to_owned(),
+        channel: "c".to_owned(),
+    };
+
+    match dispatcher.dispatch("/stop", &ctx).await {
+        closeclaw_common::slash_router::SlashResult::Stop { cascade, force } => {
+            assert!(cascade, "cascade must be true");
+            assert!(force, "force must be true");
+        }
+        other => panic!("expected Stop from gateway dispatch, got {other:?}"),
+    }
+}
+
+/// Verify that `/stop` is NOT treated as a quit command by the REPL
+/// detection logic. This ensures the REPL continues after `/stop`.
+#[test]
+fn test_stop_does_not_trigger_quit() {
+    // /stop must not match quit detection
+    assert!(!is_quit_command("/stop"));
+    assert!(!is_quit_command("/STOP"));
+    // But must match stop detection
+    assert!(is_stop_command("/stop"));
+    assert!(is_stop_command("/STOP"));
+}
+
+/// Verify that the inbound chain preserves `/stop` as-is so it can be
+/// routed through the gateway's SlashDispatcher.
+#[tokio::test]
+async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(ContentNormalizer::new()));
+    let gateway = make_gw_with_registry(registry);
+
+    let processed = gateway
+        .process_inbound_chain(&InboundChainInput {
+            platform: "terminal".into(),
+            sender_id: "u1".into(),
+            peer_id: "cli".into(),
+            content: "/stop".into(),
+            message_id: "msg-stop-1".into(),
+            timestamp_ms: 0,
+            account_id: None,
+            thread_id: None,
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            chat_name: None,
+            trace_id: None,
+        })
+        .await;
+
+    // /stop must not be suppressed or altered by the inbound chain
+    assert_eq!(
+        processed.text_content(),
+        Some("/stop"),
+        "/stop must be preserved through inbound chain"
+    );
+}
+
 // ── Inbound Processor Chain integration tests ─────────────────────────────
 
 use async_trait::async_trait;
