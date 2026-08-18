@@ -826,9 +826,7 @@ impl Gateway {
         match event {
             StreamEvent::BlockDelta { index, delta } => {
                 // Skip Thinking deltas entirely at Normal/Off verbosity.
-                if matches!(delta, ContentDelta::Thinking { .. })
-                    && state.verbosity_level != VerbosityLevel::Full
-                {
+                if should_skip_thinking(delta.block_type(), state.verbosity_level) {
                     return Ok(());
                 }
                 self.handle_block_delta(ctx, index, delta, state).await?;
@@ -836,9 +834,7 @@ impl Gateway {
             StreamEvent::BlockEnd { block_type, .. } => {
                 // Skip Thinking blocks entirely at Normal/Off verbosity:
                 // no thinking indicator, no plugin dispatch.
-                if block_type == ContentBlockType::Thinking
-                    && state.verbosity_level != VerbosityLevel::Full
-                {
+                if should_skip_thinking(block_type, state.verbosity_level) {
                     return Ok(());
                 }
                 // Thinking indicator: send stop signal before verbosity filtering.
@@ -876,9 +872,7 @@ impl Gateway {
             }
             StreamEvent::BlockStart { index, block_type } => {
                 // Skip Thinking BlockStart entirely at Normal/Off verbosity.
-                if block_type == ContentBlockType::Thinking
-                    && state.verbosity_level != VerbosityLevel::Full
-                {
+                if should_skip_thinking(block_type, state.verbosity_level) {
                     return Ok(());
                 }
                 // Thinking indicator: send start signal on Thinking BlockStart.
@@ -991,4 +985,14 @@ impl Gateway {
             chat_id: chat_id.to_string(),
         }
     }
+}
+
+/// Check whether a Thinking block should be skipped based on the verbosity
+/// level. Returns `true` when `block_type` is `Thinking` and verbosity is
+/// not `Full` (i.e. `Normal` or `Off`).
+fn should_skip_thinking(
+    block_type: ContentBlockType,
+    verbosity_level: VerbosityLevel,
+) -> bool {
+    block_type == ContentBlockType::Thinking && verbosity_level != VerbosityLevel::Full
 }
