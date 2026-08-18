@@ -147,6 +147,40 @@ pub(crate) fn parse_plan_path_arg(args: &str) -> (Option<PlanPath>, &str) {
     }
 }
 
+/// Parse `/execute` arguments into plan name and additional instruction.
+///
+/// The first whitespace-delimited token is treated as the plan name;
+/// everything after the first space is the additional instruction.
+///
+/// # Examples
+///
+/// - `"foo bar baz"` → `(Some("foo"), Some("bar baz"))`
+/// - `"foo"` → `(Some("foo"), None)`
+/// - `""` → `(None, None)`
+///
+/// The instruction preserves all whitespace after the first space,
+/// matching the doc spec: "空格后的内容".
+pub(crate) fn parse_execute_args(args: &str) -> (Option<String>, Option<String>) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return (None, None);
+    }
+    match trimmed.split_once(char::is_whitespace) {
+        Some((name, rest)) => {
+            let instruction = rest.trim();
+            (
+                Some(name.to_owned()),
+                if instruction.is_empty() {
+                    None
+                } else {
+                    Some(instruction.to_owned())
+                },
+            )
+        }
+        None => (Some(trimmed.to_owned()), None),
+    }
+}
+
 // ── AutoModeHandler ──────────────────────────────────────────────────────
 
 /// `/auto` — directly enter Auto Mode.
@@ -200,9 +234,14 @@ impl SlashHandler for AutoModeHandler {
 
 // ── ExecuteHandler ────────────────────────────────────────────────────────
 
-/// `/execute` — transition from Plan Mode to Auto Mode execution.
+/// `/execute <plan名称> [附加指令]` — transition to Auto Mode execution.
 ///
-/// Validates that a plan file exists, then switches to Auto Mode.
+/// - In Plan Mode: resolves the plan by name (falls back to current
+///   `plan_state` when no name is given), then switches to Auto Mode.
+/// - In non-Plan Mode: resolves the plan by name (if given) and switches
+///   to Auto Mode; with no arguments, enters Auto Mode directly.
+/// - If additional instructions are provided after the plan name, they
+///   are injected as the initial user message via `initial_input`.
 pub struct ExecuteHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -213,35 +252,79 @@ impl ExecuteHandler {
         Self { session_manager }
     }
 
-    /// Non-Plan Mode: directly enter Auto Mode without a plan file.
-    fn handle_non_plan_mode(&self) -> SlashResult {
+    /// Non-Plan Mode: resolve plan by name if given, then enter Auto Mode.
+    fn handle_non_plan_mode(
+        &self,
+        plan_name: Option<&str>,
+        workdir: Option<&std::path::Path>,
+        instruction: Option<&str>,
+    ) -> SlashResult {
+        let plan_file_path = match plan_name {
+            Some(name) => match workdir {
+                Some(wd) => match plan_file::resolve_plan_by_name(wd, name) {
+                    Ok(path) => Some(path),
+                    Err(e) => {
+                        return SlashResult::Reply(format!("计划文件解析失败：{e}"));
+                    }
+                },
+                None => {
+                    return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
+                }
+            },
+            None => None,
+        };
+
         SlashResult::SetMode {
             mode: "auto".to_owned(),
-            plan_file_path: None,
-            initial_input: None,
+            plan_file_path,
+            initial_input: instruction.map(String::from),
             reply_message: Some("开始执行".to_owned()),
         }
     }
 
-    /// Plan Mode: load plan_state → ExitPlan → SetMode auto.
-    async fn handle_plan_mode(&self, ctx: &SlashContext) -> SlashResult {
-        let plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
-            Some(ps) => ps,
+    /// Plan Mode: resolve plan by name (or fall back to plan_state).
+    async fn handle_plan_mode(
+        &self,
+        ctx: &SlashContext,
+        plan_name: Option<&str>,
+        workdir: Option<&std::path::Path>,
+        instruction: Option<&str>,
+    ) -> SlashResult {
+        let plan_file_path = match plan_name {
+            Some(name) => match workdir {
+                Some(wd) => match plan_file::resolve_plan_by_name(wd, name) {
+                    Ok(path) => path,
+                    Err(e) => {
+                        return SlashResult::Reply(format!("计划文件解析失败：{e}"));
+                    }
+                },
+                None => {
+                    return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
+                }
+            },
             None => {
-                return SlashResult::Reply(
-                    "当前没有活跃的 plan。请先用 /plan <任务描述> 创建一个 plan。".to_owned(),
-                );
+                let plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
+                    Some(ps) => ps,
+                    None => {
+                        return SlashResult::Reply(
+                            "当前没有活跃的 plan。请先用 /plan <任务描述> 创建一个 plan。"
+                                .to_owned(),
+                        );
+                    }
+                };
+                if plan_state.plan_file_path.is_empty() {
+                    return SlashResult::Reply(
+                        "当前 plan 没有关联的 plan 文件，无法执行。".to_owned(),
+                    );
+                }
+                std::path::PathBuf::from(&plan_state.plan_file_path)
             }
         };
 
-        if plan_state.plan_file_path.is_empty() {
-            return SlashResult::Reply("当前 plan 没有关联的 plan 文件，无法执行。".to_owned());
-        }
-
         SlashResult::SetMode {
             mode: "auto".to_owned(),
-            plan_file_path: Some(std::path::PathBuf::from(&plan_state.plan_file_path)),
-            initial_input: None,
+            plan_file_path: Some(plan_file_path),
+            initial_input: instruction.map(String::from),
             reply_message: Some("开始执行".to_owned()),
         }
     }
@@ -254,24 +337,38 @@ impl SlashHandler for ExecuteHandler {
     }
 
     fn description(&self) -> &str {
-        "从 Plan Mode 进入 Auto Mode 执行"
+        "/execute <plan名称> [附加指令] — 进入 Auto Mode 执行 plan"
     }
 
     fn immediate(&self, _cmd: &str) -> bool {
         false
     }
 
-    async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
+    async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
         let mode = match self.session_manager.get_session_mode(&ctx.session_id).await {
             Some(m) => m,
             None => return SlashResult::Reply("当前会话未激活".to_owned()),
         };
 
+        let (plan_name, instruction) = parse_execute_args(args);
+        let workdir = self.session_manager.get_workdir(&ctx.session_id).await;
+        let workdir_ref = workdir.as_deref();
+
         if mode != SessionMode::Plan {
-            return self.handle_non_plan_mode();
+            return self.handle_non_plan_mode(
+                plan_name.as_deref(),
+                workdir_ref,
+                instruction.as_deref(),
+            );
         }
 
-        self.handle_plan_mode(ctx).await
+        self.handle_plan_mode(
+            ctx,
+            plan_name.as_deref(),
+            workdir_ref,
+            instruction.as_deref(),
+        )
+        .await
     }
 }
 

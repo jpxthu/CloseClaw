@@ -133,6 +133,9 @@ pub struct PlanExecMetadata {
     pub step_selection: Option<Vec<usize>>,
     /// Whether to create a new child session for execution.
     pub new_session: bool,
+    /// Optional additional instruction to inject as a user message
+    /// when the plan enters Auto Mode.
+    pub additional_instruction: Option<String>,
 }
 
 /// Daemon-level approval orchestrator.
@@ -315,6 +318,7 @@ impl ApprovalFlow {
         plan_file_path: String,
         step_selection: Option<Vec<usize>>,
         new_session: bool,
+        additional_instruction: Option<String>,
     ) {
         self.plan_exec_metadata.insert(
             request_id.to_string(),
@@ -322,6 +326,7 @@ impl ApprovalFlow {
                 plan_file_path,
                 step_selection,
                 new_session,
+                additional_instruction,
             },
         );
     }

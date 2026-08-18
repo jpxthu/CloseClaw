@@ -1,5 +1,6 @@
 use super::plan_file;
 use closeclaw_config::IdentifierFormat;
+use std::path::Path;
 
 #[test]
 fn test_generate_identifier_timestamp_format() {
@@ -350,4 +351,203 @@ fn test_create_plan_file_fills_both_timestamps() {
         "更新时间 should have year, got: {}",
         update_lines[0]
     );
+}
+
+// ── resolve_plan_by_name tests ──────────────────────────────────────────
+
+/// Helper to create a plans directory with the given file stems.
+fn setup_plans_dir(dir: &Path, stems: &[&str]) {
+    let plans = dir.join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    for stem in stems {
+        std::fs::write(plans.join(format!("{stem}.md")), "# Plan").unwrap();
+    }
+}
+
+#[test]
+fn test_resolve_exact_match() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["alpha-feature", "beta-feature"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "alpha-feature");
+    assert!(result.is_ok());
+    assert!(result.unwrap().ends_with("alpha-feature.md"));
+}
+
+#[test]
+fn test_resolve_exact_match_with_md_suffix() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["my-plan"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "my-plan.md");
+    assert!(result.is_ok());
+    assert!(result.unwrap().ends_with("my-plan.md"));
+}
+
+#[test]
+fn test_resolve_prefix_match_unique() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["2026-08-19-04-31-design-doc"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "2026");
+    assert!(result.is_ok());
+    assert!(result.unwrap().ends_with("2026-08-19-04-31-design-doc.md"));
+}
+
+#[test]
+fn test_resolve_prefix_match_ambiguous() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["alpha-aaa", "alpha-bbb"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "alpha-");
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        plan_file::PlanResolveError::Ambiguous { name, candidates } => {
+            assert_eq!(name, "alpha-");
+            assert_eq!(candidates.len(), 2);
+        }
+        other => panic!("expected Ambiguous, got: {other}"),
+    }
+}
+
+#[test]
+fn test_resolve_fuzzy_match_unique() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["2026-08-19-auth-feature"]);
+
+    // Not exact, not prefix, but substring
+    let result = plan_file::resolve_plan_by_name(dir.path(), "auth");
+    assert!(result.is_ok());
+    assert!(result.unwrap().ends_with("2026-08-19-auth-feature.md"));
+}
+
+#[test]
+fn test_resolve_fuzzy_match_ambiguous() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["auth-login", "auth-logout"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "auth");
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        plan_file::PlanResolveError::Ambiguous { name, candidates } => {
+            assert_eq!(name, "auth");
+            assert_eq!(candidates.len(), 2);
+        }
+        other => panic!("expected Ambiguous, got: {other}"),
+    }
+}
+
+#[test]
+fn test_resolve_not_found() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["alpha"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "gamma");
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        plan_file::PlanResolveError::NotFound { name } => {
+            assert_eq!(name, "gamma");
+        }
+        other => panic!("expected NotFound, got: {other}"),
+    }
+}
+
+#[test]
+fn test_resolve_not_found_no_plans_dir() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // plans/ directory does not exist
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "anything");
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        plan_file::PlanResolveError::NotFound { .. }
+    ));
+}
+
+#[test]
+fn test_resolve_not_found_empty_plans_dir() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("plans")).unwrap();
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "something");
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        plan_file::PlanResolveError::NotFound { .. }
+    ));
+}
+
+#[test]
+fn test_resolve_ignores_non_md_files() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let plans = dir.path().join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    std::fs::write(plans.join("target.txt"), "text").unwrap();
+    std::fs::write(plans.join("other.md"), "# Other").unwrap();
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "target");
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        plan_file::PlanResolveError::NotFound { .. }
+    ));
+}
+
+#[test]
+fn test_resolve_empty_query() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["alpha"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), "");
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        plan_file::PlanResolveError::NotFound { .. }
+    ));
+}
+
+#[test]
+fn test_resolve_empty_query_after_md_strip() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["alpha"]);
+
+    let result = plan_file::resolve_plan_by_name(dir.path(), ".md");
+    assert!(result.is_err());
+    assert!(matches!(
+        result.unwrap_err(),
+        plan_file::PlanResolveError::NotFound { .. }
+    ));
+}
+
+#[test]
+fn test_resolve_exact_preferred_over_prefix() {
+    let dir = tempfile::TempDir::new().unwrap();
+    setup_plans_dir(dir.path(), &["alpha", "alpha-beta"]);
+
+    // "alpha" is exact for "alpha" but also prefix for "alpha-beta"
+    // Exact match should win
+    let result = plan_file::resolve_plan_by_name(dir.path(), "alpha");
+    assert!(result.is_ok());
+    assert!(result.unwrap().ends_with("alpha.md"));
+}
+
+#[test]
+fn test_resolve_not_found_error_display() {
+    let err = plan_file::PlanResolveError::NotFound {
+        name: "test-plan".to_string(),
+    };
+    assert!(err.to_string().contains("test-plan"));
+}
+
+#[test]
+fn test_resolve_ambiguous_error_display() {
+    let err = plan_file::PlanResolveError::Ambiguous {
+        name: "test".to_string(),
+        candidates: vec!["test-a".to_string(), "test-b".to_string()],
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("test"));
+    assert!(msg.contains("test-a"));
+    assert!(msg.contains("test-b"));
 }

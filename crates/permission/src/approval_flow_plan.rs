@@ -82,7 +82,7 @@ impl ApprovalFlow {
             )
             .await;
         } else {
-            Self::handle_same_session_path(sm, session_id, &mut plan_state).await;
+            Self::handle_same_session_path(sm, session_id, &plan_meta, &mut plan_state).await;
         }
     }
 }
@@ -226,6 +226,7 @@ impl ApprovalFlow {
         sm.set_session_mode(&new_session_id, SessionMode::Auto)
             .await;
         Self::notify_new_session_mode_switch(sm, &new_session_id).await;
+        Self::inject_additional_instruction(sm, &new_session_id, plan_meta).await;
     }
 }
 
@@ -233,9 +234,14 @@ impl ApprovalFlow {
 
 impl ApprovalFlow {
     /// Handle same-session execution path: transition to Auto Mode.
+    ///
+    /// If an additional instruction is present in the plan metadata,
+    /// it is injected as a user pending message after the mode-switch
+    /// notification.
     async fn handle_same_session_path(
         sm: &Arc<dyn closeclaw_common::SessionLookup>,
         session_id: &str,
+        plan_meta: &Option<PlanExecMetadata>,
         plan_state: &mut closeclaw_common::PlanState,
     ) {
         plan_state.phase = PlanPhase::FinalPlan;
@@ -251,6 +257,47 @@ impl ApprovalFlow {
                 session_id = %session_id,
                 error = %e,
                 "failed to push mode switch notification"
+            );
+        }
+        Self::inject_additional_instruction(sm, session_id, plan_meta).await;
+    }
+}
+
+// ── Additional instruction injection ──────────────────────────
+
+impl ApprovalFlow {
+    /// Inject an additional instruction as a user pending message.
+    ///
+    /// When the plan metadata contains an `additional_instruction`,
+    /// this method pushes it as a user-role pending message to the
+    /// target session. This allows the additional instruction to appear
+    /// in the session transcript as a user message before the Agent
+    /// begins executing plan steps.
+    async fn inject_additional_instruction(
+        sm: &Arc<dyn closeclaw_common::SessionLookup>,
+        session_id: &str,
+        plan_meta: &Option<PlanExecMetadata>,
+    ) {
+        let instruction = match plan_meta {
+            Some(meta) => match &meta.additional_instruction {
+                Some(i) if !i.trim().is_empty() => i.clone(),
+                _ => return,
+            },
+            None => return,
+        };
+        let msg = PendingMessage::with_role(
+            format!(
+                "additional-instruction-{}",
+                chrono::Utc::now().timestamp_millis()
+            ),
+            instruction,
+            "user".to_string(),
+        );
+        if let Err(e) = sm.push_pending_message(session_id, msg).await {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "failed to inject additional instruction"
             );
         }
     }
