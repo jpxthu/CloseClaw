@@ -905,8 +905,6 @@ async fn test_pending_approval_stores_rule_version_and_snapshot() {
     assert_eq!(p.rule_version.len(), 64);
 }
 
-// ── New session execution path tests (Step 1.8) ─────────────────────────
-
 /// Helper: create a tempfile-backed approval flow with plan state.
 async fn ns_flow() -> (
     tempfile::TempDir,
@@ -980,6 +978,11 @@ async fn test_new_session_fallback_without_callback() {
     assert!(m.get_tracked_plan_state("c1").is_none());
     drop(d);
 }
+// ── Additional instruction injection tests ───────────────────────────────
+// Split into tests_additional_instruction.rs to keep this file under
+// the 1000-line limit.
+#[path = "tests_additional_instruction.rs"]
+mod tests_additional_instruction;
 
 #[tokio::test]
 async fn test_new_session_step_selection_metadata() {

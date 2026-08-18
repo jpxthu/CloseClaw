@@ -131,6 +131,58 @@ async fn test_tool_input_schema_properties() {
     assert!(required.is_empty());
 }
 
+// ── Step 1.4: Schema property tests ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_tool_input_schema_has_plan_name_property() {
+    let sm = make_session_manager();
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let schema = tool.input_schema();
+    let props = schema.pointer("/properties").unwrap();
+    let plan_name = props
+        .get("plan_name")
+        .expect("plan_name property should exist");
+    assert_eq!(plan_name["type"], "string");
+    let desc = plan_name["description"].as_str().unwrap();
+    assert!(
+        desc.contains("Name of the plan"),
+        "plan_name description should mention name: {desc}"
+    );
+}
+
+#[tokio::test]
+async fn test_tool_input_schema_has_additional_instruction_property() {
+    let sm = make_session_manager();
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let schema = tool.input_schema();
+    let props = schema.pointer("/properties").unwrap();
+    let ai = props
+        .get("additional_instruction")
+        .expect("additional_instruction property should exist");
+    assert_eq!(ai["type"], "string");
+    let desc = ai["description"].as_str().unwrap();
+    assert!(
+        desc.contains("Optional instruction"),
+        "additional_instruction description should mention optional: {desc}"
+    );
+}
+
+// ── Step 1.4: Detail doc string test ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_tool_detail_mentions_additional_instruction() {
+    let sm = make_session_manager();
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let detail = tool.detail();
+    assert!(
+        detail.contains("additional instruction"),
+        "detail should mention additional instruction: {detail}"
+    );
+}
+
 // ── Error path tests ────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -263,6 +315,125 @@ async fn test_call_with_new_session_flag() {
                 msg.contains("活跃的 plan"),
                 "error should mention missing plan: {msg}"
             );
+        }
+        other => panic!("expected InvalidArgs, got: {other:?}"),
+    }
+}
+
+// ── Step 1.4: plan_name and additional_instruction argument tests ────────
+
+#[tokio::test]
+async fn test_call_with_plan_name_and_additional_instruction() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-plan-name", SessionMode::Plan).await;
+
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let ctx = make_ctx(Some("sess-plan-name"));
+
+    // plan_name + additional_instruction both provided, but no plan state → error
+    let result = tool
+        .call(
+            json!({
+                "plan_name": "my-plan",
+                "additional_instruction": "请优先处理测试用例"
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ToolCallError::InvalidArgs(msg) => {
+            assert!(
+                msg.contains("活跃的 plan"),
+                "error should mention missing plan: {msg}"
+            );
+        }
+        other => panic!("expected InvalidArgs, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_call_plan_name_and_instruction_with_missing_plan() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-plan-missing", SessionMode::Plan).await;
+
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let ctx = make_ctx(Some("sess-plan-missing"));
+
+    // Both plan_name and additional_instruction provided but no plan state → error
+    let result = tool
+        .call(
+            json!({
+                "plan_name": "my-plan",
+                "additional_instruction": "请优先处理测试用例"
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ToolCallError::InvalidArgs(msg) => {
+            assert!(
+                msg.contains("活跃的 plan"),
+                "error should mention missing plan: {msg}"
+            );
+        }
+        other => panic!("expected InvalidArgs, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_call_empty_additional_instruction_filtered() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-plan-empty-ai", SessionMode::Plan).await;
+
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let ctx = make_ctx(Some("sess-plan-empty-ai"));
+
+    // Empty additional_instruction should be treated as absent
+    let result = tool
+        .call(
+            json!({
+                "additional_instruction": "  "
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_err());
+    // Still fails because no plan state, but the empty instruction is filtered
+    match result.unwrap_err() {
+        ToolCallError::InvalidArgs(msg) => {
+            assert!(msg.contains("活跃的 plan"), "got: {msg}");
+        }
+        other => panic!("expected InvalidArgs, got: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_call_empty_plan_name_filtered() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-plan-empty-pn", SessionMode::Plan).await;
+
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let ctx = make_ctx(Some("sess-plan-empty-pn"));
+
+    // Empty plan_name should be filtered out
+    let result = tool
+        .call(
+            json!({
+                "plan_name": ""
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ToolCallError::InvalidArgs(msg) => {
+            assert!(msg.contains("活跃的 plan"), "got: {msg}");
         }
         other => panic!("expected InvalidArgs, got: {other:?}"),
     }

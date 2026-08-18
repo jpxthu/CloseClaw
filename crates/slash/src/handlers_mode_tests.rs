@@ -906,17 +906,14 @@ fn test_parse_execute_args_all_cases() {
 #[tokio::test]
 async fn test_execute_plan_mode_with_name_resolves_plan() {
     use std::fs;
-
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
     fs::create_dir_all(&plans_dir).unwrap();
     let plan_file = plans_dir.join("my-plan.md");
     fs::write(&plan_file, "# My Plan\n").unwrap();
-
     let sm = make_session_manager_with_storage();
     let sid = create_session_with_plan_mode(&sm).await;
     sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
-
     let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
@@ -952,7 +949,6 @@ async fn test_execute_plan_mode_with_name_resolves_plan() {
         other => panic!("expected SetMode, got {other:?}"),
     }
 }
-
 #[tokio::test]
 async fn test_execute_non_plan_mode_with_name_and_instruction() {
     use std::fs;
@@ -961,11 +957,9 @@ async fn test_execute_non_plan_mode_with_name_and_instruction() {
     fs::create_dir_all(&plans_dir).unwrap();
     let plan_file = plans_dir.join("my-plan.md");
     fs::write(&plan_file, "# My Plan\n").unwrap();
-
     let sm = make_session_manager_with_storage();
     let sid = create_test_session(&sm).await;
     sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
-
     let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
@@ -998,3 +992,9 @@ async fn test_execute_non_plan_mode_with_name_and_instruction() {
         other => panic!("expected SetMode, got {other:?}"),
     }
 }
+
+// ── ExecuteHandler error path tests (Step 1.4) ───────────────────────────
+// Split into handlers_execute_tests.rs to keep this file under
+// the 1000-line limit.
+#[path = "handlers_execute_tests.rs"]
+mod handlers_execute_tests;
