@@ -229,7 +229,6 @@ fn test_owner_shortcut_after_creator_rule() {
     // Creator rule should take priority over owner shortcut.
     // But if caller is both owner AND creator, they get Allowed via creator rule.
     let ruleset = RuleSetBuilder::new()
-        .agent_creator("test-agent", "owner")
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
         .build()

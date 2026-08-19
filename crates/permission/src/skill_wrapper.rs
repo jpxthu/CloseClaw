@@ -284,7 +284,6 @@ mod tests {
             rules,
             defaults: Defaults::default(),
             template_includes: vec![],
-            agent_creators: HashMap::new(),
             ..Default::default()
         };
         Arc::new(tokio::sync::RwLock::new(

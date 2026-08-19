@@ -21,10 +21,6 @@ pub struct RuleSet {
     /// Names of templates to load from the templates/ directory.
     #[serde(default)]
     pub template_includes: Vec<String>,
-    /// Agent creator mapping: agent_id -> creator_user_id.
-    /// Used to automatically generate creator full-access rules.
-    #[serde(default)]
-    pub agent_creators: HashMap<String, String>,
     /// Runtime-computed version hash of the rule set.
     /// Skipped during serialization/deserialization; call
     /// `compute_version()` after loading to populate.

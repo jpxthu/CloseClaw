@@ -11,7 +11,6 @@ use crate::rules::RuleSetBuilder;
 #[tokio::test]
 async fn test_creator_rule_short_circuit_caller_creator_id() {
     let ruleset = RuleSetBuilder::new()
-        .agent_creator("dev-agent-01", "ou_john")
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
         .build()
@@ -38,7 +37,6 @@ async fn test_creator_rule_short_circuit_caller_creator_id() {
 #[tokio::test]
 async fn test_creator_rule_short_circuit_agent_creators_map() {
     let ruleset = RuleSetBuilder::new()
-        .agent_creator("dev-agent-01", "ou_john")
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
         .build()
@@ -65,7 +63,6 @@ async fn test_creator_rule_short_circuit_agent_creators_map() {
 #[tokio::test]
 async fn test_creator_rule_not_matching_non_creator() {
     let ruleset = RuleSetBuilder::new()
-        .agent_creator("dev-agent-01", "ou_john")
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
         .build()
@@ -92,7 +89,6 @@ async fn test_creator_rule_not_matching_non_creator() {
 #[tokio::test]
 async fn test_creator_rule_priority_over_explicit_deny() {
     let ruleset = RuleSetBuilder::new()
-        .agent_creator("dev-agent-01", "ou_john")
         .rule(
             crate::rules::RuleBuilder::new()
                 .name("deny-everything")
@@ -128,7 +124,6 @@ async fn test_creator_rule_priority_over_explicit_deny() {
 #[tokio::test]
 async fn test_creator_rule_caller_creator_id_takes_precedence() {
     let ruleset = RuleSetBuilder::new()
-        .agent_creator("dev-agent-01", "ou_john")
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
         .build()
