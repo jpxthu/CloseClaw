@@ -217,8 +217,7 @@ impl Daemon {
         let Some(v) = config_manager.section(ConfigSection::Skills) else {
             return Vec::new();
         };
-        let Ok(cfg) = serde_json::from_value::<closeclaw_config::providers::SkillsConfigData>(v)
-        else {
+        let Ok(cfg) = serde_json::from_value::<closeclaw_config::SkillsConfigData>(v) else {
             return Vec::new();
         };
         let home = dirs::home_dir();

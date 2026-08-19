@@ -501,15 +501,22 @@ impl ConfigManager {
         let skills_path = ConfigSection::Skills.path(&self.config_dir);
         if skills_path.exists() {
             match fs::read_to_string(&skills_path) {
-                Ok(content) => {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(value) => {
                         sections.insert(ConfigSection::Skills, value);
                         info!(
                             path = %skills_path.display(),
                             "global skills config loaded"
                         );
                     }
-                }
+                    Err(e) => {
+                        warn!(
+                            path = %skills_path.display(),
+                            error = %e,
+                            "failed to parse skills.json, using defaults"
+                        );
+                    }
+                },
                 Err(e) => {
                     warn!(
                         path = %skills_path.display(),
