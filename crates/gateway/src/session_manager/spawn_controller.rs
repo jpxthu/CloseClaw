@@ -500,7 +500,8 @@ impl closeclaw_session::spawn_validation::SpawnValidator for SpawnController {
     }
 }
 
-/// Map gateway-local [`SpawnError`] to trait-level [`closeclaw_session::spawn_validation::SpawnError`].
+/// Map gateway-local [`SpawnError`] to trait-level
+/// [`closeclaw_session::spawn_validation::SpawnError`].
 fn map_spawn_error(e: SpawnError) -> closeclaw_session::spawn_validation::SpawnError {
     match e {
         SpawnError::DepthExceeded { current, max } => {
