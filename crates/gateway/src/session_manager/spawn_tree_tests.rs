@@ -18,6 +18,8 @@ fn info(session_id: &str, parent_session_id: &str, depth: u32) -> ChildSessionIn
         mode: SpawnMode::Run,
         status: ChildSessionStatus::Active,
         timeout_secs: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
         created_at: std::time::Instant::now(),
     }
 }

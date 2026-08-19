@@ -96,6 +96,11 @@ impl SpawnCreationContext for MockCreationContext {
         Some("test-user".to_string())
     }
 
+    async fn parent_workspace(&self, _parent_session_id: &str) -> Option<std::path::PathBuf> {
+        let guard = self.parent_session.read().await;
+        Some(guard.workdir().to_path_buf())
+    }
+
     fn config_dir(&self) -> &std::path::Path {
         &self.config_dir
     }
@@ -145,6 +150,8 @@ async fn test_task_injected_with_user_role() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -182,6 +189,8 @@ async fn test_task_content_forwarded() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -217,6 +226,8 @@ async fn test_pending_message_id_format() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -259,6 +270,8 @@ async fn test_task_role_user_in_session_mode() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -273,6 +286,87 @@ async fn test_task_role_user_in_session_mode() {
         Some("user"),
         "task role must be 'user' in Session mode too"
     );
+}
+
+// ── Mock: no parent workspace ──────────────────────────────────────────
+
+/// Mock that returns `None` from `parent_workspace`, simulating a parent
+/// session that has no workspace directory set. Used to test the
+/// Level 4 (dedicated directory) fallback path.
+struct MockCreationContextWithNoParentWorkspace {
+    inner: MockCreationContext,
+}
+
+impl MockCreationContextWithNoParentWorkspace {
+    fn new() -> Self {
+        Self {
+            inner: MockCreationContext::new(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SpawnCreationContext for MockCreationContextWithNoParentWorkspace {
+    async fn get_parent_conversation_session(
+        &self,
+        parent_session_id: &str,
+    ) -> Option<Arc<RwLock<ConversationSession>>> {
+        self.inner
+            .get_parent_conversation_session(parent_session_id)
+            .await
+    }
+
+    async fn load_checkpoint(&self, session_id: &str) -> Option<SessionCheckpoint> {
+        self.inner.load_checkpoint(session_id).await
+    }
+
+    async fn save_checkpoint(&self, cp: &SessionCheckpoint) {
+        self.inner.save_checkpoint(cp).await
+    }
+
+    fn get_agent_config(&self, agent_id: &str) -> Option<ResolvedAgentConfig> {
+        self.inner.get_agent_config(agent_id)
+    }
+
+    fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
+        self.inner.shutdown_signal()
+    }
+
+    fn default_reasoning_level(&self) -> ReasoningLevel {
+        self.inner.default_reasoning_level()
+    }
+
+    fn llm_caller(&self) -> Option<Arc<dyn closeclaw_common::LlmCaller>> {
+        self.inner.llm_caller()
+    }
+
+    fn system_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::SystemPromptBuilder>> {
+        self.inner.system_prompt_builder()
+    }
+
+    fn prompt_overrides(&self) -> Option<closeclaw_common::PromptOverrides> {
+        self.inner.prompt_overrides()
+    }
+
+    fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>> {
+        self.inner.dynamic_prompt_builder()
+    }
+
+    fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>> {
+        self.inner.skill_listing_provider()
+    }
+
+    async fn sender_id(&self, session_id: &str) -> Option<String> {
+        self.inner.sender_id(session_id).await
+    }
+
+    async fn parent_workspace(&self, _parent_session_id: &str) -> Option<std::path::PathBuf> {
+        None // Force fallback to Level 4 (dedicated directory)
+    }
+
+    fn config_dir(&self) -> &std::path::Path {
+        self.inner.config_dir()
+    }
 }
 
 // ── Step 1.2: Agent skills whitelist injection ────────────────────────────
@@ -348,6 +442,10 @@ impl SpawnCreationContext for MockCreationContextWithSkills {
         self.inner.sender_id(session_id).await
     }
 
+    async fn parent_workspace(&self, parent_session_id: &str) -> Option<std::path::PathBuf> {
+        self.inner.parent_workspace(parent_session_id).await
+    }
+
     fn config_dir(&self) -> &std::path::Path {
         self.inner.config_dir()
     }
@@ -368,6 +466,8 @@ fn default_params<'a>() -> ChildSessionCreationParams<'a> {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     }
 }
 
@@ -537,6 +637,8 @@ async fn test_prompt_template_injected_into_system_prompt() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: Some("## Custom Template\nRead only."),
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -585,6 +687,8 @@ async fn test_task_unchanged_with_prompt_template() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: Some("Template prefix"),
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -618,6 +722,8 @@ async fn test_no_prompt_template_unchanged_behavior() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -636,14 +742,33 @@ async fn test_no_prompt_template_unchanged_behavior() {
     );
 }
 
-// ── Step 1.5: Level 3 fallback workspace path tests ─────────────────────
+// ── Workspace fallback chain tests ──────────────────────────────────────
 
-/// Level 3 fallback: when parent session exists and no explicit workspace
-/// config, the child workspace path must be
-/// `{config_dir}/workspaces/{child_agent_id}/{user_id}/`.
+/// Level 3 fallback: when no explicit workspace or config.workspace,
+/// the parent session workspace is used.
 #[tokio::test]
-async fn test_level3_fallback_workspace_path() {
+async fn test_level3_parent_workspace_fallback() {
     let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = default_params();
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+
+    // MockCreationContext::parent_workspace returns the parent session's workdir
+    let parent_ws = ctx.parent_workspace("parent-session").await.unwrap();
+    assert_eq!(
+        result.workspace_path, parent_ws,
+        "Level 3 fallback must use parent session workspace"
+    );
+}
+
+/// Level 4 fallback: when parent_workspace returns None and parent session
+/// exists, the dedicated workspace directory is used.
+#[tokio::test]
+async fn test_level4_dedicated_workspace_fallback() {
+    let ctx = MockCreationContextWithNoParentWorkspace::new();
     let config = make_config("child-agent");
     let params = default_params();
 
@@ -658,16 +783,14 @@ async fn test_level3_fallback_workspace_path() {
         .join("test-user");
     assert_eq!(
         result.workspace_path, expected,
-        "Level 3 fallback must produce config_dir/workspaces/child-agent/test-user/"
+        "Level 4 fallback must produce config_dir/workspaces/child-agent/test-user/"
     );
 }
 
-/// Level 3 fallback path must be compatible with `is_workspace_path()`
-/// authorization: the path starts with `{data_root}/workspaces/` and
-/// contains the agent_id/user_id boundary.
+/// Level 4 fallback path is compatible with `is_workspace_path()` authorization.
 #[tokio::test]
-async fn test_level3_fallback_path_matches_workspace_authorization() {
-    let ctx = MockCreationContext::new();
+async fn test_level4_dedicated_path_matches_workspace_authorization() {
+    let ctx = MockCreationContextWithNoParentWorkspace::new();
     let config = make_config("my-agent");
     let params = ChildSessionCreationParams {
         task: "workspace auth test",
@@ -681,19 +804,16 @@ async fn test_level3_fallback_path_matches_workspace_authorization() {
     let ws = &result.workspace_path;
     let ws_str = ws.to_string_lossy();
 
-    // Must contain the workspaces/ prefix segment
     assert!(
         ws_str.contains("/workspaces/"),
         "workspace path must contain '/workspaces/' segment: {}",
         ws_str
     );
-    // Must end with agent_id/user_id (boundary-aware)
     assert!(
         ws_str.ends_with("/my-agent/test-user"),
         "workspace path must end with agent_id/user_id: {}",
         ws_str
     );
-    // Must be a child of the config_dir (the data root for authorization)
     let config_dir = ctx.config_dir();
     assert!(
         ws.starts_with(config_dir),
@@ -703,7 +823,7 @@ async fn test_level3_fallback_path_matches_workspace_authorization() {
     );
 }
 
-/// Explicit workspace argument must take priority over Level 3 fallback.
+/// Explicit workspace argument takes highest priority.
 #[tokio::test]
 async fn test_explicit_workspace_overrides_fallback() {
     let ctx = MockCreationContext::new();
@@ -720,11 +840,11 @@ async fn test_explicit_workspace_overrides_fallback() {
     assert_eq!(
         result.workspace_path,
         std::path::PathBuf::from("/custom/explicit/workspace"),
-        "explicit workspace must override Level 3 fallback"
+        "explicit workspace must override all fallbacks"
     );
 }
 
-/// Config-level workspace must take priority over Level 3 fallback.
+/// Config-level workspace takes priority over parent workspace and dedicated dir.
 #[tokio::test]
 async fn test_config_workspace_overrides_fallback() {
     let ctx = MockCreationContext::new();
@@ -739,14 +859,14 @@ async fn test_config_workspace_overrides_fallback() {
     assert_eq!(
         result.workspace_path,
         std::path::PathBuf::from("/config/specified/workspace"),
-        "config.workspace must override Level 3 fallback"
+        "config.workspace must override parent workspace and dedicated dir"
     );
 }
 
-/// Level 3 fallback uses user_id from `sender_id()`.
+/// Level 4 fallback uses user_id from `sender_id()`.
 #[tokio::test]
-async fn test_level3_fallback_uses_sender_id() {
-    let ctx = MockCreationContext::new();
+async fn test_level4_dedicated_uses_sender_id() {
+    let ctx = MockCreationContextWithNoParentWorkspace::new();
     let config = make_config("test-agent");
     let params = default_params();
 
@@ -762,6 +882,6 @@ async fn test_level3_fallback_uses_sender_id() {
         .join("test-user");
     assert_eq!(
         result.workspace_path, expected,
-        "Level 3 fallback must include sender_id as the user_id component"
+        "Level 4 fallback must include sender_id as the user_id component"
     );
 }

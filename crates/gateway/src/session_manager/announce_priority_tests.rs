@@ -45,6 +45,8 @@ async fn test_try_push_announce_passes_later_priority() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -96,6 +98,8 @@ async fn test_try_push_announce_passes_now_priority() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -150,6 +154,8 @@ async fn test_try_push_announce_normal_completion_uses_next() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -203,6 +209,8 @@ async fn test_forced_termination_produces_next_priority() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");

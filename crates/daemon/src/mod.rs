@@ -532,7 +532,6 @@ impl Daemon {
                         "## Plan Content (auto-injected for new session execution)\n\n{}",
                         plan_content
                     );
-
                     // Determine max_spawn_depth from parent session.
                     let max_spawn_depth = sm
                         .get_effective_max_spawn_depth(&parent_session_id)
@@ -556,12 +555,13 @@ impl Daemon {
                         spawn_timeout: None,
                         label: Some("plan-execution".to_string()),
                         prompt_template_prefix: Some(prompt_prefix),
+                        timeout_warning_secs: None,
+                        timeout_notify_interval_ratio: None,
                     };
                     let child_id = sm.create_child_session_with_config(child_config).await?;
 
-                    // The child session is created in Run mode by default.
-                    // The approval flow's handle_new_session_path will set
-                    // Auto Mode and plan state after this callback returns.
+                    // Child created in Run mode; approval flow's handle_new_session_path
+                    // sets Auto Mode and plan state after this callback returns.
                     Ok(child_id)
                 })
             },

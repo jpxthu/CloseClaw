@@ -98,6 +98,8 @@ async fn test_model_priority_explicit_override_wins() {
             3,                        // max_spawn_depth
             None,                     // spawn_timeout
             None,                     // label
+            None,                     // timeout_warning_secs
+            None,                     // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -136,6 +138,8 @@ async fn test_model_priority_parent_subagents_wins() {
             3,                       // max_spawn_depth
             None,                    // spawn_timeout
             None,                    // label
+            None,                    // timeout_warning_secs
+            None,                    // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -175,6 +179,8 @@ async fn test_model_priority_target_agent_model() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -214,6 +220,8 @@ async fn test_model_priority_system_default() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -252,6 +260,8 @@ async fn test_model_priority_parent_subagents_beats_target() {
             3,                          // max_spawn_depth
             None,                       // spawn_timeout
             None,                       // label
+            None,                       // timeout_warning_secs
+            None,                       // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");

@@ -55,6 +55,8 @@ async fn register_tree_entry(
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )

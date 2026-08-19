@@ -73,6 +73,13 @@ pub struct ChildSessionCreationParams<'a> {
     /// tail (before the task message). Per design doc §9, the template goes
     /// into the system prompt, not the user message.
     pub prompt_template_prefix: Option<&'a str>,
+    /// Timeout warning duration (seconds), resolved via priority chain:
+    /// spawn args → target agent config → global default.
+    /// `None` means legacy single warning 60s before hard timeout.
+    pub timeout_warning_secs: Option<u64>,
+    /// Interval ratio for cyclic warning notifications (relative to timeout_warning).
+    /// Must be >=0.1 and <=2.0, default 0.5. `None` means use default.
+    pub timeout_notify_interval_ratio: Option<f64>,
 }
 
 /// Create a child `ConversationSession` for a spawned sub-agent.
@@ -302,9 +309,10 @@ async fn configure_spawn_behavior(
 /// Fallback order:
 /// 1. Explicit `workspace` arg (if provided).
 /// 2. `config.workspace` (if set).
-/// 3. `{config_dir}/workspaces/<child_agent_id>/<user_id>/` — dedicated workspace
+/// 3. Parent session workspace (子 session 默认工作目录).
+/// 4. `{config_dir}/workspaces/<child_agent_id>/<user_id>/` — dedicated workspace
 ///    directory under the configuration root.
-/// 4. `/tmp` (last resort).
+/// 5. `/tmp` (last resort).
 async fn resolve_child_workspace(
     ctx: &dyn SpawnCreationContext,
     config: &ResolvedAgentConfig,
@@ -317,7 +325,11 @@ async fn resolve_child_workspace(
     if let Some(ref ws) = config.workspace {
         return Ok(ws.clone());
     }
-    // Level 3: dedicated workspace under config_dir/workspaces/.
+    // Level 3: parent session workspace.
+    if let Some(parent_ws) = ctx.parent_workspace(parent_session_id).await {
+        return Ok(parent_ws);
+    }
+    // Level 4: dedicated workspace under config_dir/workspaces/.
     if ctx
         .get_parent_conversation_session(parent_session_id)
         .await

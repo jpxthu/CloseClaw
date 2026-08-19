@@ -35,6 +35,8 @@ pub(crate) struct SpawnArgs {
     pub(crate) model: Option<String>,
     pub(crate) timeout: Option<u64>,
     pub(crate) label: Option<String>,
+    pub(crate) timeout_warning: Option<u64>,
+    pub(crate) timeout_notify_interval_ratio: Option<f64>,
 }
 
 impl SessionsSpawnTool {
@@ -95,6 +97,10 @@ impl SessionsSpawnTool {
         let model = args.get("model").and_then(|v| v.as_str()).map(String::from);
         let timeout = args.get("timeout").and_then(|v| v.as_u64());
         let label = args.get("label").and_then(|v| v.as_str()).map(String::from);
+        let timeout_warning = args.get("timeoutWarning").and_then(|v| v.as_u64());
+        let timeout_notify_interval_ratio = args
+            .get("timeoutNotifyIntervalRatio")
+            .and_then(|v| v.as_f64());
         Ok(SpawnArgs {
             task: task.to_string(),
             agent_id,
@@ -108,6 +114,8 @@ impl SessionsSpawnTool {
             model,
             timeout,
             label,
+            timeout_warning,
+            timeout_notify_interval_ratio,
         })
     }
 
@@ -130,6 +138,8 @@ impl SessionsSpawnTool {
         spawn_timeout: Option<u64>,
         label: Option<&str>,
         prompt_template_prefix: Option<&str>,
+        timeout_warning_secs: Option<u64>,
+        timeout_notify_interval_ratio: Option<f64>,
     ) -> Result<String, ToolCallError> {
         self.session_manager
             .create_child_session(
@@ -148,6 +158,8 @@ impl SessionsSpawnTool {
                 spawn_timeout,
                 label,
                 prompt_template_prefix,
+                timeout_warning_secs,
+                timeout_notify_interval_ratio,
             )
             .await
             .map_err(|e| {
@@ -235,6 +247,14 @@ impl Tool for SessionsSpawnTool {
                 "timeout": {
                     "type": "integer",
                     "description": "Override the target agent's spawn timeout (seconds). Takes highest priority in the timeout resolution chain."
+                },
+                "timeoutWarning": {
+                    "type": "integer",
+                    "description": "Override the target agent's timeout warning (seconds). When the sub-agent has been running for this many seconds, cyclic warning notifications begin. Takes highest priority in the timeout_warning resolution chain (spawn args -> target agent config -> global default)."
+                },
+                "timeoutNotifyIntervalRatio": {
+                    "type": "number",
+                    "description": "Override the interval ratio for cyclic warning notifications (relative to timeoutWarning). Must be >=0.1 and <=2.0, default 0.5."
                 },
                 "fork": {
                     "type": "boolean",
@@ -331,6 +351,15 @@ impl Tool for SessionsSpawnTool {
         if let Some(arg_timeout) = spawn_args.timeout {
             spawn_timeout = Some(arg_timeout);
         }
+        // Apply timeout_warning priority chain: spawn args > target agent config > global default.
+        let mut timeout_warning_secs = spawn_result.timeout_warning_secs;
+        let mut timeout_notify_interval_ratio = spawn_result.timeout_notify_interval_ratio;
+        if spawn_args.timeout_warning.is_some() {
+            timeout_warning_secs = spawn_args.timeout_warning;
+        }
+        if spawn_args.timeout_notify_interval_ratio.is_some() {
+            timeout_notify_interval_ratio = spawn_args.timeout_notify_interval_ratio;
+        }
         let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
         let parent_subagents_model: Option<String> = match &parent_agent_id {
             Some(id) => self
@@ -365,6 +394,8 @@ impl Tool for SessionsSpawnTool {
                 spawn_timeout,
                 spawn_args.label.as_deref(),
                 prompt_template_prefix,
+                timeout_warning_secs,
+                timeout_notify_interval_ratio,
             )
             .await?;
         Ok(ToolResult {

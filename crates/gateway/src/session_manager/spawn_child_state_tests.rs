@@ -63,6 +63,8 @@ async fn test_spawn_registers_child_state_in_checkpoint() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -149,6 +151,8 @@ async fn test_child_completion_deregisters_child_state() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");

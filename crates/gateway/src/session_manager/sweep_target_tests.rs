@@ -46,6 +46,8 @@ async fn test_get_last_output_at_exists() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session");
@@ -142,6 +144,8 @@ async fn test_terminate_stale_child_active_parent_notifies() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session");
@@ -214,6 +218,8 @@ async fn test_terminate_stale_child_archived_parent_no_notification() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session");
@@ -309,6 +315,8 @@ async fn test_terminate_stale_child_cascade_descendants() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session");
@@ -330,6 +338,8 @@ async fn test_terminate_stale_child_cascade_descendants() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create grandchild");
@@ -402,6 +412,8 @@ async fn test_terminate_stale_child_notification_text_format() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session");

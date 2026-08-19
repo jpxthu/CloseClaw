@@ -146,6 +146,8 @@ async fn test_yield_timeout_fires_and_resumes() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -215,6 +217,8 @@ async fn test_yield_timeout_default_value_in_notification() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -311,6 +315,8 @@ async fn test_yield_warning_timeout_injects_notification() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -389,6 +395,8 @@ async fn test_yield_two_stage_timeout_sequence() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -515,6 +523,8 @@ async fn test_yield_legacy_single_warning_only() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -631,6 +641,8 @@ async fn test_yield_with_child_not_busy() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -682,6 +694,8 @@ async fn test_yield_warning_is_system_notification_with_next_priority() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -764,6 +778,8 @@ async fn test_yield_timeout_notification_goes_through_queue() {
             None,
             None,
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();

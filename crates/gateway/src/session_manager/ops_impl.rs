@@ -31,6 +31,8 @@ impl SessionManagerOps for SessionManager {
         spawn_timeout: Option<u64>,
         label: Option<&str>,
         prompt_template_prefix: Option<&str>,
+        timeout_warning_secs: Option<u64>,
+        timeout_notify_interval_ratio: Option<f64>,
     ) -> Result<String, String> {
         self.create_child_session(
             config,
@@ -48,6 +50,8 @@ impl SessionManagerOps for SessionManager {
             spawn_timeout,
             label,
             prompt_template_prefix,
+            timeout_warning_secs,
+            timeout_notify_interval_ratio,
         )
         .await
     }

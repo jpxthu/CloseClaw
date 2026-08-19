@@ -159,6 +159,8 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
                 mode: SpawnMode::Run,
                 status: ChildSessionStatus::Active,
                 timeout_secs: None,
+                timeout_warning_secs: None,
+                timeout_notify_interval_ratio: None,
                 created_at: std::time::Instant::now(),
             },
         )
@@ -727,6 +729,8 @@ macro_rules! register_child {
                 mode: $mode,
                 status: ChildSessionStatus::Active,
                 timeout_secs: None,
+                timeout_warning_secs: None,
+                timeout_notify_interval_ratio: None,
                 created_at: std::time::Instant::now(),
             },
         )
@@ -808,6 +812,8 @@ async fn test_kill_child_no_descendants_clean_removal() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -914,6 +920,8 @@ async fn test_session_child_survives_without_explicit_kill() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -948,7 +956,6 @@ async fn test_session_child_survives_without_explicit_kill() {
     assert!(mgr.get_conversation_session(child_id).await.is_none());
     assert_eq!(mgr.count_active_children(parent_id).await, 0);
 }
-
 /// Verify that run-mode children also survive without explicit kill
 /// (cascade was removed from finish_llm, so run-mode children are only
 /// cleaned up by the sweeper or explicit kill).
@@ -972,6 +979,8 @@ async fn test_run_child_survives_without_explicit_kill() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
