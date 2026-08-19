@@ -154,45 +154,73 @@ fn test_transition_skipped_from_pending() {
 }
 
 #[test]
-fn test_transition_skipped_to_in_progress() {
+fn test_transition_skipped_to_in_progress_rejected() {
     let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into(), "step2".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
     assert_eq!(state.current_step, Some(1));
-    assert!(validate_transition(&state, 0, &ExecutionStepStatus::InProgress).is_ok());
-    apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(
-        get_step_status(&state, 0),
-        Some(&ExecutionStepStatus::InProgress)
+    let err = validate_transition(&state, 0, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    // Either SkippedStep or InvalidTransition is acceptable — the key point
+    // is that Skipped→InProgress is not allowed.
+    let err_inner = err.unwrap_err();
+    assert!(
+        matches!(
+            err_inner,
+            TransitionError::InvalidTransition {
+                from: ExecutionStepStatus::Skipped,
+                to: ExecutionStepStatus::InProgress
+            }
+        ) || matches!(err_inner, TransitionError::SkippedStep { .. }),
+        "expected InvalidTransition or SkippedStep, got: {:?}",
+        err_inner
     );
-    assert_eq!(state.current_step, Some(0));
 }
 
 #[test]
-fn test_skipped_to_in_progress_current_step_points_to_step() {
+fn test_skipped_to_in_progress_rejected_current_step_past() {
     let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["a".into(), "b".into(), "c".into()]);
     state.current_step = Some(1);
     apply_transition(&mut state, 1, ExecutionStepStatus::Skipped).unwrap();
     assert_eq!(state.current_step, Some(2));
-    apply_transition(&mut state, 1, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(state.current_step, Some(1));
+    let err = validate_transition(&state, 1, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    let err_inner = err.unwrap_err();
+    assert!(
+        matches!(
+            err_inner,
+            TransitionError::InvalidTransition {
+                from: ExecutionStepStatus::Skipped,
+                to: ExecutionStepStatus::InProgress
+            }
+        ) || matches!(err_inner, TransitionError::SkippedStep { .. }),
+        "expected InvalidTransition or SkippedStep, got: {:?}",
+        err_inner
+    );
 }
 
 #[test]
-fn test_skipped_to_in_progress_no_preset_current_step() {
+fn test_skipped_to_in_progress_rejected_no_preset() {
     let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["a".into(), "b".into(), "c".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
     assert_eq!(state.current_step, Some(1));
-    assert!(validate_transition(&state, 0, &ExecutionStepStatus::InProgress).is_ok());
-    apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(state.current_step, Some(0));
-    assert_eq!(
-        get_step_status(&state, 0),
-        Some(&ExecutionStepStatus::InProgress)
+    let err = validate_transition(&state, 0, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    let err_inner = err.unwrap_err();
+    assert!(
+        matches!(
+            err_inner,
+            TransitionError::InvalidTransition {
+                from: ExecutionStepStatus::Skipped,
+                to: ExecutionStepStatus::InProgress
+            }
+        ) || matches!(err_inner, TransitionError::SkippedStep { .. }),
+        "expected InvalidTransition or SkippedStep, got: {:?}",
+        err_inner
     );
 }
 

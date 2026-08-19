@@ -118,9 +118,7 @@ fn is_valid_transition_status(
         ExecutionStepStatus::InProgress => {
             matches!(
                 current,
-                ExecutionStepStatus::Pending
-                    | ExecutionStepStatus::Failed
-                    | ExecutionStepStatus::Skipped
+                ExecutionStepStatus::Pending | ExecutionStepStatus::Failed
             )
         }
         ExecutionStepStatus::Completed => {
@@ -151,13 +149,6 @@ pub fn validate_transition(
     }
 
     let current = &state.execution_steps[step_index].status;
-
-    // Skipped → InProgress: skip the step-order check so that a
-    // previously-skipped step can be resumed even when current_step
-    // has already advanced past it.
-    if *current == ExecutionStepStatus::Skipped && new_status == &ExecutionStepStatus::InProgress {
-        return Ok(());
-    }
 
     // Skip-step check: step_index must == current_step (if set) or == 0
     if let Some(cur) = state.current_step {
@@ -191,7 +182,6 @@ pub fn apply_transition(
     new_status: ExecutionStepStatus,
 ) -> Result<(), TransitionError> {
     validate_transition(state, step_index, &new_status)?;
-    let old_status = state.execution_steps[step_index].status;
     state.execution_steps[step_index].status = new_status;
 
     // Update current_step based on new status
@@ -203,11 +193,6 @@ pub fn apply_transition(
         if next < state.execution_steps.len() {
             state.current_step = Some(next);
         }
-    } else if new_status == ExecutionStepStatus::InProgress
-        && old_status == ExecutionStepStatus::Skipped
-    {
-        // When resuming from Skipped, point current_step back to this step
-        state.current_step = Some(step_index);
     }
     // Failed / Pending→InProgress: keep current_step unchanged
 
