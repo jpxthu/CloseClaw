@@ -60,6 +60,10 @@ pub struct ChildSessionConfig {
     pub label: Option<String>,
     /// Optional prompt template prefix.
     pub prompt_template_prefix: Option<String>,
+    /// Timeout warning duration (seconds).
+    pub timeout_warning_secs: Option<u64>,
+    /// Interval ratio for cyclic warning notifications.
+    pub timeout_notify_interval_ratio: Option<f64>,
 }
 
 impl SessionManager {
@@ -160,6 +164,8 @@ impl SessionManager {
             spawn_timeout,
             ref label,
             ref prompt_template_prefix,
+            timeout_warning_secs,
+            timeout_notify_interval_ratio,
         } = child_config;
         self.create_child_session(
             config,
@@ -177,6 +183,8 @@ impl SessionManager {
             spawn_timeout,
             label.as_deref(),
             prompt_template_prefix.as_deref(),
+            timeout_warning_secs,
+            timeout_notify_interval_ratio,
         )
         .await
     }
@@ -199,6 +207,8 @@ impl SessionManager {
         spawn_timeout: Option<u64>,
         label: Option<&str>,
         prompt_template_prefix: Option<&str>,
+        timeout_warning_secs: Option<u64>,
+        timeout_notify_interval_ratio: Option<f64>,
     ) -> Result<String, String> {
         // ── Increment busy count for drain tracking ────────────────────
         if let Some(sh) = self.get_shutdown_handle().await {
@@ -255,6 +265,8 @@ impl SessionManager {
             parent_subagents_model,
             max_spawn_depth,
             prompt_template_prefix,
+            timeout_warning_secs,
+            timeout_notify_interval_ratio,
         };
         let created = session_spawn::create_child_conversation_session(
             self, // SpawnCreationContext impl
@@ -365,6 +377,8 @@ impl SessionManager {
                 mode,
                 status: ChildSessionStatus::Active,
                 timeout_secs: spawn_timeout,
+                timeout_warning_secs,
+                timeout_notify_interval_ratio,
                 created_at: std::time::Instant::now(),
             },
         )
@@ -644,6 +658,8 @@ impl SessionManager {
                     mode,
                     status: ChildSessionStatus::Active,
                     timeout_secs: None,
+                    timeout_warning_secs: None,
+                    timeout_notify_interval_ratio: None,
                     created_at: std::time::Instant::now(),
                 },
             )

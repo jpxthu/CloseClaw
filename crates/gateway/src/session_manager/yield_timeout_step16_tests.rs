@@ -46,6 +46,8 @@ async fn test_yield_timeout_structured_notification_content() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -67,6 +69,8 @@ async fn test_yield_timeout_structured_notification_content() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -177,6 +181,8 @@ async fn test_yield_timeout_no_force_terminate_children() {
             Some(600), // long per-child timeout
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -198,6 +204,8 @@ async fn test_yield_timeout_no_force_terminate_children() {
             Some(600), // long per-child timeout
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -263,6 +271,8 @@ async fn test_yield_per_child_spawn_timeout_independent() {
             Some(1), // 1-second per-child timeout
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -322,6 +332,8 @@ async fn test_child_session_info_timeout_secs_passed() {
             Some(120), // explicit timeout
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -367,6 +379,8 @@ async fn test_child_session_info_timeout_secs_none() {
             None, // no timeout
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -413,6 +427,8 @@ async fn test_child_session_info_created_at() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -465,6 +481,8 @@ async fn test_yield_timeout_with_multiple_children() {
         Some(100),
         None,
         None,
+        None, // timeout_warning_secs
+        None, // timeout_notify_interval_ratio
     )
     .await
     .unwrap();
@@ -485,6 +503,8 @@ async fn test_yield_timeout_with_multiple_children() {
         Some(200),
         None,
         None,
+        None, // timeout_warning_secs
+        None, // timeout_notify_interval_ratio
     )
     .await
     .unwrap();

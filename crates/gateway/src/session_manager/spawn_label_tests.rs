@@ -80,6 +80,8 @@ async fn test_spawn_label_auto_generated_when_none() {
             None, // spawn_timeout
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -141,6 +143,8 @@ async fn test_spawn_label_explicit_value_preserved() {
             None,                    // spawn_timeout
             Some("my-custom-label"), // label
             None,                    // prompt_template_prefix
+            None,                    // timeout_warning_secs
+            None,                    // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -191,6 +195,8 @@ async fn test_spawn_label_via_config_none_generates() {
         spawn_timeout: None,
         label: None, // auto-generate
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
     let child_id = mgr
         .create_child_session_with_config(child_config)

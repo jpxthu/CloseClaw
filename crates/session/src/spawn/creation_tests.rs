@@ -150,6 +150,8 @@ async fn test_task_injected_with_user_role() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -187,6 +189,8 @@ async fn test_task_content_forwarded() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -222,6 +226,8 @@ async fn test_pending_message_id_format() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -264,6 +270,8 @@ async fn test_task_role_user_in_session_mode() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -458,6 +466,8 @@ fn default_params<'a>() -> ChildSessionCreationParams<'a> {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     }
 }
 
@@ -627,6 +637,8 @@ async fn test_prompt_template_injected_into_system_prompt() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: Some("## Custom Template\nRead only."),
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -675,6 +687,8 @@ async fn test_task_unchanged_with_prompt_template() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: Some("Template prefix"),
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)
@@ -708,6 +722,8 @@ async fn test_no_prompt_template_unchanged_behavior() {
         parent_subagents_model: None,
         max_spawn_depth: 3,
         prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
     };
 
     let result = create_child_conversation_session(&ctx, &config, &params)

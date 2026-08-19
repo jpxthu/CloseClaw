@@ -18,6 +18,8 @@ fn make_child(timeout_secs: Option<u64>) -> ChildSessionInfo {
         mode: SpawnMode::Run,
         status: ChildSessionStatus::Active,
         timeout_secs,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
         created_at: std::time::Instant::now(),
     }
 }
@@ -32,6 +34,8 @@ fn make_child_with_id(id: &str, timeout_secs: Option<u64>) -> ChildSessionInfo {
         mode: SpawnMode::Run,
         status: ChildSessionStatus::Active,
         timeout_secs,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
         created_at: std::time::Instant::now(),
     }
 }

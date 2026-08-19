@@ -288,6 +288,8 @@ async fn test_steer_child_denied_by_communication_check() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -352,6 +354,8 @@ async fn test_announce_denied_by_communication_check() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )

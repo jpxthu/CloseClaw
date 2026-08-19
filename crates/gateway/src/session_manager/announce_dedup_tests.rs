@@ -49,6 +49,8 @@ async fn test_dedup_child_running_allows_push() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -104,6 +106,8 @@ async fn test_dedup_child_completed_skips_push() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -173,6 +177,8 @@ async fn test_dedup_child_errored_skips_push() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -235,6 +241,8 @@ async fn test_dedup_child_terminated_skips_push() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -347,6 +355,8 @@ async fn test_dedup_first_push_deregisters_child() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");

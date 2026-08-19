@@ -87,14 +87,28 @@ impl Tool for SessionsYieldTool {
         let children = self.session_manager.list_children(session_id).await;
         let overall = compute_overall_timeout(&children);
 
-        // Look up agent config for timeout warning settings.
-        let (timeout_warning, notify_interval_ratio) = match self
-            .agent_config_lookup
-            .lookup_agent_config(&ctx.agent_id)
-            .await
-        {
-            Some(info) => (info.timeout_warning, info.timeout_notify_interval_ratio),
-            None => (None, None),
+        // Resolve timeout_warning per-child using each child's agent config.
+        // Design doc: timeout_warning resolves via spawn args → target agent config → global default.
+        // Each child's resolved values are stored in ChildSessionInfo during spawn.
+        // When no child provides explicit values, fall back to parent agent config.
+        let (timeout_warning, notify_interval_ratio) = if children.is_empty() {
+            // No children: use parent agent config as fallback.
+            match self
+                .agent_config_lookup
+                .lookup_agent_config(&ctx.agent_id)
+                .await
+            {
+                Some(info) => (info.timeout_warning, info.timeout_notify_interval_ratio),
+                None => (None, None),
+            }
+        } else {
+            // Use the first child's resolved timeout_warning (all children spawned
+            // under the same parent share the yield timeout timer).
+            let first = &children[0];
+            (
+                first.timeout_warning_secs,
+                first.timeout_notify_interval_ratio,
+            )
         };
 
         self.session_manager

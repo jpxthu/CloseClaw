@@ -106,6 +106,8 @@ async fn test_try_push_announce_run_mode() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -158,6 +160,8 @@ async fn test_try_push_announce_session_mode_noop() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -292,6 +296,8 @@ async fn test_thinking_blocks_excluded() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -421,6 +427,8 @@ async fn test_try_push_announce_sends_mining_notification() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -474,6 +482,8 @@ async fn test_try_push_announce_no_notification_without_tx() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -527,6 +537,8 @@ async fn test_session_mode_no_mining_notification() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -970,22 +982,17 @@ impl TaskManager for MockTaskManager {
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         unimplemented!("MockTaskManager::backgroundize_task")
     }
-
     async fn kill_task(&self, _task_id: &str) -> Result<(), BackgroundTaskError> {
         unimplemented!("MockTaskManager::kill_task")
     }
-
     async fn get_task(&self, _task_id: &str) -> Option<BackgroundTask> {
         None
     }
-
     async fn drain_notifications(&self) -> Vec<CompletionNotification> {
         std::mem::take(&mut *self.notifications.lock().unwrap())
     }
-
     async fn list_running_tasks(&self) -> Vec<RunningTaskInfo> {
         vec![]
     }
-
     async fn cleanup_finished(&self) {}
 }

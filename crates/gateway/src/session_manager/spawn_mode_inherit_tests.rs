@@ -91,6 +91,8 @@ async fn test_child_inherits_plan_mode_from_parent() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -142,6 +144,8 @@ async fn test_child_stays_normal_when_parent_is_normal() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -194,6 +198,8 @@ async fn test_child_stays_normal_when_parent_is_auto() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");

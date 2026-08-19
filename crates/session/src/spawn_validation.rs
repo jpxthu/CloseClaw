@@ -38,6 +38,13 @@ pub struct SpawnValidationResult {
     /// priority chain: spawn args → target agent config → global default.
     /// Never `None` after resolution — always falls back to global default.
     pub spawn_timeout: Option<u64>,
+    /// Sub-agent timeout warning duration (seconds), resolved via
+    /// priority chain: spawn args → target agent config → global default.
+    /// `None` means legacy single warning 60s before hard timeout.
+    pub timeout_warning_secs: Option<u64>,
+    /// Interval ratio for cyclic warning notifications (relative to timeout_warning).
+    /// Must be >=0.1 and <=2.0, default 0.5. `None` means use default.
+    pub timeout_notify_interval_ratio: Option<f64>,
 }
 
 /// Trait for validating spawn requests.

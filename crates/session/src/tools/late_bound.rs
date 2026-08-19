@@ -90,6 +90,8 @@ impl SessionManagerOps for LateBoundSessionManagerOps {
         spawn_timeout: Option<u64>,
         label: Option<&str>,
         prompt_template_prefix: Option<&str>,
+        timeout_warning_secs: Option<u64>,
+        timeout_notify_interval_ratio: Option<f64>,
     ) -> Result<String, String> {
         self.get_ref()?
             .create_child_session(
@@ -108,6 +110,8 @@ impl SessionManagerOps for LateBoundSessionManagerOps {
                 spawn_timeout,
                 label,
                 prompt_template_prefix,
+                timeout_warning_secs,
+                timeout_notify_interval_ratio,
             )
             .await
     }
@@ -202,6 +206,8 @@ mod tests {
             _spawn_timeout: Option<u64>,
             _label: Option<&str>,
             _prompt_template_prefix: Option<&str>,
+            _timeout_warning_secs: Option<u64>,
+            _timeout_notify_interval_ratio: Option<f64>,
         ) -> Result<String, String> {
             Ok("child-session-id".into())
         }
@@ -268,6 +274,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .await;
         assert!(result.is_err());
@@ -323,6 +331,8 @@ mod tests {
                 None,
                 None,
                 3,
+                None,
+                None,
                 None,
                 None,
                 None,
