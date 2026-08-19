@@ -70,7 +70,7 @@ pub(crate) async fn sweep_spawn_tree_reclaim(session_manager: &SessionManager) {
 
     for (parent_id, children) in &snapshot {
         if active_parents.contains(parent_id) {
-            reclaim_count += reclaim_terminal滞留(session_manager, parent_id).await;
+            reclaim_count += reclaim_terminal_residuals(session_manager, parent_id).await;
         } else {
             reclaim_count +=
                 remove_orphaned_descendants(session_manager, parent_id, children).await;
@@ -86,11 +86,11 @@ pub(crate) async fn sweep_spawn_tree_reclaim(session_manager: &SessionManager) {
     }
 }
 
-/// Condition ①: Reclaim terminal滞留 nodes under an active parent.
+/// Condition ①: Reclaim terminal residuals under an active parent.
 ///
 /// Calls `reclaim_completed()` to remove children whose status is
 /// Completed/Terminated. Returns the number of reclaimed nodes.
-async fn reclaim_terminal滞留(session_manager: &SessionManager, parent_id: &str) -> usize {
+async fn reclaim_terminal_residuals(session_manager: &SessionManager, parent_id: &str) -> usize {
     let mut tree = session_manager.children.write().await;
     let reclaimed = tree.reclaim_completed(parent_id);
     let count = reclaimed.len();
@@ -99,7 +99,7 @@ async fn reclaim_terminal滞留(session_manager: &SessionManager, parent_id: &st
             parent_id = %parent_id,
             reclaimed_count = count,
             reclaimed_ids = ?reclaimed,
-            "spawn_reclaim_gc: reclaimed terminal滞留 nodes under active parent"
+            "spawn_reclaim_gc: reclaimed terminal residuals nodes under active parent"
         );
     }
     count
