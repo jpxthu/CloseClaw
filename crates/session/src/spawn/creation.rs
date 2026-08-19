@@ -53,7 +53,9 @@ pub struct ChildSessionCreationParams<'a> {
     pub parent_agent_id: &'a str,
     /// Current spawn depth (0 = root).
     pub depth: u32,
-    /// Task description to inject as the child's first message.
+    /// Task description injected into the child's system prompt (AppendSection);
+    /// a minimal trigger message is pushed to the pending queue to start
+    /// the first turn.
     pub task: &'a str,
     /// Whether to use minimal bootstrap mode.
     pub light_context: bool,
@@ -238,6 +240,26 @@ struct SpawnBehaviorConfig<'a> {
     spawn_context: String,
 }
 
+/// Inject the task into the system prompt AppendSection and push a minimal
+/// trigger message to drive the first LLM invocation.
+///
+/// Design doc §Spawn control flow: "task 注入子 session 的 system prompt,
+/// 不属于对话消息, 压缩时不受影响". The task goes into
+/// `add_system_append` (persisted, survives compaction); the trigger message
+/// contains no task content and serves only to kick off the pending-drain
+/// mechanism.
+fn inject_task_and_trigger(task: &str, child_session_id: &str, cs: &mut ConversationSession) {
+    let task_section = format!("## Task\n{}", task);
+    cs.add_system_append(task_section);
+
+    let trigger_msg = PendingMessage::with_role(
+        format!("{}-task", child_session_id),
+        "Begin your assigned task.".to_string(),
+        "user".to_string(),
+    );
+    cs.push_pending(trigger_msg);
+}
+
 /// Apply spawn-specific behavior to the session: system prompt, communication
 /// config, fork history, task injection, and mode inheritance.
 async fn configure_spawn_behavior(
@@ -282,13 +304,8 @@ async fn configure_spawn_behavior(
         }
     }
 
-    // Inject task as pending message.
-    let pending_msg = PendingMessage::with_role(
-        format!("{}-task", behavior.child_session_id),
-        params.task.to_string(),
-        "user".to_string(),
-    );
-    cs.push_pending(pending_msg);
+    // Inject task into system prompt and push trigger message.
+    inject_task_and_trigger(params.task, behavior.child_session_id, &mut cs);
 
     // Inherit parent session mode (Plan Mode).
     if let Some(parent_cs) = ctx

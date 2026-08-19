@@ -196,6 +196,7 @@ impl Tool for SessionsSpawnTool {
         parts.push(spawn_prompt_when_to_use());
         spawn_prompt_add_budget_status(context, &mut parts);
         parts.push(spawn_prompt_usage_principles());
+        parts.push(spawn_prompt_task_authoring_guidance());
         spawn_prompt_add_combination_suggestions(context, &mut parts);
         spawn_prompt_add_workdir_guidance(context, &mut parts);
 
@@ -458,6 +459,21 @@ fn spawn_prompt_usage_principles() -> String {
      execution. Prefer mode='run' for one-shot tasks and mode='session' \
      only when persistent interaction is needed. Avoid excessive spawning: \
      consolidate related tasks into fewer child sessions when possible."
+        .to_string()
+}
+
+/// Task authoring guidance for the sessions_spawn tool prompt.
+///
+/// Design doc reference: docs/design/agent/agent-spawn.md
+/// §子 Agent 提示词工程 > 父 Agent 的 Task 编写指引.
+fn spawn_prompt_task_authoring_guidance() -> String {
+    "Task authoring guidelines:\n\n\
+     - Brief the child like a smart colleague who just walked into \
+       the room — say what to do and why.\n\
+     - Don't delegate synthesis or judgment: you understand and \
+       decide, the child executes.\n\
+     - Use fork=true when the child needs full conversational \
+       context; use plain spawn for independent subtasks."
         .to_string()
 }
 
