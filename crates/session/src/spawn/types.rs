@@ -35,6 +35,13 @@ pub enum ChildSessionStatus {
     Terminated,
 }
 
+impl ChildSessionStatus {
+    /// Returns `true` if this status represents a terminal (non-active) state.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Terminated)
+    }
+}
+
 /// Metadata for a child session tracked by the parent.
 #[derive(Debug, Clone)]
 pub struct ChildSessionInfo {
