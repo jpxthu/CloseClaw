@@ -103,16 +103,12 @@ async fn test_create_child_session_basic() {
         .await
         .expect("create_child_session should succeed");
 
-    // New child id is a UUID string
     assert_eq!(child_id.len(), 36, "child id should be a UUID string");
 
-    // Child appears in sessions
     assert!(mgr.has_session(&child_id).await);
 
-    // Depth is propagated
     assert_eq!(mgr.get_session_depth(&child_id).await, Some(1));
 
-    // Children tracking table has the child
     assert_eq!(mgr.count_active_children("parent-session-1").await, 1);
 
     // ConversationSession exists with the task as first pending message
@@ -187,10 +183,8 @@ async fn test_create_child_session_workspace_fallback() {
         .await
         .expect("create_child_session with explicit workspace should succeed");
 
-    // Both children are tracked under the same parent
     assert_eq!(mgr.count_active_children("parent-x").await, 2);
 
-    // Different ids
     assert_ne!(child_id, child_id_2);
 }
 
@@ -555,23 +549,24 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
     // Verify child session exists
     assert!(mgr.has_session(&child_id).await);
 
-    // Verify child workspace is a subdirectory of parent workspace.
-    let child_cs = mgr
+    // After Step 1.3, Level 3 fallback uses config_dir/workspaces/ not parent_workspace.
+    let child_workdir = mgr
         .get_conversation_session(&child_id)
         .await
-        .expect("child conversation session should exist");
-    let child_workdir = child_cs.read().await.workdir().to_path_buf();
+        .expect("child session should exist")
+        .read()
+        .await
+        .workdir()
+        .to_path_buf();
     assert!(
-        child_workdir.starts_with(&parent_workspace),
-        "child workdir {:?} should be under parent workspace {:?}",
-        child_workdir,
-        parent_workspace
+        !child_workdir.starts_with(&parent_workspace),
+        "child workdir should NOT be under parent workspace"
     );
-    // Verify the child agent_id appears in the path
     assert!(
-        child_workdir.to_string_lossy().contains("child-agent"),
-        "child workdir {:?} should contain child agent id",
         child_workdir
+            .to_string_lossy()
+            .contains("/workspaces/child-agent/"),
+        "child workdir should follow config_dir/workspaces/{{agent_id}}/{{user_id}}"
     );
 }
 
@@ -596,6 +591,8 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
+
+    mgr.set_config_dir_for_testing(tmp.path());
 
     // Parent workspace: {tmp}/workspaces/parent-agent/default/
     let parent_workspace = tmp
@@ -641,8 +638,7 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         child_workdir,
         actual_user_id
     );
-    // Verify it does NOT contain the hardcoded "default" user_id.
-    // The path should be: <parent_workspace>/<child_agent_id>/<actual_user_id>/
+    // After Step 1.3, Level 3 fallback uses config_dir/workspaces/.
     let expected_suffix = format!("{}/{}", "child-agent", actual_user_id);
     assert!(
         child_workdir.to_string_lossy().ends_with(&expected_suffix),
@@ -652,8 +648,7 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         actual_user_id
     );
 }
-
-// ── Step 1.4: spawn-context injection tests ─────────────────────────────
+// ── Step 1.4: spawn-context injection tests ──
 
 /// Verify `build_spawn_context` produces the expected paragraph for
 /// depth=1, max_spawn_depth=3 (allows further spawning).
@@ -768,7 +763,7 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
         "system prompt should describe push-based communication"
     );
 }
-// ── Step 1.2: structured output guidance tests ───────────────────────────
+// ── Step 1.2: structured output guidance tests ──
 
 /// Verify `build_spawn_context` includes the structured output guidance
 /// section (per design doc §结构化输出) when remaining_depth > 0.
@@ -845,6 +840,7 @@ async fn test_child_session_communication_config_has_parent() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
+    mgr.set_config_dir_for_testing(tmp.path());
     let config = test_resolved_config("comm-child", None);
     register_parent_session(&mgr, "parent-comm", tmp.path().to_path_buf()).await;
     let child_id = mgr
@@ -930,7 +926,7 @@ fn test_communication_config_construction_and_permissions() {
     assert!(config.can_receive_from("parent-1"));
     assert!(!config.can_receive_from("other-agent"));
 }
-// ── Step 1.3: spawn checkpoint parent_session_id + depth persistence ──
+// ── Step 1.3: spawn checkpoint + depth persistence ──
 
 /// Verify that `create_child_session` persists a checkpoint with the
 /// correct `parent_session_id` and `depth` values.
@@ -954,6 +950,7 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
+    mgr.set_config_dir_for_testing(tmp.path());
     let config = test_resolved_config("cp-check-agent", None);
     register_parent_session(&mgr, parent_session_id, tmp.path().to_path_buf()).await;
     let child_id = mgr

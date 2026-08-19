@@ -6,6 +6,7 @@ use closeclaw_session::persistence::SessionCheckpoint;
 use serial_test::serial;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
@@ -144,13 +145,22 @@ fn make_temp_workspace(files: &[(&str, &str)]) -> TempDir {
 }
 
 /// Shorthand for `SessionManager::new` with test defaults (Full mode, no storage).
+///
+/// Creates a `TempDir` for `config_dir` so that
+/// `SpawnCreationContext::config_dir()` does not panic in spawn
+/// code paths. The config directory is shared across all calls via
+/// `LazyLock` to avoid leaking a new `TempDir` per invocation.
 pub(crate) fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManager {
-    SessionManager::new(
+    static SHARED_CONFIG_DIR: LazyLock<TempDir> =
+        LazyLock::new(|| tempfile::tempdir().expect("failed to create temp dir"));
+    let mgr = SessionManager::new(
         &test_config(),
         None,
         workspace.map(std::path::PathBuf::from),
         ReasoningLevel::default(),
-    )
+    );
+    mgr.set_config_dir_for_testing(&SHARED_CONFIG_DIR.path());
+    mgr
 }
 
 #[tokio::test]

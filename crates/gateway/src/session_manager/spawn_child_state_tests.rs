@@ -41,6 +41,7 @@ async fn test_spawn_registers_child_state_in_checkpoint() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
+    mgr.set_config_dir_for_testing(tmp.path());
 
     let config = test_resolved_config("worker-child-state", None);
     setup_parent_with_conv(&mgr, parent_id).await;

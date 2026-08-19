@@ -125,6 +125,13 @@ impl SpawnCreationContext for SessionManager {
         guard.clone()
     }
 
+    fn config_dir(&self) -> &std::path::Path {
+        self.config_dir
+            .get()
+            .expect("config_dir not initialized; call set_config_manager() first")
+            .as_path()
+    }
+
     async fn sender_id(&self, session_id: &str) -> Option<String> {
         self.get_sender_id(session_id).await
     }

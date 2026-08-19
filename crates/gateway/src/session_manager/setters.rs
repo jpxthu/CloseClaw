@@ -87,8 +87,15 @@ impl SessionManager {
     }
 
     /// Set the config manager for agent-level tool/skill filtering.
+    ///
+    /// Also caches the config directory path so
+    /// [`SpawnCreationContext::config_dir`] can return a stable `&Path`
+    /// without holding a lock.
     pub async fn set_config_manager(&self, config_manager: Arc<ConfigManager>) {
+        let config_dir = config_manager.config_dir().to_path_buf();
         *self.config_manager.write().await = Some(config_manager);
+        // Ignore error if already set (idempotent).
+        let _ = self.config_dir.set(config_dir);
     }
 
     /// Get the config manager reference (if set).
