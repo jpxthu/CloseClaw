@@ -24,8 +24,8 @@ mod tests;
 
 pub use engine::{
     build_audit_log, build_rejection_log, glob_match, is_config_file_path, Action,
-    AuditDisposition, AuditLogEntry, AuditLogger, Caller, CommandArgs, Defaults, Effect,
-    FileAuditLogger, FileRejectionLogger, MatchType, PermissionEngine, PermissionRequest,
+    AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger, Caller, CommandArgs, Defaults,
+    Effect, FileAuditLogger, FileRejectionLogger, MatchType, PermissionEngine, PermissionRequest,
     PermissionRequestBody, PermissionResponse, RejectionLog, RejectionLogger, Rule, RuleSet,
     Subject, TemplateRef,
 };

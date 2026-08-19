@@ -5,6 +5,7 @@
 //! `crate::registrars`.
 
 pub(crate) mod approval_utils;
+pub mod audit_log;
 pub mod bash;
 pub mod bash_classify;
 pub mod bash_kill;
@@ -24,6 +25,7 @@ pub mod workflow_tools;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
+pub use audit_log::AuditLogTool;
 pub use bash::BashTool;
 pub use coding_agent::CodingAgentTool;
 pub use execute_plan::ExecutePlanTool;

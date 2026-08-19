@@ -678,6 +678,7 @@ impl Daemon {
             approval_flow,
             late_bound_session_manager: late_bound_session_manager.clone(),
             config_subdir: &config_subdir,
+            data_dir,
             gateway,
         };
         let config_watcher = registries::populate_registries(&ctx).await;
@@ -826,7 +827,6 @@ impl Daemon {
         // Create mining notification channel: sweeper + sub-agent → scheduler
         let (mining_notify_tx, mining_notify_rx) = tokio::sync::mpsc::channel(32);
         session_manager.set_mining_notify_tx(mining_notify_tx.clone());
-
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider.clone())
                 .with_mining_notify_tx(mining_notify_tx)

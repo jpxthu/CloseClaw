@@ -1,6 +1,6 @@
 //! Plan execution engine crate.
 //!
-//! Provides core scheduling, execution mode strategies,
+//! Provides core scheduling, state management,
 //! and sub-agent result parsing for the Plan execution pipeline.
 
 pub mod engine;
@@ -9,7 +9,6 @@ pub mod event;
 pub mod execution_state;
 pub mod execution_types;
 pub mod hook;
-pub mod mode;
 pub mod notification;
 pub mod spawn;
 pub mod types;
@@ -27,7 +26,6 @@ pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
 pub use hook::{
     CustomHook, HookError, HookResult, HookRunner, NotifyHook, StepHook, VerificationHook,
 };
-pub use mode::{ExecutionStrategy, InlineMode, SpawnAllStepsMode, SpawnPerStepMode};
 pub use notification::{parse_subagent_result, ParseError};
 pub use spawn::SpawnAdapter;
 pub use types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};

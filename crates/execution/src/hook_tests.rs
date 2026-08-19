@@ -92,7 +92,6 @@ fn completed_step() -> StepResult {
         summary: "done".into(),
         changed_files: vec!["file.rs".into()],
         error_message: None,
-        attempts: 1,
         hook_blocked: None,
     }
 }
@@ -105,7 +104,6 @@ fn no_changes_step() -> StepResult {
         summary: "done".into(),
         changed_files: vec![],
         error_message: None,
-        attempts: 1,
         hook_blocked: None,
     }
 }

@@ -670,36 +670,6 @@ async fn test_sub_agent_skipped_treated_as_failure() {
         report.steps[0].status,
         ExecutionStepStatus::Failed
     ));
-    assert_eq!(report.steps[0].attempts, 1);
-}
-
-// ===========================================================================
-// Integration Test 9: No retry on failure — attempts always 1
-// Verifies that after a step fails, no automatic retry occurs and
-// the step result always shows exactly 1 attempt.
-// ===========================================================================
-
-#[tokio::test]
-async fn test_no_retry_attempts_always_one() {
-    let adapter = SequenceMock::new(vec![
-        Ok(success_result(0, "step 0")),
-        Ok(failed_result(1, "step 1 failed")),
-        // Step 2 should never be reached
-    ]);
-    let engine = new_engine_with_config(adapter, spawn_per_step_config());
-    let report = engine
-        .execute(&["s0".into(), "s1".into(), "s2".into()])
-        .await
-        .unwrap();
-
-    assert!(!report.all_completed);
-    assert_eq!(report.failed_step, Some(1));
-    assert_eq!(report.steps.len(), 2);
-
-    // Both steps show exactly 1 attempt (no retry)
-    for step in &report.steps {
-        assert_eq!(step.attempts, 1, "attempts should always be 1");
-    }
 }
 
 // ===========================================================================

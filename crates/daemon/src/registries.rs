@@ -46,6 +46,8 @@ pub(crate) struct RegistryContext<'a> {
     pub late_bound_session_manager: Arc<LateBoundSessionManagerOps>,
     /// Path to the config subdirectory (for hot-reload).
     pub config_subdir: &'a Path,
+    /// Root data directory (for deriving audit log path).
+    pub data_dir: &'a Path,
     /// Gateway reference for sending IM notifications on config reload failures.
     pub gateway: &'a Arc<Gateway>,
 }
@@ -183,7 +185,8 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.approval_flow),
-    );
+    )
+    .with_audit_log_path(ctx.data_dir.join("logs").join("audit.log"));
 
     // Build trait adapters for SessionToolsRegistrar dependencies.
     // Use the late-bound proxy so tool registration (layer 3) can proceed

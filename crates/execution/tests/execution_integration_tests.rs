@@ -155,7 +155,6 @@ async fn test_full_3step_success() {
     for (i, step) in report.steps.iter().enumerate() {
         assert_eq!(step.step_index, i);
         assert!(matches!(step.status, ExecutionStepStatus::Completed));
-        assert_eq!(step.attempts, 1);
     }
 
     // Verify step summaries
@@ -193,7 +192,6 @@ async fn test_failure_stops_subsequent_steps() {
         report.steps[1].status,
         ExecutionStepStatus::Failed
     ));
-    assert_eq!(report.steps[1].attempts, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +240,6 @@ async fn test_spawn_all_steps_failure_returns_failed_report() {
     assert_eq!(report.steps.len(), 2);
     for step in &report.steps {
         assert!(matches!(step.status, ExecutionStepStatus::Failed));
-        assert_eq!(step.attempts, 1);
     }
 }
 
@@ -400,7 +397,6 @@ async fn test_spawn_error_fails_immediately() {
 
     assert!(!report.all_completed);
     assert_eq!(report.steps.len(), 1);
-    assert_eq!(report.steps[0].attempts, 1);
     assert!(matches!(
         report.steps[0].status,
         ExecutionStepStatus::Failed
@@ -414,5 +410,4 @@ async fn test_failure_no_retry() {
     let report = engine.execute(&["step".into()]).await.unwrap();
 
     assert!(!report.all_completed);
-    assert_eq!(report.steps[0].attempts, 1);
 }

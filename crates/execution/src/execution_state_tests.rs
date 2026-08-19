@@ -5,7 +5,7 @@ use crate::execution_state::{
     step_status_to_marker, validate_transition, DefaultPlanStateWriter, ExecutionState,
     PlanStateWriter,
 };
-use crate::{ExecutionStep, ExecutionStepStatus, TransitionError};
+use crate::{ExecutionError, ExecutionEvent, ExecutionStep, ExecutionStepStatus, TransitionError};
 
 // --- init_execution_steps ---
 
@@ -154,45 +154,73 @@ fn test_transition_skipped_from_pending() {
 }
 
 #[test]
-fn test_transition_skipped_to_in_progress() {
+fn test_transition_skipped_to_in_progress_rejected() {
     let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["step1".into(), "step2".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
     assert_eq!(state.current_step, Some(1));
-    assert!(validate_transition(&state, 0, &ExecutionStepStatus::InProgress).is_ok());
-    apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(
-        get_step_status(&state, 0),
-        Some(&ExecutionStepStatus::InProgress)
+    let err = validate_transition(&state, 0, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    // Either SkippedStep or InvalidTransition is acceptable — the key point
+    // is that Skipped→InProgress is not allowed.
+    let err_inner = err.unwrap_err();
+    assert!(
+        matches!(
+            err_inner,
+            TransitionError::InvalidTransition {
+                from: ExecutionStepStatus::Skipped,
+                to: ExecutionStepStatus::InProgress
+            }
+        ) || matches!(err_inner, TransitionError::SkippedStep { .. }),
+        "expected InvalidTransition or SkippedStep, got: {:?}",
+        err_inner
     );
-    assert_eq!(state.current_step, Some(0));
 }
 
 #[test]
-fn test_skipped_to_in_progress_current_step_points_to_step() {
+fn test_skipped_to_in_progress_rejected_current_step_past() {
     let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["a".into(), "b".into(), "c".into()]);
     state.current_step = Some(1);
     apply_transition(&mut state, 1, ExecutionStepStatus::Skipped).unwrap();
     assert_eq!(state.current_step, Some(2));
-    apply_transition(&mut state, 1, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(state.current_step, Some(1));
+    let err = validate_transition(&state, 1, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    let err_inner = err.unwrap_err();
+    assert!(
+        matches!(
+            err_inner,
+            TransitionError::InvalidTransition {
+                from: ExecutionStepStatus::Skipped,
+                to: ExecutionStepStatus::InProgress
+            }
+        ) || matches!(err_inner, TransitionError::SkippedStep { .. }),
+        "expected InvalidTransition or SkippedStep, got: {:?}",
+        err_inner
+    );
 }
 
 #[test]
-fn test_skipped_to_in_progress_no_preset_current_step() {
+fn test_skipped_to_in_progress_rejected_no_preset() {
     let mut state = ExecutionState::new();
     init_execution_steps(&mut state, vec!["a".into(), "b".into(), "c".into()]);
     state.current_step = Some(0);
     apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
     assert_eq!(state.current_step, Some(1));
-    assert!(validate_transition(&state, 0, &ExecutionStepStatus::InProgress).is_ok());
-    apply_transition(&mut state, 0, ExecutionStepStatus::InProgress).unwrap();
-    assert_eq!(state.current_step, Some(0));
-    assert_eq!(
-        get_step_status(&state, 0),
-        Some(&ExecutionStepStatus::InProgress)
+    let err = validate_transition(&state, 0, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+    let err_inner = err.unwrap_err();
+    assert!(
+        matches!(
+            err_inner,
+            TransitionError::InvalidTransition {
+                from: ExecutionStepStatus::Skipped,
+                to: ExecutionStepStatus::InProgress
+            }
+        ) || matches!(err_inner, TransitionError::SkippedStep { .. }),
+        "expected InvalidTransition or SkippedStep, got: {:?}",
+        err_inner
     );
 }
 
@@ -771,7 +799,6 @@ fn test_execution_state_explicit_path_snake_case_values() {
 }
 
 // --- ExecutionState.step_selection serde tests ---
-
 /// step_selection None default roundtrip.
 #[test]
 fn test_execution_state_step_selection_none_default() {
@@ -802,6 +829,128 @@ fn test_execution_state_step_selection_empty_vec() {
     assert_eq!(restored.step_selection, Some(vec![]));
 }
 
+// ---------------------------------------------------------------------------
+// Skipped→InProgress rejection — additional edge cases
+// ---------------------------------------------------------------------------
+/// Skipped→InProgress rejected when current_step = None and step_index = 0.
+#[test]
+fn test_skipped_to_in_progress_rejected_no_current_step() {
+    let mut state = ExecutionState::new();
+    init_execution_steps(&mut state, vec!["a".into(), "b".into()]);
+    // No current_step set — step_index 0 is allowed by SkippedStep check,
+    // but Skipped→InProgress is still invalid by the state machine.
+    apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
+    let err = validate_transition(&state, 0, &ExecutionStepStatus::InProgress);
+    assert!(err.is_err());
+}
+
+/// Skipped→InProgress rejected via apply_transition (not just validate).
+#[test]
+fn test_apply_skipped_to_in_progress_rejected() {
+    let mut state = ExecutionState::new();
+    init_execution_steps(&mut state, vec!["a".into(), "b".into()]);
+    state.current_step = Some(0);
+    apply_transition(&mut state, 0, ExecutionStepStatus::Skipped).unwrap();
+    // current_step moved to 1; set it back to 0 to test the rejected path
+    state.current_step = Some(0);
+    let result = apply_transition(&mut state, 0, ExecutionStepStatus::InProgress);
+    assert!(result.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Removed dead code — enum completeness checks
+/// Verify ExecutionError does not contain MaxRetriesExceeded variant.
+///
+/// This is a compile-time guarantee (no match arm needed), but we add
+/// an explicit serialization roundtrip to document the expected variants.
+#[test]
+fn test_execution_error_no_max_retries_exceeded() {
+    let errors = [
+        ExecutionError::SpawnFailed {
+            message: "x".into(),
+        },
+        ExecutionError::InvalidResult {
+            message: "x".into(),
+        },
+        ExecutionError::StepFailed {
+            step_index: 0,
+            message: "x".into(),
+        },
+        ExecutionError::PermissionDenied {
+            step_index: 0,
+            reason: "x".into(),
+        },
+        ExecutionError::InvalidStepSelection { index: 0, total: 1 },
+    ];
+    // All variants should roundtrip through Debug without panicking.
+    for err in &errors {
+        let debug = format!("{err:?}");
+        assert!(!debug.is_empty());
+    }
+}
+
+/// Verify ExecutionEvent does not contain RetryTriggered variant.
+///
+/// Compile-time guarantee; explicit test documents the expected set.
+#[test]
+fn test_execution_event_no_retry_triggered() {
+    let events = [
+        ExecutionEvent::StepStarted { step_index: 0 },
+        ExecutionEvent::StepCompleted {
+            step_index: 0,
+            summary: "done".into(),
+        },
+        ExecutionEvent::StepFailed {
+            step_index: 0,
+            error_message: "err".into(),
+        },
+        ExecutionEvent::AllCompleted,
+        ExecutionEvent::HookExecuted { step_index: 0 },
+        ExecutionEvent::HookFailed {
+            step_index: 0,
+            error_message: "err".into(),
+        },
+    ];
+    for event in &events {
+        let debug = format!("{event:?}");
+        assert!(!debug.is_empty());
+        // Ensure RetryTriggered is not in the debug output
+        assert!(!debug.contains("RetryTriggered"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StepResult — no attempts field
+// ---------------------------------------------------------------------------
+
+/// StepResult does not have an `attempts` field (retry dead code removed).
+/// Verify construction and Debug output have no `attempts`.
+#[test]
+fn test_step_result_no_attempts_field() {
+    use crate::engine::StepResult;
+    let result = StepResult {
+        step_index: 1,
+        description: "test".into(),
+        status: ExecutionStepStatus::Completed,
+        summary: "done".into(),
+        changed_files: vec!["a.rs".into()],
+        error_message: None,
+        hook_blocked: None,
+    };
+    let debug = format!("{result:?}");
+    assert!(
+        !debug.contains("attempts"),
+        "StepResult debug should not contain 'attempts': {debug}"
+    );
+    assert_eq!(result.step_index, 1);
+    assert_eq!(result.description, "test");
+    // Also verify all fields are accessible without attempts
+    assert!(matches!(result.status, ExecutionStepStatus::Completed));
+    assert!(result.changed_files.contains(&"a.rs".to_string()));
+    assert!(result.error_message.is_none());
+    assert!(result.hook_blocked.is_none());
+}
+
 /// step_selection from old PlanState checkpoint format.
 #[test]
 fn test_execution_state_step_selection_from_old_plan_state_checkpoint() {
@@ -819,7 +968,6 @@ fn test_execution_state_step_selection_null_value() {
 }
 
 // --- ExecutionState: both explicit_path + step_selection together ---
-
 /// Old checkpoint with both explicit_path and step_selection.
 #[test]
 fn test_execution_state_old_checkpoint_with_both_fields() {

@@ -104,7 +104,6 @@ async fn test_all_steps_succeed() {
     for (i, step) in report.steps.iter().enumerate() {
         assert_eq!(step.step_index, i);
         assert!(matches!(step.status, ExecutionStepStatus::Completed));
-        assert_eq!(step.attempts, 1);
     }
 }
 
@@ -368,7 +367,6 @@ async fn test_new_engine_uses_config_verify_trigger() {
         summary: String::new(),
         changed_files: vec![],
         error_message: None,
-        attempts: 1,
         hook_blocked: None,
     };
     assert!(!hook_runner.should_run(&step_no_files));
@@ -380,7 +378,6 @@ async fn test_new_engine_uses_config_verify_trigger() {
         summary: String::new(),
         changed_files: vec!["file.rs".into()],
         error_message: None,
-        attempts: 1,
         hook_blocked: None,
     };
     assert!(hook_runner.should_run(&step_with_files));
@@ -407,7 +404,6 @@ async fn test_new_engine_verify_trigger_always() {
         summary: String::new(),
         changed_files: vec![],
         error_message: None,
-        attempts: 1,
         hook_blocked: None,
     };
     assert!(hook_runner.should_run(&step_no_files));
@@ -434,7 +430,6 @@ async fn test_new_engine_verify_trigger_never() {
         summary: String::new(),
         changed_files: vec!["file.rs".into()],
         error_message: None,
-        attempts: 1,
         hook_blocked: None,
     };
     assert!(!hook_runner.should_run(&step_with_files));
@@ -473,7 +468,6 @@ async fn test_with_hook_runner_overrides_config_trigger() {
         summary: String::new(),
         changed_files: vec![],
         error_message: None,
-        attempts: 1,
         hook_blocked: None,
     };
     assert!(hook_runner.should_run(&step_no_files));
