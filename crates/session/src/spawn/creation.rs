@@ -302,9 +302,10 @@ async fn configure_spawn_behavior(
 /// Fallback order:
 /// 1. Explicit `workspace` arg (if provided).
 /// 2. `config.workspace` (if set).
-/// 3. `{config_dir}/workspaces/<child_agent_id>/<user_id>/` — dedicated workspace
+/// 3. Parent session workspace (子 session 默认工作目录).
+/// 4. `{config_dir}/workspaces/<child_agent_id>/<user_id>/` — dedicated workspace
 ///    directory under the configuration root.
-/// 4. `/tmp` (last resort).
+/// 5. `/tmp` (last resort).
 async fn resolve_child_workspace(
     ctx: &dyn SpawnCreationContext,
     config: &ResolvedAgentConfig,
@@ -317,7 +318,11 @@ async fn resolve_child_workspace(
     if let Some(ref ws) = config.workspace {
         return Ok(ws.clone());
     }
-    // Level 3: dedicated workspace under config_dir/workspaces/.
+    // Level 3: parent session workspace.
+    if let Some(parent_ws) = ctx.parent_workspace(parent_session_id).await {
+        return Ok(parent_ws);
+    }
+    // Level 4: dedicated workspace under config_dir/workspaces/.
     if ctx
         .get_parent_conversation_session(parent_session_id)
         .await
