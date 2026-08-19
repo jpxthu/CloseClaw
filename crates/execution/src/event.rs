@@ -29,13 +29,6 @@ pub enum ExecutionEvent {
     },
     /// All steps have completed.
     AllCompleted,
-    /// A retry has been triggered for a failed step.
-    RetryTriggered {
-        /// Index of the step being retried.
-        step_index: usize,
-        /// Current attempt number (1-based).
-        attempt: u32,
-    },
     /// A hook was executed after a step completed.
     HookExecuted {
         /// Index of the step that triggered the hook.

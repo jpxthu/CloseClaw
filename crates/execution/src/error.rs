@@ -19,15 +19,6 @@ pub enum ExecutionError {
         message: String,
     },
 
-    /// Maximum retries exceeded for a step.
-    #[error("max retries ({max}) exceeded for step {step_index}")]
-    MaxRetriesExceeded {
-        /// The step index that failed.
-        step_index: usize,
-        /// The configured max retries.
-        max: u32,
-    },
-
     /// Step execution returned an error.
     #[error("step {step_index} failed: {message}")]
     StepFailed {
