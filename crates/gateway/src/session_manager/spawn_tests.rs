@@ -551,7 +551,10 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
     // Verify child session exists
     assert!(mgr.has_session(&child_id).await);
 
-    // After Step 1.3, Level 3 fallback uses config_dir/workspaces/ not parent_workspace.
+    // After Step 1.1, Level 3 fallback uses parent session workspace.
+    // config.workspace is None, so fallback chain is:
+    //   Level 1: explicit param (None) -> Level 2: config.workspace (None)
+    //   -> Level 3: parent session workspace -> Level 4: dedicated dir -> Level 5: /tmp
     let child_workdir = mgr
         .get_conversation_session(&child_id)
         .await
@@ -561,14 +564,10 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
         .workdir()
         .to_path_buf();
     assert!(
-        !child_workdir.starts_with(&parent_workspace),
-        "child workdir should NOT be under parent workspace"
-    );
-    assert!(
-        child_workdir
-            .to_string_lossy()
-            .contains("/workspaces/child-agent/"),
-        "child workdir should follow config_dir/workspaces/{{agent_id}}/{{user_id}}"
+        child_workdir.starts_with(&parent_workspace),
+        "child workdir {:?} should be under parent workspace {:?}",
+        child_workdir,
+        parent_workspace
     );
 }
 #[tokio::test]
@@ -627,26 +626,22 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         .await
         .expect("create_child_session should succeed");
 
-    // Verify child workspace path contains the actual user_id.
+    // After Step 1.1, Level 3 fallback uses parent session workspace.
+    // config.workspace is None, so fallback chain is:
+    //   Level 1: explicit param (None) -> Level 2: config.workspace (None)
+    //   -> Level 3: parent session workspace -> Level 4: dedicated dir -> Level 5: /tmp
+    // The parent workspace takes priority over the dedicated dir (Level 4)
+    // which would contain the user_id.
     let child_cs = mgr
         .get_conversation_session(&child_id)
         .await
         .expect("child conversation session should exist");
     let child_workdir = child_cs.read().await.workdir().to_path_buf();
     assert!(
-        child_workdir.to_string_lossy().contains(actual_user_id),
-        "child workdir {:?} should contain actual user_id '{}'",
+        child_workdir.starts_with(&parent_workspace),
+        "child workdir {:?} should be under parent workspace {:?}",
         child_workdir,
-        actual_user_id
-    );
-    // After Step 1.3, Level 3 fallback uses config_dir/workspaces/.
-    let expected_suffix = format!("{}/{}", "child-agent", actual_user_id);
-    assert!(
-        child_workdir.to_string_lossy().ends_with(&expected_suffix),
-        "child workdir {:?} should end with '{}/{}'",
-        child_workdir,
-        "child-agent",
-        actual_user_id
+        parent_workspace
     );
 }
 // ── Step 1.4: spawn-context injection tests ──
