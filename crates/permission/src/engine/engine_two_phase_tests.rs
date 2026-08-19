@@ -7,7 +7,6 @@ use super::engine_types::{
     Caller, Effect, MatchType, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule,
     RuleSet, Subject,
 };
-use std::collections::HashMap;
 
 /// Helper to build a minimal RuleSet with given defaults and rules.
 fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
@@ -25,7 +24,6 @@ fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
         },
         user_defaults: super::engine_types::Defaults::user_defaults(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
         rule_version: String::new(),
     };
     PermissionEngine::new_with_default_data_root(ruleset)
@@ -37,7 +35,6 @@ fn file_request(agent: &str, path: &str, user_id: &str) -> PermissionRequest {
         caller: Caller {
             user_id: user_id.to_string(),
             agent: agent.to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: agent.to_string(),
@@ -130,7 +127,6 @@ fn test_two_phase_agent_deny_user_allow() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
@@ -226,7 +222,6 @@ fn test_two_phase_owner_agent_deny() {
             caller: Caller {
                 user_id: "owner".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
@@ -516,7 +511,6 @@ fn test_message_send_no_rules_defaults_to_allow() {
             caller: Caller {
                 user_id: "owner".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::MessageSend {
                 agent: "test-agent".to_string(),
@@ -543,7 +537,6 @@ fn test_message_send_non_owner_no_rules() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::MessageSend {
                 agent: "test-agent".to_string(),
@@ -593,7 +586,6 @@ fn test_non_owner_no_rules_file_command_deny() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::CommandExec {
                 agent: "test-agent".to_string(),

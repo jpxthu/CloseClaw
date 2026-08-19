@@ -188,7 +188,6 @@ pub(crate) async fn check_tool_permission(
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
             };
             let body = PermissionRequestBody::ToolCall {
                 agent: ctx.agent_id.clone(),
@@ -241,7 +240,6 @@ pub(crate) async fn check_file_op_permission(
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
             };
             let body = PermissionRequestBody::FileOp {
                 agent: ctx.agent_id.clone(),
@@ -295,7 +293,6 @@ pub(crate) async fn check_message_permission(
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
             };
             let body = PermissionRequestBody::MessageSend {
                 agent: ctx.agent_id.clone(),
@@ -345,7 +342,6 @@ pub(crate) async fn check_config_write_permission(
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
             };
             let body = PermissionRequestBody::ConfigWrite {
                 agent: ctx.agent_id.clone(),
@@ -401,7 +397,6 @@ pub async fn check_network_permission(
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
             };
             let body = PermissionRequestBody::NetOp {
                 agent: ctx.agent_id.clone(),
@@ -457,7 +452,6 @@ pub(crate) async fn check_command_permission(
             let caller = Caller {
                 user_id: String::new(),
                 agent: ctx.agent_id.clone(),
-                creator_id: String::new(),
             };
             let body = PermissionRequestBody::CommandExec {
                 agent: ctx.agent_id.clone(),

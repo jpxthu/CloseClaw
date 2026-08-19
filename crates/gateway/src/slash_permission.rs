@@ -175,7 +175,6 @@ impl Gateway {
         let caller = Caller {
             user_id: sender_id.unwrap_or("").to_owned(),
             agent: agent_id.clone(),
-            creator_id: String::new(),
         };
         let request = PermissionRequest::WithCaller {
             caller,

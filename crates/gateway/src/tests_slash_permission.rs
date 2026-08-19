@@ -304,7 +304,6 @@ fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         }],
         defaults: Defaults::default(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
         ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(
@@ -335,7 +334,6 @@ fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
             message: Effect::Allow,
         },
         template_includes: vec![],
-        agent_creators: HashMap::new(),
         ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(
@@ -694,7 +692,6 @@ async fn test_permission_denied_empty_rule_name() {
         }],
         defaults: Defaults::default(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
         ..Default::default()
     };
     gw.set_permission_engine(Arc::new(tokio::sync::RwLock::new(

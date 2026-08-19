@@ -289,7 +289,6 @@ fn make_permissions(rules: Vec<Rule>) -> RuleSet {
         defaults: closeclaw_permission::Defaults::default(),
         user_defaults: closeclaw_permission::Defaults::user_defaults(),
         template_includes: vec![],
-        agent_creators: std::collections::HashMap::new(),
         rule_version: String::new(),
     }
 }

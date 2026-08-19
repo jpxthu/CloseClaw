@@ -341,11 +341,6 @@ impl PermissionEngine {
             "permission check initiated"
         );
 
-        // Step 0: Creator rule (highest priority)
-        if let Some(response) = self.check_creator_rule(&caller, &agent_id) {
-            return response;
-        }
-
         // Step 1: Agent phase — collect AgentOnly candidates and evaluate
         let agent_candidates =
             self.collect_agent_candidates_with_index(&caller, &agent_id, rules, agent_rule_index);
@@ -499,35 +494,6 @@ impl PermissionEngine {
         }
 
         response
-    }
-
-    /// Step 0: Check creator rule — if the caller is the agent's creator, allow immediately.
-    fn check_creator_rule(
-        &self,
-        caller: &super::engine_types::Caller,
-        agent_id: &str,
-    ) -> Option<PermissionResponse> {
-        let effective_creator_id = if !caller.creator_id.is_empty() {
-            Some(caller.creator_id.as_str())
-        } else {
-            self.rules.agent_creators.get(agent_id).map(|s| s.as_str())
-        };
-
-        if let Some(creator_id) = effective_creator_id {
-            if caller.user_id == creator_id {
-                info!(
-                    agent = %agent_id,
-                    result = "allowed",
-                    reason = "creator_rule",
-                    "permission check completed"
-                );
-                return Some(PermissionResponse::Allowed {
-                    token: generate_token(),
-                    context_modifier: None,
-                });
-            }
-        }
-        None
     }
 
     /// Extract AgentOnly + Deny subjects from parent agent, replacing agent with child_agent_id.

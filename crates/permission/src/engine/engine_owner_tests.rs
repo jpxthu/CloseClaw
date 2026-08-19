@@ -64,7 +64,6 @@ fn owner_evaluate(request_body: PermissionRequestBody) -> PermissionResponse {
         caller: Caller {
             user_id: "owner".to_string(),
             agent: "test-agent".to_string(),
-            creator_id: String::new(),
         },
         request: request_body,
     };
@@ -187,7 +186,6 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
         caller: Caller {
             user_id: "alice".to_string(),
             agent: "test-agent".to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
@@ -208,7 +206,6 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
         caller: Caller {
             user_id: "bob".to_string(),
             agent: "test-agent".to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),
@@ -221,36 +218,5 @@ fn test_non_owner_unaffected_by_owner_shortcut() {
         matches!(bob_resp, PermissionResponse::Denied { ref rule, .. } if rule == "default"),
         "bob (different user) should get user_defaults deny (all-Deny), not alice's rule: {:?}",
         bob_resp
-    );
-}
-
-#[test]
-fn test_owner_shortcut_after_creator_rule() {
-    // Creator rule should take priority over owner shortcut.
-    // But if caller is both owner AND creator, they get Allowed via creator rule.
-    let ruleset = RuleSetBuilder::new()
-        .agent_creator("test-agent", "owner")
-        .default_file_read(Effect::Deny)
-        .default_file_write(Effect::Deny)
-        .build()
-        .unwrap();
-    let engine = PermissionEngine::new_with_default_data_root(ruleset);
-    let request = PermissionRequest::WithCaller {
-        caller: Caller {
-            user_id: "owner".to_string(),
-            agent: "test-agent".to_string(),
-            creator_id: String::new(),
-        },
-        request: PermissionRequestBody::CommandExec {
-            agent: "test-agent".to_string(),
-            cmd: "rm".to_string(),
-            args: vec![],
-        },
-    };
-    let resp = engine.evaluate(request, None);
-    assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "owner who is also creator gets Allowed via creator rule (higher priority): {:?}",
-        resp
     );
 }
