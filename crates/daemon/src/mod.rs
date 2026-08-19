@@ -688,13 +688,13 @@ impl Daemon {
         // for static-layer prompt construction) to the Provider-driven pipeline.
         //
         // AgentRegistry uses DashMap internally (interior mutability), but the
-        // adapter API requires Arc<std::sync::RwLock<AgentRegistry>> — snapshot
-        // the current configs into a new RwLock-wrapped registry.
+        // adapter API requires Arc<tokio::sync::RwLock<AgentRegistry>> — snapshot
+        // the current configs into a new tokio RwLock-wrapped registry.
         let adapter_registry = {
             let new_reg = closeclaw_agent::registry::AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
             new_reg.populate(configs);
-            Arc::new(std::sync::RwLock::new(new_reg))
+            Arc::new(tokio::sync::RwLock::new(new_reg))
         };
         let skill_provider: Arc<dyn closeclaw_common::SkillListingProvider> =
             Arc::new(crate::bridge::SkillListingProviderWrapper::new(
