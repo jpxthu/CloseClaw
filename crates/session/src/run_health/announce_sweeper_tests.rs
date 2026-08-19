@@ -32,6 +32,8 @@ struct MockTarget {
     /// Record of `(parent_id, child_id)` calls to
     /// `terminate_stale_child`.
     terminated_children: RwLock<Vec<(String, String)>>,
+    /// Count of `sweep_reclaim` calls.
+    sweep_reclaim_count: RwLock<usize>,
 }
 
 impl MockTarget {
@@ -44,6 +46,7 @@ impl MockTarget {
             last_output: RwLock::new(HashMap::new()),
             archived_parents: RwLock::new(Vec::new()),
             terminated_children: RwLock::new(Vec::new()),
+            sweep_reclaim_count: RwLock::new(0),
         }
     }
 
@@ -92,6 +95,11 @@ impl MockTarget {
     async fn terminated_children(&self) -> Vec<(String, String)> {
         self.terminated_children.read().await.clone()
     }
+
+    /// Return the number of times `sweep_reclaim` was called.
+    async fn sweep_reclaim_count(&self) -> usize {
+        *self.sweep_reclaim_count.read().await
+    }
 }
 
 #[async_trait]
@@ -137,6 +145,10 @@ impl AnnounceSweepTarget for MockTarget {
             .write()
             .await
             .push((parent_id.to_string(), child_id.to_string()));
+    }
+
+    async fn sweep_reclaim(&self) {
+        *self.sweep_reclaim_count.write().await += 1;
     }
 }
 
@@ -400,6 +412,64 @@ async fn test_stale_idle_fresh_coexist() {
     let terminated = target.terminated_children().await;
     assert_eq!(terminated.len(), 1);
     assert_eq!(terminated[0].1, "stale-y");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Call point integration: sweep_reclaim invoked from run_once
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// `run_once()` calls `sweep_reclaim()` at the end of each sweep cycle,
+/// ensuring the GC scan runs alongside the announce sweep.
+#[tokio::test]
+async fn test_run_once_invokes_sweep_reclaim() {
+    let target = Arc::new(MockTarget::new());
+    // Empty tree — sweeper returns early, but sweep_reclaim should still
+    // be called (it runs after the announce sweep logic).
+    let sweeper = AnnounceSweeper::new(target.clone());
+    sweeper.run_once().await;
+
+    assert_eq!(
+        target.sweep_reclaim_count().await,
+        1,
+        "sweep_reclaim should be called once per run_once cycle"
+    );
+}
+
+/// Multiple `run_once()` calls each trigger one `sweep_reclaim()`.
+#[tokio::test]
+async fn test_run_once_calls_sweep_reclaim_each_cycle() {
+    let target = Arc::new(MockTarget::new());
+    let sweeper = AnnounceSweeper::new(target.clone());
+
+    sweeper.run_once().await;
+    sweeper.run_once().await;
+    sweeper.run_once().await;
+
+    assert_eq!(
+        target.sweep_reclaim_count().await,
+        3,
+        "each run_once should trigger one sweep_reclaim"
+    );
+}
+
+/// `sweep_reclaim` is called even when run_once processes children
+/// (announce + stale detection) — the two paths are independent.
+#[tokio::test]
+async fn test_run_once_sweep_reclaim_alongside_announce() {
+    let target = Arc::new(MockTarget::new());
+    target.add_child("idle-1", "parent-1").await;
+    target.set_idle("idle-1").await;
+
+    let sweeper = AnnounceSweeper::new(target.clone());
+    sweeper.run_once().await;
+
+    // Both paths should have fired.
+    assert_eq!(target.pushed_announces().await.len(), 1);
+    assert_eq!(
+        target.sweep_reclaim_count().await,
+        1,
+        "sweep_reclaim should fire alongside announce push"
+    );
 }
 
 // ── 14. Exact threshold boundary: 300s → skip (not >) ──────────────────

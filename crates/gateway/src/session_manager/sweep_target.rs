@@ -16,6 +16,7 @@ use tracing::warn;
 
 use super::announce::build_announce_event;
 use super::spawn::SpawnMode;
+use super::spawn_reclaim_gc::sweep_spawn_tree_reclaim;
 
 /// Threshold in seconds for stale-child detection.
 /// Must match `STALE_CHILD_THRESHOLD_SECS` in
@@ -100,5 +101,9 @@ impl AnnounceSweepTarget for SessionManager {
                 "sweep_target: push_announce for stale notification failed"
             );
         }
+    }
+
+    async fn sweep_reclaim(&self) {
+        sweep_spawn_tree_reclaim(self).await;
     }
 }

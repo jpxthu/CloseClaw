@@ -202,6 +202,14 @@ impl crate::spawn_validation::SpawnValidator for MockSpawnValidator {
     {
         Err(crate::spawn_validation::SpawnError::AgentIdRequired)
     }
+
+    async fn check_spawn_permission(
+        &self,
+        _parent_session_id: &str,
+        _validation: &crate::spawn_validation::SpawnValidationResult,
+    ) -> Result<(), crate::spawn_validation::SpawnError> {
+        Ok(())
+    }
 }
 
 struct MockAgentConfigLookup;

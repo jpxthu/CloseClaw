@@ -481,6 +481,17 @@ impl SessionManager {
         let child_status = self
             .resolve_child_completion_status(&parent_session_id, child_session_id)
             .await;
+
+        // Set child state to Completed before pushing announce.
+        // Push is async and other concurrent try_push_announce calls may
+        // interleave during the push. The dedup guard above checks this
+        // state before we reach here, so setting it here ensures any
+        // racing call will see Completed and skip (dedup protection).
+        if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
+            let parent_guard = parent_cs.read().await;
+            parent_guard.update_child_state(child_session_id, ChildSessionState::Completed);
+        }
+
         let event = build_announce_event(
             child_session_id,
             child_agent_id,
@@ -488,22 +499,35 @@ impl SessionManager {
             priority,
             child_status,
         );
-        if let Err(e) = self.push_announce(&parent_session_id, event).await {
-            warn!(
-                parent_session_id = %parent_session_id,
-                error = %e,
-                "try_push_announce: push_announce failed"
-            );
-        }
-
-        // Step 1.3: Mark child session as Completed in SpawnTree.
+        // Step 1.2: On push success, reclaim node from SpawnTree immediately
+        // (design doc §节点回收: 入队成功后立即回收). On failure, mark as
+        // Completed so AnnounceSweeper can pick it up later (完成待回收).
+        let push_ok = self.push_announce(&parent_session_id, event).await;
         {
             let mut children = self.children.write().await;
-            if !children.mark_child_status(child_session_id, ChildSessionStatus::Completed) {
-                warn!(
+            if let Ok(()) = push_ok {
+                // Push succeeded — remove child from tree (no long-term memory hold).
+                children.remove_child(&parent_session_id, child_session_id);
+                debug!(
                     child_session_id = %child_session_id,
-                    "try_push_announce: child not found in SpawnTree for status update"
+                    parent_session_id = %parent_session_id,
+                    "try_push_announce: child reclaimed from SpawnTree"
                 );
+            } else {
+                // Push failed — mark Completed for sweeper to reclaim later.
+                // SAFETY: we are in the else branch of if let Ok, so push_ok is Err.
+                let e = push_ok.expect_err("push_ok is Err in else branch");
+                warn!(
+                    parent_session_id = %parent_session_id,
+                    error = %e,
+                    "try_push_announce: push_announce failed"
+                );
+                if !children.mark_child_status(child_session_id, ChildSessionStatus::Completed) {
+                    warn!(
+                        child_session_id = %child_session_id,
+                        "try_push_announce: child not found in SpawnTree for status update"
+                    );
+                }
             }
         }
 
@@ -536,15 +560,6 @@ impl SessionManager {
                 .read()
                 .await
                 .unregister_child_handle(child_session_id);
-            // Deregister from parent's child_states and persist checkpoint
-            // so crash recovery no longer sees this as a pending operation.
-            {
-                use closeclaw_common::tool_session::ToolSession;
-                let guard = parent_cs.read().await;
-                guard
-                    .deregister_child_state(child_session_id.to_string())
-                    .await;
-            }
         }
 
         // Step 1.6: Auto-recovery — check if parent session should
@@ -756,12 +771,6 @@ impl SessionManager {
         // Unregister child handle from parent's ConversationSession.
         if let Some(parent_cs) = self.get_conversation_session(parent_session_id).await {
             parent_cs.read().await.unregister_child_handle(session_id);
-            // Deregister from parent's child_states and persist checkpoint.
-            {
-                use closeclaw_common::tool_session::ToolSession;
-                let guard = parent_cs.read().await;
-                guard.deregister_child_state(session_id.to_string()).await;
-            }
         }
     }
 

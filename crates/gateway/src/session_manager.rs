@@ -48,6 +48,7 @@ mod setters;
 mod spawn;
 pub mod spawn_adapter;
 pub mod spawn_controller;
+pub mod spawn_reclaim_gc;
 pub mod stop;
 mod stop_graceful;
 mod sweep_target;
@@ -841,6 +842,8 @@ mod announce_drain_outbound_tests;
 #[cfg(test)]
 mod announce_priority_tests;
 #[cfg(test)]
+mod announce_reclaim_tests;
+#[cfg(test)]
 mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;
@@ -910,6 +913,8 @@ mod spawn_kill_persist_tests;
 mod spawn_label_tests;
 #[cfg(test)]
 mod spawn_mode_inherit_tests;
+#[cfg(test)]
+mod spawn_reclaim_gc_tests;
 #[cfg(test)]
 mod spawn_tests;
 #[cfg(test)]

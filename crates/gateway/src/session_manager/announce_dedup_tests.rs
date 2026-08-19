@@ -374,17 +374,16 @@ async fn test_dedup_first_push_deregisters_child() {
     let events = mgr.drain_announces(&parent_id).await;
     assert_eq!(events.len(), 1, "first push should produce 1 event");
 
-    // After try_push_announce, the child has been deregistered from
-    // child_states. A second call sees "not in states" → no dedup
-    // block, but the announce is pushed again (child still in spawn
-    // tree, still has assistant text). This tests that deregistration
-    // happens as expected.
+    // Step 1.2: After try_push_announce, the child has been reclaimed
+    // from SpawnTree (removed from children table). A second call
+    // finds the child missing via find_run_mode_parent → no-op.
+    // This verifies that reclaim prevents duplicate announcements.
     mgr.try_push_announce(&child_id, NotificationPriority::Next)
         .await;
     let events2 = mgr.drain_announces(&parent_id).await;
     assert_eq!(
         events2.len(),
-        1,
-        "second push after deregistration should still produce an event"
+        0,
+        "second push after reclaim should be no-op (child removed from tree)"
     );
 }
