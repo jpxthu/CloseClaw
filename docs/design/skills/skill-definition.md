@@ -31,7 +31,7 @@ Skill 由 SKILL.md 文件定义，包含配置清单（frontmatter）和正文�
 | Project | `<project-root>/.closeclaw/skills/` | 仅该项目 | 最高 |
 | Agent | `~/.closeclaw/agents/<agent-id>/skills/` | 仅该 Agent | 高 |
 | Global | `~/.closeclaw/skills/` | 所有 Agent | 中 |
-| ExtraDirs | 由配置指定的外部目录 | 由配置决定 | 低 |
+| ExtraDirs | 由全局技能配置 `config/skills.json` 的 `extraDirs` 字段指定（参见 [config 模块](../config/README.md)） | 所有 Agent | 低 |
 | Bundled | （非文件系统目录，编译时内嵌） | 所有 Agent（系统默认） | 最低 |
 
 同名判定以目录名（即 skill 名）为准：同一目录名在不同优先级层级出现时，高优先级版本覆盖低优先级版本，低优先级版本被跳过并记录警告。

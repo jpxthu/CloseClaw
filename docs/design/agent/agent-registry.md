@@ -14,7 +14,7 @@ AgentRegistry 是轻量级内存查找表，不管理 agent 生命周期、不�
 
 - 启动时由 Daemon 从 Config 加载结果一次性填充注册表
 - 运行时各消费模块通过 agent_id 查询获取只读配置，命中的返回完整配置，未命中由调用方自行处理
-- 提供遍历所有已注册 agent 配置的能力，用于启动时全量初始化等批量操作场景（消费方见下游表）。AgentSkillsQuery 和 AgentToolsConfigQuery 为两套独立查询接口。skills/tools 白名单为 `["*"]` 或空时返回不限制，黑名单为空时同样不限制。当白名单和黑名单同时非空且有交集时，黑名单优先——黑名单中列出的工具即使在白名单中也不可用（显式拒绝优先于显式允许）。
+- 提供遍历所有已注册 agent 配置的能力，用于启动时全量初始化等批量操作场景（消费方见下游表）。AgentRegistry 通过 [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) 和 [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery) 两个 DI trait 暴露技能/工具的按 agent 查询接口（接口契约定义见 common 模块）。skills/tools 白名单为 `["*"]` 或空时返回不限制，黑名单为空时同样不限制。当白名单和黑名单同时非空且有交集时，黑名单优先——黑名单中列出的工具即使在白名单中也不可用（显式拒绝优先于显式允许）。
 
 **热重载策略**：Config Hot Reload 检测到 agent 配置变更 → 重新加载 → 通知 Daemon → Daemon 触发全量替换。已运行的 session 是否感知变更由各消费模块自行决定——AgentRegistry 只负责提供最新数据，不推送变更通知。
 
@@ -57,8 +57,8 @@ AgentRegistry 是轻量级内存查找表，不管理 agent 生命周期、不�
 |------|---------|
 | Session | 创建 session 时查询 agent 配置（模型、workspace、工具集、skill 列表等） |
 | System Prompt | 通过 SessionManager 间接获取 bootstrap 模式配置（创建 session 时从 AgentRegistry 读取后缓存到 ConversationSession） |
-| Skills Registry | 通过 AgentSkillsQuery 接口查询 agent 的 skills 白名单，白名单为 `["*"]` 或空时返回「不限制」 |
-| Tools Registry | 通过 AgentToolsConfigQuery 接口查询 agent 的 tools 白名单和 disallowedTools 黑名单，白名单为 `["*"]` 或空时返回「不限制」，黑名单为空时同样不限制 |
+| Skills Registry | 通过 [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) 接口查询 agent 的 skills 白名单，白名单为 `["*"]` 或空时返回「不限制」 |
+| Tools Registry | 通过 [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery) 接口查询 agent 的 tools 白名单和 disallowedTools 黑名单，白名单为 `["*"]` 或空时返回「不限制」，黑名单为空时同样不限制 |
 
 ### 无关
 

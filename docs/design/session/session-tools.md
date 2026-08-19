@@ -25,7 +25,7 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 | 参数 | 含义 | 必填 | 默认值 |
 |------|------|------|--------|
 | `agentId` | 目标 agent 的 ID | 否 | 当前 Agent 的 ID（spawn 自身分身） |
-| `task` | 任务描述，注入子 session 首条消息 | 是 | — |
+| `task` | 任务描述，注入子 session 的 system prompt（不属于对话消息，压缩时不受影响） | 是 | — |
 | `mode` | `"run"`（一次性）/ `"session"`（持久线程） | 否 | `"run"` |
 
 > `mode` 描述子 session 的持久化策略，与 SessionCheckpoint 中的 `mode` 字段（对话模式：normal/plan/auto）含义不同——二者作用于不同数据结构。

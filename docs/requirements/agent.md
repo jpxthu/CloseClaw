@@ -78,7 +78,7 @@ Agent 可以创建子 Agent 来执行子任务。默认创建的子 Agent 为一
 
 ### F8. 子 Agent 上下文继承（Fork）
 
-Fork 模式对应上述「上下文模式」的继承对话历史分支：子 Agent 在创建时继承父 Agent 的完整对话历史，使子 Agent 理解已发生的上下文后再执行新任务。普通 Spawn 的子 Agent 只看到任务描述，Fork 模式的子 Agent 先看到父 Agent 的对话历史，再看到任务描述。
+Fork 模式对应上述「上下文模式」的继承对话历史分支：子 Agent 在创建时继承父 Agent 的完整对话历史，使子 Agent 理解已发生的上下文后再执行新任务。任务描述注入子 Agent 的 system prompt（不属于对话消息，压缩时不受影响）；普通 Spawn 不装载父会话对话历史，Fork 模式在对话消息区装载父 Agent 的完整对话历史。
 
 ### F9. Spawn 创建控制
 

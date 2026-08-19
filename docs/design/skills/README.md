@@ -8,14 +8,14 @@ Skills 模块提供可复用技能插件体系——用户创建 SKILL.md 文件
 
 ## 架构
 
-Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、执行层。技能按五层优先级来源组织——前四层为磁盘目录，Bundled 层为编译期内置数据。其中 ExtraDirs 为由配置指定的外部复用路径。
+Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、执行层。技能按五层优先级来源组织——前四层为磁盘目录，Bundled 层为编译期内置数据。其中 ExtraDirs 为全局技能配置 `config/skills.json` 的 `extraDirs` 指定的外部复用目录（详见 [config 模块](../config/README.md)）。
 
 ```
 五层技能来源（优先级从高到低）
   ├─ Project:  <project>/.closeclaw/skills/
   ├─ Agent:   ~/.closeclaw/agents/<id>/skills/
   ├─ Global:  ~/.closeclaw/skills/
-  ├─ ExtraDirs: 配置指定的外部目录
+  ├─ ExtraDirs: 全局技能配置（config/skills.json 的 extraDirs）指定的外部目录
   └─ Bundled: 编译期内置（不走磁盘加载）
   ↓
 磁盘加载层（Disk Loader）

@@ -76,6 +76,7 @@ Session 创建 / 恢复 / Compaction
 ### 上游
 
 - **SessionManager**：在 session 创建和恢复时触发 system prompt 构建。
+- **Agent 模块**：提供 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，System Prompt 据此加载身份人格文件（agent 配置数据源详见 [agent 模块](../agent/README.md)）。
 - **Memory 模块**：提供 MEMORY.md，作为 static system prompt 的长期记忆段来源。
 - **Skills 模块**：提供技能清单数据（从 SkillRegistry 获取技能元数据），由 system_prompt 模块的 SkillsFragmentProvider 消费并渲染为 SkillsSection。清单的过滤、排序、格式化规则见 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。
 - **Mode 模块**：提供当前 session 模式的指令内容（Plan Mode 双路径工作流指令 / Auto Mode 连续执行指令），注入动态层 ModeInstruction Section。
