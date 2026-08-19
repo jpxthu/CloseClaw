@@ -320,16 +320,6 @@ pub struct PlanArchiveConfig {
     pub threshold_days: u64,
 }
 
-/// Skill-related settings.
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillsConfig {
-    /// Extra directories to scan for skills (appended after Global layer).
-    /// Paths that do not exist are silently skipped at scan time.
-    #[serde(default)]
-    pub extra_dirs: Vec<String>,
-}
-
 fn default_plan_archive_threshold_days() -> u64 {
     7
 }
@@ -382,8 +372,6 @@ pub struct SystemConfigData {
     pub audit_log: Option<AuditLogConfig>,
     #[serde(default)]
     pub plan_archive: Option<PlanArchiveConfig>,
-    #[serde(default)]
-    pub skills: Option<SkillsConfig>,
 }
 
 impl SystemConfigData {
@@ -469,9 +457,5 @@ impl ConfigProvider for SystemConfigData {
                 .plan_archive
                 .as_ref()
                 .is_none_or(|p| p == &PlanArchiveConfig::default())
-            && self
-                .skills
-                .as_ref()
-                .is_none_or(|s| s == &SkillsConfig::default())
     }
 }
