@@ -325,3 +325,68 @@ async fn test_generate_prompt_always_has_usage_principles() {
         "should mention mode in usage principles"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Task authoring guidance tests (Gap 2)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_generate_prompt_task_authoring_guidance_present() {
+    let tool = make_tool();
+    let ctx = PromptGenerationContext::default();
+    let prompt = tool.generate_prompt(&ctx);
+
+    // Must contain all three guidelines from design doc §子 Agent 提示词工程
+    // 1. Brief like a colleague — say what to do and why
+    assert!(
+        prompt.contains("colleague"),
+        "task authoring guidance must mention 'colleague' (brief like a colleague)"
+    );
+    assert!(
+        prompt.contains("what to do and why"),
+        "task authoring guidance must contain 'what to do and why'"
+    );
+
+    // 2. Don't delegate synthesis/judgment
+    assert!(
+        prompt.contains("don't delegate synthesis") || prompt.contains("Don't delegate synthesis"),
+        "task authoring guidance must contain 'don't delegate synthesis'"
+    );
+
+    // 3. fork=true for context, plain spawn for independent subtasks
+    assert!(
+        prompt.contains("fork=true") || prompt.contains("fork"),
+        "task authoring guidance must mention fork"
+    );
+}
+
+#[tokio::test]
+async fn test_generate_prompt_task_authoring_includes_all_three_strategies() {
+    let tool = make_tool();
+    let ctx = PromptGenerationContext::default();
+    let prompt = tool.generate_prompt(&ctx);
+
+    // Verify the guidance section exists as a distinct block
+    assert!(
+        prompt.contains("Task authoring guidelines"),
+        "prompt must contain 'Task authoring guidelines' heading"
+    );
+
+    // Each guideline is a separate bullet point
+    let lines: Vec<&str> = prompt.lines().collect();
+    let task_guidance_lines: Vec<&str> = lines
+        .iter()
+        .filter(|l| {
+            l.starts_with("- ")
+                && (l.contains("colleague")
+                    || l.contains("delegate synthesis")
+                    || l.contains("fork"))
+        })
+        .copied()
+        .collect();
+    assert!(
+        task_guidance_lines.len() >= 3,
+        "must have at least 3 bullet points for task authoring guidance, found {}",
+        task_guidance_lines.len()
+    );
+}
