@@ -3,7 +3,7 @@
 //! Verifies that:
 //! - `register_child_state` is called during `create_child_session`
 //! - The parent checkpoint contains SubSessionSpawn in `pending_operations`
-//! - `deregister_child_state` removes the entry on child completion
+//! - Child state remains as Completed after announce push (for dedup protection)
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{
@@ -12,6 +12,7 @@ use super::test_helpers::{
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use closeclaw_common::tool_session::ToolSession;
+use closeclaw_common::ChildSessionState;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use closeclaw_tasks::NotificationPriority;
@@ -182,11 +183,11 @@ async fn test_child_completion_deregisters_child_state() {
     )
     .await;
 
-    // Trigger announce push (which deregisters child_state).
+    // Trigger announce push.
     mgr.try_push_announce(&child_id, NotificationPriority::Next)
         .await;
 
-    // Verify child is deregistered.
+    // Verify child state remains as Completed (for dedup protection).
     {
         let parent_cs = mgr
             .get_conversation_session(&parent_id)
@@ -197,9 +198,14 @@ async fn test_child_completion_deregisters_child_state() {
             .child_states
             .read()
             .expect("child_states lock poisoned");
-        assert!(
-            !states.contains_key(&child_id),
-            "child should be removed from child_states after completion"
+        let state = states
+            .get(&child_id)
+            .map(|(s, _)| *s)
+            .expect("child state should exist for dedup protection");
+        assert_eq!(
+            state,
+            ChildSessionState::Completed,
+            "child state must be Completed"
         );
     }
 

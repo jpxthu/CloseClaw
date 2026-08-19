@@ -122,6 +122,56 @@ impl SpawnTree {
 }
 
 impl SpawnTree {
+    /// Remove completed/terminated leaf children under a parent.
+    ///
+    /// For each direct child of `parent_id` whose status is in the
+    /// terminal set (Completed, Terminated), checks whether the child
+    /// still has active descendants. If the subtree is fully terminal
+    /// (no active descendants), the child is removed.
+    ///
+    /// Returns the list of removed session IDs (for caller logging).
+    pub fn reclaim_completed(&mut self, parent_id: &str) -> Vec<String> {
+        let mut reclaimed = Vec::new();
+
+        // First pass: collect terminal child IDs that are safe to remove
+        // (no active descendants in their subtree).
+        let candidates: Vec<String> = self
+            .inner
+            .get(parent_id)
+            .map(|children| {
+                children
+                    .iter()
+                    .filter(|c| c.status.is_terminal())
+                    .filter(|c| !self.has_active_descendants(&c.session_id))
+                    .map(|c| c.session_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Second pass: remove collected children.
+        for child_id in candidates {
+            self.remove_child(parent_id, &child_id);
+            reclaimed.push(child_id);
+        }
+
+        reclaimed
+    }
+
+    /// Recursively check whether any descendant of `session_id` is active.
+    fn has_active_descendants(&self, session_id: &str) -> bool {
+        if let Some(children) = self.inner.get(session_id) {
+            for child in children {
+                if child.status == ChildSessionStatus::Active {
+                    return true;
+                }
+                if self.has_active_descendants(&child.session_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Remove entries for descendant sessions from the tree.
     /// For each descendant, removes it from its parent's list and
     /// removes any sub-entries where it is itself a parent.

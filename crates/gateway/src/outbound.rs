@@ -6,6 +6,7 @@
 use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::dispatch_text;
 use crate::outbound_helpers::log_middleware_rejection;
+use crate::outbound_helpers::make_outbound_meta;
 use crate::outbound_helpers::send_render_block;
 use crate::outbound_helpers::StreamContext;
 use crate::outbound_helpers::StreamState;
@@ -304,7 +305,7 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         channel: &str,
     ) -> Result<ProcessedMessage, GatewayError> {
-        let meta = Self::make_outbound_meta(&[("channel", channel)]);
+        let meta = make_outbound_meta(&[("channel", channel)]);
         let input = self.make_outbound_input(raw_output, content_blocks, meta);
         let Some(registry) = self.processor_registry.read().unwrap().clone() else {
             return Ok(input);
@@ -324,7 +325,7 @@ impl Gateway {
         session_id: &str,
         verbosity_level: VerbosityLevel,
     ) -> Result<ProcessedMessage, GatewayError> {
-        let meta = Self::make_outbound_meta(&[
+        let meta = make_outbound_meta(&[
             ("channel", channel),
             ("session_id", session_id),
             ("verbosity_level", &verbosity_level.to_string()),
@@ -346,17 +347,15 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         metadata: std::collections::HashMap<String, String>,
     ) -> ProcessedMessage {
+        let blocks = if content_blocks.is_empty() {
+            vec![ContentBlock::Text(_raw_output.to_string())]
+        } else {
+            content_blocks
+        };
         ProcessedMessage {
-            content_blocks,
+            content_blocks: blocks,
             metadata,
         }
-    }
-
-    fn make_outbound_meta(entries: &[(&str, &str)]) -> std::collections::HashMap<String, String> {
-        entries
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect()
     }
 
     /// Fallback to plain-text output when no IM plugin is registered for
@@ -779,7 +778,7 @@ impl Gateway {
         // phase via VerbosityFilter::should_keep_thinking
         // (see process_stream_event). At Full verbosity,
         // VerbosityFilter is a no-op.
-        let meta = Self::make_outbound_meta(&[
+        let meta = make_outbound_meta(&[
             ("channel", channel),
             ("session_id", session_id),
             ("verbosity_level", &verbosity_level.to_string()),

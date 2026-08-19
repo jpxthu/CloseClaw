@@ -35,6 +35,18 @@ pub enum ChildSessionStatus {
     Terminated,
 }
 
+impl ChildSessionStatus {
+    /// Returns `true` if this status represents a terminal (non-active) state.
+    ///
+    /// Note: `ChildSessionStatus` in SpawnTree has only `Active`, `Completed`,
+    /// and `Terminated`. The `Errored` variant exists only in
+    /// `ConversationSession`'s `ChildSessionState` (design doc is silent on
+    /// this distinction; retained as-is).
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Terminated)
+    }
+}
+
 /// Metadata for a child session tracked by the parent.
 #[derive(Debug, Clone)]
 pub struct ChildSessionInfo {
