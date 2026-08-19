@@ -1,6 +1,6 @@
 //! Plan execution engine crate.
 //!
-//! Provides core scheduling, execution mode strategies,
+//! Provides core scheduling, state management,
 //! and sub-agent result parsing for the Plan execution pipeline.
 
 pub mod engine;
