@@ -481,6 +481,14 @@ impl SessionManager {
         let child_status = self
             .resolve_child_completion_status(&parent_session_id, child_session_id)
             .await;
+
+        // Set child state to Completed before pushing announce.
+        // This ensures dedup protection works on subsequent calls.
+        if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
+            let parent_guard = parent_cs.read().await;
+            parent_guard.update_child_state(child_session_id, ChildSessionState::Completed);
+        }
+
         let event = build_announce_event(
             child_session_id,
             child_agent_id,
@@ -549,15 +557,6 @@ impl SessionManager {
                 .read()
                 .await
                 .unregister_child_handle(child_session_id);
-            // Deregister from parent's child_states and persist checkpoint
-            // so crash recovery no longer sees this as a pending operation.
-            {
-                use closeclaw_common::tool_session::ToolSession;
-                let guard = parent_cs.read().await;
-                guard
-                    .deregister_child_state(child_session_id.to_string())
-                    .await;
-            }
         }
 
         // Step 1.6: Auto-recovery — check if parent session should
@@ -769,12 +768,6 @@ impl SessionManager {
         // Unregister child handle from parent's ConversationSession.
         if let Some(parent_cs) = self.get_conversation_session(parent_session_id).await {
             parent_cs.read().await.unregister_child_handle(session_id);
-            // Deregister from parent's child_states and persist checkpoint.
-            {
-                use closeclaw_common::tool_session::ToolSession;
-                let guard = parent_cs.read().await;
-                guard.deregister_child_state(session_id.to_string()).await;
-            }
         }
     }
 
