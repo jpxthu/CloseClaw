@@ -29,7 +29,7 @@ SpawnValidator 前置检查通过 → sessions_spawn 经 tools 模块触发 Perm
   - 加载目标 agent 的配置档案（config.json + permissions.json）
   - workspace：由 Session 模块按工作目录解析顺序确定（spawn 参数指定 → 目标 agent.workspace → 子 session 默认工作目录），详见 [working-directory.md](../session/working-directory.md)
   - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode（bootstrap 文件集由目标 agent 配置的 bootstrapMode/agentDir 决定，spawn 不提供独立的 bootstrap 文件路径覆盖）
-  - 注入 task 作为首条用户消息
+  - 注入 task 到子 session 的 system prompt（不属于对话消息，压缩时不受影响）
   - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
   - skills：按 agent 配置的 skills 白名单过滤
   - 注入 spawn 角色标记（parent_session_id, depth, spawn_mode, fork）
@@ -112,22 +112,23 @@ root 设定 maxSpawnDepth=3，全树最多 3 层子孙。child1 配置 5 但被 
 
 ### Fork 模式
 
-Fork 是 spawn 的变体：在子 session 的 system prompt 和 task prompt 之间插入父 session 的对话历史，使子 agent 继承父 session 的上下文认知。
+Fork 是 spawn 的变体：让子 agent 在继承父 session 对话历史的上下文基础上执行新任务，使子 agent 理解已发生的上下文。
 
 ```
-Spawn:   [system prompt] [task prompt]
-Fork:    [system prompt] [父 session messages] [task prompt]
+Spawn:   [system prompt(含 task)]
+Fork:    [system prompt(含 task)] [父 session messages]
 ```
 
-Fork 与 Spawn 共用同一 session 创建流程，区别仅在 session 组装阶段：fork 模式在注入 task 之前先注入父 session 的 transcript messages。
+Fork 与 Spawn 共用同一 session 创建流程，task 均注入子 session 的 system prompt（不属于对话消息，压缩时不受影响）。区别仅在装载阶段：fork 模式在对话消息区注入父 session 的 transcript messages，spawn 模式不装载父历史。fork 模式下 task 始终位于 system prompt，不依赖对话消息顺序。
 
 | | Spawn | Fork |
 |---|-------|------|
-| 子 agent 上下文 | 仅 task 描述 | 父 session 完整对话历史 + task 描述 |
+| system prompt | 含 task 描述 | 含 task 描述 |
+| 对话消息区 | 空（无父历史） | 父 session 完整对话历史 |
 | 适用场景 | 独立子任务，需完整 briefing | 父 agent 需要子 agent 理解已发生的事 |
 | 父 session 的说明成本 | 子 agent 不知前情，需解释背景 | 子 agent 已知前情，只需写指令 |
 
-Fork 是 spawn 的组装阶段变体，不改变 spawn_tree 结构：fork 标记仅在 session 组装时决定是否注入父 session transcript，不写入 spawn_tree 节点、不持久化到 checkpoint。
+Fork 是 spawn 的装载阶段变体，不改变 spawn_tree 结构：fork 标记仅在 session 组装时决定是否注入父 session transcript，不写入 spawn_tree 节点、不持久化到 checkpoint。
 
 ### Announce 机制
 
@@ -158,8 +159,8 @@ Fork 是 spawn 的组装阶段变体，不改变 spawn_tree 结构：fork 标记
 - 通信方式：「结果自动推送回父 agent，不要主动轮询状态」
 
 任务内容（父 agent 传入的 task 参数）：
-- 直接注入为子 agent 的首条用户消息
-- fork 模式下先注入父 agent 对话历史，再注入 task
+- 注入到子 agent 的 system prompt，不属于对话消息，压缩时不受影响
+- fork 模式下，父 agent 的对话历史注入对话消息区，task 保持不变位于 system prompt——历史与任务分属不同消息区，互不依赖注入顺序
 
 #### 结构化输出
 
@@ -230,10 +231,9 @@ Spawn 树由 Session 模块内部的 spawn_tree 子组件维护，记录父子 s
 ```
 父 session 调用 sessions_spawn(fork=true, task, ...)
   ↓
-与 Spawn 流程完全相同，唯一区别在 session 组装时：
-  首条注入的不是 task
-  → 先注入父 session 的 transcript messages
-  → 再注入 task 消息
+与 Spawn 流程完全相同，唯一区别在对话消息区的装载：
+  task 注入 system prompt（与 Spawn 一致）
+  → 对话消息区注入父 session 的 transcript messages
   ↓
 子 agent 看到完整上下文 + 新任务
 ```
@@ -268,7 +268,7 @@ Spawn 树由 Session 模块内部的 spawn_tree 子组件维护，记录父子 s
 
 | 模块 | 调用关系 |
 |------|---------|
-| Session | 创建 child session、注入 task 消息、管理 announce 队列。spawn_tree 作为 Session 模块的内部子组件，其存储、查询、回收、级联清理和重启恢复见 [spawn-tree.md](../session/spawn-tree.md) |
+| Session | 创建 child session、注入 task 到 system prompt、管理 announce 队列。spawn_tree 作为 Session 模块的内部子组件，其存储、查询、回收、级联清理和重启恢复见 [spawn-tree.md](../session/spawn-tree.md) |
 | System Prompt | 按 lightContext/agent.bootstrapMode 决定子 session 的 bootstrap 文件集 |
 
 ### 无关
