@@ -302,8 +302,8 @@ async fn configure_spawn_behavior(
 /// Fallback order:
 /// 1. Explicit `workspace` arg (if provided).
 /// 2. `config.workspace` (if set).
-/// 3. `<parent_workspace>/<child_agent_id>/<user_id>/` — subdirectory under the
-///    parent session's workspace.
+/// 3. `{config_dir}/workspaces/<child_agent_id>/<user_id>/` — dedicated workspace
+///    directory under the configuration root.
 /// 4. `/tmp` (last resort).
 async fn resolve_child_workspace(
     ctx: &dyn SpawnCreationContext,
@@ -317,18 +317,23 @@ async fn resolve_child_workspace(
     if let Some(ref ws) = config.workspace {
         return Ok(ws.clone());
     }
-    // Level 3: create subdirectory under parent session's workspace.
-    if let Some(parent_cs) = ctx.get_parent_conversation_session(parent_session_id).await {
-        let parent_ws = {
-            let guard = parent_cs.read().await;
-            guard.workdir().to_path_buf()
-        };
+    // Level 3: dedicated workspace under config_dir/workspaces/.
+    if ctx
+        .get_parent_conversation_session(parent_session_id)
+        .await
+        .is_some()
+    {
         let user_id = ctx
             .sender_id(parent_session_id)
             .await
             .unwrap_or_else(|| "default".to_string());
-        let child_ws = parent_ws.join(&config.id).join(&user_id);
-        std::fs::create_dir_all(&child_ws)
+        let child_ws = ctx
+            .config_dir()
+            .join("workspaces")
+            .join(&config.id)
+            .join(&user_id);
+        tokio::fs::create_dir_all(&child_ws)
+            .await
             .map_err(|e| format!("workspace creation failed: {}", e))?;
         return Ok(child_ws);
     }

@@ -59,6 +59,7 @@ async fn test_spawn_label_auto_generated_when_none() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
+    mgr.set_config_dir_for_testing(tmp.path());
     let config = test_resolved_config("label-child", None);
     register_parent_session(&mgr, "parent-label", tmp.path().to_path_buf()).await;
 
@@ -119,6 +120,7 @@ async fn test_spawn_label_explicit_value_preserved() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
+    mgr.set_config_dir_for_testing(tmp.path());
     let config = test_resolved_config("label-child-explicit", None);
     register_parent_session(&mgr, "parent-label-explicit", tmp.path().to_path_buf()).await;
 
@@ -169,6 +171,7 @@ async fn test_spawn_label_via_config_none_generates() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
+    mgr.set_config_dir_for_testing(tmp.path());
     let config = test_resolved_config("label-config-child", None);
     register_parent_session(&mgr, "parent-label-config", tmp.path().to_path_buf()).await;
 

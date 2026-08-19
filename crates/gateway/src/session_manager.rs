@@ -137,6 +137,10 @@ pub struct SessionManager {
     /// Per-session yield warning timeout handles (keyed by session_id).
     /// Aborted on normal recovery, timeout, or when the warning fires.
     yield_warning_handles: RwLock<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// Cached config directory path, set by [`set_config_manager`](Self::set_config_manager).
+    /// Used by [`SpawnCreationContext::config_dir`] to return a stable `&Path` reference.
+    /// Immutable after initialization (set once, read many).
+    config_dir: std::sync::OnceLock<PathBuf>,
     /// Skill listing provider for per-turn skill injection.
     /// Injected by daemon (composition root) so each LLM turn can
     /// prepend a tool-role attachment with the agent's skill listing.
@@ -203,6 +207,7 @@ impl SessionManager {
             channel_active_sessions: RwLock::new(HashMap::new()),
             key_registry: RwLock::new(HashMap::new()),
             config_manager: RwLock::new(None),
+            config_dir: std::sync::OnceLock::new(),
             agent_registry: RwLock::new(None),
             config_snapshot: RwLock::new(None),
             shutdown_handle: RwLock::new(None),
@@ -812,6 +817,18 @@ impl ActiveSessionQuery for SessionManager {
     /// Delegates to [`SessionManager::is_active`].
     async fn is_active(&self, session_id: &str) -> bool {
         self.is_active(session_id).await
+    }
+}
+
+#[cfg(test)]
+impl SessionManager {
+    /// Initialize `config_dir` from a temporary directory.
+    ///
+    /// Used by tests that create `SessionManager` without a real
+    /// `ConfigManager`, so `SpawnCreationContext::config_dir()` does
+    /// not panic.
+    pub fn set_config_dir_for_testing(&self, config_dir: &std::path::Path) {
+        let _ = self.config_dir.set(config_dir.to_path_buf());
     }
 }
 
