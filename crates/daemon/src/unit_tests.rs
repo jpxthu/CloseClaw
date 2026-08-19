@@ -544,6 +544,21 @@ fn test_resolve_extra_dirs_no_skills_config() {
     assert!(result.is_empty());
 }
 
+/// Invalid JSON in skills.json → empty Vec (graceful, no panic).
+#[test]
+fn test_resolve_extra_dirs_invalid_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).unwrap();
+    crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
+    // Write malformed JSON to skills.json
+    std::fs::write(config_subdir.join("skills.json"), "not valid json {{{").unwrap();
+    let cm = closeclaw_config::ConfigManager::new(config_subdir).unwrap();
+    cm.load().unwrap();
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert!(result.is_empty(), "invalid JSON should yield empty Vec");
+}
+
 /// Mixed paths: tilde, absolute, relative.
 #[test]
 fn test_resolve_extra_dirs_mixed_paths() {
