@@ -36,6 +36,8 @@ system prompt 模块通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记将 
 
 边界标记的定义、插入位置和切分规则详见 [system_prompt/kv-cache](../system_prompt/kv-cache.md)。
 
+缓存适配器只负责请求侧的缓存控制参数注入；响应侧的缓存命中率统计与命中率下降告警由 session 模块的增强层负责——命中率公式与告警阈值的权威定义见 [session/llm-session-enhancements](../../session/llm-session-enhancements.md)。测试侧的缓存行为输入制造（命中/断开/过期序列）由 [fake_llm/kv-cache-simulation](../fake_llm/kv-cache-simulation.md) 提供。
+
 ### 消息历史缓存
 
 消息历史的缓存标记（messages 数组尾部的 cache_control）由 Protocol 层在请求序列化时完成，不属于缓存适配器的职责。详见 [protocol-mapping](protocol-mapping.md) 的消息历史缓存策略。

@@ -65,6 +65,20 @@ OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reaso
 
 与 Anthropic 的差异：OpenAI 的 `finish_reason` 仅在流末尾出现一次，不区分内容块；Anthropic 通过 `content_block_stop` 逐块标注结束边界。
 
+### 用量字段
+
+两种协议的用量字段归一化为统一 Usage 结构，各协议原生位置：
+
+| 统一字段 | 含义 | OpenAI 协议来源 | Anthropic 协议来源 |
+|---------|------|----------------|-------------------|
+| prompt_tokens | 输入 token 数 | `usage.prompt_tokens` | `usage.input_tokens` |
+| completion_tokens | 输出 token 数 | `usage.completion_tokens` | `usage.output_tokens` |
+| reasoning_tokens | 推理消耗 token 数 | `usage.completion_tokens_details.reasoning_tokens` | 无独立原生字段（推理消耗计入输出 token，不单列） |
+| cache_read_tokens | 命中缓存的输入 token 数 | `usage.prompt_tokens_details.cached_tokens` | `usage.cache_read_input_tokens` |
+| cache_write_tokens | 写入缓存的 token 数 | 无原生字段（服务端自动前缀缓存不回写该值） | `usage.cache_creation_input_tokens` |
+
+流式场景下的用量到达时机：OpenAI 在最终 chunk 携带（需请求带 `stream_options.include_usage`），Anthropic 在 `message_start` 给出输入侧初值、`message_delta` 给出最终值。协议未携带的字段归一化为缺失（由上层按 0 显示，见 [session/llm-session-enhancements](../session/llm-session-enhancements.md) 的用量统计）。
+
 ### 多轮对话增量处理
 
 多轮对话中，每轮请求的消息列表是上一轮的追加——历史消息不修改，只追加新消息。这是前缀缓存生效的前提。
