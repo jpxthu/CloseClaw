@@ -78,7 +78,7 @@ impl FileAuditLogger {
     }
 
     /// Returns the path this logger writes to.
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &Path {
         self.inner.path()
     }
 
@@ -174,7 +174,7 @@ impl AuditLogger for FileAuditLogger {
 impl std::fmt::Debug for FileAuditLogger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FileAuditLogger")
-            .field("path", self.inner.path())
+            .field("path", &self.inner.path())
             .field("max_entries", &self.inner.max_entries())
             .finish()
     }

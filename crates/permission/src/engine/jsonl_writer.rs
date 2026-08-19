@@ -41,7 +41,7 @@ impl JsonlFileWriter {
     }
 
     /// Returns the path this writer targets.
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 

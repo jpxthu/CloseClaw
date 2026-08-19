@@ -56,7 +56,7 @@ impl FileRejectionLogger {
     }
 
     /// Returns the path this logger writes to.
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &Path {
         self.inner.path()
     }
 
@@ -80,7 +80,7 @@ impl RejectionLogger for FileRejectionLogger {
 impl std::fmt::Debug for FileRejectionLogger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FileRejectionLogger")
-            .field("path", self.inner.path())
+            .field("path", &self.inner.path())
             .field("max_entries", &self.inner.max_entries())
             .finish()
     }

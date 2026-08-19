@@ -1,6 +1,6 @@
 //! Core tools registrar — file_ops, meta, git_ops, bash groups.
 //!
-//! Registers 14 built-in tools that belong to the core domain.
+//! Registers 15 built-in tools that belong to the core domain.
 
 use async_trait::async_trait;
 use std::path::PathBuf;
