@@ -1,8 +1,9 @@
 //! Unit tests for child session creation logic.
 //!
 //! Covers:
-//! - Task injection uses "user" role (not "assistant")
-//! - Task content is correctly forwarded as pending message
+//! - Task injection into child system prompt (AppendSection)
+//! - Trigger message in pending queue uses "user" role (not "assistant")
+//! - Task content is forwarded via system_appends, not as pending message
 
 use std::sync::Arc;
 
@@ -129,10 +130,11 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
-/// Verify that task injection uses "user" role (not "assistant").
+/// Verify that the trigger message uses "user" role (not "assistant").
 ///
-/// This is the primary invariant from the design doc: the task is injected
-/// as the first *user* message in the child session's transcript.
+/// The task is now injected into the system prompt (AppendSection), and
+/// a minimal trigger message drives the first LLM invocation. The trigger
+/// message must still carry the "user" role.
 #[tokio::test]
 async fn test_task_injected_with_user_role() {
     let ctx = MockCreationContext::new();
@@ -166,12 +168,13 @@ async fn test_task_injected_with_user_role() {
     assert_eq!(
         msg.role.as_deref(),
         Some("user"),
-        "task must be injected with 'user' role, got {:?}",
+        "trigger message must use 'user' role, got {:?}",
         msg.role
     );
 }
 
-/// Verify that task content is correctly forwarded in the pending message.
+/// Verify that task content is forwarded via system_appends and a
+/// minimal trigger message is placed in the pending queue.
 #[tokio::test]
 async fn test_task_content_forwarded() {
     let ctx = MockCreationContext::new();
@@ -201,10 +204,20 @@ async fn test_task_content_forwarded() {
     let pending = cs.get_pending_messages();
     assert_eq!(pending.len(), 1);
 
-    let msg = &pending[0];
+    // Pending message is a minimal trigger, not the task text.
     assert_eq!(
-        msg.content, "Run unit tests and report results",
-        "task content must match exactly"
+        pending[0].content, "Begin your assigned task.",
+        "pending message must be the trigger text"
+    );
+
+    // Task content lives in system appends.
+    let appends = cs.system_appends();
+    assert!(
+        appends
+            .iter()
+            .any(|s| s == &"## Task\nRun unit tests and report results"),
+        "task text must be in system_appends, got: {:?}",
+        appends
     );
 }
 
@@ -252,7 +265,7 @@ async fn test_pending_message_id_format() {
     );
 }
 
-/// Verify that task role is "user" even with different spawn modes.
+/// Verify that trigger message role is "user" even with different spawn modes.
 #[tokio::test]
 async fn test_task_role_user_in_session_mode() {
     let ctx = MockCreationContext::new();
@@ -658,13 +671,20 @@ async fn test_prompt_template_injected_into_system_prompt() {
         "system prompt should contain the template body"
     );
 
-    // User message (task) should NOT contain the template text
+    // Pending message is a trigger, not the task text.
     let pending = cs.get_pending_messages();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].content, "Analyze the codebase");
+    assert_eq!(pending[0].content, "Begin your assigned task.");
+
+    // Task content is in system_appends, not in the pending message.
+    let appends = cs.system_appends();
+    assert!(
+        appends.iter().any(|s| s.contains("Analyze the codebase")),
+        "task text must be in system_appends"
+    );
     assert!(
         !pending[0].content.contains("## Custom Template"),
-        "user message must NOT contain the template prefix"
+        "pending trigger must NOT contain the template prefix"
     );
 }
 
@@ -698,9 +718,14 @@ async fn test_task_unchanged_with_prompt_template() {
     let cs = result.conversation_session.read().await;
     let pending = cs.get_pending_messages();
     assert_eq!(pending.len(), 1);
-    assert_eq!(
-        pending[0].content, task_text,
-        "task content must be exactly the original task text"
+    // Pending is the trigger, not the task text.
+    assert_eq!(pending[0].content, "Begin your assigned task.");
+    // Task text lives in system_appends.
+    let appends = cs.system_appends();
+    assert!(
+        appends.iter().any(|s| s.contains(task_text)),
+        "task text must be in system_appends, got: {:?}",
+        appends
     );
 }
 
@@ -733,7 +758,13 @@ async fn test_no_prompt_template_unchanged_behavior() {
     let cs = result.conversation_session.read().await;
     let pending = cs.get_pending_messages();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].content, "Simple task");
+    assert_eq!(pending[0].content, "Begin your assigned task.");
+    // Task content is in system_appends.
+    let appends = cs.system_appends();
+    assert!(
+        appends.iter().any(|s| s.contains("Simple task")),
+        "task text must be in system_appends"
+    );
     // System prompt should not contain any template-related text
     let sys_prompt = cs.system_prompt().map(|s| s.to_owned()).unwrap_or_default();
     assert!(

@@ -108,17 +108,18 @@ async fn test_create_child_session_basic() {
     assert_eq!(mgr.get_session_depth(&child_id).await, Some(1));
 
     assert_eq!(mgr.count_active_children("parent-session-1").await, 1);
-    // ConversationSession exists with the task as first pending message
-    let cs = mgr
-        .get_conversation_session(&child_id)
-        .await
-        .expect("conversation session should exist");
-    let cs_guard = cs.read().await;
-    assert_eq!(cs_guard.get_pending_messages().len(), 1);
+    // Trigger message in pending; task text in system_appends.
+    let cs = mgr.get_conversation_session(&child_id).await.unwrap();
+    let guard = cs.read().await;
+    assert_eq!(guard.get_pending_messages().len(), 1);
     assert_eq!(
-        cs_guard.get_pending_messages()[0].content,
-        "do something useful"
+        guard.get_pending_messages()[0].content,
+        "Begin your assigned task."
     );
+    assert!(guard
+        .system_appends()
+        .iter()
+        .any(|s| s.contains("do something useful")));
 }
 
 #[tokio::test]
@@ -273,7 +274,7 @@ async fn test_steer_child_injects_pending_message() {
         .expect("conversation session should exist");
     let cs_guard = cs.read().await;
     let pending = cs_guard.get_pending_messages();
-    // There should be 2 pending messages: the original task + the steer message
+    // There should be 2 pending messages: the trigger + the steer message
     assert!(
         pending.len() >= 2,
         "expected at least 2 pending messages, got {}",
