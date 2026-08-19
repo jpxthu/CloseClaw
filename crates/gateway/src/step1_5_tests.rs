@@ -473,7 +473,6 @@ fn allow_engine() -> Arc<closeclaw_permission::engine::engine_eval::PermissionEn
         rules: vec![],
         defaults: Defaults::default(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
     };
     Arc::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
@@ -565,7 +564,6 @@ async fn test_permission_denied_handler_still_invoked() {
         }],
         defaults: Default::default(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
     };
     gw.set_permission_engine(Arc::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(

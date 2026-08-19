@@ -426,7 +426,6 @@ fn allow_engine(
         },
         user_defaults: Defaults::default(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
         ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(
@@ -453,7 +452,6 @@ fn deny_engine(
         defaults: Defaults::default(),
         user_defaults: Defaults::default(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
         ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(
@@ -511,7 +509,6 @@ fn auto_mode_allow_engine(
         },
         user_defaults: Defaults::default(),
         template_includes: vec![],
-        agent_creators: HashMap::new(),
         ..Default::default()
     };
     Arc::new(tokio::sync::RwLock::new(

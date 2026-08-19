@@ -174,7 +174,6 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
             caller: Caller {
                 user_id: "test-user".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::CommandExec {
                 agent: "test-agent".to_string(),
@@ -366,7 +365,6 @@ async fn test_sandbox_evaluate_permission_request() {
             caller: Caller {
                 user_id: "owner".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),

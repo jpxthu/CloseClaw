@@ -51,7 +51,6 @@ async fn test_user_and_agent_rule_matching() {
         caller: Caller {
             user_id: "ou_alice".to_string(),
             agent: "dev-agent-01".to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),
@@ -94,7 +93,6 @@ async fn test_user_and_agent_rule_user_mismatch() {
         caller: Caller {
             user_id: "ou_bob".to_string(),
             agent: "dev-agent-01".to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),
@@ -192,7 +190,6 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
         caller: Caller {
             user_id: "ou_alice".to_string(),
             agent: "dev-agent-01".to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),

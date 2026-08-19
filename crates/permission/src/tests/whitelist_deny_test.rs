@@ -17,7 +17,6 @@ fn owner_caller(agent: &str) -> Caller {
     Caller {
         user_id: "owner".into(),
         agent: agent.into(),
-        creator_id: String::new(),
     }
 }
 

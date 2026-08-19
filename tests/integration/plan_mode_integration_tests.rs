@@ -266,7 +266,6 @@ fn test_plan_mode_e2e_with_caller() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
@@ -284,7 +283,6 @@ fn test_plan_mode_e2e_with_caller() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
@@ -302,7 +300,6 @@ fn test_plan_mode_e2e_with_caller() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "test-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),

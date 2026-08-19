@@ -47,7 +47,6 @@ impl super::engine_eval::PermissionEngine {
             let caller = super::engine_types::Caller {
                 user_id: user_id.unwrap_or_default().to_string(),
                 agent: child_agent_id.to_string(),
-                creator_id: String::new(),
             };
             for subject in subjects {
                 if subject.matches(&caller) {
@@ -166,7 +165,6 @@ impl super::engine_eval::PermissionEngine {
         let caller = super::engine_types::Caller {
             user_id: user_id.to_string(),
             agent: agent_id.to_string(),
-            creator_id: String::new(),
         };
         let rules = self.rules.clone();
 

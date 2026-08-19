@@ -144,7 +144,6 @@ fn test_owner_caller_produces_agent_only() {
     let caller = Caller {
         user_id: "owner".into(),
         agent: "a1".into(),
-        creator_id: String::new(),
     };
     let subject = caller_to_subject(&caller, WhitelistTarget::Auto);
     assert!(subject.is_agent_only());
@@ -156,7 +155,6 @@ fn test_empty_user_id_produces_agent_only() {
     let caller = Caller {
         user_id: String::new(),
         agent: "a2".into(),
-        creator_id: String::new(),
     };
     let subject = caller_to_subject(&caller, WhitelistTarget::Auto);
     assert!(subject.is_agent_only());
@@ -168,7 +166,6 @@ fn test_non_owner_with_user_id_produces_user_and_agent() {
     let caller = Caller {
         user_id: "ou_alice".into(),
         agent: "a3".into(),
-        creator_id: "creator-1".into(),
     };
     let subject = caller_to_subject(&caller, WhitelistTarget::Auto);
     assert!(subject.is_user_and_agent());
@@ -183,7 +180,6 @@ fn test_build_rule_for_file_op() {
     let caller = Caller {
         user_id: "ou_alice".into(),
         agent: "a1".into(),
-        creator_id: String::new(),
     };
     let body = PermissionRequestBody::FileOp {
         agent: "a1".into(),
@@ -205,7 +201,6 @@ fn test_build_rule_for_config_write_returns_none() {
     let caller = Caller {
         user_id: "owner".into(),
         agent: "a1".into(),
-        creator_id: String::new(),
     };
     let body = PermissionRequestBody::ConfigWrite {
         agent: "a1".into(),
@@ -219,7 +214,6 @@ fn test_build_rule_for_slash_command_returns_none() {
     let caller = Caller {
         user_id: "owner".into(),
         agent: "a1".into(),
-        creator_id: String::new(),
     };
     let body = PermissionRequestBody::SlashCommand {
         agent: "a1".into(),
@@ -233,7 +227,6 @@ fn test_build_rule_owner_caller_agent_only_subject() {
     let caller = Caller {
         user_id: "owner".into(),
         agent: "a1".into(),
-        creator_id: String::new(),
     };
     let body = PermissionRequestBody::ToolCall {
         agent: "a1".into(),

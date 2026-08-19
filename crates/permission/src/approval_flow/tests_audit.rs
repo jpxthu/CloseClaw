@@ -51,7 +51,6 @@ fn test_caller() -> Caller {
     Caller {
         user_id: "user_1".to_string(),
         agent: "agent_1".to_string(),
-        creator_id: "creator_1".to_string(),
     }
 }
 

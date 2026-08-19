@@ -283,7 +283,6 @@ mod tests {
             defaults: Default::default(),
             user_defaults: crate::engine::Defaults::user_defaults(),
             template_includes: vec![],
-            agent_creators: Default::default(),
             rule_version: String::new(),
         };
         let req = SandboxRequest::ReloadRules { rules };
@@ -412,7 +411,6 @@ mod tests {
             },
             user_defaults: crate::engine::Defaults::user_defaults(),
             template_includes: vec![],
-            agent_creators: Default::default(),
             rule_version: String::new(),
         }
     }
@@ -434,7 +432,6 @@ mod tests {
             defaults: crate::engine::Defaults::default(),
             user_defaults: crate::engine::Defaults::user_defaults(),
             template_includes: vec![],
-            agent_creators: Default::default(),
             rule_version: String::new(),
         }
     }
@@ -446,7 +443,6 @@ mod tests {
             defaults: crate::engine::Defaults::default(),
             user_defaults: crate::engine::Defaults::user_defaults(),
             template_includes: vec![],
-            agent_creators: Default::default(),
             rule_version: String::new(),
         }
     }

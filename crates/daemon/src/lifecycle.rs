@@ -644,7 +644,6 @@ impl Daemon {
             defaults: Defaults::default(),
             user_defaults: Defaults::user_defaults(),
             template_includes: Vec::new(),
-            agent_creators: std::collections::HashMap::new(),
             rule_version: String::new(),
         };
         let mut engine = PermissionEngine::new(rule_set, std::path::PathBuf::from(config_dir));

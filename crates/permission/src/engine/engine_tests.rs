@@ -248,7 +248,6 @@ fn test_permission_request_with_caller() {
         caller: Caller {
             user_id: "alice".to_string(),
             agent: "test-agent".to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),

@@ -310,7 +310,6 @@ fn test_owner_auto_mode_high_risk_allowed() {
             caller: Caller {
                 user_id: "owner".to_string(),
                 agent: "a".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "a".to_string(),
@@ -336,7 +335,6 @@ fn test_owner_auto_mode_message_send_allowed() {
             caller: Caller {
                 user_id: "owner".to_string(),
                 agent: "a".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::MessageSend {
                 agent: "a".to_string(),

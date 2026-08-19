@@ -105,7 +105,6 @@ impl SkillApprovalSubmitter for SkillApprovalFlowWrapper {
         let caller = Caller {
             user_id: caller_info.user_id.clone(),
             agent: caller_info.agent.clone(),
-            creator_id: caller_info.creator_id.clone(),
         };
         let mut flow = self.flow.lock().await;
         flow.submit_denial(
@@ -277,14 +276,12 @@ mod tests {
     use crate::approval_flow::HeartbeatApprovalMode;
     use crate::engine::engine_types::{Defaults, Effect, MatchType, Rule, RuleSet, Subject};
     use crate::mock_session_lookup::MockSessionLookup;
-    use std::collections::HashMap;
 
     fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let ruleset = RuleSet {
             rules,
             defaults: Defaults::default(),
             template_includes: vec![],
-            agent_creators: HashMap::new(),
             ..Default::default()
         };
         Arc::new(tokio::sync::RwLock::new(
@@ -610,7 +607,6 @@ mod tests {
         let caller = CallerInfo {
             user_id: "user_1".to_string(),
             agent: "agent_1".to_string(),
-            creator_id: "creator_1".to_string(),
             is_sub_agent: true,
         };
         let result = rt.block_on(wrapper.submit_denial(
@@ -634,7 +630,6 @@ mod tests {
         let caller = CallerInfo {
             user_id: "user_1".to_string(),
             agent: "agent_1".to_string(),
-            creator_id: "creator_1".to_string(),
             is_sub_agent: false,
         };
         let result = rt.block_on(wrapper.submit_denial(

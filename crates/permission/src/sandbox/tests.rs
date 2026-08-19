@@ -93,7 +93,6 @@ fn dummy_rules() -> RuleSet {
         defaults: Defaults::default(),
         user_defaults: Defaults::user_defaults(),
         template_includes: vec![],
-        agent_creators: Default::default(),
         rule_version: String::new(),
     }
 }

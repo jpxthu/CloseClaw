@@ -517,7 +517,7 @@ async fn check_command_permission_and_route(
 /// approval flow accepted the request (i.e. owner was notified / queued), or
 /// `None` if hard-denied (sub-agent or duplicate).
 ///
-/// P3 note: `user_id` and `creator_id` are intentionally left empty here because
+/// P3 note: `user_id` is intentionally left empty here because
 /// trust-level routing (malicious/uncertain) occurs before user identity
 /// verification — at this point in the pipeline we only know the agent ID,
 /// not the Feishu user identity. The approval flow will resolve the actual
@@ -532,7 +532,6 @@ async fn submit_trust_level_denial(
     let caller = Caller {
         user_id: String::new(),
         agent: ctx.agent_id.clone(),
-        creator_id: String::new(),
     };
     let body = PermissionRequestBody::CommandExec {
         agent: ctx.agent_id.clone(),

@@ -6,7 +6,6 @@ pub struct RuleSetBuilder {
     defaults: Defaults,
     user_defaults: Defaults,
     template_includes: Vec<String>,
-    agent_creators: std::collections::HashMap<String, String>,
 }
 
 impl Default for RuleSetBuilder {
@@ -16,7 +15,6 @@ impl Default for RuleSetBuilder {
             defaults: Defaults::default(),
             user_defaults: Defaults::user_defaults(),
             template_includes: Vec::new(),
-            agent_creators: std::collections::HashMap::new(),
         }
     }
 }
@@ -28,7 +26,6 @@ impl std::fmt::Debug for RuleSetBuilder {
             .field("defaults", &self.defaults)
             .field("user_defaults", &self.user_defaults)
             .field("template_includes", &self.template_includes)
-            .field("agent_creators", &self.agent_creators)
             .finish()
     }
 }
@@ -118,7 +115,6 @@ impl RuleSetBuilder {
             defaults: self.defaults,
             user_defaults: self.user_defaults,
             template_includes: self.template_includes,
-            agent_creators: self.agent_creators,
             rule_version: String::new(),
         })
     }
@@ -126,18 +122,6 @@ impl RuleSetBuilder {
     /// Add a template include (loads the named template from templates/ directory).
     pub fn template_include(mut self, name: impl Into<String>) -> Self {
         self.template_includes.push(name.into());
-        self
-    }
-
-    /// Register an agent creator mapping: agent_id -> creator_user_id.
-    /// The creator automatically gets full-access to the agent.
-    pub fn agent_creator(
-        mut self,
-        agent_id: impl Into<String>,
-        creator_user_id: impl Into<String>,
-    ) -> Self {
-        self.agent_creators
-            .insert(agent_id.into(), creator_user_id.into());
         self
     }
 }

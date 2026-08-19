@@ -610,7 +610,6 @@ fn test_plan_mode_with_caller_file_write_denied() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "a".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "a".to_string(),
@@ -636,7 +635,6 @@ fn test_plan_mode_with_caller_plans_allowed() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "a".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "a".to_string(),
@@ -800,7 +798,6 @@ fn test_plan_mode_ask_user_question_with_caller_has_context_modifier() {
             caller: Caller {
                 user_id: "alice".to_string(),
                 agent: "a".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::ToolCall {
                 agent: "a".to_string(),
