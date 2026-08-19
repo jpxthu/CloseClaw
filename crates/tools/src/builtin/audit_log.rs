@@ -331,4 +331,203 @@ mod tests {
         assert_eq!(result.data["total"], 1);
         assert_eq!(result.data["entries"][0]["agent_id"], "a1");
     }
+
+    // ------------------------------------------------------------------
+    // Supplementary: disposition filter + time range filter via tool call
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_audit_log_tool_call_with_disposition_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        let logger = make_test_logger(dir.path());
+        {
+            let l = logger.read().await;
+            l.log(&AuditLogEntry {
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                agent_id: "a1".to_string(),
+                tool_name: "file".to_string(),
+                operation: "write /x".to_string(),
+                reason: "approved".to_string(),
+                risk_level: RiskLevel::Low,
+                session_mode: None,
+                disposition: AuditDisposition::Approved,
+            });
+            l.log(&AuditLogEntry {
+                timestamp: "2026-01-01T00:01:00Z".to_string(),
+                agent_id: "a2".to_string(),
+                tool_name: "command".to_string(),
+                operation: "rm /tmp".to_string(),
+                reason: "denied".to_string(),
+                risk_level: RiskLevel::High,
+                session_mode: None,
+                disposition: AuditDisposition::Rejected,
+            });
+        }
+        let tool = AuditLogTool::with_logger(logger);
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let result = tool
+            .call(serde_json::json!({"disposition": "rejected"}), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(result.data["total"], 1);
+        assert_eq!(result.data["entries"][0]["agent_id"], "a2");
+        assert_eq!(result.data["entries"][0]["disposition"], "rejected");
+    }
+
+    #[tokio::test]
+    async fn test_audit_log_tool_call_with_time_range_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        let logger = make_test_logger(dir.path());
+        {
+            let l = logger.read().await;
+            l.log(&AuditLogEntry {
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                agent_id: "early".to_string(),
+                tool_name: "file".to_string(),
+                operation: "w".to_string(),
+                reason: "r".to_string(),
+                risk_level: RiskLevel::Low,
+                session_mode: None,
+                disposition: AuditDisposition::Approved,
+            });
+            l.log(&AuditLogEntry {
+                timestamp: "2026-06-15T12:00:00Z".to_string(),
+                agent_id: "mid".to_string(),
+                tool_name: "file".to_string(),
+                operation: "w".to_string(),
+                reason: "r".to_string(),
+                risk_level: RiskLevel::Low,
+                session_mode: None,
+                disposition: AuditDisposition::Approved,
+            });
+            l.log(&AuditLogEntry {
+                timestamp: "2026-12-31T23:59:59Z".to_string(),
+                agent_id: "late".to_string(),
+                tool_name: "file".to_string(),
+                operation: "w".to_string(),
+                reason: "r".to_string(),
+                risk_level: RiskLevel::Low,
+                session_mode: None,
+                disposition: AuditDisposition::Approved,
+            });
+        }
+        let tool = AuditLogTool::with_logger(logger);
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let result = tool
+            .call(
+                serde_json::json!({
+                    "since": "2026-03-01T00:00:00Z",
+                    "until": "2026-09-01T00:00:00Z"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.data["total"], 1);
+        assert_eq!(result.data["entries"][0]["agent_id"], "mid");
+    }
+
+    #[tokio::test]
+    async fn test_audit_log_tool_call_combined_filters() {
+        let dir = tempfile::tempdir().unwrap();
+        let logger = make_test_logger(dir.path());
+        {
+            let l = logger.read().await;
+            l.log(&AuditLogEntry {
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                agent_id: "a1".to_string(),
+                tool_name: "file".to_string(),
+                operation: "w".to_string(),
+                reason: "r".to_string(),
+                risk_level: RiskLevel::Low,
+                session_mode: None,
+                disposition: AuditDisposition::Approved,
+            });
+            l.log(&AuditLogEntry {
+                timestamp: "2026-06-01T00:00:00Z".to_string(),
+                agent_id: "a1".to_string(),
+                tool_name: "file".to_string(),
+                operation: "w".to_string(),
+                reason: "r".to_string(),
+                risk_level: RiskLevel::Low,
+                session_mode: None,
+                disposition: AuditDisposition::Rejected,
+            });
+            l.log(&AuditLogEntry {
+                timestamp: "2026-06-01T00:00:00Z".to_string(),
+                agent_id: "a2".to_string(),
+                tool_name: "file".to_string(),
+                operation: "w".to_string(),
+                reason: "r".to_string(),
+                risk_level: RiskLevel::Low,
+                session_mode: None,
+                disposition: AuditDisposition::Rejected,
+            });
+        }
+        let tool = AuditLogTool::with_logger(logger);
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let result = tool
+            .call(
+                serde_json::json!({
+                    "agent_id": "a1",
+                    "disposition": "rejected"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.data["total"], 1);
+        assert_eq!(result.data["entries"][0]["agent_id"], "a1");
+        assert_eq!(result.data["entries"][0]["disposition"], "rejected");
+    }
+
+    #[tokio::test]
+    async fn test_audit_log_tool_call_no_entries_matching() {
+        let dir = tempfile::tempdir().unwrap();
+        let logger = make_test_logger(dir.path());
+        {
+            let l = logger.read().await;
+            write_test_entry(&l, "a1", "2026-01-01T00:00:00Z");
+        }
+        let tool = AuditLogTool::with_logger(logger);
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+        };
+        let result = tool
+            .call(serde_json::json!({"agent_id": "nonexistent"}), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(result.data["total"], 0);
+        assert!(result.data["entries"].as_array().unwrap().is_empty());
+    }
 }

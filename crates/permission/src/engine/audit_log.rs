@@ -682,4 +682,138 @@ mod tests {
         let entry = make_entry("a", "2026-01-01T00:00:00Z", AuditDisposition::Approved);
         assert!(filter.matches(&entry));
     }
+
+    // ------------------------------------------------------------------
+    // Supplementary: mixed valid/invalid JSON lines
+    // ------------------------------------------------------------------
+
+    /// read_entries should skip malformed JSON lines gracefully.
+    #[test]
+    fn test_read_entries_skips_malformed_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path.clone()).unwrap();
+
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+
+        // Append a malformed line after the valid entry
+        let mut content = std::fs::read_to_string(&path).unwrap();
+        content.push_str("not valid json\n");
+        std::fs::write(&path, &content).unwrap();
+
+        logger.log(&make_entry(
+            "a2",
+            "2026-01-01T00:01:00Z",
+            AuditDisposition::Rejected,
+        ));
+
+        let entries = logger.read_entries();
+        // Should have 2 valid entries, skipping the malformed line
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].agent_id, "a2");
+        assert_eq!(entries[1].agent_id, "a1");
+    }
+
+    /// read_entries should handle blank lines between entries.
+    #[test]
+    fn test_read_entries_skips_blank_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        // Write entries in file order (newest first, matching writer prepend behavior)
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"timestamp\":\"t2\",\"agent_id\":\"a2\",\"tool_name\":\"f\",\"operation\":\"w x\",\"reason\":\"r\",\"risk_level\":\"low\",\"disposition\":\"rejected\"}\n",
+                "\n",
+                "\n",
+                "{\"timestamp\":\"t1\",\"agent_id\":\"a1\",\"tool_name\":\"f\",\"operation\":\"w x\",\"reason\":\"r\",\"risk_level\":\"low\",\"disposition\":\"approved\"}\n",
+            ),
+        )
+        .unwrap();
+        let logger = FileAuditLogger::new(path).unwrap();
+        let entries = logger.read_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].agent_id, "a2");
+        assert_eq!(entries[1].agent_id, "a1");
+    }
+
+    /// Multiple write-then-read cycles accumulate entries correctly.
+    #[test]
+    fn test_read_entries_multiple_write_cycles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        // First cycle: write 2 entries, read
+        logger.log(&make_entry(
+            "cycle1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+        logger.log(&make_entry(
+            "cycle1",
+            "2026-01-01T00:01:00Z",
+            AuditDisposition::Rejected,
+        ));
+        assert_eq!(logger.read_entries().len(), 2);
+
+        // Second cycle: write 1 more, read
+        logger.log(&make_entry(
+            "cycle2",
+            "2026-01-01T00:02:00Z",
+            AuditDisposition::Approved,
+        ));
+        let entries = logger.read_entries();
+        assert_eq!(entries.len(), 3);
+        // Newest first: cycle2, cycle1 (rejected), cycle1 (approved)
+        assert_eq!(entries[0].agent_id, "cycle2");
+        assert_eq!(entries[0].disposition, AuditDisposition::Approved);
+    }
+
+    /// Query with all filter fields set returns only matching entries.
+    #[test]
+    fn test_query_entries_all_filters_no_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+
+        let filter = AuditLogFilter {
+            agent_id: Some("nonexistent".to_string()),
+            disposition: Some(AuditDisposition::Rejected),
+            since: Some("2026-06-01T00:00:00Z".to_string()),
+            until: Some("2026-12-31T23:59:59Z".to_string()),
+        };
+        let results = logger.query_entries(&filter);
+        assert!(results.is_empty());
+    }
+
+    /// Single entry write then read.
+    #[test]
+    fn test_read_entries_single_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        logger.log(&make_entry(
+            "solo",
+            "2026-03-15T12:00:00Z",
+            AuditDisposition::Rejected,
+        ));
+
+        let entries = logger.read_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].agent_id, "solo");
+        assert_eq!(entries[0].disposition, AuditDisposition::Rejected);
+        assert_eq!(entries[0].timestamp, "2026-03-15T12:00:00Z");
+    }
 }
