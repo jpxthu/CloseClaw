@@ -483,7 +483,10 @@ impl SessionManager {
             .await;
 
         // Set child state to Completed before pushing announce.
-        // This ensures dedup protection works on subsequent calls.
+        // Push is async and other concurrent try_push_announce calls may
+        // interleave during the push. The dedup guard above checks this
+        // state before we reach here, so setting it here ensures any
+        // racing call will see Completed and skip (dedup protection).
         if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
             let parent_guard = parent_cs.read().await;
             parent_guard.update_child_state(child_session_id, ChildSessionState::Completed);
@@ -512,9 +515,8 @@ impl SessionManager {
                 );
             } else {
                 // Push failed — mark Completed for sweeper to reclaim later.
-                let Err(e) = push_ok else {
-                    unreachable!("push_ok is Err in else branch")
-                };
+                // SAFETY: we are in the else branch of if let Ok, so push_ok is Err.
+                let e = push_ok.expect_err("push_ok is Err in else branch");
                 warn!(
                     parent_session_id = %parent_session_id,
                     error = %e,

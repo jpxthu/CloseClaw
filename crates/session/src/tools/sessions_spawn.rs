@@ -311,9 +311,14 @@ impl Tool for SessionsSpawnTool {
             Err(crate::spawn_validation::SpawnError::PermissionDenied { .. }) => {
                 // validate_spawn should not return PermissionDenied after
                 // two-step separation (permission check is step 2).
-                // If this ever fires, treat as a validation failure.
+                // If this ever fires, it indicates a bug in the two-step
+                // separation — log it as an error for diagnostics.
+                tracing::error!(
+                    parent_session_id = %parent_session_id,
+                    "BUG: validate_spawn unexpectedly returned PermissionDenied\n                    after two-step separation. This should never happen —\n                    permission check is a separate step in check_spawn_permission."
+                );
                 return Err(ToolCallError::ExecutionFailed(
-                    "validate_spawn unexpectedly returned PermissionDenied".into(),
+                    "internal error: unexpected PermissionDenied from validate_spawn".into(),
                 ));
             }
             Err(other) => {

@@ -16,6 +16,7 @@
 //! interval as the `ArchiveSweeper`.
 
 use super::SessionManager;
+use std::collections::HashSet;
 use tracing::warn;
 
 /// Sweep the spawn tree and reclaim residual nodes.
@@ -48,11 +49,20 @@ pub(crate) async fn sweep_spawn_tree_reclaim(session_manager: &SessionManager) {
 
     let mut reclaim_count: usize = 0;
 
-    // Check which parent sessions are still active.
-    let sessions = session_manager.sessions.read().await;
+    // Step 1.9: Briefly hold sessions.read() to snapshot which parents are
+    // still alive, then release the lock before processing children.write().
+    // This avoids holding sessions.read() for the entire sweep duration.
+    let active_parents: HashSet<String> = {
+        let sessions = session_manager.sessions.read().await;
+        snapshot
+            .iter()
+            .filter(|(parent_id, _)| sessions.contains_key(parent_id))
+            .map(|(parent_id, _)| parent_id.clone())
+            .collect()
+    };
 
     for (parent_id, children) in &snapshot {
-        if sessions.contains_key(parent_id) {
+        if active_parents.contains(parent_id) {
             // Condition ①: Parent active — reclaim terminal滞留 nodes.
             let mut tree = session_manager.children.write().await;
             let reclaimed = tree.reclaim_completed(parent_id);
