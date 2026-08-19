@@ -71,9 +71,9 @@ fn test_with_caller_deserialize_new_format() {
 }
 
 #[test]
-fn test_with_caller_deserialize_creator_id() {
+fn test_with_caller_deserialize() {
     let json = r#"{
-        "caller": {"user_id": "ou_john", "agent": "dev-agent-01", "creator_id": "ou_john"},
+        "caller": {"user_id": "ou_john", "agent": "dev-agent-01"},
         "type": "command_exec",
         "agent": "dev-agent-01",
         "cmd": "rm",
