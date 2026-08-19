@@ -81,11 +81,11 @@
   },
   {
     "path": "docs/design/common/core-traits.md",
-    "commit": "f2fbd434c3889da151d41c6dafec5d950878af6b",
-    "commit_time": "2026-08-13T03:45:43+08:00",
-    "confirmed_time": "2026-08-20T06:38:16.005138+08:00",
+    "commit": "fb21f52630b7ea9ce47a0675809f7ce6557f86f9",
+    "commit_time": "2026-08-20T06:40:36+08:00",
+    "confirmed_time": "2026-08-20T06:44:48.700930+08:00",
     "comment": "",
-    "blocked_reason": "ToolRegistrar 错误策略文档内部矛盾：'单个 Registrar 内部错误不中断启动'与'Registrar 整体注册失败则中断启动'在 trait 接口层面无法区分（register() 单一入口统一错误类型），两种失败模式语义边界不清，需 Owner 明确分级错误策略归属"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/common/data-flow.md",
