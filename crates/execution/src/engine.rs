@@ -29,8 +29,6 @@ pub struct StepResult {
     pub changed_files: Vec<String>,
     /// Error message if the step failed.
     pub error_message: Option<String>,
-    /// Number of attempts made (1 = no retry).
-    pub attempts: u32,
     /// If a hook returned Block, the reason is recorded here.
     pub hook_blocked: Option<String>,
 }
@@ -266,7 +264,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                         summary: String::new(),
                         changed_files: Vec::new(),
                         error_message: Some(format!("permission denied: {reason}")),
-                        attempts: 1,
                         hook_blocked: None,
                     }
                 })
@@ -285,7 +282,7 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
         match self.adapter.spawn_run(&task, "").await {
             Ok(sub_result) => {
-                self.handle_spawn_all_success(steps_owned, sub_result, 1, &mut events)
+                self.handle_spawn_all_success(steps_owned, sub_result, &mut events)
                     .await
             }
             Err(e) => {
@@ -302,27 +299,18 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         &self,
         steps_owned: &[String],
         sub_result: SubAgentResult,
-        attempt: u32,
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<ExecutionReport, ExecutionError> {
         let mut results: Vec<StepResult> = Vec::new();
         let step0_failed = matches!(sub_result.status, ExecutionStepStatus::Failed);
         let failed_step = self
-            .process_spawn_all_step0(
-                &sub_result,
-                attempt,
-                step0_failed,
-                steps_owned,
-                &mut results,
-                events,
-            )
+            .process_spawn_all_step0(&sub_result, step0_failed, steps_owned, &mut results, events)
             .await?;
 
         self.build_spawn_all_remaining_results(
             steps_owned,
             &sub_result,
             step0_failed,
-            attempt,
             &mut results,
             events,
         )
@@ -350,7 +338,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     async fn process_spawn_all_step0(
         &self,
         sub_result: &SubAgentResult,
-        attempt: u32,
         step0_failed: bool,
         steps_owned: &[String],
         results: &mut Vec<StepResult>,
@@ -386,7 +373,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             summary: sub_result.summary.clone(),
             changed_files: sub_result.changed_files.clone(),
             error_message: sub_result.error_message.clone(),
-            attempts: attempt,
             hook_blocked: None,
         });
         if !step0_failed {
@@ -406,7 +392,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         steps_owned: &[String],
         sub_result: &SubAgentResult,
         step0_failed: bool,
-        attempts: u32,
         results: &mut Vec<StepResult>,
         events: &mut Vec<ExecutionEvent>,
     ) {
@@ -442,7 +427,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                 summary: sub_result.summary.clone(),
                 changed_files: sub_result.changed_files.clone(),
                 error_message: sub_result.error_message.clone(),
-                attempts,
                 hook_blocked: None,
             });
 
@@ -481,7 +465,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                     summary: String::new(),
                     changed_files: Vec::new(),
                     error_message: Some(error.to_string()),
-                    attempts: 1,
                     hook_blocked: None,
                 }
             })
@@ -533,7 +516,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
                     summary: String::new(),
                     changed_files: Vec::new(),
                     error_message: Some(format!("permission denied: {reason}")),
-                    attempts: 1,
                     hook_blocked: None,
                 })
             }
@@ -678,7 +660,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             summary: sub_result.summary.clone(),
             changed_files: sub_result.changed_files.clone(),
             error_message: sub_result.error_message.clone(),
-            attempts: 1,
             hook_blocked: None,
         }
     }
@@ -697,7 +678,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             summary: String::new(),
             changed_files: Vec::new(),
             error_message: Some(error.to_string()),
-            attempts: 1,
             hook_blocked: None,
         }
     }
