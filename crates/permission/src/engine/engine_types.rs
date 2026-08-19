@@ -526,10 +526,6 @@ pub struct Caller {
     pub user_id: String,
     /// The agent instance ID (always present).
     pub agent: String,
-    /// The user ID of the agent's creator (for creator-rule generation).
-    /// If empty, looked up from agent_creators map at evaluation time.
-    #[serde(default)]
-    pub creator_id: String,
 }
 
 /// The actual request body (mirrors the existing PermissionRequest variants).
@@ -633,7 +629,6 @@ impl PermissionRequest {
             PermissionRequest::Bare(body) => Caller {
                 user_id: String::new(),
                 agent: body.agent_id().to_string(),
-                creator_id: String::new(),
             },
         }
     }

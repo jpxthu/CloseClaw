@@ -38,7 +38,6 @@ pub enum PermissionEvalResponse {
 pub struct CallerInfo {
     pub user_id: String,
     pub agent: String,
-    pub creator_id: String,
     /// Whether the caller is a sub-agent (depth > 0).
     /// Sub-agent denials are silently rejected rather than enqueued.
     pub is_sub_agent: bool,

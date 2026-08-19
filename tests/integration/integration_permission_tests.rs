@@ -244,7 +244,6 @@ async fn test_permission_user_and_agent_dual_key_matching() {
             caller: Caller {
                 user_id: "ou_admin".to_string(),
                 agent: "any-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::CommandExec {
                 agent: "any-agent".to_string(),
@@ -262,7 +261,6 @@ async fn test_permission_user_and_agent_dual_key_matching() {
             caller: Caller {
                 user_id: "ou_regular_user".to_string(),
                 agent: "any-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::CommandExec {
                 agent: "any-agent".to_string(),
@@ -280,7 +278,6 @@ async fn test_permission_user_and_agent_dual_key_matching() {
             caller: Caller {
                 user_id: "ou_regular_user".to_string(),
                 agent: "any-agent".to_string(),
-                creator_id: String::new(),
             },
             request: PermissionRequestBody::FileOp {
                 agent: "any-agent".to_string(),

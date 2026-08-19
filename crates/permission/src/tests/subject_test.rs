@@ -17,7 +17,6 @@ fn test_user_and_agent_subject_matches_both_exact() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "dev-agent-01".to_string(),
-        creator_id: String::new(),
     };
     assert!(subject.matches(&caller));
 }
@@ -33,7 +32,6 @@ fn test_user_and_agent_subject_user_mismatch() {
     let caller = Caller {
         user_id: "ou_bob".to_string(),
         agent: "dev-agent-01".to_string(),
-        creator_id: String::new(),
     };
     assert!(!subject.matches(&caller));
 }
@@ -49,7 +47,6 @@ fn test_user_and_agent_subject_agent_mismatch() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "other-agent".to_string(),
-        creator_id: String::new(),
     };
     assert!(!subject.matches(&caller));
 }
@@ -65,7 +62,6 @@ fn test_user_and_agent_subject_glob_matching() {
     let caller = Caller {
         user_id: "ou_admin_john".to_string(),
         agent: "dev-agent-01".to_string(),
-        creator_id: String::new(),
     };
     assert!(subject.matches(&caller));
 }
@@ -81,14 +77,12 @@ fn test_user_and_agent_subject_mixed_match_types() {
     let caller = Caller {
         user_id: "ou_123".to_string(),
         agent: "dev-agent-99".to_string(),
-        creator_id: String::new(),
     };
     assert!(subject.matches(&caller));
 
     let caller = Caller {
         user_id: "ou_456".to_string(),
         agent: "dev-agent-99".to_string(),
-        creator_id: String::new(),
     };
     assert!(!subject.matches(&caller));
 }
@@ -104,7 +98,6 @@ fn test_agent_only_subject_exact() {
     let caller = Caller {
         user_id: "ou_anyone".to_string(),
         agent: "dev-agent-01".to_string(),
-        creator_id: String::new(),
     };
     assert!(subject.matches(&caller));
 }
@@ -118,7 +111,6 @@ fn test_agent_only_subject_glob() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "dev-agent-01".to_string(),
-        creator_id: String::new(),
     };
     assert!(subject.matches(&caller));
 }

@@ -27,7 +27,6 @@ fn test_caller() -> Caller {
     Caller {
         user_id: "user_1".to_string(),
         agent: "agent_1".to_string(),
-        creator_id: "creator_1".to_string(),
     }
 }
 
@@ -382,7 +381,6 @@ async fn test_whitelist_rule_subject_matches_caller() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "agent_1".to_string(),
-        creator_id: "creator_1".to_string(),
     };
     let request = test_request();
     let request_id = flow

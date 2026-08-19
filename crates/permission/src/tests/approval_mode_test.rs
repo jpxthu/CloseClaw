@@ -13,7 +13,6 @@ fn dummy_caller() -> Caller {
     Caller {
         user_id: "test-user".to_string(),
         agent: "test-agent".to_string(),
-        creator_id: "test-creator".to_string(),
     }
 }
 
@@ -273,7 +272,6 @@ fn owner_caller() -> Caller {
     Caller {
         user_id: "owner".to_string(),
         agent: "test-agent".to_string(),
-        creator_id: String::new(),
     }
 }
 
@@ -281,7 +279,6 @@ fn non_owner_caller() -> Caller {
     Caller {
         user_id: "user-42".to_string(),
         agent: "test-agent".to_string(),
-        creator_id: "creator-99".to_string(),
     }
 }
 
@@ -289,7 +286,6 @@ fn empty_user_caller() -> Caller {
     Caller {
         user_id: String::new(),
         agent: "test-agent".to_string(),
-        creator_id: String::new(),
     }
 }
 
@@ -372,7 +368,6 @@ fn test_user_and_agent_owner_with_user_id_produces_user_and_agent() {
     let caller = Caller {
         user_id: "owner".to_string(),
         agent: "test-agent".to_string(),
-        creator_id: String::new(),
     };
     let subject = caller_to_subject(&caller, WhitelistTarget::UserAndAgent);
     assert!(

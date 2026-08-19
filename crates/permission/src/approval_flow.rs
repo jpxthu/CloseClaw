@@ -530,7 +530,6 @@ impl ApprovalFlow {
             caller: Caller {
                 user_id: user_id.to_string(),
                 agent: String::new(),
-                creator_id: String::new(),
             },
             operation_desc: format!("新用户注册请求：{} 通过 {} 渠道", user_id, channel),
             risk_level: RiskLevel::Low,
