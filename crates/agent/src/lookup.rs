@@ -73,8 +73,6 @@ pub trait AgentLookup: Send + Sync {
 /// [`AgentToolsConfigQuery`] so that a single `Arc<dyn AgentRegistryQuery>`
 /// can satisfy all downstream query needs without multiple trait objects.
 pub trait AgentRegistryQuery:
-    AgentLookup
-    + crate::skills_query::AgentSkillsQuery
-    + crate::tools_config_query::AgentToolsConfigQuery
+    AgentLookup + closeclaw_common::AgentSkillsQuery + closeclaw_common::AgentToolsConfigQuery
 {
 }

@@ -88,18 +88,18 @@ impl closeclaw_agent::AgentLookup for PerAgentMock {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentSkillsQuery for PerAgentMock {
+impl closeclaw_common::AgentSkillsQuery for PerAgentMock {
     fn get_agent_skills(&self, _agent_id: &str) -> Option<Vec<String>> {
         None
     }
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentToolsConfigQuery for PerAgentMock {
+impl closeclaw_common::AgentToolsConfigQuery for PerAgentMock {
     async fn get_agent_tools_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_agent::AgentToolsConfig> {
+    ) -> Option<closeclaw_common::AgentToolsConfig> {
         None
     }
 }
@@ -242,18 +242,18 @@ impl closeclaw_agent::AgentLookup for NotFoundMock {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentSkillsQuery for NotFoundMock {
+impl closeclaw_common::AgentSkillsQuery for NotFoundMock {
     fn get_agent_skills(&self, _agent_id: &str) -> Option<Vec<String>> {
         None
     }
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentToolsConfigQuery for NotFoundMock {
+impl closeclaw_common::AgentToolsConfigQuery for NotFoundMock {
     async fn get_agent_tools_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_agent::AgentToolsConfig> {
+    ) -> Option<closeclaw_common::AgentToolsConfig> {
         None
     }
 }

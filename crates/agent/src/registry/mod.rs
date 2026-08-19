@@ -110,7 +110,7 @@ impl crate::lookup::AgentLookup for AgentRegistry {
 // AgentSkillsQuery — bridge to closeclaw_common trait
 // ═══════════════════════════════════════════════════════════════════════════
 
-impl crate::skills_query::AgentSkillsQuery for AgentRegistry {
+impl closeclaw_common::AgentSkillsQuery for AgentRegistry {
     fn get_agent_skills(&self, agent_id: &str) -> Option<Vec<String>> {
         self.get(agent_id).and_then(|cfg| cfg.effective_skills())
     }
@@ -121,11 +121,11 @@ impl crate::skills_query::AgentSkillsQuery for AgentRegistry {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl crate::tools_config_query::AgentToolsConfigQuery for AgentRegistry {
+impl closeclaw_common::AgentToolsConfigQuery for AgentRegistry {
     async fn get_agent_tools_config(
         &self,
         agent_id: &str,
-    ) -> Option<crate::tools_config_query::AgentToolsConfig> {
+    ) -> Option<closeclaw_common::AgentToolsConfig> {
         self.get(agent_id).map(|cfg| {
             let tools = if cfg.tools.is_empty() || cfg.tools == ["*"] {
                 None
@@ -137,7 +137,7 @@ impl crate::tools_config_query::AgentToolsConfigQuery for AgentRegistry {
             } else {
                 Some(cfg.disallowed_tools.clone())
             };
-            crate::tools_config_query::AgentToolsConfig {
+            closeclaw_common::AgentToolsConfig {
                 tools,
                 disallowed_tools,
             }

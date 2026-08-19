@@ -12,7 +12,7 @@ use closeclaw_common::tool_registry::{ToolBox, ToolRegistrar, ToolRegistrarError
 // Re-export for tests that `use super::*`
 pub use ToolRegistryImpl as ToolRegistry;
 
-use closeclaw_agent::AgentToolsConfigQuery;
+use closeclaw_common::AgentToolsConfigQuery;
 use serde_json::Value;
 
 /// Internal tool info carrier for `build_tools_section`.

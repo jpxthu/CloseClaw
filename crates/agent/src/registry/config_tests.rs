@@ -6,8 +6,7 @@ use closeclaw_config::agents::{ConfigSource, ModelSpec, ResolvedAgentConfig};
 
 // Trait imports for AgentLookup / AgentSkillsQuery / AgentToolsConfigQuery / AgentConfigLookup tests
 use crate::lookup::{AgentConfigLookup, AgentLookup};
-use crate::skills_query::AgentSkillsQuery;
-use crate::tools_config_query::AgentToolsConfigQuery;
+use closeclaw_common::{AgentSkillsQuery, AgentToolsConfigQuery};
 
 // ---- Construction tests ----
 

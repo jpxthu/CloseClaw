@@ -1,3 +1,4 @@
+pub mod agent_query;
 pub mod bootstrap;
 pub mod communication;
 pub mod compaction;
@@ -73,6 +74,7 @@ pub mod tool_trait_tests;
 pub mod turn;
 pub mod verbosity;
 
+pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery};
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
 pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};

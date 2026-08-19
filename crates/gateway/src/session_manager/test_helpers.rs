@@ -39,18 +39,18 @@ impl closeclaw_agent::AgentLookup for MockAgentRegistryQuery {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentSkillsQuery for MockAgentRegistryQuery {
+impl closeclaw_common::AgentSkillsQuery for MockAgentRegistryQuery {
     fn get_agent_skills(&self, _agent_id: &str) -> Option<Vec<String>> {
         Some(vec![])
     }
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentToolsConfigQuery for MockAgentRegistryQuery {
+impl closeclaw_common::AgentToolsConfigQuery for MockAgentRegistryQuery {
     async fn get_agent_tools_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_agent::AgentToolsConfig> {
+    ) -> Option<closeclaw_common::AgentToolsConfig> {
         None
     }
 }
