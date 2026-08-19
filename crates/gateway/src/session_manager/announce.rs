@@ -512,13 +512,14 @@ impl SessionManager {
                 );
             } else {
                 // Push failed — mark Completed for sweeper to reclaim later.
-                if let Err(e) = push_ok {
-                    warn!(
-                        parent_session_id = %parent_session_id,
-                        error = %e,
-                        "try_push_announce: push_announce failed"
-                    );
-                }
+                let Err(e) = push_ok else {
+                    unreachable!("push_ok is Err in else branch")
+                };
+                warn!(
+                    parent_session_id = %parent_session_id,
+                    error = %e,
+                    "try_push_announce: push_announce failed"
+                );
                 if !children.mark_child_status(child_session_id, ChildSessionStatus::Completed) {
                     warn!(
                         child_session_id = %child_session_id,

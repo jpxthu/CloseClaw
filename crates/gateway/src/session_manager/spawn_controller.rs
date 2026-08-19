@@ -495,17 +495,31 @@ impl closeclaw_session::spawn_validation::SpawnValidator for SpawnController {
             .await
         {
             Ok(()) => Ok(()),
-            Err(SpawnError::PermissionDenied { agent_id, reason }) => Err(
-                closeclaw_session::spawn_validation::SpawnError::PermissionDenied {
-                    agent_id,
-                    reason,
-                },
-            ),
-            Err(e) => {
-                // Should never happen — validate_permissions only returns
-                // PermissionDenied, but handle defensively.
-                Err(closeclaw_session::spawn_validation::SpawnError::ConfigNotFound(e.to_string()))
-            }
+            Err(e) => Err(map_spawn_error(e)),
+        }
+    }
+}
+
+/// Map gateway-local [`SpawnError`] to trait-level [`closeclaw_session::spawn_validation::SpawnError`].
+fn map_spawn_error(e: SpawnError) -> closeclaw_session::spawn_validation::SpawnError {
+    match e {
+        SpawnError::DepthExceeded { current, max } => {
+            closeclaw_session::spawn_validation::SpawnError::DepthExceeded { current, max }
+        }
+        SpawnError::MaxChildrenReached { current, max } => {
+            closeclaw_session::spawn_validation::SpawnError::MaxChildrenReached { current, max }
+        }
+        SpawnError::AgentNotAllowed { agent_id } => {
+            closeclaw_session::spawn_validation::SpawnError::AgentNotAllowed { agent_id }
+        }
+        SpawnError::AgentIdRequired => {
+            closeclaw_session::spawn_validation::SpawnError::AgentIdRequired
+        }
+        SpawnError::ConfigNotFound(id) => {
+            closeclaw_session::spawn_validation::SpawnError::ConfigNotFound(id)
+        }
+        SpawnError::PermissionDenied { agent_id, reason } => {
+            closeclaw_session::spawn_validation::SpawnError::PermissionDenied { agent_id, reason }
         }
     }
 }

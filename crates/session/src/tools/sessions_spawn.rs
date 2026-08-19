@@ -309,11 +309,12 @@ impl Tool for SessionsSpawnTool {
         {
             Ok(result) => result,
             Err(crate::spawn_validation::SpawnError::PermissionDenied { .. }) => {
-                // validate_spawn does not check permissions (two-step separation).
-                unreachable!(
-                    "validate_spawn should not return PermissionDenied \
-                     after two-step separation; permission check is step 2"
-                )
+                // validate_spawn should not return PermissionDenied after
+                // two-step separation (permission check is step 2).
+                // If this ever fires, treat as a validation failure.
+                return Err(ToolCallError::ExecutionFailed(
+                    "validate_spawn unexpectedly returned PermissionDenied".into(),
+                ));
             }
             Err(other) => {
                 return Err(ToolCallError::ExecutionFailed(format!(
