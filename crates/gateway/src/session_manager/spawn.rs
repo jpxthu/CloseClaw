@@ -237,7 +237,7 @@ impl SessionManager {
         };
 
         // Tool-level spawn prevention (design doc §两层防护).
-        let config = if max_spawn_depth == 0 {
+        let config = if max_spawn_depth <= 0 {
             let mut filtered = config.clone();
             filtered.tools.retain(|t| t != "sessions_spawn");
             filtered

@@ -475,7 +475,7 @@ impl ToolRegistryImpl {
                 }
                 // Budget-level spawn filter: when effective budget ≤ 0,
                 // filter out sessions_spawn (design doc §Depth 追踪).
-                if name == "sessions_spawn" && spawn_budget.is_some_and(|b| b == 0) {
+                if name == "sessions_spawn" && spawn_budget.is_some_and(|b| b <= 0) {
                     return false;
                 }
                 // Plan Mode: filter out non-read-only tools
