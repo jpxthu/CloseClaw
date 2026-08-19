@@ -129,7 +129,7 @@ SlashResult 的执行通过上下文的回复通道产出回复内容，Gateway 
 Gateway 在以下场景调用 Permission 模块：
 
 1. **`/approve-once`、`/approve-whitelist`、`/deny`**：消息路由阶段硬拦截——不进 SlashDispatcher，直接在 Gateway 层调用 Permission 模块的审批工作流（owner 专用）。审批通过后执行操作，结果经出站链路发送。
-2. **其他斜杠指令高危操作**（`/exec`、`/git` 写操作）：在 SlashDispatcher 分派到 Handler、Handler 返回 SlashResult 后、执行前校验。SlashResult 变体自带「需权限校验」标记，Gateway 读取该标记决定是否调用 Permission——不穷举高危变体清单，新增高危指令只需在新变体上声明标记。校验在构造 SideEffectContext 之前完成：校验未通过不构造上下文，直接按 Deny 分流处理；通过后才构造上下文触发执行。Handler 仅做指令解析（无副作用），权限引擎拿到完整操作信息后评估——非 Owner 默认 Deny，但可通过白名单规则授予特定 Agent-User 组合的执行权（详见 [Permission 模块](../permission/README.md)）。
+2. **其他斜杠指令高危操作**（如 `/exec`）：在 SlashDispatcher 分派到 Handler、Handler 返回 SlashResult 后、执行前评估。需评估的 SlashResult 变体自带操作描述（描述这次操作是什么），Gateway 读取该描述后统一提交给 Permission 引擎评估——**携带操作描述即触发评估**，不携描述直接执行，不穷举高危变体清单，新增高危指令只需在新变体上声明操作描述。Handler 仅做指令解析（无副作用），权限引擎拿到完整操作信息后评估——非 Owner 默认 Deny，但可通过白名单规则授予特定 Agent-User 组合的执行权（详见 [Permission 模块](../permission/README.md)）。权限引擎只负责按操作描述评估，不自行判断哪个操作是否高危；操作内容以及是否需评估由产生操作的 SlashResult 变体决定（如 Git 只读子命令不携描述直接执行，写操作携描述触发评估）。
 
 Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不经过权限检查。工具调用的权限检查由 tools 模块触发，Gateway 不参与。
 

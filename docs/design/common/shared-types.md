@@ -118,7 +118,7 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 
 SlashResult 是斜杠指令 Handler 返回的执行结果类型。每个变体封装一种指令的副作用逻辑。Handler 返回 SlashResult 后，由 Gateway 构造 SideEffectContext 并触发 SlashResult 执行，各变体自行完成对应的 session 操作和消息回复。
 
-SlashResult 共 10 种变体：
+SlashResult 共 11 种变体：
 
 | 变体 | 用途 | 产出 |
 |------|------|------|
@@ -130,10 +130,11 @@ SlashResult 共 10 种变体：
 | Stop | 终止当前运行（含级联终止子 session） | ContentBlock::Text（确认信息） |
 | Compact | 触发对话历史压缩 | ContentBlock::Text（压缩结果） |
 | SystemAppend | 向 system prompt 追加内容 | ContentBlock::Text（确认信息） |
-| Exec | 执行系统命令（高危操作，执行前经 Permission 模块校验） | ContentBlock[]（命令输出经出站 Processor Chain） |
+| Exec | 执行系统命令（高危操作，携带操作描述，执行前经 Permission 模块评估） | ContentBlock[]（命令输出经出站 Processor Chain） |
+| Git | 执行 Git 命令（写操作携带操作描述并经 Permission 模块评估，只读子命令不携带直接执行） | ContentBlock[]（命令输出经出站 Processor Chain） |
 | Unknown | 未知指令回退 | ContentBlock::Text（提示信息） |
 
-**执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。高危指令（Exec、Git 写操作）的权限校验由 Gateway 在触发执行前经 Permission 引擎完成（校验通过方继续，拒绝则返回权限错误），不属于变体自身副作用。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
+**执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。需要权限评估的变体在结果中携带**操作描述**——描述这次操作是什么（如要执行的命令），Gateway 据此提交 [Permission 模块](../permission/README.md) 引擎评估。**操作描述的携带即权限触发信号：携带则评估，不携带则直接执行**。评估校验通过则继续执行，拒绝则返回权限错误，校验不属于变体自身副作用。新增指令只需新增 SlashResult 变体及其实施，Gateway 无需改动——是否评估、评估什么，由变体是否携带操作描述及描述内容决定。
 
 **边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。
 
@@ -309,7 +310,7 @@ SlashResult 的执行流程：
 2. SlashDispatcher 解析指令名和参数，查找对应 Handler
 3. Handler 处理完成后返回 SlashResult 变体
 4. Gateway 构造 SideEffectContext
-5. 高危指令（Exec、Git 写操作）：Gateway 调用 Permission 引擎校验权限（校验通过方继续执行，拒绝则返回权限错误）
+5. 携带操作描述的变体（如 Exec、Git 写操作）：Gateway 读取描述后提交 Permission 引擎评估（评估通过方继续执行，拒绝则返回权限错误）；未携带操作描述的变体（含 Git 只读子命令）直接执行
 6. 权限校验通过后，SlashResult 变体通过 SideEffectContext 触发执行，完成副作用，分两条路径：
    - 回复路径：产出 ContentBlock[] → 出站 Processor Chain → IM Adapter 渲染发送
    - 会话路径：执行 Session 操作（模式切换、创建、停止、压缩等）

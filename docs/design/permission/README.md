@@ -121,9 +121,10 @@ Daemon/Gateway 将整个消息流程分为外部层（IM Adapter，负责消息�
                 ├─ 斜杠指令 → Gateway 硬拦截（不进 Agent session）
                 │     ├─ /approve-once、/approve-whitelist、/deny → Gateway 直接处理（走 Permission 审批流程验证，不进入 SlashDispatcher）
                 │     └─ 其他斜杠 → SlashDispatcher → Handler → SlashResult
-                │           ├─ Owner → 跳过权限，直接 execute()
-                │           ├─ Non-owner 高危指令（/exec、/git 写操作等）→ 权限引擎 evaluate() → 默认 Deny
-                │           └─ Non-owner 普通指令（/help、/status 等）→ 直接 execute()
+                │           ├─ 变体未携操作描述 → 直接 execute()
+                │           └─ 变体携操作描述（如 Exec、Git 写操作）→ Gateway 提交权限引擎 evaluate()
+                │                 ├─ Allow → execute()
+                │                 └─ Deny → 回复"权限不足"（审批队列仅用于 Agent 操作，斜杠指令不进入）
                 │
 IM/CLI 入站 ────┤
                 │
@@ -160,9 +161,10 @@ Gateway 入站路由
   ├─ 斜杠指令 → Gateway 硬拦截（不进 Agent session）
   │     ├─ /approve-once、/approve-whitelist、/deny → Gateway 直接处理（走 Permission 审批流程验证，不进入 SlashDispatcher）
   │     └─ 其他斜杠 → SlashDispatcher → Handler → SlashResult
-  │           ├─ Owner → 跳过权限，直接 execute()
-  │           ├─ Non-owner 高危指令（/exec、/git 写操作等）→ 权限引擎 evaluate() → 默认 Deny
-  │           └─ Non-owner 普通指令（/help、/status 等）→ 直接 execute()
+  │           ├─ 变体未携操作描述 → 直接 execute()
+  │           └─ 变体携操作描述（如 Exec、Git 写操作）→ Gateway 提交权限引擎 evaluate()
+  │                 ├─ Allow → execute()
+  │                 └─ Deny → 回复"权限不足"（审批队列仅用于 Agent 操作，斜杠指令不进入）
   │
   └─ 普通消息 → Agent session → LLM 推理
                     │
