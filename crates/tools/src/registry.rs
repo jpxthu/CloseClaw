@@ -475,7 +475,11 @@ impl ToolRegistryImpl {
                 }
                 // Budget-level spawn filter: when effective budget ≤ 0,
                 // filter out sessions_spawn (design doc §Depth 追踪).
-                if name == "sessions_spawn" && spawn_budget.is_some_and(|b| b == 0) {
+                // NOTE: `<= 0` matches design doc wording (§Depth 追踪: effective budget ≤ 0).
+                // For u32 this is equivalent to `== 0`, kept for spec alignment.
+                #[allow(clippy::absurd_extreme_comparisons)]
+                let budget_exhausted = spawn_budget.is_some_and(|b| b <= 0);
+                if name == "sessions_spawn" && budget_exhausted {
                     return false;
                 }
                 // Plan Mode: filter out non-read-only tools

@@ -40,6 +40,8 @@ async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -171,6 +173,8 @@ async fn test_yield_cyclic_warnings_stop_before_hard_timeout() {
             None,
             None,
             None,
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();

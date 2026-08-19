@@ -145,6 +145,8 @@ impl SessionManagerOps for MockSessionManagerOps {
         _spawn_timeout: Option<u64>,
         _label: Option<&str>,
         _prompt_template_prefix: Option<&str>,
+        _timeout_warning_secs: Option<u64>,
+        _timeout_notify_interval_ratio: Option<f64>,
     ) -> Result<String, String> {
         Ok("mock-session-id".to_string())
     }

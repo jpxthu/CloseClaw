@@ -135,6 +135,8 @@ async fn test_create_child_session_removes_spawn_tool_when_budget_zero() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -189,6 +191,8 @@ async fn test_create_child_session_keeps_spawn_tool_when_budget_positive() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -279,6 +283,8 @@ async fn test_count_active_children_excludes_completed() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -327,6 +333,8 @@ async fn test_count_active_children_includes_active() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -347,6 +355,8 @@ async fn test_count_active_children_includes_active() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -402,6 +412,8 @@ async fn test_kill_completed_child_succeeds() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -457,6 +469,8 @@ async fn test_kill_active_child_cascades() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -479,6 +493,8 @@ async fn test_kill_active_child_cascades() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -530,6 +546,8 @@ async fn test_cascade_kill_mixed_active_completed() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -552,6 +570,8 @@ async fn test_cascade_kill_mixed_active_completed() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();
@@ -574,6 +594,8 @@ async fn test_cascade_kill_mixed_active_completed() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .unwrap();

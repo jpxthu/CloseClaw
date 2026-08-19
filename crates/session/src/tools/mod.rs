@@ -66,6 +66,8 @@ pub trait SessionManagerOps: Send + Sync {
         spawn_timeout: Option<u64>,
         label: Option<&str>,
         prompt_template_prefix: Option<&str>,
+        timeout_warning_secs: Option<u64>,
+        timeout_notify_interval_ratio: Option<f64>,
     ) -> Result<String, String>;
 
     /// Validate that a child session is owned by the given parent.

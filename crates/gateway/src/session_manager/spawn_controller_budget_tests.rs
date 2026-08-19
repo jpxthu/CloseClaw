@@ -1,7 +1,5 @@
 //! Unit tests for spawn depth budget propagation, kill all-mode, and cascade termination (Step 1.5).
 
-use std::sync::Arc;
-
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
@@ -10,13 +8,13 @@ use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::SessionCheckpoint;
 use closeclaw_session::storage::memory::MemoryStorage;
+use std::sync::Arc;
 
 use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
-
 // Helpers (duplicated from spawn_controller_tests.rs to keep this file self-contained)
 
 fn test_config() -> GatewayConfig {
@@ -119,7 +117,6 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
             PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         )),
     );
-
     // Root: maxSpawnDepth=3
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = Some(3);
@@ -131,7 +128,6 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
     child_sub.max_spawn_depth = Some(1);
     let child = make_agent("child", child_sub);
     inject_agents(&ar, &cm, vec![("root", root), ("child", child)]);
-
     // Fallback: effective = min(1, 3-1) = 1
     let result = controller
         .validate(&root_id, Some("child"))
@@ -165,7 +161,6 @@ async fn test_depth_budget_allowed_when_effective_zero() {
             PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         )),
     );
-
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = Some(3);
     let root = make_agent("root", root_sub);
@@ -177,7 +172,6 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     child1_sub.max_spawn_depth = Some(1);
     let child1 = make_agent("child1", child1_sub);
     inject_agents(&ar, &cm, vec![("root", root), ("child1", child1)]);
-
     // First spawn succeeds
     let result = controller
         .validate(&root_id, Some("child1"))
@@ -206,6 +200,8 @@ async fn test_depth_budget_allowed_when_effective_zero() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -219,7 +215,6 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     child2_sub.max_spawn_depth = Some(1);
     let child2 = make_agent("child2", child2_sub);
     inject_agents(&ar, &cm, vec![("child2", child2)]);
-
     let result2 = controller
         .validate(child1_session_id, Some("child2"))
         .await
@@ -247,7 +242,6 @@ async fn test_depth_budget_child_narrows_via_min() {
     let root = make_agent("root", root_sub);
     let root_id = setup_parent_session(&sm, "root").await;
     save_checkpoint_with_budget(&sm, &root_id, 0, Some(5), None).await;
-
     // child: maxSpawnDepth=2 — effective = min(2, 5-1) = 2
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(2);
@@ -282,12 +276,13 @@ async fn test_depth_budget_child_narrows_via_min() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
     .await;
     save_checkpoint_with_budget(&sm, child_session_id, 1, Some(2), Some(&root_id)).await;
-
     // grandchild: maxSpawnDepth=5 — effective = min(5, 2-1) = 1
     // Per design doc: child with effective=1 can be created and exists in tree.
     let mut grandchild_sub = SubagentsConfig::default();
@@ -316,7 +311,6 @@ async fn test_depth_budget_full_multilevel_tree() {
             PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
         )),
     );
-
     // root: maxSpawnDepth=3
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = Some(3);
@@ -329,7 +323,6 @@ async fn test_depth_budget_full_multilevel_tree() {
     child1_sub.max_spawn_depth = Some(5);
     let child1 = make_agent("child1", child1_sub);
     inject_agents(&ar, &cm, vec![("root", root), ("child1", child1)]);
-
     let result1 = controller
         .validate(&root_id, Some("child1"))
         .await
@@ -357,6 +350,8 @@ async fn test_depth_budget_full_multilevel_tree() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -368,7 +363,6 @@ async fn test_depth_budget_full_multilevel_tree() {
     child2_sub.max_spawn_depth = Some(5);
     let child2 = make_agent("child2", child2_sub);
     inject_agents(&ar, &cm, vec![("child2", child2)]);
-
     let result2 = controller
         .validate(child1_sid, Some("child2"))
         .await
@@ -396,6 +390,8 @@ async fn test_depth_budget_full_multilevel_tree() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -408,7 +404,6 @@ async fn test_depth_budget_full_multilevel_tree() {
     child3_sub.max_spawn_depth = Some(1);
     let child3 = make_agent("child3", child3_sub);
     inject_agents(&ar, &cm, vec![("child3", child3)]);
-
     let result3 = controller
         .validate(child2_sid, Some("child3"))
         .await
@@ -436,6 +431,8 @@ async fn test_depth_budget_full_multilevel_tree() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -447,7 +444,6 @@ async fn test_depth_budget_full_multilevel_tree() {
     child4_sub.max_spawn_depth = Some(5);
     let child4 = make_agent("child4", child4_sub);
     inject_agents(&ar, &cm, vec![("child4", child4)]);
-
     let err = controller
         .validate(child3_sid, Some("child4"))
         .await
@@ -475,7 +471,6 @@ async fn test_kill_run_mode_child_succeeds() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
-
     let parent_id = "parent-run-kill";
     let parent_cs = closeclaw_session::llm_session::ConversationSession::new(
         parent_id.to_string(),
@@ -529,11 +524,12 @@ async fn test_kill_run_mode_child_succeeds() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
     .await;
-
     mgr.kill_child(parent_id, child_id)
         .await
         .expect("kill_child should succeed for run-mode child");
@@ -553,7 +549,6 @@ async fn test_kill_session_mode_child_succeeds() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
-
     let parent_id = "parent-session-kill";
     let parent_cs = closeclaw_session::llm_session::ConversationSession::new(
         parent_id.to_string(),
@@ -607,11 +602,12 @@ async fn test_kill_session_mode_child_succeeds() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
     .await;
-
     mgr.kill_child(parent_id, child_id)
         .await
         .expect("kill_child should succeed for session-mode child");
@@ -623,7 +619,6 @@ async fn test_kill_session_mode_child_succeeds() {
 // ══════════════════════════════════════════════════════════════════════
 // Step 1.5: Cascade termination on parent finish_llm
 // ══════════════════════════════════════════════════════════════════════
-
 /// Simulate the cascade termination pattern from finish_llm:
 /// list_active_child_ids → kill_child for each → all removed.
 #[tokio::test]
@@ -658,7 +653,6 @@ async fn test_cascade_terminate_all_children_simulation() {
             depth: 0,
         },
     );
-
     // Create 3 children (2 run, 1 session)
     let children: Vec<(&str, SpawnMode)> = vec![
         ("child-a", SpawnMode::Run),
@@ -696,6 +690,8 @@ async fn test_cascade_terminate_all_children_simulation() {
                 mode: mode.clone(),
                 status: ChildSessionStatus::Active,
                 timeout_secs: None,
+                timeout_warning_secs: None,
+                timeout_notify_interval_ratio: None,
                 created_at: std::time::Instant::now(),
             },
         )
@@ -739,7 +735,6 @@ async fn test_cascade_terminate_no_children_noop() {
         .write()
         .await
         .insert(parent_id.to_string(), parent_arc);
-
     let child_ids = mgr.list_active_child_ids(parent_id).await;
     assert_eq!(child_ids.len(), 0);
     for child_id in &child_ids {
@@ -781,7 +776,6 @@ fn test_effective_max_spawn_depth_roundtrip() {
 #[tokio::test]
 async fn test_get_effective_max_spawn_depth_from_checkpoint() {
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
-
     // No checkpoint → returns None
     assert_eq!(sm.get_effective_max_spawn_depth("nonexistent").await, None);
     // Save checkpoint with budget
@@ -809,7 +803,6 @@ async fn test_validate_child_ownership_all_modes() {
         .write()
         .await
         .insert(parent_id.to_string(), parent_arc);
-
     // Register run-mode child
     let run_child = "run-ownership-child";
     sm.register_child(
@@ -822,6 +815,8 @@ async fn test_validate_child_ownership_all_modes() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -839,11 +834,12 @@ async fn test_validate_child_ownership_all_modes() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
     .await;
-
     // Both should be found by validate_child_ownership
     let run_info = sm.validate_child_ownership(parent_id, run_child).await;
     assert!(run_info.is_some());
@@ -920,6 +916,8 @@ async fn test_kill_child_cascades_to_grandchild() {
             mode: SpawnMode::Session,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -957,6 +955,8 @@ async fn test_kill_child_cascades_to_grandchild() {
             mode: SpawnMode::Run,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )

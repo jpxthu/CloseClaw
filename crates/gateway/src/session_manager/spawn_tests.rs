@@ -17,7 +17,6 @@ use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
 pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
     ResolvedAgentConfig {
         id: id.to_string(),
@@ -70,7 +69,6 @@ pub(crate) async fn register_parent_session(
         },
     );
 }
-
 #[tokio::test]
 #[serial]
 async fn test_create_child_session_basic() {
@@ -99,18 +97,17 @@ async fn test_create_child_session_basic() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
-
     assert_eq!(child_id.len(), 36, "child id should be a UUID string");
 
     assert!(mgr.has_session(&child_id).await);
-
     assert_eq!(mgr.get_session_depth(&child_id).await, Some(1));
 
     assert_eq!(mgr.count_active_children("parent-session-1").await, 1);
-
     // ConversationSession exists with the task as first pending message
     let cs = mgr
         .get_conversation_session(&child_id)
@@ -132,7 +129,6 @@ async fn test_create_child_session_workspace_fallback() {
     let mgr = make_test_mgr(None);
     let explicit = tempfile::TempDir::new().unwrap();
     let config = test_resolved_config("child-agent", Some(explicit.path().to_path_buf()));
-
     // Step 1.5: pre-populate parent so child can inherit its cancel
     // token tree.
     register_parent_session(&mgr, "parent-x", explicit.path().to_path_buf()).await;
@@ -153,13 +149,14 @@ async fn test_create_child_session_workspace_fallback() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
 
     // depth=2 respected
     assert_eq!(mgr.get_session_depth(&child_id).await, Some(2));
-
     // explicit workspace arg overrides config.workspace
     let other = tempfile::TempDir::new().unwrap();
     let child_id_2 = mgr
@@ -179,12 +176,13 @@ async fn test_create_child_session_workspace_fallback() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session with explicit workspace should succeed");
 
     assert_eq!(mgr.count_active_children("parent-x").await, 2);
-
     assert_ne!(child_id, child_id_2);
 }
 
@@ -194,7 +192,6 @@ async fn test_create_child_session_registers_child_info() {
     clear_global_prompt_state();
     let mgr = make_test_mgr(None);
     let config = test_resolved_config("worker-1", None);
-
     // Step 1.5: pre-populate parent so child inherits the parent's
     // cancel token tree and is registered in the parent's
     // child_handles.
@@ -217,6 +214,8 @@ async fn test_create_child_session_registers_child_info() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -232,7 +231,6 @@ async fn test_create_child_session_registers_child_info() {
     assert_eq!(list[0].depth, 1);
     assert_eq!(list[0].mode, SpawnMode::Session);
 }
-
 #[tokio::test]
 #[serial]
 async fn test_steer_child_injects_pending_message() {
@@ -258,6 +256,8 @@ async fn test_steer_child_injects_pending_message() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -266,7 +266,6 @@ async fn test_steer_child_injects_pending_message() {
     mgr.steer_child(&child_id, "new task")
         .await
         .expect("steer_child should succeed");
-
     // Verify the pending message was injected
     let cs = mgr
         .get_conversation_session(&child_id)
@@ -312,10 +311,11 @@ async fn test_kill_child_removes_from_all_tables() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
-
     // Confirm child exists before kill
     assert!(mgr.has_session(&child_id).await);
     assert!(mgr.get_conversation_session(&child_id).await.is_some());
@@ -325,7 +325,6 @@ async fn test_kill_child_removes_from_all_tables() {
     mgr.kill_child("parent-kill", &child_id)
         .await
         .expect("kill_child should succeed");
-
     // Verify child is removed from sessions
     assert!(
         !mgr.has_session(&child_id).await,
@@ -337,7 +336,6 @@ async fn test_kill_child_removes_from_all_tables() {
         mgr.get_conversation_session(&child_id).await.is_none(),
         "get_conversation_session should return None after kill"
     );
-
     // Verify child is removed from children tracking table
     assert_eq!(
         mgr.count_active_children("parent-kill").await,
@@ -355,7 +353,6 @@ async fn test_kill_child_removes_from_all_tables() {
 #[serial]
 async fn test_validate_child_ownership_by_mode() {
     clear_global_prompt_state();
-
     // --- Run mode: should return Some with correct info ---
     {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -379,6 +376,8 @@ async fn test_validate_child_ownership_by_mode() {
                 None, // spawn_timeout,
                 None, // label
                 None, // prompt_template_prefix
+                None, // timeout_warning_secs
+                None, // timeout_notify_interval_ratio
             )
             .await
             .expect("create_child_session should succeed");
@@ -415,6 +414,8 @@ async fn test_validate_child_ownership_by_mode() {
                 None, // spawn_timeout,
                 None, // label
                 None, // prompt_template_prefix
+                None, // timeout_warning_secs
+                None, // timeout_notify_interval_ratio
             )
             .await
             .expect("create_child_session should succeed");
@@ -428,7 +429,6 @@ async fn test_validate_child_ownership_by_mode() {
         assert_eq!(info.parent_session_id, "parent-validate-session");
     }
 }
-
 #[tokio::test]
 #[serial]
 async fn test_create_child_session_allowed_tools_override() {
@@ -455,7 +455,6 @@ async fn test_create_child_session_allowed_tools_override() {
     };
 
     register_parent_session(&mgr, "parent-tools", tmp.path().to_path_buf()).await;
-
     // Create child with allowed_tools override
     let allowed = vec!["ToolA".to_string(), "ToolC".to_string()];
     let child_id = mgr
@@ -475,6 +474,8 @@ async fn test_create_child_session_allowed_tools_override() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session with allowed_tools should succeed");
@@ -499,12 +500,13 @@ async fn test_create_child_session_allowed_tools_override() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session without allowed_tools should succeed");
     assert!(mgr.has_session(&child_id_2).await);
 }
-
 #[tokio::test]
 #[serial]
 async fn test_create_child_session_workspace_fallback_to_parent() {
@@ -513,7 +515,6 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
     // Set up manager with a workspace root.
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-
     // Parent workspace: {tmp}/workspaces/parent-agent/default/
     let parent_workspace = tmp
         .path()
@@ -542,14 +543,18 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
-
     // Verify child session exists
     assert!(mgr.has_session(&child_id).await);
 
-    // After Step 1.3, Level 3 fallback uses config_dir/workspaces/ not parent_workspace.
+    // After Step 1.1, Level 3 fallback uses parent session workspace.
+    // config.workspace is None, so fallback chain is:
+    //   Level 1: explicit param (None) -> Level 2: config.workspace (None)
+    //   -> Level 3: parent session workspace -> Level 4: dedicated dir -> Level 5: /tmp
     let child_workdir = mgr
         .get_conversation_session(&child_id)
         .await
@@ -559,17 +564,12 @@ async fn test_create_child_session_workspace_fallback_to_parent() {
         .workdir()
         .to_path_buf();
     assert!(
-        !child_workdir.starts_with(&parent_workspace),
-        "child workdir should NOT be under parent workspace"
-    );
-    assert!(
-        child_workdir
-            .to_string_lossy()
-            .contains("/workspaces/child-agent/"),
-        "child workdir should follow config_dir/workspaces/{{agent_id}}/{{user_id}}"
+        child_workdir.starts_with(&parent_workspace),
+        "child workdir {:?} should be under parent workspace {:?}",
+        child_workdir,
+        parent_workspace
     );
 }
-
 #[tokio::test]
 #[serial]
 async fn test_create_child_session_workspace_uses_actual_user_id() {
@@ -591,7 +591,6 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         Some(tmp.path().to_path_buf()),
         ReasoningLevel::default(),
     );
-
     mgr.set_config_dir_for_testing(tmp.path());
 
     // Parent workspace: {tmp}/workspaces/parent-agent/default/
@@ -602,7 +601,6 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         .join("default");
     std::fs::create_dir_all(&parent_workspace).unwrap();
     let config = test_resolved_config("child-agent", None);
-
     // Register parent session with the parent workspace as its workdir.
     register_parent_session(&mgr, parent_session_id, parent_workspace.clone()).await;
     let child_id = mgr
@@ -622,34 +620,31 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
 
-    // Verify child workspace path contains the actual user_id.
+    // After Step 1.1, Level 3 fallback uses parent session workspace.
+    // config.workspace is None, so fallback chain is:
+    //   Level 1: explicit param (None) -> Level 2: config.workspace (None)
+    //   -> Level 3: parent session workspace -> Level 4: dedicated dir -> Level 5: /tmp
+    // The parent workspace takes priority over the dedicated dir (Level 4)
+    // which would contain the user_id.
     let child_cs = mgr
         .get_conversation_session(&child_id)
         .await
         .expect("child conversation session should exist");
     let child_workdir = child_cs.read().await.workdir().to_path_buf();
     assert!(
-        child_workdir.to_string_lossy().contains(actual_user_id),
-        "child workdir {:?} should contain actual user_id '{}'",
+        child_workdir.starts_with(&parent_workspace),
+        "child workdir {:?} should be under parent workspace {:?}",
         child_workdir,
-        actual_user_id
-    );
-    // After Step 1.3, Level 3 fallback uses config_dir/workspaces/.
-    let expected_suffix = format!("{}/{}", "child-agent", actual_user_id);
-    assert!(
-        child_workdir.to_string_lossy().ends_with(&expected_suffix),
-        "child workdir {:?} should end with '{}/{}'",
-        child_workdir,
-        "child-agent",
-        actual_user_id
+        parent_workspace
     );
 }
 // ── Step 1.4: spawn-context injection tests ──
-
 /// Verify `build_spawn_context` produces the expected paragraph for
 /// depth=1, max_spawn_depth=3 (allows further spawning).
 #[test]
@@ -679,7 +674,6 @@ fn test_build_spawn_context_no_spawning_at_limit() {
         "should NOT include spawn guidance at limit"
     );
 }
-
 /// Verify `build_spawn_context` at depth=0, max_spawn_depth=1 (allows spawning).
 #[test]
 fn test_build_spawn_context_depth_zero() {
@@ -713,7 +707,6 @@ fn test_build_spawn_context_behavioral_constraints() {
     );
     assert!(ctx.contains("**fork**: true"), "should reflect fork=true");
 }
-
 /// Integration test: `create_child_session` appends spawn context to
 /// the system prompt so the child agent knows its role and limits.
 #[tokio::test]
@@ -741,6 +734,8 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -795,7 +790,6 @@ fn test_build_spawn_context_structured_output_guidance() {
         "should contain Issues found section"
     );
 }
-
 /// Verify the structured output guidance explicitly states it is optional
 /// and that the child may reply freely.
 #[test]
@@ -860,6 +854,8 @@ async fn test_child_session_communication_config_has_parent() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");
@@ -970,6 +966,8 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
             None, // spawn_timeout,
             None, // label
             None, // prompt_template_prefix
+            None, // timeout_warning_secs
+            None, // timeout_notify_interval_ratio
         )
         .await
         .expect("create_child_session should succeed");

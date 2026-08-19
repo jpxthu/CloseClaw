@@ -142,11 +142,15 @@ impl SpawnController {
         let effective_max =
             self.compute_effective_max_depth(parent.parent_effective_budget, Some(&config))?;
         let spawn_timeout = self.resolve_spawn_timeout(&config);
+        let (timeout_warning_secs, timeout_notify_interval_ratio) =
+            self.resolve_timeout_warning(&config);
 
         Ok(SpawnValidationResult {
             config,
             effective_max_spawn_depth: effective_max,
             spawn_timeout,
+            timeout_warning_secs,
+            timeout_notify_interval_ratio,
         })
     }
 }
@@ -307,5 +311,17 @@ impl SpawnController {
     /// spawn args → target agent config → **global default**.
     fn global_spawn_timeout(&self) -> Option<u64> {
         Some(DEFAULT_SPAWN_TIMEOUT_SECS)
+    }
+
+    /// Resolve timeout_warning using the priority chain:
+    /// target agent's `subagents.timeout_warning` → global default (None = legacy).
+    fn resolve_timeout_warning(
+        &self,
+        target_config: &ResolvedAgentConfig,
+    ) -> (Option<u64>, Option<f64>) {
+        (
+            target_config.subagents.timeout_warning,
+            target_config.subagents.timeout_notify_interval_ratio,
+        )
     }
 }

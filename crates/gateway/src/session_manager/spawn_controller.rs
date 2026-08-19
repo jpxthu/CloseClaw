@@ -28,6 +28,13 @@ pub struct SpawnValidationResult {
     /// priority chain: spawn args → target agent config → global default.
     /// Never `None` after resolution — always falls back to global default.
     pub spawn_timeout: Option<u64>,
+    /// Sub-agent timeout warning duration (seconds), resolved via
+    /// priority chain: spawn args → target agent config → global default.
+    /// `None` means legacy single warning 60s before hard timeout.
+    pub timeout_warning_secs: Option<u64>,
+    /// Interval ratio for cyclic warning notifications (relative to timeout_warning).
+    /// Must be >=0.1 and <=2.0, default 0.5. `None` means use default.
+    pub timeout_notify_interval_ratio: Option<f64>,
 }
 
 /// Errors returned by SpawnController validation.
@@ -163,11 +170,15 @@ impl SpawnController {
         //    Spawn args timeout is applied later in `SessionsSpawnTool::call()`
         //    after validation, as it takes highest priority in the chain.
         let spawn_timeout = self.resolve_spawn_timeout(&config);
+        let (timeout_warning_secs, timeout_notify_interval_ratio) =
+            self.resolve_timeout_warning(&config);
 
         Ok(SpawnValidationResult {
             config,
             effective_max_spawn_depth: effective_max,
             spawn_timeout,
+            timeout_warning_secs,
+            timeout_notify_interval_ratio,
         })
     }
 
@@ -393,6 +404,18 @@ impl SpawnController {
     fn global_spawn_timeout(&self) -> Option<u64> {
         Some(DEFAULT_SPAWN_TIMEOUT_SECS)
     }
+
+    /// Resolve timeout_warning using the priority chain:
+    /// target agent's `subagents.timeout_warning` → global default (None = legacy).
+    fn resolve_timeout_warning(
+        &self,
+        target_config: &ResolvedAgentConfig,
+    ) -> (Option<u64>, Option<f64>) {
+        (
+            target_config.subagents.timeout_warning,
+            target_config.subagents.timeout_notify_interval_ratio,
+        )
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -442,6 +465,8 @@ impl closeclaw_session::spawn_validation::SpawnValidator for SpawnController {
             config: result.config,
             effective_max_spawn_depth: result.effective_max_spawn_depth,
             spawn_timeout: result.spawn_timeout,
+            timeout_warning_secs: result.timeout_warning_secs,
+            timeout_notify_interval_ratio: result.timeout_notify_interval_ratio,
         })
     }
 }

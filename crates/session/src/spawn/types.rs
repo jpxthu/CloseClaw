@@ -15,6 +15,13 @@ pub struct SpawnValidationResult {
     /// priority chain: spawn args → target agent config → global default.
     /// Never `None` after resolution — always falls back to global default.
     pub spawn_timeout: Option<u64>,
+    /// Sub-agent timeout warning duration (seconds), resolved via
+    /// priority chain: spawn args → target agent config → global default.
+    /// `None` means legacy single warning 60s before hard timeout.
+    pub timeout_warning_secs: Option<u64>,
+    /// Interval ratio for cyclic warning notifications (relative to timeout_warning).
+    /// Must be >=0.1 and <=2.0, default 0.5. `None` means use default.
+    pub timeout_notify_interval_ratio: Option<f64>,
 }
 
 /// Status of a child session tracked by the parent.
@@ -39,6 +46,11 @@ pub struct ChildSessionInfo {
     pub status: ChildSessionStatus,
     /// Spawn timeout in seconds, if configured.
     pub timeout_secs: Option<u64>,
+    /// Timeout warning duration (seconds) resolved for this child's agent.
+    /// `None` means legacy single warning 60s before hard timeout.
+    pub timeout_warning_secs: Option<u64>,
+    /// Interval ratio for cyclic warning notifications.
+    pub timeout_notify_interval_ratio: Option<f64>,
     /// Wall-clock instant when this child session was created.
     /// Used by yield timeout to compute elapsed time per child.
     pub created_at: std::time::Instant,

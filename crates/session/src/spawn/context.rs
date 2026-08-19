@@ -60,6 +60,14 @@ pub trait SpawnCreationContext: Send + Sync {
     /// Get the skill listing provider for per-turn injection.
     fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>>;
 
+    /// Get the parent session's workspace directory.
+    ///
+    /// Used as a fallback when neither the explicit spawn parameter
+    /// nor `config.workspace` is set. The design doc specifies the
+    /// fallback chain as: spawn parameter → config.workspace →
+    /// parent session workspace → dedicated directory → /tmp.
+    async fn parent_workspace(&self, parent_session_id: &str) -> Option<std::path::PathBuf>;
+
     /// Get the configuration root directory (parent of agents/).
     fn config_dir(&self) -> &std::path::Path;
 

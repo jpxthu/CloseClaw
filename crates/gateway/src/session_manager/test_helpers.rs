@@ -201,6 +201,8 @@ pub(super) async fn register_child_only(
             mode,
             status: ChildSessionStatus::Active,
             timeout_secs: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
             created_at: std::time::Instant::now(),
         },
     )
@@ -236,6 +238,8 @@ pub(super) async fn spawn_n_run_children(
                 None, // spawn_timeout,
                 None, // label
                 None, // prompt_template_prefix
+                None, // timeout_warning_secs
+                None, // timeout_notify_interval_ratio
             )
             .await
             .expect("create_child_session should succeed");
