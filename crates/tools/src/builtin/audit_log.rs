@@ -27,12 +27,11 @@ pub struct AuditLogTool {
 
 impl AuditLogTool {
     /// Create a new `AuditLogTool` with the given audit log path.
-    pub fn new(audit_log_path: PathBuf) -> Self {
-        let logger =
-            FileAuditLogger::new(audit_log_path).expect("failed to create audit log reader");
-        Self {
+    pub fn new(audit_log_path: PathBuf) -> Result<Self, std::io::Error> {
+        let logger = FileAuditLogger::new(audit_log_path)?;
+        Ok(Self {
             logger: Arc::new(RwLock::new(logger)),
-        }
+        })
     }
 
     /// Create with an existing logger (for testing).
@@ -176,7 +175,7 @@ mod tests {
     #[test]
     fn test_audit_log_tool_name_group() {
         let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log"));
+        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
         assert_eq!(tool.name(), "AuditLog");
         assert_eq!(tool.group(), "meta");
     }
@@ -184,14 +183,14 @@ mod tests {
     #[test]
     fn test_audit_log_tool_summary_len() {
         let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log"));
+        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
         assert!(tool.summary().len() <= 50);
     }
 
     #[test]
     fn test_audit_log_tool_flags() {
         let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log"));
+        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
         let flags = tool.flags();
         assert!(flags.is_read_only);
         assert!(flags.is_concurrency_safe);
@@ -202,7 +201,7 @@ mod tests {
     #[test]
     fn test_audit_log_tool_input_schema_no_required() {
         let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log"));
+        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
         let schema = tool.input_schema();
         let required = schema.pointer("/required").unwrap().as_array().unwrap();
         assert!(required.is_empty());
@@ -211,7 +210,7 @@ mod tests {
     #[test]
     fn test_audit_log_tool_input_schema_has_filters() {
         let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log"));
+        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
         let schema = tool.input_schema();
         let props = schema.pointer("/properties").unwrap().as_object().unwrap();
         assert!(props.contains_key("agent_id"));
@@ -223,7 +222,7 @@ mod tests {
     #[test]
     fn test_audit_log_tool_detail_mentions_audit() {
         let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log"));
+        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
         let detail = tool.detail();
         assert!(detail.contains("audit"));
         assert!(detail.contains("Auto Mode"));

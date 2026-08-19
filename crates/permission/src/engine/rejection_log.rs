@@ -7,7 +7,7 @@ use super::engine_types::PermissionRequestBody;
 use super::jsonl_writer::JsonlFileWriter;
 use closeclaw_common::session_mode::SessionMode;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Structured rejection log entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +66,7 @@ impl FileRejectionLogger {
     }
 
     /// Count non-empty lines in the log file.
-    pub fn count_entries(path: &PathBuf) -> usize {
+    pub fn count_entries(path: &Path) -> usize {
         JsonlFileWriter::count_entries(path)
     }
 }

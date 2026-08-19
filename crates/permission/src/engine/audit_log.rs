@@ -8,7 +8,7 @@ use super::engine_types::PermissionRequestBody;
 use super::jsonl_writer::JsonlFileWriter;
 use closeclaw_common::session_mode::SessionMode;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Disposition of an audited permission request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,7 +88,7 @@ impl FileAuditLogger {
     }
 
     /// Count non-empty lines in the log file.
-    pub fn count_entries(path: &PathBuf) -> usize {
+    pub fn count_entries(path: &Path) -> usize {
         JsonlFileWriter::count_entries(path)
     }
 
@@ -101,7 +101,7 @@ impl FileAuditLogger {
     }
 
     /// Read all audit log entries from the given path.
-    pub fn read_entries_from_path(path: &PathBuf) -> Vec<AuditLogEntry> {
+    pub fn read_entries_from_path(path: &Path) -> Vec<AuditLogEntry> {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(_) => return Vec::new(),

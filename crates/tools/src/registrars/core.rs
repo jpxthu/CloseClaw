@@ -140,7 +140,18 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(registry, registered, CodingAgentTool::new(), r);
         // audit_log (optional — requires audit_log_path)
         if let Some(ref path) = self.audit_log_path {
-            try_register!(registry, registered, AuditLogTool::new(path.clone()), r);
+            match AuditLogTool::new(path.clone()) {
+                Ok(tool) => {
+                    try_register!(registry, registered, tool, r);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        path = %path.display(),
+                        "failed to create AuditLogTool — skipping"
+                    );
+                }
+            }
         }
         // bash
         try_register!(
