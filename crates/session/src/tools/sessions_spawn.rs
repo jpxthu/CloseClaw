@@ -295,7 +295,6 @@ impl Tool for SessionsSpawnTool {
                 let caller = CallerInfo {
                     user_id: String::new(),
                     agent: ctx.agent_id.clone(),
-                    creator_id: String::new(),
                     is_sub_agent,
                 };
                 let flow = self.approval_flow.lock().await;

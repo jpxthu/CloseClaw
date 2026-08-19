@@ -72,7 +72,6 @@ impl ApprovalSubmission for ApprovalFlowAdapter {
         let permission_caller = Caller {
             user_id: caller.user_id.clone(),
             agent: caller.agent.clone(),
-            creator_id: caller.creator_id.clone(),
         };
         let body = PermissionRequestBody::InterAgentMsg {
             from: from.to_string(),

@@ -28,7 +28,6 @@ fn make_file_request(agent: &str, user_id: &str, path: &str, op: &str) -> Permis
         caller: Caller {
             user_id: user_id.to_string(),
             agent: agent.to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: agent.to_string(),
@@ -43,7 +42,6 @@ fn make_exec_request(agent: &str) -> PermissionRequest {
         caller: Caller {
             user_id: "test-user".to_string(),
             agent: agent.to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::CommandExec {
             agent: agent.to_string(),
@@ -199,7 +197,6 @@ fn test_workspace_owner_allowed() {
         caller: Caller {
             user_id: "owner".to_string(),
             agent: "test-agent".to_string(),
-            creator_id: String::new(),
         },
         request: PermissionRequestBody::FileOp {
             agent: "test-agent".to_string(),

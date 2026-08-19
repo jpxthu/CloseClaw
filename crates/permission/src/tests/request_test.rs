@@ -16,7 +16,6 @@ fn test_bare_request_caller_defaults() {
     let caller = request.caller();
     assert_eq!(caller.user_id, "");
     assert_eq!(caller.agent, "test-agent");
-    assert_eq!(caller.creator_id, "");
 }
 
 #[test]
@@ -25,7 +24,6 @@ fn test_with_caller_request() {
         caller: Caller {
             user_id: "ou_alice".to_string(),
             agent: "dev-agent-01".to_string(),
-            creator_id: "".to_string(),
         },
         request: PermissionRequestBody::FileOp {
             agent: "dev-agent-01".to_string(),
@@ -57,7 +55,7 @@ fn test_with_caller_deserialize_new_format() {
     let tmp = TempDir::new().unwrap();
     let json = format!(
         r#"{{
-        "caller": {{"user_id": "ou_alice", "agent": "dev-agent-01", "creator_id": ""}},
+        "caller": {{"user_id": "ou_alice", "agent": "dev-agent-01"}},
         "type": "file_op",
         "agent": "dev-agent-01",
         "path": "{}",
@@ -73,9 +71,9 @@ fn test_with_caller_deserialize_new_format() {
 }
 
 #[test]
-fn test_with_caller_deserialize_creator_id() {
+fn test_with_caller_deserialize() {
     let json = r#"{
-        "caller": {"user_id": "ou_john", "agent": "dev-agent-01", "creator_id": "ou_john"},
+        "caller": {"user_id": "ou_john", "agent": "dev-agent-01"},
         "type": "command_exec",
         "agent": "dev-agent-01",
         "cmd": "rm",
@@ -84,7 +82,6 @@ fn test_with_caller_deserialize_creator_id() {
     let request: PermissionRequest = serde_json::from_str(json).unwrap();
     let caller = request.caller();
     assert_eq!(caller.user_id, "ou_john");
-    assert_eq!(caller.creator_id, "ou_john");
 }
 
 #[test]
@@ -98,7 +95,6 @@ fn test_with_caller_converts_bare() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "test-agent".to_string(),
-        creator_id: String::new(),
     };
     let with_caller = bare.with_caller(caller);
     assert!(matches!(with_caller, PermissionRequest::WithCaller { .. }));

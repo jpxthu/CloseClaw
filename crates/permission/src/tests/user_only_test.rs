@@ -19,12 +19,11 @@ use crate::whitelist::{build_whitelist_rule, caller_to_subject};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn file_read_request(agent: &str, user_id: &str, creator_id: &str) -> PermissionRequest {
+fn file_read_request(agent: &str, user_id: &str) -> PermissionRequest {
     PermissionRequest::WithCaller {
         caller: Caller {
             user_id: user_id.to_string(),
             agent: agent.to_string(),
-            creator_id: creator_id.to_string(),
         },
         request: PermissionRequestBody::FileOp {
             agent: agent.to_string(),
@@ -34,12 +33,11 @@ fn file_read_request(agent: &str, user_id: &str, creator_id: &str) -> Permission
     }
 }
 
-fn file_write_request(agent: &str, user_id: &str, creator_id: &str) -> PermissionRequest {
+fn file_write_request(agent: &str, user_id: &str) -> PermissionRequest {
     PermissionRequest::WithCaller {
         caller: Caller {
             user_id: user_id.to_string(),
             agent: agent.to_string(),
-            creator_id: creator_id.to_string(),
         },
         request: PermissionRequestBody::FileOp {
             agent: agent.to_string(),
@@ -77,14 +75,14 @@ async fn test_user_only_matches_same_user_across_agents() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Agent "alpha" — alice should be allowed
-    let resp = engine.evaluate(file_read_request("alpha", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_read_request("alpha", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "UserOnly allow should match alice on agent alpha, got: {resp:?}"
     );
 
     // Agent "beta" — alice should also be allowed (UserOnly is agent-agnostic)
-    let resp = engine.evaluate(file_read_request("beta", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_read_request("beta", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "UserOnly allow should match alice on agent beta, got: {resp:?}"
@@ -116,7 +114,7 @@ async fn test_user_only_deny_matches_same_user_across_agents() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Alice write should be denied on any agent
-    let resp = engine.evaluate(file_write_request("any-agent", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_write_request("any-agent", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
         "UserOnly deny should block alice write on any agent, got: {resp:?}"
@@ -150,7 +148,7 @@ async fn test_user_only_no_match_different_user() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Bob should NOT be affected by alice's rule
-    let resp = engine.evaluate(file_read_request("any-agent", "ou_bob", ""), None);
+    let resp = engine.evaluate(file_read_request("any-agent", "ou_bob"), None);
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
         "UserOnly alice rule should not match bob, got: {resp:?}"
@@ -182,7 +180,7 @@ async fn test_user_only_no_match_empty_user() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Empty user_id should not match alice's UserOnly rule
-    let resp = engine.evaluate(file_read_request("any-agent", "", ""), None);
+    let resp = engine.evaluate(file_read_request("any-agent", ""), None);
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
         "UserOnly alice rule should not match empty user_id, got: {resp:?}"
@@ -196,7 +194,6 @@ async fn test_caller_to_subject_user_only_empty_user_fallback() {
     let caller = Caller {
         user_id: String::new(),
         agent: "test-agent".to_string(),
-        creator_id: String::new(),
     };
     let subject = caller_to_subject(&caller, WhitelistTarget::UserOnly);
     assert!(
@@ -211,7 +208,6 @@ async fn test_caller_to_subject_user_only_non_empty_user() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "test-agent".to_string(),
-        creator_id: String::new(),
     };
     let subject = caller_to_subject(&caller, WhitelistTarget::UserOnly);
     assert!(
@@ -282,21 +278,21 @@ async fn test_user_only_and_user_and_agent_coexist() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Alice read on other-agent — UserOnly matches (no agent rule needed)
-    let resp = engine.evaluate(file_read_request("other-agent", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_read_request("other-agent", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "UserOnly should match alice read on other-agent, got: {resp:?}"
     );
 
     // Alice write on dev-agent — AgentOnly + UserAndAgent both match → Allowed
-    let resp = engine.evaluate(file_write_request("dev-agent", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_write_request("dev-agent", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "AgentOnly + UserAndAgent should match alice write on dev-agent, got: {resp:?}"
     );
 
     // Alice write on other-agent — AgentOnly matches but UserAndAgent doesn't → Denied
-    let resp = engine.evaluate(file_write_request("other-agent", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_write_request("other-agent", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
         "AgentOnly match without UserAndAgent should be denied, got: {resp:?}"
@@ -310,7 +306,6 @@ async fn test_build_whitelist_rule_user_only() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "dev-agent".to_string(),
-        creator_id: String::new(),
     };
     let body = PermissionRequestBody::FileOp {
         agent: "dev-agent".to_string(),
@@ -354,7 +349,7 @@ async fn test_user_only_whitelist_rule_effective_in_engine() {
 
     // Alice on a completely different agent should be allowed
     let resp = engine.evaluate(
-        file_read_request("completely-different-agent", "ou_alice", ""),
+        file_read_request("completely-different-agent", "ou_alice"),
         None,
     );
     assert!(
@@ -390,7 +385,7 @@ async fn test_owner_shortcut_skips_user_only_rules() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Owner caller — should skip User phase entirely, use Agent defaults
-    let resp = engine.evaluate(file_read_request("any-agent", "owner", ""), None);
+    let resp = engine.evaluate(file_read_request("any-agent", "owner"), None);
     // Owner shortcut: UserOnly rules don't participate in Agent phase.
     // Agent phase has no matching rule → defaults.file_read = Allow → Allowed
     assert!(
@@ -426,14 +421,14 @@ async fn test_user_only_glob_matching() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // ou_team_dev should match glob
-    let resp = engine.evaluate(file_read_request("any-agent", "ou_team_dev", ""), None);
+    let resp = engine.evaluate(file_read_request("any-agent", "ou_team_dev"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "UserOnly glob should match ou_team_dev, got: {resp:?}"
     );
 
     // ou_alice should NOT match glob
-    let resp = engine.evaluate(file_read_request("any-agent", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_read_request("any-agent", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
         "UserOnly glob should not match ou_alice, got: {resp:?}"
@@ -487,7 +482,7 @@ async fn test_user_only_deny_with_user_and_agent_allow() {
 
     // Alice write on dev-agent — both rules match in user phase.
     // Deny-precedence: UserOnly deny should win.
-    let resp = engine.evaluate(file_write_request("dev-agent", "ou_alice", ""), None);
+    let resp = engine.evaluate(file_write_request("dev-agent", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
         "UserOnly deny should take precedence over UserAndAgent allow (deny wins), got: {resp:?}"
@@ -552,7 +547,6 @@ fn test_user_only_matches_exact() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "any-agent".to_string(),
-        creator_id: String::new(),
     };
     assert!(subject.matches(&caller));
 }
@@ -566,7 +560,6 @@ fn test_user_only_matches_glob() {
     let caller = Caller {
         user_id: "ou_team_dev".to_string(),
         agent: "any-agent".to_string(),
-        creator_id: String::new(),
     };
     assert!(subject.matches(&caller));
 }
@@ -580,7 +573,6 @@ fn test_user_only_not_matches_different_user_exact() {
     let caller = Caller {
         user_id: "ou_bob".to_string(),
         agent: "any-agent".to_string(),
-        creator_id: String::new(),
     };
     assert!(!subject.matches(&caller));
 }
@@ -594,7 +586,6 @@ fn test_user_only_not_matches_different_user_glob() {
     let caller = Caller {
         user_id: "ou_alice".to_string(),
         agent: "any-agent".to_string(),
-        creator_id: String::new(),
     };
     assert!(!subject.matches(&caller));
 }

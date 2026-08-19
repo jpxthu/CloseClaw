@@ -10,7 +10,6 @@ fn dummy_caller() -> Caller {
     Caller {
         user_id: "test-user".to_string(),
         agent: "test-agent".to_string(),
-        creator_id: "test-creator".to_string(),
     }
 }
 
@@ -359,12 +358,10 @@ fn test_different_caller_same_body_not_duplicate() {
     let caller1 = Caller {
         user_id: "user-1".to_string(),
         agent: "agent-1".to_string(),
-        creator_id: "creator-1".to_string(),
     };
     let caller2 = Caller {
         user_id: "user-2".to_string(),
         agent: "agent-2".to_string(),
-        creator_id: "creator-2".to_string(),
     };
 
     let id1 = queue
