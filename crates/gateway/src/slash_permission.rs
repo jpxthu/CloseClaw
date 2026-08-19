@@ -13,7 +13,6 @@ use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{
     SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
-use closeclaw_config::agents::{AgentPermissionProvider, LazyAgentPermissions};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
@@ -148,42 +147,31 @@ impl Gateway {
 
     /// Build a [`PermissionRequest`] for the given slash command.
     ///
-    /// Resolves the agent ID from the session, fetches agent permissions
-    /// from the config manager, and constructs a
+    /// Resolves the agent ID from the session and constructs a
     /// [`PermissionRequest::WithCaller`] suitable for the permission engine.
     async fn build_permission_request(
         &self,
         cmd: &str,
         sender_id: Option<&str>,
         session_id: &str,
-    ) -> (
-        PermissionRequest,
-        Arc<dyn AgentPermissionProvider + Send + Sync>,
-    ) {
+    ) -> PermissionRequest {
         let agent_id = self
             .session_manager
             .get_chat_id(session_id)
             .await
             .unwrap_or_default();
 
-        let agent_permissions: Arc<dyn AgentPermissionProvider + Send + Sync> =
-            match self.session_manager.get_config_manager().await {
-                Some(cm) => cm.agent_permissions(),
-                None => Arc::new(LazyAgentPermissions::new(std::path::PathBuf::new())),
-            };
-
         let caller = Caller {
             user_id: sender_id.unwrap_or("").to_owned(),
             agent: agent_id.clone(),
         };
-        let request = PermissionRequest::WithCaller {
+        PermissionRequest::WithCaller {
             caller,
             request: PermissionRequestBody::SlashCommand {
                 agent: agent_id,
                 command: cmd.to_owned(),
             },
-        };
-        (request, agent_permissions)
+        }
     }
 
     /// Permission engine check: Owner short-circuit + engine evaluation.
@@ -214,22 +202,15 @@ impl Gateway {
             return false;
         };
 
-        let (request, agent_permissions) = self
+        let request = self
             .build_permission_request(cmd, sender_id, session_id)
             .await;
 
-        // Chain-aware permission check: dimension-level intersection
-        // with the parent agent chain.
-        let response = engine
-            .read()
-            .await
-            .evaluate_with_chain(
-                request,
-                &*self.session_manager,
-                session_id,
-                agent_permissions.as_ref(),
-            )
-            .await;
+        // Gateway-level permission check: evaluate current agent config
+        // and user permissions without traversing the agent spawn chain.
+        // SlashCommand is handled independently by the Gateway layer
+        // (three-branch routing) and does not involve agent inheritance.
+        let response = engine.read().await.evaluate(request, None);
         if let PermissionResponse::Denied { reason, .. } = response {
             self.send_reply_if_available(&format!("权限不足：{reason}"))
                 .await;
