@@ -6,7 +6,7 @@
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// Generic JSON Lines file writer with optional entry limit.
@@ -41,7 +41,7 @@ impl JsonlFileWriter {
     }
 
     /// Returns the path this writer targets.
-    pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 
@@ -51,7 +51,7 @@ impl JsonlFileWriter {
     }
 
     /// Count non-empty lines in the log file.
-    pub fn count_entries(path: &PathBuf) -> usize {
+    pub fn count_entries(path: &Path) -> usize {
         std::fs::File::open(path)
             .map(|f| {
                 io::BufReader::new(f)
@@ -64,7 +64,7 @@ impl JsonlFileWriter {
     }
 
     /// Truncate old entries, keeping the newest `keep` lines.
-    fn truncate_old_entries(path: &PathBuf, keep: usize) {
+    fn truncate_old_entries(path: &Path, keep: usize) {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(_) => return,
