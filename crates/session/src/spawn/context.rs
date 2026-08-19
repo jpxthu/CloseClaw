@@ -60,6 +60,9 @@ pub trait SpawnCreationContext: Send + Sync {
     /// Get the skill listing provider for per-turn injection.
     fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>>;
 
+    /// Get the configuration root directory (parent of agents/).
+    fn config_dir(&self) -> &std::path::Path;
+
     /// Get the sender/user ID for a session (used for workspace path fallback).
     async fn sender_id(&self, session_id: &str) -> Option<String>;
 }
