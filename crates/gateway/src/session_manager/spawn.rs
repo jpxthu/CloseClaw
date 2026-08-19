@@ -237,6 +237,9 @@ impl SessionManager {
         };
 
         // Tool-level spawn prevention (design doc §两层防护).
+        // NOTE: `<= 0` matches design doc wording (§Depth 追踪: effective budget ≤ 0).
+        // For u32 this is equivalent to `== 0`, kept for spec alignment.
+        #[allow(clippy::absurd_extreme_comparisons)]
         let config = if max_spawn_depth <= 0 {
             let mut filtered = config.clone();
             filtered.tools.retain(|t| t != "sessions_spawn");
