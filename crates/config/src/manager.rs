@@ -177,6 +177,7 @@ pub enum ConfigSection {
     Credentials,
     Accounts,
     Memory,
+    Skills,
 }
 
 impl ConfigSection {
@@ -192,6 +193,7 @@ impl ConfigSection {
             ConfigSection::Credentials => "credentials/",
             ConfigSection::Accounts => "accounts.json",
             ConfigSection::Memory => "memory.json",
+            ConfigSection::Skills => "skills.json",
         }
     }
 
@@ -493,6 +495,31 @@ impl ConfigManager {
             }
         } else {
             info!("memory.json not found, using defaults");
+        }
+
+        // Load global skills config (optional — absent file uses defaults).
+        let skills_path = ConfigSection::Skills.path(&self.config_dir);
+        if skills_path.exists() {
+            match fs::read_to_string(&skills_path) {
+                Ok(content) => {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                        sections.insert(ConfigSection::Skills, value);
+                        info!(
+                            path = %skills_path.display(),
+                            "global skills config loaded"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        path = %skills_path.display(),
+                        error = %e,
+                        "failed to read skills.json, using defaults"
+                    );
+                }
+            }
+        } else {
+            info!("skills.json not found, using defaults");
         }
 
         // Cross-validate credentials against models.json references.
@@ -884,6 +911,7 @@ impl ConfigManager {
             ConfigSection::System,
             ConfigSection::Session,
             ConfigSection::Memory,
+            ConfigSection::Skills,
         ];
 
         let mut infos = Vec::new();

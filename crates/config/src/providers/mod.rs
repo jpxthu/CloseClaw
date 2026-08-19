@@ -7,6 +7,7 @@ pub mod gateway;
 pub mod memory;
 pub mod models;
 pub mod plugins;
+pub mod skills;
 pub mod system;
 pub use accounts::AccountsConfigData;
 pub use channels::ChannelsConfigData;
@@ -15,6 +16,7 @@ pub use gateway::GatewayConfigData;
 pub use memory::MemoryConfigData;
 pub use models::ModelsConfigData;
 pub use plugins::PluginsConfigData;
+pub use skills::{SkillsConfig, SkillsConfigData};
 pub use system::{PlanArchiveConfig, RejectionLogConfig, SystemConfigData};
 
 /// Configuration provider trait for extensible config management
