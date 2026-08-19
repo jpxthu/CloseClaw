@@ -33,7 +33,7 @@ use tracing::warn;
 ///
 /// Any reclaim action is logged at `warn` level since residual nodes
 /// represent an abnormal path.
-pub async fn sweep_spawn_tree_reclaim(session_manager: &SessionManager) {
+pub(crate) async fn sweep_spawn_tree_reclaim(session_manager: &SessionManager) {
     // Collect all parent IDs and their children snapshot.
     let snapshot: Vec<(String, Vec<closeclaw_session::spawn::ChildSessionInfo>)> = {
         let tree = session_manager.children.read().await;

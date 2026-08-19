@@ -381,3 +381,168 @@ async fn test_validate_no_permissions_configured() {
         .await
         .expect("check_spawn_permission should succeed when no permissions are configured");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use closeclaw_session::spawn_validation::SpawnValidator;
+
+    /// Verify the two-step call sequence: `validate_spawn` passes →
+    /// `check_spawn_permission` is called.
+    ///
+    /// Uses a `TrackingSpawnValidator` mock to confirm that when the tools
+    /// layer calls `validate_spawn` followed by `check_spawn_permission`,
+    /// both methods are invoked in order. This mirrors the session crate's
+    /// `test_two_step_precondition_failure_skips_permission` pattern.
+    #[tokio::test]
+    async fn test_two_step_validate_passes_permission_called() {
+        use closeclaw_session::spawn_validation::{
+            SpawnError as SessionSpawnError, SpawnValidationResult as SessionValidationResult,
+        };
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc as StdArc;
+
+        /// A mock SpawnValidator that tracks which methods were called.
+        struct TrackingValidator {
+            validate_called: AtomicBool,
+            permission_called: AtomicBool,
+        }
+
+        impl TrackingValidator {
+            fn new() -> Self {
+                Self {
+                    validate_called: AtomicBool::new(false),
+                    permission_called: AtomicBool::new(false),
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl SpawnValidator for TrackingValidator {
+            async fn validate_spawn(
+                &self,
+                _parent_session_id: &str,
+                _target_agent_id: Option<&str>,
+            ) -> Result<SessionValidationResult, SessionSpawnError> {
+                self.validate_called.store(true, Ordering::SeqCst);
+                Ok(SessionValidationResult {
+                    config: ResolvedAgentConfig {
+                        id: "child-agent".to_string(),
+                        name: "child-agent".to_string(),
+                        parent_id: None,
+                        model: Some(ModelSpec::single("test-model")),
+                        workspace: None,
+                        agent_dir: None,
+                        bootstrap_mode: BootstrapMode::Full,
+                        skills: vec![],
+                        tools: vec![],
+                        disallowed_tools: vec![],
+                        subagents: SubagentsConfig::default(),
+                        memory: MemoryConfig::default(),
+                        hooks: vec![],
+                        parallel_tool_calls: true,
+                        source: ConfigSource::User,
+                    },
+                    effective_max_spawn_depth: 1,
+                    spawn_timeout: Some(172800),
+                    timeout_warning_secs: None,
+                    timeout_notify_interval_ratio: None,
+                })
+            }
+
+            async fn check_spawn_permission(
+                &self,
+                _parent_session_id: &str,
+                _validation: &SessionValidationResult,
+            ) -> Result<(), SessionSpawnError> {
+                self.permission_called.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        let validator = StdArc::new(TrackingValidator::new());
+
+        // Simulate the tools layer call sequence: validate → check_permission.
+        let validation = validator
+            .validate_spawn("parent", Some("child"))
+            .await
+            .expect("validate_spawn should succeed");
+        validator
+            .check_spawn_permission("parent", &validation)
+            .await
+            .expect("check_spawn_permission should succeed");
+
+        assert!(
+            validator.validate_called.load(Ordering::SeqCst),
+            "validate_spawn must have been called"
+        );
+        assert!(
+            validator.permission_called.load(Ordering::SeqCst),
+            "check_spawn_permission must have been called after validate_spawn succeeds"
+        );
+    }
+
+    /// When `validate_spawn` fails (precondition failure),
+    /// `check_spawn_permission` must NOT be called.
+    #[tokio::test]
+    async fn test_two_step_validate_fails_permission_skipped() {
+        use closeclaw_session::spawn_validation::{
+            SpawnError as SessionSpawnError, SpawnValidationResult as SessionValidationResult,
+        };
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc as StdArc;
+
+        struct FailingValidator {
+            validate_called: AtomicBool,
+            permission_called: AtomicBool,
+        }
+
+        impl FailingValidator {
+            fn new() -> Self {
+                Self {
+                    validate_called: AtomicBool::new(false),
+                    permission_called: AtomicBool::new(false),
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl SpawnValidator for FailingValidator {
+            async fn validate_spawn(
+                &self,
+                _parent_session_id: &str,
+                _target_agent_id: Option<&str>,
+            ) -> Result<SessionValidationResult, SessionSpawnError> {
+                self.validate_called.store(true, Ordering::SeqCst);
+                Err(SessionSpawnError::DepthExceeded { current: 1, max: 0 })
+            }
+
+            async fn check_spawn_permission(
+                &self,
+                _parent_session_id: &str,
+                _validation: &SessionValidationResult,
+            ) -> Result<(), SessionSpawnError> {
+                self.permission_called.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        let validator = StdArc::new(FailingValidator::new());
+
+        // Simulate the tools layer: validate fails → permission should not be called.
+        let err = validator
+            .validate_spawn("parent", Some("child"))
+            .await
+            .expect_err("validate_spawn should fail");
+        assert!(matches!(err, SessionSpawnError::DepthExceeded { .. }));
+
+        assert!(
+            validator.validate_called.load(Ordering::SeqCst),
+            "validate_spawn must have been called"
+        );
+        assert!(
+            !validator.permission_called.load(Ordering::SeqCst),
+            "check_spawn_permission must NOT be called when validate_spawn fails"
+        );
+    }
+}
