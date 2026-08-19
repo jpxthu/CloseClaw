@@ -12,6 +12,7 @@
 | [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 注册清单与多级加载、热重载 |
 | [daemon](daemon/README.md) | 进程入口和组件胶水层：依赖驱动启动、后台任务管理、graceful/forceful 双模关闭 |
 | [debug_log](debug_log/README.md) | 调试日志基础设施：统一追踪标识传播、五级分级过滤、JSONL 日轮转、凭据脱敏，供运维 Agent 串联事件链路定位根因 |
+| [fake_llm](fake_llm/README.md) | 本地假 LLM 服务：场景驱动的确定性黑盒 E2E 测试——双协议端点、多轮场景引擎、流式/错误/延迟注入、KV cache 模拟、协议 fixture |
 | [gateway](gateway/README.md) | 消息路由中枢：管理 IM 插件、调度 Processor Chain、路由决策（slash vs normal）、选择平台插件完成出站渲染与发送 |
 | [llm](llm/README.md) | 统一多供应商 LLM 调用与模型发现：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配、Provider 配置向导 |
 | [mode](mode/README.md) | Session 运行模式管理：Plan Mode（规划/执行分离、双路径）和 Auto Mode（连续自主执行），Plan/Auto 相互独立，通过工具过滤和 Permission 审查约束 Agent 行为 |
