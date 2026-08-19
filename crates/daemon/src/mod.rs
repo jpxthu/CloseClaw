@@ -209,32 +209,28 @@ impl Daemon {
         ))
     }
 
-    /// Resolve extra skill directories from system config.
+    /// Resolve extra skill directories from skills.json.
     ///
-    /// Reads `skills.extraDirs` from `SystemConfigData` and expands
-    /// `~` to the user's home directory. Non-existent paths are kept
-    /// as-is; the loader layer handles skipping them per the design doc.
+    /// Reads `extraDirs` from `SkillsConfigData`, expands `~` to home.
+    /// Non-existent paths are kept as-is (loader skips them).
     fn resolve_extra_dirs(config_manager: &ConfigManager) -> Vec<PathBuf> {
-        let Some(system_value) = config_manager.section(ConfigSection::System) else {
+        let Some(v) = config_manager.section(ConfigSection::Skills) else {
             return Vec::new();
         };
-        let Ok(sys_cfg) = serde_json::from_value::<SystemConfigData>(system_value) else {
-            return Vec::new();
-        };
-        let Some(skills_cfg) = sys_cfg.skills else {
+        let Ok(cfg) = serde_json::from_value::<closeclaw_config::SkillsConfigData>(v) else {
             return Vec::new();
         };
         let home = dirs::home_dir();
-        skills_cfg
+        cfg.config
             .extra_dirs
             .iter()
-            .map(|dir| {
-                if let Some(rest) = dir.strip_prefix("~/") {
+            .map(|d| {
+                if let Some(r) = d.strip_prefix("~/") {
                     home.as_ref()
-                        .map(|h| h.join(rest))
-                        .unwrap_or_else(|| PathBuf::from(dir))
+                        .map(|h| h.join(r))
+                        .unwrap_or_else(|| PathBuf::from(d))
                 } else {
-                    PathBuf::from(dir)
+                    PathBuf::from(d)
                 }
             })
             .collect()

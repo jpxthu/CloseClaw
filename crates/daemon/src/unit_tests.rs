@@ -470,20 +470,18 @@ fn test_miner_config_from_mining_config_custom_values() {
 // Step 1.3: resolve_extra_dirs path expansion tests
 // ============================================================
 
-/// Helper: build a ConfigManager whose system.json contains the given
-/// `skills.extraDirs` list so that `resolve_extra_dirs` can extract it.
+/// Helper: build a ConfigManager whose skills.json contains the given
+/// `extraDirs` list so that `resolve_extra_dirs` can extract it.
 fn config_manager_with_extra_dirs(dirs: &[&str]) -> closeclaw_config::ConfigManager {
     let tmp = tempfile::tempdir().unwrap();
     let config_subdir = tmp.path().join("config");
     std::fs::create_dir_all(&config_subdir).unwrap();
     // Write mandatory config files so load() succeeds
     crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
-    let system_json = serde_json::json!({
-        "skills": {
-            "extraDirs": dirs
-        }
+    let skills_json = serde_json::json!({
+        "extraDirs": dirs
     });
-    std::fs::write(config_subdir.join("system.json"), system_json.to_string()).unwrap();
+    std::fs::write(config_subdir.join("skills.json"), skills_json.to_string()).unwrap();
     let cm = closeclaw_config::ConfigManager::new(config_subdir).unwrap();
     cm.load().unwrap();
     cm
@@ -544,6 +542,21 @@ fn test_resolve_extra_dirs_no_skills_config() {
     cm.load().unwrap();
     let result = Daemon::resolve_extra_dirs(&cm);
     assert!(result.is_empty());
+}
+
+/// Invalid JSON in skills.json → empty Vec (graceful, no panic).
+#[test]
+fn test_resolve_extra_dirs_invalid_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).unwrap();
+    crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
+    // Write malformed JSON to skills.json
+    std::fs::write(config_subdir.join("skills.json"), "not valid json {{{").unwrap();
+    let cm = closeclaw_config::ConfigManager::new(config_subdir).unwrap();
+    cm.load().unwrap();
+    let result = Daemon::resolve_extra_dirs(&cm);
+    assert!(result.is_empty(), "invalid JSON should yield empty Vec");
 }
 
 /// Mixed paths: tilde, absolute, relative.

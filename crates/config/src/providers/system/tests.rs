@@ -3,8 +3,8 @@
 use super::{
     AuthProfileEntryConfig, AuthProfilesConfig, BrowserConfig, CommandsConfig, CronConfig,
     HookEntryConfig, HooksConfig, HooksInternalConfig, LlmConfig, MessagesConfig, MetaConfig,
-    PlanArchiveConfig, SessionConfig, SessionMaintenanceConfig, SkillsConfig, SystemConfigData,
-    UpdateConfig, WizardConfig,
+    PlanArchiveConfig, SessionConfig, SessionMaintenanceConfig, SystemConfigData, UpdateConfig,
+    WizardConfig,
 };
 use crate::ConfigProvider;
 use closeclaw_common::ReasoningLevel;
@@ -82,7 +82,6 @@ fn full_config() -> SystemConfigData {
         rejection_log: None,
         audit_log: None,
         plan_archive: None,
-        skills: None,
     }
 }
 
@@ -330,7 +329,6 @@ fn test_is_default_true_when_all_sub_structs_are_default() {
         rejection_log: None,
         audit_log: None,
         plan_archive: None,
-        skills: Some(SkillsConfig::default()),
     };
     assert!(cfg.is_default());
 }
@@ -532,75 +530,5 @@ fn test_system_config_not_default_with_plan_archive_custom() {
     assert!(
         !config.is_default(),
         "custom plan_archive should make config non-default"
-    );
-}
-
-// ── SkillsConfig tests ──────────────────────────────────────────────────
-
-#[test]
-fn test_skills_config_default() {
-    let cfg = SkillsConfig::default();
-    assert!(cfg.extra_dirs.is_empty());
-}
-
-#[test]
-fn test_skills_config_serialize_roundtrip() {
-    let cfg = SkillsConfig {
-        extra_dirs: vec!["/opt/skills".to_string(), "~/my-skills".to_string()],
-    };
-    let json = serde_json::to_string(&cfg).unwrap();
-    let parsed: SkillsConfig = serde_json::from_str(&json).unwrap();
-    assert_eq!(cfg, parsed);
-}
-
-#[test]
-fn test_skills_config_extra_dirs_empty() {
-    let cfg = SkillsConfig { extra_dirs: vec![] };
-    assert!(cfg.extra_dirs.is_empty());
-}
-
-#[test]
-fn test_system_config_skills_present() {
-    let json = r#"{"skills": {"extraDirs": ["/opt/skills", "~/my-skills"]}}"#;
-    let config: SystemConfigData = serde_json::from_str(json).unwrap();
-    let skills = config.skills.expect("skills should be present");
-    assert_eq!(skills.extra_dirs, vec!["/opt/skills", "~/my-skills"]);
-}
-
-#[test]
-fn test_system_config_skills_absent() {
-    let config: SystemConfigData = serde_json::from_str("{}").unwrap();
-    assert!(config.skills.is_none());
-}
-
-#[test]
-fn test_system_config_skills_empty_object() {
-    let config: SystemConfigData = serde_json::from_str(r#"{"skills": {}}"#).unwrap();
-    let skills = config.skills.expect("skills should be present");
-    assert!(
-        skills.extra_dirs.is_empty(),
-        "missing extra_dirs defaults to empty Vec"
-    );
-}
-
-#[test]
-fn test_system_config_skills_empty_array() {
-    let json = r#"{"skills": {"extraDirs": []}}"#;
-    let config: SystemConfigData = serde_json::from_str(json).unwrap();
-    let skills = config.skills.expect("skills should be present");
-    assert!(skills.extra_dirs.is_empty());
-}
-
-#[test]
-fn test_is_default_false_when_skills_non_empty() {
-    let config = SystemConfigData {
-        skills: Some(SkillsConfig {
-            extra_dirs: vec!["/opt/skills".to_string()],
-        }),
-        ..Default::default()
-    };
-    assert!(
-        !config.is_default(),
-        "non-empty extra_dirs should make config non-default"
     );
 }

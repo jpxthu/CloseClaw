@@ -35,7 +35,8 @@ pub use agents::{AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use migration::{migrate_if_needed, ConfigMigrationError};
 pub use providers::{
     AccountsConfigData, ChannelsConfigData, ConfigError, ConfigProvider, CredentialsProvider,
-    GatewayConfigData, ModelsConfigData, PlanArchiveConfig, RejectionLogConfig, SystemConfigData,
+    GatewayConfigData, ModelsConfigData, PlanArchiveConfig, RejectionLogConfig, SkillsConfigData,
+    SystemConfigData,
 };
 pub use reload_manager::{ConfigReloadManager, ReloadCallback, WatcherHandle};
 pub use session::{

@@ -59,6 +59,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Credentials => Box::new(|_| Ok(())),
         ConfigSection::Accounts => Box::new(|v| validate_accounts(v, None)),
         ConfigSection::Memory => Box::new(validate_memory),
+        ConfigSection::Skills => Box::new(validate_skills),
     }
 }
 
@@ -724,6 +725,30 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
 ///   this function ensures the top-level shape is correct.
 fn validate_memory(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "memory")?;
+    Ok(())
+}
+
+/// Validate the **skills** config section.
+///
+/// - Top-level must be a JSON object.
+/// - `extraDirs`, if present, must be a JSON array of strings.
+/// - Empty/absent `extraDirs` is valid (uses defaults).
+fn validate_skills(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "skills")?;
+    if let Some(extra_dirs) = value.get("extraDirs") {
+        ensure_array(extra_dirs, "skills.extraDirs")?;
+        if let Some(arr) = extra_dirs.as_array() {
+            for (i, item) in arr.iter().enumerate() {
+                if !item.is_string() {
+                    return Err(format!(
+                        "skills.extraDirs[{}] must be a string, got {}",
+                        i,
+                        type_name(item)
+                    ));
+                }
+            }
+        }
+    }
     Ok(())
 }
 
