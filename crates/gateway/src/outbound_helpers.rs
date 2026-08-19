@@ -161,3 +161,13 @@ pub(crate) async fn send_render_block(
         .await?;
     Ok(())
 }
+
+/// Build outbound metadata from key-value pairs.
+pub(crate) fn make_outbound_meta(
+    entries: &[(&str, &str)],
+) -> std::collections::HashMap<String, String> {
+    entries
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
