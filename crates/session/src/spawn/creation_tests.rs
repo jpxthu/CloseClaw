@@ -28,6 +28,11 @@ struct MockCreationContext {
     parent_session: Arc<RwLock<ConversationSession>>,
     /// Mock config directory path.
     config_dir: std::path::PathBuf,
+    /// Optional agent config override for `get_agent_config`.
+    agent_config: Option<ResolvedAgentConfig>,
+    /// Optional override for `parent_workspace`: None = use parent session,
+    /// Some(None) = return None (force Level 4 fallback).
+    parent_workspace_override: Option<Option<std::path::PathBuf>>,
 }
 
 impl MockCreationContext {
@@ -42,7 +47,23 @@ impl MockCreationContext {
         Self {
             parent_session: Arc::new(RwLock::new(cs)),
             config_dir,
+            agent_config: None,
+            parent_workspace_override: None,
         }
+    }
+
+    /// Create with an agent config override for `get_agent_config`.
+    fn with_agent_config(config: ResolvedAgentConfig) -> Self {
+        let mut ctx = Self::new();
+        ctx.agent_config = Some(config);
+        ctx
+    }
+
+    /// Create with `parent_workspace` returning None (force Level 4 fallback).
+    fn with_no_parent_workspace() -> Self {
+        let mut ctx = Self::new();
+        ctx.parent_workspace_override = Some(None);
+        ctx
     }
 }
 
@@ -62,7 +83,7 @@ impl SpawnCreationContext for MockCreationContext {
     async fn save_checkpoint(&self, _cp: &SessionCheckpoint) {}
 
     fn get_agent_config(&self, _agent_id: &str) -> Option<ResolvedAgentConfig> {
-        None
+        self.agent_config.clone()
     }
 
     fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
@@ -98,8 +119,13 @@ impl SpawnCreationContext for MockCreationContext {
     }
 
     async fn parent_workspace(&self, _parent_session_id: &str) -> Option<std::path::PathBuf> {
-        let guard = self.parent_session.read().await;
-        Some(guard.workdir().to_path_buf())
+        match &self.parent_workspace_override {
+            Some(override_val) => override_val.clone(),
+            None => {
+                let guard = self.parent_session.read().await;
+                Some(guard.workdir().to_path_buf())
+            }
+        }
     }
 
     fn config_dir(&self) -> &std::path::Path {
@@ -301,169 +327,6 @@ async fn test_task_role_user_in_session_mode() {
     );
 }
 
-// ── Mock: no parent workspace ──────────────────────────────────────────
-
-/// Mock that returns `None` from `parent_workspace`, simulating a parent
-/// session that has no workspace directory set. Used to test the
-/// Level 4 (dedicated directory) fallback path.
-struct MockCreationContextWithNoParentWorkspace {
-    inner: MockCreationContext,
-}
-
-impl MockCreationContextWithNoParentWorkspace {
-    fn new() -> Self {
-        Self {
-            inner: MockCreationContext::new(),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl SpawnCreationContext for MockCreationContextWithNoParentWorkspace {
-    async fn get_parent_conversation_session(
-        &self,
-        parent_session_id: &str,
-    ) -> Option<Arc<RwLock<ConversationSession>>> {
-        self.inner
-            .get_parent_conversation_session(parent_session_id)
-            .await
-    }
-
-    async fn load_checkpoint(&self, session_id: &str) -> Option<SessionCheckpoint> {
-        self.inner.load_checkpoint(session_id).await
-    }
-
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) {
-        self.inner.save_checkpoint(cp).await
-    }
-
-    fn get_agent_config(&self, agent_id: &str) -> Option<ResolvedAgentConfig> {
-        self.inner.get_agent_config(agent_id)
-    }
-
-    fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
-        self.inner.shutdown_signal()
-    }
-
-    fn default_reasoning_level(&self) -> ReasoningLevel {
-        self.inner.default_reasoning_level()
-    }
-
-    fn llm_caller(&self) -> Option<Arc<dyn closeclaw_common::LlmCaller>> {
-        self.inner.llm_caller()
-    }
-
-    fn system_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::SystemPromptBuilder>> {
-        self.inner.system_prompt_builder()
-    }
-
-    fn prompt_overrides(&self) -> Option<closeclaw_common::PromptOverrides> {
-        self.inner.prompt_overrides()
-    }
-
-    fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>> {
-        self.inner.dynamic_prompt_builder()
-    }
-
-    fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>> {
-        self.inner.skill_listing_provider()
-    }
-
-    async fn sender_id(&self, session_id: &str) -> Option<String> {
-        self.inner.sender_id(session_id).await
-    }
-
-    async fn parent_workspace(&self, _parent_session_id: &str) -> Option<std::path::PathBuf> {
-        None // Force fallback to Level 4 (dedicated directory)
-    }
-
-    fn config_dir(&self) -> &std::path::Path {
-        self.inner.config_dir()
-    }
-}
-
-// ── Step 1.2: Agent skills whitelist injection ────────────────────────────
-
-/// Build a [`MockCreationContext`] that returns a [`ResolvedAgentConfig`]
-/// with the given skills whitelist from `get_agent_config`.
-struct MockCreationContextWithSkills {
-    inner: MockCreationContext,
-    agent_config: Option<ResolvedAgentConfig>,
-}
-
-impl MockCreationContextWithSkills {
-    fn new(agent_config: Option<ResolvedAgentConfig>) -> Self {
-        Self {
-            inner: MockCreationContext::new(),
-            agent_config,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl SpawnCreationContext for MockCreationContextWithSkills {
-    async fn get_parent_conversation_session(
-        &self,
-        parent_session_id: &str,
-    ) -> Option<Arc<RwLock<ConversationSession>>> {
-        self.inner
-            .get_parent_conversation_session(parent_session_id)
-            .await
-    }
-
-    async fn load_checkpoint(&self, session_id: &str) -> Option<SessionCheckpoint> {
-        self.inner.load_checkpoint(session_id).await
-    }
-
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) {
-        self.inner.save_checkpoint(cp).await
-    }
-
-    fn get_agent_config(&self, _agent_id: &str) -> Option<ResolvedAgentConfig> {
-        self.agent_config.clone()
-    }
-
-    fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
-        self.inner.shutdown_signal()
-    }
-
-    fn default_reasoning_level(&self) -> ReasoningLevel {
-        self.inner.default_reasoning_level()
-    }
-
-    fn llm_caller(&self) -> Option<Arc<dyn closeclaw_common::LlmCaller>> {
-        self.inner.llm_caller()
-    }
-
-    fn system_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::SystemPromptBuilder>> {
-        self.inner.system_prompt_builder()
-    }
-
-    fn prompt_overrides(&self) -> Option<closeclaw_common::PromptOverrides> {
-        self.inner.prompt_overrides()
-    }
-
-    fn dynamic_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>> {
-        self.inner.dynamic_prompt_builder()
-    }
-
-    fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>> {
-        self.inner.skill_listing_provider()
-    }
-
-    async fn sender_id(&self, session_id: &str) -> Option<String> {
-        self.inner.sender_id(session_id).await
-    }
-
-    async fn parent_workspace(&self, parent_session_id: &str) -> Option<std::path::PathBuf> {
-        self.inner.parent_workspace(parent_session_id).await
-    }
-
-    fn config_dir(&self) -> &std::path::Path {
-        self.inner.config_dir()
-    }
-}
-
 /// Build [`ChildSessionCreationParams`] with defaults suitable for skills tests.
 fn default_params<'a>() -> ChildSessionCreationParams<'a> {
     ChildSessionCreationParams {
@@ -490,7 +353,7 @@ fn default_params<'a>() -> ChildSessionCreationParams<'a> {
 async fn test_skills_whitelist_injected() {
     let mut config = make_config("child-agent");
     config.skills = vec!["skill-a".into(), "skill-b".into()];
-    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let ctx = MockCreationContext::with_agent_config(config);
     let params = default_params();
 
     let result = create_child_conversation_session(
@@ -516,7 +379,7 @@ async fn test_skills_whitelist_injected() {
 async fn test_skills_wildcard_empty_no_injection() {
     let mut config = make_config("child-agent");
     config.skills = vec![]; // empty = wildcard
-    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let ctx = MockCreationContext::with_agent_config(config);
     let params = default_params();
 
     let result = create_child_conversation_session(
@@ -539,7 +402,7 @@ async fn test_skills_wildcard_empty_no_injection() {
 async fn test_skills_wildcard_star_no_injection() {
     let mut config = make_config("child-agent");
     config.skills = vec!["*".into()];
-    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let ctx = MockCreationContext::with_agent_config(config);
     let params = default_params();
 
     let result = create_child_conversation_session(
@@ -562,7 +425,7 @@ async fn test_skills_wildcard_star_no_injection() {
 async fn test_skills_injected_in_fork_mode() {
     let mut config = make_config("child-agent");
     config.skills = vec!["only-this".into()];
-    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let ctx = MockCreationContext::with_agent_config(config);
     let params = ChildSessionCreationParams {
         fork: true,
         light_context: false,
@@ -589,7 +452,7 @@ async fn test_skills_injected_in_fork_mode() {
 async fn test_skills_injected_in_light_context() {
     let mut config = make_config("child-agent");
     config.skills = vec!["light-skill".into()];
-    let ctx = MockCreationContextWithSkills::new(Some(config));
+    let ctx = MockCreationContext::with_agent_config(config);
     let params = ChildSessionCreationParams {
         light_context: true,
         fork: false,
@@ -615,7 +478,7 @@ async fn test_skills_injected_in_light_context() {
 /// child session creation must not panic and agent_skills stays None.
 #[tokio::test]
 async fn test_skills_no_config_no_panic() {
-    let ctx = MockCreationContextWithSkills::new(None);
+    let ctx = MockCreationContext::new();
     let params = default_params();
 
     let unknown_config = make_config("unknown-agent");
@@ -799,7 +662,7 @@ async fn test_level3_parent_workspace_fallback() {
 /// exists, the dedicated workspace directory is used.
 #[tokio::test]
 async fn test_level4_dedicated_workspace_fallback() {
-    let ctx = MockCreationContextWithNoParentWorkspace::new();
+    let ctx = MockCreationContext::with_no_parent_workspace();
     let config = make_config("child-agent");
     let params = default_params();
 
@@ -821,7 +684,7 @@ async fn test_level4_dedicated_workspace_fallback() {
 /// Level 4 fallback path is compatible with `is_workspace_path()` authorization.
 #[tokio::test]
 async fn test_level4_dedicated_path_matches_workspace_authorization() {
-    let ctx = MockCreationContextWithNoParentWorkspace::new();
+    let ctx = MockCreationContext::with_no_parent_workspace();
     let config = make_config("my-agent");
     let params = ChildSessionCreationParams {
         task: "workspace auth test",
@@ -897,7 +760,7 @@ async fn test_config_workspace_overrides_fallback() {
 /// Level 4 fallback uses user_id from `sender_id()`.
 #[tokio::test]
 async fn test_level4_dedicated_uses_sender_id() {
-    let ctx = MockCreationContextWithNoParentWorkspace::new();
+    let ctx = MockCreationContext::with_no_parent_workspace();
     let config = make_config("test-agent");
     let params = default_params();
 
@@ -914,5 +777,114 @@ async fn test_level4_dedicated_uses_sender_id() {
     assert_eq!(
         result.workspace_path, expected,
         "Level 4 fallback must include sender_id as the user_id component"
+    );
+}
+
+// ── Fork mode: task in system prompt, parent history in messages ────────
+
+/// Helper: extract text content from a SessionMessage's content blocks.
+fn msg_text(msg: &crate::llm_session::SessionMessage) -> String {
+    use closeclaw_common::ContentBlock;
+    msg.content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+/// Helper: create a MockCreationContext with pre-populated parent history.
+async fn ctx_with_parent_history() -> MockCreationContext {
+    use closeclaw_common::ContentBlock;
+    let ctx = MockCreationContext::new();
+    let parent = ctx
+        .get_parent_conversation_session("parent-session")
+        .await
+        .unwrap();
+    let mut guard = parent.write().await;
+    guard.push_message("user", vec![ContentBlock::Text("Hello parent".to_string())]);
+    guard.push_message(
+        "assistant",
+        vec![ContentBlock::Text("Hi there!".to_string())],
+    );
+    drop(guard);
+    ctx
+}
+
+/// Verify fork mode: task injected into system_appends, parent conversation
+/// history cloned into messages, and trigger message in pending queue.
+///
+/// Design doc §Fork mode: "fork 模式下 task 始终位于 system prompt，
+/// 不依赖对话消息顺序" — task in system_appends (part of system prompt),
+/// parent history in messages, trigger message is minimal.
+#[tokio::test]
+async fn test_fork_mode_task_in_system_appends_parent_history_in_messages() {
+    let ctx = ctx_with_parent_history().await;
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        parent_session_id: "parent-session",
+        parent_agent_id: "parent-agent",
+        depth: 1,
+        task: "Fork task description",
+        light_context: false,
+        workspace: None,
+        mode: SpawnMode::Run,
+        fork: true,
+        model_override: None,
+        parent_subagents_model: None,
+        max_spawn_depth: 3,
+        prompt_template_prefix: None,
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
+    };
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("create_child_conversation_session should succeed");
+
+    let cs = result.conversation_session.read().await;
+
+    // 1. Task lives in system_appends, NOT in pending messages.
+    let appends = cs.system_appends();
+    assert!(
+        appends
+            .iter()
+            .any(|s| s.contains("## Task\nFork task description")),
+        "task must be in system_appends in fork mode, got: {:?}",
+        appends
+    );
+
+    // 2. Pending queue has exactly one trigger message (not the task).
+    let pending = cs.get_pending_messages();
+    assert_eq!(
+        pending.len(),
+        1,
+        "pending must have exactly 1 trigger message"
+    );
+    assert_eq!(pending[0].content, "Begin your assigned task.");
+    assert!(
+        !pending[0].content.contains("Fork task description"),
+        "trigger message must not contain the task text"
+    );
+
+    // 3. Parent conversation history is present in messages.
+    let messages = &cs.messages;
+    let texts: Vec<String> = messages.iter().map(msg_text).collect();
+    assert!(
+        texts.iter().any(|t| t == "Hello parent"),
+        "fork must clone parent history into messages, got: {:?}",
+        texts
+    );
+    assert!(
+        texts.iter().any(|t| t == "Hi there!"),
+        "fork must clone parent history (assistant reply too)"
+    );
+
+    // 4. Task is NOT in the conversation messages (it's in system_appends).
+    assert!(
+        !texts.iter().any(|t| t.contains("Fork task description")),
+        "task text must NOT be in conversation messages in fork mode"
     );
 }
