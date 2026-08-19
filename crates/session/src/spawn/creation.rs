@@ -240,6 +240,26 @@ struct SpawnBehaviorConfig<'a> {
     spawn_context: String,
 }
 
+/// Inject the task into the system prompt AppendSection and push a minimal
+/// trigger message to drive the first LLM invocation.
+///
+/// Design doc §Spawn control flow: "task 注入子 session 的 system prompt,
+/// 不属于对话消息, 压缩时不受影响". The task goes into
+/// `add_system_append` (persisted, survives compaction); the trigger message
+/// contains no task content and serves only to kick off the pending-drain
+/// mechanism.
+fn inject_task_and_trigger(task: &str, child_session_id: &str, cs: &mut ConversationSession) {
+    let task_section = format!("## Task\n{}", task);
+    cs.add_system_append(task_section);
+
+    let trigger_msg = PendingMessage::with_role(
+        format!("{}-task", child_session_id),
+        "Begin your assigned task.".to_string(),
+        "user".to_string(),
+    );
+    cs.push_pending(trigger_msg);
+}
+
 /// Apply spawn-specific behavior to the session: system prompt, communication
 /// config, fork history, task injection, and mode inheritance.
 async fn configure_spawn_behavior(
@@ -284,20 +304,8 @@ async fn configure_spawn_behavior(
         }
     }
 
-    // Inject task into system prompt AppendSection (design doc §Spawn
-    // control flow: "task 注入子 session 的 system prompt, 不属于对话
-    // 消息, 压缩时不受影响").
-    let task_section = format!("## Task\n{}", params.task);
-    cs.add_system_append(task_section);
-
-    // Push a minimal trigger message (without task content) to drive the
-    // first LLM invocation via the existing pending-drain mechanism.
-    let trigger_msg = PendingMessage::with_role(
-        format!("{}-task", behavior.child_session_id),
-        "Begin your assigned task.".to_string(),
-        "user".to_string(),
-    );
-    cs.push_pending(trigger_msg);
+    // Inject task into system prompt and push trigger message.
+    inject_task_and_trigger(params.task, behavior.child_session_id, &mut cs);
 
     // Inherit parent session mode (Plan Mode).
     if let Some(parent_cs) = ctx
