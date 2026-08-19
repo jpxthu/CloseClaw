@@ -83,6 +83,18 @@ pub trait AnnounceSweepTarget: Send + Sync {
     /// 3. If the parent IS archived, skip the notification
     ///    (termination still proceeds).
     async fn terminate_stale_child(&self, parent_id: &str, child_id: &str);
+
+    /// Sweep the spawn tree and reclaim residual nodes (GC 兜底).
+    ///
+    /// Called periodically from the sweeper loop to clean up:
+    /// 1. Terminal-status children under active parents
+    ///    (滞留「完成待回收」).
+    /// 2. Children whose parent session no longer exists
+    ///    (ended/archived).
+    ///
+    /// Default implementation is a no-op; gateway overrides with
+    /// [`closeclaw_gateway::spawn_reclaim_gc::sweep_spawn_tree_reclaim`].
+    async fn sweep_reclaim(&self) {}
 }
 
 /// Background sweeper that ensures completion announces from run-mode
@@ -204,6 +216,8 @@ impl AnnounceSweeper {
     /// Execute one sweep using the current wall-clock time.
     pub async fn run_once(&self) {
         self.run_once_with_now(None).await;
+        // GC 兜底：每周期回收残留节点（terminal 滞留 + 父 session 已结束）
+        self.target.sweep_reclaim().await;
     }
 
     /// Detect a single non-idle child that may be stale (僵死).
