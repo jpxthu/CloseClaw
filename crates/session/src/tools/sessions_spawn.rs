@@ -300,12 +300,36 @@ impl Tool for SessionsSpawnTool {
         let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
             ToolCallError::ExecutionFailed("no session_id in tool context".into())
         })?;
+
+        // ── Step 1: Precondition checks (depth, concurrency, agentId, whitelist) ──
         let spawn_result = match self
             .spawn_validator
             .validate_spawn(parent_session_id, spawn_args.agent_id.as_deref())
             .await
         {
             Ok(result) => result,
+            Err(crate::spawn_validation::SpawnError::PermissionDenied { .. }) => {
+                // validate_spawn does not check permissions (two-step separation).
+                unreachable!(
+                    "validate_spawn should not return PermissionDenied \
+                     after two-step separation; permission check is step 2"
+                )
+            }
+            Err(other) => {
+                return Err(ToolCallError::ExecutionFailed(format!(
+                    "spawn validation failed: {}",
+                    other
+                )));
+            }
+        };
+
+        // ── Step 2: Permission check (tools layer triggers) ──
+        match self
+            .spawn_validator
+            .check_spawn_permission(parent_session_id, &spawn_result)
+            .await
+        {
+            Ok(()) => {}
             Err(crate::spawn_validation::SpawnError::PermissionDenied { agent_id, reason }) => {
                 let session_id = ctx.session_id.as_deref().unwrap_or("");
                 let is_sub_agent = self
@@ -341,11 +365,12 @@ impl Tool for SessionsSpawnTool {
             }
             Err(other) => {
                 return Err(ToolCallError::ExecutionFailed(format!(
-                    "spawn validation failed: {}",
+                    "spawn permission check failed: {}",
                     other
                 )));
             }
-        };
+        }
+
         let config = spawn_result.config;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
         let mut spawn_timeout = spawn_result.spawn_timeout;

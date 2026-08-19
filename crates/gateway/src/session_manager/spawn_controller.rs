@@ -153,16 +153,15 @@ impl SpawnController {
         // ⑥ Whitelist check on resolved target_id (design doc §⑤).
         self.check_whitelist(&target_id, &parent_cfg.allow_agents)?;
 
-        // ⑦ Permission check: validate child permissions via intersection
-        //    with parent effective permissions (design doc §⑥).
+        // Permission check is now a separate step — tools layer calls
+        // check_spawn_permission() after validate() succeeds.
+        // (design doc §Spawn 控制流程 — two-step separation)
         let config = resolved
             .target_config
             .ok_or(SpawnError::ConfigNotFound(target_id))?
             .clone();
-        self.validate_permissions(&config, parent_session_id)
-            .await?;
 
-        // ⑧ Compute effective_max_spawn_depth and validate child depth.
+        // ⑦ Compute effective_max_spawn_depth and validate child depth.
         let effective_max =
             self.compute_effective_max_depth(parent.parent_effective_budget, Some(&config))?;
 
@@ -269,6 +268,20 @@ impl SpawnController {
             }
         }
         Ok(())
+    }
+
+    /// Check spawn permissions after preconditions have passed.
+    ///
+    /// This is the second step of the two-step spawn validation
+    /// architecture (design doc §Spawn 控制流程 — two-step separation).
+    /// Called by the tools layer after [`validate_spawn`] succeeds.
+    pub async fn check_spawn_permission(
+        &self,
+        parent_session_id: &str,
+        validation: &SpawnValidationResult,
+    ) -> Result<(), SpawnError> {
+        self.validate_permissions(&validation.config, parent_session_id)
+            .await
     }
 
     // ------------------------------------------------------------------
@@ -468,5 +481,31 @@ impl closeclaw_session::spawn_validation::SpawnValidator for SpawnController {
             timeout_warning_secs: result.timeout_warning_secs,
             timeout_notify_interval_ratio: result.timeout_notify_interval_ratio,
         })
+    }
+
+    async fn check_spawn_permission(
+        &self,
+        parent_session_id: &str,
+        validation: &closeclaw_session::spawn_validation::SpawnValidationResult,
+    ) -> Result<(), closeclaw_session::spawn_validation::SpawnError> {
+        // validate_permissions only returns Ok(()) or
+        // Err(PermissionDenied{..}), so the match is exhaustive.
+        match self
+            .validate_permissions(&validation.config, parent_session_id)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(SpawnError::PermissionDenied { agent_id, reason }) => Err(
+                closeclaw_session::spawn_validation::SpawnError::PermissionDenied {
+                    agent_id,
+                    reason,
+                },
+            ),
+            Err(e) => {
+                // Should never happen — validate_permissions only returns
+                // PermissionDenied, but handle defensively.
+                Err(closeclaw_session::spawn_validation::SpawnError::ConfigNotFound(e.to_string()))
+            }
+        }
     }
 }

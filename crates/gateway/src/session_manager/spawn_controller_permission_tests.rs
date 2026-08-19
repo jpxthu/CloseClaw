@@ -190,10 +190,18 @@ async fn test_validate_permission_denied_child_fully_denied() {
     // Child: all permissions denied.
     write_permission_file(&cm, "child", &make_perms("child", &[]));
 
-    let err = controller
+    // Two-step: validate() passes (preconditions OK), then
+    // check_spawn_permission() rejects.
+    let validation = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("validate should reject when child permissions are fully denied");
+        .expect("validate should succeed (preconditions pass)");
+    assert_eq!(validation.config.id, "child");
+
+    let err = controller
+        .check_spawn_permission(&parent_id, &validation)
+        .await
+        .expect_err("check_spawn_permission should reject when child permissions are fully denied");
 
     match err {
         SpawnError::PermissionDenied { agent_id, reason } => {
@@ -260,10 +268,17 @@ async fn test_validate_permission_denied_parent_denies_all() {
         ),
     );
 
-    let err = controller
+    // Two-step: validate() passes, then check_spawn_permission() rejects.
+    let validation = controller
         .validate(&parent_id, Some("child"))
         .await
-        .expect_err("validate should reject when parent denies all permissions");
+        .expect("validate should succeed (preconditions pass)");
+    assert_eq!(validation.config.id, "child");
+
+    let err = controller
+        .check_spawn_permission(&parent_id, &validation)
+        .await
+        .expect_err("check_spawn_permission should reject when parent denies all permissions");
 
     match err {
         SpawnError::PermissionDenied { agent_id, reason } => {
@@ -310,13 +325,18 @@ async fn test_validate_permission_allowed_partial_overlap() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    // Should succeed because the intersection is not fully denied.
-    let result = controller
+    // Two-step: validate() passes, then check_spawn_permission() also passes.
+    let validation = controller
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed when permissions partially overlap");
+    assert_eq!(validation.config.id, "child");
 
-    assert_eq!(result.config.id, "child");
+    // Permission check should also pass (partial overlap is not fully denied).
+    controller
+        .check_spawn_permission(&parent_id, &validation)
+        .await
+        .expect("check_spawn_permission should succeed when permissions partially overlap");
 }
 
 /// When neither parent nor child has any permissions configured,
@@ -348,10 +368,16 @@ async fn test_validate_no_permissions_configured() {
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
-    let result = controller
+    // Two-step: validate() passes, then check_spawn_permission() also passes.
+    let validation = controller
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed when no permissions are configured");
+    assert_eq!(validation.config.id, "child");
 
-    assert_eq!(result.config.id, "child");
+    // Permission check should also pass (no permissions configured).
+    controller
+        .check_spawn_permission(&parent_id, &validation)
+        .await
+        .expect("check_spawn_permission should succeed when no permissions are configured");
 }

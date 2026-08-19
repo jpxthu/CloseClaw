@@ -128,15 +128,13 @@ impl SpawnController {
         //    Reject if target agent not in allowAgents.
         self.check_whitelist(&target_id, &parent_cfg.allow_agents)?;
 
-        // ⑥ Permission check (design doc §Spawn 控制流程 ⑥):
-        //    Validate child permissions via intersection with parent
-        //    effective permissions.
+        // Permission check is now a separate step — tools layer calls
+        // check_spawn_permission() after validate() succeeds.
+        // (design doc §Spawn 控制流程 — two-step separation)
         let config = resolved
             .target_config
             .ok_or(SpawnError::ConfigNotFound(target_id))?
             .clone();
-        self.validate_permissions(&config, parent_session_id)
-            .await?;
 
         // Compute effective_max_spawn_depth and validate child depth.
         let effective_max =
@@ -152,6 +150,19 @@ impl SpawnController {
             timeout_warning_secs,
             timeout_notify_interval_ratio,
         })
+    }
+
+    /// Check spawn permissions after preconditions have passed.
+    ///
+    /// This is the second step of the two-step spawn validation
+    /// architecture (design doc §Spawn 控制流程 — two-step separation).
+    pub async fn check_spawn_permission(
+        &self,
+        parent_session_id: &str,
+        validation: &SpawnValidationResult,
+    ) -> Result<(), SpawnError> {
+        self.validate_permissions(&validation.config, parent_session_id)
+            .await
     }
 }
 
