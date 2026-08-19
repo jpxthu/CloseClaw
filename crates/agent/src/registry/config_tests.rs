@@ -191,41 +191,41 @@ fn test_get_reference_sees_reload_data() {
 
 // ---- query_bootstrap_mode tests ----
 
-#[test]
-fn test_query_bootstrap_mode_full() {
+#[tokio::test]
+async fn test_query_bootstrap_mode_full() {
     let registry = AgentRegistry::new();
     let mut cfg = make_config("agent-full");
     cfg.bootstrap_mode = BootstrapMode::Full;
     registry.populate(vec![cfg]);
 
-    let mode = registry.query_bootstrap_mode("agent-full");
+    let mode = registry.query_bootstrap_mode("agent-full").await;
     assert_eq!(mode, Some(BootstrapMode::Full));
 }
 
-#[test]
-fn test_query_bootstrap_mode_minimal() {
+#[tokio::test]
+async fn test_query_bootstrap_mode_minimal() {
     let registry = AgentRegistry::new();
     let mut cfg = make_config("agent-minimal");
     cfg.bootstrap_mode = BootstrapMode::Minimal;
     registry.populate(vec![cfg]);
 
-    let mode = registry.query_bootstrap_mode("agent-minimal");
+    let mode = registry.query_bootstrap_mode("agent-minimal").await;
     assert_eq!(mode, Some(BootstrapMode::Minimal));
 }
 
-#[test]
-fn test_query_bootstrap_mode_not_found() {
+#[tokio::test]
+async fn test_query_bootstrap_mode_not_found() {
     let registry = AgentRegistry::new();
     registry.populate(vec![make_config("existing")]);
 
-    let mode = registry.query_bootstrap_mode("nonexistent");
+    let mode = registry.query_bootstrap_mode("nonexistent").await;
     assert_eq!(mode, None);
 }
 
-#[test]
-fn test_query_bootstrap_mode_empty_registry() {
+#[tokio::test]
+async fn test_query_bootstrap_mode_empty_registry() {
     let registry = AgentRegistry::new();
-    let mode = registry.query_bootstrap_mode("any-id");
+    let mode = registry.query_bootstrap_mode("any-id").await;
     assert_eq!(mode, None);
 }
 
@@ -270,19 +270,19 @@ fn test_concurrent_get_and_populate() {
     assert!(!registry.get("writer-0").is_none() || !registry.get("writer-49").is_none());
 }
 
-#[test]
-fn test_concurrent_get_and_reload() {
+#[tokio::test]
+async fn test_concurrent_get_and_reload() {
     use std::sync::Arc;
-    use std::thread;
+    use tokio::task;
 
     let registry = Arc::new(AgentRegistry::new());
     registry.populate(vec![make_config("initial")]);
 
     let mut handles = vec![];
 
-    // Reload thread: repeatedly replace all configs
+    // Reload task: repeatedly replace all configs
     let reg_write = Arc::clone(&registry);
-    handles.push(thread::spawn(move || {
+    handles.push(task::spawn_blocking(move || {
         for i in 0..30 {
             let configs: Vec<_> = (0..10)
                 .map(|j| make_config(&format!("reload-{}-{}", i, j)))
@@ -291,27 +291,29 @@ fn test_concurrent_get_and_reload() {
         }
     }));
 
-    // Reader threads
+    // Reader tasks
     for _ in 0..5 {
         let reg_read = Arc::clone(&registry);
-        handles.push(thread::spawn(move || {
+        handles.push(task::spawn_blocking(move || {
             for _i in 0..50 {
                 // Query any ID — should never panic
                 let _ = reg_read.get("reload-0-0");
-                let _ = reg_read.query_bootstrap_mode("any");
+                let _ = tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(reg_read.query_bootstrap_mode("any"));
             }
         }));
     }
 
     for h in handles {
-        h.join().expect("thread should not panic");
+        h.await.expect("task should not panic");
     }
 }
 
-#[test]
-fn test_concurrent_query_bootstrap_mode() {
+#[tokio::test]
+async fn test_concurrent_query_bootstrap_mode() {
     use std::sync::Arc;
-    use std::thread;
+    use tokio::task;
 
     let registry = Arc::new(AgentRegistry::new());
     let mut cfg_full = make_config("full-agent");
@@ -323,20 +325,21 @@ fn test_concurrent_query_bootstrap_mode() {
     let mut handles = vec![];
     for _ in 0..10 {
         let reg = Arc::clone(&registry);
-        handles.push(thread::spawn(move || {
+        handles.push(task::spawn_blocking(move || {
             for _ in 0..100 {
-                let mode_full = reg.query_bootstrap_mode("full-agent");
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                let mode_full = rt.block_on(reg.query_bootstrap_mode("full-agent"));
                 assert_eq!(mode_full, Some(BootstrapMode::Full));
-                let mode_min = reg.query_bootstrap_mode("min-agent");
+                let mode_min = rt.block_on(reg.query_bootstrap_mode("min-agent"));
                 assert_eq!(mode_min, Some(BootstrapMode::Minimal));
-                let mode_none = reg.query_bootstrap_mode("missing");
+                let mode_none = rt.block_on(reg.query_bootstrap_mode("missing"));
                 assert_eq!(mode_none, None);
             }
         }));
     }
 
     for h in handles {
-        h.join().expect("thread should not panic");
+        h.await.expect("task should not panic");
     }
 }
 
