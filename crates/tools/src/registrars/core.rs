@@ -3,6 +3,7 @@
 //! Registers 14 built-in tools that belong to the core domain.
 
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use closeclaw_config::ConfigManager;
@@ -12,8 +13,9 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_tasks::TaskManager;
 
 use crate::builtin::{
-    BashTool, CodingAgentTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
-    GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
+    AuditLogTool, BashTool, CodingAgentTool, EditTool, GitCommitTool, GitLogTool, GitPullTool,
+    GitPushTool, GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool,
+    WriteTool,
 };
 use crate::try_register;
 use crate::Tool;
@@ -21,13 +23,14 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
 /// Core tools registrar — registers all tools from the core domain.
 ///
-/// Covers `file_ops`, `meta`, `git_ops`, and `bash` groups (14 tools).
+/// Covers `file_ops`, `meta`, `git_ops`, and `bash` groups (15 tools).
 pub struct CoreToolsRegistrar {
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     task_manager: Arc<dyn TaskManager>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    audit_log_path: Option<PathBuf>,
 }
 
 impl CoreToolsRegistrar {
@@ -45,7 +48,14 @@ impl CoreToolsRegistrar {
             session_manager,
             config_manager,
             approval_flow,
+            audit_log_path: None,
         }
+    }
+
+    /// Set the audit log path for the `AuditLog` tool.
+    pub fn with_audit_log_path(mut self, path: PathBuf) -> Self {
+        self.audit_log_path = Some(path);
+        self
     }
 }
 
@@ -128,6 +138,10 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(registry, registered, GitPushTool::new(), r);
         try_register!(registry, registered, GitPullTool::new(), r);
         try_register!(registry, registered, CodingAgentTool::new(), r);
+        // audit_log (optional — requires audit_log_path)
+        if let Some(ref path) = self.audit_log_path {
+            try_register!(registry, registered, AuditLogTool::new(path.clone()), r);
+        }
         // bash
         try_register!(
             registry,
@@ -143,7 +157,7 @@ impl ToolRegistrar for CoreToolsRegistrar {
         );
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 14 tools failed to register".to_string(),
+                "all 15 tools failed to register".to_string(),
             ));
         }
         Ok(())

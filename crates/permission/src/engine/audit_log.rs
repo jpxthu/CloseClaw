@@ -91,6 +91,78 @@ impl FileAuditLogger {
     pub fn count_entries(path: &PathBuf) -> usize {
         JsonlFileWriter::count_entries(path)
     }
+
+    /// Read all audit log entries from the file.
+    ///
+    /// Returns entries in file order (newest first, matching write order).
+    /// Returns an empty vec if the file does not exist or is empty.
+    pub fn read_entries(&self) -> Vec<AuditLogEntry> {
+        Self::read_entries_from_path(self.inner.path())
+    }
+
+    /// Read all audit log entries from the given path.
+    pub fn read_entries_from_path(path: &PathBuf) -> Vec<AuditLogEntry> {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect()
+    }
+
+    /// Query audit log entries with optional filters.
+    ///
+    /// All filter fields are optional; `None` means "no filter".
+    /// Supports filtering by agent_id, disposition, and time range.
+    pub fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
+        self.read_entries()
+            .into_iter()
+            .filter(|e| filter.matches(e))
+            .collect()
+    }
+}
+
+/// Filter criteria for querying audit log entries.
+#[derive(Debug, Clone, Default)]
+pub struct AuditLogFilter {
+    /// If set, only return entries for this agent.
+    pub agent_id: Option<String>,
+    /// If set, only return entries with this disposition.
+    pub disposition: Option<AuditDisposition>,
+    /// If set, only return entries with timestamp >= this value (ISO 8601).
+    pub since: Option<String>,
+    /// If set, only return entries with timestamp <= this value (ISO 8601).
+    pub until: Option<String>,
+}
+
+impl AuditLogFilter {
+    /// Check whether an entry matches this filter.
+    pub fn matches(&self, entry: &AuditLogEntry) -> bool {
+        if let Some(ref agent) = self.agent_id {
+            if entry.agent_id != *agent {
+                return false;
+            }
+        }
+        if let Some(disp) = self.disposition {
+            if entry.disposition != disp {
+                return false;
+            }
+        }
+        if let Some(ref since) = self.since {
+            if entry.timestamp < *since {
+                return false;
+            }
+        }
+        if let Some(ref until) = self.until {
+            if entry.timestamp > *until {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl AuditLogger for FileAuditLogger {
@@ -375,5 +447,239 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new_with_limit(path, Some(5)).unwrap();
         assert_eq!(logger.max_entries(), Some(5));
+    }
+
+    // ------------------------------------------------------------------
+    // read_entries / query_entries tests
+    // ------------------------------------------------------------------
+
+    fn make_entry(agent: &str, ts: &str, disp: AuditDisposition) -> AuditLogEntry {
+        AuditLogEntry {
+            timestamp: ts.to_string(),
+            agent_id: agent.to_string(),
+            tool_name: "file".to_string(),
+            operation: "write /x".to_string(),
+            reason: "test".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: disp,
+        }
+    }
+
+    #[test]
+    fn test_read_entries_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        std::fs::write(&path, "").unwrap();
+        let logger = FileAuditLogger::new(path).unwrap();
+        let entries = logger.read_entries();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_read_entries_nonexistent_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does_not_exist.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+        let entries = logger.read_entries();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_read_entries_after_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+        logger.log(&make_entry(
+            "a2",
+            "2026-01-01T00:01:00Z",
+            AuditDisposition::Rejected,
+        ));
+
+        let entries = logger.read_entries();
+        assert_eq!(entries.len(), 2);
+        // newest first
+        assert_eq!(entries[0].agent_id, "a2");
+        assert_eq!(entries[1].agent_id, "a1");
+    }
+
+    #[test]
+    fn test_read_entries_from_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path.clone()).unwrap();
+        logger.log(&make_entry(
+            "x",
+            "2026-02-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+
+        let entries = FileAuditLogger::read_entries_from_path(&path);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].agent_id, "x");
+    }
+
+    #[test]
+    fn test_query_entries_by_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+        logger.log(&make_entry(
+            "a2",
+            "2026-01-01T00:01:00Z",
+            AuditDisposition::Rejected,
+        ));
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T00:02:00Z",
+            AuditDisposition::Approved,
+        ));
+
+        let filter = AuditLogFilter {
+            agent_id: Some("a1".to_string()),
+            ..Default::default()
+        };
+        let results = logger.query_entries(&filter);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|e| e.agent_id == "a1"));
+    }
+
+    #[test]
+    fn test_query_entries_by_disposition() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+        logger.log(&make_entry(
+            "a2",
+            "2026-01-01T00:01:00Z",
+            AuditDisposition::Rejected,
+        ));
+        logger.log(&make_entry(
+            "a3",
+            "2026-01-01T00:02:00Z",
+            AuditDisposition::Approved,
+        ));
+
+        let filter = AuditLogFilter {
+            disposition: Some(AuditDisposition::Rejected),
+            ..Default::default()
+        };
+        let results = logger.query_entries(&filter);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].agent_id, "a2");
+    }
+
+    #[test]
+    fn test_query_entries_by_time_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+        logger.log(&make_entry(
+            "a2",
+            "2026-01-02T00:00:00Z",
+            AuditDisposition::Rejected,
+        ));
+        logger.log(&make_entry(
+            "a3",
+            "2026-01-03T00:00:00Z",
+            AuditDisposition::Approved,
+        ));
+
+        let filter = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            until: Some("2026-01-03T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let results = logger.query_entries(&filter);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].agent_id, "a3");
+        assert_eq!(results[1].agent_id, "a2");
+    }
+
+    #[test]
+    fn test_query_entries_combined_filters() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T10:00:00Z",
+            AuditDisposition::Approved,
+        ));
+        logger.log(&make_entry(
+            "a1",
+            "2026-01-01T12:00:00Z",
+            AuditDisposition::Rejected,
+        ));
+        logger.log(&make_entry(
+            "a2",
+            "2026-01-01T14:00:00Z",
+            AuditDisposition::Approved,
+        ));
+
+        let filter = AuditLogFilter {
+            agent_id: Some("a1".to_string()),
+            disposition: Some(AuditDisposition::Rejected),
+            ..Default::default()
+        };
+        let results = logger.query_entries(&filter);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].agent_id, "a1");
+        assert_eq!(results[0].disposition, AuditDisposition::Rejected);
+    }
+
+    #[test]
+    fn test_query_entries_empty_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        let filter = AuditLogFilter {
+            agent_id: Some("a1".to_string()),
+            ..Default::default()
+        };
+        let results = logger.query_entries(&filter);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_audit_log_filter_default() {
+        let filter = AuditLogFilter::default();
+        assert!(filter.agent_id.is_none());
+        assert!(filter.disposition.is_none());
+        assert!(filter.since.is_none());
+        assert!(filter.until.is_none());
+    }
+
+    #[test]
+    fn test_audit_log_filter_matches_all_none() {
+        let filter = AuditLogFilter::default();
+        let entry = make_entry("a", "2026-01-01T00:00:00Z", AuditDisposition::Approved);
+        assert!(filter.matches(&entry));
     }
 }
