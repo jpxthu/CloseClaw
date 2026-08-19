@@ -321,9 +321,9 @@
   },
   {
     "path": "docs/design/mode/execution.md",
-    "commit": "bb7947caa70f9deba7fd7184085b64c58a3a0472",
-    "commit_time": "2026-07-19T05:02:12+08:00",
-    "confirmed_time": "2026-07-19T05:09:45.373226+08:00",
+    "commit": "f638ec63ac2b11ec32781a4097c4f0535b08e6cd",
+    "commit_time": "2026-08-19T11:43:13+08:00",
+    "confirmed_time": "2026-08-19T11:55:16.903691+08:00",
     "comment": "",
     "blocked_reason": ""
   },
