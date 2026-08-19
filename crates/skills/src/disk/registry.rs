@@ -1,6 +1,6 @@
 //! DiskSkillRegistry - in-memory registry for disk-loaded skills.
 
-use closeclaw_agent::AgentSkillsQuery;
+use closeclaw_common::AgentSkillsQuery;
 use closeclaw_common::ConditionalSkillMatch;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
