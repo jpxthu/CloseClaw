@@ -4,7 +4,8 @@ use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::system_prompt::PromptOverrides;
 use closeclaw_common::{BootstrapMode, SystemPromptBuilder};
 use closeclaw_tools::ToolRegistry;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::adapter::SystemPromptBuilderAdapter;
 
@@ -16,7 +17,7 @@ fn test_adapter(workspace: &std::path::Path) -> SystemPromptBuilderAdapter {
 }
 
 /// Helper to create a test adapter with a pre-populated agent registry.
-fn test_adapter_with_agent(
+async fn test_adapter_with_agent(
     workspace: &std::path::Path,
     agent_id: &str,
     bootstrap_mode: BootstrapMode,
@@ -37,7 +38,7 @@ fn test_adapter_with_agent(
     let mut resolved = resolved;
     resolved.bootstrap_mode = bootstrap_mode;
     {
-        let reg = agent_registry.write().unwrap();
+        let reg = agent_registry.write().await;
         reg.populate(vec![resolved]);
     }
     SystemPromptBuilderAdapter::new(tool_registry, agent_registry, workspace.to_path_buf())
@@ -196,7 +197,7 @@ async fn test_bootstrap_mode_override_takes_precedence() {
     std::fs::write(ws.join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
 
     // Agent configured with Minimal mode.
-    let adapter = test_adapter_with_agent(tmp.path(), agent_id, BootstrapMode::Minimal);
+    let adapter = test_adapter_with_agent(tmp.path(), agent_id, BootstrapMode::Minimal).await;
 
     // Override with Full mode — should include BOOTSTRAP.md content.
     let result = adapter
@@ -218,7 +219,7 @@ async fn test_bootstrap_mode_from_registry_when_no_override() {
     std::fs::write(ws.join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
 
     // Agent configured with Minimal mode — should NOT load BOOTSTRAP.md.
-    let adapter = test_adapter_with_agent(tmp.path(), agent_id, BootstrapMode::Minimal);
+    let adapter = test_adapter_with_agent(tmp.path(), agent_id, BootstrapMode::Minimal).await;
 
     let result = adapter
         .build_prompt("session-1", agent_id, None, None)

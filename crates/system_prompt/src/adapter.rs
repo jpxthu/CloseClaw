@@ -6,12 +6,14 @@
 //! Implements Step 1.1 of the SystemPromptBuilder production plan.
 
 use async_trait::async_trait;
+use closeclaw_agent::lookup::AgentLookup;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::system_prompt::PromptOverrides;
 use closeclaw_common::{BootstrapMode, SystemPromptBuilder};
 use closeclaw_tools::ToolRegistry;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::builder::WorkspaceBuildConfig;
 use crate::sections::SectionCache;
@@ -28,7 +30,7 @@ pub struct SystemPromptBuilderAdapter {
     tool_registry: Arc<ToolRegistry>,
     agent_registry: Arc<RwLock<AgentRegistry>>,
     workspace_dir: PathBuf,
-    shared_cache: Arc<RwLock<SectionCache>>,
+    shared_cache: Arc<std::sync::RwLock<SectionCache>>,
     skill_listing_provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
 }
 
@@ -50,7 +52,7 @@ impl SystemPromptBuilderAdapter {
             tool_registry,
             agent_registry,
             workspace_dir,
-            shared_cache: Arc::new(RwLock::new(SectionCache::new())),
+            shared_cache: Arc::new(std::sync::RwLock::new(SectionCache::new())),
             skill_listing_provider: None,
         }
     }
@@ -63,7 +65,7 @@ impl SystemPromptBuilderAdapter {
         tool_registry: Arc<ToolRegistry>,
         agent_registry: Arc<RwLock<AgentRegistry>>,
         workspace_dir: PathBuf,
-        shared_cache: Arc<RwLock<SectionCache>>,
+        shared_cache: Arc<std::sync::RwLock<SectionCache>>,
         skill_listing_provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
     ) -> Self {
         Self {
@@ -79,7 +81,7 @@ impl SystemPromptBuilderAdapter {
     ///
     /// Allows external callers (e.g. daemon, skill watcher) to hold a
     /// clone of the `Arc` and invalidate the same cache.
-    pub fn shared_cache(&self) -> &Arc<RwLock<SectionCache>> {
+    pub fn shared_cache(&self) -> &Arc<std::sync::RwLock<SectionCache>> {
         &self.shared_cache
     }
 
@@ -88,11 +90,13 @@ impl SystemPromptBuilderAdapter {
     /// Returns `(agent_tools, agent_disallowed_tools)` suitable for
     /// [`WorkspaceBuildConfig`]. Filters out the catch-all `"*"` sentinel
     /// and empty lists, normalising them to `None`.
-    fn resolve_agent_tools(&self, agent_id: &str) -> (Option<Vec<String>>, Option<Vec<String>>) {
-        let guard = self.agent_registry.read().ok();
+    async fn resolve_agent_tools(
+        &self,
+        agent_id: &str,
+    ) -> (Option<Vec<String>>, Option<Vec<String>>) {
+        let guard = self.agent_registry.read().await;
         guard
-            .as_ref()
-            .and_then(|reg| reg.get(agent_id))
+            .get(agent_id)
             .map(|cfg| {
                 let tools = if cfg.tools.is_empty() || cfg.tools == ["*"] {
                     None
@@ -129,19 +133,22 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         bootstrap_mode_override: Option<BootstrapMode>,
     ) -> String {
         // Step 1: Resolve bootstrap_mode.
-        let bootstrap_mode = bootstrap_mode_override.unwrap_or_else(|| {
-            self.agent_registry
-                .read()
-                .ok()
-                .and_then(|reg| reg.query_bootstrap_mode(agent_id))
-                .unwrap_or(BootstrapMode::Full)
-        });
+        let bootstrap_mode = match bootstrap_mode_override {
+            Some(mode) => mode,
+            None => {
+                let guard = self.agent_registry.read().await;
+                guard
+                    .query_bootstrap_mode(agent_id)
+                    .await
+                    .unwrap_or(BootstrapMode::Full)
+            }
+        };
 
         // Step 2: Construct workspace path.
         let workspace_path = self.workspace_dir.join("agents").join(agent_id);
 
         // Step 3: Fetch agent-level tool config for PromptBuilder.
-        let (agent_tools, agent_disallowed_tools) = self.resolve_agent_tools(agent_id);
+        let (agent_tools, agent_disallowed_tools) = self.resolve_agent_tools(agent_id).await;
 
         // Step 4: Build static layer via Provider pipeline.
         let config = WorkspaceBuildConfig {
