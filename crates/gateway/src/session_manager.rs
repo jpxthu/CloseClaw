@@ -841,6 +841,8 @@ mod announce_drain_outbound_tests;
 #[cfg(test)]
 mod announce_priority_tests;
 #[cfg(test)]
+mod announce_reclaim_tests;
+#[cfg(test)]
 mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;

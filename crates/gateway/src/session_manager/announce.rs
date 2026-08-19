@@ -488,22 +488,35 @@ impl SessionManager {
             priority,
             child_status,
         );
-        if let Err(e) = self.push_announce(&parent_session_id, event).await {
-            warn!(
-                parent_session_id = %parent_session_id,
-                error = %e,
-                "try_push_announce: push_announce failed"
-            );
-        }
-
-        // Step 1.3: Mark child session as Completed in SpawnTree.
+        // Step 1.2: On push success, reclaim node from SpawnTree immediately
+        // (design doc §节点回收: 入队成功后立即回收). On failure, mark as
+        // Completed so AnnounceSweeper can pick it up later (完成待回收).
+        let push_ok = self.push_announce(&parent_session_id, event).await;
         {
             let mut children = self.children.write().await;
-            if !children.mark_child_status(child_session_id, ChildSessionStatus::Completed) {
-                warn!(
+            if let Ok(()) = push_ok {
+                // Push succeeded — remove child from tree (no long-term memory hold).
+                children.remove_child(&parent_session_id, child_session_id);
+                debug!(
                     child_session_id = %child_session_id,
-                    "try_push_announce: child not found in SpawnTree for status update"
+                    parent_session_id = %parent_session_id,
+                    "try_push_announce: child reclaimed from SpawnTree"
                 );
+            } else {
+                // Push failed — mark Completed for sweeper to reclaim later.
+                if let Err(e) = push_ok {
+                    warn!(
+                        parent_session_id = %parent_session_id,
+                        error = %e,
+                        "try_push_announce: push_announce failed"
+                    );
+                }
+                if !children.mark_child_status(child_session_id, ChildSessionStatus::Completed) {
+                    warn!(
+                        child_session_id = %child_session_id,
+                        "try_push_announce: child not found in SpawnTree for status update"
+                    );
+                }
             }
         }
 
