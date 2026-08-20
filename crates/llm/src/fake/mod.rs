@@ -33,9 +33,8 @@ use delivery::{
 pub mod delivery;
 pub mod fake_builder;
 pub mod fake_scenario;
-pub use delivery::SseEvent;
 pub use fake_builder::Builder;
-pub use fake_scenario::{DeliveryConfig, ErrorInjection, Scenario, StreamInterrupt};
+pub use fake_scenario::Scenario;
 
 /// Captures an incoming [`InternalRequest`] for test inspection.
 #[derive(Debug, Clone)]
@@ -230,6 +229,155 @@ impl Default for FakeProvider {
 #[path = "fake_tests.rs"]
 mod tests;
 
+// ── Delivery helpers ───────────────────────────────────────────────────────
+
+impl FakeProvider {
+    /// Fallback response when scenarios are exhausted (non-streaming).
+    fn send_fallback_response(&self) -> InternalResponse {
+        let fallback = self
+            .inner
+            .lock()
+            .unwrap()
+            .fallback
+            .clone()
+            .unwrap_or_default();
+        InternalResponse {
+            content_blocks: vec![RawContentBlock::Text(fallback)],
+            usage: RawUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+        }
+    }
+
+    /// Deliver a non-streaming Ok response with delay/error injection.
+    async fn deliver_ok_response(
+        &self,
+        scenario: Scenario,
+    ) -> Result<InternalResponse, ProviderError> {
+        let content = scenario.content();
+        let usage = scenario.raw_usage();
+        if let Scenario::Ok { ref delivery, .. } = scenario {
+            apply_overall_delay(delivery).await;
+            if let Some((status, body, retry_after)) = should_inject_http_error(delivery) {
+                return Err(ProviderError::Http {
+                    status_code: status,
+                    body,
+                    retry_after,
+                });
+            }
+        }
+        Ok(InternalResponse {
+            content_blocks: vec![RawContentBlock::Text(content)],
+            usage,
+            finish_reason: None,
+        })
+    }
+
+    /// Emit OpenAI fallback SSE events over the channel.
+    async fn send_openai_fallback_stream(&self, tx: &mpsc::Sender<RawSseChunk>) {
+        let fallback = self
+            .inner
+            .lock()
+            .unwrap()
+            .fallback
+            .clone()
+            .unwrap_or_default();
+        let usage = RawUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: Some(0),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        };
+        let events = generate_openai_sse(vec![fallback], "fake-fallback", &usage, false);
+        for event in &events {
+            let _ = tx
+                .send(RawSseChunk {
+                    event_type: event.event_type.clone(),
+                    data: event.data.clone(),
+                })
+                .await;
+        }
+    }
+
+    /// Send SSE events with optional interrupt and per-segment delay.
+    async fn emit_stream_events(
+        &self,
+        tx: &mpsc::Sender<RawSseChunk>,
+        events: Vec<delivery::SseEvent>,
+        delivery: &fake_scenario::DeliveryConfig,
+    ) {
+        let interrupt_at = should_interrupt_stream(delivery);
+        for (i, event) in events.iter().enumerate() {
+            if let Some(limit) = interrupt_at {
+                if i >= limit {
+                    break;
+                }
+            }
+            let chunk = RawSseChunk {
+                event_type: event.event_type.clone(),
+                data: event.data.clone(),
+            };
+            if tx.send(chunk).await.is_err() {
+                break;
+            }
+            if i < events.len() - 1 {
+                apply_per_segment_delay(delivery).await;
+            }
+        }
+    }
+
+    /// Deliver a streaming Ok response with delay/error injection.
+    async fn send_scenario_stream(
+        &self,
+        tx: &mpsc::Sender<RawSseChunk>,
+        scenario: Scenario,
+    ) -> Result<(), ProviderError> {
+        if let Scenario::Ok {
+            ref content,
+            ref model,
+            prompt_tokens,
+            completion_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+            ref delivery,
+            include_usage,
+            ref protocol,
+            segment_granularity,
+        } = scenario
+        {
+            if let Some((status, body, retry_after)) = should_inject_http_error(delivery) {
+                return Err(ProviderError::Http {
+                    status_code: status,
+                    body,
+                    retry_after,
+                });
+            }
+            apply_first_token_delay(delivery).await;
+            let segments = delivery::split_segments(content, segment_granularity);
+            let usage = RawUsage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: Some(prompt_tokens + completion_tokens),
+                cache_read_tokens,
+                cache_write_tokens,
+            };
+            let events = if *protocol == ProtocolId::new("anthropic") {
+                generate_anthropic_sse(segments, model, &usage)
+            } else {
+                generate_openai_sse(segments, model, &usage, include_usage)
+            };
+            self.emit_stream_events(tx, events, delivery).await;
+        }
+        Ok(())
+    }
+}
+
 // ── Provider trait impl ─────────────────────────────────────────────────────
 
 #[async_trait]
@@ -270,59 +418,10 @@ impl Provider for FakeProvider {
         _body: serde_json::Value,
     ) -> super::provider::Result<InternalResponse> {
         self.capture_internal(&request);
-
         match self.resolve_scenario().await? {
-            Some(scenario) => {
-                let content = scenario.content();
-                let usage = scenario.raw_usage();
-                match scenario {
-                    Scenario::Err { error, .. } => Err(error),
-                    Scenario::Ok { ref delivery, .. } => {
-                        // 1. Execute overall delay (non-streaming)
-                        apply_overall_delay(delivery).await;
-
-                        // 2. Check for HTTP error injection
-                        if let Some((status, body, retry_after)) =
-                            should_inject_http_error(delivery)
-                        {
-                            return Err(ProviderError::Http {
-                                status_code: status,
-                                body,
-                                retry_after,
-                            });
-                        }
-
-                        Ok(InternalResponse {
-                            content_blocks: vec![RawContentBlock::Text(content)],
-                            usage,
-                            finish_reason: None,
-                        })
-                    }
-                    _ => {
-                        // Delay case is already resolved by resolve_scenario
-                        Ok(InternalResponse {
-                            content_blocks: vec![RawContentBlock::Text(content)],
-                            usage,
-                            finish_reason: None,
-                        })
-                    }
-                }
-            }
-            None => {
-                let state = self.inner.lock().unwrap();
-                let fallback = state.fallback.clone().unwrap_or_default();
-                Ok(InternalResponse {
-                    content_blocks: vec![RawContentBlock::Text(fallback)],
-                    usage: RawUsage {
-                        prompt_tokens: 0,
-                        completion_tokens: 0,
-                        total_tokens: Some(0),
-                        cache_read_tokens: None,
-                        cache_write_tokens: None,
-                    },
-                    finish_reason: None,
-                })
-            }
+            None => Ok(self.send_fallback_response()),
+            Some(Scenario::Err { error, .. }) => Err(error),
+            Some(scenario) => self.deliver_ok_response(scenario).await,
         }
     }
 
@@ -332,100 +431,17 @@ impl Provider for FakeProvider {
         _body: serde_json::Value,
     ) -> super::provider::Result<SseStream> {
         self.capture_internal(&request);
-
         let (tx, rx) = mpsc::channel(32);
-
         match self.resolve_scenario().await? {
             None => {
-                let fallback = {
-                    let state = self.inner.lock().unwrap();
-                    state.fallback.clone().unwrap_or_default()
-                };
-                let _ = tx
-                    .send(RawSseChunk {
-                        event_type: "message".into(),
-                        data: fallback,
-                    })
-                    .await;
-                let done = serde_json::json!({"type": "message_end"});
-                let _ = tx
-                    .send(RawSseChunk {
-                        event_type: "message".into(),
-                        data: done.to_string(),
-                    })
-                    .await;
+                self.send_openai_fallback_stream(&tx).await;
             }
             Some(Scenario::Err { error, .. }) => return Err(error),
-            Some(Scenario::Ok {
-                content,
-                model,
-                prompt_tokens,
-                completion_tokens,
-                cache_read_tokens,
-                cache_write_tokens,
-                delivery,
-                include_usage,
-                protocol,
-                segment_granularity,
-            }) => {
-                // 1. Check for HTTP error injection
-                if let Some((status, body, retry_after)) = should_inject_http_error(&delivery) {
-                    return Err(ProviderError::Http {
-                        status_code: status,
-                        body,
-                        retry_after,
-                    });
-                }
-
-                // 2. First-token delay
-                apply_first_token_delay(&delivery).await;
-
-                // 3. Generate SSE events
-                let segments = delivery::split_segments(&content, segment_granularity);
-                let usage = RawUsage {
-                    prompt_tokens,
-                    completion_tokens,
-                    total_tokens: Some(prompt_tokens + completion_tokens),
-                    cache_read_tokens,
-                    cache_write_tokens,
-                };
-
-                let events = if protocol == ProtocolId::new("anthropic") {
-                    generate_anthropic_sse(segments, &model, &usage)
-                } else {
-                    generate_openai_sse(segments, &model, &usage, include_usage)
-                };
-
-                // 4. Check for stream interrupt
-                let interrupt_at = should_interrupt_stream(&delivery);
-
-                // 5. Send events
-                for (i, event) in events.iter().enumerate() {
-                    // Check stream interrupt before sending
-                    if let Some(limit) = interrupt_at {
-                        if i >= limit {
-                            // Close the stream abruptly without sending completion event
-                            break;
-                        }
-                    }
-
-                    let chunk = RawSseChunk {
-                        event_type: event.event_type.clone(),
-                        data: event.data.clone(),
-                    };
-                    if tx.send(chunk).await.is_err() {
-                        break; // Receiver dropped
-                    }
-
-                    // Per-segment delay (after all frames except the last)
-                    if i < events.len() - 1 {
-                        apply_per_segment_delay(&delivery).await;
-                    }
-                }
-            }
             Some(Scenario::Delay { .. }) => unreachable!("resolve_scenario resolves Delay"),
+            Some(scenario) => {
+                self.send_scenario_stream(&tx, scenario).await?;
+            }
         }
-
         Ok(rx)
     }
 }

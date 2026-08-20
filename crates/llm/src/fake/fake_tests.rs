@@ -282,12 +282,25 @@ async fn test_send_streaming_fallback() {
         .await
         .unwrap();
 
-    let chunk1 = rx.recv().await.unwrap();
-    assert_eq!(chunk1.event_type, "message");
-    assert_eq!(chunk1.data, "fallback stream");
+    // Fallback uses OpenAI SSE format via generate_openai_sse
+    // role chunk → content chunk → finish chunk → [DONE]
+    let role_chunk = rx.recv().await.unwrap();
+    let role_data: serde_json::Value = serde_json::from_str(&role_chunk.data).unwrap();
+    assert_eq!(role_data["choices"][0]["delta"]["role"], "assistant");
 
-    let chunk2 = rx.recv().await.unwrap();
-    assert!(chunk2.data.contains("message_end"));
+    let content_chunk = rx.recv().await.unwrap();
+    let content_data: serde_json::Value = serde_json::from_str(&content_chunk.data).unwrap();
+    assert_eq!(
+        content_data["choices"][0]["delta"]["content"],
+        "fallback stream"
+    );
+
+    let finish_chunk = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish_chunk.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "stop");
+
+    let done_chunk = rx.recv().await.unwrap();
+    assert_eq!(done_chunk.data, "[DONE]");
 
     assert!(rx.recv().await.is_none());
 }

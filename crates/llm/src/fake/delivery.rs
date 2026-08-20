@@ -14,19 +14,18 @@ use crate::types::RawUsage;
 ///
 /// Maps directly to [`RawSseChunk`] when consumed by the streaming pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SseEvent {
+pub(crate) struct SseEvent {
     /// SSE event type (e.g., `"message"`).
-    pub event_type: String,
+    pub(crate) event_type: String,
     /// JSON-serialized event data.
-    pub data: String,
+    pub(crate) data: String,
 }
 
 /// Split `content` into segments of at most `granularity` characters.
 ///
 /// When `granularity` is 0, the entire content is returned as a single segment.
-#[allow(dead_code)]
 pub(crate) fn split_segments(content: &str, granularity: usize) -> Vec<String> {
-    if granularity == 0 || content.len() <= granularity {
+    if granularity == 0 || content.chars().count() <= granularity {
         return vec![content.to_string()];
     }
     content
@@ -37,25 +36,10 @@ pub(crate) fn split_segments(content: &str, granularity: usize) -> Vec<String> {
         .collect()
 }
 
-/// Generate an OpenAI-compatible SSE event sequence.
-///
-/// Sequence:
-/// 1. `delta.role = "assistant"` — role chunk
-/// 2. Content delta chunks (one per segment)
-/// 3. Finish chunk with `finish_reason = "stop"` — optionally includes usage
-/// 4. `[DONE]` sentinel
-#[allow(dead_code)]
-pub(crate) fn generate_openai_sse(
-    segments: Vec<String>,
-    model: &str,
-    usage: &RawUsage,
-    include_usage: bool,
-) -> Vec<SseEvent> {
-    let mut events = Vec::with_capacity(segments.len() + 3);
+/// OpenAI role chunk event.
+fn openai_role_chunk(model: &str) -> SseEvent {
     let id = format!("fake-{}", model);
-
-    // 1. Role chunk
-    events.push(SseEvent {
+    SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "id": id,
@@ -68,28 +52,32 @@ pub(crate) fn generate_openai_sse(
             }]
         })
         .to_string(),
-    });
-
-    // 2. Content delta chunks
-    for segment in &segments {
-        events.push(SseEvent {
-            event_type: "message".into(),
-            data: serde_json::json!({
-                "id": id,
-                "object": "chat.completion.chunk",
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": segment},
-                    "finish_reason": null
-                }]
-            })
-            .to_string(),
-        });
     }
+}
 
-    // 3. Finish chunk (with optional usage)
-    let mut finish_value = serde_json::json!({
+/// OpenAI content delta event.
+fn openai_content_delta(model: &str, segment: &str) -> SseEvent {
+    let id = format!("fake-{}", model);
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": segment},
+                "finish_reason": null
+            }]
+        })
+        .to_string(),
+    }
+}
+
+/// OpenAI finish chunk event with optional usage.
+fn openai_finish_chunk(model: &str, usage: &RawUsage, include_usage: bool) -> SseEvent {
+    let id = format!("fake-{}", model);
+    let mut value = serde_json::json!({
         "id": id,
         "object": "chat.completion.chunk",
         "model": model,
@@ -100,7 +88,7 @@ pub(crate) fn generate_openai_sse(
         }]
     });
     if include_usage {
-        finish_value["usage"] = serde_json::json!({
+        value["usage"] = serde_json::json!({
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,
             "total_tokens": usage.total_tokens.unwrap_or(
@@ -108,41 +96,47 @@ pub(crate) fn generate_openai_sse(
             )
         });
     }
-    events.push(SseEvent {
+    SseEvent {
         event_type: "message".into(),
-        data: finish_value.to_string(),
-    });
-
-    // 4. [DONE]
-    events.push(SseEvent {
-        event_type: "message".into(),
-        data: "[DONE]".into(),
-    });
-
-    events
+        data: value.to_string(),
+    }
 }
 
-/// Generate an Anthropic-compatible SSE event sequence.
+/// OpenAI [DONE] sentinel event.
+fn openai_done() -> SseEvent {
+    SseEvent {
+        event_type: "message".into(),
+        data: "[DONE]".into(),
+    }
+}
+
+/// Generate an OpenAI-compatible SSE event sequence.
 ///
 /// Sequence:
-/// 1. `message_start` — model name + initial input usage
-/// 2. `content_block_start` — type "text"
-/// 3. `ping`
-/// 4. Content delta chunks (one per segment, `text_delta`)
-/// 5. `content_block_stop`
-/// 6. `message_delta` — stop_reason + final output usage
-/// 7. `message_stop`
-#[allow(dead_code)]
-pub(crate) fn generate_anthropic_sse(
+/// 1. `delta.role = "assistant"` — role chunk
+/// 2. Content delta chunks (one per segment)
+/// 3. Finish chunk with `finish_reason = "stop"` — optionally includes usage
+/// 4. `[DONE]` sentinel
+pub(crate) fn generate_openai_sse(
     segments: Vec<String>,
     model: &str,
     usage: &RawUsage,
+    include_usage: bool,
 ) -> Vec<SseEvent> {
-    let mut events = Vec::with_capacity(segments.len() + 6);
-    let msg_id = format!("msg_fake_{}", model);
+    let mut events = Vec::with_capacity(segments.len() + 3);
+    events.push(openai_role_chunk(model));
+    for segment in &segments {
+        events.push(openai_content_delta(model, segment));
+    }
+    events.push(openai_finish_chunk(model, usage, include_usage));
+    events.push(openai_done());
+    events
+}
 
-    // 1. message_start
-    events.push(SseEvent {
+/// Anthropic message_start event.
+fn anthropic_message_start(model: &str, usage: &RawUsage) -> SseEvent {
+    let msg_id = format!("msg_fake_{}", model);
+    SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "message",
@@ -157,10 +151,12 @@ pub(crate) fn generate_anthropic_sse(
             }
         })
         .to_string(),
-    });
+    }
+}
 
-    // 2. content_block_start
-    events.push(SseEvent {
+/// Anthropic content_block_start event.
+fn anthropic_content_block_start() -> SseEvent {
+    SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "content_block_start",
@@ -171,42 +167,48 @@ pub(crate) fn generate_anthropic_sse(
             }
         })
         .to_string(),
-    });
+    }
+}
 
-    // 3. ping
-    events.push(SseEvent {
+/// Anthropic ping event.
+fn anthropic_ping() -> SseEvent {
+    SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({"type": "ping"}).to_string(),
-    });
-
-    // 4. Content deltas
-    for segment in &segments {
-        events.push(SseEvent {
-            event_type: "message".into(),
-            data: serde_json::json!({
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {
-                    "type": "text_delta",
-                    "text": segment
-                }
-            })
-            .to_string(),
-        });
     }
+}
 
-    // 5. content_block_stop
-    events.push(SseEvent {
+/// Anthropic content_block_delta event.
+fn anthropic_content_delta(segment: &str) -> SseEvent {
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "text_delta",
+                "text": segment
+            }
+        })
+        .to_string(),
+    }
+}
+
+/// Anthropic content_block_stop event.
+fn anthropic_content_block_stop() -> SseEvent {
+    SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "content_block_stop",
             "index": 0
         })
         .to_string(),
-    });
+    }
+}
 
-    // 6. message_delta
-    events.push(SseEvent {
+/// Anthropic message_delta event with stop reason and output usage.
+fn anthropic_message_delta(usage: &RawUsage) -> SseEvent {
+    SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "message_delta",
@@ -219,14 +221,42 @@ pub(crate) fn generate_anthropic_sse(
             }
         })
         .to_string(),
-    });
+    }
+}
 
-    // 7. message_stop
-    events.push(SseEvent {
+/// Anthropic message_stop event.
+fn anthropic_message_stop() -> SseEvent {
+    SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({"type": "message_stop"}).to_string(),
-    });
+    }
+}
 
+/// Generate an Anthropic-compatible SSE event sequence.
+///
+/// Sequence:
+/// 1. `message_start` — model name + initial input usage
+/// 2. `content_block_start` — type "text"
+/// 3. `ping`
+/// 4. Content delta chunks (one per segment, `text_delta`)
+/// 5. `content_block_stop`
+/// 6. `message_delta` — stop_reason + final output usage
+/// 7. `message_stop`
+pub(crate) fn generate_anthropic_sse(
+    segments: Vec<String>,
+    model: &str,
+    usage: &RawUsage,
+) -> Vec<SseEvent> {
+    let mut events = Vec::with_capacity(segments.len() + 6);
+    events.push(anthropic_message_start(model, usage));
+    events.push(anthropic_content_block_start());
+    events.push(anthropic_ping());
+    for segment in &segments {
+        events.push(anthropic_content_delta(segment));
+    }
+    events.push(anthropic_content_block_stop());
+    events.push(anthropic_message_delta(usage));
+    events.push(anthropic_message_stop());
     events
 }
 
@@ -236,7 +266,6 @@ pub(crate) fn generate_anthropic_sse(
 ///
 /// Called once before the first SSE frame is emitted in a streaming
 /// response. No-op when `first_token_delay` is `None` or zero.
-#[allow(dead_code)]
 pub(crate) async fn apply_first_token_delay(config: &DeliveryConfig) {
     if let Some(delay) = config.first_token_delay {
         if !delay.is_zero() {
@@ -249,7 +278,6 @@ pub(crate) async fn apply_first_token_delay(config: &DeliveryConfig) {
 ///
 /// Called between consecutive SSE frames during streaming. No-op when
 /// `per_segment_delay` is `None` or zero.
-#[allow(dead_code)]
 pub(crate) async fn apply_per_segment_delay(config: &DeliveryConfig) {
     if let Some(delay) = config.per_segment_delay {
         if !delay.is_zero() {
@@ -262,7 +290,6 @@ pub(crate) async fn apply_per_segment_delay(config: &DeliveryConfig) {
 ///
 /// Called before returning the complete response in the non-streaming
 /// path. No-op when `overall_delay` is `None` or zero.
-#[allow(dead_code)]
 pub(crate) async fn apply_overall_delay(config: &DeliveryConfig) {
     if let Some(delay) = config.overall_delay {
         if !delay.is_zero() {
@@ -277,7 +304,6 @@ pub(crate) async fn apply_overall_delay(config: &DeliveryConfig) {
 ///
 /// Returns `Some((status_code, body, retry_after))` when the delivery
 /// config contains an error injection, `None` otherwise.
-#[allow(dead_code)]
 pub(crate) fn should_inject_http_error(
     config: &DeliveryConfig,
 ) -> Option<(u16, String, Option<u64>)> {
@@ -291,7 +317,6 @@ pub(crate) fn should_inject_http_error(
 ///
 /// Returns `Some(interrupt_after_frames)` when stream interruption is
 /// configured, `None` otherwise.
-#[allow(dead_code)]
 pub(crate) fn should_interrupt_stream(config: &DeliveryConfig) -> Option<usize> {
     config
         .stream_interrupt
