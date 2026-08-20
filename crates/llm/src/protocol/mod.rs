@@ -20,6 +20,12 @@ pub use openai::OpenAiProtocol;
 #[cfg(test)]
 mod anthropic_tests;
 #[cfg(test)]
+mod contract_tests;
+#[cfg(test)]
+mod fixture_loader;
+#[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]
 mod sse_tool_calls_tests;
+#[cfg(test)]
+mod streaming_contract_tests;

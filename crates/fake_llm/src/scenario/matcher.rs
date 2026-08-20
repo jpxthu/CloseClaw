@@ -185,6 +185,7 @@ mod tests {
         TurnResponse {
             response: ResponseShape::Text(TextResponse {
                 content: "ok".to_string(),
+                usage: None,
             }),
             delay: None,
             error: None,

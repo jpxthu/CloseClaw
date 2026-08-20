@@ -14,6 +14,8 @@
 
 pub mod delivery;
 pub mod endpoints;
+#[cfg(test)]
+pub mod fixture_loader;
 pub mod kv_cache;
 pub mod protocol;
 pub mod scenario;

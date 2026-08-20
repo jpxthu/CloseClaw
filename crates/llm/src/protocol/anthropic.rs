@@ -400,7 +400,9 @@ fn extract_tool_result_content(item: &serde_json::Value) -> String {
 
 /// Parse usage information from a JSON value.
 fn parse_usage(body: &serde_json::Value) -> RawUsage {
-    let usage_obj = body.get("usage");
+    // Handle both cases: body is the full response (with "usage" key),
+    // or body is the usage object directly (from message_start/message_delta).
+    let usage_obj = body.get("usage").or(Some(body));
 
     let input_tokens = usage_obj
         .and_then(|u| u.get("input_tokens"))

@@ -10,6 +10,7 @@ fn build_response_blocks_reasoning_shape() {
         content: "The answer is 42.".to_string(),
         reasoning: "Let me think step by step...".to_string(),
         signature: Some("sig-abc".to_string()),
+        usage: None,
     });
     let blocks = ScenarioEngine::build_response_blocks(&shape);
 
@@ -32,6 +33,7 @@ fn build_response_blocks_reasoning_without_signature() {
         content: "Result".to_string(),
         reasoning: "hmm".to_string(),
         signature: None,
+        usage: None,
     });
     let blocks = ScenarioEngine::build_response_blocks(&shape);
     assert_eq!(blocks.len(), 2);
@@ -47,6 +49,7 @@ fn build_response_blocks_tool_call_single() {
             name: "get_weather".to_string(),
             arguments: r#"{"city":"Beijing"}"#.to_string(),
         }],
+        usage: None,
     });
     let blocks = ScenarioEngine::build_response_blocks(&shape);
 
@@ -74,6 +77,7 @@ fn build_response_blocks_tool_call_multiple() {
                 arguments: "{\"expr\": \"1+1\"}".to_string(),
             },
         ],
+        usage: None,
     });
     let blocks = ScenarioEngine::build_response_blocks(&shape);
 
@@ -88,6 +92,7 @@ fn build_response_blocks_tool_call_multiple() {
 fn build_response_blocks_text_shape() {
     let shape = ResponseShape::Text(TextResponse {
         content: "Hello world".to_string(),
+        usage: None,
     });
     let blocks = ScenarioEngine::build_response_blocks(&shape);
     assert_eq!(blocks.len(), 1);
@@ -114,6 +119,7 @@ fn decide_reasoning_scenario_produces_correct_blocks() {
                 content: "42".to_string(),
                 reasoning: "Let me think...".to_string(),
                 signature: Some("sig1".to_string()),
+                usage: None,
             }),
             delay: None,
             error: None,
@@ -150,6 +156,7 @@ fn decide_tool_call_scenario_produces_correct_blocks() {
                     name: "search".to_string(),
                     arguments: r#"{"q":"rust"}"#.to_string(),
                 }],
+                usage: None,
             }),
             delay: None,
             error: None,
@@ -185,6 +192,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
                     content: String::new(),
                     reasoning: "Let me search...".to_string(),
                     signature: None,
+                    usage: None,
                 }),
                 delay: None,
                 error: None,
@@ -195,6 +203,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
                         name: "search".to_string(),
                         arguments: "{}".to_string(),
                     }],
+                    usage: None,
                 }),
                 delay: None,
                 error: None,
