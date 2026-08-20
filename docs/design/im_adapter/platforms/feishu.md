@@ -85,7 +85,7 @@ DSL 指令（button / selector）由 Processor Chain 的 DslParser 解析后传�
 - **button**：首个按钮为 primary 样式，后续按钮为 default 样式，所有按钮平铺在单个 action 元素中
 - **selector**：渲染为飞书原生下拉选择组件；平台能力不足时降级为「每个选项一个按钮」
 
-批量模式下 DslParser 解析 DSL 指令后传入 Renderer 渲染交互元素。流式模式下 DSL 指令不产生渲染输出（仅用于日志记录和出站历史写入），交互元素仅在批量模式渲染（详见 [Gateway 出站路径](../../gateway/README.md#出站路径)）。
+批量模式下 DslParser 解析 DSL 指令后传入 Renderer 渲染交互元素。流式模式下 DSL 指令不产生渲染输出（仅用于日志记录和出站历史写入），交互元素仅在批量模式渲染（详见 [Gateway 出站流程](../../gateway/outbound-flow.md)）。
 
 ## 数据流
 
