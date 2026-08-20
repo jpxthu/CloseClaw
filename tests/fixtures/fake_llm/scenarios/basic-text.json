@@ -1,0 +1,35 @@
+{
+    "scenarios": [
+        {
+            "name": "greeting",
+            "match_": {
+                "message_contains": "hello"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Hi there! How can I help?"
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Still here, what's next?"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "fallback",
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "I'm a fake LLM server."
+                    }
+                }
+            ]
+        }
+    ]
+}
