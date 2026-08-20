@@ -11,13 +11,13 @@ use crate::types::{ProtocolId, RawUsage};
 /// of a normal response. The `retry_after` field maps to the `Retry-After`
 /// header value (in seconds).
 #[derive(Debug, Clone)]
-pub struct ErrorInjection {
+pub(crate) struct ErrorInjection {
     /// HTTP status code (e.g., 401, 429, 500).
-    pub status_code: u16,
+    pub(crate) status_code: u16,
     /// Error response body message.
-    pub message: String,
+    pub(crate) message: String,
     /// Optional `Retry-After` header value in seconds.
-    pub retry_after: Option<u64>,
+    pub(crate) retry_after: Option<u64>,
 }
 
 /// Stream interrupt configuration.
@@ -26,9 +26,9 @@ pub struct ErrorInjection {
 /// frames and then abruptly closes the stream without sending a completion
 /// event. This simulates a broken/incomplete streaming response.
 #[derive(Debug, Clone)]
-pub struct StreamInterrupt {
+pub(crate) struct StreamInterrupt {
     /// Number of frames to emit before interrupting.
-    pub interrupt_after_frames: usize,
+    pub(crate) interrupt_after_frames: usize,
 }
 
 /// Delivery configuration for `Scenario::Ok`.
@@ -36,28 +36,29 @@ pub struct StreamInterrupt {
 /// Controls how the fake provider delivers responses: timing (delays),
 /// error injection, streaming behavior, and protocol format.
 #[derive(Debug, Clone, Default)]
-pub struct DeliveryConfig {
+pub(crate) struct DeliveryConfig {
     /// Delay before emitting the first SSE frame (streaming) or before
     /// returning the response (non-streaming). Simulates server processing
     /// time.
-    pub first_token_delay: Option<Duration>,
+    pub(crate) first_token_delay: Option<Duration>,
     /// Delay between consecutive SSE frames during streaming. Simulates
     /// token-by-token generation pacing.
-    pub per_segment_delay: Option<Duration>,
+    pub(crate) per_segment_delay: Option<Duration>,
     /// Delay before returning the complete response (non-streaming only).
     /// Simulates overall server processing latency.
-    pub overall_delay: Option<Duration>,
+    pub(crate) overall_delay: Option<Duration>,
     /// HTTP error to inject. When set, the provider returns this error
     /// instead of a normal response.
-    pub error_injection: Option<ErrorInjection>,
+    pub(crate) error_injection: Option<ErrorInjection>,
     /// Stream interruption. When set, the provider emits the specified
     /// number of frames and then closes the stream.
-    pub stream_interrupt: Option<StreamInterrupt>,
+    pub(crate) stream_interrupt: Option<StreamInterrupt>,
 }
 
 /// A scenario defines what the next `chat()` / `send()` / `send_streaming()`
 /// call should return.
 #[derive(Debug)]
+#[allow(private_interfaces)]
 pub enum Scenario {
     /// Respond with a successful response, with optional delivery control.
     Ok {
@@ -298,9 +299,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_scenario_ok_clone() {
-        let scenario = Scenario::Ok {
+    /// Create a fully-configured Scenario::Ok for testing clone/usage.
+    fn make_full_scenario() -> Scenario {
+        Scenario::Ok {
             content: "test content".into(),
             model: "test-model".into(),
             prompt_tokens: 20,
@@ -321,8 +322,12 @@ mod tests {
             include_usage: true,
             protocol: ProtocolId::new("anthropic"),
             segment_granularity: 5,
-        };
-        let cloned = scenario.clone();
+        }
+    }
+
+    /// Clone a Scenario::Ok and assert all fields are preserved.
+    fn assert_scenario_ok_clone(original: Scenario) {
+        let cloned = original.clone();
         match cloned {
             Scenario::Ok {
                 content,
@@ -354,6 +359,11 @@ mod tests {
             }
             _ => panic!("Expected Scenario::Ok"),
         }
+    }
+
+    #[test]
+    fn test_scenario_ok_clone() {
+        assert_scenario_ok_clone(make_full_scenario());
     }
 
     #[test]

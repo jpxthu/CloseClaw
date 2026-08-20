@@ -30,7 +30,7 @@ use delivery::{
     generate_openai_sse, should_inject_http_error, should_interrupt_stream,
 };
 
-pub mod delivery;
+pub(crate) mod delivery;
 pub mod fake_builder;
 pub mod fake_scenario;
 pub use fake_builder::Builder;
@@ -229,7 +229,7 @@ impl Default for FakeProvider {
 #[path = "fake_tests.rs"]
 mod tests;
 
-// ── Delivery helpers ───────────────────────────────────────────────────────
+// ── Non-streaming delivery helpers ─────────────────────────────────────────
 
 impl FakeProvider {
     /// Fallback response when scenarios are exhausted (non-streaming).
@@ -277,7 +277,11 @@ impl FakeProvider {
             finish_reason: None,
         })
     }
+}
 
+// ── Streaming delivery helpers ─────────────────────────────────────────────
+
+impl FakeProvider {
     /// Emit OpenAI fallback SSE events over the channel.
     async fn send_openai_fallback_stream(&self, tx: &mpsc::Sender<RawSseChunk>) {
         let fallback = self
@@ -437,7 +441,11 @@ impl Provider for FakeProvider {
                 self.send_openai_fallback_stream(&tx).await;
             }
             Some(Scenario::Err { error, .. }) => return Err(error),
-            Some(Scenario::Delay { .. }) => unreachable!("resolve_scenario resolves Delay"),
+            Some(Scenario::Delay { .. }) => {
+                // resolve_scenario already unwraps all Delay variants;
+                // reaching this branch is a logic error.
+                unreachable!("resolve_scenario resolves Delay")
+            }
             Some(scenario) => {
                 self.send_scenario_stream(&tx, scenario).await?;
             }
