@@ -1,8 +1,9 @@
 use super::super::provider::{Provider, ProviderError};
 use super::super::types::{InternalMessage, InternalRequest, ProtocolId, RawContentBlock};
+use super::fake_scenario::DeliveryConfig;
 use super::*;
 use closeclaw_session::persistence::ReasoningLevel;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn make_request() -> InternalRequest {
     InternalRequest {
@@ -200,13 +201,25 @@ async fn test_send_streaming_ok() {
         .await
         .unwrap();
 
-    let chunk1 = rx.recv().await.unwrap();
-    assert_eq!(chunk1.event_type, "message");
-    assert_eq!(chunk1.data, "streamed content");
+    // OpenAI SSE: role chunk → content chunk → finish chunk → [DONE]
+    let role_chunk = rx.recv().await.unwrap();
+    let role_data: serde_json::Value = serde_json::from_str(&role_chunk.data).unwrap();
+    assert_eq!(role_data["choices"][0]["delta"]["role"], "assistant");
+    assert!(role_data["choices"][0]["delta"]["content"].is_null());
 
-    let chunk2 = rx.recv().await.unwrap();
-    assert_eq!(chunk2.event_type, "message");
-    assert!(chunk2.data.contains("message_end"));
+    let content_chunk = rx.recv().await.unwrap();
+    let content_data: serde_json::Value = serde_json::from_str(&content_chunk.data).unwrap();
+    assert_eq!(
+        content_data["choices"][0]["delta"]["content"],
+        "streamed content"
+    );
+
+    let finish_chunk = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish_chunk.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "stop");
+
+    let done_chunk = rx.recv().await.unwrap();
+    assert_eq!(done_chunk.data, "[DONE]");
 
     assert!(rx.recv().await.is_none());
 }
@@ -238,12 +251,24 @@ async fn test_send_streaming_delay() {
         .await
         .unwrap();
 
-    let chunk1 = rx.recv().await.unwrap();
-    assert_eq!(chunk1.event_type, "message");
-    assert_eq!(chunk1.data, "delayed stream");
+    // OpenAI SSE: role chunk → content chunk → finish chunk → [DONE]
+    let role_chunk = rx.recv().await.unwrap();
+    let role_data: serde_json::Value = serde_json::from_str(&role_chunk.data).unwrap();
+    assert_eq!(role_data["choices"][0]["delta"]["role"], "assistant");
 
-    let chunk2 = rx.recv().await.unwrap();
-    assert!(chunk2.data.contains("message_end"));
+    let content_chunk = rx.recv().await.unwrap();
+    let content_data: serde_json::Value = serde_json::from_str(&content_chunk.data).unwrap();
+    assert_eq!(
+        content_data["choices"][0]["delta"]["content"],
+        "delayed stream"
+    );
+
+    let finish_chunk = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish_chunk.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "stop");
+
+    let done_chunk = rx.recv().await.unwrap();
+    assert_eq!(done_chunk.data, "[DONE]");
 
     assert!(rx.recv().await.is_none());
 }
@@ -257,12 +282,25 @@ async fn test_send_streaming_fallback() {
         .await
         .unwrap();
 
-    let chunk1 = rx.recv().await.unwrap();
-    assert_eq!(chunk1.event_type, "message");
-    assert_eq!(chunk1.data, "fallback stream");
+    // Fallback uses OpenAI SSE format via generate_openai_sse
+    // role chunk → content chunk → finish chunk → [DONE]
+    let role_chunk = rx.recv().await.unwrap();
+    let role_data: serde_json::Value = serde_json::from_str(&role_chunk.data).unwrap();
+    assert_eq!(role_data["choices"][0]["delta"]["role"], "assistant");
 
-    let chunk2 = rx.recv().await.unwrap();
-    assert!(chunk2.data.contains("message_end"));
+    let content_chunk = rx.recv().await.unwrap();
+    let content_data: serde_json::Value = serde_json::from_str(&content_chunk.data).unwrap();
+    assert_eq!(
+        content_data["choices"][0]["delta"]["content"],
+        "fallback stream"
+    );
+
+    let finish_chunk = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish_chunk.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "stop");
+
+    let done_chunk = rx.recv().await.unwrap();
+    assert_eq!(done_chunk.data, "[DONE]");
 
     assert!(rx.recv().await.is_none());
 }
@@ -342,6 +380,10 @@ async fn test_ok_with_cache_raw_usage() {
         completion_tokens: 50,
         cache_read_tokens: Some(80),
         cache_write_tokens: Some(20),
+        delivery: DeliveryConfig::default(),
+        include_usage: false,
+        protocol: ProtocolId::new("openai"),
+        segment_granularity: 0,
     };
     let usage = scenario.raw_usage();
     assert_eq!(usage.prompt_tokens, 100);
@@ -403,4 +445,267 @@ async fn test_err_scenario_cache_fields_none() {
     assert_eq!(usage2.cache_write_tokens, None);
     assert_eq!(usage2.prompt_tokens, 50);
     assert_eq!(usage2.completion_tokens, 25);
+}
+
+// ── Builder API convenience methods (Step 1.5) ─────────────────────────
+
+#[test]
+fn test_builder_then_streaming() {
+    let provider = FakeProvider::builder()
+        .then_streaming("stream me", "model-a", ProtocolId::new("anthropic"), 3)
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok {
+            content,
+            model,
+            protocol,
+            segment_granularity,
+            delivery,
+            include_usage,
+            ..
+        } => {
+            assert_eq!(content, "stream me");
+            assert_eq!(model, "model-a");
+            assert_eq!(protocol, ProtocolId::new("anthropic"));
+            assert_eq!(segment_granularity, 3);
+            assert!(delivery.first_token_delay.is_none());
+            assert!(!include_usage);
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_then_with_first_token_delay() {
+    let provider = FakeProvider::builder()
+        .then_with_first_token_delay("content", "model-b", Duration::from_millis(200))
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok {
+            content,
+            delivery,
+            protocol,
+            ..
+        } => {
+            assert_eq!(content, "content");
+            assert_eq!(delivery.first_token_delay, Some(Duration::from_millis(200)));
+            assert!(delivery.per_segment_delay.is_none());
+            assert!(delivery.overall_delay.is_none());
+            assert_eq!(protocol, ProtocolId::new("openai"));
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_then_with_per_segment_delay() {
+    let provider = FakeProvider::builder()
+        .then_with_per_segment_delay("content", "model-c", Duration::from_millis(50))
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok {
+            content, delivery, ..
+        } => {
+            assert_eq!(content, "content");
+            assert!(delivery.first_token_delay.is_none());
+            assert_eq!(delivery.per_segment_delay, Some(Duration::from_millis(50)));
+            assert!(delivery.overall_delay.is_none());
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_then_with_overall_delay() {
+    let provider = FakeProvider::builder()
+        .then_with_overall_delay("content", "model-d", Duration::from_millis(100))
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok {
+            content, delivery, ..
+        } => {
+            assert_eq!(content, "content");
+            assert!(delivery.first_token_delay.is_none());
+            assert!(delivery.per_segment_delay.is_none());
+            assert_eq!(delivery.overall_delay, Some(Duration::from_millis(100)));
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_then_http_error() {
+    let provider = FakeProvider::builder()
+        .then_http_error("content", "model-e", 429, Some(30))
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok {
+            content,
+            delivery,
+            prompt_tokens,
+            completion_tokens,
+            ..
+        } => {
+            assert_eq!(content, "content");
+            let ei = delivery.error_injection.unwrap();
+            assert_eq!(ei.status_code, 429);
+            assert_eq!(ei.message, "HTTP 429");
+            assert_eq!(ei.retry_after, Some(30));
+            assert_eq!(prompt_tokens, 0);
+            assert_eq!(completion_tokens, 0);
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_then_http_error_no_retry() {
+    let provider = FakeProvider::builder()
+        .then_http_error("content", "model-f", 500, None)
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok { delivery, .. } => {
+            let ei = delivery.error_injection.unwrap();
+            assert_eq!(ei.status_code, 500);
+            assert!(ei.retry_after.is_none());
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_then_stream_interrupt() {
+    let provider = FakeProvider::builder()
+        .then_stream_interrupt("content", "model-g", 5)
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok {
+            content, delivery, ..
+        } => {
+            assert_eq!(content, "content");
+            let si = delivery.stream_interrupt.unwrap();
+            assert_eq!(si.interrupt_after_frames, 5);
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_include_usage() {
+    let provider = FakeProvider::builder()
+        .then_ok("content", "model-h")
+        .include_usage(true)
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Ok { include_usage, .. } => {
+            assert!(include_usage);
+        }
+        _ => panic!("Expected Scenario::Ok"),
+    }
+}
+
+#[test]
+fn test_builder_include_usage_noop_on_err() {
+    // include_usage should be a no-op when last scenario is not Scenario::Ok
+    let provider = FakeProvider::builder()
+        .then_err(ProviderError::Legacy("err".into()))
+        .include_usage(true)
+        .build();
+
+    let scenario = provider
+        .inner
+        .lock()
+        .unwrap()
+        .scenarios
+        .pop_front()
+        .unwrap();
+    match scenario {
+        Scenario::Err { .. } => {}
+        _ => panic!("Expected Scenario::Err"),
+    }
+}
+
+#[test]
+fn test_builder_include_usage_on_last_only() {
+    // Only the last scenario's include_usage should be set
+    let provider = FakeProvider::builder()
+        .then_ok("first", "m")
+        .then_ok("second", "m")
+        .include_usage(true)
+        .build();
+
+    let state = provider.inner.lock().unwrap();
+    let scenarios: Vec<_> = state.scenarios.iter().collect();
+    match scenarios[0] {
+        Scenario::Ok { include_usage, .. } => assert!(!include_usage),
+        _ => panic!("Expected Scenario::Ok"),
+    }
+    match scenarios[1] {
+        Scenario::Ok { include_usage, .. } => assert!(include_usage),
+        _ => panic!("Expected Scenario::Ok"),
+    }
 }
