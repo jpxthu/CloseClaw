@@ -443,4 +443,115 @@ mod tests {
             other => panic!("expected SystemAppend(Add), got {:?}", other),
         }
     }
+
+    // ── Error-path tests for SystemAppend injection ──────────────────────
+
+    /// When a disk skill's SKILL.md exists but has empty body (only frontmatter),
+    /// the handler should still return SystemAppend with the empty string —
+    /// the executor-side handles empty content gracefully.
+    #[tokio::test]
+    async fn test_disk_skill_empty_body_returns_system_append() {
+        let temp = tempfile::tempdir().unwrap();
+        let readme = temp.path().join("SKILL.md");
+        std::fs::write(&readme, "---\ndescription: test\n---\n").unwrap();
+        let skill = make_disk_skill("empty-skill", readme, temp.path().to_path_buf());
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        let handler = SkillSlashHandler::new(disk, builtin);
+
+        let ctx = make_ctx("empty-skill");
+        let result = handler.handle("", &ctx).await;
+        match result {
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(content),
+            } => {
+                // Empty body is still injected — no special-casing at handler level.
+                assert!(
+                    content.is_empty(),
+                    "expected empty content, got: {:?}",
+                    content
+                );
+            }
+            other => panic!("expected SystemAppend(Add) for empty body, got {:?}", other),
+        }
+    }
+
+    /// When a disk skill's load_body() fails (e.g. file deleted after registration),
+    /// the handler returns a Reply error — it does NOT fall through to SystemAppend.
+    #[tokio::test]
+    async fn test_disk_skill_load_failure_returns_error_reply() {
+        let temp = tempfile::tempdir().unwrap();
+        let readme = temp.path().join("SKILL.md");
+        std::fs::write(&readme, "---\ndescription: test\n---\n\n# Skill Body").unwrap();
+        let skill = make_disk_skill("failing-skill", readme.clone(), temp.path().to_path_buf());
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        let handler = SkillSlashHandler::new(disk, builtin);
+
+        // Delete the file after registration to simulate load failure.
+        std::fs::remove_file(&readme).unwrap();
+
+        let ctx = make_ctx("failing-skill");
+        let result = handler.handle("", &ctx).await;
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(
+                    msg.contains("加载失败"),
+                    "should report load failure, got: {msg}"
+                );
+                assert!(
+                    msg.contains("failing-skill"),
+                    "should include skill name, got: {msg}"
+                );
+            }
+            other => panic!("expected Reply (load failure), got {:?}", other),
+        }
+    }
+
+    /// End-to-end: skill body content is injected verbatim into SystemAppend::Add.
+    /// This verifies the equivalent behavior of the old InjectMeta path — the skill
+    /// content is passed through without transformation (beyond variable substitution).
+    #[tokio::test]
+    async fn test_skill_content_injected_verbatim_as_system_append() {
+        let temp = tempfile::tempdir().unwrap();
+        let readme = temp.path().join("SKILL.md");
+        let body = "---\ndescription: verbatim test\n---\n\n# Instructions\nBe concise.\n\nRules:\n1. No hallucination\n2. Cite sources";
+        std::fs::write(&readme, body).unwrap();
+        let skill = make_disk_skill("verbatim-skill", readme, temp.path().to_path_buf());
+        let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        let handler = SkillSlashHandler::new(disk, builtin);
+
+        let ctx = make_ctx("verbatim-skill");
+        let result = handler.handle("", &ctx).await;
+        match result {
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(content),
+            } => {
+                // The skill body (minus frontmatter, as loaded by load_body) should
+                // appear in the SystemAppend content.
+                assert!(
+                    content.contains("# Instructions"),
+                    "missing heading, got: {content}"
+                );
+                assert!(
+                    content.contains("No hallucination"),
+                    "missing rule, got: {content}"
+                );
+                assert!(
+                    content.contains("Cite sources"),
+                    "missing rule, got: {content}"
+                );
+                // Frontmatter should NOT be in the body (stripped by load_body).
+                assert!(
+                    !content.contains("description: verbatim test"),
+                    "frontmatter leaked, got: {content}"
+                );
+            }
+            other => panic!(
+                "expected SystemAppend(Add) with body content, got {:?}",
+                other
+            ),
+        }
+    }
 }

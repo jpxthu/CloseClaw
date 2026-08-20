@@ -58,6 +58,13 @@ fn test_fragment_context_all_fields() {
         ctx.bootstrap_dir,
         std::path::PathBuf::from("/home/user/project")
     );
+    // Verify struct has exactly 3 fields — adding or removing a field here
+    // will cause a compile error, enforcing alignment with design doc.
+    let FragmentContext {
+        agent_id: _,
+        bootstrap_mode: _,
+        bootstrap_dir: _,
+    } = ctx;
 }
 
 #[test]

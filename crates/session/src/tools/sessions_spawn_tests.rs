@@ -400,6 +400,37 @@ async fn test_generate_prompt_task_authoring_includes_all_three_strategies() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Step 1.3: Budget removal regression — prompt must not reference budget field
+// ═══════════════════════════════════════════════════════════════════════
+
+/// After Step 1.2 removed effective_spawn_budget from FragmentContext and
+/// PromptGenerationContext, the sessions_spawn prompt must not reference
+/// budget-based filtering. It should instead state that budget is managed
+/// at session creation time.
+#[tokio::test]
+async fn test_generate_prompt_no_budget_field_reference() {
+    let tool = make_tool();
+    let ctx = PromptGenerationContext::default();
+    let prompt = tool.generate_prompt(&ctx);
+
+    // Must NOT reference the old budget field
+    assert!(
+        !prompt.contains("effective_spawn_budget"),
+        "prompt must not reference effective_spawn_budget, got: {prompt}"
+    );
+    assert!(
+        !prompt.contains("spawn_budget"),
+        "prompt must not reference spawn_budget, got: {prompt}"
+    );
+
+    // Must state budget is managed at session creation time
+    assert!(
+        prompt.contains("session creation time"),
+        "prompt should indicate budget is managed at session creation time, got: {prompt}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Step 1.4: Two-step separation tests
 // ═══════════════════════════════════════════════════════════════════════
 
