@@ -189,14 +189,14 @@ fn test_anthropic_sse_basic() {
     assert_eq!(start["model"], "claude-3");
     assert_eq!(start["usage"]["input_tokens"], 10);
 
-    // ping
-    let ping: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
-    assert_eq!(ping["type"], "ping");
-
     // content_block_start
-    let cbs: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+    let cbs: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(cbs["type"], "content_block_start");
     assert_eq!(cbs["content_block"]["type"], "text");
+
+    // ping
+    let ping: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+    assert_eq!(ping["type"], "ping");
 
     // content delta
     let delta: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
@@ -238,7 +238,7 @@ fn test_anthropic_sse_multiple_segments() {
         &usage,
     );
 
-    // start + ping + 3*(block_start+delta+block_stop) + msg_delta + msg_stop = 13
+    // start + block_start + ping + 3*(delta+block_stop) + msg_delta + msg_stop = 13
     assert_eq!(events.len(), 13);
 
     // Each Text block gets its own content_block_start/delta/stop
@@ -486,11 +486,11 @@ fn test_anthropic_sse_thinking_with_signature() {
         &usage,
     );
 
-    // start + ping + block_start + thinking_delta + signature_delta + block_stop
+    // start + block_start + ping + thinking_delta + signature_delta + block_stop
     // + message_delta + message_stop = 8
     assert_eq!(events.len(), 8);
 
-    let block_start: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+    let block_start: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(block_start["content_block"]["type"], "thinking");
 
     let think_delta: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
@@ -521,11 +521,11 @@ fn test_anthropic_sse_tool_use() {
         &usage,
     );
 
-    // start + ping + block_start + input_json_delta + block_stop
+    // start + block_start + ping + input_json_delta + block_stop
     // + message_delta + message_stop = 7
     assert_eq!(events.len(), 7);
 
-    let block_start: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+    let block_start: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(block_start["content_block"]["type"], "tool_use");
     assert_eq!(block_start["content_block"]["id"], "tool_1");
     assert_eq!(block_start["content_block"]["name"], "calculator");
@@ -561,15 +561,15 @@ fn test_anthropic_sse_mixed_blocks() {
         &usage,
     );
 
-    // start + ping
-    // + thinking_block_start + thinking_delta + thinking_block_stop
+    // start + block_start + ping
+    // + thinking_delta + thinking_block_stop
     // + text_block_start + text_delta + text_block_stop
     // + tool_block_start + input_json_delta + tool_block_stop
     // + message_delta + message_stop = 13
     assert_eq!(events.len(), 13);
 
     // Thinking block
-    let think_start: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+    let think_start: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(think_start["content_block"]["type"], "thinking");
     let think_delta: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
     assert_eq!(think_delta["delta"]["type"], "thinking_delta");

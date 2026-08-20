@@ -427,11 +427,13 @@ fn anthropic_message_stop() -> SseEvent {
 ///
 /// Sequence:
 /// 1. `message_start` — model name + initial input usage
-/// 2. `ping`
-/// 3. For each content block:
+/// 2. For the first content block:
 ///    - `content_block_start` (type varies by block)
-///    - Delta events (text_delta / thinking_delta + signature_delta / input_json_delta)
-///    - `content_block_stop`
+///    - `ping`
+///    - Delta events + `content_block_stop`
+/// 3. For subsequent content blocks:
+///    - `content_block_start` (type varies by block)
+///    - Delta events + `content_block_stop`
 /// 4. `message_delta` — stop_reason + final output usage
 /// 5. `message_stop`
 pub(crate) fn generate_anthropic_sse(
@@ -441,7 +443,6 @@ pub(crate) fn generate_anthropic_sse(
 ) -> Vec<SseEvent> {
     let mut events = Vec::with_capacity(content_blocks.len() * 3 + 4);
     events.push(anthropic_message_start(model, usage));
-    events.push(anthropic_ping());
     for (idx, block) in content_blocks.iter().enumerate() {
         match block {
             RawContentBlock::Thinking {
@@ -449,6 +450,9 @@ pub(crate) fn generate_anthropic_sse(
                 signature,
             } => {
                 events.push(anthropic_thinking_content_block_start(idx));
+                if idx == 0 {
+                    events.push(anthropic_ping());
+                }
                 events.push(anthropic_thinking_delta(idx, thinking));
                 if let Some(sig) = signature {
                     events.push(anthropic_signature_delta(idx, sig));
@@ -457,11 +461,17 @@ pub(crate) fn generate_anthropic_sse(
             }
             RawContentBlock::Text(text) => {
                 events.push(anthropic_text_content_block_start(idx));
+                if idx == 0 {
+                    events.push(anthropic_ping());
+                }
                 events.push(anthropic_text_delta(idx, text));
                 events.push(anthropic_content_block_stop(idx));
             }
             RawContentBlock::ToolUse { id, name, input } => {
                 events.push(anthropic_tool_use_content_block_start(idx, id, name));
+                if idx == 0 {
+                    events.push(anthropic_ping());
+                }
                 if !input.is_empty() {
                     events.push(anthropic_input_json_delta(idx, input));
                 }
