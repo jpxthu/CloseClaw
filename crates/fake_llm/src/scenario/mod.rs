@@ -994,7 +994,7 @@ mod tests {
             d => panic!("expected Models variant with delay, got {:?}", d),
         }
     }
-
     mod fixture_contract;
     mod response_blocks;
+    mod streaming_fixture_contract;
 }
