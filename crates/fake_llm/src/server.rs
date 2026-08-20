@@ -5,23 +5,7 @@
 use axum::{routing::get, routing::post, Router};
 use tokio::net::TcpListener;
 
-/// Placeholder handler for POST `/v1/chat/completions`.
-///
-/// Will be implemented in Step 1.2 (OpenAI protocol endpoint).
-async fn openai_chat_completions() -> axum::Json<serde_json::Value> {
-    axum::Json(serde_json::json!({
-        "id": "chatcmpl-placeholder",
-        "object": "chat.completion",
-        "created": 0,
-        "model": "placeholder",
-        "choices": [{
-            "index": 0,
-            "message": { "role": "assistant", "content": "placeholder" },
-            "finish_reason": "stop"
-        }],
-        "usage": { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 }
-    }))
-}
+use crate::endpoints::openai_chat;
 
 /// Placeholder handler for POST `/v1/messages`.
 ///
@@ -51,7 +35,7 @@ async fn models_list() -> axum::Json<serde_json::Value> {
 /// Build the Axum router with all endpoint routes.
 fn app() -> Router {
     Router::new()
-        .route("/v1/chat/completions", post(openai_chat_completions))
+        .route("/v1/chat/completions", post(openai_chat::handler))
         .route("/v1/messages", post(anthropic_messages))
         .route("/v1/models", get(models_list))
 }
