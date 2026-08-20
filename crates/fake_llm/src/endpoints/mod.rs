@@ -5,4 +5,5 @@
 //! - Extracting protocol-agnostic `RequestFeatures`
 //! - Delegating to the scenario engine (future) and returning a response
 
+pub mod anthropic_messages;
 pub mod openai_chat;

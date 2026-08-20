@@ -5,22 +5,8 @@
 use axum::{routing::get, routing::post, Router};
 use tokio::net::TcpListener;
 
+use crate::endpoints::anthropic_messages;
 use crate::endpoints::openai_chat;
-
-/// Placeholder handler for POST `/v1/messages`.
-///
-/// Will be implemented in Step 1.3 (Anthropic protocol endpoint).
-async fn anthropic_messages() -> axum::Json<serde_json::Value> {
-    axum::Json(serde_json::json!({
-        "id": "msg-placeholder",
-        "type": "message",
-        "role": "assistant",
-        "content": [{ "type": "text", "text": "placeholder" }],
-        "model": "placeholder",
-        "stop_reason": "end_turn",
-        "usage": { "input_tokens": 0, "output_tokens": 0 }
-    }))
-}
 
 /// Placeholder handler for GET `/v1/models`.
 ///
@@ -36,7 +22,7 @@ async fn models_list() -> axum::Json<serde_json::Value> {
 fn app() -> Router {
     Router::new()
         .route("/v1/chat/completions", post(openai_chat::handler))
-        .route("/v1/messages", post(anthropic_messages))
+        .route("/v1/messages", post(anthropic_messages::handler))
         .route("/v1/models", get(models_list))
 }
 
