@@ -25,6 +25,10 @@ use super::types::{
     InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
 };
 use super::{ChatRequest, Message};
+use delivery::{
+    apply_first_token_delay, apply_overall_delay, apply_per_segment_delay, generate_anthropic_sse,
+    generate_openai_sse, should_inject_http_error, should_interrupt_stream,
+};
 
 pub mod delivery;
 pub mod fake_builder;
@@ -273,11 +277,35 @@ impl Provider for FakeProvider {
                 let usage = scenario.raw_usage();
                 match scenario {
                     Scenario::Err { error, .. } => Err(error),
-                    _ => Ok(InternalResponse {
-                        content_blocks: vec![RawContentBlock::Text(content)],
-                        usage,
-                        finish_reason: None,
-                    }),
+                    Scenario::Ok { ref delivery, .. } => {
+                        // 1. Execute overall delay (non-streaming)
+                        apply_overall_delay(delivery).await;
+
+                        // 2. Check for HTTP error injection
+                        if let Some((status, body, retry_after)) =
+                            should_inject_http_error(delivery)
+                        {
+                            return Err(ProviderError::Http {
+                                status_code: status,
+                                body,
+                                retry_after,
+                            });
+                        }
+
+                        Ok(InternalResponse {
+                            content_blocks: vec![RawContentBlock::Text(content)],
+                            usage,
+                            finish_reason: None,
+                        })
+                    }
+                    _ => {
+                        // Delay case is already resolved by resolve_scenario
+                        Ok(InternalResponse {
+                            content_blocks: vec![RawContentBlock::Text(content)],
+                            usage,
+                            finish_reason: None,
+                        })
+                    }
                 }
             }
             None => {
@@ -308,27 +336,6 @@ impl Provider for FakeProvider {
         let (tx, rx) = mpsc::channel(32);
 
         match self.resolve_scenario().await? {
-            Some(scenario) => match scenario {
-                Scenario::Err { error, .. } => return Err(error),
-                other => {
-                    let content = other.content();
-
-                    let _ = tx
-                        .send(RawSseChunk {
-                            event_type: "message".into(),
-                            data: content,
-                        })
-                        .await;
-
-                    let done = serde_json::json!({"type": "message_end"});
-                    let _ = tx
-                        .send(RawSseChunk {
-                            event_type: "message".into(),
-                            data: done.to_string(),
-                        })
-                        .await;
-                }
-            },
             None => {
                 let fallback = {
                     let state = self.inner.lock().unwrap();
@@ -348,6 +355,75 @@ impl Provider for FakeProvider {
                     })
                     .await;
             }
+            Some(Scenario::Err { error, .. }) => return Err(error),
+            Some(Scenario::Ok {
+                content,
+                model,
+                prompt_tokens,
+                completion_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                delivery,
+                include_usage,
+                protocol,
+                segment_granularity,
+            }) => {
+                // 1. Check for HTTP error injection
+                if let Some((status, body, retry_after)) = should_inject_http_error(&delivery) {
+                    return Err(ProviderError::Http {
+                        status_code: status,
+                        body,
+                        retry_after,
+                    });
+                }
+
+                // 2. First-token delay
+                apply_first_token_delay(&delivery).await;
+
+                // 3. Generate SSE events
+                let segments = delivery::split_segments(&content, segment_granularity);
+                let usage = RawUsage {
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens: Some(prompt_tokens + completion_tokens),
+                    cache_read_tokens,
+                    cache_write_tokens,
+                };
+
+                let events = if protocol == ProtocolId::new("anthropic") {
+                    generate_anthropic_sse(segments, &model, &usage)
+                } else {
+                    generate_openai_sse(segments, &model, &usage, include_usage)
+                };
+
+                // 4. Check for stream interrupt
+                let interrupt_at = should_interrupt_stream(&delivery);
+
+                // 5. Send events
+                for (i, event) in events.iter().enumerate() {
+                    // Check stream interrupt before sending
+                    if let Some(limit) = interrupt_at {
+                        if i >= limit {
+                            // Close the stream abruptly without sending completion event
+                            break;
+                        }
+                    }
+
+                    let chunk = RawSseChunk {
+                        event_type: event.event_type.clone(),
+                        data: event.data.clone(),
+                    };
+                    if tx.send(chunk).await.is_err() {
+                        break; // Receiver dropped
+                    }
+
+                    // Per-segment delay (after all frames except the last)
+                    if i < events.len() - 1 {
+                        apply_per_segment_delay(&delivery).await;
+                    }
+                }
+            }
+            Some(Scenario::Delay { .. }) => unreachable!("resolve_scenario resolves Delay"),
         }
 
         Ok(rx)

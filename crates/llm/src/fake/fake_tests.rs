@@ -201,13 +201,25 @@ async fn test_send_streaming_ok() {
         .await
         .unwrap();
 
-    let chunk1 = rx.recv().await.unwrap();
-    assert_eq!(chunk1.event_type, "message");
-    assert_eq!(chunk1.data, "streamed content");
+    // OpenAI SSE: role chunk → content chunk → finish chunk → [DONE]
+    let role_chunk = rx.recv().await.unwrap();
+    let role_data: serde_json::Value = serde_json::from_str(&role_chunk.data).unwrap();
+    assert_eq!(role_data["choices"][0]["delta"]["role"], "assistant");
+    assert!(role_data["choices"][0]["delta"]["content"].is_null());
 
-    let chunk2 = rx.recv().await.unwrap();
-    assert_eq!(chunk2.event_type, "message");
-    assert!(chunk2.data.contains("message_end"));
+    let content_chunk = rx.recv().await.unwrap();
+    let content_data: serde_json::Value = serde_json::from_str(&content_chunk.data).unwrap();
+    assert_eq!(
+        content_data["choices"][0]["delta"]["content"],
+        "streamed content"
+    );
+
+    let finish_chunk = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish_chunk.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "stop");
+
+    let done_chunk = rx.recv().await.unwrap();
+    assert_eq!(done_chunk.data, "[DONE]");
 
     assert!(rx.recv().await.is_none());
 }
@@ -239,12 +251,24 @@ async fn test_send_streaming_delay() {
         .await
         .unwrap();
 
-    let chunk1 = rx.recv().await.unwrap();
-    assert_eq!(chunk1.event_type, "message");
-    assert_eq!(chunk1.data, "delayed stream");
+    // OpenAI SSE: role chunk → content chunk → finish chunk → [DONE]
+    let role_chunk = rx.recv().await.unwrap();
+    let role_data: serde_json::Value = serde_json::from_str(&role_chunk.data).unwrap();
+    assert_eq!(role_data["choices"][0]["delta"]["role"], "assistant");
 
-    let chunk2 = rx.recv().await.unwrap();
-    assert!(chunk2.data.contains("message_end"));
+    let content_chunk = rx.recv().await.unwrap();
+    let content_data: serde_json::Value = serde_json::from_str(&content_chunk.data).unwrap();
+    assert_eq!(
+        content_data["choices"][0]["delta"]["content"],
+        "delayed stream"
+    );
+
+    let finish_chunk = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish_chunk.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "stop");
+
+    let done_chunk = rx.recv().await.unwrap();
+    assert_eq!(done_chunk.data, "[DONE]");
 
     assert!(rx.recv().await.is_none());
 }
