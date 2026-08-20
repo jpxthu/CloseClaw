@@ -56,8 +56,8 @@ pub async fn handler(
                 StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             Err((status, HeaderMap::new(), e.message))
         }
-        ModelsDecision::Models(entries) => {
-            apply_delay(None).await;
+        ModelsDecision::Models(entries, delay) => {
+            apply_delay(delay).await;
             Ok(Json(build_models_from_entries(&entries)).into_response())
         }
     }

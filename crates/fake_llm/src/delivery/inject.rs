@@ -1,7 +1,7 @@
 //! Delivery layer — delay injection, error injection, and unified delivery.
 //!
-//! Provides `apply_delay()`, `DeliveryResult`, `HttpErrorResponse`, and
-//! the unified `deliver()` entry point that routes through delay injection,
+//! Provides `apply_delay()`, `DeliveryResult`, and the unified
+//! `deliver()` entry point that routes through delay injection,
 //! error injection, and response generation.
 
 use axum::http::StatusCode;
@@ -43,16 +43,6 @@ pub enum DeliveryResult {
         message: String,
         retry_after: Option<u64>,
     },
-}
-
-/// HTTP error response with optional Retry-After header.
-///
-/// Used by endpoints to construct the error response tuple
-/// `(StatusCode, HeaderMap, String)` that Axum returns.
-pub struct HttpErrorResponse {
-    pub status: StatusCode,
-    pub message: String,
-    pub retry_after: Option<u64>,
 }
 
 impl DeliveryResult {
@@ -124,7 +114,7 @@ pub async fn deliver(
         return DeliveryResult::HttpError {
             status: err.status,
             message: err.message.clone(),
-            retry_after: None,
+            retry_after: err.retry_after,
         };
     }
 
@@ -383,6 +373,7 @@ mod tests {
             http_error: Some(HttpError {
                 status: 429,
                 message: "rate limited".to_string(),
+                retry_after: None,
             }),
             delay: None,
             usage: None,
@@ -429,6 +420,72 @@ mod tests {
         match result {
             DeliveryResult::JsonResponse(_) => {}
             _ => panic!("expected JsonResponse"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // deliver — retry_after propagation
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn deliver_error_with_retry_after() {
+        let decision = crate::types::ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "test".to_string(),
+            stream: false,
+            response_blocks: vec![],
+            http_error: Some(HttpError {
+                status: 429,
+                message: "rate limited".to_string(),
+                retry_after: Some(60),
+            }),
+            delay: None,
+            usage: None,
+        };
+        let config = DeliveryConfig {
+            segment_granularity: 0,
+            include_usage: false,
+        };
+        let result = deliver(&decision, Protocol::OpenAi, &config).await;
+        match result {
+            DeliveryResult::HttpError {
+                status,
+                message,
+                retry_after,
+            } => {
+                assert_eq!(status, 429);
+                assert_eq!(message, "rate limited");
+                assert_eq!(retry_after, Some(60));
+            }
+            _ => panic!("expected HttpError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn deliver_error_without_retry_after() {
+        let decision = crate::types::ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "test".to_string(),
+            stream: false,
+            response_blocks: vec![],
+            http_error: Some(HttpError {
+                status: 500,
+                message: "error".to_string(),
+                retry_after: None,
+            }),
+            delay: None,
+            usage: None,
+        };
+        let config = DeliveryConfig {
+            segment_granularity: 0,
+            include_usage: false,
+        };
+        let result = deliver(&decision, Protocol::OpenAi, &config).await;
+        match result {
+            DeliveryResult::HttpError { retry_after, .. } => {
+                assert!(retry_after.is_none());
+            }
+            _ => panic!("expected HttpError"),
         }
     }
 }

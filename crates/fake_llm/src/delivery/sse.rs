@@ -519,6 +519,56 @@ pub fn generate_anthropic_sse(
     events.push(anthropic_message_stop());
     events
 }
+
+// ---------------------------------------------------------------------------
+// Common SSE stream types for Axum handlers
+// ---------------------------------------------------------------------------
+
+/// Default segment granularity for streaming content splitting.
+pub const DEFAULT_SEGMENT_GRANULARITY: usize = 20;
+
+/// Wrapper that yields SSE events from a `Vec`, implementing `futures::Stream`.
+///
+/// Used by both OpenAI and Anthropic endpoint handlers to convert the
+/// `Vec<SseEvent>` from the delivery layer into an Axum SSE response stream.
+pub struct SseEventStream {
+    inner: std::vec::IntoIter<SseEvent>,
+}
+
+impl SseEventStream {
+    /// Create a new stream from a vector of SSE events.
+    pub fn new(events: Vec<SseEvent>) -> Self {
+        Self {
+            inner: events.into_iter(),
+        }
+    }
+}
+
+impl futures_core::Stream for SseEventStream {
+    type Item = Result<axum::response::sse::Event, std::convert::Infallible>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.inner.next() {
+            Some(e) => std::task::Poll::Ready(Some(Ok(to_axum_event(e)))),
+            None => std::task::Poll::Ready(None),
+        }
+    }
+}
+
+/// Convert a delivery `SseEvent` into an Axum `Event`.
+///
+/// Maps the event type and data fields into the SSE wire format.
+pub fn to_axum_event(e: SseEvent) -> axum::response::sse::Event {
+    let mut event = axum::response::sse::Event::default();
+    if !e.event_type.is_empty() {
+        event = event.event(e.event_type);
+    }
+    event.data(e.data)
+}
+
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]

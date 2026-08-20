@@ -100,6 +100,16 @@ impl MatcherIndex {
     pub fn get(&self, index: usize) -> &ScenarioDeclaration {
         &self.scenarios[index]
     }
+
+    /// Get the number of loaded scenarios.
+    pub fn len(&self) -> usize {
+        self.scenarios.len()
+    }
+
+    /// Check if there are no loaded scenarios.
+    pub fn is_empty(&self) -> bool {
+        self.scenarios.is_empty()
+    }
 }
 
 /// Check whether a scenario's conditions are satisfied by the request.

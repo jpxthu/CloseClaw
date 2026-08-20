@@ -99,6 +99,9 @@ pub struct HttpError {
     pub status: u16,
     /// Error message body.
     pub message: String,
+    /// Optional Retry-After header value (seconds).
+    #[serde(default)]
+    pub retry_after: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +433,23 @@ mod tests {
         let err: HttpError = serde_json::from_str(json).unwrap();
         assert_eq!(err.status, 429);
         assert_eq!(err.message, "rate limited");
+        assert!(err.retry_after.is_none());
+    }
+
+    #[test]
+    fn deserialize_http_error_with_retry_after() {
+        let json = r#"{"status": 429, "message": "rate limited", "retry_after": 60}"#;
+        let err: HttpError = serde_json::from_str(json).unwrap();
+        assert_eq!(err.status, 429);
+        assert_eq!(err.message, "rate limited");
+        assert_eq!(err.retry_after, Some(60));
+    }
+
+    #[test]
+    fn deserialize_http_error_retry_after_default_none() {
+        let json = r#"{"status": 500, "message": "error"}"#;
+        let err: HttpError = serde_json::from_str(json).unwrap();
+        assert!(err.retry_after.is_none());
     }
 
     #[test]

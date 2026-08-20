@@ -4,10 +4,8 @@
 //! extracts protocol-agnostic `RequestFeatures`, delegates to the scenario
 //! engine, and returns the appropriate response via the delivery layer.
 
-use std::convert::Infallible;
-
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::sse::{Event, Sse};
+use axum::response::sse::Sse;
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, Json};
 
@@ -15,27 +13,7 @@ use crate::delivery::{self, DeliveryConfig, DeliveryResult, Protocol};
 use crate::protocol::openai::{extract_request_features, ChatCompletionRequest};
 use crate::scenario::{DecisionOutcome, ScenarioState};
 
-/// Default segment granularity for streaming content splitting.
-const DEFAULT_SEGMENT_GRANULARITY: usize = 20;
-
-/// Wrapper that yields SSE events from a `Vec`, implementing `futures::Stream`.
-struct SseEventStream {
-    inner: std::vec::IntoIter<delivery::SseEvent>,
-}
-
-impl futures_core::Stream for SseEventStream {
-    type Item = Result<Event, Infallible>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        match self.inner.next() {
-            Some(e) => std::task::Poll::Ready(Some(Ok(to_axum_event(e)))),
-            None => std::task::Poll::Ready(None),
-        }
-    }
-}
+use delivery::{SseEventStream, DEFAULT_SEGMENT_GRANULARITY};
 
 /// Handler for POST `/v1/chat/completions`.
 ///
@@ -75,9 +53,7 @@ pub async fn handler(
 
             match result {
                 DeliveryResult::SseStream(events) => {
-                    let stream = SseEventStream {
-                        inner: events.into_iter(),
-                    };
+                    let stream = SseEventStream::new(events);
                     Ok(Sse::new(stream).into_response())
                 }
                 DeliveryResult::JsonResponse(json) => Ok(Json(json).into_response()),
@@ -99,17 +75,6 @@ pub async fn handler(
             }
         }
     }
-}
-
-/// Convert a delivery `SseEvent` into an axum `Event`.
-///
-/// Maps the event type and data fields into the SSE wire format.
-fn to_axum_event(e: delivery::SseEvent) -> Event {
-    let mut event = Event::default();
-    if !e.event_type.is_empty() {
-        event = event.event(e.event_type);
-    }
-    event.data(e.data)
 }
 
 #[cfg(test)]
