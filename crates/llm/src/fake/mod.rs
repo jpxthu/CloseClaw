@@ -364,6 +364,7 @@ impl FakeProvider {
             segment_granularity,
         } = scenario
         {
+            apply_first_token_delay(delivery).await;
             if let Some((status, body, retry_after)) = should_inject_http_error(delivery) {
                 return Err(ProviderError::Http {
                     status_code: status,
@@ -371,7 +372,6 @@ impl FakeProvider {
                     retry_after,
                 });
             }
-            apply_first_token_delay(delivery).await;
             // Split Text blocks by segment_granularity for segment-based streaming
             let final_blocks: Vec<RawContentBlock> = if segment_granularity > 0 {
                 let mut result = Vec::new();
