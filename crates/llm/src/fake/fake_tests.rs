@@ -946,7 +946,6 @@ async fn test_streaming_tool_use_no_segmentation() {
     assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 }
-// ── ToolUse segment_granularity tests (Step 1.3) ──────────────────────
 #[tokio::test]
 async fn test_streaming_mixed_text_and_tool_use_segmented() {
     let provider = FakeProvider::builder().build();

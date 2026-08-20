@@ -1,6 +1,6 @@
-use super::super::provider::ProviderError;
 use super::fake_scenario::DeliveryConfig;
 use super::*;
+use crate::provider::ProviderError;
 use std::time::{Duration, Instant};
 
 // ── send_models tests (Step 1.6) ────────────────────────────────────────────
