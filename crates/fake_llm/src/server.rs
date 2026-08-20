@@ -38,7 +38,9 @@ pub async fn start_server_addr(addr: &str) -> anyhow::Result<std::net::SocketAdd
 
     let app = app();
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!(error = %e, "Fake LLM Server failed");
+        }
     });
 
     Ok(bound_addr)

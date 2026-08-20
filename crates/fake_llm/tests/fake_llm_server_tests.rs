@@ -16,8 +16,16 @@ async fn spawn_server() -> SocketAddr {
     let addr = start_server_addr("127.0.0.1:0")
         .await
         .expect("failed to start server on 127.0.0.1:0");
-    // Brief yield to let the spawned task start accepting connections.
-    tokio::task::yield_now().await;
+    // Retry connecting until the server is ready (max 10 retries, 10ms each).
+    let client = reqwest::Client::new();
+    let url = format!("http://{addr}/v1/models");
+    for i in 0..10 {
+        match client.get(&url).send().await {
+            Ok(_) => break,
+            Err(_) if i < 9 => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+            Err(e) => panic!("server not ready after 10 retries: {e}"),
+        }
+    }
     addr
 }
 
