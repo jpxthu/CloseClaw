@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
+use crate::kv_cache::KvCacheSimulator;
 use crate::types::{RequestFeatures, ScenarioDecision};
 
 pub mod loader;
@@ -61,6 +62,7 @@ pub enum ModelsDecision {
 pub struct ScenarioEngine {
     matcher: MatcherIndex,
     sessions: SessionTracker,
+    kv_cache: KvCacheSimulator,
 }
 
 impl ScenarioEngine {
@@ -76,6 +78,7 @@ impl ScenarioEngine {
         Ok(Self {
             matcher,
             sessions: SessionTracker::new(),
+            kv_cache: KvCacheSimulator::new(),
         })
     }
 
@@ -85,6 +88,7 @@ impl ScenarioEngine {
         Self {
             matcher,
             sessions: SessionTracker::new(),
+            kv_cache: KvCacheSimulator::new(),
         }
     }
 
@@ -119,7 +123,7 @@ impl ScenarioEngine {
         }
 
         let response_blocks = Self::build_response_blocks(&turn_resp.response);
-        let usage = Self::extract_usage(&turn_resp.response);
+        let mut usage = Self::extract_usage(&turn_resp.response);
         let blocks = if response_blocks.is_empty() {
             vec![ResponseBlock {
                 block_type: "text".to_string(),
@@ -132,6 +136,18 @@ impl ScenarioEngine {
         } else {
             response_blocks
         };
+
+        // KV cache simulation: compute cache fields and merge into usage.
+        // Explicit injection from the turn's usage takes priority over auto.
+        let explicit_hit = usage.as_ref().and_then(|u| u.cache_hit_tokens);
+        let explicit_write = usage.as_ref().and_then(|u| u.cache_write_tokens);
+        let cache_result = self.kv_cache.process(
+            &features.messages,
+            &features.tools,
+            explicit_hit,
+            explicit_write,
+        );
+        Self::merge_cache_into_usage(&mut usage, &cache_result);
 
         DecisionOutcome::Decision(ScenarioDecision {
             model: features.model.clone(),
@@ -276,6 +292,26 @@ impl ScenarioEngine {
         match shape {
             ResponseShape::Usage(u) => Some(u.clone()),
             _ => None,
+        }
+    }
+
+    /// Merge KV cache simulation results into usage fields.
+    ///
+    /// Only fills fields that are `None` (auto-simulated values).
+    /// Explicit injection values already present in `usage` are preserved.
+    fn merge_cache_into_usage(
+        usage: &mut Option<UsageResponse>,
+        cache: &crate::kv_cache::CacheResult,
+    ) {
+        if cache.cache_hit_tokens.is_none() && cache.cache_write_tokens.is_none() {
+            return;
+        }
+        let u = usage.get_or_insert_with(UsageResponse::default);
+        if u.cache_hit_tokens.is_none() {
+            u.cache_hit_tokens = cache.cache_hit_tokens;
+        }
+        if u.cache_write_tokens.is_none() {
+            u.cache_write_tokens = cache.cache_write_tokens;
         }
     }
 }

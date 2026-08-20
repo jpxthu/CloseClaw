@@ -14,11 +14,13 @@
 
 pub mod delivery;
 pub mod endpoints;
+pub mod kv_cache;
 pub mod protocol;
 pub mod scenario;
 pub mod server;
 pub mod types;
 
+pub use kv_cache::{CacheResult, CacheState, KvCacheSimulator};
 pub use scenario::types as scenario_types;
 pub use scenario::{DecisionOutcome, ModelsDecision, ScenarioEngine, ScenarioState};
 pub use types::{RequestFeatures, ScenarioDecision};
