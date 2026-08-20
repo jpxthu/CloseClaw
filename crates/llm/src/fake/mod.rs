@@ -229,6 +229,10 @@ impl Default for FakeProvider {
 #[path = "fake_tests.rs"]
 mod tests;
 
+#[cfg(all(test, feature = "fake-llm"))]
+#[path = "fake_models_tests.rs"]
+mod models_tests;
+
 // ── Non-streaming delivery helpers ─────────────────────────────────────────
 
 impl FakeProvider {

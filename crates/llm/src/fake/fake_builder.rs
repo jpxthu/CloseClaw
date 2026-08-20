@@ -286,6 +286,38 @@ impl Builder {
         self
     }
 
+    /// Add a model discovery scenario — returns the given models list.
+    pub fn then_models(mut self, models: Vec<String>, model: impl Into<String>) -> Self {
+        self.state.scenarios.push_back(Scenario::Models {
+            models,
+            model: model.into(),
+            delivery: DeliveryConfig::default(),
+        });
+        self
+    }
+
+    /// Add a model discovery scenario that injects an HTTP error.
+    pub fn then_models_error(
+        mut self,
+        model: impl Into<String>,
+        status_code: u16,
+        retry_after: Option<u64>,
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Models {
+            models: Vec::new(),
+            model: model.into(),
+            delivery: DeliveryConfig {
+                error_injection: Some(ErrorInjection {
+                    status_code,
+                    message: format!("HTTP {}", status_code),
+                    retry_after,
+                }),
+                ..Default::default()
+            },
+        });
+        self
+    }
+
     /// Set whether usage metrics are included in streaming responses.
     pub fn include_usage(mut self, val: bool) -> Self {
         if let Some(Scenario::Ok {
