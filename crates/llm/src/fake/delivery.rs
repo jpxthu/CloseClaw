@@ -199,7 +199,7 @@ fn openai_done() -> SseEvent {
 /// 4. For each ToolUse block: tool_call start + delta chunks
 ///    (input is split by `segment_granularity` into multiple deltas)
 /// 5. Finish chunk with `finish_reason = "stop"` or `"tool_calls"`
-/// 6. `[DONE]` sentinel (only when `finish_reason = "stop"`)
+/// 6. `[DONE]` sentinel
 pub(crate) fn generate_openai_sse(
     content_blocks: &[RawContentBlock],
     model: &str,
@@ -242,8 +242,8 @@ pub(crate) fn generate_openai_sse(
         ));
     } else {
         events.push(openai_finish_chunk(model, usage, include_usage, "stop"));
-        events.push(openai_done());
     }
+    events.push(openai_done());
     events
 }
 

@@ -83,6 +83,12 @@ pub enum Scenario {
         prompt_tokens: u32,
         completion_tokens: u32,
     },
+    /// Respond with a model discovery list, with optional delivery control.
+    Models {
+        models: Vec<String>,
+        model: String,
+        delivery: DeliveryConfig,
+    },
     /// Sleep for the given duration then behave as the wrapped scenario.
     Delay {
         duration: Duration,
@@ -162,6 +168,13 @@ impl Scenario {
                 cache_read_tokens: None,
                 cache_write_tokens: None,
             },
+            Self::Models { .. } => RawUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: Some(0),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
             Self::Delay { inner, .. } => inner.raw_usage(),
         }
     }
@@ -206,6 +219,15 @@ impl Clone for Scenario {
                     completion_tokens: *completion_tokens,
                 }
             }
+            Self::Models {
+                models,
+                model,
+                delivery,
+            } => Self::Models {
+                models: models.clone(),
+                model: model.clone(),
+                delivery: delivery.clone(),
+            },
             Self::Delay { duration, inner } => Self::Delay {
                 duration: *duration,
                 inner: inner.clone(),
