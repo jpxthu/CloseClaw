@@ -153,22 +153,31 @@ pub enum ResponseShape {
 }
 
 /// Plain text response content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TextResponse {
     /// The text content to return.
+    #[serde(default)]
     pub content: String,
+    /// Optional token usage report.
+    #[serde(default)]
+    pub usage: Option<UsageResponse>,
 }
 
 /// Reasoning / thinking response content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReasoningResponse {
     /// The visible text content.
+    #[serde(default)]
     pub content: String,
     /// The hidden reasoning text.
+    #[serde(default)]
     pub reasoning: String,
     /// Optional reasoning signature for verification.
     #[serde(default)]
     pub signature: Option<String>,
+    /// Optional token usage report.
+    #[serde(default)]
+    pub usage: Option<UsageResponse>,
 }
 
 /// A single tool call entry.
@@ -181,10 +190,14 @@ pub struct ToolCallEntry {
 }
 
 /// Tool call response containing one or more calls.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolCallResponse {
     /// The list of tool calls to execute.
+    #[serde(default)]
     pub calls: Vec<ToolCallEntry>,
+    /// Optional token usage report.
+    #[serde(default)]
+    pub usage: Option<UsageResponse>,
 }
 
 /// Token usage breakdown.
@@ -558,6 +571,7 @@ mod tests {
                 turns: vec![TurnResponse {
                     response: ResponseShape::Text(TextResponse {
                         content: "hi".to_string(),
+                        usage: None,
                     }),
                     delay: Some(100),
                     error: None,

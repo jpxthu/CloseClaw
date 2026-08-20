@@ -47,6 +47,7 @@ hex = "0.4"
 async-stream = "0.3.6"
 
 [dev-dependencies]
+anyhow = "1.0"
 mockito = "1.2"
 tempfile = "3"
 
