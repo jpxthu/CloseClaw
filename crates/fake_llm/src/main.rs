@@ -5,6 +5,7 @@
 //! during integration and E2E testing.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use clap::Parser;
 
@@ -18,6 +19,11 @@ struct Args {
     /// Address to bind to (e.g. "127.0.0.1:0").
     #[arg(long, default_value = "127.0.0.1:0")]
     addr: SocketAddr,
+
+    /// Directory containing scenario JSON files.
+    /// If not provided, the server uses default placeholder responses.
+    #[arg(long)]
+    scenarios_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -32,5 +38,6 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     tracing::info!("Starting Fake LLM Server on {}", args.addr);
 
-    closeclaw_fake_llm::server::start_server(&args.addr.to_string()).await
+    closeclaw_fake_llm::server::start_server(&args.addr.to_string(), args.scenarios_dir.as_deref())
+        .await
 }

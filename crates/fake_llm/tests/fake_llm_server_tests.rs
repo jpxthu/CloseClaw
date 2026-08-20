@@ -13,7 +13,7 @@ use closeclaw_fake_llm::server::start_server_addr;
 /// background tokio task; dropping the returned handle does NOT shut it down
 /// (the runtime drop does).
 async fn spawn_server() -> SocketAddr {
-    let addr = start_server_addr("127.0.0.1:0")
+    let addr = start_server_addr("127.0.0.1:0", None)
         .await
         .expect("failed to start server on 127.0.0.1:0");
     // Retry connecting until the server is ready (max 10 retries, 10ms each).
