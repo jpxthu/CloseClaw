@@ -456,32 +456,14 @@ fn spawn_prompt_when_to_use() -> String {
 }
 
 /// Append budget-awareness text to the prompt parts.
-fn spawn_prompt_add_budget_status(context: &PromptGenerationContext, parts: &mut Vec<String>) {
-    match context.effective_spawn_budget {
-        Some(0) | Some(u32::MAX) => {
-            parts.push(
-                "sessions_spawn is not available — your spawn budget is \
-                 exhausted. You have reached the maximum allowed spawn \
-                 depth. Complete current tasks before spawning new children."
-                    .to_string(),
-            );
-        }
-        Some(budget) => {
-            parts.push(format!(
-                "sessions_spawn is available (spawn budget: {}). \
-                 Use this budget wisely — prefer consolidating related \
-                 tasks into fewer child sessions when possible.",
-                budget
-            ));
-        }
-        None => {
-            parts.push(
-                "sessions_spawn is available. Spawn budget is unknown — \
-                 use with reasonable caution."
-                    .to_string(),
-            );
-        }
-    }
+/// Since budget filtering is now handled at session creation time
+/// (whitelist removal), this always reports the tool as available.
+fn spawn_prompt_add_budget_status(_context: &PromptGenerationContext, parts: &mut Vec<String>) {
+    parts.push(
+        "sessions_spawn is available. Spawn budget is managed at session \
+         creation time — use with reasonable caution."
+            .to_string(),
+    );
 }
 
 /// "Usage principles" section for the sessions_spawn tool prompt.

@@ -70,14 +70,6 @@ pub enum SlashResult {
     SetVerbosity {
         level: crate::verbosity::VerbosityLevel,
     },
-    /// Inject a meta message into the agent conversation context.
-    ///
-    /// Used by skill slash commands to inject skill body content
-    /// as inline instructions (same mechanism as SkillTool).
-    InjectMeta {
-        /// The meta message content to inject.
-        content: String,
-    },
     /// Unknown command — no handler matched.
     Unknown(String),
 }

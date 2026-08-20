@@ -15,13 +15,6 @@ pub struct FragmentContext {
     /// Directory containing bootstrap files, used by [`BootstrapFragmentProvider`]
     /// to locate bootstrap files.
     pub bootstrap_dir: PathBuf,
-    /// Effective spawn depth budget for the current session.
-    ///
-    /// When `Some(budget)` where `budget ≤ 0`, the `sessions_spawn`
-    /// tool is filtered out of the visible tool list — the session
-    /// cannot spawn further children (design doc §Depth 追踪).
-    /// `None` means the budget is unknown (no filtering applied).
-    pub effective_spawn_budget: Option<u32>,
 }
 
 impl FragmentContext {
@@ -38,7 +31,6 @@ impl FragmentContext {
             agent_id: String::new(),
             bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir(),
-            effective_spawn_budget: None,
         }
     }
 }
