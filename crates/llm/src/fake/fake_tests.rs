@@ -733,3 +733,244 @@ fn test_builder_include_usage_on_last_only() {
         _ => panic!("Expected Scenario::Ok"),
     }
 }
+
+// ── ToolUse segment_granularity tests (Step 1.3) ──────────────────────
+
+#[tokio::test]
+async fn test_streaming_tool_use_segmented_openai() {
+    let provider = FakeProvider::builder().build();
+    {
+        let mut state = provider.inner.lock().unwrap();
+        state.scenarios.push_back(Scenario::Ok {
+            content_blocks: vec![RawContentBlock::ToolUse {
+                id: "call_1".into(),
+                name: "search".into(),
+                input: "abcd".into(),
+            }],
+            model: "gpt-4".into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig::default(),
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 2,
+        });
+    }
+    let mut rx = provider
+        .send_streaming(make_request(), serde_json::Value::Null)
+        .await
+        .unwrap();
+    let _role = rx.recv().await.unwrap();
+    let start: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(
+        start["choices"][0]["delta"]["tool_calls"][0]["id"],
+        "call_1"
+    );
+    assert_eq!(
+        start["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
+        "search"
+    );
+    // "abcd" → "ab", "cd"
+    for expected in &["ab", "cd"] {
+        let d: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+        assert_eq!(
+            d["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
+            *expected
+        );
+    }
+    let finish: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(finish["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
+    assert!(rx.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn test_streaming_tool_use_segmented_anthropic() {
+    let provider = FakeProvider::builder().build();
+    {
+        let mut state = provider.inner.lock().unwrap();
+        state.scenarios.push_back(Scenario::Ok {
+            content_blocks: vec![RawContentBlock::ToolUse {
+                id: "tool_1".into(),
+                name: "calculator".into(),
+                input: "wxyz".into(),
+            }],
+            model: "claude-3".into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig::default(),
+            include_usage: false,
+            protocol: ProtocolId::new("anthropic"),
+            segment_granularity: 2,
+        });
+    }
+    let mut rx = provider
+        .send_streaming(make_request(), serde_json::Value::Null)
+        .await
+        .unwrap();
+    let start: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(start["type"], "message");
+    let cbs: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(cbs["content_block"]["type"], "tool_use");
+    assert_eq!(cbs["content_block"]["id"], "tool_1");
+    let ping: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(ping["type"], "ping");
+    // "wxyz" → "wx", "yz"
+    for expected in &["wx", "yz"] {
+        let d: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+        assert_eq!(d["delta"]["type"], "input_json_delta");
+        assert_eq!(d["delta"]["partial_json"], *expected);
+    }
+    let cbs_stop: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(cbs_stop["type"], "content_block_stop");
+    let msg_delta: serde_json::Value =
+        serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(msg_delta["delta"]["stop_reason"], "tool_use");
+    let stop: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(stop["type"], "message_stop");
+    assert!(rx.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn test_streaming_tool_use_no_segmentation() {
+    // Case 1: granularity=0 → input unsegmented
+    let provider = FakeProvider::builder().build();
+    {
+        let mut state = provider.inner.lock().unwrap();
+        state.scenarios.push_back(Scenario::Ok {
+            content_blocks: vec![RawContentBlock::ToolUse {
+                id: "call_2".into(),
+                name: "fetch".into(),
+                input: "abcdef".into(),
+            }],
+            model: "gpt-4".into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig::default(),
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 0,
+        });
+    }
+    let mut rx = provider
+        .send_streaming(make_request(), serde_json::Value::Null)
+        .await
+        .unwrap();
+    let _role = rx.recv().await.unwrap();
+    let start = rx.recv().await.unwrap();
+    let start_data: serde_json::Value = serde_json::from_str(&start.data).unwrap();
+    assert_eq!(
+        start_data["choices"][0]["delta"]["tool_calls"][0]["id"],
+        "call_2"
+    );
+    let delta = rx.recv().await.unwrap();
+    let delta_data: serde_json::Value = serde_json::from_str(&delta.data).unwrap();
+    assert_eq!(
+        delta_data["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
+        "abcdef"
+    );
+    let finish = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
+    assert!(rx.recv().await.is_none());
+
+    // Case 2: empty input → no delta emitted
+    let provider2 = FakeProvider::builder().build();
+    {
+        let mut state = provider2.inner.lock().unwrap();
+        state.scenarios.push_back(Scenario::Ok {
+            content_blocks: vec![RawContentBlock::ToolUse {
+                id: "call_3".into(),
+                name: "noop".into(),
+                input: "".into(),
+            }],
+            model: "gpt-4".into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig::default(),
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 5,
+        });
+    }
+    let mut rx = provider2
+        .send_streaming(make_request(), serde_json::Value::Null)
+        .await
+        .unwrap();
+    let _role = rx.recv().await.unwrap();
+    let start = rx.recv().await.unwrap();
+    let start_data: serde_json::Value = serde_json::from_str(&start.data).unwrap();
+    assert_eq!(
+        start_data["choices"][0]["delta"]["tool_calls"][0]["id"],
+        "call_3"
+    );
+    let finish = rx.recv().await.unwrap();
+    let finish_data: serde_json::Value = serde_json::from_str(&finish.data).unwrap();
+    assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
+    assert!(rx.recv().await.is_none());
+}
+
+#[tokio::test]
+async fn test_streaming_mixed_text_and_tool_use_segmented() {
+    let provider = FakeProvider::builder().build();
+    {
+        let mut state = provider.inner.lock().unwrap();
+        state.scenarios.push_back(Scenario::Ok {
+            content_blocks: vec![
+                RawContentBlock::Text("hello ".into()),
+                RawContentBlock::ToolUse {
+                    id: "call_4".into(),
+                    name: "search".into(),
+                    input: "abcdefgh".into(),
+                },
+            ],
+            model: "gpt-4".into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig::default(),
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 3,
+        });
+    }
+    let mut rx = provider
+        .send_streaming(make_request(), serde_json::Value::Null)
+        .await
+        .unwrap();
+    let _role = rx.recv().await.unwrap();
+    // Text: "hello " → "hel", "lo "
+    let t1: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(t1["choices"][0]["delta"]["content"], "hel");
+    let t2: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(t2["choices"][0]["delta"]["content"], "lo ");
+    // ToolCall start
+    let tc_start: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(
+        tc_start["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
+        "search"
+    );
+    // ToolCall: "abcdefgh" → "abc", "def", "gh"
+    for expected in &["abc", "def", "gh"] {
+        let d: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+        assert_eq!(
+            d["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
+            *expected
+        );
+    }
+    let finish: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
+    assert_eq!(finish["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
+    assert!(rx.recv().await.is_none());
+}

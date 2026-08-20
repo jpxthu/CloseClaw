@@ -197,6 +197,7 @@ fn openai_done() -> SseEvent {
 /// 2. For each Thinking block: reasoning_content delta chunks
 /// 3. For each Text block: content delta chunks
 /// 4. For each ToolUse block: tool_call start + delta chunks
+///    (input is split by `segment_granularity` into multiple deltas)
 /// 5. Finish chunk with `finish_reason = "stop"` or `"tool_calls"`
 /// 6. `[DONE]` sentinel
 pub(crate) fn generate_openai_sse(
@@ -204,6 +205,7 @@ pub(crate) fn generate_openai_sse(
     model: &str,
     usage: &RawUsage,
     include_usage: bool,
+    segment_granularity: usize,
 ) -> Vec<SseEvent> {
     // Estimate capacity: role + blocks * ~2 + finish + done
     let mut events = Vec::with_capacity(content_blocks.len() * 2 + 3);
@@ -221,9 +223,11 @@ pub(crate) fn generate_openai_sse(
             }
             RawContentBlock::ToolUse { id, name, input } => {
                 events.push(openai_tool_call_start(model, id, name));
-                // Emit arguments in one delta (granularity can be added later)
                 if !input.is_empty() {
-                    events.push(openai_tool_call_delta(model, id, input));
+                    let segments = split_segments(input, segment_granularity);
+                    for seg in &segments {
+                        events.push(openai_tool_call_delta(model, id, seg));
+                    }
                 }
             }
             _ => {} // ToolResult not relevant for SSE generation
@@ -440,6 +444,7 @@ pub(crate) fn generate_anthropic_sse(
     content_blocks: &[RawContentBlock],
     model: &str,
     usage: &RawUsage,
+    segment_granularity: usize,
 ) -> Vec<SseEvent> {
     let has_tool_use = content_blocks
         .iter()
@@ -477,7 +482,10 @@ pub(crate) fn generate_anthropic_sse(
                     events.push(anthropic_ping());
                 }
                 if !input.is_empty() {
-                    events.push(anthropic_input_json_delta(idx, input));
+                    let segments = split_segments(input, segment_granularity);
+                    for seg in &segments {
+                        events.push(anthropic_input_json_delta(idx, seg));
+                    }
                 }
                 events.push(anthropic_content_block_stop(idx));
             }

@@ -307,7 +307,7 @@ impl FakeProvider {
             cache_write_tokens: None,
         };
         let blocks = vec![RawContentBlock::Text(fallback)];
-        let events = generate_openai_sse(&blocks, "fake-fallback", &usage, false);
+        let events = generate_openai_sse(&blocks, "fake-fallback", &usage, false, 0);
         for event in &events {
             let _ = tx
                 .send(RawSseChunk {
@@ -372,7 +372,9 @@ impl FakeProvider {
                     retry_after,
                 });
             }
-            // Split Text blocks by segment_granularity for segment-based streaming
+            // Split Text blocks by segment_granularity for segment-based streaming.
+            // ToolUse input splitting is handled inside SSE generation functions
+            // to avoid duplicate tool_call_start / content_block_start events.
             let final_blocks: Vec<RawContentBlock> = if segment_granularity > 0 {
                 let mut result = Vec::new();
                 for block in content_blocks {
@@ -398,9 +400,15 @@ impl FakeProvider {
                 cache_write_tokens,
             };
             let events = if *protocol == ProtocolId::new("anthropic") {
-                generate_anthropic_sse(&final_blocks, model, &usage)
+                generate_anthropic_sse(&final_blocks, model, &usage, segment_granularity)
             } else {
-                generate_openai_sse(&final_blocks, model, &usage, include_usage)
+                generate_openai_sse(
+                    &final_blocks,
+                    model,
+                    &usage,
+                    include_usage,
+                    segment_granularity,
+                )
             };
             self.emit_stream_events(tx, events, delivery).await;
         }
