@@ -435,10 +435,13 @@ fn anthropic_message_stop() -> SseEvent {
 /// * `model` — Model identifier returned in `message_start`.
 /// * `usage` — Token usage for `message_start` and `message_delta`.
 /// * `segment_granularity` — Maximum characters per segment. When > 0,
-///   Text blocks are split into multiple `text_delta` events and ToolUse
-///   `input` is split into multiple `input_json_delta` events, each
-///   containing at most this many characters. A value of 0 disables
+///   ToolUse `input` is split into multiple `input_json_delta` events,
+///   each containing at most this many characters. A value of 0 disables
 ///   segmentation.
+///
+/// **Note:** Text block splitting into multiple `text_delta` events is
+/// handled by the caller (`send_scenario_stream`), not within this
+/// function.
 ///
 /// # Sequence
 ///
