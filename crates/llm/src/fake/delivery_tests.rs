@@ -57,6 +57,7 @@ fn test_openai_sse_basic() {
         "gpt-4",
         &usage,
         false,
+        0,
     );
 
     // role chunk → content delta → finish → [DONE] = 4
@@ -98,6 +99,7 @@ fn test_openai_sse_multiple_segments() {
         "gpt-4",
         &usage,
         false,
+        0,
     );
 
     // role + 4 content + finish + [DONE] = 7
@@ -126,7 +128,13 @@ fn test_openai_sse_include_usage() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let events = generate_openai_sse(&[RawContentBlock::Text("a".into())], "gpt-4", &usage, true);
+    let events = generate_openai_sse(
+        &[RawContentBlock::Text("a".into())],
+        "gpt-4",
+        &usage,
+        true,
+        0,
+    );
 
     let finish_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
     assert_eq!(finish_data["usage"]["prompt_tokens"], 50);
@@ -143,7 +151,13 @@ fn test_openai_sse_exclude_usage() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let events = generate_openai_sse(&[RawContentBlock::Text("a".into())], "gpt-4", &usage, false);
+    let events = generate_openai_sse(
+        &[RawContentBlock::Text("a".into())],
+        "gpt-4",
+        &usage,
+        false,
+        0,
+    );
 
     let finish_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
     assert!(finish_data.get("usage").is_none());
@@ -158,7 +172,7 @@ fn test_openai_sse_usage_computed_when_total_none() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let events = generate_openai_sse(&[RawContentBlock::Text("x".into())], "m", &usage, true);
+    let events = generate_openai_sse(&[RawContentBlock::Text("x".into())], "m", &usage, true, 0);
 
     let finish_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
     assert_eq!(finish_data["usage"]["total_tokens"], 30);
@@ -175,8 +189,12 @@ fn test_anthropic_sse_basic() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let events =
-        generate_anthropic_sse(&[RawContentBlock::Text("hello".into())], "claude-3", &usage);
+    let events = generate_anthropic_sse(
+        &[RawContentBlock::Text("hello".into())],
+        "claude-3",
+        &usage,
+        0,
+    );
 
     // message_start + content_block_start + ping + delta + content_block_stop
     // + message_delta + message_stop = 7
@@ -236,6 +254,7 @@ fn test_anthropic_sse_multiple_segments() {
         ],
         "claude-3",
         &usage,
+        0,
     );
 
     // start + block_start + ping + 3*(delta+block_stop) + msg_delta + msg_stop = 13
@@ -264,7 +283,7 @@ fn test_anthropic_sse_empty_content() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let events = generate_anthropic_sse(&[RawContentBlock::Text("".into())], "claude-3", &usage);
+    let events = generate_anthropic_sse(&[RawContentBlock::Text("".into())], "claude-3", &usage, 0);
 
     // Still generates full sequence (with empty delta)
     assert_eq!(events.len(), 7);
@@ -281,7 +300,7 @@ fn test_anthropic_sse_always_includes_usage() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let events = generate_anthropic_sse(&[RawContentBlock::Text("x".into())], "m", &usage);
+    let events = generate_anthropic_sse(&[RawContentBlock::Text("x".into())], "m", &usage, 0);
 
     // message_start includes input usage
     let start: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
@@ -303,8 +322,8 @@ fn test_both_protocols_end_with_stop() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let oai = generate_openai_sse(&[RawContentBlock::Text("a".into())], "m", &usage, false);
-    let ant = generate_anthropic_sse(&[RawContentBlock::Text("a".into())], "m", &usage);
+    let oai = generate_openai_sse(&[RawContentBlock::Text("a".into())], "m", &usage, false, 0);
+    let ant = generate_anthropic_sse(&[RawContentBlock::Text("a".into())], "m", &usage, 0);
 
     // OpenAI ends with [DONE]
     assert_eq!(oai.last().unwrap().data, "[DONE]");
@@ -322,8 +341,8 @@ fn test_all_events_use_message_event_type() {
         cache_read_tokens: None,
         cache_write_tokens: None,
     };
-    let oai = generate_openai_sse(&[RawContentBlock::Text("a".into())], "m", &usage, false);
-    let ant = generate_anthropic_sse(&[RawContentBlock::Text("a".into())], "m", &usage);
+    let oai = generate_openai_sse(&[RawContentBlock::Text("a".into())], "m", &usage, false, 0);
+    let ant = generate_anthropic_sse(&[RawContentBlock::Text("a".into())], "m", &usage, 0);
 
     for e in &oai {
         assert_eq!(e.event_type, "message");
@@ -352,6 +371,7 @@ fn test_openai_sse_thinking_only() {
         "gpt-4",
         &usage,
         false,
+        0,
     );
 
     // role + reasoning_delta + finish(stop) + [DONE] = 4
@@ -391,10 +411,11 @@ fn test_openai_sse_tool_use_only() {
         "gpt-4",
         &usage,
         false,
+        0,
     );
 
-    // role + tool_call_start + tool_call_delta + finish(tool_calls) + [DONE] = 5
-    assert_eq!(events.len(), 5);
+    // role + tool_call_start + tool_call_delta + finish(tool_calls) = 4
+    assert_eq!(events.len(), 4);
 
     let start_data: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(
@@ -414,8 +435,6 @@ fn test_openai_sse_tool_use_only() {
 
     let finish_data: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
-
-    assert_eq!(events[4].data, "[DONE]");
 }
 
 #[test]
@@ -439,10 +458,11 @@ fn test_openai_sse_mixed_text_and_tool_use() {
         "gpt-4",
         &usage,
         false,
+        0,
     );
 
-    // role + content_delta + tool_call_start + tool_call_delta + finish(tool_calls) + [DONE] = 6
-    assert_eq!(events.len(), 6);
+    // role + content_delta + tool_call_start + tool_call_delta + finish(tool_calls) = 5
+    assert_eq!(events.len(), 5);
 
     let content_data: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(
@@ -464,8 +484,6 @@ fn test_openai_sse_mixed_text_and_tool_use() {
 
     let finish_data: serde_json::Value = serde_json::from_str(&events[4].data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
-
-    assert_eq!(events[5].data, "[DONE]");
 }
 
 #[test]
@@ -484,6 +502,7 @@ fn test_anthropic_sse_thinking_with_signature() {
         }],
         "claude-3",
         &usage,
+        0,
     );
 
     // start + block_start + ping + thinking_delta + signature_delta + block_stop
@@ -519,6 +538,7 @@ fn test_anthropic_sse_tool_use() {
         }],
         "claude-3",
         &usage,
+        0,
     );
 
     // start + block_start + ping + input_json_delta + block_stop
@@ -533,6 +553,11 @@ fn test_anthropic_sse_tool_use() {
     let json_delta: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
     assert_eq!(json_delta["delta"]["type"], "input_json_delta");
     assert_eq!(json_delta["delta"]["partial_json"], "{\"expr\":\"1+1\"}");
+
+    // ToolUse content should produce stop_reason = "tool_use"
+    let msg_delta: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+    assert_eq!(msg_delta["type"], "message_delta");
+    assert_eq!(msg_delta["delta"]["stop_reason"], "tool_use");
 }
 
 #[test]
@@ -559,6 +584,7 @@ fn test_anthropic_sse_mixed_blocks() {
         ],
         "claude-3",
         &usage,
+        0,
     );
 
     // start + block_start + ping
@@ -586,6 +612,10 @@ fn test_anthropic_sse_mixed_blocks() {
     assert_eq!(tool_start["content_block"]["type"], "tool_use");
     let tool_delta: serde_json::Value = serde_json::from_str(&events[9].data).unwrap();
     assert_eq!(tool_delta["delta"]["type"], "input_json_delta");
+
+    // Mixed blocks with ToolUse should produce stop_reason = "tool_use"
+    let msg_delta: serde_json::Value = serde_json::from_str(&events[11].data).unwrap();
+    assert_eq!(msg_delta["delta"]["stop_reason"], "tool_use");
 }
 
 // ── Delay injection ─────────────────────────────────────────────────
