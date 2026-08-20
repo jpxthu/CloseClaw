@@ -81,42 +81,75 @@ impl ScenarioEngine {
     pub fn decide(&mut self, features: &RequestFeatures) -> DecisionOutcome {
         let matched_idx = match self.matcher.match_request(features) {
             Some(idx) => idx,
-            None => {
-                // No scenario matched — return a placeholder response.
-                return DecisionOutcome::Decision(ScenarioDecision {
-                    model: features.model.clone(),
-                    scenario: "default".to_string(),
-                    stream: features.stream,
-                    response_blocks: vec![ResponseBlock {
-                        block_type: "text".to_string(),
-                        content: Some("placeholder".to_string()),
-                        tool_name: None,
-                        tool_arguments: None,
-                    }],
-                    http_error: None,
-                    delay: None,
-                    usage: None,
-                });
-            }
+            None => return Self::placeholder_decision(features),
         };
 
         let matched = self.matcher.get(matched_idx);
-
-        // Extract message content strings for session tracking.
         let message_strings: Vec<String> = features
             .messages
             .iter()
             .map(|m| m.content.clone())
             .collect();
-
         let turn = self.sessions.advance_turn(&message_strings, &matched.name);
 
-        if let Some(error) = &matched.turns[turn].error {
-            return DecisionOutcome::Error(error.clone());
+        let max_turns = matched.turns.len();
+        if turn >= max_turns {
+            panic!(
+                "scenario '{}' exceeded declared turns (turn {}, max {})",
+                matched.name, turn, max_turns
+            );
         }
 
         let turn_resp = &matched.turns[turn];
-        let response_blocks = match &turn_resp.response {
+        if let Some(error) = &turn_resp.error {
+            return DecisionOutcome::Error(error.clone());
+        }
+
+        let response_blocks = Self::build_response_blocks(&turn_resp.response);
+        let usage = Self::extract_usage(&turn_resp.response);
+        let blocks = if response_blocks.is_empty() {
+            vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("placeholder".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+            }]
+        } else {
+            response_blocks
+        };
+
+        DecisionOutcome::Decision(ScenarioDecision {
+            model: features.model.clone(),
+            scenario: matched.name.clone(),
+            stream: features.stream,
+            response_blocks: blocks,
+            http_error: None,
+            delay: turn_resp.delay,
+            usage,
+        })
+    }
+
+    /// Placeholder decision when no scenario matches.
+    fn placeholder_decision(features: &RequestFeatures) -> DecisionOutcome {
+        DecisionOutcome::Decision(ScenarioDecision {
+            model: features.model.clone(),
+            scenario: "default".to_string(),
+            stream: features.stream,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("placeholder".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: None,
+        })
+    }
+
+    /// Build response blocks from a response shape.
+    fn build_response_blocks(shape: &ResponseShape) -> Vec<ResponseBlock> {
+        match shape {
             ResponseShape::Text(t) => vec![ResponseBlock {
                 block_type: "text".to_string(),
                 content: Some(t.content.clone()),
@@ -135,22 +168,15 @@ impl ScenarioEngine {
                 tool_name: None,
                 tool_arguments: None,
             }],
-        };
+        }
+    }
 
-        let usage = match &turn_resp.response {
+    /// Extract usage from a response shape, if present.
+    fn extract_usage(shape: &ResponseShape) -> Option<UsageResponse> {
+        match shape {
             ResponseShape::Usage(u) => Some(u.clone()),
             _ => None,
-        };
-
-        DecisionOutcome::Decision(ScenarioDecision {
-            model: features.model.clone(),
-            scenario: matched.name.clone(),
-            stream: features.stream,
-            response_blocks,
-            http_error: None,
-            delay: turn_resp.delay,
-            usage,
-        })
+        }
     }
 }
 
@@ -612,5 +638,44 @@ mod tests {
             }
             DecisionOutcome::Error(_) => panic!("expected decision"),
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeded declared turns")]
+    fn decide_panics_on_turn_overflow() {
+        let scenario = ScenarioDeclaration {
+            name: "single-turn".to_string(),
+            match_: None,
+            turns: vec![text_turn("only one")],
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+
+        // First request → turn 0, succeeds.
+        let feat1 = features("gpt-4", "hi");
+        let _ = engine.decide(&feat1);
+
+        // Second request with extended history → turn 1, exceeds max 1.
+        let feat2 = RequestFeatures {
+            model: "gpt-4".to_string(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: vec![
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "hi".to_string(),
+                },
+                MessageEntry {
+                    role: "assistant".to_string(),
+                    content: "only one".to_string(),
+                },
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "next".to_string(),
+                },
+            ],
+            tools: vec![],
+        };
+        let _ = engine.decide(&feat2);
     }
 }

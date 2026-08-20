@@ -7,6 +7,43 @@ use serde::{Deserialize, Serialize};
 
 use crate::scenario::types::{HttpError, MessageEntry, ResponseBlock, UsageResponse};
 
+// ---------------------------------------------------------------------------
+// Shared extraction helpers
+// ---------------------------------------------------------------------------
+
+/// Extract text content from a JSON message value.
+///
+/// Handles both string content and array-of-parts content (multimodal).
+/// Returns an empty string for null, numbers, booleans, or objects.
+pub fn extract_text_from_content(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    }
+}
+
+/// Extract tool name strings from a list of tool definition JSON values.
+///
+/// Handles both OpenAI format (`tools[].function.name`) and Anthropic
+/// format (`tools[].name`).
+pub fn extract_tool_names(tools: &[serde_json::Value]) -> Vec<String> {
+    tools
+        .iter()
+        .filter_map(|t| {
+            t.get("function")
+                .and_then(|f| f.get("name"))
+                .or_else(|| t.get("name"))
+                .and_then(|n| n.as_str())
+                .map(String::from)
+        })
+        .collect()
+}
+
 /// Protocol-agnostic request features extracted from incoming LLM requests.
 ///
 /// Once parsed from either OpenAI or Anthropic protocol format, all downstream

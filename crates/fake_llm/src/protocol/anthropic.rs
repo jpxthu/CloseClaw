@@ -5,7 +5,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::scenario::types::MessageEntry;
-use crate::types::{RequestFeatures, ScenarioDecision};
+use crate::types::{
+    extract_text_from_content, extract_tool_names, RequestFeatures, ScenarioDecision,
+};
 
 // ---------------------------------------------------------------------------
 // Request types
@@ -65,15 +67,7 @@ pub fn extract_request_features(req: &MessageRequest) -> RequestFeatures {
         .messages
         .iter()
         .map(|m| {
-            let content = match &m.content {
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Array(arr) => arr
-                    .iter()
-                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                    .collect::<Vec<_>>()
-                    .join(""),
-                _ => String::new(),
-            };
+            let content = extract_text_from_content(&m.content);
             MessageEntry {
                 role: m.role.clone(),
                 content,
@@ -81,15 +75,10 @@ pub fn extract_request_features(req: &MessageRequest) -> RequestFeatures {
         })
         .collect();
 
-    let tools: Vec<String> = req
+    let tools = req
         .tools
         .as_ref()
-        .map(|ts| {
-            ts.iter()
-                .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
-                .map(String::from)
-                .collect()
-        })
+        .map(|ts| extract_tool_names(ts))
         .unwrap_or_default();
 
     RequestFeatures {

@@ -198,8 +198,7 @@ mod tests {
         let messages = vec!["hello".to_string()];
         tracker.advance_turn(&messages, "test");
 
-        // Simulate exceeding 1 declared turn.
-        // The caller (ScenarioEngine) is responsible for this check.
+        // The bounds check is now in ScenarioEngine::decide().
         // This test verifies the expected panic message format.
         panic!("scenario 'test' exceeded declared turns (turn 1, max 1)");
     }

@@ -5,7 +5,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::scenario::types::MessageEntry;
-use crate::types::{RequestFeatures, ScenarioDecision};
+use crate::types::{
+    extract_text_from_content, extract_tool_names, RequestFeatures, ScenarioDecision,
+};
 
 // ---------------------------------------------------------------------------
 // Request types
@@ -65,13 +67,8 @@ pub fn extract_request_features(req: &ChatCompletionRequest) -> RequestFeatures 
         .iter()
         .map(|m| {
             let content = match &m.content {
-                Some(serde_json::Value::String(s)) => s.clone(),
-                Some(serde_json::Value::Array(arr)) => arr
-                    .iter()
-                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                    .collect::<Vec<_>>()
-                    .join(""),
-                _ => String::new(),
+                Some(v) => extract_text_from_content(v),
+                None => String::new(),
             };
             MessageEntry {
                 role: m.role.clone(),
@@ -80,19 +77,10 @@ pub fn extract_request_features(req: &ChatCompletionRequest) -> RequestFeatures 
         })
         .collect();
 
-    let tools: Vec<String> = req
+    let tools = req
         .tools
         .as_ref()
-        .map(|ts| {
-            ts.iter()
-                .filter_map(|t| {
-                    t.get("function")
-                        .and_then(|f| f.get("name"))
-                        .and_then(|n| n.as_str())
-                })
-                .map(String::from)
-                .collect()
-        })
+        .map(|ts| extract_tool_names(ts))
         .unwrap_or_default();
 
     RequestFeatures {
@@ -187,22 +175,7 @@ pub fn build_chat_completion_response_from_decision(
         content
     };
 
-    let usage = decision.usage.as_ref().map_or_else(
-        || Usage {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-        },
-        |u| {
-            let prompt = u.prompt_tokens.unwrap_or(0);
-            let completion = u.completion_tokens.unwrap_or(0);
-            Usage {
-                prompt_tokens: prompt,
-                completion_tokens: completion,
-                total_tokens: prompt + completion,
-            }
-        },
-    );
+    let usage = build_usage_from_decision(decision);
 
     ChatCompletionResponse {
         id: format!(
@@ -222,6 +195,26 @@ pub fn build_chat_completion_response_from_decision(
         }],
         usage,
     }
+}
+
+/// Build OpenAI usage from a scenario decision.
+fn build_usage_from_decision(decision: &ScenarioDecision) -> Usage {
+    decision.usage.as_ref().map_or_else(
+        || Usage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        },
+        |u| {
+            let prompt = u.prompt_tokens.unwrap_or(0);
+            let completion = u.completion_tokens.unwrap_or(0);
+            Usage {
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                total_tokens: prompt + completion,
+            }
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
