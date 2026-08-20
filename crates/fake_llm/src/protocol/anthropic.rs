@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::scenario::types::MessageEntry;
 use crate::types::RequestFeatures;
 
 // ---------------------------------------------------------------------------
@@ -60,11 +61,44 @@ pub struct Message {
 
 /// Extract protocol-agnostic `RequestFeatures` from an Anthropic message request.
 pub fn extract_request_features(req: &MessageRequest) -> RequestFeatures {
+    let messages: Vec<MessageEntry> = req
+        .messages
+        .iter()
+        .map(|m| {
+            let content = match &m.content {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Array(arr) => arr
+                    .iter()
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(""),
+                _ => String::new(),
+            };
+            MessageEntry {
+                role: m.role.clone(),
+                content,
+            }
+        })
+        .collect();
+
+    let tools: Vec<String> = req
+        .tools
+        .as_ref()
+        .map(|ts| {
+            ts.iter()
+                .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+
     RequestFeatures {
         model: req.model.clone(),
         stream: req.stream,
         max_tokens: Some(req.max_tokens),
         temperature: req.temperature,
+        messages,
+        tools,
     }
 }
 
@@ -145,6 +179,8 @@ mod tests {
         assert!(!features.stream);
         assert_eq!(features.max_tokens, Some(1024));
         assert_eq!(features.temperature, Some(0.7));
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
@@ -164,6 +200,8 @@ mod tests {
         assert!(features.stream);
         assert_eq!(features.max_tokens, Some(512));
         assert_eq!(features.temperature, None);
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
@@ -191,5 +229,9 @@ mod tests {
         assert!(!features.stream);
         assert_eq!(features.max_tokens, Some(2048));
         assert_eq!(features.temperature, Some(0.0));
+        assert_eq!(features.messages.len(), 1);
+        assert_eq!(features.messages[0].role, "user");
+        assert_eq!(features.messages[0].content, "Hello");
+        assert_eq!(features.tools, vec!["get_weather"]);
     }
 }

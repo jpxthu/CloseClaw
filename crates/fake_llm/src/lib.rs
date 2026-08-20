@@ -14,7 +14,9 @@
 
 pub mod endpoints;
 pub mod protocol;
+pub mod scenario;
 pub mod server;
 pub mod types;
 
+pub use scenario::types as scenario_types;
 pub use types::{RequestFeatures, ScenarioDecision};

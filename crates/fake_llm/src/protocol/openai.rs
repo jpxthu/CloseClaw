@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::scenario::types::MessageEntry;
 use crate::types::RequestFeatures;
 
 // ---------------------------------------------------------------------------
@@ -59,11 +60,48 @@ pub struct ChatMessage {
 
 /// Extract protocol-agnostic `RequestFeatures` from an OpenAI chat request.
 pub fn extract_request_features(req: &ChatCompletionRequest) -> RequestFeatures {
+    let messages: Vec<MessageEntry> = req
+        .messages
+        .iter()
+        .map(|m| {
+            let content = match &m.content {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Array(arr)) => arr
+                    .iter()
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(""),
+                _ => String::new(),
+            };
+            MessageEntry {
+                role: m.role.clone(),
+                content,
+            }
+        })
+        .collect();
+
+    let tools: Vec<String> = req
+        .tools
+        .as_ref()
+        .map(|ts| {
+            ts.iter()
+                .filter_map(|t| {
+                    t.get("function")
+                        .and_then(|f| f.get("name"))
+                        .and_then(|n| n.as_str())
+                })
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+
     RequestFeatures {
         model: req.model.clone(),
         stream: req.stream,
         max_tokens: req.max_tokens,
         temperature: req.temperature,
+        messages,
+        tools,
     }
 }
 
@@ -205,6 +243,8 @@ mod tests {
         assert!(!features.stream);
         assert_eq!(features.max_tokens, Some(1024));
         assert_eq!(features.temperature, Some(0.7));
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
@@ -221,6 +261,8 @@ mod tests {
         let features = extract_request_features(&req);
         assert!(features.stream);
         assert_eq!(features.max_tokens, None);
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
