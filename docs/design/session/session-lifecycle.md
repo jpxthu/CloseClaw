@@ -15,6 +15,7 @@
 - 生命周期状态：status（active / migrating / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：normal/plan/auto）、mode_state（推理步骤状态）
+- 出站历史：出站消息发送成功后由 Gateway 写入（含 timestamp、session_id、platform、过滤后 ContentBlock[]、dsl_result）。定位为用户可见内容的交付记录，与对话历史（LLM 上下文）用途不同、不随 compaction 改变（详见 [Gateway 出站流程](../gateway/outbound-flow.md)）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
 - 统计：last_message_at（最后消息时间，含用户和非用户消息，恢复查询与 Sweeper 判定使用）、last_user_activity_at（最后用户活动时间，仅含用户消息，Sweeper 用来判断 idle）
 - 其他：updated_at（最后 checkpoint 更新时间）

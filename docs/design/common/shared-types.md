@@ -242,7 +242,7 @@ ProcessedMessage { content_blocks, metadata[dsl_result] }
 IM Adapter 发送到目标平台
 ```
 
-ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。DslParser 在流式增量阶段零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出。
+ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。VerbosityFilter 在流式增量阶段逐 chunk 过滤；DslParser 在流式增量阶段零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出。
 
 各共享类型流动路径的详细描述见下文各类型的数据流节。
 

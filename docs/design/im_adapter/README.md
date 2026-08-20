@@ -54,7 +54,7 @@ im_adapter/
 
 IMPlugin trait 的完整接口契约定义见 [common/core-traits](../common/core-traits.md#implugin)。本文档聚焦 IM Adapter 模块对插件实现和注册编排的具体职责。
 
-每个消息平台插件实现 IMPlugin trait，包含入站解析、渲染、发送、生命周期四组方法。渲染和发送拆为两步——渲染结果是数据，发送是副作用——Gateway 在两步之间可插入审计、频率限制等中间件（详见 [Gateway 出站中间件](../gateway/README.md#出站中间件)）。
+每个消息平台插件实现 IMPlugin trait，包含入站解析、渲染、发送、生命周期四组方法。渲染和发送拆为两步——渲染结果是数据，发送是副作用——Gateway 在两步之间可插入审计、频率限制等中间件（详见 [Gateway 出站中间件](../gateway/outbound-flow.md#出站中间件)）。
 
 NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异。完整字段定义及身份映射规则见 [common 共享类型](../common/shared-types.md)。
 

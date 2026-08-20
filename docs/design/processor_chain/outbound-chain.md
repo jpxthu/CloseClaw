@@ -4,7 +4,7 @@
 
 出站 Processor 链对 LLM 响应和斜杠指令回复执行内容过滤、DSL 解析和日志记录。
 
-链处理完毕后产出 [ProcessedMessage](../common/shared-types.md#processedmessage)，由 Gateway 协调 IM Adapter 完成渲染和发送。Gateway 按交付模式决定链的执行时机——批量模式一次性执行完整链；流式模式分增量阶段（DslParser 透传、跳过 OutboundRawLog）和收尾阶段（执行 DslParser 完整解析和 OutboundRawLog）。VerbosityFilter 和 DslParser 对增量文本零开销透传。
+链处理完毕后产出 [ProcessedMessage](../common/shared-types.md#processedmessage)，由 Gateway 协调 IM Adapter 完成渲染和发送。Gateway 按交付模式决定链的执行时机——批量模式一次性执行完整链；流式模式分增量阶段（VerbosityFilter 逐 chunk 过滤、DslParser 透传、跳过 OutboundRawLog）和收尾阶段（执行 DslParser 完整解析和 OutboundRawLog，不重跑 VerbosityFilter）。
 
 ## 架构
 

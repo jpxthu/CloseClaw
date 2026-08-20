@@ -3,7 +3,7 @@
 ## 概述
 
 - 关联需求文档：[requirements/processor_chain.md](../requirements/processor_chain.md)
-- 核心职责：管理入站消息的内容标准化/session_key 计算和出站消息的内容过滤、DSL 解析和日志记录。入站方向对 IM Adapter 归一化后的 NormalizedMessage 做内容清洗和 session_key 计算，出站方向按 priority 顺序执行 Verbosity 过滤、DSL 解析和出站日志。流式出站同样经 Processor 链——VerbosityFilter 和 DslParser 对流式增量文本零开销透传。
+- 核心职责：管理入站消息的内容标准化/session_key 计算和出站消息的内容过滤、DSL 解析和日志记录。入站方向对 IM Adapter 归一化后的 NormalizedMessage 做内容清洗和 session_key 计算，出站方向按 priority 顺序执行 Verbosity 过滤、DSL 解析和出站日志。流式出站同样经 Processor 链——VerbosityFilter 逐 chunk 过滤，DslParser 对流式增量文本零开销透传（完整解析推迟到收尾阶段）。
 
 核心职责：
 - 入站：接收 IM Adapter 产出的 NormalizedMessage → 内容清洗 → metadata 填充 → 交付上层。非文本消息（image/file/audio）经 ContentNormalizer 时跳过文本标准化，直接透传
