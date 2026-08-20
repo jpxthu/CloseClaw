@@ -26,6 +26,20 @@ pub struct ScenarioFile {
 
 /// A single scenario declaration: matching condition + response sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelEntry {
+    /// Model ID (e.g. "gpt-4", "claude-3-opus-20240229").
+    pub id: String,
+    /// Owning organization (e.g. "openai", "anthropic").
+    #[serde(default = "default_owned_by")]
+    pub owned_by: String,
+}
+
+fn default_owned_by() -> String {
+    "openai".to_string()
+}
+
+/// A single scenario declaration: matching condition + response sequence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenarioDeclaration {
     /// Human-readable scenario name (used in logs and error messages).
     pub name: String,
@@ -35,6 +49,11 @@ pub struct ScenarioDeclaration {
     /// Ordered turn responses. The N-th request within a session returns
     /// the N-th turn (0-indexed). Exceeding this count is an error.
     pub turns: Vec<TurnResponse>,
+    /// Optional model list declaration for `/v1/models` endpoint.
+    /// When present, the models endpoint returns this list instead of
+    /// the default placeholder list.
+    #[serde(default)]
+    pub models: Option<Vec<ModelEntry>>,
 }
 
 /// Conditions that determine whether a request matches this scenario.
@@ -523,6 +542,7 @@ mod tests {
                     delay: Some(100),
                     error: None,
                 }],
+                models: None,
             }],
         };
         let json = serde_json::to_string(&file).unwrap();
@@ -676,5 +696,49 @@ mod tests {
         let turn: TurnResponse = serde_json::from_str(json).unwrap();
         assert!(turn.delay.is_none());
         assert!(turn.error.is_none());
+    }
+
+    #[test]
+    fn deserialize_model_entry() {
+        let json = r#"{"id": "gpt-4", "owned_by": "openai"}"#;
+        let entry: ModelEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.id, "gpt-4");
+        assert_eq!(entry.owned_by, "openai");
+    }
+
+    #[test]
+    fn deserialize_model_entry_default_owned_by() {
+        let json = r#"{"id": "test-model"}"#;
+        let entry: ModelEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.id, "test-model");
+        assert_eq!(entry.owned_by, "openai");
+    }
+
+    #[test]
+    fn deserialize_scenario_declaration_with_models() {
+        let json = r#"{
+            "name": "models-scene",
+            "turns": [{"response": {"type": "text", "content": "ok"}}],
+            "models": [
+                {"id": "gpt-4", "owned_by": "openai"},
+                {"id": "claude-3", "owned_by": "anthropic"}
+            ]
+        }"#;
+        let decl: ScenarioDeclaration = serde_json::from_str(json).unwrap();
+        assert_eq!(decl.name, "models-scene");
+        let models = decl.models.unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "gpt-4");
+        assert_eq!(models[1].id, "claude-3");
+    }
+
+    #[test]
+    fn deserialize_scenario_declaration_without_models() {
+        let json = r#"{
+            "name": "no-models",
+            "turns": [{"response": {"type": "text", "content": "ok"}}]
+        }"#;
+        let decl: ScenarioDeclaration = serde_json::from_str(json).unwrap();
+        assert!(decl.models.is_none());
     }
 }

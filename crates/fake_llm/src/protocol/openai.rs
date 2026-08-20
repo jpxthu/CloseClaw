@@ -225,22 +225,22 @@ fn build_usage_from_decision(decision: &ScenarioDecision) -> Usage {
 #[derive(Debug, Serialize)]
 pub struct ModelsResponse {
     /// Always `"list"`.
-    object: String,
+    pub(crate) object: String,
     /// Array of model objects.
-    data: Vec<ModelObject>,
+    pub(crate) data: Vec<ModelObject>,
 }
 
 /// A single model entry in OpenAI format.
 #[derive(Debug, Serialize)]
 pub struct ModelObject {
     /// Model ID (e.g. "gpt-4", "claude-3-opus-20240229").
-    id: String,
+    pub(crate) id: String,
     /// Always `"model"`.
-    object: String,
+    pub(crate) object: String,
     /// Timestamp of model creation (epoch seconds).
-    created: u64,
+    pub(crate) created: u64,
     /// Owning organization.
-    owned_by: String,
+    pub(crate) owned_by: String,
 }
 
 /// Build a placeholder model list.

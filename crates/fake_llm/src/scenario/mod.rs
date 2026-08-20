@@ -36,6 +36,19 @@ pub enum DecisionOutcome {
     Error(HttpError),
 }
 
+/// Outcome of a models endpoint decision.
+///
+/// Three possible paths: a scenario-declared model list, an HTTP error,
+/// or the default placeholder model list.
+pub enum ModelsDecision {
+    /// Scenario-declared model list.
+    Models(Vec<ModelEntry>),
+    /// HTTP error injection — endpoint returns this status code + message.
+    Error(HttpError),
+    /// No scenario declared models — use default placeholder list.
+    Placeholder,
+}
+
 // ---------------------------------------------------------------------------
 // ScenarioEngine
 // ---------------------------------------------------------------------------
@@ -149,6 +162,53 @@ impl ScenarioEngine {
             delay: None,
             usage: None,
         })
+    }
+
+    /// Decide how to respond to a `/v1/models` request.
+    ///
+    /// Finds the first matching scenario that declares a `models` list
+    /// and returns it. If the current turn has an error injection, that
+    /// takes priority. If no scenario declares models, returns `None`
+    /// (caller should use the default model list).
+    pub fn decide_for_models(&mut self) -> ModelsDecision {
+        // Use a placeholder model for scenario matching since the
+        // models endpoint has no request body with a model ID.
+        let placeholder = RequestFeatures {
+            model: String::new(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: vec![],
+            tools: vec![],
+        };
+
+        let matched_idx = match self.matcher.match_request(&placeholder) {
+            Some(idx) => idx,
+            None => return ModelsDecision::Placeholder,
+        };
+
+        let matched = self.matcher.get(matched_idx);
+        let message_strings = vec![];
+        let turn = self.sessions.advance_turn(&message_strings, &matched.name);
+
+        let max_turns = matched.turns.len();
+        if turn >= max_turns {
+            panic!(
+                "scenario '{}' exceeded declared turns (turn {}, max {})",
+                matched.name, turn, max_turns
+            );
+        }
+
+        let turn_resp = &matched.turns[turn];
+        if let Some(error) = &turn_resp.error {
+            return ModelsDecision::Error(error.clone());
+        }
+
+        if let Some(ref models) = matched.models {
+            ModelsDecision::Models(models.clone())
+        } else {
+            ModelsDecision::Placeholder
+        }
     }
 
     /// Build response blocks from a response shape.
@@ -278,6 +338,7 @@ mod tests {
             name: "basic".to_string(),
             match_: None,
             turns: vec![text_turn("hello"), text_turn("world")],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
 
@@ -337,6 +398,7 @@ mod tests {
                     message: "server error".to_string(),
                 }),
             }],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
         let feat = features("gpt-4", "hi");
@@ -366,6 +428,7 @@ mod tests {
                 delay: None,
                 error: None,
             }],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
         let feat = features("gpt-4", "hi");
@@ -392,6 +455,7 @@ mod tests {
                 delay: Some(500),
                 error: None,
             }],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
         let feat = features("gpt-4", "hi");
@@ -701,6 +765,7 @@ mod tests {
             name: "single-turn".to_string(),
             match_: None,
             turns: vec![text_turn("only one")],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
 
@@ -731,5 +796,117 @@ mod tests {
             tools: vec![],
         };
         let _ = engine.decide(&feat2);
+    }
+
+    // ------------------------------------------------------------------
+    // decide_for_models tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn decide_for_models_returns_scenario_declared_models() {
+        let scenario = ScenarioDeclaration {
+            name: "models-scene".to_string(),
+            match_: None,
+            turns: vec![text_turn("ok")],
+            models: Some(vec![
+                ModelEntry {
+                    id: "gpt-4".to_string(),
+                    owned_by: "openai".to_string(),
+                },
+                ModelEntry {
+                    id: "claude-3".to_string(),
+                    owned_by: "anthropic".to_string(),
+                },
+            ]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        match decision {
+            ModelsDecision::Models(entries) => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].id, "gpt-4");
+                assert_eq!(entries[1].id, "claude-3");
+            }
+            _ => panic!("expected Models variant"),
+        }
+    }
+
+    #[test]
+    fn decide_for_models_placeholder_when_no_models_declared() {
+        let scenario = ScenarioDeclaration {
+            name: "no-models".to_string(),
+            match_: None,
+            turns: vec![text_turn("ok")],
+            models: None,
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        assert!(matches!(decision, ModelsDecision::Placeholder));
+    }
+
+    #[test]
+    fn decide_for_models_placeholder_when_no_scenarios() {
+        let mut engine = ScenarioEngine::new(vec![]);
+        let decision = engine.decide_for_models();
+        assert!(matches!(decision, ModelsDecision::Placeholder));
+    }
+
+    #[test]
+    fn decide_for_models_error_injection() {
+        let scenario = ScenarioDeclaration {
+            name: "models-error".to_string(),
+            match_: None,
+            turns: vec![TurnResponse {
+                response: ResponseShape::Text(TextResponse {
+                    content: String::new(),
+                }),
+                delay: None,
+                error: Some(HttpError {
+                    status: 429,
+                    message: "rate limited".to_string(),
+                }),
+            }],
+            models: Some(vec![ModelEntry {
+                id: "gpt-4".to_string(),
+                owned_by: "openai".to_string(),
+            }]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        match decision {
+            ModelsDecision::Error(e) => {
+                assert_eq!(e.status, 429);
+                assert_eq!(e.message, "rate limited");
+            }
+            _ => panic!("expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn decide_for_models_returns_models_when_no_error() {
+        let scenario = ScenarioDeclaration {
+            name: "models-ok".to_string(),
+            match_: None,
+            turns: vec![TurnResponse {
+                response: ResponseShape::Text(TextResponse {
+                    content: String::new(),
+                }),
+                delay: None,
+                error: None,
+            }],
+            models: Some(vec![ModelEntry {
+                id: "test-model".to_string(),
+                owned_by: "test-org".to_string(),
+            }]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        match decision {
+            ModelsDecision::Models(entries) => {
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].id, "test-model");
+            }
+            _ => panic!("expected Models variant"),
+        }
     }
 }

@@ -20,5 +20,5 @@ pub mod server;
 pub mod types;
 
 pub use scenario::types as scenario_types;
-pub use scenario::{DecisionOutcome, ScenarioEngine, ScenarioState};
+pub use scenario::{DecisionOutcome, ModelsDecision, ScenarioEngine, ScenarioState};
 pub use types::{RequestFeatures, ScenarioDecision};
