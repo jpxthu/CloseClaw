@@ -398,13 +398,13 @@ fn anthropic_content_block_stop(index: usize) -> SseEvent {
 }
 
 /// Anthropic message_delta event with stop reason and output usage.
-fn anthropic_message_delta(usage: &RawUsage) -> SseEvent {
+fn anthropic_message_delta(usage: &RawUsage, stop_reason: &str) -> SseEvent {
     SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "message_delta",
             "delta": {
-                "stop_reason": "end_turn",
+                "stop_reason": stop_reason,
                 "stop_sequence": null
             },
             "usage": {
@@ -441,6 +441,10 @@ pub(crate) fn generate_anthropic_sse(
     model: &str,
     usage: &RawUsage,
 ) -> Vec<SseEvent> {
+    let has_tool_use = content_blocks
+        .iter()
+        .any(|b| matches!(b, RawContentBlock::ToolUse { .. }));
+    let stop_reason = if has_tool_use { "tool_use" } else { "end_turn" };
     let mut events = Vec::with_capacity(content_blocks.len() * 3 + 4);
     events.push(anthropic_message_start(model, usage));
     for (idx, block) in content_blocks.iter().enumerate() {
@@ -480,7 +484,7 @@ pub(crate) fn generate_anthropic_sse(
             _ => {} // ToolResult not relevant for SSE generation
         }
     }
-    events.push(anthropic_message_delta(usage));
+    events.push(anthropic_message_delta(usage, stop_reason));
     events.push(anthropic_message_stop());
     events
 }

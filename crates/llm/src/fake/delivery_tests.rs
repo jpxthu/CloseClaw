@@ -533,6 +533,11 @@ fn test_anthropic_sse_tool_use() {
     let json_delta: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
     assert_eq!(json_delta["delta"]["type"], "input_json_delta");
     assert_eq!(json_delta["delta"]["partial_json"], "{\"expr\":\"1+1\"}");
+
+    // ToolUse content should produce stop_reason = "tool_use"
+    let msg_delta: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+    assert_eq!(msg_delta["type"], "message_delta");
+    assert_eq!(msg_delta["delta"]["stop_reason"], "tool_use");
 }
 
 #[test]
@@ -586,6 +591,10 @@ fn test_anthropic_sse_mixed_blocks() {
     assert_eq!(tool_start["content_block"]["type"], "tool_use");
     let tool_delta: serde_json::Value = serde_json::from_str(&events[9].data).unwrap();
     assert_eq!(tool_delta["delta"]["type"], "input_json_delta");
+
+    // Mixed blocks with ToolUse should produce stop_reason = "tool_use"
+    let msg_delta: serde_json::Value = serde_json::from_str(&events[11].data).unwrap();
+    assert_eq!(msg_delta["delta"]["stop_reason"], "tool_use");
 }
 
 // ── Delay injection ─────────────────────────────────────────────────
