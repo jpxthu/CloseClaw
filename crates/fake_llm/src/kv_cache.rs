@@ -79,6 +79,12 @@ pub struct KvCacheSimulator {
     ttl: Duration,
 }
 
+impl Default for KvCacheSimulator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KvCacheSimulator {
     /// Create a simulator with default TTL (5 minutes).
     pub fn new() -> Self {
@@ -108,7 +114,7 @@ impl KvCacheSimulator {
         let mut hasher = FnvHasher::new();
 
         // Hash system prompt (first message if role="system").
-        let has_system = messages.first().map_or(false, |m| m.role == "system");
+        let has_system = messages.first().is_some_and(|m| m.role == "system");
         if has_system {
             hasher.write_bytes(messages[0].content.as_bytes());
         }

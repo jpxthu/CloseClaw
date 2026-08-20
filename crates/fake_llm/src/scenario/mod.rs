@@ -945,4 +945,6 @@ mod tests {
             _ => panic!("expected Models variant"),
         }
     }
+
+    mod response_blocks;
 }
