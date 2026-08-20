@@ -14,7 +14,7 @@
    - RawLog（priority 10）：日志记录，透传（仅在 raw_log_dir 配置时注册）。
    - SessionRouter（priority 20）：计算 session_key = {timestamp_ms}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)），写入 metadata，不创建 session。
    - ContentNormalizer（priority 30）：文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格）。
-4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key, message_type }）。
+4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key, message_type }——session_key 由 SessionRouter 写入，message_type 由链调度环节在进链时从 NormalizedMessage 复制）。
 5. Gateway 处理：
    - message_type 非 text（image/file/audio）→ 构造错误回复 ContentBlock[] → 简化出站（详见 [Gateway README](README.md#入站路径) 非文本消息处理），流程结束。
    - text 消息 → 从 metadata 取出 session_key；session_key 为空 → 记录 warning 日志，仍通过路由字段（platform, sender_id, peer_id, account_id）继续。

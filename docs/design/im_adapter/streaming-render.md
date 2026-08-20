@@ -32,9 +32,9 @@
    - Text 块 → 逐内容渲染：追加文本到行缓冲区 → 检测代码块边界标记（```）切换代码/文本模式 → 检测句末标点或换行（文本模式）、换行（代码模式）或完整代码块结束（平台需要完整代码块时）。完整输出单元立即渲染输出，不完整则继续缓冲，缓冲区超过阈值（约 100 字符）或 200ms 超时则强制输出
    - Thinking/Tool 块 → 累积完整内容，待全块就绪后一次交付平台格式渲染器（如飞书的折叠推理区、工具操作卡片）
    - Image/Audio/File 块 → 不参与流式渲染，交由平台格式渲染器处理
-   - 流错误 → 不产生增量输出，流错误的统一降级处理由 Gateway 负责（详见 [Gateway 出站路径](../gateway/README.md#出站路径)）
+   - 流错误 → 不产生增量输出，流错误的统一降级处理由 Gateway 负责（详见 [Gateway 出站流程](../gateway/outbound-flow.md)）
 5. 全部块处理完成 → 刷新所有缓冲 → 输出剩余内容 → 清空块状态和行缓冲上下文
-6. 增量输出通过 IMPlugin 发送到 IM 平台（每轮增量渲染完成后、逐片发送前，Gateway 可插入审计、频率限制等中间件）
+6. 增量输出通过 IMPlugin 发送到 IM 平台（流式模式下 Gateway 的审计、频率限制等中间件在增量阶段开始前执行一次 pre-flight 检查，非逐片插入，详见 [Gateway 出站中间件](../gateway/outbound-flow.md)）
 7. 全部 ContentBlock[] 到齐
 8. Gateway 的 Processor Chain 收尾阶段执行：DslParser 完整解析 DSL 指令 → OutboundRawLog 写入出站日志（此阶段不产生新渲染输出）
 

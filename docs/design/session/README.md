@@ -91,7 +91,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
     **inactive（归档判定）**：四维均为 false 且距上次用户活动超过配置的 inactive 时长——触发归档。与 idle 判定的区别：background_tool_active、child_active 不影响 idle（session 可继续接收输入），但四维任一为 true 时 session 不被判定为 inactive——后台工具和子 Session 稍后还会注入消息，不能归档。llm_active 是 llm_state 的布尔投影：llm_state 在 Requesting 或 Receiving 时 llm_active 为真，Idle 时为假。llm_state 自身有三态内部状态机（Idle / Requesting / Receiving），详见 [session-execution.md](session-execution.md) 四维执行状态节。
   - **级联停止**：级联停止是通用机制——当触发级联停止时，递归停止其所有子 Session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。具体行为受停止模式影响：Graceful 模式等待 in-flight 操作完成后停（级联子 Session 纳入超时保护），Forceful 模式立即终止。所有停止入口（/stop、父 session 停止、系统关闭）均级联终止子 Session，无「仅停单个 session」的模式（见 [session-execution.md](session-execution.md) 停止入口节）。
   - **后台结果注入**：后台工具完成或子 Session 完成时，结果通过优先级消息队列（now > next > later）作为消息注入对话流，agent 在下一轮 turn 中消费。
-  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Session 生成"⏳ 正在排队..."提示语，经 Gateway 系统通知接口发送。斜杠指令由 Gateway 层拦截路由至 SlashDispatcher（详见 [Gateway 路由决策](../gateway/README.md)），不进入此队列。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
+  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Session 生成"⏳ 正在排队..."提示语，经 Gateway 系统通知接口发送。Immediate 斜杠指令由 Gateway 直接执行，不进入此队列；非 Immediate 斜杠指令在 Session 正忙时与其他消息同样入队排队，Session 空闲后由 Gateway 按原路由分派给 SlashDispatcher（详见 [Gateway 路由决策](../gateway/README.md)）。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
 
 各子功能的关系：
 - **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Migrating / Archived）描述持久化状态，与执行状态无关。
@@ -233,7 +233,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 - **Permission 模块**：工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
 - **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。sessions_spawn 等工具执行时读取 subagents 配置做前置检查。
-- **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站调试日志在 Processor Chain 内记录，出站历史记录由 Gateway 在消息发送后持久化。非直接调用，属数据流下游依赖。
+- **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站调试日志在 Processor Chain 内记录，出站历史记录由 Gateway 在消息发送后持久化到 session checkpoint——这是用户可见内容的交付记录（含 Verbosity 过滤后内容与 dsl_result），与 Session 对话历史（messages[]，LLM 上下文，含完整 Thinking 块）用途不同：后者服务于上下文恢复、会随 compaction 演化，前者是交付审计、不随 compaction 改变，二者并存各司其职（详见 [Gateway 出站流程](../gateway/outbound-flow.md)）。非直接调用，属数据流下游依赖。
 - **IM Adapter（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度和 Processor Chain 处理后，由 IM Adapter 完成出站渲染和发送（含流式推送）。Session 不直接调用 IM Adapter，数据流经 Gateway 中介传递。
 - **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 Session 进行记忆搜索；写入 `memory_injection` 槽位（tool role 记忆摘要），由 Session 在消息组装时消费。
 
