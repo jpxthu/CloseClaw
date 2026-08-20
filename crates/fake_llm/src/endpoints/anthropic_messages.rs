@@ -2,30 +2,60 @@
 //!
 //! Parses the Anthropic messages request body via the protocol module,
 //! extracts protocol-agnostic `RequestFeatures`, delegates to the scenario
-//! engine, and returns the appropriate response.
+//! engine, and returns the appropriate response via the delivery layer.
 
-use axum::{extract::State, http::StatusCode, Json};
+use std::convert::Infallible;
 
-use crate::protocol::anthropic::{
-    build_message_response_from_decision, extract_request_features, MessageRequest, MessageResponse,
-};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::sse::{Event, Sse};
+use axum::response::{IntoResponse, Response};
+use axum::{extract::State, Json};
+
+use crate::delivery::{self, DeliveryConfig, DeliveryResult, Protocol};
+use crate::protocol::anthropic::{extract_request_features, MessageRequest};
 use crate::scenario::{DecisionOutcome, ScenarioState};
+
+/// Default segment granularity for streaming content splitting.
+const DEFAULT_SEGMENT_GRANULARITY: usize = 20;
+
+/// Wrapper that yields SSE events from a `Vec`, implementing `futures::Stream`.
+struct SseEventStream {
+    inner: std::vec::IntoIter<delivery::SseEvent>,
+}
+
+impl futures_core::Stream for SseEventStream {
+    type Item = Result<Event, Infallible>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.inner.next() {
+            Some(e) => std::task::Poll::Ready(Some(Ok(to_axum_event(e)))),
+            None => std::task::Poll::Ready(None),
+        }
+    }
+}
 
 /// Handler for POST `/v1/messages`.
 ///
 /// Extracts request features, delegates to the scenario engine via shared state,
-/// and builds the response per the engine's decision.
+/// and routes through the delivery layer for streaming, non-streaming, or error
+/// responses (with optional Retry-After header).
 pub async fn handler(
     State(state): State<ScenarioState>,
     Json(req): Json<MessageRequest>,
-) -> Result<Json<MessageResponse>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, HeaderMap, String)> {
     let features = extract_request_features(&req);
 
     let outcome = {
-        let mut engine = state
-            .engine
-            .lock()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut engine = state.engine.lock().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                HeaderMap::new(),
+                e.to_string(),
+            )
+        })?;
         engine.decide(&features)
     };
 
@@ -33,12 +63,53 @@ pub async fn handler(
         DecisionOutcome::Error(e) => {
             let status =
                 StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            Err((status, e.message))
+            Err((status, HeaderMap::new(), e.message))
         }
         DecisionOutcome::Decision(decision) => {
-            Ok(Json(build_message_response_from_decision(&decision)))
+            let config = DeliveryConfig {
+                segment_granularity: DEFAULT_SEGMENT_GRANULARITY,
+                include_usage: true,
+            };
+
+            let result = delivery::deliver(&decision, Protocol::Anthropic, &config).await;
+
+            match result {
+                DeliveryResult::SseStream(events) => {
+                    let stream = SseEventStream {
+                        inner: events.into_iter(),
+                    };
+                    Ok(Sse::new(stream).into_response())
+                }
+                DeliveryResult::JsonResponse(json) => Ok(Json(json).into_response()),
+                DeliveryResult::HttpError {
+                    status,
+                    message,
+                    retry_after,
+                } => {
+                    let code =
+                        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+                    let mut headers = HeaderMap::new();
+                    if let Some(secs) = retry_after {
+                        if let Ok(val) = secs.to_string().parse() {
+                            headers.insert(axum::http::header::RETRY_AFTER, val);
+                        }
+                    }
+                    Err((code, headers, message))
+                }
+            }
         }
     }
+}
+
+/// Convert a delivery `SseEvent` into an axum `Event`.
+///
+/// Maps the event type and data fields into the SSE wire format.
+fn to_axum_event(e: delivery::SseEvent) -> Event {
+    let mut event = Event::default();
+    if !e.event_type.is_empty() {
+        event = event.event(e.event_type);
+    }
+    event.data(e.data)
 }
 
 #[cfg(test)]
