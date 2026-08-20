@@ -8,7 +8,7 @@
 //! [`FakeProvider::send`] and [`FakeProvider::send_streaming`].
 
 use super::fake_scenario::DeliveryConfig;
-use crate::types::RawUsage;
+use crate::types::{RawContentBlock, RawUsage};
 
 /// A single SSE event ready to be sent over the channel.
 ///
@@ -74,6 +74,81 @@ fn openai_content_delta(model: &str, segment: &str) -> SseEvent {
     }
 }
 
+/// OpenAI reasoning content delta event.
+fn openai_reasoning_delta(model: &str, text: &str) -> SseEvent {
+    let id = format!("fake-{}", model);
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "id": id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"reasoning_content": text},
+                "finish_reason": null
+            }]
+        })
+        .to_string(),
+    }
+}
+
+/// OpenAI tool call start event (first frame with id, type, function.name).
+fn openai_tool_call_start(model: &str, id: &str, name: &str) -> SseEvent {
+    let msg_id = format!("fake-{}", model);
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "id": msg_id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": ""
+                        }
+                    }]
+                },
+                "finish_reason": null
+            }]
+        })
+        .to_string(),
+    }
+}
+
+/// OpenAI tool call delta event (incremental arguments).
+fn openai_tool_call_delta(model: &str, id: &str, arguments: &str) -> SseEvent {
+    let msg_id = format!("fake-{}", model);
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "id": msg_id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": id,
+                        "function": {
+                            "arguments": arguments
+                        }
+                    }]
+                },
+                "finish_reason": null
+            }]
+        })
+        .to_string(),
+    }
+}
+
 /// OpenAI finish chunk event with optional usage.
 fn openai_finish_chunk(model: &str, usage: &RawUsage, include_usage: bool) -> SseEvent {
     let id = format!("fake-{}", model);
@@ -85,6 +160,34 @@ fn openai_finish_chunk(model: &str, usage: &RawUsage, include_usage: bool) -> Ss
             "index": 0,
             "delta": {},
             "finish_reason": "stop"
+        }]
+    });
+    if include_usage {
+        value["usage"] = serde_json::json!({
+            "prompt_tokens": usage.prompt_tokens,
+            "completion_tokens": usage.completion_tokens,
+            "total_tokens": usage.total_tokens.unwrap_or(
+                usage.prompt_tokens + usage.completion_tokens
+            )
+        });
+    }
+    SseEvent {
+        event_type: "message".into(),
+        data: value.to_string(),
+    }
+}
+
+/// OpenAI finish chunk with finish_reason=tool_calls.
+fn openai_tool_calls_finish_chunk(model: &str, usage: &RawUsage, include_usage: bool) -> SseEvent {
+    let id = format!("fake-{}", model);
+    let mut value = serde_json::json!({
+        "id": id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "tool_calls"
         }]
     });
     if include_usage {
@@ -114,21 +217,44 @@ fn openai_done() -> SseEvent {
 ///
 /// Sequence:
 /// 1. `delta.role = "assistant"` — role chunk
-/// 2. Content delta chunks (one per segment)
-/// 3. Finish chunk with `finish_reason = "stop"` — optionally includes usage
-/// 4. `[DONE]` sentinel
+/// 2. For each Thinking block: reasoning_content delta chunks
+/// 3. For each Text block: content delta chunks
+/// 4. For each ToolUse block: tool_call start + delta chunks
+/// 5. Finish chunk with `finish_reason = "stop"` or `"tool_calls"`
+/// 6. `[DONE]` sentinel
 pub(crate) fn generate_openai_sse(
-    segments: Vec<String>,
+    content_blocks: &[RawContentBlock],
     model: &str,
     usage: &RawUsage,
     include_usage: bool,
 ) -> Vec<SseEvent> {
-    let mut events = Vec::with_capacity(segments.len() + 3);
+    // Estimate capacity: role + blocks * ~2 + finish + done
+    let mut events = Vec::with_capacity(content_blocks.len() * 2 + 3);
     events.push(openai_role_chunk(model));
-    for segment in &segments {
-        events.push(openai_content_delta(model, segment));
+    let has_tool_use = content_blocks.iter().any(|b| matches!(b, RawContentBlock::ToolUse { .. }));
+    for block in content_blocks {
+        match block {
+            RawContentBlock::Thinking { thinking, .. } => {
+                events.push(openai_reasoning_delta(model, thinking));
+            }
+            RawContentBlock::Text(text) => {
+                events.push(openai_content_delta(model, text));
+            }
+            RawContentBlock::ToolUse { id, name, input } => {
+                events.push(openai_tool_call_start(model, id, name));
+                // Emit arguments in one delta (granularity can be added later)
+                if !input.is_empty() {
+                    events.push(openai_tool_call_delta(model, id, input));
+                }
+            }
+            _ => {} // ToolResult not relevant for SSE generation
+        }
     }
-    events.push(openai_finish_chunk(model, usage, include_usage));
+    if has_tool_use {
+        events.push(openai_tool_calls_finish_chunk(model, usage, include_usage));
+    } else {
+        events.push(openai_finish_chunk(model, usage, include_usage));
+    }
     events.push(openai_done());
     events
 }
@@ -154,16 +280,97 @@ fn anthropic_message_start(model: &str, usage: &RawUsage) -> SseEvent {
     }
 }
 
-/// Anthropic content_block_start event.
-fn anthropic_content_block_start() -> SseEvent {
+/// Anthropic text content_block_start event.
+fn anthropic_text_content_block_start(index: usize) -> SseEvent {
     SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "content_block_start",
-            "index": 0,
+            "index": index,
             "content_block": {
                 "type": "text",
                 "text": ""
+            }
+        })
+        .to_string(),
+    }
+}
+
+/// Anthropic thinking content_block_start event.
+fn anthropic_thinking_content_block_start(index: usize) -> SseEvent {
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "type": "content_block_start",
+            "index": index,
+            "content_block": {
+                "type": "thinking",
+                "thinking": ""
+            }
+        })
+        .to_string(),
+    }
+}
+
+/// Anthropic thinking_delta event.
+fn anthropic_thinking_delta(index: usize, thinking_text: &str) -> SseEvent {
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {
+                "type": "thinking_delta",
+                "thinking": thinking_text
+            }
+        })
+        .to_string(),
+    }
+}
+
+/// Anthropic signature_delta event.
+fn anthropic_signature_delta(index: usize, signature: &str) -> SseEvent {
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {
+                "type": "signature_delta",
+                "signature": signature
+            }
+        })
+        .to_string(),
+    }
+}
+
+/// Anthropic tool_use content_block_start event.
+fn anthropic_tool_use_content_block_start(index: usize, id: &str, name: &str) -> SseEvent {
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "type": "content_block_start",
+            "index": index,
+            "content_block": {
+                "type": "tool_use",
+                "id": id,
+                "name": name
+            }
+        })
+        .to_string(),
+    }
+}
+
+/// Anthropic input_json_delta event.
+fn anthropic_input_json_delta(index: usize, partial_json: &str) -> SseEvent {
+    SseEvent {
+        event_type: "message".into(),
+        data: serde_json::json!({
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": partial_json
             }
         })
         .to_string(),
@@ -195,12 +402,12 @@ fn anthropic_content_delta(segment: &str) -> SseEvent {
 }
 
 /// Anthropic content_block_stop event.
-fn anthropic_content_block_stop() -> SseEvent {
+fn anthropic_content_block_stop(index: usize) -> SseEvent {
     SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "content_block_stop",
-            "index": 0
+            "index": index
         })
         .to_string(),
     }
@@ -236,25 +443,49 @@ fn anthropic_message_stop() -> SseEvent {
 ///
 /// Sequence:
 /// 1. `message_start` — model name + initial input usage
-/// 2. `content_block_start` — type "text"
-/// 3. `ping`
-/// 4. Content delta chunks (one per segment, `text_delta`)
-/// 5. `content_block_stop`
-/// 6. `message_delta` — stop_reason + final output usage
-/// 7. `message_stop`
+/// 2. `ping`
+/// 3. For each content block:
+///    - `content_block_start` (type varies by block)
+///    - Delta events (text_delta / thinking_delta + signature_delta / input_json_delta)
+///    - `content_block_stop`
+/// 4. `message_delta` — stop_reason + final output usage
+/// 5. `message_stop`
 pub(crate) fn generate_anthropic_sse(
-    segments: Vec<String>,
+    content_blocks: &[RawContentBlock],
     model: &str,
     usage: &RawUsage,
 ) -> Vec<SseEvent> {
-    let mut events = Vec::with_capacity(segments.len() + 6);
+    let mut events = Vec::with_capacity(content_blocks.len() * 3 + 4);
     events.push(anthropic_message_start(model, usage));
-    events.push(anthropic_content_block_start());
     events.push(anthropic_ping());
-    for segment in &segments {
-        events.push(anthropic_content_delta(segment));
+    for (idx, block) in content_blocks.iter().enumerate() {
+        match block {
+            RawContentBlock::Thinking {
+                thinking,
+                signature,
+            } => {
+                events.push(anthropic_thinking_content_block_start(idx));
+                events.push(anthropic_thinking_delta(idx, thinking));
+                if let Some(sig) = signature {
+                    events.push(anthropic_signature_delta(idx, sig));
+                }
+                events.push(anthropic_content_block_stop(idx));
+            }
+            RawContentBlock::Text(text) => {
+                events.push(anthropic_text_content_block_start(idx));
+                events.push(anthropic_content_delta(text));
+                events.push(anthropic_content_block_stop(idx));
+            }
+            RawContentBlock::ToolUse { id, name, input } => {
+                events.push(anthropic_tool_use_content_block_start(idx, id, name));
+                if !input.is_empty() {
+                    events.push(anthropic_input_json_delta(idx, input));
+                }
+                events.push(anthropic_content_block_stop(idx));
+            }
+            _ => {} // ToolResult not relevant for SSE generation
+        }
     }
-    events.push(anthropic_content_block_stop());
     events.push(anthropic_message_delta(usage));
     events.push(anthropic_message_stop());
     events
@@ -382,7 +613,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_openai_sse(vec!["hi".into()], "gpt-4", &usage, false);
+        let events = generate_openai_sse(&vec![RawContentBlock::Text("hi".into())], "gpt-4", &usage, false);
 
         // role chunk → content delta → finish → [DONE] = 4
         assert_eq!(events.len(), 4);
@@ -414,7 +645,7 @@ mod tests {
             cache_write_tokens: None,
         };
         let events = generate_openai_sse(
-            vec!["hel".into(), "lo ".into(), "wor".into(), "ld".into()],
+            &vec![RawContentBlock::Text("hel".into()), RawContentBlock::Text("lo ".into()), RawContentBlock::Text("wor".into()), RawContentBlock::Text("ld".into())],
             "gpt-4",
             &usage,
             false,
@@ -446,7 +677,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_openai_sse(vec!["a".into()], "gpt-4", &usage, true);
+        let events = generate_openai_sse(&vec![RawContentBlock::Text("a".into())], "gpt-4", &usage, true);
 
         let finish_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert_eq!(finish_data["usage"]["prompt_tokens"], 50);
@@ -463,7 +694,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_openai_sse(vec!["a".into()], "gpt-4", &usage, false);
+        let events = generate_openai_sse(&vec![RawContentBlock::Text("a".into())], "gpt-4", &usage, false);
 
         let finish_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert!(finish_data.get("usage").is_none());
@@ -478,7 +709,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_openai_sse(vec!["x".into()], "m", &usage, true);
+        let events = generate_openai_sse(&vec![RawContentBlock::Text("x".into())], "m", &usage, true);
 
         let finish_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert_eq!(finish_data["usage"]["total_tokens"], 30);
@@ -495,7 +726,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_anthropic_sse(vec!["hello".into()], "claude-3", &usage);
+        let events = generate_anthropic_sse(&vec![RawContentBlock::Text("hello".into())], "claude-3", &usage);
 
         // message_start + content_block_start + ping + delta + content_block_stop
         // + message_delta + message_stop = 7
@@ -508,14 +739,14 @@ mod tests {
         assert_eq!(start["model"], "claude-3");
         assert_eq!(start["usage"]["input_tokens"], 10);
 
+        // ping
+        let ping: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
+        assert_eq!(ping["type"], "ping");
+
         // content_block_start
-        let cbs: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
+        let cbs: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert_eq!(cbs["type"], "content_block_start");
         assert_eq!(cbs["content_block"]["type"], "text");
-
-        // ping
-        let ping: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
-        assert_eq!(ping["type"], "ping");
 
         // content delta
         let delta: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
@@ -548,24 +779,25 @@ mod tests {
             cache_write_tokens: None,
         };
         let events = generate_anthropic_sse(
-            vec!["ab".into(), "cd".into(), "e".into()],
+            &vec![RawContentBlock::Text("ab".into()), RawContentBlock::Text("cd".into()), RawContentBlock::Text("e".into())],
             "claude-3",
             &usage,
         );
 
-        // start + block_start + ping + 3 deltas + block_stop + msg_delta + msg_stop = 9
-        assert_eq!(events.len(), 9);
+        // start + ping + 3*(block_start+delta+block_stop) + msg_delta + msg_stop = 13
+        assert_eq!(events.len(), 13);
 
-        // First delta
+        // Each Text block gets its own content_block_start/delta/stop
+        // Block 0 ("ab")
         let d0: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
         assert_eq!(d0["delta"]["text"], "ab");
 
-        // Second delta
-        let d1: serde_json::Value = serde_json::from_str(&events[4].data).unwrap();
+        // Block 1 ("cd")
+        let d1: serde_json::Value = serde_json::from_str(&events[6].data).unwrap();
         assert_eq!(d1["delta"]["text"], "cd");
 
-        // Third delta
-        let d2: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+        // Block 2 ("e")
+        let d2: serde_json::Value = serde_json::from_str(&events[9].data).unwrap();
         assert_eq!(d2["delta"]["text"], "e");
     }
 
@@ -578,7 +810,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_anthropic_sse(vec!["".into()], "claude-3", &usage);
+        let events = generate_anthropic_sse(&vec![RawContentBlock::Text("".into())], "claude-3", &usage);
 
         // Still generates full sequence (with empty delta)
         assert_eq!(events.len(), 7);
@@ -595,7 +827,7 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_anthropic_sse(vec!["x".into()], "m", &usage);
+        let events = generate_anthropic_sse(&vec![RawContentBlock::Text("x".into())], "m", &usage);
 
         // message_start includes input usage
         let start: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
@@ -617,8 +849,8 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let oai = generate_openai_sse(vec!["a".into()], "m", &usage, false);
-        let ant = generate_anthropic_sse(vec!["a".into()], "m", &usage);
+        let oai = generate_openai_sse(&vec![RawContentBlock::Text("a".into())], "m", &usage, false);
+        let ant = generate_anthropic_sse(&vec![RawContentBlock::Text("a".into())], "m", &usage);
 
         // OpenAI ends with [DONE]
         assert_eq!(oai.last().unwrap().data, "[DONE]");
@@ -636,8 +868,8 @@ mod tests {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let oai = generate_openai_sse(vec!["a".into()], "m", &usage, false);
-        let ant = generate_anthropic_sse(vec!["a".into()], "m", &usage);
+        let oai = generate_openai_sse(&vec![RawContentBlock::Text("a".into())], "m", &usage, false);
+        let ant = generate_anthropic_sse(&vec![RawContentBlock::Text("a".into())], "m", &usage);
 
         for e in &oai {
             assert_eq!(e.event_type, "message");
