@@ -285,6 +285,9 @@ impl ScenarioEngine {
     fn extract_usage(shape: &ResponseShape) -> Option<UsageResponse> {
         match shape {
             ResponseShape::Usage(u) => Some(u.clone()),
+            ResponseShape::Text(t) => t.usage.clone(),
+            ResponseShape::Reasoning(r) => r.usage.clone(),
+            ResponseShape::ToolCall(tc) => tc.usage.clone(),
             _ => None,
         }
     }
@@ -328,6 +331,7 @@ mod tests {
         TurnResponse {
             response: ResponseShape::Text(TextResponse {
                 content: content.to_string(),
+                usage: None,
             }),
             delay: None,
             error: None,
@@ -421,6 +425,7 @@ mod tests {
             turns: vec![TurnResponse {
                 response: ResponseShape::Text(TextResponse {
                     content: String::new(),
+                    usage: None,
                 }),
                 delay: None,
                 error: Some(HttpError {
@@ -482,6 +487,7 @@ mod tests {
             turns: vec![TurnResponse {
                 response: ResponseShape::Text(TextResponse {
                     content: "slow".to_string(),
+                    usage: None,
                 }),
                 delay: Some(500),
                 error: None,
@@ -832,7 +838,6 @@ mod tests {
     // ------------------------------------------------------------------
     // decide_for_models tests
     // ------------------------------------------------------------------
-
     #[test]
     fn decide_for_models_returns_scenario_declared_models() {
         let scenario = ScenarioDeclaration {
@@ -862,7 +867,6 @@ mod tests {
             _ => panic!("expected Models variant"),
         }
     }
-
     #[test]
     fn decide_for_models_placeholder_when_no_models_declared() {
         let scenario = ScenarioDeclaration {
@@ -875,14 +879,12 @@ mod tests {
         let decision = engine.decide_for_models();
         assert!(matches!(decision, ModelsDecision::Placeholder));
     }
-
     #[test]
     fn decide_for_models_placeholder_when_no_scenarios() {
         let mut engine = ScenarioEngine::new(vec![]);
         let decision = engine.decide_for_models();
         assert!(matches!(decision, ModelsDecision::Placeholder));
     }
-
     #[test]
     fn decide_for_models_error_injection() {
         let scenario = ScenarioDeclaration {
@@ -891,6 +893,7 @@ mod tests {
             turns: vec![TurnResponse {
                 response: ResponseShape::Text(TextResponse {
                     content: String::new(),
+                    usage: None,
                 }),
                 delay: None,
                 error: Some(HttpError {
@@ -914,7 +917,6 @@ mod tests {
             _ => panic!("expected Error variant"),
         }
     }
-
     #[test]
     fn decide_for_models_returns_models_when_no_error() {
         let scenario = ScenarioDeclaration {
@@ -923,6 +925,7 @@ mod tests {
             turns: vec![TurnResponse {
                 response: ResponseShape::Text(TextResponse {
                     content: String::new(),
+                    usage: None,
                 }),
                 delay: None,
                 error: None,
@@ -943,7 +946,6 @@ mod tests {
             _ => panic!("expected Models variant"),
         }
     }
-
     #[test]
     fn decide_for_models_with_model_id_constraint() {
         let scenario = ScenarioDeclaration {
@@ -968,7 +970,6 @@ mod tests {
             _ => panic!("expected Models variant, got {:?}", decision),
         }
     }
-
     #[test]
     fn decide_for_models_carrying_delay() {
         let scenario = ScenarioDeclaration {
@@ -977,6 +978,7 @@ mod tests {
             turns: vec![TurnResponse {
                 response: ResponseShape::Text(TextResponse {
                     content: String::new(),
+                    usage: None,
                 }),
                 delay: Some(500),
                 error: None,
@@ -993,5 +995,6 @@ mod tests {
         }
     }
 
+    mod fixture_contract;
     mod response_blocks;
 }
