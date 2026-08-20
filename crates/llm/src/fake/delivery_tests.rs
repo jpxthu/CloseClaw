@@ -414,8 +414,8 @@ fn test_openai_sse_tool_use_only() {
         0,
     );
 
-    // role + tool_call_start + tool_call_delta + finish(tool_calls) = 4
-    assert_eq!(events.len(), 4);
+    // role + tool_call_start + tool_call_delta + finish(tool_calls) + [DONE] = 5
+    assert_eq!(events.len(), 5);
 
     let start_data: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(
@@ -435,6 +435,9 @@ fn test_openai_sse_tool_use_only() {
 
     let finish_data: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
+
+    // [DONE]
+    assert_eq!(events[4].data, "[DONE]");
 }
 
 #[test]
@@ -461,8 +464,8 @@ fn test_openai_sse_mixed_text_and_tool_use() {
         0,
     );
 
-    // role + content_delta + tool_call_start + tool_call_delta + finish(tool_calls) = 5
-    assert_eq!(events.len(), 5);
+    // role + content_delta + tool_call_start + tool_call_delta + finish(tool_calls) + [DONE] = 6
+    assert_eq!(events.len(), 6);
 
     let content_data: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
     assert_eq!(
@@ -484,6 +487,9 @@ fn test_openai_sse_mixed_text_and_tool_use() {
 
     let finish_data: serde_json::Value = serde_json::from_str(&events[4].data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
+
+    // [DONE]
+    assert_eq!(events[5].data, "[DONE]");
 }
 
 #[test]
