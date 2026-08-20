@@ -6,7 +6,7 @@ use std::time::Duration;
 use super::fake_scenario::{DeliveryConfig, ErrorInjection, StreamInterrupt};
 use super::{FakeProvider, Scenario, SharedState};
 use crate::provider::ProviderError;
-use crate::types::ProtocolId;
+use crate::types::{ProtocolId, RawContentBlock};
 
 /// Builder for `FakeProvider`.
 #[derive(Debug, Clone, Default)]
@@ -30,7 +30,7 @@ impl Builder {
         completion_tokens: u32,
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens,
             completion_tokens,
@@ -54,7 +54,7 @@ impl Builder {
         cache: (Option<u32>, Option<u32>),
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens,
             completion_tokens,
@@ -104,7 +104,7 @@ impl Builder {
         granularity: usize,
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens: 10,
             completion_tokens: 10,
@@ -126,7 +126,7 @@ impl Builder {
         delay: Duration,
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens: 10,
             completion_tokens: 10,
@@ -151,7 +151,7 @@ impl Builder {
         delay: Duration,
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens: 10,
             completion_tokens: 10,
@@ -176,7 +176,7 @@ impl Builder {
         delay: Duration,
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens: 10,
             completion_tokens: 10,
@@ -202,7 +202,7 @@ impl Builder {
         retry_after: Option<u64>,
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -231,7 +231,7 @@ impl Builder {
         interrupt_after_frames: usize,
     ) -> Self {
         self.state.scenarios.push_back(Scenario::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens: 10,
             completion_tokens: 10,
@@ -247,6 +247,42 @@ impl Builder {
             protocol: ProtocolId::new("openai"),
             segment_granularity: 0,
         });
+        self
+    }
+
+    /// Add a thinking (reasoning) content block to the last scenario.
+    pub fn then_thinking(mut self, thinking: impl Into<String>, signature: Option<String>) -> Self {
+        if let Some(Scenario::Ok {
+            ref mut content_blocks,
+            ..
+        }) = self.state.scenarios.back_mut()
+        {
+            content_blocks.push(RawContentBlock::Thinking {
+                thinking: thinking.into(),
+                signature,
+            });
+        }
+        self
+    }
+
+    /// Add a tool use content block to the last scenario.
+    pub fn then_tool_use(
+        mut self,
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input: impl Into<String>,
+    ) -> Self {
+        if let Some(Scenario::Ok {
+            ref mut content_blocks,
+            ..
+        }) = self.state.scenarios.back_mut()
+        {
+            content_blocks.push(RawContentBlock::ToolUse {
+                id: id.into(),
+                name: name.into(),
+                input: input.into(),
+            });
+        }
         self
     }
 
