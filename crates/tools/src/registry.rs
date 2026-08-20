@@ -337,7 +337,6 @@ impl ToolRegistryImpl {
                         tools: None,
                         disallowed_tools: None,
                         session_mode: None,
-                        effective_spawn_budget: None,
                         agent_role: None,
                         agent_type: None,
                     },
@@ -460,7 +459,6 @@ impl ToolRegistryImpl {
 
         // Collect ToolInfo from registered tools, filtered by
         // the agent's tools / disallowed_tools config and session mode.
-        let spawn_budget = ctx.effective_spawn_budget;
         let tool_infos: Vec<ToolInfo> = guard
             .values()
             .filter(|t| {
@@ -471,15 +469,6 @@ impl ToolRegistryImpl {
                     }
                 }
                 if disallowed.iter().any(|n| n == name) {
-                    return false;
-                }
-                // Budget-level spawn filter: when effective budget ≤ 0,
-                // filter out sessions_spawn (design doc §Depth 追踪).
-                // NOTE: `<= 0` matches design doc wording (§Depth 追踪: effective budget ≤ 0).
-                // For u32 this is equivalent to `== 0`, kept for spec alignment.
-                #[allow(clippy::absurd_extreme_comparisons)]
-                let budget_exhausted = spawn_budget.is_some_and(|b| b <= 0);
-                if name == "sessions_spawn" && budget_exhausted {
                     return false;
                 }
                 // Plan Mode: filter out non-read-only tools

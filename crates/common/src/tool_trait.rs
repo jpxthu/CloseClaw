@@ -270,8 +270,7 @@ fn git_status_count(path: &Path, extra_arg: &str) -> usize {
 /// - **Working directory**: `workdir` — enables path-aware guidance.
 /// - **Agent identity**: `agent_role` / `agent_type` — enables
 ///   role-based and type-based description adaptation.
-/// - **Budget**: `effective_spawn_budget` — enables budget-aware
-///   descriptions (e.g. "spawn unavailable when budget exhausted").
+
 #[derive(Debug, Clone, Default)]
 pub struct PromptGenerationContext {
     /// ID of the agent for which the prompt is being built.
@@ -303,13 +302,6 @@ pub struct PromptGenerationContext {
     /// tools). This implements the "write tools invisible in Plan
     /// Mode" requirement from the design doc.
     pub session_mode: Option<SessionMode>,
-    /// Effective spawn depth budget for the current session.
-    ///
-    /// When `Some(budget)` where `budget ≤ 0`, the `sessions_spawn`
-    /// tool is filtered out of the visible tool list — the session
-    /// cannot spawn further children (design doc §Depth 追踪).
-    /// `None` means the budget is unknown (no filtering applied).
-    pub effective_spawn_budget: Option<u32>,
     /// Agent role (human-readable name/purpose) from agent config.
     ///
     /// Used by the Prompt layer to tailor tool descriptions to the

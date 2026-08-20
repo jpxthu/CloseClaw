@@ -190,42 +190,22 @@ async fn test_generate_prompt_empty_context() {
         "empty context should show sessions_spawn as available"
     );
     assert!(
-        prompt.contains("budget is unknown"),
-        "no budget info should indicate budget is unknown"
+        prompt.contains("session creation time"),
+        "budget info should indicate budget is managed at session creation time"
     );
 }
 
 #[tokio::test]
-async fn test_generate_prompt_budget_exhausted() {
+async fn test_generate_prompt_budget_always_available() {
     let tool = make_tool();
     let ctx = PromptGenerationContext {
-        effective_spawn_budget: Some(0),
-        ..Default::default()
-    };
-    let prompt = tool.generate_prompt(&ctx);
-    assert!(
-        prompt.contains("not available"),
-        "budget 0 should indicate not available"
-    );
-    assert!(
-        prompt.contains("exhausted"),
-        "budget 0 should mention exhausted"
-    );
-}
-
-#[tokio::test]
-async fn test_generate_prompt_budget_available() {
-    let tool = make_tool();
-    let ctx = PromptGenerationContext {
-        effective_spawn_budget: Some(5),
         ..Default::default()
     };
     let prompt = tool.generate_prompt(&ctx);
     assert!(
         prompt.contains("sessions_spawn is available"),
-        "budget 5 should show available"
+        "budget status should always indicate available (budget managed at session creation time)"
     );
-    assert!(prompt.contains("5"), "should mention the budget number");
 }
 
 // ---------------------------------------------------------------------------
