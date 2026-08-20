@@ -640,57 +640,6 @@ async fn test_side_effect_context_new_session_delivered() {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — InjectMeta
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn test_inject_meta_calls_system_append_and_sends_reply() {
-    let (ctx, mut rx, exec, _spy) = make_ctx();
-    SlashResult::InjectMeta {
-        content: "skill body content here".into(),
-    }
-    .execute(&ctx)
-    .await;
-    drop(ctx);
-
-    assert!(*exec.system_append_called.lock().unwrap());
-    assert!(matches!(
-        *exec.system_append_action.lock().unwrap(),
-        Some(SystemAppendAction::Add(ref s)) if s == "skill body content here"
-    ));
-
-    let actions = drain_actions(&mut rx).await;
-    assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "技能已加载"));
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_inject_meta_uses_add_action_variant() {
-    let (ctx, _rx, exec, _spy) = make_ctx();
-    SlashResult::InjectMeta {
-        content: "injected instructions".into(),
-    }
-    .execute(&ctx)
-    .await;
-    drop(ctx);
-
-    // Verify it's SystemAppendAction::Add, not Clear or any other variant
-    let action = exec.system_append_action.lock().unwrap();
-    match &*action {
-        Some(SystemAppendAction::Add(content)) => {
-            assert_eq!(content, "injected instructions");
-        }
-        other => panic!("expected SystemAppendAction::Add, got {other:?}"),
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests — SetMode: reply_message
 // ---------------------------------------------------------------------------
 

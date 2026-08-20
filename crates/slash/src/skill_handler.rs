@@ -2,7 +2,7 @@
 //!
 //! Routes `/<skill-name>` to the matching skill in the disk or builtin
 //! registry, loads its body, and injects it into the agent context
-//! via [`SlashResult::InjectMeta`].
+//! via [`SlashResult::SystemAppend`].
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use closeclaw_skills::BuiltinSkillRegistry;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 
 /// Handler that dispatches `/<skill-name>` to the matching skill.
 ///
@@ -90,13 +90,17 @@ impl SlashHandler for SkillSlashHandler {
                 }
             };
             let body = Self::substitute_variables(&body, &skill.skill_dir, &ctx.session_id);
-            return SlashResult::InjectMeta { content: body };
+            return SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(body),
+            };
         }
 
         // 2. Fallback: BuiltinSkillRegistry
         if let Some(skill) = self.builtin_registry.get(skill_name).await {
             return match skill.execute(None).await {
-                Ok(content) => SlashResult::InjectMeta { content },
+                Ok(content) => SlashResult::SystemAppend {
+                    action: SystemAppendAction::Add(content),
+                },
                 Err(e) => SlashResult::Reply(format!("技能 \"{skill_name}\" 执行失败: {e}")),
             };
         }
@@ -260,12 +264,14 @@ mod tests {
         let ctx = make_ctx("test-skill");
         let result = handler.handle("", &ctx).await;
         match result {
-            SlashResult::InjectMeta { content } => {
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(content),
+            } => {
                 assert!(content.contains("# Hello"));
                 assert!(content.contains("Do the thing."));
                 assert!(!content.contains("${SKILL_DIR}"));
             }
-            other => panic!("expected InjectMeta, got {:?}", other),
+            other => panic!("expected SystemAppend(Add), got {:?}", other),
         }
     }
 
@@ -297,10 +303,12 @@ mod tests {
         let ctx = make_ctx("builtin-test");
         let result = handler.handle("", &ctx).await;
         match result {
-            SlashResult::InjectMeta { content } => {
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(content),
+            } => {
                 assert_eq!(content, "builtin body content");
             }
-            other => panic!("expected InjectMeta, got {:?}", other),
+            other => panic!("expected SystemAppend(Add), got {:?}", other),
         }
     }
 
@@ -338,11 +346,13 @@ mod tests {
         let ctx = make_ctx("exec-override");
         let result = handler.handle("", &ctx).await;
         match result {
-            SlashResult::InjectMeta { content } => {
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(content),
+            } => {
                 assert_eq!(content, "execute result");
                 assert_ne!(content, "this is body text");
             }
-            other => panic!("expected InjectMeta, got {:?}", other),
+            other => panic!("expected SystemAppend(Add), got {:?}", other),
         }
     }
 
@@ -424,11 +434,13 @@ mod tests {
         let ctx = make_ctx("sess-test");
         let result = handler.handle("", &ctx).await;
         match result {
-            SlashResult::InjectMeta { content } => {
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Add(content),
+            } => {
                 assert!(content.contains("sess-123"));
                 assert!(!content.contains("${SESSION_ID}"));
             }
-            other => panic!("expected InjectMeta, got {:?}", other),
+            other => panic!("expected SystemAppend(Add), got {:?}", other),
         }
     }
 }
