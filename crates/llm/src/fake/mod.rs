@@ -281,7 +281,9 @@ impl FakeProvider {
             });
         }
         // Non-Ok variants handled by caller
-        unreachable!("deliver_ok_response called with non-Ok scenario")
+        Err(ProviderError::Legacy(
+            "deliver_ok_response: unexpected non-Ok scenario".into(),
+        ))
     }
 }
 
@@ -370,12 +372,23 @@ impl FakeProvider {
                 });
             }
             apply_first_token_delay(delivery).await;
-            // For backward compat: split text content for segment-based streaming
-            let _segments = if segment_granularity > 0 {
-                let text = scenario.content();
-                delivery::split_segments(&text, segment_granularity)
+            // Split Text blocks by segment_granularity for segment-based streaming
+            let final_blocks: Vec<RawContentBlock> = if segment_granularity > 0 {
+                let mut result = Vec::new();
+                for block in content_blocks {
+                    match block {
+                        RawContentBlock::Text(text) => {
+                            let segments = delivery::split_segments(text, segment_granularity);
+                            for seg in segments {
+                                result.push(RawContentBlock::Text(seg));
+                            }
+                        }
+                        other => result.push(other.clone()),
+                    }
+                }
+                result
             } else {
-                vec![]
+                content_blocks.clone()
             };
             let usage = RawUsage {
                 prompt_tokens,
@@ -385,9 +398,9 @@ impl FakeProvider {
                 cache_write_tokens,
             };
             let events = if *protocol == ProtocolId::new("anthropic") {
-                generate_anthropic_sse(content_blocks, model, &usage)
+                generate_anthropic_sse(&final_blocks, model, &usage)
             } else {
-                generate_openai_sse(content_blocks, model, &usage, include_usage)
+                generate_openai_sse(&final_blocks, model, &usage, include_usage)
             };
             self.emit_stream_events(tx, events, delivery).await;
         }

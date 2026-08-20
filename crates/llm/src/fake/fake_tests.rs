@@ -472,7 +472,10 @@ fn test_builder_then_streaming() {
             include_usage,
             ..
         } => {
-            assert_eq!(content_blocks, vec![RawContentBlock::Text("stream me".into())]);
+            assert_eq!(
+                content_blocks,
+                vec![RawContentBlock::Text("stream me".into())]
+            );
             assert_eq!(model, "model-a");
             assert_eq!(protocol, ProtocolId::new("anthropic"));
             assert_eq!(segment_granularity, 3);
@@ -503,7 +506,10 @@ fn test_builder_then_with_first_token_delay() {
             protocol,
             ..
         } => {
-            assert_eq!(content_blocks, vec![RawContentBlock::Text("content".into())]);
+            assert_eq!(
+                content_blocks,
+                vec![RawContentBlock::Text("content".into())]
+            );
             assert_eq!(delivery.first_token_delay, Some(Duration::from_millis(200)));
             assert!(delivery.per_segment_delay.is_none());
             assert!(delivery.overall_delay.is_none());
@@ -528,9 +534,14 @@ fn test_builder_then_with_per_segment_delay() {
         .unwrap();
     match scenario {
         Scenario::Ok {
-            content_blocks, delivery, ..
+            content_blocks,
+            delivery,
+            ..
         } => {
-            assert_eq!(content_blocks, vec![RawContentBlock::Text("content".into())]);
+            assert_eq!(
+                content_blocks,
+                vec![RawContentBlock::Text("content".into())]
+            );
             assert!(delivery.first_token_delay.is_none());
             assert_eq!(delivery.per_segment_delay, Some(Duration::from_millis(50)));
             assert!(delivery.overall_delay.is_none());
@@ -554,9 +565,14 @@ fn test_builder_then_with_overall_delay() {
         .unwrap();
     match scenario {
         Scenario::Ok {
-            content_blocks, delivery, ..
+            content_blocks,
+            delivery,
+            ..
         } => {
-            assert_eq!(content_blocks, vec![RawContentBlock::Text("content".into())]);
+            assert_eq!(
+                content_blocks,
+                vec![RawContentBlock::Text("content".into())]
+            );
             assert!(delivery.first_token_delay.is_none());
             assert!(delivery.per_segment_delay.is_none());
             assert_eq!(delivery.overall_delay, Some(Duration::from_millis(100)));
@@ -586,7 +602,10 @@ fn test_builder_then_http_error() {
             completion_tokens,
             ..
         } => {
-            assert_eq!(content_blocks, vec![RawContentBlock::Text("content".into())]);
+            assert_eq!(
+                content_blocks,
+                vec![RawContentBlock::Text("content".into())]
+            );
             let ei = delivery.error_injection.unwrap();
             assert_eq!(ei.status_code, 429);
             assert_eq!(ei.message, "HTTP 429");
@@ -636,9 +655,14 @@ fn test_builder_then_stream_interrupt() {
         .unwrap();
     match scenario {
         Scenario::Ok {
-            content_blocks, delivery, ..
+            content_blocks,
+            delivery,
+            ..
         } => {
-            assert_eq!(content_blocks, vec![RawContentBlock::Text("content".into())]);
+            assert_eq!(
+                content_blocks,
+                vec![RawContentBlock::Text("content".into())]
+            );
             let si = delivery.stream_interrupt.unwrap();
             assert_eq!(si.interrupt_after_frames, 5);
         }

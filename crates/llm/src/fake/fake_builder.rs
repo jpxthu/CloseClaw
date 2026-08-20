@@ -251,11 +251,7 @@ impl Builder {
     }
 
     /// Add a thinking (reasoning) content block to the last scenario.
-    pub fn then_thinking(
-        mut self,
-        thinking: impl Into<String>,
-        signature: Option<String>,
-    ) -> Self {
+    pub fn then_thinking(mut self, thinking: impl Into<String>, signature: Option<String>) -> Self {
         if let Some(Scenario::Ok {
             ref mut content_blocks,
             ..

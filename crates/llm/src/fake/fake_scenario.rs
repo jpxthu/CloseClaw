@@ -165,23 +165,6 @@ impl Scenario {
             Self::Delay { inner, .. } => inner.raw_usage(),
         }
     }
-
-    /// Returns the first text content block as a string.
-    /// For backward compatibility: returns empty string for non-Ok scenarios.
-    pub(crate) fn content(&self) -> String {
-        match self {
-            Self::Ok { content_blocks, .. } => {
-                for block in content_blocks {
-                    if let RawContentBlock::Text(s) = block {
-                        return s.clone();
-                    }
-                }
-                String::new()
-            }
-            Self::Err { .. } => String::new(),
-            Self::Delay { inner, .. } => inner.content(),
-        }
-    }
 }
 
 impl Clone for Scenario {
@@ -350,7 +333,10 @@ mod tests {
                 protocol,
                 segment_granularity,
             } => {
-                assert_eq!(content_blocks, vec![RawContentBlock::Text("test content".into())]);
+                assert_eq!(
+                    content_blocks,
+                    vec![RawContentBlock::Text("test content".into())]
+                );
                 assert_eq!(model, "test-model");
                 assert_eq!(prompt_tokens, 20);
                 assert_eq!(completion_tokens, 30);
@@ -401,7 +387,9 @@ mod tests {
         match cloned {
             Scenario::Delay { duration, inner } => {
                 assert_eq!(duration, Duration::from_millis(50));
-                assert_eq!(inner.content(), "inner");
+                // Verify inner is an Ok scenario by checking raw_usage
+                let usage = inner.raw_usage();
+                assert_eq!(usage.prompt_tokens, 10);
             }
             _ => panic!("Expected Scenario::Delay"),
         }
@@ -444,16 +432,5 @@ mod tests {
         assert_eq!(usage.prompt_tokens, 7);
         assert_eq!(usage.completion_tokens, 3);
         assert_eq!(usage.total_tokens, Some(10));
-    }
-
-    #[test]
-    fn test_content() {
-        assert_eq!(Scenario::ok("hello", "m").content(), "hello");
-        assert_eq!(
-            Scenario::err(ProviderError::Legacy("e".into())).content(),
-            ""
-        );
-        let delayed = Scenario::delay(Duration::from_millis(1), Scenario::ok("d", "m"));
-        assert_eq!(delayed.content(), "d");
     }
 }
