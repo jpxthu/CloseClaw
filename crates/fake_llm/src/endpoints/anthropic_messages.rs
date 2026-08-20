@@ -1,123 +1,23 @@
 //! Anthropic `/v1/messages` endpoint handler.
 //!
-//! Parses the Anthropic messages request body, extracts protocol-agnostic
-//! `RequestFeatures`, and returns a placeholder OK response.
+//! Parses the Anthropic messages request body via the protocol module,
+//! extracts protocol-agnostic `RequestFeatures`, and returns a placeholder OK response.
 
 use axum::Json;
-use serde::{Deserialize, Serialize};
 
-use crate::types::RequestFeatures;
-
-/// Anthropic messages request body.
-///
-/// Implements the subset of the Anthropic Messages API required for
-/// protocol-level parsing. Unknown fields are silently ignored.
-#[derive(Debug, Deserialize)]
-pub struct MessageRequest {
-    /// Model identifier (e.g. "claude-3-opus-20240229").
-    pub model: String,
-    /// Conversation messages.
-    pub messages: Vec<Message>,
-    /// Maximum tokens to generate.
-    pub max_tokens: u32,
-    /// System prompt (string or array of content blocks).
-    #[serde(default)]
-    pub system: Option<serde_json::Value>,
-    /// Whether to stream the response (SSE events).
-    #[serde(default)]
-    pub stream: bool,
-    /// Sampling temperature.
-    #[serde(default)]
-    pub temperature: Option<f32>,
-    /// Tool definitions available to the model.
-    #[serde(default)]
-    pub tools: Option<Vec<serde_json::Value>>,
-    /// Stop sequences.
-    #[serde(default)]
-    pub stop_sequences: Option<Vec<String>>,
-    /// Metadata for request tracking.
-    #[serde(default)]
-    pub metadata: Option<serde_json::Value>,
-}
-
-/// A single message in Anthropic format.
-///
-/// Messages alternate between `user` and `assistant` roles. Content can be
-/// a simple string or an array of content blocks (text, images, tool_use, etc.).
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Message {
-    /// Role: "user" or "assistant".
-    pub role: String,
-    /// Message content — string or array of content blocks.
-    pub content: serde_json::Value,
-}
-
-/// Extract protocol-agnostic `RequestFeatures` from an Anthropic message request.
-pub fn extract_request_features(req: &MessageRequest) -> RequestFeatures {
-    RequestFeatures {
-        model: req.model.clone(),
-        stream: req.stream,
-        max_tokens: Some(req.max_tokens),
-        temperature: req.temperature,
-    }
-}
-
-/// Placeholder Anthropic message response.
-#[derive(Debug, Serialize)]
-pub struct MessageResponse {
-    id: String,
-    #[serde(rename = "type")]
-    message_type: String,
-    role: String,
-    content: Vec<ContentBlock>,
-    model: String,
-    stop_reason: Option<String>,
-    stop_sequence: Option<String>,
-    usage: Usage,
-}
-
-#[derive(Debug, Serialize)]
-struct ContentBlock {
-    #[serde(rename = "type")]
-    block_type: String,
-    text: String,
-}
-
-#[derive(Debug, Serialize)]
-struct Usage {
-    input_tokens: u32,
-    output_tokens: u32,
-}
-
-/// Build a placeholder Anthropic message response for the given model.
-fn build_placeholder_response(model: &str) -> MessageResponse {
-    MessageResponse {
-        id: "msg-placeholder".to_string(),
-        message_type: "message".to_string(),
-        role: "assistant".to_string(),
-        content: vec![ContentBlock {
-            block_type: "text".to_string(),
-            text: "placeholder".to_string(),
-        }],
-        model: model.to_string(),
-        stop_reason: Some("end_turn".to_string()),
-        stop_sequence: None,
-        usage: Usage {
-            input_tokens: 0,
-            output_tokens: 0,
-        },
-    }
-}
+use crate::protocol::anthropic::{
+    build_message_response, extract_request_features, MessageRequest, MessageResponse,
+};
 
 /// Handler for POST `/v1/messages`.
 ///
-/// Parses the Anthropic message request, extracts `RequestFeatures`,
-/// and returns a placeholder OK response. The scenario engine (Sequence 2)
-/// will replace the placeholder with a deterministic response.
+/// Delegates request parsing and response building to the Anthropic protocol module.
+/// The scenario engine (Sequence 2) will replace the placeholder with a
+/// deterministic response.
 pub async fn handler(Json(req): Json<MessageRequest>) -> Json<MessageResponse> {
     let _features = extract_request_features(&req);
     // TODO(Sequence 2): pass _features to scenario engine for decision
-    Json(build_placeholder_response(&req.model))
+    Json(build_message_response(&req.model))
 }
 
 #[cfg(test)]
@@ -125,7 +25,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_features_basic() {
+    fn handler_delegates_to_protocol() {
+        // Verify the endpoint handler compiles and can invoke protocol functions.
         let req = MessageRequest {
             model: "claude-3-opus-20240229".to_string(),
             messages: vec![],
@@ -139,54 +40,11 @@ mod tests {
         };
         let features = extract_request_features(&req);
         assert_eq!(features.model, "claude-3-opus-20240229");
-        assert!(!features.stream);
-        assert_eq!(features.max_tokens, Some(1024));
-        assert_eq!(features.temperature, Some(0.7));
-    }
 
-    #[test]
-    fn extract_features_streaming() {
-        let req = MessageRequest {
-            model: "claude-3-sonnet-20240229".to_string(),
-            messages: vec![],
-            max_tokens: 512,
-            system: Some(serde_json::json!("You are helpful.")),
-            stream: true,
-            temperature: None,
-            tools: None,
-            stop_sequences: None,
-            metadata: None,
-        };
-        let features = extract_request_features(&req);
-        assert!(features.stream);
-        assert_eq!(features.max_tokens, Some(512));
-        assert_eq!(features.temperature, None);
-    }
-
-    #[test]
-    fn extract_features_with_tools() {
-        let req = MessageRequest {
-            model: "claude-3-opus-20240229".to_string(),
-            messages: vec![Message {
-                role: "user".to_string(),
-                content: serde_json::json!("Hello"),
-            }],
-            max_tokens: 2048,
-            system: None,
-            stream: false,
-            temperature: Some(0.0),
-            tools: Some(vec![serde_json::json!({
-                "name": "get_weather",
-                "description": "Get weather",
-                "input_schema": { "type": "object", "properties": {} }
-            })]),
-            stop_sequences: Some(vec!["\n\n".to_string()]),
-            metadata: None,
-        };
-        let features = extract_request_features(&req);
-        assert_eq!(features.model, "claude-3-opus-20240229");
-        assert!(!features.stream);
-        assert_eq!(features.max_tokens, Some(2048));
-        assert_eq!(features.temperature, Some(0.0));
+        // Verify response serializes to valid JSON (fields are private, test via serde)
+        let resp = build_message_response(&req.model);
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["type"], "message");
+        assert_eq!(json["role"], "assistant");
     }
 }

@@ -13,5 +13,6 @@
 //! - **types**: protocol-agnostic shared types passed to the scenario engine
 
 pub mod endpoints;
+pub mod protocol;
 pub mod server;
 pub mod types;
