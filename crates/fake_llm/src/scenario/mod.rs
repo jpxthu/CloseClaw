@@ -5,7 +5,9 @@
 
 pub mod loader;
 pub mod matcher;
+pub mod session;
 pub mod types;
 
 pub use matcher::match_scenario;
+pub use session::SessionTracker;
 pub use types::*;
