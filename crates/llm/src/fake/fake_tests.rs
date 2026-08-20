@@ -446,9 +446,7 @@ async fn test_err_scenario_cache_fields_none() {
     assert_eq!(usage2.prompt_tokens, 50);
     assert_eq!(usage2.completion_tokens, 25);
 }
-
 // ── Builder API convenience methods (Step 1.5) ─────────────────────────
-
 #[test]
 fn test_builder_then_streaming() {
     let provider = FakeProvider::builder()
@@ -669,7 +667,6 @@ fn test_builder_then_stream_interrupt() {
         _ => panic!("Expected Scenario::Ok"),
     }
 }
-
 #[test]
 fn test_builder_include_usage() {
     let provider = FakeProvider::builder()
@@ -691,7 +688,6 @@ fn test_builder_include_usage() {
         _ => panic!("Expected Scenario::Ok"),
     }
 }
-
 #[test]
 fn test_builder_include_usage_noop_on_err() {
     // include_usage should be a no-op when last scenario is not Scenario::Ok
@@ -712,7 +708,6 @@ fn test_builder_include_usage_noop_on_err() {
         _ => panic!("Expected Scenario::Err"),
     }
 }
-
 #[test]
 fn test_builder_include_usage_on_last_only() {
     // Only the last scenario's include_usage should be set
@@ -733,9 +728,48 @@ fn test_builder_include_usage_on_last_only() {
         _ => panic!("Expected Scenario::Ok"),
     }
 }
-
+// ── Streaming delay-before-error ordering test (Step 1.6) ──────────────
+#[tokio::test]
+async fn test_streaming_delay_before_error_ordering() {
+    let provider = FakeProvider::builder().build();
+    {
+        let mut state = provider.inner.lock().unwrap();
+        state.scenarios.push_back(Scenario::Ok {
+            content_blocks: vec![RawContentBlock::Text("unreachable".into())],
+            model: "model-x".into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig {
+                first_token_delay: Some(Duration::from_millis(150)),
+                error_injection: Some(fake_scenario::ErrorInjection {
+                    status_code: 429,
+                    message: "rate limited".into(),
+                    retry_after: None,
+                }),
+                ..Default::default()
+            },
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 0,
+        });
+    }
+    let start = Instant::now();
+    let result = provider
+        .send_streaming(make_request(), serde_json::Value::Null)
+        .await;
+    let elapsed = start.elapsed();
+    match result.unwrap_err() {
+        ProviderError::Http { status_code, .. } => assert_eq!(status_code, 429),
+        other => panic!("Expected Http error, got: {:?}", other),
+    }
+    assert!(
+        elapsed.as_millis() >= 130,
+        "Expected delay >=130ms before error, got {elapsed:?}"
+    );
+}
 // ── ToolUse segment_granularity tests (Step 1.3) ──────────────────────
-
 #[tokio::test]
 async fn test_streaming_tool_use_segmented_openai() {
     let provider = FakeProvider::builder().build();
@@ -784,7 +818,6 @@ async fn test_streaming_tool_use_segmented_openai() {
     assert_eq!(finish["choices"][0]["finish_reason"], "tool_calls");
     assert!(rx.recv().await.is_none());
 }
-
 #[tokio::test]
 async fn test_streaming_tool_use_segmented_anthropic() {
     let provider = FakeProvider::builder().build();
@@ -833,7 +866,6 @@ async fn test_streaming_tool_use_segmented_anthropic() {
     assert_eq!(stop["type"], "message_stop");
     assert!(rx.recv().await.is_none());
 }
-
 #[tokio::test]
 async fn test_streaming_tool_use_no_segmentation() {
     // Case 1: granularity=0 → input unsegmented
@@ -879,7 +911,6 @@ async fn test_streaming_tool_use_no_segmentation() {
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
     assert!(rx.recv().await.is_none());
 
-    // Case 2: empty input → no delta emitted
     let provider2 = FakeProvider::builder().build();
     {
         let mut state = provider2.inner.lock().unwrap();
@@ -947,18 +978,15 @@ async fn test_streaming_mixed_text_and_tool_use_segmented() {
         .await
         .unwrap();
     let _role = rx.recv().await.unwrap();
-    // Text: "hello " → "hel", "lo "
     let t1: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
     assert_eq!(t1["choices"][0]["delta"]["content"], "hel");
     let t2: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
     assert_eq!(t2["choices"][0]["delta"]["content"], "lo ");
-    // ToolCall start
     let tc_start: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
     assert_eq!(
         tc_start["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
         "search"
     );
-    // ToolCall: "abcdefgh" → "abc", "def", "gh"
     for expected in &["abc", "def", "gh"] {
         let d: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
         assert_eq!(

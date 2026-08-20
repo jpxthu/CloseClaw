@@ -429,7 +429,19 @@ fn anthropic_message_stop() -> SseEvent {
 
 /// Generate an Anthropic-compatible SSE event sequence.
 ///
-/// Sequence:
+/// # Arguments
+///
+/// * `content_blocks` — Raw content blocks (Text, Thinking, ToolUse) to stream.
+/// * `model` — Model identifier returned in `message_start`.
+/// * `usage` — Token usage for `message_start` and `message_delta`.
+/// * `segment_granularity` — Maximum characters per segment. When > 0,
+///   Text blocks are split into multiple `text_delta` events and ToolUse
+///   `input` is split into multiple `input_json_delta` events, each
+///   containing at most this many characters. A value of 0 disables
+///   segmentation.
+///
+/// # Sequence
+///
 /// 1. `message_start` — model name + initial input usage
 /// 2. For the first content block:
 ///    - `content_block_start` (type varies by block)
