@@ -197,13 +197,15 @@ fn openai_done() -> SseEvent {
 /// 2. For each Thinking block: reasoning_content delta chunks
 /// 3. For each Text block: content delta chunks
 /// 4. For each ToolUse block: tool_call start + delta chunks
+///    (input is split by `segment_granularity` into multiple deltas)
 /// 5. Finish chunk with `finish_reason = "stop"` or `"tool_calls"`
-/// 6. `[DONE]` sentinel
+/// 6. `[DONE]` sentinel (only when `finish_reason = "stop"`)
 pub(crate) fn generate_openai_sse(
     content_blocks: &[RawContentBlock],
     model: &str,
     usage: &RawUsage,
     include_usage: bool,
+    segment_granularity: usize,
 ) -> Vec<SseEvent> {
     // Estimate capacity: role + blocks * ~2 + finish + done
     let mut events = Vec::with_capacity(content_blocks.len() * 2 + 3);
@@ -221,9 +223,11 @@ pub(crate) fn generate_openai_sse(
             }
             RawContentBlock::ToolUse { id, name, input } => {
                 events.push(openai_tool_call_start(model, id, name));
-                // Emit arguments in one delta (granularity can be added later)
                 if !input.is_empty() {
-                    events.push(openai_tool_call_delta(model, id, input));
+                    let segments = split_segments(input, segment_granularity);
+                    for seg in &segments {
+                        events.push(openai_tool_call_delta(model, id, seg));
+                    }
                 }
             }
             _ => {} // ToolResult not relevant for SSE generation
@@ -238,8 +242,8 @@ pub(crate) fn generate_openai_sse(
         ));
     } else {
         events.push(openai_finish_chunk(model, usage, include_usage, "stop"));
+        events.push(openai_done());
     }
-    events.push(openai_done());
     events
 }
 
@@ -398,13 +402,13 @@ fn anthropic_content_block_stop(index: usize) -> SseEvent {
 }
 
 /// Anthropic message_delta event with stop reason and output usage.
-fn anthropic_message_delta(usage: &RawUsage) -> SseEvent {
+fn anthropic_message_delta(usage: &RawUsage, stop_reason: &str) -> SseEvent {
     SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
             "type": "message_delta",
             "delta": {
-                "stop_reason": "end_turn",
+                "stop_reason": stop_reason,
                 "stop_sequence": null
             },
             "usage": {
@@ -425,7 +429,22 @@ fn anthropic_message_stop() -> SseEvent {
 
 /// Generate an Anthropic-compatible SSE event sequence.
 ///
-/// Sequence:
+/// # Arguments
+///
+/// * `content_blocks` — Raw content blocks (Text, Thinking, ToolUse) to stream.
+/// * `model` — Model identifier returned in `message_start`.
+/// * `usage` — Token usage for `message_start` and `message_delta`.
+/// * `segment_granularity` — Maximum characters per segment. When > 0,
+///   ToolUse `input` is split into multiple `input_json_delta` events,
+///   each containing at most this many characters. A value of 0 disables
+///   segmentation.
+///
+/// **Note:** Text block splitting into multiple `text_delta` events is
+/// handled by the caller (`send_scenario_stream`), not within this
+/// function.
+///
+/// # Sequence
+///
 /// 1. `message_start` — model name + initial input usage
 /// 2. For the first content block:
 ///    - `content_block_start` (type varies by block)
@@ -440,7 +459,12 @@ pub(crate) fn generate_anthropic_sse(
     content_blocks: &[RawContentBlock],
     model: &str,
     usage: &RawUsage,
+    segment_granularity: usize,
 ) -> Vec<SseEvent> {
+    let has_tool_use = content_blocks
+        .iter()
+        .any(|b| matches!(b, RawContentBlock::ToolUse { .. }));
+    let stop_reason = if has_tool_use { "tool_use" } else { "end_turn" };
     let mut events = Vec::with_capacity(content_blocks.len() * 3 + 4);
     events.push(anthropic_message_start(model, usage));
     for (idx, block) in content_blocks.iter().enumerate() {
@@ -473,14 +497,17 @@ pub(crate) fn generate_anthropic_sse(
                     events.push(anthropic_ping());
                 }
                 if !input.is_empty() {
-                    events.push(anthropic_input_json_delta(idx, input));
+                    let segments = split_segments(input, segment_granularity);
+                    for seg in &segments {
+                        events.push(anthropic_input_json_delta(idx, seg));
+                    }
                 }
                 events.push(anthropic_content_block_stop(idx));
             }
             _ => {} // ToolResult not relevant for SSE generation
         }
     }
-    events.push(anthropic_message_delta(usage));
+    events.push(anthropic_message_delta(usage, stop_reason));
     events.push(anthropic_message_stop());
     events
 }
