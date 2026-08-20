@@ -113,6 +113,8 @@ impl ScenarioEngine {
                 content: Some("placeholder".to_string()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }]
         } else {
             response_blocks
@@ -140,6 +142,8 @@ impl ScenarioEngine {
                 content: Some("placeholder".to_string()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
             http_error: None,
             delay: None,
@@ -155,18 +159,54 @@ impl ScenarioEngine {
                 content: Some(t.content.clone()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
+            ResponseShape::Reasoning(r) => vec![
+                ResponseBlock {
+                    block_type: "reasoning".to_string(),
+                    content: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    reasoning: Some(r.reasoning.clone()),
+                    signature: r.signature.clone(),
+                },
+                ResponseBlock {
+                    block_type: "text".to_string(),
+                    content: Some(r.content.clone()),
+                    tool_name: None,
+                    tool_arguments: None,
+                    reasoning: None,
+                    signature: None,
+                },
+            ],
+            ResponseShape::ToolCall(tc) => tc
+                .calls
+                .iter()
+                .map(|call| ResponseBlock {
+                    block_type: "tool_call".to_string(),
+                    content: None,
+                    tool_name: Some(call.name.clone()),
+                    tool_arguments: Some(call.arguments.clone()),
+                    reasoning: None,
+                    signature: None,
+                })
+                .collect(),
             ResponseShape::Usage(_) => vec![ResponseBlock {
                 block_type: "text".to_string(),
                 content: Some(String::new()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
             _ => vec![ResponseBlock {
                 block_type: "text".to_string(),
                 content: Some("placeholder".to_string()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
         }
     }

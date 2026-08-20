@@ -100,13 +100,13 @@ pub enum ResponseShape {
     #[serde(rename = "text")]
     Text(TextResponse),
 
-    /// Reasoning / thinking content (Phase 2+).
+    /// Reasoning / thinking content.
     #[serde(rename = "reasoning")]
-    Reasoning,
+    Reasoning(ReasoningResponse),
 
-    /// Tool call response (Phase 2+).
+    /// Tool call response.
     #[serde(rename = "tool_call")]
-    ToolCall,
+    ToolCall(ToolCallResponse),
 
     /// Streaming response (Phase 2+).
     #[serde(rename = "streaming")]
@@ -135,6 +135,34 @@ pub enum ResponseShape {
 pub struct TextResponse {
     /// The text content to return.
     pub content: String,
+}
+
+/// Reasoning / thinking response content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReasoningResponse {
+    /// The visible text content.
+    pub content: String,
+    /// The hidden reasoning text.
+    pub reasoning: String,
+    /// Optional reasoning signature for verification.
+    #[serde(default)]
+    pub signature: Option<String>,
+}
+
+/// A single tool call entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallEntry {
+    /// The tool function name.
+    pub name: String,
+    /// The arguments as a JSON string.
+    pub arguments: String,
+}
+
+/// Tool call response containing one or more calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallResponse {
+    /// The list of tool calls to execute.
+    pub calls: Vec<ToolCallEntry>,
 }
 
 /// Token usage breakdown.
@@ -196,6 +224,12 @@ pub struct ResponseBlock {
     /// Tool call arguments as JSON string (for tool_call blocks).
     #[serde(default)]
     pub tool_arguments: Option<String>,
+    /// Reasoning text (for reasoning blocks).
+    #[serde(default)]
+    pub reasoning: Option<String>,
+    /// Reasoning signature (for reasoning blocks).
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -354,11 +388,18 @@ mod tests {
             _ => panic!("expected Usage variant"),
         }
 
-        // Unknown/placeholder variants
-        let json = r#"{"type": "reasoning"}"#;
+        // Reasoning variant with data
+        let json = r#"{"type": "reasoning", "content": "text", "reasoning": "think"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::Reasoning));
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.content, "text");
+                assert_eq!(r.reasoning, "think");
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
 
+        // Streaming variant (placeholder)
         let json = r#"{"type": "streaming"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         assert!(matches!(shape, ResponseShape::Streaming));
@@ -427,6 +468,8 @@ mod tests {
             content: Some("Hello".to_string()),
             tool_name: None,
             tool_arguments: None,
+            reasoning: None,
+            signature: None,
         };
         let json = serde_json::to_string(&block).unwrap();
         let parsed: ResponseBlock = serde_json::from_str(&json).unwrap();
@@ -441,6 +484,8 @@ mod tests {
             content: None,
             tool_name: Some("get_weather".to_string()),
             tool_arguments: Some("{\"city\": \"Beijing\"}".to_string()),
+            reasoning: None,
+            signature: None,
         };
         let json = serde_json::to_string(&block).unwrap();
         let parsed: ResponseBlock = serde_json::from_str(&json).unwrap();
@@ -515,17 +560,66 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_reasoning() {
-        let json = r#"{"type": "reasoning"}"#;
+    fn deserialize_response_shape_reasoning_with_data() {
+        let json = r#"{"type": "reasoning", "content": "The answer is 42.", "reasoning": "Let me think..."}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::Reasoning));
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.content, "The answer is 42.");
+                assert_eq!(r.reasoning, "Let me think...");
+                assert!(r.signature.is_none());
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_response_shape_reasoning_with_signature() {
+        let json = r#"{"type": "reasoning", "content": "ok", "reasoning": "because", "signature": "sig123"}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.signature.as_deref(), Some("sig123"));
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
     }
 
     #[test]
     fn deserialize_response_shape_tool_call() {
-        let json = r#"{"type": "tool_call"}"#;
-        let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::ToolCall));
+        let json = serde_json::json!({
+            "type": "tool_call",
+            "calls": [{"name": "get_weather", "arguments": "{}"}]
+        });
+        let shape: ResponseShape = serde_json::from_value(json).unwrap();
+        match shape {
+            ResponseShape::ToolCall(tc) => {
+                assert_eq!(tc.calls.len(), 1);
+                assert_eq!(tc.calls[0].name, "get_weather");
+                assert_eq!(tc.calls[0].arguments, "{}");
+            }
+            _ => panic!("expected ToolCall variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_response_shape_tool_call_multiple() {
+        let json = serde_json::json!({
+            "type": "tool_call",
+            "calls": [
+                {"name": "search", "arguments": "{}"},
+                {"name": "calc", "arguments": "{}"}
+            ]
+        });
+        let shape: ResponseShape = serde_json::from_value(json).unwrap();
+        match shape {
+            ResponseShape::ToolCall(tc) => {
+                assert_eq!(tc.calls.len(), 2);
+                assert_eq!(tc.calls[0].name, "search");
+                assert_eq!(tc.calls[1].name, "calc");
+            }
+            _ => panic!("expected ToolCall variant"),
+        }
     }
 
     #[test]
