@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::scenario::types::MessageEntry;
-use crate::types::RequestFeatures;
+use crate::types::{RequestFeatures, ScenarioDecision};
 
 // ---------------------------------------------------------------------------
 // Request types
@@ -160,6 +160,67 @@ pub fn build_chat_completion_response(model: &str) -> ChatCompletionResponse {
             completion_tokens: 0,
             total_tokens: 0,
         },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Response from scenario decision
+// ---------------------------------------------------------------------------
+
+/// Build an OpenAI chat completion response from a scenario decision.
+///
+/// Maps response blocks to OpenAI content format and includes optional
+/// usage fields. Placeholder content is used when response blocks are empty.
+pub fn build_chat_completion_response_from_decision(
+    decision: &ScenarioDecision,
+) -> ChatCompletionResponse {
+    let content: String = decision
+        .response_blocks
+        .iter()
+        .filter_map(|b| b.content.clone())
+        .collect::<Vec<_>>()
+        .join("");
+
+    let content = if content.is_empty() {
+        "placeholder".to_string()
+    } else {
+        content
+    };
+
+    let usage = decision.usage.as_ref().map_or_else(
+        || Usage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        },
+        |u| {
+            let prompt = u.prompt_tokens.unwrap_or(0);
+            let completion = u.completion_tokens.unwrap_or(0);
+            Usage {
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                total_tokens: prompt + completion,
+            }
+        },
+    );
+
+    ChatCompletionResponse {
+        id: format!(
+            "chatcmpl-{}",
+            &decision.scenario[..8.min(decision.scenario.len())]
+        ),
+        object: "chat.completion".to_string(),
+        created: 0,
+        model: decision.model.clone(),
+        choices: vec![Choice {
+            index: 0,
+            message: ResponseMessage {
+                role: "assistant".to_string(),
+                content,
+            },
+            finish_reason: "stop".to_string(),
+        }],
+        usage,
     }
 }
 

@@ -36,6 +36,8 @@ pub struct RequestFeatures {
 /// delivery layer how to respond.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenarioDecision {
+    /// The model ID from the original request (echoed back in responses).
+    pub model: String,
     /// The scenario name that matched this request.
     pub scenario: String,
     /// Whether to stream the response.
@@ -57,6 +59,7 @@ pub struct ScenarioDecision {
 impl Default for ScenarioDecision {
     fn default() -> Self {
         Self {
+            model: "default".to_string(),
             scenario: "default".to_string(),
             stream: false,
             response_blocks: vec![],

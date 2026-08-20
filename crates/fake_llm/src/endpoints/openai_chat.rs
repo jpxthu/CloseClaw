@@ -1,29 +1,52 @@
 //! OpenAI `/v1/chat/completions` endpoint handler.
 //!
 //! Parses the OpenAI chat completion request body via the protocol module,
-//! extracts protocol-agnostic `RequestFeatures`, and returns a placeholder OK response.
+//! extracts protocol-agnostic `RequestFeatures`, delegates to the scenario
+//! engine, and returns the appropriate response.
 
-use axum::Json;
+use axum::{extract::State, http::StatusCode, Json};
 
 use crate::protocol::openai::{
-    build_chat_completion_response, extract_request_features, ChatCompletionRequest,
+    build_chat_completion_response_from_decision, extract_request_features, ChatCompletionRequest,
     ChatCompletionResponse,
 };
+use crate::scenario::{DecisionOutcome, ScenarioState};
 
 /// Handler for POST `/v1/chat/completions`.
 ///
-/// Delegates request parsing and response building to the OpenAI protocol module.
-/// The scenario engine (Sequence 2) will replace the placeholder with a
-/// deterministic response.
-pub async fn handler(Json(req): Json<ChatCompletionRequest>) -> Json<ChatCompletionResponse> {
-    let _features = extract_request_features(&req);
-    // TODO(Sequence 2): pass _features to scenario engine for decision
-    Json(build_chat_completion_response(&req.model))
+/// Extracts request features, delegates to the scenario engine via shared state,
+/// and builds the response per the engine's decision.
+pub async fn handler(
+    State(state): State<ScenarioState>,
+    Json(req): Json<ChatCompletionRequest>,
+) -> Result<Json<ChatCompletionResponse>, (StatusCode, String)> {
+    let features = extract_request_features(&req);
+
+    let outcome = {
+        let mut engine = state
+            .engine
+            .lock()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        engine.decide(&features)
+    };
+
+    match outcome {
+        DecisionOutcome::Error(e) => {
+            let status =
+                StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            Err((status, e.message))
+        }
+        DecisionOutcome::Decision(decision) => Ok(Json(
+            build_chat_completion_response_from_decision(&decision),
+        )),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::protocol::openai::{
+        build_chat_completion_response, extract_request_features, ChatCompletionRequest,
+    };
 
     #[test]
     fn handler_delegates_to_protocol() {

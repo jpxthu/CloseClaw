@@ -226,8 +226,14 @@ impl RequestFeatures {
 
 impl ScenarioDecision {
     /// Create a decision with response blocks (used by the scenario engine).
-    pub fn with_blocks(scenario: String, stream: bool, blocks: Vec<ResponseBlock>) -> Self {
+    pub fn with_blocks(
+        model: String,
+        scenario: String,
+        stream: bool,
+        blocks: Vec<ResponseBlock>,
+    ) -> Self {
         Self {
+            model,
             scenario,
             stream,
             response_blocks: blocks,
@@ -238,8 +244,9 @@ impl ScenarioDecision {
     }
 
     /// Create an error decision (HTTP error injection).
-    pub fn with_error(scenario: String, error: HttpError) -> Self {
+    pub fn with_error(model: String, scenario: String, error: HttpError) -> Self {
         Self {
+            model,
             scenario,
             stream: false,
             response_blocks: vec![],

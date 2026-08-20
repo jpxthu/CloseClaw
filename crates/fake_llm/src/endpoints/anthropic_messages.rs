@@ -1,28 +1,51 @@
 //! Anthropic `/v1/messages` endpoint handler.
 //!
 //! Parses the Anthropic messages request body via the protocol module,
-//! extracts protocol-agnostic `RequestFeatures`, and returns a placeholder OK response.
+//! extracts protocol-agnostic `RequestFeatures`, delegates to the scenario
+//! engine, and returns the appropriate response.
 
-use axum::Json;
+use axum::{extract::State, http::StatusCode, Json};
 
 use crate::protocol::anthropic::{
-    build_message_response, extract_request_features, MessageRequest, MessageResponse,
+    build_message_response_from_decision, extract_request_features, MessageRequest, MessageResponse,
 };
+use crate::scenario::{DecisionOutcome, ScenarioState};
 
 /// Handler for POST `/v1/messages`.
 ///
-/// Delegates request parsing and response building to the Anthropic protocol module.
-/// The scenario engine (Sequence 2) will replace the placeholder with a
-/// deterministic response.
-pub async fn handler(Json(req): Json<MessageRequest>) -> Json<MessageResponse> {
-    let _features = extract_request_features(&req);
-    // TODO(Sequence 2): pass _features to scenario engine for decision
-    Json(build_message_response(&req.model))
+/// Extracts request features, delegates to the scenario engine via shared state,
+/// and builds the response per the engine's decision.
+pub async fn handler(
+    State(state): State<ScenarioState>,
+    Json(req): Json<MessageRequest>,
+) -> Result<Json<MessageResponse>, (StatusCode, String)> {
+    let features = extract_request_features(&req);
+
+    let outcome = {
+        let mut engine = state
+            .engine
+            .lock()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        engine.decide(&features)
+    };
+
+    match outcome {
+        DecisionOutcome::Error(e) => {
+            let status =
+                StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            Err((status, e.message))
+        }
+        DecisionOutcome::Decision(decision) => {
+            Ok(Json(build_message_response_from_decision(&decision)))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::protocol::anthropic::{
+        build_message_response, extract_request_features, MessageRequest,
+    };
 
     #[test]
     fn handler_delegates_to_protocol() {
