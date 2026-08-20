@@ -247,7 +247,7 @@ cargo fmt && cargo clippy -- -D warnings && cargo test
 # 3. 提交
 git commit -m "<type>: 简述
 
-Source: issue #N
+Source: <source>
 Type: <type>"
 
 # 4. 推送
@@ -261,14 +261,14 @@ git push -u origin <prefix>/<name>
 cat > /tmp/pr-body.md <<'EOF'
 PR 概述（做了什么、为什么）
 
-Source: issue #N
+Source: <source>
 Type: <type>
 EOF
 
 # 创建 PR
-gh pr create --title "<type>: 简述" --body-file /tmp/pr-body.md
+gh pr create --title "<type>: [<module>] 简述" --body-file /tmp/pr-body.md
 
-# 合并（review 通过后）
+# 合并（review 通过后），视情况决定是否更改 PR title 和 body
 gh pr merge --squash --delete-branch --body-file /tmp/pr-body.md
 
 # 更新本地
