@@ -25,6 +25,14 @@ pub enum ProviderError {
     #[error("HTTP request failed: {0}")]
     Reqwest(#[from] reqwest::Error),
 
+    /// Injected HTTP error (used by fake providers for testing).
+    #[error("HTTP {status_code}: {body}")]
+    Http {
+        status_code: u16,
+        body: String,
+        retry_after: Option<u64>,
+    },
+
     /// Error from a legacy provider adapter.
     #[error("Legacy provider error: {0}")]
     Legacy(String),

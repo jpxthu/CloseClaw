@@ -1,9 +1,12 @@
 //! Builder for `FakeProvider`.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use super::fake_scenario::{DeliveryConfig, ErrorInjection, StreamInterrupt};
 use super::{FakeProvider, Scenario, SharedState};
 use crate::provider::ProviderError;
+use crate::types::ProtocolId;
 
 /// Builder for `FakeProvider`.
 #[derive(Debug, Clone, Default)]
@@ -33,6 +36,10 @@ impl Builder {
             completion_tokens,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            delivery: super::fake_scenario::DeliveryConfig::default(),
+            include_usage: false,
+            protocol: crate::types::ProtocolId::new("openai"),
+            segment_granularity: 0,
         });
         self
     }
@@ -53,6 +60,10 @@ impl Builder {
             completion_tokens,
             cache_read_tokens: cache.0,
             cache_write_tokens: cache.1,
+            delivery: super::fake_scenario::DeliveryConfig::default(),
+            include_usage: false,
+            protocol: crate::types::ProtocolId::new("openai"),
+            segment_granularity: 0,
         });
         self
     }
@@ -81,6 +92,173 @@ impl Builder {
         self.state
             .scenarios
             .push_back(Scenario::delay(duration, inner));
+        self
+    }
+
+    /// Add a streaming scenario with custom protocol and segment granularity.
+    pub fn then_streaming(
+        mut self,
+        content: impl Into<String>,
+        model: impl Into<String>,
+        protocol: ProtocolId,
+        granularity: usize,
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Ok {
+            content: content.into(),
+            model: model.into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig::default(),
+            include_usage: false,
+            protocol,
+            segment_granularity: granularity,
+        });
+        self
+    }
+
+    /// Add a scenario with first-token delay.
+    pub fn then_with_first_token_delay(
+        mut self,
+        content: impl Into<String>,
+        model: impl Into<String>,
+        delay: Duration,
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Ok {
+            content: content.into(),
+            model: model.into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig {
+                first_token_delay: Some(delay),
+                ..Default::default()
+            },
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 0,
+        });
+        self
+    }
+
+    /// Add a scenario with per-segment delay.
+    pub fn then_with_per_segment_delay(
+        mut self,
+        content: impl Into<String>,
+        model: impl Into<String>,
+        delay: Duration,
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Ok {
+            content: content.into(),
+            model: model.into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig {
+                per_segment_delay: Some(delay),
+                ..Default::default()
+            },
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 0,
+        });
+        self
+    }
+
+    /// Add a scenario with overall delay (non-streaming only).
+    pub fn then_with_overall_delay(
+        mut self,
+        content: impl Into<String>,
+        model: impl Into<String>,
+        delay: Duration,
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Ok {
+            content: content.into(),
+            model: model.into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig {
+                overall_delay: Some(delay),
+                ..Default::default()
+            },
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 0,
+        });
+        self
+    }
+
+    /// Add a scenario that injects an HTTP error.
+    pub fn then_http_error(
+        mut self,
+        content: impl Into<String>,
+        model: impl Into<String>,
+        status_code: u16,
+        retry_after: Option<u64>,
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Ok {
+            content: content.into(),
+            model: model.into(),
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig {
+                error_injection: Some(ErrorInjection {
+                    status_code,
+                    message: format!("HTTP {}", status_code),
+                    retry_after,
+                }),
+                ..Default::default()
+            },
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 0,
+        });
+        self
+    }
+
+    /// Add a scenario that interrupts the stream after N frames.
+    pub fn then_stream_interrupt(
+        mut self,
+        content: impl Into<String>,
+        model: impl Into<String>,
+        interrupt_after_frames: usize,
+    ) -> Self {
+        self.state.scenarios.push_back(Scenario::Ok {
+            content: content.into(),
+            model: model.into(),
+            prompt_tokens: 10,
+            completion_tokens: 10,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            delivery: DeliveryConfig {
+                stream_interrupt: Some(StreamInterrupt {
+                    interrupt_after_frames,
+                }),
+                ..Default::default()
+            },
+            include_usage: false,
+            protocol: ProtocolId::new("openai"),
+            segment_granularity: 0,
+        });
+        self
+    }
+
+    /// Set whether usage metrics are included in streaming responses.
+    pub fn include_usage(mut self, val: bool) -> Self {
+        if let Some(Scenario::Ok {
+            ref mut include_usage,
+            ..
+        }) = self.state.scenarios.back_mut()
+        {
+            *include_usage = val;
+        }
         self
     }
 
