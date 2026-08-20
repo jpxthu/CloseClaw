@@ -119,6 +119,35 @@ struct Choice {
 struct ResponseMessage {
     role: String,
     content: String,
+    /// Reasoning content (for models that expose hidden thinking).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_content: Option<String>,
+    /// Tool calls requested by the model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<ToolCall>>,
+}
+
+/// A single tool call in OpenAI format.
+#[derive(Debug, Serialize)]
+struct ToolCall {
+    /// Unique tool call identifier.
+    id: String,
+    /// Always "function".
+    #[serde(rename = "type")]
+    call_type: String,
+    /// Function name and arguments.
+    function: ToolCallFunction,
+    /// Index of this tool call in the array.
+    index: u32,
+}
+
+/// Function invocation details within a tool call.
+#[derive(Debug, Serialize)]
+struct ToolCallFunction {
+    /// Function name.
+    name: String,
+    /// Arguments as a JSON string.
+    arguments: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +169,8 @@ pub fn build_chat_completion_response(model: &str) -> ChatCompletionResponse {
             message: ResponseMessage {
                 role: "assistant".to_string(),
                 content: "placeholder".to_string(),
+                reasoning_content: None,
+                tool_calls: None,
             },
             finish_reason: "stop".to_string(),
         }],
@@ -158,21 +189,58 @@ pub fn build_chat_completion_response(model: &str) -> ChatCompletionResponse {
 /// Build an OpenAI chat completion response from a scenario decision.
 ///
 /// Maps response blocks to OpenAI content format and includes optional
-/// usage fields. Placeholder content is used when response blocks are empty.
+/// usage fields. Handles reasoning blocks (`reasoning_content`), tool call
+/// blocks (`tool_calls` array), and text blocks (`content`).
 pub fn build_chat_completion_response_from_decision(
     decision: &ScenarioDecision,
 ) -> ChatCompletionResponse {
-    let content: String = decision
-        .response_blocks
-        .iter()
-        .filter_map(|b| b.content.clone())
-        .collect::<Vec<_>>()
-        .join("");
+    let mut content = String::new();
+    let mut reasoning_content: Option<String> = None;
+    let mut tool_calls: Vec<ToolCall> = Vec::new();
 
-    let content = if content.is_empty() {
+    for (idx, block) in decision.response_blocks.iter().enumerate() {
+        match block.block_type.as_str() {
+            "reasoning" => {
+                reasoning_content = block.reasoning.clone();
+                if let Some(ref text) = block.content {
+                    if !text.is_empty() {
+                        content.push_str(text);
+                    }
+                }
+            }
+            "tool_call" => {
+                let name = block.tool_name.clone().unwrap_or_default();
+                let args = block.tool_arguments.clone().unwrap_or_default();
+                tool_calls.push(ToolCall {
+                    id: format!("call_{}", idx),
+                    call_type: "function".to_string(),
+                    function: ToolCallFunction {
+                        name,
+                        arguments: args,
+                    },
+                    index: tool_calls.len() as u32,
+                });
+            }
+            _ => {
+                if let Some(ref text) = block.content {
+                    if !text.is_empty() {
+                        content.push_str(text);
+                    }
+                }
+            }
+        }
+    }
+
+    let content = if content.is_empty() && tool_calls.is_empty() {
         "placeholder".to_string()
     } else {
         content
+    };
+
+    let finish_reason = if tool_calls.is_empty() {
+        "stop".to_string()
+    } else {
+        "tool_calls".to_string()
     };
 
     let usage = build_usage_from_decision(decision);
@@ -190,8 +258,14 @@ pub fn build_chat_completion_response_from_decision(
             message: ResponseMessage {
                 role: "assistant".to_string(),
                 content,
+                reasoning_content: reasoning_content.filter(|s| !s.is_empty()),
+                tool_calls: if tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(tool_calls)
+                },
             },
-            finish_reason: "stop".to_string(),
+            finish_reason,
         }],
         usage,
     }
@@ -339,5 +413,175 @@ mod tests {
         assert!(json["data"].is_array());
         assert_eq!(json["data"][0]["id"], "gpt-4");
         assert_eq!(json["data"][0]["object"], "model");
+    }
+
+    #[test]
+    fn response_with_reasoning_content() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "reasoning-test".to_string(),
+            stream: false,
+            response_blocks: vec![
+                ResponseBlock {
+                    block_type: "reasoning".to_string(),
+                    content: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    reasoning: Some("Let me think...".to_string()),
+                    signature: None,
+                },
+                ResponseBlock {
+                    block_type: "text".to_string(),
+                    content: Some("The answer is 42.".to_string()),
+                    tool_name: None,
+                    tool_arguments: None,
+                    reasoning: None,
+                    signature: None,
+                },
+            ],
+            http_error: None,
+            delay: None,
+            usage: None,
+        };
+
+        let resp = build_chat_completion_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(
+            json["choices"][0]["message"]["content"],
+            "The answer is 42."
+        );
+        assert_eq!(
+            json["choices"][0]["message"]["reasoning_content"],
+            "Let me think..."
+        );
+        assert_eq!(json["choices"][0]["finish_reason"], "stop");
+    }
+
+    #[test]
+    fn response_with_tool_calls() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "tool-test".to_string(),
+            stream: false,
+            response_blocks: vec![
+                ResponseBlock {
+                    block_type: "text".to_string(),
+                    content: Some("Let me check.".to_string()),
+                    tool_name: None,
+                    tool_arguments: None,
+                    reasoning: None,
+                    signature: None,
+                },
+                ResponseBlock {
+                    block_type: "tool_call".to_string(),
+                    content: None,
+                    tool_name: Some("get_weather".to_string()),
+                    tool_arguments: Some("{\"location\": \"SF\"}".to_string()),
+                    reasoning: None,
+                    signature: None,
+                },
+            ],
+            http_error: None,
+            delay: None,
+            usage: None,
+        };
+
+        let resp = build_chat_completion_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(json["choices"][0]["message"]["content"], "Let me check.");
+        assert_eq!(json["choices"][0]["finish_reason"], "tool_calls");
+        let calls = json["choices"][0]["message"]["tool_calls"]
+            .as_array()
+            .unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["id"], "call_1");
+        assert_eq!(calls[0]["type"], "function");
+        assert_eq!(calls[0]["function"]["name"], "get_weather");
+        assert_eq!(calls[0]["function"]["arguments"], "{\"location\": \"SF\"}");
+        assert_eq!(calls[0]["index"], 0);
+    }
+
+    #[test]
+    fn response_with_reasoning_only_no_content() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "reasoning-only".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "reasoning".to_string(),
+                content: None,
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: Some("thinking...".to_string()),
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: None,
+        };
+
+        let resp = build_chat_completion_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        // Empty content falls back to placeholder
+        assert_eq!(json["choices"][0]["message"]["content"], "placeholder");
+        assert_eq!(
+            json["choices"][0]["message"]["reasoning_content"],
+            "thinking..."
+        );
+        assert_eq!(json["choices"][0]["finish_reason"], "stop");
+    }
+
+    #[test]
+    fn response_multiple_tool_calls() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "multi-tool".to_string(),
+            stream: false,
+            response_blocks: vec![
+                ResponseBlock {
+                    block_type: "tool_call".to_string(),
+                    content: None,
+                    tool_name: Some("search".to_string()),
+                    tool_arguments: Some("{}".to_string()),
+                    reasoning: None,
+                    signature: None,
+                },
+                ResponseBlock {
+                    block_type: "tool_call".to_string(),
+                    content: None,
+                    tool_name: Some("calc".to_string()),
+                    tool_arguments: Some("{}".to_string()),
+                    reasoning: None,
+                    signature: None,
+                },
+            ],
+            http_error: None,
+            delay: None,
+            usage: None,
+        };
+
+        let resp = build_chat_completion_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(json["choices"][0]["finish_reason"], "tool_calls");
+        let calls = json["choices"][0]["message"]["tool_calls"]
+            .as_array()
+            .unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0]["function"]["name"], "search");
+        assert_eq!(calls[0]["index"], 0);
+        assert_eq!(calls[1]["function"]["name"], "calc");
+        assert_eq!(calls[1]["index"], 1);
     }
 }
