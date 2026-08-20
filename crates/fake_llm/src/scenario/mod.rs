@@ -392,6 +392,23 @@ mod tests {
         }
     }
 
+    fn features_with_messages(model: &str, messages: Vec<(&str, &str)>) -> RequestFeatures {
+        RequestFeatures {
+            model: model.to_string(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: messages
+                .into_iter()
+                .map(|(role, content)| MessageEntry {
+                    role: role.to_string(),
+                    content: content.to_string(),
+                })
+                .collect(),
+            tools: vec![],
+        }
+    }
+
     #[test]
     fn decide_end_to_end_from_dir() {
         let dir = fixture_scenarios_dir();
@@ -511,14 +528,14 @@ mod tests {
     }
 
     #[test]
-    fn decide_fixture_multi_turn_three_turns() {
+    fn decide_fixture_multi_turn_turn1() {
         let dir = fixture_scenarios_dir();
         let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
         // multi-turn.json: three-turn-chat with model "gpt-4o-multi"
-        let feat1 = features_with_model("gpt-4o-multi", "start");
-        let outcome1 = engine.decide(&feat1);
-        match outcome1 {
+        let feat = features_with_model("gpt-4o-multi", "start");
+        let outcome = engine.decide(&feat);
+        match outcome {
             DecisionOutcome::Decision(d) => {
                 assert_eq!(d.scenario, "three-turn-chat");
                 assert_eq!(
@@ -528,31 +545,28 @@ mod tests {
             }
             DecisionOutcome::Error(_) => panic!("expected decision"),
         }
+    }
+
+    #[test]
+    fn decide_fixture_multi_turn_turn2() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // Drive to turn 1 first
+        let feat1 = features_with_model("gpt-4o-multi", "start");
+        let _ = engine.decide(&feat1);
 
         // Turn 2
-        let feat2 = RequestFeatures {
-            model: "gpt-4o-multi".to_string(),
-            stream: false,
-            max_tokens: None,
-            temperature: None,
-            messages: vec![
-                MessageEntry {
-                    role: "user".to_string(),
-                    content: "start".to_string(),
-                },
-                MessageEntry {
-                    role: "assistant".to_string(),
-                    content: "Turn 1: Hello!".to_string(),
-                },
-                MessageEntry {
-                    role: "user".to_string(),
-                    content: "continue".to_string(),
-                },
+        let feat = features_with_messages(
+            "gpt-4o-multi",
+            vec![
+                ("user", "start"),
+                ("assistant", "Turn 1: Hello!"),
+                ("user", "continue"),
             ],
-            tools: vec![],
-        };
-        let outcome2 = engine.decide(&feat2);
-        match outcome2 {
+        );
+        let outcome = engine.decide(&feat);
+        match outcome {
             DecisionOutcome::Decision(d) => {
                 assert_eq!(
                     d.response_blocks[0].content.as_deref(),
@@ -561,39 +575,39 @@ mod tests {
             }
             DecisionOutcome::Error(_) => panic!("expected decision"),
         }
+    }
+
+    #[test]
+    fn decide_fixture_multi_turn_turn3() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // Drive to turn 2
+        let feat1 = features_with_model("gpt-4o-multi", "start");
+        let _ = engine.decide(&feat1);
+        let feat2 = features_with_messages(
+            "gpt-4o-multi",
+            vec![
+                ("user", "start"),
+                ("assistant", "Turn 1: Hello!"),
+                ("user", "continue"),
+            ],
+        );
+        let _ = engine.decide(&feat2);
 
         // Turn 3
-        let feat3 = RequestFeatures {
-            model: "gpt-4o-multi".to_string(),
-            stream: false,
-            max_tokens: None,
-            temperature: None,
-            messages: vec![
-                MessageEntry {
-                    role: "user".to_string(),
-                    content: "start".to_string(),
-                },
-                MessageEntry {
-                    role: "assistant".to_string(),
-                    content: "Turn 1: Hello!".to_string(),
-                },
-                MessageEntry {
-                    role: "user".to_string(),
-                    content: "continue".to_string(),
-                },
-                MessageEntry {
-                    role: "assistant".to_string(),
-                    content: "Turn 2: How are you?".to_string(),
-                },
-                MessageEntry {
-                    role: "user".to_string(),
-                    content: "bye".to_string(),
-                },
+        let feat = features_with_messages(
+            "gpt-4o-multi",
+            vec![
+                ("user", "start"),
+                ("assistant", "Turn 1: Hello!"),
+                ("user", "continue"),
+                ("assistant", "Turn 2: How are you?"),
+                ("user", "bye"),
             ],
-            tools: vec![],
-        };
-        let outcome3 = engine.decide(&feat3);
-        match outcome3 {
+        );
+        let outcome = engine.decide(&feat);
+        match outcome {
             DecisionOutcome::Decision(d) => {
                 assert_eq!(
                     d.response_blocks[0].content.as_deref(),
