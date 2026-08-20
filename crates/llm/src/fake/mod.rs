@@ -29,7 +29,7 @@ use super::{ChatRequest, Message};
 pub mod fake_builder;
 pub mod fake_scenario;
 pub use fake_builder::Builder;
-pub use fake_scenario::Scenario;
+pub use fake_scenario::{DeliveryConfig, ErrorInjection, Scenario, StreamInterrupt};
 
 /// Captures an incoming [`InternalRequest`] for test inspection.
 #[derive(Debug, Clone)]

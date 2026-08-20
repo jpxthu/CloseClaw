@@ -1,5 +1,6 @@
 use super::super::provider::{Provider, ProviderError};
 use super::super::types::{InternalMessage, InternalRequest, ProtocolId, RawContentBlock};
+use super::fake_scenario::DeliveryConfig;
 use super::*;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::time::Instant;
@@ -342,6 +343,10 @@ async fn test_ok_with_cache_raw_usage() {
         completion_tokens: 50,
         cache_read_tokens: Some(80),
         cache_write_tokens: Some(20),
+        delivery: DeliveryConfig::default(),
+        include_usage: false,
+        protocol: ProtocolId::new("openai"),
+        segment_granularity: 0,
     };
     let usage = scenario.raw_usage();
     assert_eq!(usage.prompt_tokens, 100);

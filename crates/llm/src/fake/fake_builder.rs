@@ -33,6 +33,10 @@ impl Builder {
             completion_tokens,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            delivery: super::fake_scenario::DeliveryConfig::default(),
+            include_usage: false,
+            protocol: crate::types::ProtocolId::new("openai"),
+            segment_granularity: 0,
         });
         self
     }
@@ -53,6 +57,10 @@ impl Builder {
             completion_tokens,
             cache_read_tokens: cache.0,
             cache_write_tokens: cache.1,
+            delivery: super::fake_scenario::DeliveryConfig::default(),
+            include_usage: false,
+            protocol: crate::types::ProtocolId::new("openai"),
+            segment_granularity: 0,
         });
         self
     }
