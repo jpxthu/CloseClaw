@@ -242,14 +242,6 @@ async fn execute_set_verbosity(ctx: &SideEffectContext, level: VerbosityLevel) {
     send_reply(ctx, format!("输出详细度已设置为 {level}")).await;
 }
 
-/// Handle `SlashResult::InjectMeta` — load a skill via system append.
-async fn execute_inject_meta(ctx: &SideEffectContext, content: String) {
-    ctx.executor
-        .execute_system_append(&ctx.session_id, &SystemAppendAction::Add(content))
-        .await;
-    send_reply(ctx, "技能已加载".into()).await;
-}
-
 /// Handle `SlashResult::Unknown` — report an unrecognized command.
 async fn execute_unknown(ctx: &SideEffectContext, cmd: String) {
     send_reply(ctx, format!("Unknown command: /{cmd}")).await;
@@ -276,7 +268,7 @@ impl SlashResultExecutor for SlashResult {
             } => execute_exec(ctx, command).await,
             SlashResult::SetReasoning { level } => execute_set_reasoning(ctx, level).await,
             SlashResult::SetVerbosity { level } => execute_set_verbosity(ctx, level).await,
-            SlashResult::InjectMeta { content } => execute_inject_meta(ctx, content).await,
+
             SlashResult::Unknown(cmd) => execute_unknown(ctx, cmd).await,
         }
     }

@@ -610,37 +610,6 @@ async fn test_set_verbosity_calls_executor_and_replies() {
     }
 }
 
-// ── Test: InjectMeta variant ──────────────────────────────────────────
-
-#[tokio::test]
-async fn test_inject_meta_appends_system_and_replies() {
-    let mock = Arc::new(MockSlashEffectExecutor::new());
-    let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(Arc::clone(&mock), "s15", "feishu", sm);
-
-    SlashResult::InjectMeta {
-        content: "skill body here".into(),
-    }
-    .execute(&ctx)
-    .await;
-
-    assert_eq!(
-        mock.calls.lock().unwrap()[0],
-        ExecutorCall::SystemAppend(
-            "s15".into(),
-            SystemAppendAction::Add("skill body here".into())
-        )
-    );
-
-    let replies = mock.drain_replies();
-    match &replies[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks[0], ContentBlock::Text("技能已加载".into()));
-        }
-        other => panic!("expected Reply, got {other:?}"),
-    }
-}
-
 // ── Test: Unknown variant ─────────────────────────────────────────────
 
 #[tokio::test]

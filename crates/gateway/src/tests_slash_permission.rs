@@ -222,9 +222,6 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         SlashResult::SystemAppend { action } => SlashResult::SystemAppend {
             action: action.clone(),
         },
-        SlashResult::InjectMeta { content } => SlashResult::InjectMeta {
-            content: content.clone(),
-        },
     }
 }
 struct ResultRouter {

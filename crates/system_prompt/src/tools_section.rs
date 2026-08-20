@@ -19,8 +19,6 @@ pub struct ToolsSectionParams {
     pub agent_disallowed_tools: Option<Vec<String>>,
     /// Session mode for mode-aware tool filtering.
     pub session_mode: Option<SessionMode>,
-    /// Effective spawn depth budget for the current session.
-    pub effective_spawn_budget: Option<u32>,
     /// Agent role (human-readable name/purpose) from agent config.
     pub agent_role: Option<String>,
     /// Agent type (e.g. root agent vs spawned child) from agent config.
@@ -106,7 +104,6 @@ pub async fn build_tools_section(
         tools,
         disallowed_tools,
         session_mode: params.session_mode,
-        effective_spawn_budget: params.effective_spawn_budget,
         agent_role: params.agent_role.clone(),
         agent_type: params.agent_type.clone(),
     };
@@ -300,7 +297,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -345,7 +341,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -396,7 +391,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -457,7 +451,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -493,7 +486,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -543,7 +535,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -588,7 +579,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -646,7 +636,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -695,7 +684,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -717,7 +705,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_budget_zero_filters_sessions_spawn() {
+    async fn test_sessions_spawn_always_present_in_tools() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
@@ -742,7 +730,8 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        // Budget = 0 → sessions_spawn should be filtered out.
+        // sessions_spawn is always visible in the tools section
+        // (budget filtering is now handled at session creation time).
         let section = build_tools_section(
             &registry,
             &ctx,
@@ -750,7 +739,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: Some(0),
                 agent_role: None,
                 agent_type: None,
             },
@@ -761,8 +749,8 @@ mod tests {
             _ => panic!("expected ToolsSection"),
         };
         assert!(
-            !content.contains("sessions_spawn"),
-            "sessions_spawn should be filtered when budget = 0, got: {}",
+            content.contains("sessions_spawn"),
+            "sessions_spawn should always be present in tools section, got: {}",
             content
         );
         // Other tools should still be present.
@@ -806,7 +794,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: Some(1),
                 agent_role: None,
                 agent_type: None,
             },
@@ -856,7 +843,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },
@@ -904,7 +890,6 @@ mod tests {
                 agent_tools: None,
                 agent_disallowed_tools: None,
                 session_mode: None,
-                effective_spawn_budget: None,
                 agent_role: None,
                 agent_type: None,
             },

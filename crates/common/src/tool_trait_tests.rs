@@ -177,7 +177,6 @@ fn test_tool_generate_prompt_defaults_to_detail() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
-        effective_spawn_budget: None,
         agent_role: None,
         agent_type: None,
     };
@@ -391,7 +390,6 @@ fn test_prompt_generation_context_fields() {
         tools: Some(vec!["Tool1".into()]),
         disallowed_tools: Some(vec!["Tool3".into()]),
         session_mode: None,
-        effective_spawn_budget: None,
         agent_role: None,
         agent_type: None,
     };
@@ -411,7 +409,6 @@ fn test_prompt_generation_context_clone() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
-        effective_spawn_budget: None,
         agent_role: None,
         agent_type: None,
     };
@@ -429,7 +426,6 @@ fn test_prompt_generation_context_debug() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
-        effective_spawn_budget: None,
         agent_role: None,
         agent_type: None,
     };
@@ -469,7 +465,6 @@ fn test_prompt_generation_context_clone_preserves_agent_fields() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
-        effective_spawn_budget: None,
         agent_role: Some("Tester".into()),
         agent_type: Some("root".into()),
     };

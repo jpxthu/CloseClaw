@@ -160,7 +160,6 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             append_section: None,
             bootstrap_mode_override: Some(bootstrap_mode),
             session_mode: None,
-            effective_spawn_budget: None,
             skill_listing_provider: self.skill_listing_provider.clone(),
         };
 

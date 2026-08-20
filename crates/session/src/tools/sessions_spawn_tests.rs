@@ -190,42 +190,22 @@ async fn test_generate_prompt_empty_context() {
         "empty context should show sessions_spawn as available"
     );
     assert!(
-        prompt.contains("budget is unknown"),
-        "no budget info should indicate budget is unknown"
+        prompt.contains("session creation time"),
+        "budget info should indicate budget is managed at session creation time"
     );
 }
 
 #[tokio::test]
-async fn test_generate_prompt_budget_exhausted() {
+async fn test_generate_prompt_budget_always_available() {
     let tool = make_tool();
     let ctx = PromptGenerationContext {
-        effective_spawn_budget: Some(0),
-        ..Default::default()
-    };
-    let prompt = tool.generate_prompt(&ctx);
-    assert!(
-        prompt.contains("not available"),
-        "budget 0 should indicate not available"
-    );
-    assert!(
-        prompt.contains("exhausted"),
-        "budget 0 should mention exhausted"
-    );
-}
-
-#[tokio::test]
-async fn test_generate_prompt_budget_available() {
-    let tool = make_tool();
-    let ctx = PromptGenerationContext {
-        effective_spawn_budget: Some(5),
         ..Default::default()
     };
     let prompt = tool.generate_prompt(&ctx);
     assert!(
         prompt.contains("sessions_spawn is available"),
-        "budget 5 should show available"
+        "budget status should always indicate available (budget managed at session creation time)"
     );
-    assert!(prompt.contains("5"), "should mention the budget number");
 }
 
 // ---------------------------------------------------------------------------
@@ -416,6 +396,37 @@ async fn test_generate_prompt_task_authoring_includes_all_three_strategies() {
         task_guidance_lines.len() >= 3,
         "must have at least 3 bullet points for task authoring guidance, found {}",
         task_guidance_lines.len()
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Step 1.3: Budget removal regression — prompt must not reference budget field
+// ═══════════════════════════════════════════════════════════════════════
+
+/// After Step 1.2 removed effective_spawn_budget from FragmentContext and
+/// PromptGenerationContext, the sessions_spawn prompt must not reference
+/// budget-based filtering. It should instead state that budget is managed
+/// at session creation time.
+#[tokio::test]
+async fn test_generate_prompt_no_budget_field_reference() {
+    let tool = make_tool();
+    let ctx = PromptGenerationContext::default();
+    let prompt = tool.generate_prompt(&ctx);
+
+    // Must NOT reference the old budget field
+    assert!(
+        !prompt.contains("effective_spawn_budget"),
+        "prompt must not reference effective_spawn_budget, got: {prompt}"
+    );
+    assert!(
+        !prompt.contains("spawn_budget"),
+        "prompt must not reference spawn_budget, got: {prompt}"
+    );
+
+    // Must state budget is managed at session creation time
+    assert!(
+        prompt.contains("session creation time"),
+        "prompt should indicate budget is managed at session creation time, got: {prompt}"
     );
 }
 

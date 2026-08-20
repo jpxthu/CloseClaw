@@ -552,7 +552,6 @@ async fn test_read_generate_prompt_full_context() {
         tools: None,
         disallowed_tools: None,
         session_mode: None,
-        effective_spawn_budget: None,
         agent_role: None,
         agent_type: None,
     };

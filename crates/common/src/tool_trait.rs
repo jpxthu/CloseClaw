@@ -270,8 +270,7 @@ fn git_status_count(path: &Path, extra_arg: &str) -> usize {
 /// - **Working directory**: `workdir` — enables path-aware guidance.
 /// - **Agent identity**: `agent_role` / `agent_type` — enables
 ///   role-based and type-based description adaptation.
-/// - **Budget**: `effective_spawn_budget` — enables budget-aware
-///   descriptions (e.g. "spawn unavailable when budget exhausted").
+
 #[derive(Debug, Clone, Default)]
 pub struct PromptGenerationContext {
     /// ID of the agent for which the prompt is being built.
@@ -303,13 +302,6 @@ pub struct PromptGenerationContext {
     /// tools). This implements the "write tools invisible in Plan
     /// Mode" requirement from the design doc.
     pub session_mode: Option<SessionMode>,
-    /// Effective spawn depth budget for the current session.
-    ///
-    /// When `Some(budget)` where `budget ≤ 0`, the `sessions_spawn`
-    /// tool is filtered out of the visible tool list — the session
-    /// cannot spawn further children (design doc §Depth 追踪).
-    /// `None` means the budget is unknown (no filtering applied).
-    pub effective_spawn_budget: Option<u32>,
     /// Agent role (human-readable name/purpose) from agent config.
     ///
     /// Used by the Prompt layer to tailor tool descriptions to the
@@ -487,5 +479,52 @@ impl Tool for Box<dyn Tool> {
     }
     fn flags(&self) -> ToolFlags {
         (**self).flags()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that PromptGenerationContext does NOT contain `effective_spawn_budget`.
+    /// This struct literal pattern will fail to compile if the field is re-added,
+    /// enforcing the Step 1.2 removal.
+    #[test]
+    fn test_prompt_generation_context_no_effective_spawn_budget() {
+        let ctx = PromptGenerationContext {
+            agent_id: "test".into(),
+            workdir: None,
+            available_tool_names: vec![],
+            tools: None,
+            disallowed_tools: None,
+            session_mode: None,
+            agent_role: None,
+            agent_type: None,
+        };
+        // Struct destructure — compile fails if field list changes.
+        let PromptGenerationContext {
+            agent_id: _,
+            workdir: _,
+            available_tool_names: _,
+            tools: _,
+            disallowed_tools: _,
+            session_mode: _,
+            agent_role: _,
+            agent_type: _,
+        } = ctx;
+    }
+
+    /// Verify that Default impl works without any budget-related fields.
+    #[test]
+    fn test_prompt_generation_context_default_no_budget() {
+        let ctx = PromptGenerationContext::default();
+        assert!(ctx.agent_id.is_empty());
+        assert!(ctx.workdir.is_none());
+        assert!(ctx.available_tool_names.is_empty());
+        assert!(ctx.tools.is_none());
+        assert!(ctx.disallowed_tools.is_none());
+        assert!(ctx.session_mode.is_none());
+        assert!(ctx.agent_role.is_none());
+        assert!(ctx.agent_type.is_none());
     }
 }

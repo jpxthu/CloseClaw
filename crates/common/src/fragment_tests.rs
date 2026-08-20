@@ -51,7 +51,6 @@ fn test_fragment_context_all_fields() {
         agent_id: "my-agent".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: std::path::PathBuf::from("/home/user/project"),
-        effective_spawn_budget: None,
     };
     assert_eq!(ctx.agent_id, "my-agent");
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
@@ -59,6 +58,13 @@ fn test_fragment_context_all_fields() {
         ctx.bootstrap_dir,
         std::path::PathBuf::from("/home/user/project")
     );
+    // Verify struct has exactly 3 fields — adding or removing a field here
+    // will cause a compile error, enforcing alignment with design doc.
+    let FragmentContext {
+        agent_id: _,
+        bootstrap_mode: _,
+        bootstrap_dir: _,
+    } = ctx;
 }
 
 #[test]
@@ -67,7 +73,6 @@ fn test_fragment_context_clone() {
         agent_id: "clone-test".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: std::path::PathBuf::from("/clone"),
-        effective_spawn_budget: None,
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
@@ -163,7 +168,6 @@ async fn test_mock_provider_generates_with_valid_fields() {
         agent_id: "test-agent".into(),
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: std::path::PathBuf::from("/workspace"),
-        effective_spawn_budget: None,
     };
     let frag = provider.generate(&ctx).await.unwrap();
     assert_eq!(frag.section_type, SectionType::Bootstrap);

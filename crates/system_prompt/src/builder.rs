@@ -212,11 +212,6 @@ pub struct WorkspaceBuildConfig {
     pub bootstrap_mode_override: Option<BootstrapMode>,
     /// Session mode for mode-aware tool filtering.
     pub session_mode: Option<SessionMode>,
-    /// Effective spawn depth budget for the current session.
-    ///
-    /// When `Some(budget)` where `budget ≤ 0`, the `sessions_spawn`
-    /// tool is filtered out of the visible tool list.
-    pub effective_spawn_budget: Option<u32>,
 }
 
 // --- Private helpers -------------------------------------------------------
@@ -254,7 +249,6 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
         agent_id: config.agent_id.clone().unwrap_or_default(),
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
         bootstrap_dir: root.to_path_buf(),
-        effective_spawn_budget: config.effective_spawn_budget,
     };
 
     let tool_registry = config
@@ -381,7 +375,6 @@ mod tests {
             append_section: None,
             bootstrap_mode_override: None,
             session_mode: None,
-            effective_spawn_budget: None,
             skill_listing_provider: None,
         };
         assert!(config.agent_id.is_none());
@@ -400,7 +393,6 @@ mod tests {
             append_section: None,
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
             session_mode: None,
-            effective_spawn_budget: None,
             skill_listing_provider: None,
         };
         assert_eq!(config.agent_id.as_deref(), Some("test-agent"));
@@ -480,7 +472,6 @@ mod tests {
             append_section: None,
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
             session_mode: None,
-            effective_spawn_budget: None,
             skill_listing_provider: None,
         };
 
@@ -506,7 +497,6 @@ mod tests {
             append_section: None,
             bootstrap_mode_override: None,
             session_mode: None,
-            effective_spawn_budget: None,
             skill_listing_provider: None,
         };
 

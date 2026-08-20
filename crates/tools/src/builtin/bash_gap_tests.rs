@@ -345,7 +345,6 @@ async fn test_generate_prompt_full_context() {
         tools: Some(vec!["Bash".into(), "Read".into()]),
         disallowed_tools: None,
         session_mode: None,
-        effective_spawn_budget: Some(10),
         agent_role: None,
         agent_type: None,
     };
