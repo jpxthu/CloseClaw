@@ -24,6 +24,9 @@ tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
 thiserror = "2.0"
 anyhow = "1.0"
 
+# Stream trait for SSE delivery
+futures-core = "0.3"
+
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }
 

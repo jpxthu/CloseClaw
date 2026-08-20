@@ -2,30 +2,38 @@
 //!
 //! Parses the Anthropic messages request body via the protocol module,
 //! extracts protocol-agnostic `RequestFeatures`, delegates to the scenario
-//! engine, and returns the appropriate response.
+//! engine, and returns the appropriate response via the delivery layer.
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::sse::Sse;
+use axum::response::{IntoResponse, Response};
+use axum::{extract::State, Json};
 
-use crate::protocol::anthropic::{
-    build_message_response_from_decision, extract_request_features, MessageRequest, MessageResponse,
-};
+use crate::delivery::{self, DeliveryConfig, DeliveryResult, Protocol};
+use crate::protocol::anthropic::{extract_request_features, MessageRequest};
 use crate::scenario::{DecisionOutcome, ScenarioState};
+
+use delivery::{SseEventStream, DEFAULT_SEGMENT_GRANULARITY};
 
 /// Handler for POST `/v1/messages`.
 ///
 /// Extracts request features, delegates to the scenario engine via shared state,
-/// and builds the response per the engine's decision.
+/// and routes through the delivery layer for streaming, non-streaming, or error
+/// responses (with optional Retry-After header).
 pub async fn handler(
     State(state): State<ScenarioState>,
     Json(req): Json<MessageRequest>,
-) -> Result<Json<MessageResponse>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, HeaderMap, String)> {
     let features = extract_request_features(&req);
 
     let outcome = {
-        let mut engine = state
-            .engine
-            .lock()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let mut engine = state.engine.lock().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                HeaderMap::new(),
+                e.to_string(),
+            )
+        })?;
         engine.decide(&features)
     };
 
@@ -33,10 +41,38 @@ pub async fn handler(
         DecisionOutcome::Error(e) => {
             let status =
                 StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            Err((status, e.message))
+            Err((status, HeaderMap::new(), e.message))
         }
         DecisionOutcome::Decision(decision) => {
-            Ok(Json(build_message_response_from_decision(&decision)))
+            let config = DeliveryConfig {
+                segment_granularity: DEFAULT_SEGMENT_GRANULARITY,
+                include_usage: true,
+            };
+
+            let result = delivery::deliver(&decision, Protocol::Anthropic, &config).await;
+
+            match result {
+                DeliveryResult::SseStream(events) => {
+                    let stream = SseEventStream::new(events);
+                    Ok(Sse::new(stream).into_response())
+                }
+                DeliveryResult::JsonResponse(json) => Ok(Json(json).into_response()),
+                DeliveryResult::HttpError {
+                    status,
+                    message,
+                    retry_after,
+                } => {
+                    let code =
+                        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+                    let mut headers = HeaderMap::new();
+                    if let Some(secs) = retry_after {
+                        if let Ok(val) = secs.to_string().parse() {
+                            headers.insert(axum::http::header::RETRY_AFTER, val);
+                        }
+                    }
+                    Err((code, headers, message))
+                }
+            }
         }
     }
 }

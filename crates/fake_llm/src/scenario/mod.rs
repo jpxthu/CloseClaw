@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
+use crate::kv_cache::KvCacheSimulator;
 use crate::types::{RequestFeatures, ScenarioDecision};
 
 pub mod loader;
@@ -36,6 +37,20 @@ pub enum DecisionOutcome {
     Error(HttpError),
 }
 
+/// Outcome of a models endpoint decision.
+///
+/// Three possible paths: a scenario-declared model list, an HTTP error,
+/// or the default placeholder model list.
+#[derive(Debug)]
+pub enum ModelsDecision {
+    /// Scenario-declared model list with optional delay.
+    Models(Vec<ModelEntry>, Option<u64>),
+    /// HTTP error injection — endpoint returns this status code + message.
+    Error(HttpError),
+    /// No scenario declared models — use default placeholder list.
+    Placeholder,
+}
+
 // ---------------------------------------------------------------------------
 // ScenarioEngine
 // ---------------------------------------------------------------------------
@@ -48,6 +63,7 @@ pub enum DecisionOutcome {
 pub struct ScenarioEngine {
     matcher: MatcherIndex,
     sessions: SessionTracker,
+    kv_cache: KvCacheSimulator,
 }
 
 impl ScenarioEngine {
@@ -63,6 +79,7 @@ impl ScenarioEngine {
         Ok(Self {
             matcher,
             sessions: SessionTracker::new(),
+            kv_cache: KvCacheSimulator::new(),
         })
     }
 
@@ -72,6 +89,7 @@ impl ScenarioEngine {
         Self {
             matcher,
             sessions: SessionTracker::new(),
+            kv_cache: KvCacheSimulator::new(),
         }
     }
 
@@ -106,17 +124,31 @@ impl ScenarioEngine {
         }
 
         let response_blocks = Self::build_response_blocks(&turn_resp.response);
-        let usage = Self::extract_usage(&turn_resp.response);
+        let mut usage = Self::extract_usage(&turn_resp.response);
         let blocks = if response_blocks.is_empty() {
             vec![ResponseBlock {
                 block_type: "text".to_string(),
                 content: Some("placeholder".to_string()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }]
         } else {
             response_blocks
         };
+
+        // KV cache simulation: compute cache fields and merge into usage.
+        // Explicit injection from the turn's usage takes priority over auto.
+        let explicit_hit = usage.as_ref().and_then(|u| u.cache_hit_tokens);
+        let explicit_write = usage.as_ref().and_then(|u| u.cache_write_tokens);
+        let cache_result = self.kv_cache.process(
+            &features.messages,
+            &features.tools,
+            explicit_hit,
+            explicit_write,
+        );
+        Self::merge_cache_into_usage(&mut usage, &cache_result);
 
         DecisionOutcome::Decision(ScenarioDecision {
             model: features.model.clone(),
@@ -140,11 +172,53 @@ impl ScenarioEngine {
                 content: Some("placeholder".to_string()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
             http_error: None,
             delay: None,
             usage: None,
         })
+    }
+
+    /// Decide how to respond to a `/v1/models` request.
+    ///
+    /// Iterates through all loaded scenarios to find the first one that
+    /// declares a `models` list. If the current turn for that scenario has
+    /// an error injection, that takes priority. If no scenario declares
+    /// models, returns `Placeholder` (caller uses the default model list).
+    pub fn decide_for_models(&mut self) -> ModelsDecision {
+        // Iterate all scenarios to find the first one with a `models` field.
+        // The matcher may fail for models requests because they have no
+        // request body with a model ID, so we scan directly.
+        for i in 0..self.matcher.len() {
+            let matched = self.matcher.get(i);
+            if matched.models.is_none() {
+                continue;
+            }
+
+            let message_strings = vec![];
+            let turn = self.sessions.advance_turn(&message_strings, &matched.name);
+
+            let max_turns = matched.turns.len();
+            if turn >= max_turns {
+                panic!(
+                    "scenario '{}' exceeded declared turns (turn {}, max {})",
+                    matched.name, turn, max_turns
+                );
+            }
+
+            let turn_resp = &matched.turns[turn];
+            if let Some(error) = &turn_resp.error {
+                return ModelsDecision::Error(error.clone());
+            }
+
+            if let Some(ref models) = matched.models {
+                return ModelsDecision::Models(models.clone(), turn_resp.delay);
+            }
+        }
+
+        ModelsDecision::Placeholder
     }
 
     /// Build response blocks from a response shape.
@@ -155,18 +229,54 @@ impl ScenarioEngine {
                 content: Some(t.content.clone()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
+            ResponseShape::Reasoning(r) => vec![
+                ResponseBlock {
+                    block_type: "reasoning".to_string(),
+                    content: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    reasoning: Some(r.reasoning.clone()),
+                    signature: r.signature.clone(),
+                },
+                ResponseBlock {
+                    block_type: "text".to_string(),
+                    content: Some(r.content.clone()),
+                    tool_name: None,
+                    tool_arguments: None,
+                    reasoning: None,
+                    signature: None,
+                },
+            ],
+            ResponseShape::ToolCall(tc) => tc
+                .calls
+                .iter()
+                .map(|call| ResponseBlock {
+                    block_type: "tool_call".to_string(),
+                    content: None,
+                    tool_name: Some(call.name.clone()),
+                    tool_arguments: Some(call.arguments.clone()),
+                    reasoning: None,
+                    signature: None,
+                })
+                .collect(),
             ResponseShape::Usage(_) => vec![ResponseBlock {
                 block_type: "text".to_string(),
                 content: Some(String::new()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
             _ => vec![ResponseBlock {
                 block_type: "text".to_string(),
                 content: Some("placeholder".to_string()),
                 tool_name: None,
                 tool_arguments: None,
+                reasoning: None,
+                signature: None,
             }],
         }
     }
@@ -176,6 +286,26 @@ impl ScenarioEngine {
         match shape {
             ResponseShape::Usage(u) => Some(u.clone()),
             _ => None,
+        }
+    }
+
+    /// Merge KV cache simulation results into usage fields.
+    ///
+    /// Only fills fields that are `None` (auto-simulated values).
+    /// Explicit injection values already present in `usage` are preserved.
+    fn merge_cache_into_usage(
+        usage: &mut Option<UsageResponse>,
+        cache: &crate::kv_cache::CacheResult,
+    ) {
+        if cache.cache_hit_tokens.is_none() && cache.cache_write_tokens.is_none() {
+            return;
+        }
+        let u = usage.get_or_insert_with(UsageResponse::default);
+        if u.cache_hit_tokens.is_none() {
+            u.cache_hit_tokens = cache.cache_hit_tokens;
+        }
+        if u.cache_write_tokens.is_none() {
+            u.cache_write_tokens = cache.cache_write_tokens;
         }
     }
 }
@@ -238,6 +368,7 @@ mod tests {
             name: "basic".to_string(),
             match_: None,
             turns: vec![text_turn("hello"), text_turn("world")],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
 
@@ -295,8 +426,10 @@ mod tests {
                 error: Some(HttpError {
                     status: 500,
                     message: "server error".to_string(),
+                    retry_after: None,
                 }),
             }],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
         let feat = features("gpt-4", "hi");
@@ -326,6 +459,7 @@ mod tests {
                 delay: None,
                 error: None,
             }],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
         let feat = features("gpt-4", "hi");
@@ -352,6 +486,7 @@ mod tests {
                 delay: Some(500),
                 error: None,
             }],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
         let feat = features("gpt-4", "hi");
@@ -661,6 +796,7 @@ mod tests {
             name: "single-turn".to_string(),
             match_: None,
             turns: vec![text_turn("only one")],
+            models: None,
         };
         let mut engine = ScenarioEngine::new(vec![scenario]);
 
@@ -692,4 +828,170 @@ mod tests {
         };
         let _ = engine.decide(&feat2);
     }
+
+    // ------------------------------------------------------------------
+    // decide_for_models tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn decide_for_models_returns_scenario_declared_models() {
+        let scenario = ScenarioDeclaration {
+            name: "models-scene".to_string(),
+            match_: None,
+            turns: vec![text_turn("ok")],
+            models: Some(vec![
+                ModelEntry {
+                    id: "gpt-4".to_string(),
+                    owned_by: "openai".to_string(),
+                },
+                ModelEntry {
+                    id: "claude-3".to_string(),
+                    owned_by: "anthropic".to_string(),
+                },
+            ]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        match decision {
+            ModelsDecision::Models(entries, delay) => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].id, "gpt-4");
+                assert_eq!(entries[1].id, "claude-3");
+                assert!(delay.is_none());
+            }
+            _ => panic!("expected Models variant"),
+        }
+    }
+
+    #[test]
+    fn decide_for_models_placeholder_when_no_models_declared() {
+        let scenario = ScenarioDeclaration {
+            name: "no-models".to_string(),
+            match_: None,
+            turns: vec![text_turn("ok")],
+            models: None,
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        assert!(matches!(decision, ModelsDecision::Placeholder));
+    }
+
+    #[test]
+    fn decide_for_models_placeholder_when_no_scenarios() {
+        let mut engine = ScenarioEngine::new(vec![]);
+        let decision = engine.decide_for_models();
+        assert!(matches!(decision, ModelsDecision::Placeholder));
+    }
+
+    #[test]
+    fn decide_for_models_error_injection() {
+        let scenario = ScenarioDeclaration {
+            name: "models-error".to_string(),
+            match_: None,
+            turns: vec![TurnResponse {
+                response: ResponseShape::Text(TextResponse {
+                    content: String::new(),
+                }),
+                delay: None,
+                error: Some(HttpError {
+                    status: 429,
+                    message: "rate limited".to_string(),
+                    retry_after: None,
+                }),
+            }],
+            models: Some(vec![ModelEntry {
+                id: "gpt-4".to_string(),
+                owned_by: "openai".to_string(),
+            }]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        match decision {
+            ModelsDecision::Error(e) => {
+                assert_eq!(e.status, 429);
+                assert_eq!(e.message, "rate limited");
+            }
+            _ => panic!("expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn decide_for_models_returns_models_when_no_error() {
+        let scenario = ScenarioDeclaration {
+            name: "models-ok".to_string(),
+            match_: None,
+            turns: vec![TurnResponse {
+                response: ResponseShape::Text(TextResponse {
+                    content: String::new(),
+                }),
+                delay: None,
+                error: None,
+            }],
+            models: Some(vec![ModelEntry {
+                id: "test-model".to_string(),
+                owned_by: "test-org".to_string(),
+            }]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        match decision {
+            ModelsDecision::Models(entries, delay) => {
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].id, "test-model");
+                assert!(delay.is_none());
+            }
+            _ => panic!("expected Models variant"),
+        }
+    }
+
+    #[test]
+    fn decide_for_models_with_model_id_constraint() {
+        let scenario = ScenarioDeclaration {
+            name: "gpt4-models".to_string(),
+            match_: Some(types::MatchCondition {
+                model_id: Some("gpt-4o".to_string()),
+                ..Default::default()
+            }),
+            turns: vec![text_turn("ok")],
+            models: Some(vec![types::ModelEntry {
+                id: "gpt-4o".to_string(),
+                owned_by: "openai".to_string(),
+            }]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let decision = engine.decide_for_models();
+        match decision {
+            ModelsDecision::Models(entries, delay) => {
+                assert_eq!(entries[0].id, "gpt-4o");
+                assert!(delay.is_none());
+            }
+            _ => panic!("expected Models variant, got {:?}", decision),
+        }
+    }
+
+    #[test]
+    fn decide_for_models_carrying_delay() {
+        let scenario = ScenarioDeclaration {
+            name: "delayed-models".to_string(),
+            match_: None,
+            turns: vec![TurnResponse {
+                response: ResponseShape::Text(TextResponse {
+                    content: String::new(),
+                }),
+                delay: Some(500),
+                error: None,
+            }],
+            models: Some(vec![types::ModelEntry {
+                id: "m1".to_string(),
+                owned_by: "org".to_string(),
+            }]),
+        };
+        let mut engine = ScenarioEngine::new(vec![scenario]);
+        match engine.decide_for_models() {
+            ModelsDecision::Models(_, delay) => assert_eq!(delay, Some(500)),
+            d => panic!("expected Models variant with delay, got {:?}", d),
+        }
+    }
+
+    mod response_blocks;
 }

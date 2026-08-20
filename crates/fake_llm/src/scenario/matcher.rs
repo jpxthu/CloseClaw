@@ -100,6 +100,16 @@ impl MatcherIndex {
     pub fn get(&self, index: usize) -> &ScenarioDeclaration {
         &self.scenarios[index]
     }
+
+    /// Get the number of loaded scenarios.
+    pub fn len(&self) -> usize {
+        self.scenarios.len()
+    }
+
+    /// Check if there are no loaded scenarios.
+    pub fn is_empty(&self) -> bool {
+        self.scenarios.is_empty()
+    }
 }
 
 /// Check whether a scenario's conditions are satisfied by the request.
@@ -158,6 +168,7 @@ mod tests {
             name: name.to_string(),
             match_: None,
             turns: vec![turn()],
+            models: None,
         }
     }
 
@@ -166,6 +177,7 @@ mod tests {
             name: name.to_string(),
             match_: Some(condition),
             turns: vec![turn()],
+            models: None,
         }
     }
 
@@ -608,6 +620,7 @@ mod tests {
                     ..Default::default()
                 }),
                 turns: vec![turn()],
+                models: None,
             },
             ScenarioDeclaration {
                 name: "claude-fallback".to_string(),
@@ -616,6 +629,7 @@ mod tests {
                     ..Default::default()
                 }),
                 turns: vec![turn()],
+                models: None,
             },
         ];
         let index = MatcherIndex::build(scenarios);
@@ -648,6 +662,7 @@ mod tests {
             name: "catch-all".to_string(),
             match_: None,
             turns: vec![turn()],
+            models: None,
         }];
         let index = MatcherIndex::build(scenarios);
         assert_eq!(
