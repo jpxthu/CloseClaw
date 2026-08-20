@@ -1,0 +1,39 @@
+{
+    "scenarios": [
+        {
+            "name": "rate-limit",
+            "match_": {
+                "model_id": "gpt-4o-error"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "OK before error"
+                    }
+                },
+                {
+                    "error": {
+                        "status": 429,
+                        "message": "rate limit exceeded"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "server-error",
+            "match_": {
+                "model_id": "gpt-4o-error-search",
+                "tool_name": "web_search"
+            },
+            "turns": [
+                {
+                    "error": {
+                        "status": 500,
+                        "message": "internal server error"
+                    }
+                }
+            ]
+        }
+    ]
+}

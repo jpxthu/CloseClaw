@@ -1,0 +1,19 @@
+{
+    "scenarios": [
+        {
+            "name": "usage-report",
+            "match_": {
+                "model_id": "gpt-4o-usage"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "usage",
+                        "prompt_tokens": 15,
+                        "completion_tokens": 30
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -4,7 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::RequestFeatures;
+use crate::scenario::types::MessageEntry;
+use crate::types::{
+    extract_text_from_content, extract_tool_names, RequestFeatures, ScenarioDecision,
+};
 
 // ---------------------------------------------------------------------------
 // Request types
@@ -60,11 +63,31 @@ pub struct Message {
 
 /// Extract protocol-agnostic `RequestFeatures` from an Anthropic message request.
 pub fn extract_request_features(req: &MessageRequest) -> RequestFeatures {
+    let messages: Vec<MessageEntry> = req
+        .messages
+        .iter()
+        .map(|m| {
+            let content = extract_text_from_content(&m.content);
+            MessageEntry {
+                role: m.role.clone(),
+                content,
+            }
+        })
+        .collect();
+
+    let tools = req
+        .tools
+        .as_ref()
+        .map(|ts| extract_tool_names(ts))
+        .unwrap_or_default();
+
     RequestFeatures {
         model: req.model.clone(),
         stream: req.stream,
         max_tokens: Some(req.max_tokens),
         temperature: req.temperature,
+        messages,
+        tools,
     }
 }
 
@@ -120,6 +143,60 @@ pub fn build_message_response(model: &str) -> MessageResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Response from scenario decision
+// ---------------------------------------------------------------------------
+
+/// Build an Anthropic message response from a scenario decision.
+///
+/// Maps response blocks to Anthropic content block format and includes
+/// optional usage fields. Placeholder content is used when response blocks
+/// are empty.
+pub fn build_message_response_from_decision(decision: &ScenarioDecision) -> MessageResponse {
+    let blocks: Vec<ContentBlock> = decision
+        .response_blocks
+        .iter()
+        .map(|b| ContentBlock {
+            block_type: "text".to_string(),
+            text: b.content.clone().unwrap_or_default(),
+        })
+        .collect();
+
+    let blocks = if blocks.is_empty() {
+        vec![ContentBlock {
+            block_type: "text".to_string(),
+            text: "placeholder".to_string(),
+        }]
+    } else {
+        blocks
+    };
+
+    let usage = decision.usage.as_ref().map_or_else(
+        || Usage {
+            input_tokens: 0,
+            output_tokens: 0,
+        },
+        |u| Usage {
+            input_tokens: u.prompt_tokens.unwrap_or(0),
+            output_tokens: u.completion_tokens.unwrap_or(0),
+        },
+    );
+
+    MessageResponse {
+        id: format!(
+            "msg-{}",
+            &decision.scenario[..8.min(decision.scenario.len())]
+        ),
+        message_type: "message".to_string(),
+        role: "assistant".to_string(),
+        content: blocks,
+        model: decision.model.clone(),
+        stop_reason: Some("end_turn".to_string()),
+        stop_sequence: None,
+        usage,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -145,6 +222,8 @@ mod tests {
         assert!(!features.stream);
         assert_eq!(features.max_tokens, Some(1024));
         assert_eq!(features.temperature, Some(0.7));
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
@@ -164,6 +243,8 @@ mod tests {
         assert!(features.stream);
         assert_eq!(features.max_tokens, Some(512));
         assert_eq!(features.temperature, None);
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
@@ -191,5 +272,9 @@ mod tests {
         assert!(!features.stream);
         assert_eq!(features.max_tokens, Some(2048));
         assert_eq!(features.temperature, Some(0.0));
+        assert_eq!(features.messages.len(), 1);
+        assert_eq!(features.messages[0].role, "user");
+        assert_eq!(features.messages[0].content, "Hello");
+        assert_eq!(features.tools, vec!["get_weather"]);
     }
 }

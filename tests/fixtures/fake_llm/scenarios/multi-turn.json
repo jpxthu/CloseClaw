@@ -1,0 +1,30 @@
+{
+    "scenarios": [
+        {
+            "name": "three-turn-chat",
+            "match_": {
+                "model_id": "gpt-4o-multi"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Turn 1: Hello!"
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Turn 2: How are you?"
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Turn 3: Goodbye!"
+                    }
+                }
+            ]
+        }
+    ]
+}

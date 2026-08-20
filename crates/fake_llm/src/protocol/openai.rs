@@ -4,7 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::RequestFeatures;
+use crate::scenario::types::MessageEntry;
+use crate::types::{
+    extract_text_from_content, extract_tool_names, RequestFeatures, ScenarioDecision,
+};
 
 // ---------------------------------------------------------------------------
 // Request types
@@ -59,11 +62,34 @@ pub struct ChatMessage {
 
 /// Extract protocol-agnostic `RequestFeatures` from an OpenAI chat request.
 pub fn extract_request_features(req: &ChatCompletionRequest) -> RequestFeatures {
+    let messages: Vec<MessageEntry> = req
+        .messages
+        .iter()
+        .map(|m| {
+            let content = match &m.content {
+                Some(v) => extract_text_from_content(v),
+                None => String::new(),
+            };
+            MessageEntry {
+                role: m.role.clone(),
+                content,
+            }
+        })
+        .collect();
+
+    let tools = req
+        .tools
+        .as_ref()
+        .map(|ts| extract_tool_names(ts))
+        .unwrap_or_default();
+
     RequestFeatures {
         model: req.model.clone(),
         stream: req.stream,
         max_tokens: req.max_tokens,
         temperature: req.temperature,
+        messages,
+        tools,
     }
 }
 
@@ -123,6 +149,72 @@ pub fn build_chat_completion_response(model: &str) -> ChatCompletionResponse {
             total_tokens: 0,
         },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Response from scenario decision
+// ---------------------------------------------------------------------------
+
+/// Build an OpenAI chat completion response from a scenario decision.
+///
+/// Maps response blocks to OpenAI content format and includes optional
+/// usage fields. Placeholder content is used when response blocks are empty.
+pub fn build_chat_completion_response_from_decision(
+    decision: &ScenarioDecision,
+) -> ChatCompletionResponse {
+    let content: String = decision
+        .response_blocks
+        .iter()
+        .filter_map(|b| b.content.clone())
+        .collect::<Vec<_>>()
+        .join("");
+
+    let content = if content.is_empty() {
+        "placeholder".to_string()
+    } else {
+        content
+    };
+
+    let usage = build_usage_from_decision(decision);
+
+    ChatCompletionResponse {
+        id: format!(
+            "chatcmpl-{}",
+            &decision.scenario[..8.min(decision.scenario.len())]
+        ),
+        object: "chat.completion".to_string(),
+        created: 0,
+        model: decision.model.clone(),
+        choices: vec![Choice {
+            index: 0,
+            message: ResponseMessage {
+                role: "assistant".to_string(),
+                content,
+            },
+            finish_reason: "stop".to_string(),
+        }],
+        usage,
+    }
+}
+
+/// Build OpenAI usage from a scenario decision.
+fn build_usage_from_decision(decision: &ScenarioDecision) -> Usage {
+    decision.usage.as_ref().map_or_else(
+        || Usage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        },
+        |u| {
+            let prompt = u.prompt_tokens.unwrap_or(0);
+            let completion = u.completion_tokens.unwrap_or(0);
+            Usage {
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                total_tokens: prompt + completion,
+            }
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +297,8 @@ mod tests {
         assert!(!features.stream);
         assert_eq!(features.max_tokens, Some(1024));
         assert_eq!(features.temperature, Some(0.7));
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
@@ -221,6 +315,8 @@ mod tests {
         let features = extract_request_features(&req);
         assert!(features.stream);
         assert_eq!(features.max_tokens, None);
+        assert!(features.messages.is_empty());
+        assert!(features.tools.is_empty());
     }
 
     #[test]
