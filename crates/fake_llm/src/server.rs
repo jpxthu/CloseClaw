@@ -18,9 +18,6 @@ fn app() -> Router {
 }
 
 /// Start the HTTP server, binding to the given address.
-///
-/// Returns the actual bound address (useful when port 0 is used for automatic
-/// port assignment).
 pub async fn start_server(addr: &str) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let bound_addr = listener.local_addr()?;
@@ -29,6 +26,22 @@ pub async fn start_server(addr: &str) -> anyhow::Result<()> {
     let app = app();
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Start the HTTP server, returning the actual bound address.
+///
+/// Used by tests to bind on port 0 and discover the assigned port.
+pub async fn start_server_addr(addr: &str) -> anyhow::Result<std::net::SocketAddr> {
+    let listener = TcpListener::bind(addr).await?;
+    let bound_addr = listener.local_addr()?;
+    tracing::info!("Fake LLM Server listening on {bound_addr}");
+
+    let app = app();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    Ok(bound_addr)
 }
 
 /// Build the router (exposed for testing).
