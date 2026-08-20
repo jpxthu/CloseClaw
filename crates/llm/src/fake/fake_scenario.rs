@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::provider::ProviderError;
-use crate::types::{ProtocolId, RawUsage};
+use crate::types::{ProtocolId, RawContentBlock, RawUsage};
 
 /// HTTP error injection configuration.
 ///
@@ -62,7 +62,7 @@ pub(crate) struct DeliveryConfig {
 pub enum Scenario {
     /// Respond with a successful response, with optional delivery control.
     Ok {
-        content: String,
+        content_blocks: Vec<RawContentBlock>,
         model: String,
         prompt_tokens: u32,
         completion_tokens: u32,
@@ -95,7 +95,7 @@ impl Scenario {
     /// default delivery config.
     pub fn ok(content: impl Into<String>, model: impl Into<String>) -> Self {
         Self::Ok {
-            content: content.into(),
+            content_blocks: vec![RawContentBlock::Text(content.into())],
             model: model.into(),
             prompt_tokens: 10,
             completion_tokens: 10,
@@ -165,21 +165,13 @@ impl Scenario {
             Self::Delay { inner, .. } => inner.raw_usage(),
         }
     }
-
-    pub(crate) fn content(&self) -> String {
-        match self {
-            Self::Ok { content, .. } => content.clone(),
-            Self::Err { .. } => String::new(),
-            Self::Delay { inner, .. } => inner.content(),
-        }
-    }
 }
 
 impl Clone for Scenario {
     fn clone(&self) -> Self {
         match self {
             Self::Ok {
-                content,
+                content_blocks,
                 model,
                 prompt_tokens,
                 completion_tokens,
@@ -190,7 +182,7 @@ impl Clone for Scenario {
                 protocol,
                 segment_granularity,
             } => Self::Ok {
-                content: content.clone(),
+                content_blocks: content_blocks.clone(),
                 model: model.clone(),
                 prompt_tokens: *prompt_tokens,
                 completion_tokens: *completion_tokens,
@@ -268,7 +260,7 @@ mod tests {
         let scenario = Scenario::ok("hello", "model-x");
         match scenario {
             Scenario::Ok {
-                content,
+                content_blocks,
                 model,
                 prompt_tokens,
                 completion_tokens,
@@ -279,7 +271,7 @@ mod tests {
                 protocol,
                 segment_granularity,
             } => {
-                assert_eq!(content, "hello");
+                assert_eq!(content_blocks, vec![RawContentBlock::Text("hello".into())]);
                 assert_eq!(model, "model-x");
                 assert_eq!(prompt_tokens, 10);
                 assert_eq!(completion_tokens, 10);
@@ -302,7 +294,7 @@ mod tests {
     /// Create a fully-configured Scenario::Ok for testing clone/usage.
     fn make_full_scenario() -> Scenario {
         Scenario::Ok {
-            content: "test content".into(),
+            content_blocks: vec![RawContentBlock::Text("test content".into())],
             model: "test-model".into(),
             prompt_tokens: 20,
             completion_tokens: 30,
@@ -330,7 +322,7 @@ mod tests {
         let cloned = original.clone();
         match cloned {
             Scenario::Ok {
-                content,
+                content_blocks,
                 model,
                 prompt_tokens,
                 completion_tokens,
@@ -341,7 +333,10 @@ mod tests {
                 protocol,
                 segment_granularity,
             } => {
-                assert_eq!(content, "test content");
+                assert_eq!(
+                    content_blocks,
+                    vec![RawContentBlock::Text("test content".into())]
+                );
                 assert_eq!(model, "test-model");
                 assert_eq!(prompt_tokens, 20);
                 assert_eq!(completion_tokens, 30);
@@ -392,7 +387,9 @@ mod tests {
         match cloned {
             Scenario::Delay { duration, inner } => {
                 assert_eq!(duration, Duration::from_millis(50));
-                assert_eq!(inner.content(), "inner");
+                // Verify inner is an Ok scenario by checking raw_usage
+                let usage = inner.raw_usage();
+                assert_eq!(usage.prompt_tokens, 10);
             }
             _ => panic!("Expected Scenario::Delay"),
         }
@@ -419,7 +416,7 @@ mod tests {
     #[test]
     fn test_raw_usage_delay() {
         let inner = Scenario::Ok {
-            content: "c".into(),
+            content_blocks: vec![RawContentBlock::Text("c".into())],
             model: "m".into(),
             prompt_tokens: 7,
             completion_tokens: 3,
@@ -435,16 +432,5 @@ mod tests {
         assert_eq!(usage.prompt_tokens, 7);
         assert_eq!(usage.completion_tokens, 3);
         assert_eq!(usage.total_tokens, Some(10));
-    }
-
-    #[test]
-    fn test_content() {
-        assert_eq!(Scenario::ok("hello", "m").content(), "hello");
-        assert_eq!(
-            Scenario::err(ProviderError::Legacy("e".into())).content(),
-            ""
-        );
-        let delayed = Scenario::delay(Duration::from_millis(1), Scenario::ok("d", "m"));
-        assert_eq!(delayed.content(), "d");
     }
 }

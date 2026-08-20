@@ -259,9 +259,12 @@ impl FakeProvider {
         &self,
         scenario: Scenario,
     ) -> Result<InternalResponse, ProviderError> {
-        let content = scenario.content();
-        let usage = scenario.raw_usage();
-        if let Scenario::Ok { ref delivery, .. } = scenario {
+        if let Scenario::Ok {
+            ref content_blocks,
+            ref delivery,
+            ..
+        } = scenario
+        {
             apply_overall_delay(delivery).await;
             if let Some((status, body, retry_after)) = should_inject_http_error(delivery) {
                 return Err(ProviderError::Http {
@@ -270,12 +273,17 @@ impl FakeProvider {
                     retry_after,
                 });
             }
+            let usage = scenario.raw_usage();
+            return Ok(InternalResponse {
+                content_blocks: content_blocks.clone(),
+                usage,
+                finish_reason: None,
+            });
         }
-        Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(content)],
-            usage,
-            finish_reason: None,
-        })
+        // Non-Ok variants handled by caller
+        Err(ProviderError::Legacy(
+            "deliver_ok_response: unexpected non-Ok scenario".into(),
+        ))
     }
 }
 
@@ -298,7 +306,8 @@ impl FakeProvider {
             cache_read_tokens: None,
             cache_write_tokens: None,
         };
-        let events = generate_openai_sse(vec![fallback], "fake-fallback", &usage, false);
+        let blocks = vec![RawContentBlock::Text(fallback)];
+        let events = generate_openai_sse(&blocks, "fake-fallback", &usage, false);
         for event in &events {
             let _ = tx
                 .send(RawSseChunk {
@@ -343,7 +352,7 @@ impl FakeProvider {
         scenario: Scenario,
     ) -> Result<(), ProviderError> {
         if let Scenario::Ok {
-            ref content,
+            ref content_blocks,
             ref model,
             prompt_tokens,
             completion_tokens,
@@ -363,7 +372,24 @@ impl FakeProvider {
                 });
             }
             apply_first_token_delay(delivery).await;
-            let segments = delivery::split_segments(content, segment_granularity);
+            // Split Text blocks by segment_granularity for segment-based streaming
+            let final_blocks: Vec<RawContentBlock> = if segment_granularity > 0 {
+                let mut result = Vec::new();
+                for block in content_blocks {
+                    match block {
+                        RawContentBlock::Text(text) => {
+                            let segments = delivery::split_segments(text, segment_granularity);
+                            for seg in segments {
+                                result.push(RawContentBlock::Text(seg));
+                            }
+                        }
+                        other => result.push(other.clone()),
+                    }
+                }
+                result
+            } else {
+                content_blocks.clone()
+            };
             let usage = RawUsage {
                 prompt_tokens,
                 completion_tokens,
@@ -372,9 +398,9 @@ impl FakeProvider {
                 cache_write_tokens,
             };
             let events = if *protocol == ProtocolId::new("anthropic") {
-                generate_anthropic_sse(segments, model, &usage)
+                generate_anthropic_sse(&final_blocks, model, &usage)
             } else {
-                generate_openai_sse(segments, model, &usage, include_usage)
+                generate_openai_sse(&final_blocks, model, &usage, include_usage)
             };
             self.emit_stream_events(tx, events, delivery).await;
         }
