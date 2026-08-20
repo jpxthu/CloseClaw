@@ -26,8 +26,10 @@ use super::types::{
 };
 use super::{ChatRequest, Message};
 
+pub mod delivery;
 pub mod fake_builder;
 pub mod fake_scenario;
+pub use delivery::SseEvent;
 pub use fake_builder::Builder;
 pub use fake_scenario::{DeliveryConfig, ErrorInjection, Scenario, StreamInterrupt};
 
