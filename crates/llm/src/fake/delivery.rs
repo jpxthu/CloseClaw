@@ -1,9 +1,13 @@
-//! SSE event generation for `FakeProvider` delivery layer.
+//! SSE event generation and injection logic for `FakeProvider` delivery layer.
 //!
 //! Generates protocol-compliant SSE event sequences for both OpenAI and
 //! Anthropic protocols. Content is split into segments based on the
 //! configured `segment_granularity`.
+//!
+//! Also provides delay injection and error injection helpers consumed by
+//! [`FakeProvider::send`] and [`FakeProvider::send_streaming`].
 
+use super::fake_scenario::DeliveryConfig;
 use crate::types::RawUsage;
 
 /// A single SSE event ready to be sent over the channel.
@@ -226,8 +230,82 @@ pub(crate) fn generate_anthropic_sse(
     events
 }
 
+// ── Delay injection ─────────────────────────────────────────────────────
+
+/// Sleep for the configured first-token delay.
+///
+/// Called once before the first SSE frame is emitted in a streaming
+/// response. No-op when `first_token_delay` is `None` or zero.
+#[allow(dead_code)]
+pub(crate) async fn apply_first_token_delay(config: &DeliveryConfig) {
+    if let Some(delay) = config.first_token_delay {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+    }
+}
+
+/// Sleep for the configured per-segment delay.
+///
+/// Called between consecutive SSE frames during streaming. No-op when
+/// `per_segment_delay` is `None` or zero.
+#[allow(dead_code)]
+pub(crate) async fn apply_per_segment_delay(config: &DeliveryConfig) {
+    if let Some(delay) = config.per_segment_delay {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+    }
+}
+
+/// Sleep for the configured overall delay (non-streaming only).
+///
+/// Called before returning the complete response in the non-streaming
+/// path. No-op when `overall_delay` is `None` or zero.
+#[allow(dead_code)]
+pub(crate) async fn apply_overall_delay(config: &DeliveryConfig) {
+    if let Some(delay) = config.overall_delay {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+    }
+}
+
+// ── Error injection ───────────────────────────────────────────────────────
+
+/// Check if an HTTP error should be injected.
+///
+/// Returns `Some((status_code, body, retry_after))` when the delivery
+/// config contains an error injection, `None` otherwise.
+#[allow(dead_code)]
+pub(crate) fn should_inject_http_error(
+    config: &DeliveryConfig,
+) -> Option<(u16, String, Option<u64>)> {
+    config
+        .error_injection
+        .as_ref()
+        .map(|ei| (ei.status_code, ei.message.clone(), ei.retry_after))
+}
+
+/// Check if the stream should be interrupted after a given number of frames.
+///
+/// Returns `Some(interrupt_after_frames)` when stream interruption is
+/// configured, `None` otherwise.
+#[allow(dead_code)]
+pub(crate) fn should_interrupt_stream(config: &DeliveryConfig) -> Option<usize> {
+    config
+        .stream_interrupt
+        .as_ref()
+        .map(|si| si.interrupt_after_frames)
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use super::super::fake_scenario::{ErrorInjection, StreamInterrupt};
     use super::*;
 
     // ── split_segments ───────────────────────────────────────────────────
@@ -542,5 +620,175 @@ mod tests {
         for e in &ant {
             assert_eq!(e.event_type, "message");
         }
+    }
+
+    // ── Delay injection ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_apply_first_token_delay_none() {
+        let config = DeliveryConfig::default();
+        apply_first_token_delay(&config).await;
+        // No-op, completes immediately
+    }
+
+    #[tokio::test]
+    async fn test_apply_first_token_delay_zero() {
+        let config = DeliveryConfig {
+            first_token_delay: Some(Duration::ZERO),
+            ..Default::default()
+        };
+        apply_first_token_delay(&config).await;
+        // Zero delay is a no-op
+    }
+
+    #[tokio::test]
+    async fn test_apply_first_token_delay_with_duration() {
+        let config = DeliveryConfig {
+            first_token_delay: Some(Duration::from_millis(10)),
+            ..Default::default()
+        };
+        let start = std::time::Instant::now();
+        apply_first_token_delay(&config).await;
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(10));
+    }
+
+    #[tokio::test]
+    async fn test_apply_per_segment_delay_none() {
+        let config = DeliveryConfig::default();
+        apply_per_segment_delay(&config).await;
+    }
+
+    #[tokio::test]
+    async fn test_apply_per_segment_delay_zero() {
+        let config = DeliveryConfig {
+            per_segment_delay: Some(Duration::ZERO),
+            ..Default::default()
+        };
+        apply_per_segment_delay(&config).await;
+    }
+
+    #[tokio::test]
+    async fn test_apply_per_segment_delay_with_duration() {
+        let config = DeliveryConfig {
+            per_segment_delay: Some(Duration::from_millis(10)),
+            ..Default::default()
+        };
+        let start = std::time::Instant::now();
+        apply_per_segment_delay(&config).await;
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(10));
+    }
+
+    #[tokio::test]
+    async fn test_apply_overall_delay_none() {
+        let config = DeliveryConfig::default();
+        apply_overall_delay(&config).await;
+    }
+
+    #[tokio::test]
+    async fn test_apply_overall_delay_zero() {
+        let config = DeliveryConfig {
+            overall_delay: Some(Duration::ZERO),
+            ..Default::default()
+        };
+        apply_overall_delay(&config).await;
+    }
+
+    #[tokio::test]
+    async fn test_apply_overall_delay_with_duration() {
+        let config = DeliveryConfig {
+            overall_delay: Some(Duration::from_millis(10)),
+            ..Default::default()
+        };
+        let start = std::time::Instant::now();
+        apply_overall_delay(&config).await;
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(10));
+    }
+
+    // ── Error injection ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_should_inject_http_error_none() {
+        let config = DeliveryConfig::default();
+        assert!(should_inject_http_error(&config).is_none());
+    }
+
+    #[test]
+    fn test_should_inject_http_error_401() {
+        let config = DeliveryConfig {
+            error_injection: Some(ErrorInjection {
+                status_code: 401,
+                message: "unauthorized".into(),
+                retry_after: None,
+            }),
+            ..Default::default()
+        };
+        let result = should_inject_http_error(&config).unwrap();
+        assert_eq!(result.0, 401);
+        assert_eq!(result.1, "unauthorized");
+        assert!(result.2.is_none());
+    }
+
+    #[test]
+    fn test_should_inject_http_error_429_with_retry_after() {
+        let config = DeliveryConfig {
+            error_injection: Some(ErrorInjection {
+                status_code: 429,
+                message: "rate limited".into(),
+                retry_after: Some(30),
+            }),
+            ..Default::default()
+        };
+        let result = should_inject_http_error(&config).unwrap();
+        assert_eq!(result.0, 429);
+        assert_eq!(result.1, "rate limited");
+        assert_eq!(result.2, Some(30));
+    }
+
+    #[test]
+    fn test_should_inject_http_error_500() {
+        let config = DeliveryConfig {
+            error_injection: Some(ErrorInjection {
+                status_code: 500,
+                message: "internal server error".into(),
+                retry_after: None,
+            }),
+            ..Default::default()
+        };
+        let result = should_inject_http_error(&config).unwrap();
+        assert_eq!(result.0, 500);
+        assert_eq!(result.1, "internal server error");
+    }
+
+    #[test]
+    fn test_should_interrupt_stream_none() {
+        let config = DeliveryConfig::default();
+        assert!(should_interrupt_stream(&config).is_none());
+    }
+
+    #[test]
+    fn test_should_interrupt_stream_zero() {
+        let config = DeliveryConfig {
+            stream_interrupt: Some(StreamInterrupt {
+                interrupt_after_frames: 0,
+            }),
+            ..Default::default()
+        };
+        let result = should_interrupt_stream(&config).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_should_interrupt_stream_with_value() {
+        let config = DeliveryConfig {
+            stream_interrupt: Some(StreamInterrupt {
+                interrupt_after_frames: 5,
+            }),
+            ..Default::default()
+        };
+        let result = should_interrupt_stream(&config).unwrap();
+        assert_eq!(result, 5);
     }
 }
