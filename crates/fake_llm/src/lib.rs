@@ -12,6 +12,7 @@
 //! - **server**: Axum router configuration and server lifecycle
 //! - **types**: protocol-agnostic shared types passed to the scenario engine
 
+pub mod delivery;
 pub mod endpoints;
 pub mod protocol;
 pub mod scenario;
