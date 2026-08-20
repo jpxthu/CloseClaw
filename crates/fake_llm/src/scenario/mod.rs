@@ -335,4 +335,282 @@ mod tests {
             DecisionOutcome::Error(_) => panic!("expected decision"),
         }
     }
+
+    // ------------------------------------------------------------------
+    // Fixture-loaded integration tests
+    // ------------------------------------------------------------------
+
+    /// Resolve the path to `tests/fixtures/fake_llm/scenarios/`.
+    fn fixture_scenarios_dir() -> std::path::PathBuf {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir
+            .join("..")
+            .join("..")
+            .join("tests")
+            .join("fixtures")
+            .join("fake_llm")
+            .join("scenarios")
+    }
+
+    fn features_with_model(model: &str, msg: &str) -> RequestFeatures {
+        RequestFeatures {
+            model: model.to_string(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: vec![MessageEntry {
+                role: "user".to_string(),
+                content: msg.to_string(),
+            }],
+            tools: vec![],
+        }
+    }
+
+    #[test]
+    fn decide_end_to_end_from_dir() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // basic-text.json: greeting scenario matches model "gpt-4o-basic" + "hello"
+        let feat = features_with_model("gpt-4o-basic", "hello world");
+        let outcome = engine.decide(&feat);
+        match outcome {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(d.scenario, "greeting");
+                assert_eq!(
+                    d.response_blocks[0].content.as_deref(),
+                    Some("Hi there! How can I help?")
+                );
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision"),
+        }
+    }
+
+    #[test]
+    fn decide_fixture_fallback_basic() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // basic-text.json: fallback-basic matches model "gpt-4o-basic-fallback"
+        let feat = features_with_model("gpt-4o-basic-fallback", "something else");
+        let outcome = engine.decide(&feat);
+        match outcome {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(d.scenario, "fallback-basic");
+                assert_eq!(
+                    d.response_blocks[0].content.as_deref(),
+                    Some("I'm a fake LLM server.")
+                );
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision"),
+        }
+    }
+
+    #[test]
+    fn decide_fixture_error_injection_rate_limit() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // error-injection.json: rate-limit scenario — first turn OK, second turn 429
+        let feat = features_with_model("gpt-4o-error", "hi");
+        let outcome1 = engine.decide(&feat);
+        match outcome1 {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(d.scenario, "rate-limit");
+                assert_eq!(
+                    d.response_blocks[0].content.as_deref(),
+                    Some("OK before error")
+                );
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision on first turn"),
+        }
+
+        // Second request: same session -> error injection
+        let feat2 = RequestFeatures {
+            model: "gpt-4o-error".to_string(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: vec![
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "hi".to_string(),
+                },
+                MessageEntry {
+                    role: "assistant".to_string(),
+                    content: "OK before error".to_string(),
+                },
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "next".to_string(),
+                },
+            ],
+            tools: vec![],
+        };
+        let outcome2 = engine.decide(&feat2);
+        match outcome2 {
+            DecisionOutcome::Error(e) => {
+                assert_eq!(e.status, 429);
+                assert_eq!(e.message, "rate limit exceeded");
+            }
+            DecisionOutcome::Decision(_) => panic!("expected error on second turn"),
+        }
+    }
+
+    #[test]
+    fn decide_fixture_error_injection_server_error() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // error-injection.json: server-error matches model "gpt-4o-error-search" + tool "web_search"
+        let feat = RequestFeatures {
+            model: "gpt-4o-error-search".to_string(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: vec![MessageEntry {
+                role: "user".to_string(),
+                content: "search something".to_string(),
+            }],
+            tools: vec!["web_search".to_string()],
+        };
+        let outcome = engine.decide(&feat);
+        match outcome {
+            DecisionOutcome::Error(e) => {
+                assert_eq!(e.status, 500);
+                assert_eq!(e.message, "internal server error");
+            }
+            DecisionOutcome::Decision(_) => panic!("expected error"),
+        }
+    }
+
+    #[test]
+    fn decide_fixture_multi_turn_three_turns() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // multi-turn.json: three-turn-chat with model "gpt-4o-multi"
+        let feat1 = features_with_model("gpt-4o-multi", "start");
+        let outcome1 = engine.decide(&feat1);
+        match outcome1 {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(d.scenario, "three-turn-chat");
+                assert_eq!(
+                    d.response_blocks[0].content.as_deref(),
+                    Some("Turn 1: Hello!")
+                );
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision"),
+        }
+
+        // Turn 2
+        let feat2 = RequestFeatures {
+            model: "gpt-4o-multi".to_string(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: vec![
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "start".to_string(),
+                },
+                MessageEntry {
+                    role: "assistant".to_string(),
+                    content: "Turn 1: Hello!".to_string(),
+                },
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "continue".to_string(),
+                },
+            ],
+            tools: vec![],
+        };
+        let outcome2 = engine.decide(&feat2);
+        match outcome2 {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(
+                    d.response_blocks[0].content.as_deref(),
+                    Some("Turn 2: How are you?")
+                );
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision"),
+        }
+
+        // Turn 3
+        let feat3 = RequestFeatures {
+            model: "gpt-4o-multi".to_string(),
+            stream: false,
+            max_tokens: None,
+            temperature: None,
+            messages: vec![
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "start".to_string(),
+                },
+                MessageEntry {
+                    role: "assistant".to_string(),
+                    content: "Turn 1: Hello!".to_string(),
+                },
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "continue".to_string(),
+                },
+                MessageEntry {
+                    role: "assistant".to_string(),
+                    content: "Turn 2: How are you?".to_string(),
+                },
+                MessageEntry {
+                    role: "user".to_string(),
+                    content: "bye".to_string(),
+                },
+            ],
+            tools: vec![],
+        };
+        let outcome3 = engine.decide(&feat3);
+        match outcome3 {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(
+                    d.response_blocks[0].content.as_deref(),
+                    Some("Turn 3: Goodbye!")
+                );
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision"),
+        }
+    }
+
+    #[test]
+    fn decide_fixture_usage_response() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // usage-response.json: usage-report with model "gpt-4o-usage"
+        let feat = features_with_model("gpt-4o-usage", "hi");
+        let outcome = engine.decide(&feat);
+        match outcome {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(d.scenario, "usage-report");
+                let u = d.usage.unwrap();
+                assert_eq!(u.prompt_tokens, Some(15));
+                assert_eq!(u.completion_tokens, Some(30));
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision"),
+        }
+    }
+
+    #[test]
+    fn decide_unknown_model_returns_default() {
+        let dir = fixture_scenarios_dir();
+        let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+        // No fixture matches model "unknown-model" -> default placeholder
+        let feat = features_with_model("unknown-model", "hi");
+        let outcome = engine.decide(&feat);
+        match outcome {
+            DecisionOutcome::Decision(d) => {
+                assert_eq!(d.scenario, "default");
+                assert_eq!(d.response_blocks[0].content.as_deref(), Some("placeholder"));
+            }
+            DecisionOutcome::Error(_) => panic!("expected decision"),
+        }
+    }
 }

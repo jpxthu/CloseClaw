@@ -313,4 +313,93 @@ mod tests {
             &["b".to_string(), "a".to_string()]
         ));
     }
+
+    // ------------------------------------------------------------------
+    // Additional edge case tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn long_conversation_five_turns() {
+        let mut tracker = SessionTracker::new();
+        for i in 0..5 {
+            let msgs: Vec<String> = (0..=i).map(|j| format!("msg-{}", j)).collect();
+            let turn = tracker.advance_turn(&msgs, "long-chat");
+            assert_eq!(turn, i);
+        }
+    }
+
+    #[test]
+    fn two_sessions_interleaved() {
+        let mut tracker = SessionTracker::new();
+        // Session A turn 0
+        assert_eq!(tracker.advance_turn(&["a0".to_string()], "s"), 0);
+        // Session B turn 0
+        assert_eq!(tracker.advance_turn(&["b0".to_string()], "s"), 0);
+        // Session A turn 1
+        assert_eq!(
+            tracker.advance_turn(&["a0".to_string(), "a1".to_string()], "s"),
+            1
+        );
+        // Session B turn 1
+        assert_eq!(
+            tracker.advance_turn(&["b0".to_string(), "b1".to_string()], "s"),
+            1
+        );
+        // Session A turn 2
+        assert_eq!(
+            tracker.advance_turn(&["a0".to_string(), "a1".to_string(), "a2".to_string()], "s"),
+            2
+        );
+    }
+
+    #[test]
+    fn new_session_after_partial_prefix() {
+        let mut tracker = SessionTracker::new();
+        // Build session with history ["shared", "branch-a"]
+        assert_eq!(tracker.advance_turn(&["shared".to_string()], "s"), 0);
+        assert_eq!(
+            tracker.advance_turn(&["shared".to_string(), "branch-a".to_string()], "s"),
+            1
+        );
+        // New request with history ["shared", "branch-b"] — not a prefix extension
+        // of ["shared", "branch-a"], so creates a new session.
+        assert_eq!(
+            tracker.advance_turn(&["shared".to_string(), "branch-b".to_string()], "s"),
+            0
+        );
+    }
+
+    #[test]
+    fn many_sessions_independent() {
+        let mut tracker = SessionTracker::new();
+        let session_prefixes = vec!["alpha", "beta", "gamma", "delta", "epsilon"];
+        // Create 5 independent sessions
+        for prefix in &session_prefixes {
+            let msgs = vec![prefix.to_string()];
+            assert_eq!(tracker.advance_turn(&msgs, "s"), 0);
+        }
+        // Extend each session
+        for prefix in &session_prefixes {
+            let msgs = vec![prefix.to_string(), "next".to_string()];
+            assert_eq!(tracker.advance_turn(&msgs, "s"), 1);
+        }
+    }
+
+    #[test]
+    fn compute_history_key_deterministic() {
+        let msgs1 = vec!["a".to_string(), "b".to_string()];
+        let msgs2 = vec!["a".to_string(), "b".to_string()];
+        let k1 = SessionTracker::compute_history_key(&msgs1);
+        let k2 = SessionTracker::compute_history_key(&msgs2);
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn compute_history_key_different_for_different_messages() {
+        let msgs1 = vec!["a".to_string()];
+        let msgs2 = vec!["b".to_string()];
+        let k1 = SessionTracker::compute_history_key(&msgs1);
+        let k2 = SessionTracker::compute_history_key(&msgs2);
+        assert_ne!(k1, k2);
+    }
 }

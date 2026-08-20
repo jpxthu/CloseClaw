@@ -145,4 +145,92 @@ mod tests {
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("failed to parse scenario file"));
     }
+
+    // ------------------------------------------------------------------
+    // Fixture file loading tests
+    // ------------------------------------------------------------------
+
+    /// Resolve the path to `tests/fixtures/fake_llm/scenarios/` relative
+    /// to the crate manifest directory.
+    fn fixture_scenarios_dir() -> std::path::PathBuf {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir
+            .join("..")
+            .join("..")
+            .join("tests")
+            .join("fixtures")
+            .join("fake_llm")
+            .join("scenarios")
+    }
+
+    #[test]
+    fn load_fixture_basic_text_ok() {
+        let dir = fixture_scenarios_dir();
+        let path = dir.join("basic-text.json");
+        let file = load_scenario_file(&path).unwrap();
+        assert_eq!(file.scenarios.len(), 2);
+        assert_eq!(file.scenarios[0].name, "greeting");
+        assert_eq!(file.scenarios[1].name, "fallback-basic");
+    }
+
+    #[test]
+    fn load_fixture_error_injection_ok() {
+        let dir = fixture_scenarios_dir();
+        let path = dir.join("error-injection.json");
+        let file = load_scenario_file(&path).unwrap();
+        assert_eq!(file.scenarios.len(), 2);
+        assert_eq!(file.scenarios[0].name, "rate-limit");
+        assert_eq!(file.scenarios[0].turns.len(), 2);
+        // Second turn is error-only (no response field, defaults to Unknown)
+        assert!(matches!(
+            file.scenarios[0].turns[1].response,
+            super::super::types::ResponseShape::Unknown
+        ));
+        assert_eq!(
+            file.scenarios[0].turns[1].error.as_ref().unwrap().status,
+            429
+        );
+        assert_eq!(file.scenarios[1].name, "server-error");
+        assert_eq!(
+            file.scenarios[1].turns[0].error.as_ref().unwrap().status,
+            500
+        );
+    }
+
+    #[test]
+    fn load_fixture_multi_turn_ok() {
+        let dir = fixture_scenarios_dir();
+        let path = dir.join("multi-turn.json");
+        let file = load_scenario_file(&path).unwrap();
+        assert_eq!(file.scenarios.len(), 1);
+        assert_eq!(file.scenarios[0].name, "three-turn-chat");
+        assert_eq!(file.scenarios[0].turns.len(), 3);
+    }
+
+    #[test]
+    fn load_fixture_usage_response_ok() {
+        let dir = fixture_scenarios_dir();
+        let path = dir.join("usage-response.json");
+        let file = load_scenario_file(&path).unwrap();
+        assert_eq!(file.scenarios.len(), 1);
+        assert_eq!(file.scenarios[0].name, "usage-report");
+    }
+
+    #[test]
+    fn load_scenarios_dir_all_fixtures() {
+        let dir = fixture_scenarios_dir();
+        let files = load_scenario_dir(&dir).unwrap();
+        // Should load all 4 fixture files without errors.
+        assert_eq!(files.len(), 4);
+    }
+
+    #[test]
+    fn load_scenarios_dir_no_conflicts() {
+        let dir = fixture_scenarios_dir();
+        let files = load_scenario_dir(&dir).unwrap();
+        let all_scenarios: Vec<_> = files.into_iter().flat_map(|f| f.scenarios).collect();
+        // Each scenario should have a unique model_id or non-overlapping
+        // conditions. Verify by building a MatcherIndex (panics on conflict).
+        let _index = super::super::matcher::MatcherIndex::build(all_scenarios);
+    }
 }

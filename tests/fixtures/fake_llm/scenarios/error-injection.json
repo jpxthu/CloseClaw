@@ -3,7 +3,7 @@
         {
             "name": "rate-limit",
             "match_": {
-                "model_id": "gpt-4o"
+                "model_id": "gpt-4o-error"
             },
             "turns": [
                 {
@@ -23,6 +23,7 @@
         {
             "name": "server-error",
             "match_": {
+                "model_id": "gpt-4o-error-search",
                 "tool_name": "web_search"
             },
             "turns": [

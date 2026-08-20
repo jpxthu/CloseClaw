@@ -465,4 +465,246 @@ mod tests {
         let result = match_scenario(&feat("any", vec!["hi"], vec![]), &scenarios);
         assert_eq!(result.unwrap().name, "fallback");
     }
+
+    // ------------------------------------------------------------------
+    // Additional edge case tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn index_empty_messages_with_message_contains_no_match() {
+        let scenarios = vec![specific(
+            "math",
+            MatchCondition {
+                message_contains: Some("calculate".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+        let result = index.match_request(&feat("gpt-4o", vec![], vec![]));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn index_tool_name_only_condition() {
+        let scenarios = vec![specific(
+            "code",
+            MatchCondition {
+                tool_name: Some("code_exec".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+        let r = index.match_request(&feat("any-model", vec!["hi"], vec!["code_exec"]));
+        assert_eq!(index.get(r.unwrap()).name, "code");
+
+        // Without the tool -> no match
+        assert!(index
+            .match_request(&feat("any-model", vec!["hi"], vec![]))
+            .is_none());
+    }
+
+    #[test]
+    fn index_two_scenarios_different_models_no_conflict() {
+        let scenarios = vec![
+            specific(
+                "gpt4",
+                MatchCondition {
+                    model_id: Some("gpt-4o".to_string()),
+                    ..Default::default()
+                },
+            ),
+            specific(
+                "claude",
+                MatchCondition {
+                    model_id: Some("claude-3".to_string()),
+                    ..Default::default()
+                },
+            ),
+        ];
+        let index = MatcherIndex::build(scenarios);
+        // Each matches only its own model
+        assert_eq!(
+            index
+                .get(
+                    index
+                        .match_request(&feat("gpt-4o", vec![], vec![]))
+                        .unwrap()
+                )
+                .name,
+            "gpt4"
+        );
+        assert_eq!(
+            index
+                .get(
+                    index
+                        .match_request(&feat("claude-3", vec![], vec![]))
+                        .unwrap()
+                )
+                .name,
+            "claude"
+        );
+        // Third model: no match
+        assert!(index
+            .match_request(&feat("gemini", vec![], vec![]))
+            .is_none());
+    }
+
+    #[test]
+    fn index_partial_condition_match_fails() {
+        // Scenario requires model + tool. Request has model but not tool.
+        let scenarios = vec![specific(
+            "search",
+            MatchCondition {
+                model_id: Some("gpt-4o".to_string()),
+                tool_name: Some("search".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+        // Has model but missing tool -> no match
+        assert!(index
+            .match_request(&feat("gpt-4o", vec!["hi"], vec![]))
+            .is_none());
+        // Has tool but wrong model -> no match
+        assert!(index
+            .match_request(&feat("claude-3", vec!["hi"], vec!["search"]))
+            .is_none());
+        // Both match -> success
+        let r = index.match_request(&feat("gpt-4o", vec!["hi"], vec!["search"]));
+        assert_eq!(index.get(r.unwrap()).name, "search");
+    }
+
+    #[test]
+    fn index_message_contains_substring_matching() {
+        let scenarios = vec![specific(
+            "math",
+            MatchCondition {
+                message_contains: Some("2+2".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+        // Substring match
+        assert!(index
+            .match_request(&feat("gpt-4o", vec!["what is 2+2?"], vec![]))
+            .is_some());
+        // Exact match
+        assert!(index
+            .match_request(&feat("gpt-4o", vec!["2+2"], vec![]))
+            .is_some());
+        // No match
+        assert!(index
+            .match_request(&feat("gpt-4o", vec!["what is 3+3?"], vec![]))
+            .is_none());
+    }
+
+    #[test]
+    fn index_multiple_fallback_scenarios_no_conflict_when_different_models() {
+        let scenarios = vec![
+            ScenarioDeclaration {
+                name: "gpt-fallback".to_string(),
+                match_: Some(MatchCondition {
+                    model_id: Some("gpt-4o".to_string()),
+                    ..Default::default()
+                }),
+                turns: vec![turn()],
+            },
+            ScenarioDeclaration {
+                name: "claude-fallback".to_string(),
+                match_: Some(MatchCondition {
+                    model_id: Some("claude-3".to_string()),
+                    ..Default::default()
+                }),
+                turns: vec![turn()],
+            },
+        ];
+        let index = MatcherIndex::build(scenarios);
+        // Each model matches its own scenario
+        assert_eq!(
+            index
+                .get(
+                    index
+                        .match_request(&feat("gpt-4o", vec![], vec![]))
+                        .unwrap()
+                )
+                .name,
+            "gpt-fallback"
+        );
+        assert_eq!(
+            index
+                .get(
+                    index
+                        .match_request(&feat("claude-3", vec![], vec![]))
+                        .unwrap()
+                )
+                .name,
+            "claude-fallback"
+        );
+    }
+
+    #[test]
+    fn index_no_match_condition_matches_all_models() {
+        let scenarios = vec![ScenarioDeclaration {
+            name: "catch-all".to_string(),
+            match_: None,
+            turns: vec![turn()],
+        }];
+        let index = MatcherIndex::build(scenarios);
+        assert_eq!(
+            index
+                .get(
+                    index
+                        .match_request(&feat("gpt-4o", vec![], vec![]))
+                        .unwrap()
+                )
+                .name,
+            "catch-all"
+        );
+        assert_eq!(
+            index
+                .get(
+                    index
+                        .match_request(&feat("any-model", vec![], vec![]))
+                        .unwrap()
+                )
+                .name,
+            "catch-all"
+        );
+    }
+
+    #[test]
+    fn index_message_in_second_message_matches() {
+        let scenarios = vec![specific(
+            "math",
+            MatchCondition {
+                message_contains: Some("calculate".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+        let result = index.match_request(&feat(
+            "gpt-4o",
+            vec!["first message", "please calculate this"],
+            vec![],
+        ));
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn index_message_in_last_message_matches() {
+        let scenarios = vec![specific(
+            "math",
+            MatchCondition {
+                message_contains: Some("calculate".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+        let result = index.match_request(&feat(
+            "gpt-4o",
+            vec!["first", "second", "please calculate"],
+            vec![],
+        ));
+        assert!(result.is_some());
+    }
 }

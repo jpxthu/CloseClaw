@@ -61,6 +61,8 @@ pub struct MatchCondition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnResponse {
     /// The response shape for this turn.
+    /// Optional: error-only turns may omit this field.
+    #[serde(default)]
     pub response: ResponseShape,
     /// Optional artificial delay before delivering the response (milliseconds).
     #[serde(default)]
@@ -91,7 +93,7 @@ pub struct HttpError {
 ///
 /// Phase 1 implements Text, Error, and Usage. Remaining variants are
 /// placeholders for future phases.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ResponseShape {
     /// Plain text content response.
@@ -124,6 +126,7 @@ pub enum ResponseShape {
 
     /// Catch-all for unimplemented variants (serde default).
     #[serde(other)]
+    #[default]
     Unknown,
 }
 
@@ -429,5 +432,155 @@ mod tests {
         let parsed: ResponseBlock = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.block_type, "text");
         assert_eq!(parsed.content.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn response_block_with_tool_fields() {
+        let block = ResponseBlock {
+            block_type: "tool_call".to_string(),
+            content: None,
+            tool_name: Some("get_weather".to_string()),
+            tool_arguments: Some("{\"city\": \"Beijing\"}".to_string()),
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        let parsed: ResponseBlock = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.tool_name.as_deref(), Some("get_weather"));
+        assert!(parsed.content.is_none());
+    }
+
+    #[test]
+    fn message_entry_roundtrip() {
+        let entry = MessageEntry {
+            role: "user".to_string(),
+            content: "Hello world".to_string(),
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: MessageEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.role, "user");
+        assert_eq!(parsed.content, "Hello world");
+    }
+
+    #[test]
+    fn scenario_file_roundtrip() {
+        let file = ScenarioFile {
+            scenarios: vec![ScenarioDeclaration {
+                name: "roundtrip-test".to_string(),
+                match_: Some(MatchCondition {
+                    model_id: Some("gpt-4o".to_string()),
+                    message_contains: Some("hello".to_string()),
+                    tool_name: None,
+                    extra: None,
+                }),
+                turns: vec![TurnResponse {
+                    response: ResponseShape::Text(TextResponse {
+                        content: "hi".to_string(),
+                    }),
+                    delay: Some(100),
+                    error: None,
+                }],
+            }],
+        };
+        let json = serde_json::to_string(&file).unwrap();
+        let parsed: ScenarioFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.scenarios.len(), 1);
+        assert_eq!(parsed.scenarios[0].name, "roundtrip-test");
+        assert_eq!(parsed.scenarios[0].turns[0].delay, Some(100));
+    }
+
+    #[test]
+    fn deserialize_match_condition_all_fields() {
+        let json = r#"{
+            "model_id": "gpt-4o",
+            "message_contains": "calculate",
+            "tool_name": "search",
+            "extra": {"env": "test"}
+        }"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert_eq!(cond.model_id.as_deref(), Some("gpt-4o"));
+        assert_eq!(cond.message_contains.as_deref(), Some("calculate"));
+        assert_eq!(cond.tool_name.as_deref(), Some("search"));
+        assert_eq!(
+            cond.extra.as_ref().unwrap().get("env"),
+            Some(&"test".to_string())
+        );
+    }
+
+    #[test]
+    fn deserialize_match_condition_tool_name_only() {
+        let json = r#"{"tool_name": "code_exec"}"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert!(cond.model_id.is_none());
+        assert!(cond.message_contains.is_none());
+        assert_eq!(cond.tool_name.as_deref(), Some("code_exec"));
+    }
+
+    #[test]
+    fn deserialize_response_shape_reasoning() {
+        let json = r#"{"type": "reasoning"}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        assert!(matches!(shape, ResponseShape::Reasoning));
+    }
+
+    #[test]
+    fn deserialize_response_shape_tool_call() {
+        let json = r#"{"type": "tool_call"}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        assert!(matches!(shape, ResponseShape::ToolCall));
+    }
+
+    #[test]
+    fn deserialize_response_shape_delay() {
+        let json = r#"{"type": "delay"}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        assert!(matches!(shape, ResponseShape::Delay));
+    }
+
+    #[test]
+    fn deserialize_response_shape_unknown_catchall() {
+        let json = r#"{"type": "some_future_type"}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        assert!(matches!(shape, ResponseShape::Unknown));
+    }
+
+    #[test]
+    fn deserialize_http_error_various_status_codes() {
+        for (code, msg) in [
+            (401, "unauthorized"),
+            (429, "rate limited"),
+            (500, "server error"),
+        ] {
+            let json = format!(r#"{{"status": {}, "message": "{}"}}"#, code, msg);
+            let err: HttpError = serde_json::from_str(&json).unwrap();
+            assert_eq!(err.status, code);
+            assert_eq!(err.message, msg);
+        }
+    }
+
+    #[test]
+    fn usage_response_partial_fields() {
+        let json = r#"{"type": "usage", "prompt_tokens": 5}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Usage(u) => {
+                assert_eq!(u.prompt_tokens, Some(5));
+                assert!(u.completion_tokens.is_none());
+            }
+            _ => panic!("expected Usage variant"),
+        }
+    }
+
+    #[test]
+    fn scenario_file_empty_scenarios() {
+        let json = r#"{"scenarios": []}"#;
+        let file: ScenarioFile = serde_json::from_str(json).unwrap();
+        assert!(file.scenarios.is_empty());
+    }
+
+    #[test]
+    fn turn_response_minimal_no_optional_fields() {
+        let json = r#"{"response": {"type": "text", "content": "ok"}}"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert!(turn.delay.is_none());
+        assert!(turn.error.is_none());
     }
 }

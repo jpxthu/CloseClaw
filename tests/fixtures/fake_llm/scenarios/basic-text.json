@@ -3,6 +3,7 @@
         {
             "name": "greeting",
             "match_": {
+                "model_id": "gpt-4o-basic",
                 "message_contains": "hello"
             },
             "turns": [
@@ -21,7 +22,10 @@
             ]
         },
         {
-            "name": "fallback",
+            "name": "fallback-basic",
+            "match_": {
+                "model_id": "gpt-4o-basic-fallback"
+            },
             "turns": [
                 {
                     "response": {
