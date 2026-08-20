@@ -229,9 +229,43 @@ impl Default for FakeProvider {
 #[path = "fake_tests.rs"]
 mod tests;
 
+#[cfg(all(test, feature = "fake-llm"))]
+#[path = "fake_models_tests.rs"]
+mod models_tests;
+
 // ── Non-streaming delivery helpers ─────────────────────────────────────────
 
 impl FakeProvider {
+    /// Handle a model discovery request via scenario-driven delivery.
+    ///
+    /// Consumes the next scenario and returns the model list or error.
+    /// Supports delay/error injection via [`DeliveryConfig`].
+    pub async fn send_models(&self) -> Result<Vec<String>, ProviderError> {
+        match self.resolve_scenario().await? {
+            None => Ok(Vec::new()),
+            Some(Scenario::Err { error, .. }) => Err(error),
+            Some(Scenario::Ok { .. }) => Ok(Vec::new()),
+            Some(Scenario::Models {
+                models, delivery, ..
+            }) => {
+                apply_overall_delay(&delivery).await;
+                if let Some((status, body, retry_after)) = should_inject_http_error(&delivery) {
+                    return Err(ProviderError::Http {
+                        status_code: status,
+                        body,
+                        retry_after,
+                    });
+                }
+                Ok(models)
+            }
+            Some(Scenario::Delay { .. }) => {
+                // resolve_scenario already unwraps all Delay variants;
+                // reaching this branch is a logic error.
+                unreachable!("resolve_scenario resolves Delay")
+            }
+        }
+    }
+
     /// Fallback response when scenarios are exhausted (non-streaming).
     fn send_fallback_response(&self) -> InternalResponse {
         let fallback = self

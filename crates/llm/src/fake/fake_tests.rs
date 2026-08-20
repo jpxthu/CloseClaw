@@ -317,7 +317,6 @@ async fn test_send_streaming_request_captured() {
 }
 
 // ── Provider trait config accessors ───────────────────────────────────────
-
 #[test]
 fn test_provider_id() {
     let provider = FakeProvider::new();
@@ -438,7 +437,6 @@ async fn test_err_scenario_cache_fields_none() {
 }
 
 // ── Builder API convenience methods (Step 1.5) ─────────────────────────
-
 #[test]
 fn test_builder_then_streaming() {
     let provider = FakeProvider::builder()
@@ -725,7 +723,6 @@ fn test_builder_include_usage_on_last_only() {
 }
 
 // ── Streaming delay-before-error ordering test (Step 1.6) ──────────────
-
 #[tokio::test]
 async fn test_streaming_delay_before_error_ordering() {
     let provider = FakeProvider::builder().build();
@@ -768,7 +765,6 @@ async fn test_streaming_delay_before_error_ordering() {
 }
 
 // ── ToolUse segment_granularity tests (Step 1.3) ──────────────────────
-
 #[tokio::test]
 async fn test_streaming_tool_use_segmented_openai() {
     let provider = FakeProvider::builder().build();
@@ -815,6 +811,7 @@ async fn test_streaming_tool_use_segmented_openai() {
     }
     let finish: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
     assert_eq!(finish["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 }
 
@@ -909,6 +906,7 @@ async fn test_streaming_tool_use_no_segmentation() {
     let finish = rx.recv().await.unwrap();
     let finish_data: serde_json::Value = serde_json::from_str(&finish.data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 
     let provider2 = FakeProvider::builder().build();
@@ -945,9 +943,9 @@ async fn test_streaming_tool_use_no_segmentation() {
     let finish = rx.recv().await.unwrap();
     let finish_data: serde_json::Value = serde_json::from_str(&finish.data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 }
-
 #[tokio::test]
 async fn test_streaming_mixed_text_and_tool_use_segmented() {
     let provider = FakeProvider::builder().build();
@@ -996,5 +994,6 @@ async fn test_streaming_mixed_text_and_tool_use_segmented() {
     }
     let finish: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
     assert_eq!(finish["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 }
