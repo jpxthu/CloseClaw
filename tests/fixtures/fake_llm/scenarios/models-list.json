@@ -1,0 +1,44 @@
+{
+    "scenarios": [
+        {
+            "name": "models-list",
+            "match_": {
+                "model_id": "gpt-4o-models"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "ok"
+                    }
+                }
+            ],
+            "models": [
+                {"id": "gpt-4", "owned_by": "openai"},
+                {"id": "gpt-3.5-turbo", "owned_by": "openai"},
+                {"id": "claude-3-opus", "owned_by": "anthropic"}
+            ]
+        },
+        {
+            "name": "models-error",
+            "match_": {
+                "model_id": "gpt-4o-models-error"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": ""
+                    },
+                    "error": {
+                        "status": 429,
+                        "message": "rate limit exceeded"
+                    }
+                }
+            ],
+            "models": [
+                {"id": "gpt-4"}
+            ]
+        }
+    ]
+}

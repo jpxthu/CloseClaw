@@ -386,3 +386,56 @@ async fn test_models_contains_expected_models() {
         "must include claude-3-opus-20240229"
     );
 }
+
+// ---------------------------------------------------------------------------
+// /v1/models — scenario engine integration
+// ---------------------------------------------------------------------------
+
+/// Spawn a server with a scenario directory and return the bound address.
+async fn spawn_server_with_scenarios() -> SocketAddr {
+    let scenarios_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("fixtures")
+        .join("fake_llm")
+        .join("scenarios");
+    let addr = start_server_addr("127.0.0.1:0", Some(&scenarios_dir))
+        .await
+        .expect("failed to start server with scenarios");
+    let client = reqwest::Client::new();
+    let url = format!("http://{addr}/v1/models");
+    for i in 0..10 {
+        match client.get(&url).send().await {
+            Ok(_) => break,
+            Err(_) if i < 9 => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+            Err(e) => panic!("server not ready after 10 retries: {e}"),
+        }
+    }
+    addr
+}
+
+#[tokio::test]
+async fn test_models_scenario_driven_list() {
+    let addr = spawn_server_with_scenarios().await;
+    let client = reqwest::Client::new();
+    let url = format!("http://{addr}/v1/models");
+    let resp: serde_json::Value = client
+        .get(&url)
+        .send()
+        .await
+        .expect("request failed")
+        .json()
+        .await
+        .expect("invalid JSON");
+
+    // models-list.json: fallback scenario has models declared,
+    // so the default model list should be returned.
+    assert_eq!(resp["object"], "list");
+    let data = resp["data"].as_array().unwrap();
+    assert!(!data.is_empty(), "should return at least one model");
+    for model in data {
+        assert!(model["id"].is_string(), "model id must be a string");
+        assert_eq!(model["object"], "model");
+    }
+}

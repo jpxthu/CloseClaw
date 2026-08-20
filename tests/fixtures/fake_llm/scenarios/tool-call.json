@@ -1,0 +1,46 @@
+{
+    "scenarios": [
+        {
+            "name": "tool-call-single",
+            "match_": {
+                "model_id": "gpt-4o-tool"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "tool_call",
+                        "calls": [
+                            {
+                                "name": "get_weather",
+                                "arguments": "{\"city\": \"Beijing\"}"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "name": "tool-call-multiple",
+            "match_": {
+                "model_id": "gpt-4o-tool-multi"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "tool_call",
+                        "calls": [
+                            {
+                                "name": "search",
+                                "arguments": "{\"q\": \"rust\"}"
+                            },
+                            {
+                                "name": "calc",
+                                "arguments": "{\"expr\": \"1+1\"}"
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}

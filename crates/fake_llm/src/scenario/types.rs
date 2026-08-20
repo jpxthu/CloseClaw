@@ -26,6 +26,20 @@ pub struct ScenarioFile {
 
 /// A single scenario declaration: matching condition + response sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelEntry {
+    /// Model ID (e.g. "gpt-4", "claude-3-opus-20240229").
+    pub id: String,
+    /// Owning organization (e.g. "openai", "anthropic").
+    #[serde(default = "default_owned_by")]
+    pub owned_by: String,
+}
+
+fn default_owned_by() -> String {
+    "openai".to_string()
+}
+
+/// A single scenario declaration: matching condition + response sequence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScenarioDeclaration {
     /// Human-readable scenario name (used in logs and error messages).
     pub name: String,
@@ -35,6 +49,11 @@ pub struct ScenarioDeclaration {
     /// Ordered turn responses. The N-th request within a session returns
     /// the N-th turn (0-indexed). Exceeding this count is an error.
     pub turns: Vec<TurnResponse>,
+    /// Optional model list declaration for `/v1/models` endpoint.
+    /// When present, the models endpoint returns this list instead of
+    /// the default placeholder list.
+    #[serde(default)]
+    pub models: Option<Vec<ModelEntry>>,
 }
 
 /// Conditions that determine whether a request matches this scenario.
@@ -80,6 +99,9 @@ pub struct HttpError {
     pub status: u16,
     /// Error message body.
     pub message: String,
+    /// Optional Retry-After header value (seconds).
+    #[serde(default)]
+    pub retry_after: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -100,13 +122,13 @@ pub enum ResponseShape {
     #[serde(rename = "text")]
     Text(TextResponse),
 
-    /// Reasoning / thinking content (Phase 2+).
+    /// Reasoning / thinking content.
     #[serde(rename = "reasoning")]
-    Reasoning,
+    Reasoning(ReasoningResponse),
 
-    /// Tool call response (Phase 2+).
+    /// Tool call response.
     #[serde(rename = "tool_call")]
-    ToolCall,
+    ToolCall(ToolCallResponse),
 
     /// Streaming response (Phase 2+).
     #[serde(rename = "streaming")]
@@ -135,6 +157,34 @@ pub enum ResponseShape {
 pub struct TextResponse {
     /// The text content to return.
     pub content: String,
+}
+
+/// Reasoning / thinking response content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReasoningResponse {
+    /// The visible text content.
+    pub content: String,
+    /// The hidden reasoning text.
+    pub reasoning: String,
+    /// Optional reasoning signature for verification.
+    #[serde(default)]
+    pub signature: Option<String>,
+}
+
+/// A single tool call entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallEntry {
+    /// The tool function name.
+    pub name: String,
+    /// The arguments as a JSON string.
+    pub arguments: String,
+}
+
+/// Tool call response containing one or more calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCallResponse {
+    /// The list of tool calls to execute.
+    pub calls: Vec<ToolCallEntry>,
 }
 
 /// Token usage breakdown.
@@ -196,6 +246,12 @@ pub struct ResponseBlock {
     /// Tool call arguments as JSON string (for tool_call blocks).
     #[serde(default)]
     pub tool_arguments: Option<String>,
+    /// Reasoning text (for reasoning blocks).
+    #[serde(default)]
+    pub reasoning: Option<String>,
+    /// Reasoning signature (for reasoning blocks).
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -354,11 +410,18 @@ mod tests {
             _ => panic!("expected Usage variant"),
         }
 
-        // Unknown/placeholder variants
-        let json = r#"{"type": "reasoning"}"#;
+        // Reasoning variant with data
+        let json = r#"{"type": "reasoning", "content": "text", "reasoning": "think"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::Reasoning));
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.content, "text");
+                assert_eq!(r.reasoning, "think");
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
 
+        // Streaming variant (placeholder)
         let json = r#"{"type": "streaming"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         assert!(matches!(shape, ResponseShape::Streaming));
@@ -370,6 +433,23 @@ mod tests {
         let err: HttpError = serde_json::from_str(json).unwrap();
         assert_eq!(err.status, 429);
         assert_eq!(err.message, "rate limited");
+        assert!(err.retry_after.is_none());
+    }
+
+    #[test]
+    fn deserialize_http_error_with_retry_after() {
+        let json = r#"{"status": 429, "message": "rate limited", "retry_after": 60}"#;
+        let err: HttpError = serde_json::from_str(json).unwrap();
+        assert_eq!(err.status, 429);
+        assert_eq!(err.message, "rate limited");
+        assert_eq!(err.retry_after, Some(60));
+    }
+
+    #[test]
+    fn deserialize_http_error_retry_after_default_none() {
+        let json = r#"{"status": 500, "message": "error"}"#;
+        let err: HttpError = serde_json::from_str(json).unwrap();
+        assert!(err.retry_after.is_none());
     }
 
     #[test]
@@ -427,6 +507,8 @@ mod tests {
             content: Some("Hello".to_string()),
             tool_name: None,
             tool_arguments: None,
+            reasoning: None,
+            signature: None,
         };
         let json = serde_json::to_string(&block).unwrap();
         let parsed: ResponseBlock = serde_json::from_str(&json).unwrap();
@@ -441,6 +523,8 @@ mod tests {
             content: None,
             tool_name: Some("get_weather".to_string()),
             tool_arguments: Some("{\"city\": \"Beijing\"}".to_string()),
+            reasoning: None,
+            signature: None,
         };
         let json = serde_json::to_string(&block).unwrap();
         let parsed: ResponseBlock = serde_json::from_str(&json).unwrap();
@@ -478,6 +562,7 @@ mod tests {
                     delay: Some(100),
                     error: None,
                 }],
+                models: None,
             }],
         };
         let json = serde_json::to_string(&file).unwrap();
@@ -515,17 +600,66 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_reasoning() {
-        let json = r#"{"type": "reasoning"}"#;
+    fn deserialize_response_shape_reasoning_with_data() {
+        let json = r#"{"type": "reasoning", "content": "The answer is 42.", "reasoning": "Let me think..."}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::Reasoning));
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.content, "The answer is 42.");
+                assert_eq!(r.reasoning, "Let me think...");
+                assert!(r.signature.is_none());
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_response_shape_reasoning_with_signature() {
+        let json = r#"{"type": "reasoning", "content": "ok", "reasoning": "because", "signature": "sig123"}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.signature.as_deref(), Some("sig123"));
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
     }
 
     #[test]
     fn deserialize_response_shape_tool_call() {
-        let json = r#"{"type": "tool_call"}"#;
-        let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::ToolCall));
+        let json = serde_json::json!({
+            "type": "tool_call",
+            "calls": [{"name": "get_weather", "arguments": "{}"}]
+        });
+        let shape: ResponseShape = serde_json::from_value(json).unwrap();
+        match shape {
+            ResponseShape::ToolCall(tc) => {
+                assert_eq!(tc.calls.len(), 1);
+                assert_eq!(tc.calls[0].name, "get_weather");
+                assert_eq!(tc.calls[0].arguments, "{}");
+            }
+            _ => panic!("expected ToolCall variant"),
+        }
+    }
+
+    #[test]
+    fn deserialize_response_shape_tool_call_multiple() {
+        let json = serde_json::json!({
+            "type": "tool_call",
+            "calls": [
+                {"name": "search", "arguments": "{}"},
+                {"name": "calc", "arguments": "{}"}
+            ]
+        });
+        let shape: ResponseShape = serde_json::from_value(json).unwrap();
+        match shape {
+            ResponseShape::ToolCall(tc) => {
+                assert_eq!(tc.calls.len(), 2);
+                assert_eq!(tc.calls[0].name, "search");
+                assert_eq!(tc.calls[1].name, "calc");
+            }
+            _ => panic!("expected ToolCall variant"),
+        }
     }
 
     #[test]
@@ -582,5 +716,49 @@ mod tests {
         let turn: TurnResponse = serde_json::from_str(json).unwrap();
         assert!(turn.delay.is_none());
         assert!(turn.error.is_none());
+    }
+
+    #[test]
+    fn deserialize_model_entry() {
+        let json = r#"{"id": "gpt-4", "owned_by": "openai"}"#;
+        let entry: ModelEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.id, "gpt-4");
+        assert_eq!(entry.owned_by, "openai");
+    }
+
+    #[test]
+    fn deserialize_model_entry_default_owned_by() {
+        let json = r#"{"id": "test-model"}"#;
+        let entry: ModelEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.id, "test-model");
+        assert_eq!(entry.owned_by, "openai");
+    }
+
+    #[test]
+    fn deserialize_scenario_declaration_with_models() {
+        let json = r#"{
+            "name": "models-scene",
+            "turns": [{"response": {"type": "text", "content": "ok"}}],
+            "models": [
+                {"id": "gpt-4", "owned_by": "openai"},
+                {"id": "claude-3", "owned_by": "anthropic"}
+            ]
+        }"#;
+        let decl: ScenarioDeclaration = serde_json::from_str(json).unwrap();
+        assert_eq!(decl.name, "models-scene");
+        let models = decl.models.unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "gpt-4");
+        assert_eq!(models[1].id, "claude-3");
+    }
+
+    #[test]
+    fn deserialize_scenario_declaration_without_models() {
+        let json = r#"{
+            "name": "no-models",
+            "turns": [{"response": {"type": "text", "content": "ok"}}]
+        }"#;
+        let decl: ScenarioDeclaration = serde_json::from_str(json).unwrap();
+        assert!(decl.models.is_none());
     }
 }

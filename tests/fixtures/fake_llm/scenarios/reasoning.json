@@ -1,0 +1,35 @@
+{
+    "scenarios": [
+        {
+            "name": "reasoning-basic",
+            "match_": {
+                "model_id": "gpt-4o-reasoning"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "reasoning",
+                        "content": "The answer is 42.",
+                        "reasoning": "Let me think step by step...",
+                        "signature": "sig-abc"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "reasoning-no-sig",
+            "match_": {
+                "model_id": "gpt-4o-reasoning-nosig"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "reasoning",
+                        "content": "Result without signature.",
+                        "reasoning": "Thinking..."
+                    }
+                }
+            ]
+        }
+    ]
+}
