@@ -782,7 +782,6 @@ async fn test_streaming_tool_use_segmented_openai() {
     }
     let finish: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
     assert_eq!(finish["choices"][0]["finish_reason"], "tool_calls");
-    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 }
 
@@ -878,7 +877,6 @@ async fn test_streaming_tool_use_no_segmentation() {
     let finish = rx.recv().await.unwrap();
     let finish_data: serde_json::Value = serde_json::from_str(&finish.data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
-    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 
     // Case 2: empty input → no delta emitted
@@ -916,7 +914,6 @@ async fn test_streaming_tool_use_no_segmentation() {
     let finish = rx.recv().await.unwrap();
     let finish_data: serde_json::Value = serde_json::from_str(&finish.data).unwrap();
     assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
-    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 }
 
@@ -971,6 +968,5 @@ async fn test_streaming_mixed_text_and_tool_use_segmented() {
     }
     let finish: serde_json::Value = serde_json::from_str(&rx.recv().await.unwrap().data).unwrap();
     assert_eq!(finish["choices"][0]["finish_reason"], "tool_calls");
-    assert_eq!(rx.recv().await.unwrap().data, "[DONE]");
     assert!(rx.recv().await.is_none());
 }
