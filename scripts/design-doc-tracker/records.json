@@ -152,6 +152,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/fake_llm/endpoints.md",
+    "commit": "bbee2ae391ec3c3b3a64f9471a10769c51b0898e",
+    "commit_time": "2026-08-20T22:36:08+08:00",
+    "confirmed_time": "2026-08-20T22:56:35.459480+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/gateway/README.md",
     "commit": "511d1a677e37d9cfce034b80a9cadddaec3241d3",
     "commit_time": "2026-08-19T03:22:38+08:00",
