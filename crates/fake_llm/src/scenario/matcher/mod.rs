@@ -26,6 +26,9 @@ pub struct MatcherIndex {
     any_by_protocol: HashMap<ProtocolKind, Vec<usize>>,
     /// Indices of scenarios grouped by `(model_id, protocol)` composite key.
     by_model: HashMap<(String, ProtocolKind), Vec<usize>>,
+    /// Index of the fallback scenario per protocol (match_ = None).
+    /// At most one fallback per protocol (enforced by conflict detection).
+    fallback_by_protocol: HashMap<ProtocolKind, usize>,
     /// Reference to the original scenario list.
     scenarios: Vec<ScenarioDeclaration>,
 }
@@ -80,9 +83,22 @@ impl MatcherIndex {
             return Err(ScenarioConflictError { conflicts });
         }
 
+        // Build fallback index: record the single fallback scenario per protocol.
+        // Conflict detection guarantees at most one fallback (None match_) total,
+        // so it appears in any_by_protocol for both protocols.
+        let mut fallback_by_protocol: HashMap<ProtocolKind, usize> = HashMap::new();
+        for (i, scenario) in scenarios.iter().enumerate() {
+            if scenario.match_.is_none() {
+                for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
+                    fallback_by_protocol.entry(proto).or_insert(i);
+                }
+            }
+        }
+
         Ok(Self {
             any_by_protocol,
             by_model,
+            fallback_by_protocol,
             scenarios,
         })
     }
@@ -117,7 +133,10 @@ impl MatcherIndex {
         matched.dedup();
 
         match matched.len() {
-            0 => None,
+            0 => {
+                // Zero hits: return the protocol-specific fallback scenario if declared.
+                self.fallback_by_protocol.get(&features.protocol).copied()
+            }
             1 => Some(matched[0]),
             _ => {
                 // Theoretically unreachable after startup conflict detection,

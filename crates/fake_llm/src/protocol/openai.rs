@@ -259,11 +259,8 @@ pub fn build_chat_completion_response_from_decision(
         }
     }
 
-    let content = if content.is_empty() && tool_calls.is_empty() {
-        "placeholder".to_string()
-    } else {
-        content
-    };
+    // Empty content is a valid scenario-declared response — no implicit
+    // placeholder injection (scenarios are the sole control surface).
 
     let finish_reason = if tool_calls.is_empty() {
         "stop".to_string()
@@ -577,8 +574,9 @@ mod tests {
         let resp = build_chat_completion_response_from_decision(&decision);
         let json = serde_json::to_value(&resp).unwrap();
 
-        // Empty content falls back to placeholder
-        assert_eq!(json["choices"][0]["message"]["content"], "placeholder");
+        // Empty content is a valid scenario-declared response — no implicit
+        // placeholder injection.
+        assert_eq!(json["choices"][0]["message"]["content"], "");
         assert_eq!(
             json["choices"][0]["message"]["reasoning_content"],
             "thinking..."

@@ -114,12 +114,22 @@ impl ScenarioEngine {
     /// Decide how to respond to the given request features.
     ///
     /// Flow: match scenario → advance session turn → build decision.
+    ///
+    /// When no scenario matches and no fallback is declared, returns
+    /// an HTTP 500 error (all behavior comes from scenarios — no implicit
+    /// placeholder responses).
     pub fn decide(&mut self, features: &RequestFeatures) -> DecisionOutcome {
         self.maybe_cleanup();
 
         let matched_idx = match self.matcher.match_request(features) {
             Some(idx) => idx,
-            None => return Self::placeholder_decision(features),
+            None => {
+                return DecisionOutcome::Error(HttpError {
+                    status: 500,
+                    message: "no scenario matched and no fallback declared".to_string(),
+                    retry_after: None,
+                });
+            }
         };
 
         let matched = self.matcher.get(matched_idx);
@@ -169,20 +179,8 @@ impl ScenarioEngine {
         turn_resp: &TurnResponse,
     ) -> DecisionOutcome {
         let shapes = turn_resp.response.to_shapes();
-        let response_blocks = Self::build_response_blocks(&shapes);
+        let blocks = Self::build_response_blocks(&shapes);
         let mut usage = Self::extract_usage(&shapes);
-        let blocks = if response_blocks.is_empty() {
-            vec![ResponseBlock {
-                block_type: "text".to_string(),
-                content: Some("placeholder".to_string()),
-                tool_name: None,
-                tool_arguments: None,
-                reasoning: None,
-                signature: None,
-            }]
-        } else {
-            response_blocks
-        };
         // KV cache simulation: compute cache fields and merge.
         // Explicit injection takes priority over auto.
         let explicit_hit = usage.as_ref().and_then(|u| u.cache_hit_tokens);
@@ -207,29 +205,6 @@ impl ScenarioEngine {
             segment_delay: turn_resp.segment_delay,
             stream_interrupt_after: turn_resp.stream_interrupt_after,
             usage,
-        })
-    }
-
-    /// Placeholder decision when no scenario matches.
-    fn placeholder_decision(features: &RequestFeatures) -> DecisionOutcome {
-        DecisionOutcome::Decision(ScenarioDecision {
-            model: features.model.clone(),
-            scenario: "default".to_string(),
-            stream: features.stream,
-            response_blocks: vec![ResponseBlock {
-                block_type: "text".to_string(),
-                content: Some("placeholder".to_string()),
-                tool_name: None,
-                tool_arguments: None,
-                reasoning: None,
-                signature: None,
-            }],
-            http_error: None,
-            delay: None,
-            first_token_delay: None,
-            segment_delay: None,
-            stream_interrupt_after: None,
-            usage: None,
         })
     }
 
@@ -300,8 +275,9 @@ impl ScenarioEngine {
                 ResponseShape::ToolCall(tc) => {
                     blocks.extend(Self::build_tool_call_blocks(tc));
                 }
-                ResponseShape::Usage(_) => blocks.push(Self::build_text_block("")),
-                _ => blocks.push(Self::build_text_block("placeholder")),
+                // Usage-only shapes produce no response blocks — only usage data.
+                ResponseShape::Usage(_) => {}
+                _ => blocks.push(Self::build_text_block("")),
             }
         }
         blocks

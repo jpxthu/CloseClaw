@@ -1,0 +1,15 @@
+{
+    "scenarios": [
+        {
+            "name": "default-fallback",
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "I'm a fake LLM server."
+                    }
+                }
+            ]
+        }
+    ]
+}

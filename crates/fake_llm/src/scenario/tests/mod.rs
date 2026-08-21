@@ -32,16 +32,16 @@ fn features(model: &str, msg: &str) -> RequestFeatures {
 }
 
 #[test]
-fn decide_fallback_when_no_match() {
+fn decide_no_match_no_fallback_returns_error() {
     let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let feat = features("gpt-4", "hello");
     let outcome = engine.decide(&feat);
     match outcome {
-        DecisionOutcome::Decision(d) => {
-            assert_eq!(d.scenario, "default");
-            assert_eq!(d.response_blocks.len(), 1);
+        DecisionOutcome::Decision(_) => panic!("expected error, got decision"),
+        DecisionOutcome::Error(e) => {
+            assert_eq!(e.status, 500);
+            assert!(e.message.contains("no fallback declared"));
         }
-        DecisionOutcome::Error(_) => panic!("expected decision, got error"),
     }
 }
 
@@ -157,6 +157,8 @@ fn decide_captures_usage() {
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
+            // Usage-only shape produces empty response blocks
+            assert!(d.response_blocks.is_empty());
             let u = d.usage.unwrap();
             assert_eq!(u.prompt_tokens, Some(10));
             assert_eq!(u.completion_tokens, Some(20));
@@ -507,19 +509,20 @@ fn decide_fixture_cache_fields_missing() {
 }
 
 #[test]
-fn decide_unknown_model_returns_default() {
+fn decide_unknown_model_returns_error_when_no_fallback() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
-    // No fixture matches model "unknown-model" -> default placeholder
+    // No fixture matches model "unknown-model" and no fallback declared.
+    // Zero hits with no fallback → error.
     let feat = features_with_model("unknown-model", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
-        DecisionOutcome::Decision(d) => {
-            assert_eq!(d.scenario, "default");
-            assert_eq!(d.response_blocks[0].content.as_deref(), Some("placeholder"));
+        DecisionOutcome::Decision(_) => panic!("expected error, got decision"),
+        DecisionOutcome::Error(e) => {
+            assert_eq!(e.status, 500);
+            assert!(e.message.contains("no fallback declared"));
         }
-        DecisionOutcome::Error(_) => panic!("expected decision"),
     }
 }
 

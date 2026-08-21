@@ -114,12 +114,11 @@ fn build_response_blocks_text_shape() {
 }
 
 #[test]
-fn build_response_blocks_usage_shape_produces_empty_text() {
+fn build_response_blocks_usage_shape_produces_no_blocks() {
     let shape = ResponseShape::Usage(UsageResponse::default());
     let blocks = ScenarioEngine::build_response_blocks(&[shape]);
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].block_type, "text");
-    assert_eq!(blocks[0].content.as_deref(), Some(""));
+    // Usage-only shapes produce no response blocks — only usage data.
+    assert!(blocks.is_empty());
 }
 
 #[test]
@@ -480,8 +479,8 @@ fn decide_composite_turn_with_usage() {
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
-            // Text produces 1 block, Usage produces 1 empty text block
-            assert_eq!(d.response_blocks.len(), 2);
+            // Text produces 1 block, Usage produces no blocks
+            assert_eq!(d.response_blocks.len(), 1);
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("ok"));
             let u = d.usage.unwrap();
             assert_eq!(u.prompt_tokens, Some(10));
