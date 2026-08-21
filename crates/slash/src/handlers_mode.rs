@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
 use closeclaw_common::{PlanPhase, PlanState};
+use closeclaw_execution::PlanPath;
 use closeclaw_session::plan_file;
 use tracing;
 

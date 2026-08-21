@@ -6,7 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use closeclaw_common::{ExecutionStep, ExecutionStepStatus, PlanPath, TransitionError};
+use closeclaw_common::{ExecutionStep, ExecutionStepStatus, TransitionError};
+
+use crate::PlanPath;
 
 /// Execution state — runtime state for plan step execution.
 ///

@@ -8,9 +8,9 @@ use crate::handler::SlashHandler;
 use crate::handlers_mode::{
     parse_plan_path_arg, AutoModeHandler, ExecuteHandler, ModeHandler, PlanModeHandler,
 };
-use closeclaw_common::plan_state::PlanPath;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
+use closeclaw_execution::PlanPath;
 use closeclaw_gateway::session_manager::SessionManager;
 
 // ── Helpers ────────────────────────────────────────────────────────────────

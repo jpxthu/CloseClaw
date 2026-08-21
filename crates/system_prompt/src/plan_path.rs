@@ -4,7 +4,7 @@
 //! requirements) or the Interview path (ambiguous requirements) based
 //! on heuristic signals in the user input text.
 
-use closeclaw_common::PlanPath;
+use closeclaw_execution::PlanPath;
 
 /// Analyze user input to determine the appropriate Plan Mode path.
 ///

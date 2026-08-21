@@ -8,7 +8,8 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use closeclaw_common::{PlanPath, SessionMode};
+use closeclaw_common::SessionMode;
+use closeclaw_execution::PlanPath;
 
 mod mode_prompts;
 

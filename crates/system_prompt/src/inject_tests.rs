@@ -8,7 +8,8 @@
 //! - Ordering: ChannelContext → WorkingDirectory → ModeInstruction → GitStatus
 
 use super::inject::{build_dynamic_sections, DynamicSectionsParams};
-use closeclaw_common::{PlanPath, SessionMode};
+use closeclaw_common::SessionMode;
+use closeclaw_execution::PlanPath;
 use closeclaw_gateway::session_handler::MessageMetadata;
 use std::collections::HashSet;
 

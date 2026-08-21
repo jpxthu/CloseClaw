@@ -5,7 +5,9 @@ use crate::execution_state::{
     step_status_to_marker, validate_transition, DefaultPlanStateWriter, ExecutionState,
     PlanStateWriter,
 };
-use crate::{ExecutionError, ExecutionEvent, ExecutionStep, ExecutionStepStatus, TransitionError};
+use crate::{
+    ExecutionError, ExecutionEvent, ExecutionStep, ExecutionStepStatus, PlanPath, TransitionError,
+};
 
 // --- init_execution_steps ---
 
@@ -657,10 +659,7 @@ fn test_execution_state_deserialize_with_extra_fields() {
         ExecutionStepStatus::Completed
     );
     assert_eq!(state.current_step, Some(1));
-    assert_eq!(
-        state.explicit_path,
-        Some(closeclaw_common::PlanPath::Standard)
-    );
+    assert_eq!(state.explicit_path, Some(PlanPath::Standard));
 }
 
 /// Deserializing an empty JSON object should produce a default ExecutionState.
@@ -747,26 +746,20 @@ fn test_execution_state_explicit_path_none_default() {
 #[test]
 fn test_execution_state_explicit_path_standard_roundtrip() {
     let mut state = ExecutionState::new();
-    state.explicit_path = Some(closeclaw_common::PlanPath::Standard);
+    state.explicit_path = Some(PlanPath::Standard);
     let json = serde_json::to_string(&state).unwrap();
     let restored: ExecutionState = serde_json::from_str(&json).unwrap();
-    assert_eq!(
-        restored.explicit_path,
-        Some(closeclaw_common::PlanPath::Standard)
-    );
+    assert_eq!(restored.explicit_path, Some(PlanPath::Standard));
 }
 
 /// explicit_path roundtrip: Interview.
 #[test]
 fn test_execution_state_explicit_path_interview_roundtrip() {
     let mut state = ExecutionState::new();
-    state.explicit_path = Some(closeclaw_common::PlanPath::Interview);
+    state.explicit_path = Some(PlanPath::Interview);
     let json = serde_json::to_string(&state).unwrap();
     let restored: ExecutionState = serde_json::from_str(&json).unwrap();
-    assert_eq!(
-        restored.explicit_path,
-        Some(closeclaw_common::PlanPath::Interview)
-    );
+    assert_eq!(restored.explicit_path, Some(PlanPath::Interview));
 }
 
 /// explicit_path deserialization from old PlanState checkpoint format.
@@ -776,21 +769,15 @@ fn test_execution_state_explicit_path_from_old_plan_state_checkpoint() {
     // Verify deserialization from old-format JSON works.
     let json = r#"{"explicit_path": "standard"}"#;
     let state: ExecutionState = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        state.explicit_path,
-        Some(closeclaw_common::PlanPath::Standard)
-    );
+    assert_eq!(state.explicit_path, Some(PlanPath::Standard));
 }
 
 /// explicit_path deserialization with old snake_case string values.
 #[test]
 fn test_execution_state_explicit_path_snake_case_values() {
     for (input, expected) in [
-        (r#""standard""#, Some(closeclaw_common::PlanPath::Standard)),
-        (
-            r#""interview""#,
-            Some(closeclaw_common::PlanPath::Interview),
-        ),
+        (r#""standard""#, Some(PlanPath::Standard)),
+        (r#""interview""#, Some(PlanPath::Interview)),
     ] {
         let json = format!(r#"{{"explicit_path": {}}}"#, input);
         let state: ExecutionState = serde_json::from_str(&json).unwrap();
@@ -976,10 +963,7 @@ fn test_execution_state_old_checkpoint_with_both_fields() {
         "step_selection": [2, 4]
     }"#;
     let state: ExecutionState = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        state.explicit_path,
-        Some(closeclaw_common::PlanPath::Interview)
-    );
+    assert_eq!(state.explicit_path, Some(PlanPath::Interview));
     assert_eq!(state.step_selection, Some(vec![2, 4]));
 }
 
