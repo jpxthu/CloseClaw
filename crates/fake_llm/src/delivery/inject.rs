@@ -361,6 +361,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: Some(default_usage()),
         };
         let config = DeliveryConfig {
@@ -391,6 +392,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: Some(default_usage()),
         };
         let config = DeliveryConfig {
@@ -425,6 +427,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -454,6 +457,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -491,6 +495,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -526,6 +531,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -563,6 +569,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -601,6 +608,7 @@ mod tests {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         };
         let config = DeliveryConfig {

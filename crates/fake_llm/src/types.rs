@@ -135,6 +135,10 @@ pub struct ScenarioDecision {
     /// stops after sending this many events (0 = first event then disconnect).
     #[serde(default)]
     pub stream_interrupt_after: Option<usize>,
+    /// Optional segment granularity declared by a streaming shape.
+    /// When set, the endpoint uses this value instead of the default.
+    #[serde(default)]
+    pub segment_granularity: Option<usize>,
     /// Optional token usage report.
     #[serde(default)]
     pub usage: Option<UsageResponse>,
@@ -152,6 +156,7 @@ impl Default for ScenarioDecision {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         }
     }
