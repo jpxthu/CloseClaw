@@ -450,6 +450,40 @@ fn decide_fixture_usage_response() {
 }
 
 #[test]
+fn decide_fixture_cache_fields_missing() {
+    let dir = fixture_scenarios_dir();
+    let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
+
+    // cache-fields-missing.json: no-cache-fields-vendor with model "vendor-no-cache"
+    let feat = features_with_model("vendor-no-cache", "hi");
+    let outcome = engine.decide(&feat);
+    match outcome {
+        DecisionOutcome::Decision(d) => {
+            assert_eq!(d.scenario, "no-cache-fields-vendor");
+            let u = d.usage.unwrap();
+            // cache_fields_missing=true => auto-simulated cache fields not filled
+            assert!(
+                u.cache_hit_tokens.is_none(),
+                "cache_hit_tokens must be None"
+            );
+            assert!(
+                u.cache_write_tokens.is_none(),
+                "cache_write_tokens must be None"
+            );
+            // Basic usage fields are still present
+            assert_eq!(u.prompt_tokens, Some(100));
+            assert_eq!(u.completion_tokens, Some(50));
+            // Content is correct
+            assert_eq!(
+                d.response_blocks[0].content.as_deref(),
+                Some("Response from a vendor that does not return cache fields.")
+            );
+        }
+        DecisionOutcome::Error(_) => panic!("expected decision"),
+    }
+}
+
+#[test]
 fn decide_unknown_model_returns_default() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
