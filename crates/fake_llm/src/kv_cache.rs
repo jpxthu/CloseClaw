@@ -67,6 +67,8 @@ pub struct CacheResult {
     pub cache_write_tokens: Option<u32>,
     /// Current cache state after this request.
     pub state: CacheState,
+    /// Whether this result represents a cache break (prefix changed).
+    pub is_break: bool,
 }
 
 /// KV cache prefix simulation state machine.
@@ -77,6 +79,10 @@ pub struct KvCacheSimulator {
     last_fingerprint: Option<u64>,
     last_timestamp: Option<Instant>,
     ttl: Duration,
+    /// Previous request's prefix messages (for common-prefix computation).
+    old_prefix_messages: Vec<MessageEntry>,
+    /// Previous request's prefix tools (for common-prefix computation).
+    old_prefix_tools: Vec<String>,
 }
 
 impl Default for KvCacheSimulator {
@@ -92,6 +98,8 @@ impl KvCacheSimulator {
             last_fingerprint: None,
             last_timestamp: None,
             ttl: Duration::from_secs(DEFAULT_TTL_SECS),
+            old_prefix_messages: Vec::new(),
+            old_prefix_tools: Vec::new(),
         }
     }
 
@@ -102,6 +110,8 @@ impl KvCacheSimulator {
             last_fingerprint: None,
             last_timestamp: None,
             ttl,
+            old_prefix_messages: Vec::new(),
+            old_prefix_tools: Vec::new(),
         }
     }
 
@@ -142,6 +152,77 @@ impl KvCacheSimulator {
         }
 
         hasher.finish()
+    }
+
+    /// Compute the number of tokens in the common prefix of two sets of
+    /// prefix components (system prompt + tools + messages).
+    ///
+    /// Compares element-by-element: system prompt first, then sorted tools,
+    /// then prefix messages. Stops at the first mismatch and returns the
+    /// cumulative token count of the matching portion.
+    fn common_prefix_tokens(
+        old_msgs: &[MessageEntry],
+        old_tools: &[String],
+        new_msgs: &[MessageEntry],
+        new_tools: &[String],
+    ) -> u32 {
+        let mut char_count = 0usize;
+
+        // Compare system prompts.
+        let old_has_sys = old_msgs.first().is_some_and(|m| m.role == "system");
+        let new_has_sys = new_msgs.first().is_some_and(|m| m.role == "system");
+        if old_has_sys && new_has_sys {
+            if old_msgs[0].content != new_msgs[0].content {
+                return 0;
+            }
+            char_count += old_msgs[0].content.len();
+        } else if old_has_sys != new_has_sys {
+            return 0;
+        }
+
+        // Compare sorted tools.
+        let mut old_sorted = old_tools.to_vec();
+        old_sorted.sort();
+        let mut new_sorted = new_tools.to_vec();
+        new_sorted.sort();
+        let tool_count = old_sorted.len().min(new_sorted.len());
+        for i in 0..tool_count {
+            if old_sorted[i] != new_sorted[i] {
+                return Self::tokens_from_chars(char_count);
+            }
+            char_count += old_sorted[i].len();
+        }
+        if old_sorted.len() != new_sorted.len() {
+            return Self::tokens_from_chars(char_count);
+        }
+
+        // Compare prefix messages (all except the last message in each).
+        let old_sys_offset = if old_has_sys { 1 } else { 0 };
+        let new_sys_offset = if new_has_sys { 1 } else { 0 };
+        let old_prefix_end = old_msgs.len().saturating_sub(1);
+        let new_prefix_end = new_msgs.len().saturating_sub(1);
+        let old_non_sys = &old_msgs[old_sys_offset..old_prefix_end];
+        let new_non_sys = &new_msgs[new_sys_offset..new_prefix_end];
+        let msg_count = old_non_sys.len().min(new_non_sys.len());
+        for i in 0..msg_count {
+            if old_non_sys[i].role != new_non_sys[i].role
+                || old_non_sys[i].content != new_non_sys[i].content
+            {
+                return Self::tokens_from_chars(char_count);
+            }
+            char_count += old_non_sys[i].content.len();
+        }
+
+        Self::tokens_from_chars(char_count)
+    }
+
+    /// Convert character count to approximate token count.
+    fn tokens_from_chars(char_count: usize) -> u32 {
+        if char_count == 0 {
+            0
+        } else {
+            ((char_count / 4) as u32).max(1)
+        }
     }
 
     /// Estimate token count from prefix content (deterministic, approximate).
@@ -209,16 +290,17 @@ impl KvCacheSimulator {
                 cache_hit_tokens: explicit_hit,
                 cache_write_tokens: explicit_write,
                 state,
+                is_break: false,
             };
         }
 
         // Auto simulation — state machine logic.
         let prefix_tokens = Self::estimate_prefix_tokens(messages, tools);
 
-        let (hit_tokens, write_tokens, new_state) = match &self.last_fingerprint {
+        let (hit_tokens, write_tokens, new_state, is_break) = match &self.last_fingerprint {
             None => {
                 // State: Empty → Writing
-                (0, prefix_tokens, CacheState::Writing)
+                (0, prefix_tokens, CacheState::Writing, false)
             }
             Some(last_fp) => {
                 if *last_fp == fingerprint {
@@ -230,14 +312,22 @@ impl KvCacheSimulator {
 
                     if expired {
                         // State: Hit → Expired → Writing (rewrite)
-                        (0, prefix_tokens, CacheState::Writing)
+                        (0, prefix_tokens, CacheState::Writing, false)
                     } else {
                         // State: Hit → Hit (cache hit)
-                        (prefix_tokens, 0, CacheState::Hit)
+                        (prefix_tokens, 0, CacheState::Hit, false)
                     }
                 } else {
-                    // Prefix changed — State: Break → Writing
-                    (0, prefix_tokens, CacheState::Writing)
+                    // Prefix changed — Break: compute residual hit from
+                    // common prefix, remaining as write tokens.
+                    let residual = Self::common_prefix_tokens(
+                        &self.old_prefix_messages,
+                        &self.old_prefix_tools,
+                        messages,
+                        tools,
+                    );
+                    let write = prefix_tokens.saturating_sub(residual);
+                    (residual, write, CacheState::Writing, true)
                 }
             }
         };
@@ -245,6 +335,8 @@ impl KvCacheSimulator {
         // Record state for next request.
         self.last_fingerprint = Some(fingerprint);
         self.last_timestamp = Some(Instant::now());
+        self.old_prefix_messages = messages.to_vec();
+        self.old_prefix_tools = tools.to_vec();
 
         CacheResult {
             cache_hit_tokens: if hit_tokens > 0 {
@@ -258,6 +350,7 @@ impl KvCacheSimulator {
                 None
             },
             state: new_state,
+            is_break,
         }
     }
 }
