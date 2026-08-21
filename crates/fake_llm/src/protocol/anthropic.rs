@@ -150,6 +150,8 @@ enum ContentBlock {
 struct Usage {
     input_tokens: u32,
     output_tokens: u32,
+    cache_read_input_tokens: u32,
+    cache_creation_input_tokens: u32,
 }
 
 /// Build a placeholder Anthropic message response for the given model.
@@ -167,6 +169,8 @@ pub fn build_message_response(model: &str) -> MessageResponse {
         usage: Usage {
             input_tokens: 0,
             output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
         },
     }
 }
@@ -238,10 +242,14 @@ pub fn build_message_response_from_decision(decision: &ScenarioDecision) -> Mess
         || Usage {
             input_tokens: 0,
             output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
         },
         |u| Usage {
             input_tokens: u.prompt_tokens.unwrap_or(0),
             output_tokens: u.completion_tokens.unwrap_or(0),
+            cache_read_input_tokens: u.cache_hit_tokens.unwrap_or(0),
+            cache_creation_input_tokens: u.cache_write_tokens.unwrap_or(0),
         },
     );
 
@@ -533,5 +541,101 @@ mod tests {
         assert_eq!(content.len(), 1);
         assert_eq!(content[0]["type"], "text");
         assert_eq!(content[0]["text"], "placeholder");
+    }
+
+    #[test]
+    fn response_cache_fields_with_values() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "claude-3".to_string(),
+            scenario: "cache-test".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("cached response".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: None,
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: Some(crate::scenario::types::UsageResponse {
+                prompt_tokens: Some(100),
+                completion_tokens: Some(50),
+                reasoning_tokens: None,
+                cache_hit_tokens: Some(80),
+                cache_write_tokens: Some(20),
+            }),
+        };
+
+        let resp = build_message_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(json["usage"]["cache_read_input_tokens"], 80);
+        assert_eq!(json["usage"]["cache_creation_input_tokens"], 20);
+    }
+
+    #[test]
+    fn response_cache_fields_default_zero() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "claude-3".to_string(),
+            scenario: "no-cache".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("no cache".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: None,
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: Some(crate::scenario::types::UsageResponse {
+                prompt_tokens: Some(100),
+                completion_tokens: Some(50),
+                reasoning_tokens: None,
+                cache_hit_tokens: None,
+                cache_write_tokens: None,
+            }),
+        };
+
+        let resp = build_message_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(json["usage"]["cache_read_input_tokens"], 0);
+        assert_eq!(json["usage"]["cache_creation_input_tokens"], 0);
+    }
+
+    #[test]
+    fn response_cache_fields_no_usage() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "claude-3".to_string(),
+            scenario: "no-usage".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("text".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: None,
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: None,
+        };
+
+        let resp = build_message_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(json["usage"]["cache_read_input_tokens"], 0);
+        assert_eq!(json["usage"]["cache_creation_input_tokens"], 0);
     }
 }
