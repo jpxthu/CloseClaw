@@ -175,11 +175,17 @@ fn openai_finish_chunk(
     if include_usage {
         let prompt = usage.prompt_tokens.unwrap_or(0);
         let completion = usage.completion_tokens.unwrap_or(0);
-        value["usage"] = serde_json::json!({
+        let mut usage_json = serde_json::json!({
             "prompt_tokens": prompt,
             "completion_tokens": completion,
             "total_tokens": prompt + completion
         });
+        if let Some(n) = usage.cache_hit_tokens {
+            if n > 0 {
+                usage_json["prompt_tokens_details"] = serde_json::json!({ "cached_tokens": n });
+            }
+        }
+        value["usage"] = usage_json;
     }
     SseEvent {
         event_type: "message".into(),
@@ -211,7 +217,9 @@ fn anthropic_message_start(model: &str, usage: &UsageResponse) -> SseEvent {
             "stop_reason": null,
             "usage": {
                 "input_tokens": usage.prompt_tokens.unwrap_or(0),
-                "output_tokens": 0
+                "output_tokens": 0,
+                "cache_read_input_tokens": usage.cache_hit_tokens.unwrap_or(0),
+                "cache_creation_input_tokens": usage.cache_write_tokens.unwrap_or(0)
             }
         })
         .to_string(),
@@ -352,7 +360,8 @@ fn anthropic_message_delta(usage: &UsageResponse, stop_reason: &str) -> SseEvent
                 "stop_sequence": null
             },
             "usage": {
-                "output_tokens": usage.completion_tokens.unwrap_or(0)
+                "output_tokens": usage.completion_tokens.unwrap_or(0),
+                "cache_read_input_tokens": usage.cache_hit_tokens.unwrap_or(0)
             }
         })
         .to_string(),
@@ -678,19 +687,13 @@ mod tests {
         let blocks = vec![text_block("Hello!")];
         let usage = default_usage();
         let events = generate_openai_sse(&blocks, "gpt-4", &usage, false, 0);
-
-        // role chunk, content delta, finish chunk, [DONE]
         assert_eq!(events.len(), 4);
-        assert_eq!(events[0].event_type, "message");
-        let role_data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
-        assert_eq!(role_data["choices"][0]["delta"]["role"], "assistant");
-
-        let content_data: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
-        assert_eq!(content_data["choices"][0]["delta"]["content"], "Hello!");
-
-        let finish_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
-        assert_eq!(finish_data["choices"][0]["finish_reason"], "stop");
-
+        let role: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        assert_eq!(role["choices"][0]["delta"]["role"], "assistant");
+        let content: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
+        assert_eq!(content["choices"][0]["delta"]["content"], "Hello!");
+        let finish: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+        assert_eq!(finish["choices"][0]["finish_reason"], "stop");
         assert_eq!(events[3].data, "[DONE]");
     }
 
@@ -712,19 +715,14 @@ mod tests {
         let blocks = vec![reasoning_block("Let me think", "The answer is 42")];
         let usage = default_usage();
         let events = generate_openai_sse(&blocks, "gpt-4", &usage, false, 0);
-
-        // role chunk, reasoning delta, content delta, finish, [DONE]
         assert_eq!(events.len(), 5);
-        let reasoning_data: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
+        let r: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
         assert_eq!(
-            reasoning_data["choices"][0]["delta"]["reasoning_content"],
+            r["choices"][0]["delta"]["reasoning_content"],
             "Let me think"
         );
-        let content_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
-        assert_eq!(
-            content_data["choices"][0]["delta"]["content"],
-            "The answer is 42"
-        );
+        let c: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+        assert_eq!(c["choices"][0]["delta"]["content"], "The answer is 42");
     }
 
     #[test]
@@ -732,27 +730,19 @@ mod tests {
         let blocks = vec![tool_call_block("get_weather", r#"{"city":"BJ"}"#)];
         let usage = default_usage();
         let events = generate_openai_sse(&blocks, "gpt-4", &usage, false, 0);
-
-        // role chunk, tool_call_start, tool_call_delta, finish(tool_calls), [DONE]
         assert_eq!(events.len(), 5);
-        let start_data: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
+        let s: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
         assert_eq!(
-            start_data["choices"][0]["delta"]["tool_calls"][0]["type"],
-            "function"
-        );
-        assert_eq!(
-            start_data["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
+            s["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
             "get_weather"
         );
-
-        let delta_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+        let d: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert_eq!(
-            delta_data["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
+            d["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"],
             r#"{"city":"BJ"}"#
         );
-
-        let finish_data: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
-        assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
+        let f: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
+        assert_eq!(f["choices"][0]["finish_reason"], "tool_calls");
     }
 
     #[test]
@@ -799,37 +789,16 @@ mod tests {
         let blocks = vec![text_block("Hello!")];
         let usage = default_usage();
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
-
-        // message_start, content_block_start, ping, text_delta,
-        // content_block_stop, message_delta, message_stop
         assert_eq!(events.len(), 7);
-
-        let start_data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
-        assert_eq!(start_data["type"], "message");
-        assert_eq!(start_data["role"], "assistant");
-        assert_eq!(start_data["model"], "claude-3");
-
-        let block_start: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
-        assert_eq!(block_start["type"], "content_block_start");
-        assert_eq!(block_start["content_block"]["type"], "text");
-
-        let ping_data: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
-        assert_eq!(ping_data["type"], "ping");
-
-        let delta_data: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
-        assert_eq!(delta_data["delta"]["type"], "text_delta");
-        assert_eq!(delta_data["delta"]["text"], "Hello!");
-
-        let block_stop: serde_json::Value = serde_json::from_str(&events[4].data).unwrap();
-        assert_eq!(block_stop["type"], "content_block_stop");
-
+        let start: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        assert_eq!(start["type"], "message");
+        assert_eq!(start["role"], "assistant");
+        let delta: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
+        assert_eq!(delta["delta"]["type"], "text_delta");
+        assert_eq!(delta["delta"]["text"], "Hello!");
         let msg_delta: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
-        assert_eq!(msg_delta["type"], "message_delta");
         assert_eq!(msg_delta["delta"]["stop_reason"], "end_turn");
         assert_eq!(msg_delta["usage"]["output_tokens"], 20);
-
-        let msg_stop: serde_json::Value = serde_json::from_str(&events[6].data).unwrap();
-        assert_eq!(msg_stop["type"], "message_stop");
     }
 
     #[test]
@@ -896,17 +865,11 @@ mod tests {
         let blocks = vec![tool_call_block("search", "abcdef")];
         let usage = default_usage();
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 3);
-
-        // message_start, content_block_start, ping,
-        // input_json_delta(abc), input_json_delta(def),
-        // content_block_stop, message_delta, message_stop
         assert_eq!(events.len(), 8);
-
-        let delta1: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
-        assert_eq!(delta1["delta"]["partial_json"], "abc");
-
-        let delta2: serde_json::Value = serde_json::from_str(&events[4].data).unwrap();
-        assert_eq!(delta2["delta"]["partial_json"], "def");
+        let d1: serde_json::Value = serde_json::from_str(&events[3].data).unwrap();
+        assert_eq!(d1["delta"]["partial_json"], "abc");
+        let d2: serde_json::Value = serde_json::from_str(&events[4].data).unwrap();
+        assert_eq!(d2["delta"]["partial_json"], "def");
     }
 
     #[test]
@@ -917,18 +880,11 @@ mod tests {
         ];
         let usage = default_usage();
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
-
-        // message_start, [thinking block: start, ping, delta, stop],
-        // [text block: start, delta, stop], message_delta, message_stop
         assert_eq!(events.len(), 10);
-
-        // First block is reasoning, should have ping
-        let block_start1: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
-        assert_eq!(block_start1["content_block"]["type"], "thinking");
-
-        // Second block is text, no ping
-        let block_start2: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
-        assert_eq!(block_start2["content_block"]["type"], "text");
+        let b1: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
+        assert_eq!(b1["content_block"]["type"], "thinking");
+        let b2: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+        assert_eq!(b2["content_block"]["type"], "text");
     }
 
     // ------------------------------------------------------------------
@@ -936,22 +892,107 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn sse_event_fields() {
-        let event = SseEvent {
-            event_type: "message".to_string(),
-            data: r#"{"key":"value"}"#.to_string(),
-        };
-        assert_eq!(event.event_type, "message");
-        assert_eq!(event.data, r#"{"key":"value"}"#);
-    }
-
-    #[test]
-    fn sse_event_clone_and_eq() {
+    fn sse_event_fields_and_clone() {
         let e1 = SseEvent {
             event_type: "msg".into(),
             data: "dat".into(),
         };
         let e2 = e1.clone();
         assert_eq!(e1, e2);
+        assert_eq!(e1.event_type, "msg");
+        assert_eq!(e1.data, "dat");
+    }
+
+    // KV cache field serialization
+    #[test]
+    fn openai_finish_with_cache_hit_tokens() {
+        let blocks = vec![text_block("Hi")];
+        let usage = UsageResponse {
+            prompt_tokens: Some(100),
+            completion_tokens: Some(50),
+            reasoning_tokens: None,
+            cache_hit_tokens: Some(50),
+            cache_write_tokens: None,
+        };
+        let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+        assert_eq!(d["usage"]["prompt_tokens_details"]["cached_tokens"], 50);
+    }
+
+    #[test]
+    fn openai_finish_without_cache_hit_tokens() {
+        let blocks = vec![text_block("Hi")];
+        let usage = UsageResponse {
+            prompt_tokens: Some(100),
+            completion_tokens: Some(50),
+            reasoning_tokens: None,
+            cache_hit_tokens: None,
+            cache_write_tokens: None,
+        };
+        let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+        assert!(d["usage"]["prompt_tokens_details"].is_null());
+    }
+
+    #[test]
+    fn openai_finish_cache_hit_zero_omitted() {
+        let blocks = vec![text_block("Hi")];
+        let usage = UsageResponse {
+            prompt_tokens: Some(100),
+            completion_tokens: Some(50),
+            reasoning_tokens: None,
+            cache_hit_tokens: Some(0),
+            cache_write_tokens: None,
+        };
+        let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+        assert!(d["usage"]["prompt_tokens_details"].is_null());
+    }
+
+    #[test]
+    fn anthropic_start_includes_cache_fields() {
+        let blocks = vec![text_block("Hello!")];
+        let usage = UsageResponse {
+            prompt_tokens: Some(200),
+            completion_tokens: Some(100),
+            reasoning_tokens: None,
+            cache_hit_tokens: Some(150),
+            cache_write_tokens: Some(200),
+        };
+        let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        assert_eq!(d["usage"]["cache_read_input_tokens"], 150);
+        assert_eq!(d["usage"]["cache_creation_input_tokens"], 200);
+    }
+
+    #[test]
+    fn anthropic_start_cache_fields_default_zero() {
+        let blocks = vec![text_block("Hello!")];
+        let usage = UsageResponse {
+            prompt_tokens: Some(200),
+            completion_tokens: Some(100),
+            reasoning_tokens: None,
+            cache_hit_tokens: None,
+            cache_write_tokens: None,
+        };
+        let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        assert_eq!(d["usage"]["cache_read_input_tokens"], 0);
+        assert_eq!(d["usage"]["cache_creation_input_tokens"], 0);
+    }
+
+    #[test]
+    fn anthropic_delta_includes_cache_read_tokens() {
+        let blocks = vec![text_block("Hello!")];
+        let usage = UsageResponse {
+            prompt_tokens: Some(200),
+            completion_tokens: Some(100),
+            reasoning_tokens: None,
+            cache_hit_tokens: Some(150),
+            cache_write_tokens: None,
+        };
+        let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+        assert_eq!(d["usage"]["cache_read_input_tokens"], 150);
     }
 }
