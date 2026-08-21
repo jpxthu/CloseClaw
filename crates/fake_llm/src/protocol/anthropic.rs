@@ -567,6 +567,7 @@ mod tests {
                 reasoning_tokens: None,
                 cache_hit_tokens: Some(80),
                 cache_write_tokens: Some(20),
+                cache_fields_missing: false,
             }),
         };
 
@@ -601,6 +602,7 @@ mod tests {
                 reasoning_tokens: None,
                 cache_hit_tokens: None,
                 cache_write_tokens: None,
+                cache_fields_missing: false,
             }),
         };
 

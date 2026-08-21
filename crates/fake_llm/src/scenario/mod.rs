@@ -457,9 +457,7 @@ mod tests {
                 response: ResponseShape::Usage(UsageResponse {
                     prompt_tokens: Some(10),
                     completion_tokens: Some(20),
-                    reasoning_tokens: None,
-                    cache_hit_tokens: None,
-                    cache_write_tokens: None,
+                    ..Default::default()
                 }),
                 delay: None,
                 error: None,

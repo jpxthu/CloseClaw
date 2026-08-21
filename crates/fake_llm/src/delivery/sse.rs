@@ -635,6 +635,23 @@ mod tests {
             reasoning_tokens: None,
             cache_hit_tokens: None,
             cache_write_tokens: None,
+            cache_fields_missing: false,
+        }
+    }
+
+    fn usage_with(
+        prompt: Option<u32>,
+        completion: Option<u32>,
+        cache_hit: Option<u32>,
+        cache_write: Option<u32>,
+    ) -> UsageResponse {
+        UsageResponse {
+            prompt_tokens: prompt,
+            completion_tokens: completion,
+            reasoning_tokens: None,
+            cache_hit_tokens: cache_hit,
+            cache_write_tokens: cache_write,
+            cache_fields_missing: false,
         }
     }
 
@@ -907,13 +924,7 @@ mod tests {
     #[test]
     fn openai_finish_with_cache_hit_tokens() {
         let blocks = vec![text_block("Hi")];
-        let usage = UsageResponse {
-            prompt_tokens: Some(100),
-            completion_tokens: Some(50),
-            reasoning_tokens: None,
-            cache_hit_tokens: Some(50),
-            cache_write_tokens: None,
-        };
+        let usage = usage_with(Some(100), Some(50), Some(50), None);
         let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
         let d: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert_eq!(d["usage"]["prompt_tokens_details"]["cached_tokens"], 50);
@@ -922,13 +933,7 @@ mod tests {
     #[test]
     fn openai_finish_without_cache_hit_tokens() {
         let blocks = vec![text_block("Hi")];
-        let usage = UsageResponse {
-            prompt_tokens: Some(100),
-            completion_tokens: Some(50),
-            reasoning_tokens: None,
-            cache_hit_tokens: None,
-            cache_write_tokens: None,
-        };
+        let usage = usage_with(Some(100), Some(50), None, None);
         let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
         let d: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert!(d["usage"]["prompt_tokens_details"].is_null());
@@ -937,13 +942,7 @@ mod tests {
     #[test]
     fn openai_finish_cache_hit_zero_omitted() {
         let blocks = vec![text_block("Hi")];
-        let usage = UsageResponse {
-            prompt_tokens: Some(100),
-            completion_tokens: Some(50),
-            reasoning_tokens: None,
-            cache_hit_tokens: Some(0),
-            cache_write_tokens: None,
-        };
+        let usage = usage_with(Some(100), Some(50), Some(0), None);
         let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
         let d: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
         assert!(d["usage"]["prompt_tokens_details"].is_null());
@@ -952,13 +951,7 @@ mod tests {
     #[test]
     fn anthropic_start_includes_cache_fields() {
         let blocks = vec![text_block("Hello!")];
-        let usage = UsageResponse {
-            prompt_tokens: Some(200),
-            completion_tokens: Some(100),
-            reasoning_tokens: None,
-            cache_hit_tokens: Some(150),
-            cache_write_tokens: Some(200),
-        };
+        let usage = usage_with(Some(200), Some(100), Some(150), Some(200));
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
         let d: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
         assert_eq!(d["usage"]["cache_read_input_tokens"], 150);
@@ -968,13 +961,7 @@ mod tests {
     #[test]
     fn anthropic_start_cache_fields_default_zero() {
         let blocks = vec![text_block("Hello!")];
-        let usage = UsageResponse {
-            prompt_tokens: Some(200),
-            completion_tokens: Some(100),
-            reasoning_tokens: None,
-            cache_hit_tokens: None,
-            cache_write_tokens: None,
-        };
+        let usage = usage_with(Some(200), Some(100), None, None);
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
         let d: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
         assert_eq!(d["usage"]["cache_read_input_tokens"], 0);
@@ -984,13 +971,7 @@ mod tests {
     #[test]
     fn anthropic_delta_includes_cache_read_tokens() {
         let blocks = vec![text_block("Hello!")];
-        let usage = UsageResponse {
-            prompt_tokens: Some(200),
-            completion_tokens: Some(100),
-            reasoning_tokens: None,
-            cache_hit_tokens: Some(150),
-            cache_write_tokens: None,
-        };
+        let usage = usage_with(Some(200), Some(100), Some(150), None);
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
         let d: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
         assert_eq!(d["usage"]["cache_read_input_tokens"], 150);

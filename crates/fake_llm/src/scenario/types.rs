@@ -218,6 +218,11 @@ pub struct UsageResponse {
     /// Cache write tokens.
     #[serde(default)]
     pub cache_write_tokens: Option<u32>,
+    /// When true, this provider does not return cache fields in
+    /// responses. Auto-simulation is skipped (but the state machine
+    /// still tracks prefix fingerprints internally).
+    #[serde(default)]
+    pub cache_fields_missing: bool,
 }
 
 // ---------------------------------------------------------------------------
