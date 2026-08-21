@@ -19,7 +19,7 @@
 use crate::delivery::sse::{generate_anthropic_sse, generate_openai_sse};
 use crate::fixture_loader::{fixture_root, load_streaming_fixture, load_streaming_meta};
 use crate::scenario::types::*;
-use crate::types::RequestFeatures;
+use crate::types::{ProtocolKind, RequestFeatures};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -114,6 +114,11 @@ fn request_features_from_meta(meta: &serde_json::Value, is_anthropic: bool) -> R
         temperature: None,
         messages,
         tools,
+        protocol: if is_anthropic {
+            ProtocolKind::Anthropic
+        } else {
+            ProtocolKind::OpenAi
+        },
     }
 }
 

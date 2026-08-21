@@ -8,6 +8,33 @@ use serde::{Deserialize, Serialize};
 use crate::scenario::types::{HttpError, MessageEntry, ResponseBlock, UsageResponse};
 
 // ---------------------------------------------------------------------------
+// Protocol kind
+// ---------------------------------------------------------------------------
+
+/// Protocol variant that a request was parsed from.
+///
+/// Defined here in the protocol-agnostic layer to avoid a reverse
+/// dependency from `scenario` → `delivery`. The delivery layer's
+/// `Protocol` concept is kept separate; this enum represents the
+/// *origin* protocol of a request for matching purposes only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ProtocolKind {
+    #[default]
+    OpenAi,
+    Anthropic,
+}
+
+impl std::fmt::Display for ProtocolKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProtocolKind::OpenAi => write!(f, "openai"),
+            ProtocolKind::Anthropic => write!(f, "anthropic"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Shared extraction helpers
 // ---------------------------------------------------------------------------
 
@@ -65,6 +92,13 @@ pub struct RequestFeatures {
     /// Tool names referenced in the request.
     #[serde(default)]
     pub tools: Vec<String>,
+    /// Protocol variant the request was parsed from.
+    ///
+    /// Used as a composite key alongside `model` in the matcher index
+    /// so that OpenAI and Anthropic scenarios for the same model are
+    /// matched independently.
+    #[serde(default)]
+    pub protocol: ProtocolKind,
 }
 
 /// Scenario engine decision for a matched request.

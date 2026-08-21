@@ -1,6 +1,7 @@
 //! Tests for structured turn overflow errors (Step 1.2).
 
 use super::*;
+use crate::types::ProtocolKind;
 
 #[test]
 fn decide_returns_error_on_turn_overflow() {
@@ -37,6 +38,7 @@ fn decide_returns_error_on_turn_overflow() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     match engine.decide(&feat2) {
         DecisionOutcome::Error(e) => {
@@ -83,6 +85,7 @@ fn decide_error_includes_scenario_name_and_turn_info() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     match engine.decide(&feat2) {
         DecisionOutcome::Error(e) => {
@@ -136,6 +139,7 @@ fn decide_for_models_returns_error_on_turn_overflow() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let _ = engine.decide(&feat);
 

@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------
 
 use super::*;
+use crate::types::ProtocolKind;
 
 #[test]
 fn build_response_blocks_reasoning_shape() {
@@ -277,6 +278,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome2 = engine.decide(&feat2);
     match outcome2 {

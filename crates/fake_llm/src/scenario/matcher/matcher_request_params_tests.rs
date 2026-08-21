@@ -3,6 +3,7 @@
 use super::super::types::MessageEntry;
 use super::*;
 use crate::scenario::types::{MatchCondition, ResponseShape, TextResponse, TurnResponse};
+use crate::types::ProtocolKind;
 
 /// Helper to build `RequestFeatures` with stream/max_tokens/temperature.
 fn feat_with_params(
@@ -26,6 +27,7 @@ fn feat_with_params(
             })
             .collect(),
         tools: tools.into_iter().map(String::from).collect(),
+        protocol: ProtocolKind::OpenAi,
     }
 }
 

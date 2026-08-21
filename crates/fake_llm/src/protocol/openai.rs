@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::scenario::types::MessageEntry;
 use crate::types::{
-    extract_text_from_content, extract_tool_names, RequestFeatures, ScenarioDecision,
+    extract_text_from_content, extract_tool_names, ProtocolKind, RequestFeatures, ScenarioDecision,
 };
 
 // ---------------------------------------------------------------------------
@@ -114,6 +114,7 @@ pub fn extract_request_features(req: &ChatCompletionRequest) -> RequestFeatures 
         temperature: req.temperature,
         messages,
         tools,
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
@@ -407,6 +408,7 @@ mod tests {
         assert_eq!(features.temperature, Some(0.7));
         assert!(features.messages.is_empty());
         assert!(features.tools.is_empty());
+        assert_eq!(features.protocol, ProtocolKind::OpenAi);
     }
 
     #[test]

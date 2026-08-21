@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::scenario::session;
+use crate::types::ProtocolKind;
 
 /// After CLEANUP_INTERVAL (100) `decide()` calls, expired sessions
 /// should be removed. We inject an expired session via
@@ -59,6 +60,7 @@ fn cleanup_triggers_after_interval_and_removes_expired() {
                 content: format!("other-{}", i),
             }],
             tools: vec![],
+            protocol: ProtocolKind::OpenAi,
         };
         let _ = engine.decide(&feat);
     }
@@ -114,6 +116,7 @@ fn normal_flow_unaffected_by_cleanup() {
                 content: format!("unrelated-{}", i),
             }],
             tools: vec![],
+            protocol: ProtocolKind::OpenAi,
         };
         let _ = engine.decide(&feat);
     }
@@ -139,6 +142,7 @@ fn normal_flow_unaffected_by_cleanup() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     match engine.decide(&feat2) {
         DecisionOutcome::Decision(d) => {

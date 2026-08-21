@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{RequestFeatures, ScenarioDecision};
+use crate::types::{ProtocolKind, RequestFeatures, ScenarioDecision};
 
 mod response_shapes;
 pub use response_shapes::*;
@@ -234,6 +234,7 @@ impl RequestFeatures {
         temperature: Option<f32>,
         messages: Vec<MessageEntry>,
         tools: Vec<String>,
+        protocol: ProtocolKind,
     ) -> Self {
         Self {
             model,
@@ -242,6 +243,7 @@ impl RequestFeatures {
             temperature,
             messages,
             tools,
+            protocol,
         }
     }
 }
@@ -972,10 +974,6 @@ mod tests {
         assert!(ReasoningIntensity::Medium != ReasoningIntensity::High);
         assert!(ReasoningIntensity::Low != ReasoningIntensity::High);
     }
-
-    // -----------------------------------------------------------------------
-    // ResponseOrComposite tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn response_or_composite_deserialize_array_format() {

@@ -237,6 +237,7 @@ mod tests {
     use super::super::types::MessageEntry;
     use super::*;
     use crate::scenario::types::{ResponseShape, TextResponse, TurnResponse};
+    use crate::types::ProtocolKind;
 
     fn fallback(name: &str) -> ScenarioDeclaration {
         ScenarioDeclaration {
@@ -285,6 +286,7 @@ mod tests {
                 })
                 .collect(),
             tools: tools.into_iter().map(String::from).collect(),
+            protocol: ProtocolKind::OpenAi,
         }
     }
 

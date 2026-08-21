@@ -19,7 +19,7 @@ use crate::fixture_loader::{fixture_root, load_protocol_fixture};
 use crate::protocol::anthropic::build_message_response_from_decision;
 use crate::protocol::openai::build_chat_completion_response_from_decision;
 use crate::scenario::types::*;
-use crate::types::RequestFeatures;
+use crate::types::{ProtocolKind, RequestFeatures};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -148,6 +148,11 @@ fn request_features_from_fixture(
         temperature: None,
         messages,
         tools: vec![],
+        protocol: if is_anthropic {
+            ProtocolKind::Anthropic
+        } else {
+            ProtocolKind::OpenAi
+        },
     }
 }
 

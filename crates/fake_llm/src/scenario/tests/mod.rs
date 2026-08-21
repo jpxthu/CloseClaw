@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ProtocolKind;
 
 fn text_turn(content: &str) -> TurnResponse {
     TurnResponse {
@@ -26,6 +27,7 @@ fn features(model: &str, msg: &str) -> RequestFeatures {
             content: msg.to_string(),
         }],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
@@ -84,6 +86,7 @@ fn decide_matches_scenario_and_returns_turn() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome2 = engine.decide(&feat2);
     match outcome2 {
@@ -217,6 +220,7 @@ fn features_with_model(model: &str, msg: &str) -> RequestFeatures {
             content: msg.to_string(),
         }],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
@@ -234,6 +238,7 @@ fn features_with_messages(model: &str, messages: Vec<(&str, &str)>) -> RequestFe
             })
             .collect(),
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
@@ -317,6 +322,7 @@ fn decide_fixture_error_injection_rate_limit() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome2 = engine.decide(&feat2);
     match outcome2 {
@@ -344,6 +350,7 @@ fn decide_fixture_error_injection_server_error() {
             content: "search something".to_string(),
         }],
         tools: vec!["web_search".to_string()],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome = engine.decide(&feat);
     match outcome {
@@ -706,6 +713,7 @@ fn per_scenario_isolation_cursors_and_cache() {
         temperature: None,
         messages: prefix.clone(),
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let mk_feat_ext = |model: &str, reply: &str| RequestFeatures {
         model: model.to_string(),
@@ -727,6 +735,7 @@ fn per_scenario_isolation_cursors_and_cache() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let decl = |name: &str, model: &str| ScenarioDeclaration {
         name: name.to_string(),
