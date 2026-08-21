@@ -1,3 +1,13 @@
+# Charts — rendered PNG/HTML artifacts
 code_stats_chart.html
 code_stats_chart.png
+
+# Cache — incremental collect cache (see collect_code_stats.py)
+cache.json
+
+# Legacy — old Chart.js output format
 daily_stats.jsonl
+
+# Weekly — weekly +/- buckets for the ①b panel
+weekly_add_del.jsonl
+weekly_commits.jsonl
