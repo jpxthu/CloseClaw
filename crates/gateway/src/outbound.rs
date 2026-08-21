@@ -6,7 +6,7 @@
 use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::{
     dispatch_text, log_middleware_rejection, make_outbound_meta, merge_dsl_results,
-    send_render_block, StreamContext, StreamState,
+    notify_batch_send_failure, send_render_block, StreamContext, StreamState,
 };
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
@@ -202,46 +202,27 @@ impl Gateway {
                 return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel).await;
             }
         }
-        match ctx.rendered.msg_type.as_str() {
-            "text" => {
-                let text = ctx
-                    .rendered
-                    .payload
-                    .get("content")
-                    .and_then(|v| v.get("text"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(ctx.fallback_text)
-                    .to_string();
-                let msg = Self::make_outbound_msg(
-                    ctx.channel,
-                    ctx.chat_id.clone(),
-                    text,
-                    Some(ctx.channel.to_string()),
-                    ctx.dsl_result.clone(),
-                    ctx.content_blocks.clone(),
-                );
-                ctx.plugin
-                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
-                    .await?;
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
-                    .await;
-            }
+        // Send via plugin — on failure, notify user and skip outbound history.
+        if let Err(e) = ctx
+            .plugin
+            .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+            .await
+        {
+            notify_batch_send_failure(self, ctx.channel, &ctx.chat_id, e).await;
+            return Ok(());
+        }
+        // Extract content for checkpoint based on msg_type.
+        let content = match ctx.rendered.msg_type.as_str() {
+            "text" => ctx
+                .rendered
+                .payload
+                .get("content")
+                .and_then(|v| v.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(ctx.fallback_text)
+                .to_string(),
             "interactive" => {
-                let payload_str = serde_json::to_string(&ctx.rendered.payload)
-                    .unwrap_or_else(|_| "{}".to_string());
-                let msg = Self::make_outbound_msg(
-                    ctx.channel,
-                    ctx.chat_id.clone(),
-                    payload_str,
-                    Some(ctx.channel.to_string()),
-                    ctx.dsl_result.clone(),
-                    ctx.content_blocks.clone(),
-                );
-                ctx.plugin
-                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
-                    .await?;
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
-                    .await;
+                serde_json::to_string(&ctx.rendered.payload).unwrap_or_else(|_| "{}".to_string())
             }
             _ => {
                 return Err(GatewayError::OutboundError(format!(
@@ -249,8 +230,17 @@ impl Gateway {
                     ctx.rendered.msg_type
                 )))
             }
-        }
-        // Debug log: send.completed (unified for text and interactive)
+        };
+        let msg = Self::make_outbound_msg(
+            ctx.channel,
+            ctx.chat_id.clone(),
+            content,
+            Some(ctx.channel.to_string()),
+            ctx.dsl_result.clone(),
+            ctx.content_blocks.clone(),
+        );
+        self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
+            .await;
         self.emit_send_completed_log(
             ctx.session_id,
             ctx.channel,

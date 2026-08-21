@@ -114,6 +114,33 @@ pub(crate) async fn log_middleware_rejection(
     Ok(())
 }
 
+/// Log a warning and send a failure notification when batch send fails.
+///
+/// Called from `dispatch_and_persist` when `plugin.send()` returns an error.
+/// Sends a user-facing notification via the simplified path (no retry, no
+/// outbound history write) and returns `Ok(())` so the caller can terminate
+/// the flow cleanly, matching the design doc §批量出错降级.
+pub(crate) async fn notify_batch_send_failure(
+    gateway: &Gateway,
+    channel: &str,
+    chat_id: &str,
+    send_error: closeclaw_common::im_plugin::AdapterError,
+) {
+    tracing::warn!(
+        channel,
+        chat_id,
+        error = %send_error,
+        "batch plugin.send failed, sending failure notification"
+    );
+    let _ = gateway
+        .send_outbound_simplified(
+            chat_id,
+            channel,
+            "⚠️ 回复发送失败：消息未能送达，请稍后重试",
+        )
+        .await;
+}
+
 // ---------------------------------------------------------------------------
 // Streaming outbound helpers
 // ---------------------------------------------------------------------------
