@@ -3,6 +3,14 @@
 //! When loading scenario files, we must detect pairs of scenarios that
 //! could both match the same request (multi-hit). This is a scenario
 //! file error and must be caught at build time, not at runtime.
+//!
+//! Fallback scenarios (match_ = None) serve as zero-match fallbacks and
+//! are checked only after all conditional scenarios fail to match. They
+//! coexist legally with conditional scenarios. Conflicts are detected
+//! only between:
+//! - Two fallback scenarios (both would match any request).
+//! - Two conditional scenarios whose match conditions are simultaneously
+//!   satisfiable (multi-hit on a single request).
 
 use std::fmt;
 
@@ -42,9 +50,12 @@ pub struct ScenarioConflictError {
 /// Two scenarios conflict if there exists a request that could match both.
 /// This is checked via exhaustive pairwise comparison of match conditions.
 ///
-/// Fallback scenarios (match_ = None) match everything, so:
-/// - Two fallbacks always conflict.
-/// - A fallback + any conditional scenario always conflict.
+/// Conflict rules:
+/// - Two fallback scenarios (match_ = None) always conflict.
+/// - A fallback + a conditional scenario do NOT conflict: fallback is the
+///   zero-match兜底 and is checked only after all conditionals fail.
+/// - Two conditional scenarios conflict if their conditions are
+///   simultaneously satisfiable by the same request.
 pub fn detect_conflicts(scenarios: &[ScenarioDeclaration]) -> Vec<ConflictReport> {
     let mut conflicts = Vec::new();
 
@@ -64,10 +75,9 @@ fn pair_conflicts(a: &ScenarioDeclaration, b: &ScenarioDeclaration) -> Option<Co
     let conflict_reason = match (&a.match_, &b.match_) {
         // Both fallback: always conflict
         (None, None) => Some("both are fallback scenarios (no match conditions)".to_string()),
-        // One fallback + one conditional: always conflict
-        (None, Some(_)) | (Some(_), None) => {
-            Some("fallback scenario conflicts with conditional scenario".to_string())
-        }
+        // One fallback + one conditional: no conflict — fallback is the
+        // zero-match兜底 and coexists legally with conditional scenarios.
+        (None, Some(_)) | (Some(_), None) => None,
         // Both conditional: check field-by-field compatibility
         (Some(cond_a), Some(cond_b)) => {
             if conditions_compatible(cond_a, cond_b) {
@@ -215,7 +225,9 @@ mod tests {
     }
 
     #[test]
-    fn fallback_and_conditional_conflict() {
+    fn fallback_and_conditional_no_conflict() {
+        // Fallback is the zero-match兜底 and coexists legally with
+        // conditional scenarios.
         let scenarios = vec![
             fallback("fallback"),
             conditional(
@@ -227,7 +239,7 @@ mod tests {
             ),
         ];
         let conflicts = detect_conflicts(&scenarios);
-        assert_eq!(conflicts.len(), 1);
+        assert!(conflicts.is_empty());
     }
 
     // ---------------------------------------------------------------
@@ -669,11 +681,11 @@ mod tests {
                 },
             ),
         ];
-        // fb vs a: conflict (fallback + conditional)
-        // fb vs b: conflict (fallback + conditional)
+        // fb vs a: no conflict (fallback + conditional)
+        // fb vs b: no conflict (fallback + conditional)
         // a vs b: conflict (same model_id)
         let conflicts = detect_conflicts(&scenarios);
-        assert_eq!(conflicts.len(), 3);
+        assert_eq!(conflicts.len(), 1);
     }
 
     // ---------------------------------------------------------------
