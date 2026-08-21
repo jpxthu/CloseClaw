@@ -369,10 +369,10 @@ mod tests {
             _ => panic!("expected Text variant"),
         }
 
-        // Error variant (placeholder)
-        let json = r#"{"type": "error"}"#;
+        // Error variant with required fields
+        let json = r#"{"type": "error", "status": 500, "message": "server error"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::Error));
+        assert!(matches!(shape, ResponseShape::Error(_)));
 
         // Usage variant
         let json = r#"{"type": "usage", "prompt_tokens": 10, "completion_tokens": 20}"#;
@@ -396,10 +396,10 @@ mod tests {
             _ => panic!("expected Reasoning variant"),
         }
 
-        // Streaming variant (placeholder)
+        // Streaming variant (empty object = all defaults)
         let json = r#"{"type": "streaming"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::Streaming));
+        assert!(matches!(shape, ResponseShape::Streaming(_)));
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod tests {
     fn deserialize_response_shape_delay() {
         let json = r#"{"type": "delay"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
-        assert!(matches!(shape, ResponseShape::Delay));
+        assert!(matches!(shape, ResponseShape::Delay(_)));
     }
 
     #[test]
