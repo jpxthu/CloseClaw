@@ -218,6 +218,11 @@ pub struct UsageResponse {
     /// Cache write tokens.
     #[serde(default)]
     pub cache_write_tokens: Option<u32>,
+    /// When true, this provider does not return cache fields in
+    /// responses. Auto-simulation is skipped (but the state machine
+    /// still tracks prefix fingerprints internally).
+    #[serde(default)]
+    pub cache_fields_missing: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -510,6 +515,52 @@ mod tests {
                 assert!(u.cache_write_tokens.is_none());
             }
             _ => panic!("expected Usage variant"),
+        }
+    }
+
+    #[test]
+    fn usage_response_cache_fields_missing_deserialize() {
+        let json = r#"{"type": "usage", "prompt_tokens": 10, "completion_tokens": 20, "cache_fields_missing": true}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Usage(u) => {
+                assert!(
+                    u.cache_fields_missing,
+                    "cache_fields_missing should be true"
+                );
+                assert_eq!(u.prompt_tokens, Some(10));
+                assert_eq!(u.completion_tokens, Some(20));
+            }
+            _ => panic!("expected Usage variant"),
+        }
+    }
+
+    #[test]
+    fn usage_response_cache_fields_missing_default_false() {
+        let json = r#"{"type": "usage", "prompt_tokens": 5}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Usage(u) => {
+                assert!(
+                    !u.cache_fields_missing,
+                    "cache_fields_missing should default to false"
+                );
+            }
+            _ => panic!("expected Usage variant"),
+        }
+    }
+
+    #[test]
+    fn text_response_with_cache_fields_missing_usage() {
+        let json = r#"{"type": "text", "content": "hello", "usage": {"prompt_tokens": 10, "cache_fields_missing": true}}"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Text(t) => {
+                let u = t.usage.as_ref().unwrap();
+                assert!(u.cache_fields_missing);
+                assert_eq!(u.prompt_tokens, Some(10));
+            }
+            _ => panic!("expected Text variant"),
         }
     }
 
