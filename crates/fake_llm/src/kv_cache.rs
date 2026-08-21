@@ -626,4 +626,223 @@ mod tests {
         let t2 = KvCacheSimulator::estimate_prefix_tokens(&msgs, &["search".to_string()]);
         assert!(t2 > t1);
     }
+
+    // ------------------------------------------------------------------
+    // Step 1.3: Residual hit tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn break_residual_same_system_prompt() {
+        // System prompt unchanged, messages change → break with residual
+        // hit > 0 (equal to system prompt tokens).
+        let mut sim = KvCacheSimulator::new();
+        let msgs1 = vec![
+            msg("system", "You are a helpful assistant"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "follow up"),
+        ];
+        let r1 = sim.process(&msgs1, &[], None, None);
+        assert_eq!(r1.state, CacheState::Writing);
+
+        let msgs2 = vec![
+            msg("system", "You are a helpful assistant"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "different"),
+        ];
+        let r2 = sim.process(&msgs2, &[], None, None);
+        assert_eq!(r2.state, CacheState::Hit);
+
+        // Third request: different message content, same system prompt.
+        let msgs3 = vec![
+            msg("system", "You are a helpful assistant"),
+            msg("user", "new topic"),
+            msg("assistant", "hi"),
+            msg("user", "another"),
+        ];
+        let r3 = sim.process(&msgs3, &[], None, None);
+        assert_eq!(r3.state, CacheState::Writing);
+        assert!(r3.is_break);
+        // Residual hit should be > 0 (system prompt tokens retained).
+        assert!(r3.cache_hit_tokens.is_some());
+        let residual = r3.cache_hit_tokens.unwrap();
+        assert!(residual > 0);
+        // Write tokens = total prefix - residual, should be > 0.
+        assert!(r3.cache_write_tokens.is_some());
+        assert!(r3.cache_write_tokens.unwrap() > 0);
+    }
+
+    #[test]
+    fn break_residual_completely_different() {
+        // System prompt + all messages change → break with residual hit = 0.
+        let mut sim = KvCacheSimulator::new();
+        let msgs1 = vec![
+            msg("system", "You are a helpful assistant"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "follow up"),
+        ];
+        sim.process(&msgs1, &[], None, None);
+
+        let msgs2 = vec![
+            msg("system", "You are a helpful assistant"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "different"),
+        ];
+        let r2 = sim.process(&msgs2, &[], None, None);
+        assert_eq!(r2.state, CacheState::Hit);
+
+        // Completely different prefix.
+        let msgs3 = vec![
+            msg("system", "New system prompt entirely"),
+            msg("user", "completely new"),
+            msg("assistant", "ok"),
+            msg("user", "another"),
+        ];
+        let r3 = sim.process(&msgs3, &[], None, None);
+        assert_eq!(r3.state, CacheState::Writing);
+        assert!(r3.is_break);
+        // No common prefix → residual hit = 0 (None).
+        assert!(r3.cache_hit_tokens.is_none());
+        // Full prefix written.
+        assert!(r3.cache_write_tokens.is_some());
+        assert!(r3.cache_write_tokens.unwrap() > 0);
+    }
+
+    #[test]
+    fn break_residual_partial_message_overlap() {
+        // First N messages same, later messages differ → break with
+        // residual hit = tokens of common prefix portion.
+        let mut sim = KvCacheSimulator::new();
+        let msgs1 = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "old question"),
+        ];
+        sim.process(&msgs1, &[], None, None);
+
+        let msgs2 = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "another"),
+        ];
+        let r2 = sim.process(&msgs2, &[], None, None);
+        assert_eq!(r2.state, CacheState::Hit);
+
+        // Change only the last prefix message (index 2), keep
+        // system + first user message.
+        let msgs3 = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "different response"),
+            msg("user", "new"),
+        ];
+        let r3 = sim.process(&msgs3, &[], None, None);
+        assert_eq!(r3.state, CacheState::Writing);
+        assert!(r3.is_break);
+        // Common prefix: system("sys") + user("hello") = 7 chars
+        // → tokens_from_chars(7) = max(7/4, 1) = 1.
+        assert!(r3.cache_hit_tokens.is_some());
+        let residual = r3.cache_hit_tokens.unwrap();
+        assert!(residual > 0);
+        // Write = total - residual, should be < total prefix tokens.
+        let total = KvCacheSimulator::estimate_prefix_tokens(&msgs3, &[]);
+        assert!(r3.cache_write_tokens.is_some());
+        assert!(r3.cache_write_tokens.unwrap() < total);
+    }
+
+    #[test]
+    fn is_break_flag_true_only_on_break() {
+        // Verify is_break semantics: true only on break events.
+        let mut sim = KvCacheSimulator::new();
+
+        // First request (Writing): is_break = false.
+        let msgs1 = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q1"),
+        ];
+        let r1 = sim.process(&msgs1, &[], None, None);
+        assert!(!r1.is_break);
+
+        // Second request (Hit): is_break = false.
+        let msgs2 = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q2"),
+        ];
+        let r2 = sim.process(&msgs2, &[], None, None);
+        assert!(!r2.is_break);
+
+        // Third request (Break → Writing): is_break = true.
+        let msgs3 = vec![
+            msg("system", "new sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q3"),
+        ];
+        let r3 = sim.process(&msgs3, &[], None, None);
+        assert!(r3.is_break);
+
+        // Fourth request (Hit again): is_break = false.
+        let msgs4 = vec![
+            msg("system", "new sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q4"),
+        ];
+        let r4 = sim.process(&msgs4, &[], None, None);
+        assert!(!r4.is_break);
+    }
+
+    #[test]
+    fn explicit_injection_correct_values_no_logging() {
+        // Verify explicit injection returns correct values and does
+        // not interfere with auto-simulation state machine.
+        let mut sim = KvCacheSimulator::new();
+        let msgs = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q1"),
+        ];
+
+        // Explicit injection on first request.
+        let r1 = sim.process(&msgs, &[], Some(100), Some(200));
+        assert_eq!(r1.cache_hit_tokens, Some(100));
+        assert_eq!(r1.cache_write_tokens, Some(200));
+        assert!(!r1.is_break);
+
+        // Same prefix, explicit hit overrides auto.
+        let msgs2 = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q2"),
+        ];
+        let r2 = sim.process(&msgs2, &[], Some(500), None);
+        assert_eq!(r2.cache_hit_tokens, Some(500));
+        assert!(r2.cache_write_tokens.is_none());
+        assert!(!r2.is_break);
+        assert_eq!(r2.state, CacheState::Hit);
+
+        // Prefix change with explicit values → is_break still false
+        // (explicit injection disables auto break detection).
+        let msgs3 = vec![
+            msg("system", "different sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q3"),
+        ];
+        let r3 = sim.process(&msgs3, &[], None, Some(300));
+        assert!(r3.cache_hit_tokens.is_none());
+        assert_eq!(r3.cache_write_tokens, Some(300));
+        assert!(!r3.is_break);
+    }
 }
