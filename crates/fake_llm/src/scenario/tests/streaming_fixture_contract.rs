@@ -169,6 +169,7 @@ fn openai_streaming_text_fixture_matches_semantics() {
             reasoning_tokens: None,
             cache_hit_tokens: None,
             cache_write_tokens: None,
+            cache_fields_missing: false,
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);
@@ -339,6 +340,7 @@ fn openai_streaming_tool_use_fixture_matches_semantics() {
             reasoning_tokens: None,
             cache_hit_tokens: None,
             cache_write_tokens: None,
+            cache_fields_missing: false,
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);
@@ -503,6 +505,7 @@ fn anthropic_streaming_text_fixture_matches_semantics() {
             reasoning_tokens: None,
             cache_hit_tokens: None,
             cache_write_tokens: None,
+            cache_fields_missing: false,
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);
@@ -704,6 +707,7 @@ fn anthropic_streaming_tool_use_fixture_matches_semantics() {
             reasoning_tokens: None,
             cache_hit_tokens: None,
             cache_write_tokens: None,
+            cache_fields_missing: false,
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);

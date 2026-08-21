@@ -217,11 +217,35 @@ mod tests {
     }
 
     #[test]
+    fn load_fixture_cache_fields_missing_ok() {
+        let dir = fixture_scenarios_dir();
+        let path = dir.join("cache-fields-missing.json");
+        let file = load_scenario_file(&path).unwrap();
+        assert_eq!(file.scenarios.len(), 2);
+        assert_eq!(file.scenarios[0].name, "no-cache-fields-vendor");
+        assert_eq!(file.scenarios[1].name, "fallback-cache-missing");
+        // Verify cache_fields_missing is deserialized from the JSON
+        // Extract usage from the Text response shape
+        match &file.scenarios[0].turns[0].response {
+            super::super::types::ResponseShape::Text(t) => {
+                let u = t.usage.as_ref().expect("usage must be present");
+                assert!(
+                    u.cache_fields_missing,
+                    "cache_fields_missing should be true"
+                );
+                assert_eq!(u.prompt_tokens, Some(100));
+                assert_eq!(u.completion_tokens, Some(50));
+            }
+            _ => panic!("expected Text variant"),
+        }
+    }
+
+    #[test]
     fn load_scenarios_dir_all_fixtures() {
         let dir = fixture_scenarios_dir();
         let files = load_scenario_dir(&dir).unwrap();
-        // Should load all 7 fixture files without errors.
-        assert_eq!(files.len(), 7);
+        // Should load all 8 fixture files without errors.
+        assert_eq!(files.len(), 8);
     }
 
     #[test]
