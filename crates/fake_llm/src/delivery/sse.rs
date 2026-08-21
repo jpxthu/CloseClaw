@@ -210,9 +210,11 @@ fn anthropic_message_start(model: &str, usage: &UsageResponse) -> SseEvent {
         "input_tokens": usage.prompt_tokens.unwrap_or(0),
         "output_tokens": 0
     });
-    if !usage.cache_fields_missing {
+    if !usage.cache_fields_missing || usage.cache_hit_tokens.is_some() {
         usage_json["cache_read_input_tokens"] =
             serde_json::json!(usage.cache_hit_tokens.unwrap_or(0));
+    }
+    if !usage.cache_fields_missing || usage.cache_write_tokens.is_some() {
         usage_json["cache_creation_input_tokens"] =
             serde_json::json!(usage.cache_write_tokens.unwrap_or(0));
     }
@@ -359,7 +361,7 @@ fn anthropic_message_delta(usage: &UsageResponse, stop_reason: &str) -> SseEvent
     let mut usage_json = serde_json::json!({
         "output_tokens": usage.completion_tokens.unwrap_or(0)
     });
-    if !usage.cache_fields_missing {
+    if !usage.cache_fields_missing || usage.cache_hit_tokens.is_some() {
         usage_json["cache_read_input_tokens"] =
             serde_json::json!(usage.cache_hit_tokens.unwrap_or(0));
     }
@@ -968,12 +970,25 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_start_cache_fields_missing_omits_cache_tokens() {
+    fn anthropic_start_cache_fields_missing_with_explicit_injection() {
         let blocks = vec![text_block("Hello!")];
         let mut usage = usage_with(Some(200), Some(100), Some(150), Some(200));
         usage.cache_fields_missing = true;
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
         let d: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        // Explicit injection overrides cache_fields_missing
+        assert_eq!(d["usage"]["cache_read_input_tokens"], 150);
+        assert_eq!(d["usage"]["cache_creation_input_tokens"], 200);
+    }
+
+    #[test]
+    fn anthropic_start_cache_fields_missing_no_explicit_omits_cache_tokens() {
+        let blocks = vec![text_block("Hello!")];
+        let mut usage = usage_with(Some(200), Some(100), None, None);
+        usage.cache_fields_missing = true;
+        let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        // cache_fields_missing=true + no explicit values → fields omitted
         assert_eq!(
             d["usage"]["cache_read_input_tokens"],
             serde_json::Value::Null
@@ -985,12 +1000,24 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_delta_cache_fields_missing_omits_cache_tokens() {
+    fn anthropic_delta_cache_fields_missing_with_explicit_injection() {
         let blocks = vec![text_block("Hello!")];
         let mut usage = usage_with(Some(200), Some(100), Some(150), None);
         usage.cache_fields_missing = true;
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
         let d: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+        // Explicit injection overrides cache_fields_missing
+        assert_eq!(d["usage"]["cache_read_input_tokens"], 150);
+    }
+
+    #[test]
+    fn anthropic_delta_cache_fields_missing_no_explicit_omits_cache_tokens() {
+        let blocks = vec![text_block("Hello!")];
+        let mut usage = usage_with(Some(200), Some(100), None, None);
+        usage.cache_fields_missing = true;
+        let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+        // cache_fields_missing=true + no explicit values → field omitted
         assert_eq!(
             d["usage"]["cache_read_input_tokens"],
             serde_json::Value::Null

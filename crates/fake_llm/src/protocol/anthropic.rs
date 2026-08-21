@@ -250,15 +250,17 @@ pub fn build_message_response_from_decision(decision: &ScenarioDecision) -> Mess
         |u| Usage {
             input_tokens: u.prompt_tokens.unwrap_or(0),
             output_tokens: u.completion_tokens.unwrap_or(0),
-            cache_read_input_tokens: if u.cache_fields_missing {
-                None
-            } else {
+            cache_read_input_tokens: if !u.cache_fields_missing || u.cache_hit_tokens.is_some() {
                 Some(u.cache_hit_tokens.unwrap_or(0))
-            },
-            cache_creation_input_tokens: if u.cache_fields_missing {
-                None
             } else {
+                None
+            },
+            cache_creation_input_tokens: if !u.cache_fields_missing
+                || u.cache_write_tokens.is_some()
+            {
                 Some(u.cache_write_tokens.unwrap_or(0))
+            } else {
+                None
             },
         },
     );
@@ -589,12 +591,12 @@ mod tests {
     }
 
     #[test]
-    fn response_cache_fields_missing_omits_cache_tokens() {
+    fn response_cache_fields_missing_with_explicit_injection() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
             model: "claude-3".to_string(),
-            scenario: "cache-missing".to_string(),
+            scenario: "cache-missing-explicit".to_string(),
             stream: false,
             response_blocks: vec![ResponseBlock {
                 block_type: "text".to_string(),
@@ -619,7 +621,43 @@ mod tests {
         let resp = build_message_response_from_decision(&decision);
         let json = serde_json::to_value(&resp).unwrap();
 
-        // cache_fields_missing=true → fields must be absent from JSON
+        // Explicit injection overrides cache_fields_missing
+        assert_eq!(json["usage"]["cache_read_input_tokens"], 80);
+        assert_eq!(json["usage"]["cache_creation_input_tokens"], 20);
+    }
+
+    #[test]
+    fn response_cache_fields_missing_no_explicit_omits_cache_tokens() {
+        use crate::scenario::types::ResponseBlock;
+
+        let decision = ScenarioDecision {
+            model: "claude-3".to_string(),
+            scenario: "cache-missing-no-explicit".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("no cache info".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: None,
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: Some(crate::scenario::types::UsageResponse {
+                prompt_tokens: Some(100),
+                completion_tokens: Some(50),
+                reasoning_tokens: None,
+                cache_hit_tokens: None,
+                cache_write_tokens: None,
+                cache_fields_missing: true,
+            }),
+        };
+
+        let resp = build_message_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        // cache_fields_missing=true + no explicit values → fields omitted
         assert!(json["usage"]["cache_read_input_tokens"].is_null());
         assert!(json["usage"]["cache_creation_input_tokens"].is_null());
     }
