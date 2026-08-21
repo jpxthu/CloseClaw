@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use super::types::{MatchCondition, ScenarioDeclaration};
 use crate::types::{ProtocolKind, RequestFeatures};
 
-pub mod conflict;
+pub(crate) mod conflict;
 pub use conflict::{detect_conflicts, ConflictReport, ScenarioConflictError};
 
 /// Pre-built index for efficient scenario matching.
@@ -35,124 +35,84 @@ pub struct MatcherIndex {
 
 impl MatcherIndex {
     /// Build an index from a list of scenario declarations.
-    ///
     /// Returns an error if conflict detection finds scenarios that could
     /// both match the same request (multi-hit at startup).
     pub fn build(scenarios: Vec<ScenarioDeclaration>) -> Result<Self, ScenarioConflictError> {
         let mut any_by_protocol: HashMap<ProtocolKind, Vec<usize>> = HashMap::new();
         let mut by_model: HashMap<(String, ProtocolKind), Vec<usize>> = HashMap::new();
-
         for (i, scenario) in scenarios.iter().enumerate() {
             match &scenario.match_ {
                 None => {
-                    // Fallback scenarios: no match condition => matches everything.
-                    // Indexed under every protocol so it catches zero-hit requests
-                    // regardless of protocol.
                     for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
                         any_by_protocol.entry(proto).or_default().push(i);
                     }
                 }
-                Some(cond) => {
-                    match &cond.model_id {
-                        Some(model_id) => {
-                            // Scenarios with a model constraint but no protocol
-                            // constraint are indexed under every protocol for
-                            // that model.
-                            for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
-                                by_model
-                                    .entry((model_id.clone(), proto))
-                                    .or_default()
-                                    .push(i);
-                            }
-                        }
-                        None => {
-                            // Has match conditions but no model constraint =>
-                            // goes to any_by_protocol (protocol-isolated).
-                            for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
-                                any_by_protocol.entry(proto).or_default().push(i);
-                            }
+                Some(cond) => match &cond.model_id {
+                    Some(model_id) => {
+                        for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
+                            by_model
+                                .entry((model_id.clone(), proto))
+                                .or_default()
+                                .push(i);
                         }
                     }
-                }
+                    None => {
+                        for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
+                            any_by_protocol.entry(proto).or_default().push(i);
+                        }
+                    }
+                },
             }
         }
-
-        // Run conflict detection before building the index.
         let conflicts = conflict::detect_conflicts(&scenarios);
         if !conflicts.is_empty() {
             return Err(ScenarioConflictError { conflicts });
         }
-
-        // Build fallback index: record the single fallback scenario per protocol.
-        // Conflict detection guarantees at most one fallback (None match_) total,
-        // so it appears in any_by_protocol for both protocols.
-        let mut fallback_by_protocol: HashMap<ProtocolKind, usize> = HashMap::new();
-        for (i, scenario) in scenarios.iter().enumerate() {
-            if scenario.match_.is_none() {
-                for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
-                    fallback_by_protocol.entry(proto).or_insert(i);
-                }
-            }
-        }
-
         Ok(Self {
             any_by_protocol,
             by_model,
-            fallback_by_protocol,
+            fallback_by_protocol: Self::build_fallback_index(&scenarios),
             scenarios,
         })
     }
 
-    /// Match a request against the indexed scenarios.
-    ///
-    /// Returns the index of the matched scenario within the internal list,
-    /// or `None` if nothing matches. Since conflict detection runs at
-    /// build time, at most one scenario can match any given request.
-    pub fn match_request(&self, features: &RequestFeatures) -> Option<usize> {
-        let mut matched: Vec<usize> = Vec::new();
-        let key = (features.model.clone(), features.protocol);
+    /// Build fallback index: one fallback scenario per protocol (match_ = None).
+    fn build_fallback_index(scenarios: &[ScenarioDeclaration]) -> HashMap<ProtocolKind, usize> {
+        let mut fallback: HashMap<ProtocolKind, usize> = HashMap::new();
+        for (i, scenario) in scenarios.iter().enumerate() {
+            if scenario.match_.is_none() {
+                for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
+                    fallback.entry(proto).or_insert(i);
+                }
+            }
+        }
+        fallback
+    }
 
+    /// Match a request against the indexed scenarios.
+    /// Returns the index of the matched scenario, or `None` if nothing matches.
+    /// Conflict detection at build time guarantees at most one match.
+    pub fn match_request(&self, features: &RequestFeatures) -> Option<usize> {
+        let key = (features.model.clone(), features.protocol);
         // Check any-model bucket for this protocol only
         if let Some(indices) = self.any_by_protocol.get(&features.protocol) {
-            for &idx in indices {
-                if scenario_matches(features, &self.scenarios[idx]) {
-                    matched.push(idx);
-                }
+            if let Some(&idx) = indices
+                .iter()
+                .find(|&&i| scenario_matches(features, &self.scenarios[i]))
+            {
+                return Some(idx);
             }
         }
-
         // Check model-specific bucket for (model, protocol)
-        if let Some(model_indices) = self.by_model.get(&key) {
-            for &idx in model_indices {
-                if scenario_matches(features, &self.scenarios[idx]) {
-                    matched.push(idx);
-                }
+        if let Some(indices) = self.by_model.get(&key) {
+            if let Some(&idx) = indices
+                .iter()
+                .find(|&&i| scenario_matches(features, &self.scenarios[i]))
+            {
+                return Some(idx);
             }
         }
-
-        matched.dedup();
-
-        match matched.len() {
-            0 => {
-                // Zero hits: return the protocol-specific fallback scenario if declared.
-                self.fallback_by_protocol.get(&features.protocol).copied()
-            }
-            1 => Some(matched[0]),
-            _ => {
-                // Theoretically unreachable after startup conflict detection,
-                // but kept as a defensive error path.
-                let names: Vec<&str> = matched
-                    .iter()
-                    .map(|&i| self.scenarios[i].name.as_str())
-                    .collect();
-                unreachable!(
-                    "internal error: multiple scenarios matched request \
-                     (model={}, protocol={}) — should have been caught \
-                     at startup: {:?}",
-                    features.model, features.protocol, names
-                );
-            }
-        }
+        self.fallback_by_protocol.get(&features.protocol).copied()
     }
 
     /// Get the scenario at the given index.
