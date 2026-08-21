@@ -84,6 +84,73 @@ impl DeliveryResult {
 }
 
 // ---------------------------------------------------------------------------
+// Models endpoint delivery
+// ---------------------------------------------------------------------------
+
+/// Decision from the models endpoint scenario engine, consumed by the
+/// delivery layer for unified delay and error injection.
+pub struct ModelsDeliveryDecision {
+    /// Scenario-declared model entries (None = placeholder path).
+    pub models: Option<Vec<crate::scenario::types::ModelEntry>>,
+    /// Optional HTTP error injection.
+    pub http_error: Option<crate::scenario::types::HttpError>,
+    /// Optional overall delay before responding.
+    pub delay: Option<u64>,
+}
+
+/// Models-list JSON response body.
+fn build_models_json(entries: &[crate::scenario::types::ModelEntry]) -> serde_json::Value {
+    use crate::protocol::openai::{ModelObject, ModelsResponse};
+
+    let resp = ModelsResponse {
+        object: "list".to_string(),
+        data: entries
+            .iter()
+            .map(|e| ModelObject {
+                id: e.id.clone(),
+                object: "model".to_string(),
+                created: 0,
+                owned_by: e.owned_by.clone(),
+            })
+            .collect(),
+    };
+    serde_json::to_value(&resp).unwrap_or_default()
+}
+
+/// Delivery entry point for the `/v1/models` endpoint.
+///
+/// Mirrors the `deliver()` flow — delay injection, error injection,
+/// then JSON response — but produces a models-list JSON body instead
+/// of a chat completion body.
+///
+/// When `models` is `Some`, returns the model list JSON. When `None`,
+/// returns the default placeholder models list.
+pub async fn deliver_models(decision: &ModelsDeliveryDecision) -> DeliveryResult {
+    // 1. Execute delay injection
+    apply_delay(decision.delay).await;
+
+    // 2. Check error injection
+    if let Some(ref err) = decision.http_error {
+        return DeliveryResult::HttpError {
+            status: err.status,
+            message: err.message.clone(),
+            retry_after: err.retry_after,
+        };
+    }
+
+    // 3. Build models response
+    match &decision.models {
+        Some(entries) => DeliveryResult::JsonResponse(build_models_json(entries)),
+        None => {
+            use crate::protocol::openai::build_models_response;
+            DeliveryResult::JsonResponse(
+                serde_json::to_value(build_models_response()).unwrap_or_default(),
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unified delivery entry point
 // ---------------------------------------------------------------------------
 
@@ -547,6 +614,212 @@ mod tests {
                 assert!(retry_after.is_none());
             }
             _ => panic!("expected HttpError"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // deliver_models — placeholder path
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn deliver_models_placeholder() {
+        let decision = ModelsDeliveryDecision {
+            models: None,
+            http_error: None,
+            delay: None,
+        };
+        let result = deliver_models(&decision).await;
+        match result {
+            DeliveryResult::JsonResponse(json) => {
+                assert_eq!(json["object"], "list");
+                assert!(json["data"].as_array().unwrap().len() > 0);
+            }
+            _ => panic!("expected JsonResponse"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // deliver_models — scenario-declared models
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn deliver_models_with_entries() {
+        let decision = ModelsDeliveryDecision {
+            models: Some(vec![
+                crate::scenario::types::ModelEntry {
+                    id: "gpt-4".to_string(),
+                    owned_by: "openai".to_string(),
+                },
+                crate::scenario::types::ModelEntry {
+                    id: "claude-3".to_string(),
+                    owned_by: "anthropic".to_string(),
+                },
+            ]),
+            http_error: None,
+            delay: None,
+        };
+        let result = deliver_models(&decision).await;
+        match result {
+            DeliveryResult::JsonResponse(json) => {
+                assert_eq!(json["object"], "list");
+                let data = json["data"].as_array().unwrap();
+                assert_eq!(data.len(), 2);
+                assert_eq!(data[0]["id"], "gpt-4");
+                assert_eq!(data[1]["id"], "claude-3");
+            }
+            _ => panic!("expected JsonResponse"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // deliver_models — error injection
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn deliver_models_auth_failure() {
+        let decision = ModelsDeliveryDecision {
+            models: Some(vec![]),
+            http_error: Some(HttpError {
+                status: 401,
+                message: "unauthorized".to_string(),
+                retry_after: None,
+            }),
+            delay: None,
+        };
+        let result = deliver_models(&decision).await;
+        match result {
+            DeliveryResult::HttpError {
+                status,
+                message,
+                retry_after,
+            } => {
+                assert_eq!(status, 401);
+                assert_eq!(message, "unauthorized");
+                assert!(retry_after.is_none());
+            }
+            _ => panic!("expected HttpError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn deliver_models_rate_limited_with_retry_after() {
+        let decision = ModelsDeliveryDecision {
+            models: Some(vec![]),
+            http_error: Some(HttpError {
+                status: 429,
+                message: "rate limited".to_string(),
+                retry_after: Some(60),
+            }),
+            delay: None,
+        };
+        let result = deliver_models(&decision).await;
+        match result {
+            DeliveryResult::HttpError {
+                status,
+                message,
+                retry_after,
+            } => {
+                assert_eq!(status, 429);
+                assert_eq!(message, "rate limited");
+                assert_eq!(retry_after, Some(60));
+            }
+            _ => panic!("expected HttpError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn deliver_models_server_error() {
+        let decision = ModelsDeliveryDecision {
+            models: Some(vec![]),
+            http_error: Some(HttpError {
+                status: 500,
+                message: "internal error".to_string(),
+                retry_after: None,
+            }),
+            delay: None,
+        };
+        let result = deliver_models(&decision).await;
+        match result {
+            DeliveryResult::HttpError {
+                status, message, ..
+            } => {
+                assert_eq!(status, 500);
+                assert_eq!(message, "internal error");
+            }
+            _ => panic!("expected HttpError"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // deliver_models — delay injection
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn deliver_models_with_delay() {
+        let decision = ModelsDeliveryDecision {
+            models: Some(vec![crate::scenario::types::ModelEntry {
+                id: "gpt-4".to_string(),
+                owned_by: "openai".to_string(),
+            }]),
+            http_error: None,
+            delay: Some(100),
+        };
+        let start = std::time::Instant::now();
+        let result = deliver_models(&decision).await;
+        let elapsed = start.elapsed().as_millis();
+        assert!(elapsed >= 80, "expected >= 80ms, got {}ms", elapsed);
+        match result {
+            DeliveryResult::JsonResponse(json) => {
+                assert_eq!(json["data"][0]["id"], "gpt-4");
+            }
+            _ => panic!("expected JsonResponse"),
+        }
+    }
+
+    #[tokio::test]
+    async fn deliver_models_delay_then_error() {
+        // Error injection overrides models: delay is applied first,
+        // then error is returned.
+        let decision = ModelsDeliveryDecision {
+            models: Some(vec![]),
+            http_error: Some(HttpError {
+                status: 401,
+                message: "unauthorized".to_string(),
+                retry_after: None,
+            }),
+            delay: Some(100),
+        };
+        let start = std::time::Instant::now();
+        let result = deliver_models(&decision).await;
+        let elapsed = start.elapsed().as_millis();
+        assert!(elapsed >= 80, "expected >= 80ms, got {}ms", elapsed);
+        match result {
+            DeliveryResult::HttpError { status, .. } => {
+                assert_eq!(status, 401);
+            }
+            _ => panic!("expected HttpError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn deliver_models_no_delay_no_error() {
+        let decision = ModelsDeliveryDecision {
+            models: Some(vec![crate::scenario::types::ModelEntry {
+                id: "m1".to_string(),
+                owned_by: "org".to_string(),
+            }]),
+            http_error: None,
+            delay: None,
+        };
+        let start = std::time::Instant::now();
+        let result = deliver_models(&decision).await;
+        let elapsed = start.elapsed().as_millis();
+        assert!(elapsed < 50, "expected < 50ms, got {}ms", elapsed);
+        match result {
+            DeliveryResult::JsonResponse(json) => {
+                assert_eq!(json["data"][0]["id"], "m1");
+            }
+            _ => panic!("expected JsonResponse"),
         }
     }
 }
