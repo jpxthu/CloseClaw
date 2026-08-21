@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 closeclaw-common = { path = "../common" }
+closeclaw-execution = { path = "../execution" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-tools = { path = "../tools" }
