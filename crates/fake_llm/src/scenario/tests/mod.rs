@@ -967,5 +967,6 @@ mod fixture_contract;
 mod reasoning_intensity;
 mod response_blocks;
 mod session_cleanup_integration;
+mod shape_delivery_tests;
 mod streaming_fixture_contract;
 mod turn_overflow;
