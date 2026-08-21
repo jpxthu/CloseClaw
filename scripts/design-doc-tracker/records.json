@@ -168,6 +168,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/fake_llm/kv-cache-simulation.md",
+    "commit": "eea00ce7f27f2199ddefbf113b0ead811468a1cb",
+    "commit_time": "2026-08-21T15:18:19+08:00",
+    "confirmed_time": "2026-08-21T15:41:57.462039+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/gateway/README.md",
     "commit": "511d1a677e37d9cfce034b80a9cadddaec3241d3",
     "commit_time": "2026-08-19T03:22:38+08:00",
