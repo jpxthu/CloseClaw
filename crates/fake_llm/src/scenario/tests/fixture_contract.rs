@@ -688,6 +688,7 @@ fn anthropic_tool_use_fixture_matches() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: Some(UsageResponse {
             prompt_tokens: Some(39),
             completion_tokens: Some(45),

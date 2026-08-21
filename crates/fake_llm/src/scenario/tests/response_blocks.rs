@@ -324,10 +324,16 @@ fn build_response_blocks_nested_composite() {
             content: "a".to_string(),
             usage: None,
         })]),
-        ResponseShape::Error,
+        ResponseShape::Error(ErrorResponse {
+            status: 500,
+            message: "test error".to_string(),
+            retry_after: None,
+        }),
     ]);
     let blocks = ScenarioEngine::build_response_blocks(&[shape]);
-    assert_eq!(blocks.len(), 2);
+    // Error shapes produce no blocks (handled at engine level before block
+    // construction). Only the nested text block is produced.
+    assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0].block_type, "text");
     assert_eq!(blocks[0].content.as_deref(), Some("a"));
 }

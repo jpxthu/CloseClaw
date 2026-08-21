@@ -60,6 +60,17 @@ pub enum ModelsDecision {
 // ScenarioEngine
 // ---------------------------------------------------------------------------
 
+/// Shape-level delivery parameters extracted from response shapes.
+///
+/// Used internally by `extract_delivery_params` to avoid tuple
+/// destructuring at the call site.
+struct DeliveryParams {
+    delay: Option<u64>,
+    first_token_delay: Option<u64>,
+    segment_delay: Option<u64>,
+    segment_granularity: Option<usize>,
+}
+
 /// Core scenario engine: matches requests to scenarios and advances
 /// multi-turn session cursors.
 ///
@@ -172,6 +183,13 @@ impl ScenarioEngine {
     }
 
     /// Build the final decision from matched scenario and turn response.
+    ///
+    /// Shape-level delivery control is extracted here:
+    /// - `Error` shape → `DecisionOutcome::Error` (TurnResponse.error takes
+    ///   priority when both are present; see `decide` above).
+    /// - `Streaming` / `Delay` shapes → delay and granularity parameters are
+    ///   merged into the decision only when the corresponding TurnResponse
+    ///   field is `None`.
     fn build_decision(
         &mut self,
         features: &RequestFeatures,
@@ -179,6 +197,20 @@ impl ScenarioEngine {
         turn_resp: &TurnResponse,
     ) -> DecisionOutcome {
         let shapes = turn_resp.response.to_shapes();
+
+        // --- Error shape: early return ---
+        // TurnResponse.error is already handled in `decide()` with higher
+        // priority. If we are here, TurnResponse.error was None.
+        if let Some(http_err) = Self::extract_error_shape(&shapes) {
+            return DecisionOutcome::Error(http_err);
+        }
+
+        // --- Extract shape-level delivery parameters ---
+        // Only fill when TurnResponse did not explicitly set the field.
+        // NOTE: segment_granularity is only declared by shapes; there is no
+        // corresponding TurnResponse field, so it has no override source.
+        let delivery = Self::extract_delivery_params(&shapes, turn_resp);
+
         let blocks = Self::build_response_blocks(&shapes);
         let mut usage = Self::extract_usage(&shapes);
         // KV cache simulation: compute cache fields and merge.
@@ -200,12 +232,78 @@ impl ScenarioEngine {
             stream: features.stream,
             response_blocks: blocks,
             http_error: None,
-            delay: turn_resp.delay,
-            first_token_delay: turn_resp.first_token_delay,
-            segment_delay: turn_resp.segment_delay,
+            delay: delivery.delay,
+            first_token_delay: delivery.first_token_delay,
+            segment_delay: delivery.segment_delay,
             stream_interrupt_after: turn_resp.stream_interrupt_after,
+            segment_granularity: delivery.segment_granularity,
             usage,
         })
+    }
+
+    /// Extract an error shape from the response shapes, if present.
+    ///
+    /// Returns the first `ResponseShape::Error` encountered, converted
+    /// into an `HttpError` for the decision outcome.
+    fn extract_error_shape(shapes: &[ResponseShape]) -> Option<HttpError> {
+        for shape in shapes {
+            if let ResponseShape::Error(e) = shape {
+                return Some(HttpError {
+                    status: e.status,
+                    message: e.message.clone(),
+                    retry_after: e.retry_after,
+                });
+            }
+        }
+        None
+    }
+
+    /// Extract shape-level delivery parameters (delays + granularity).
+    ///
+    /// Iterates through shapes and fills in delivery parameters only
+    /// when the corresponding `TurnResponse` field is `None`.
+    /// `segment_granularity` is only declared by `Streaming` shapes;
+    /// there is no corresponding `TurnResponse` field.
+    fn extract_delivery_params(
+        shapes: &[ResponseShape],
+        turn_resp: &TurnResponse,
+    ) -> DeliveryParams {
+        let mut delay = turn_resp.delay;
+        let mut first_token_delay = turn_resp.first_token_delay;
+        let mut segment_delay = turn_resp.segment_delay;
+        let mut segment_granularity: Option<usize> = None;
+
+        for shape in shapes {
+            match shape {
+                ResponseShape::Streaming(s) => {
+                    if segment_delay.is_none() {
+                        segment_delay = s.segment_delay_ms;
+                    }
+                    if segment_granularity.is_none() {
+                        segment_granularity = s.segment_granularity;
+                    }
+                }
+                ResponseShape::Delay(d) => {
+                    if delay.is_none() {
+                        delay = d.delay_ms;
+                    }
+                    if first_token_delay.is_none() {
+                        first_token_delay = d.first_token_delay_ms;
+                    }
+                    if segment_delay.is_none() {
+                        segment_delay = d.segment_delay_ms;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        DeliveryParams {
+            delay,
+            first_token_delay,
+            segment_delay,
+            segment_granularity,
+        }
     }
 
     /// Decide how to respond to a `/v1/models` request.
@@ -275,9 +373,16 @@ impl ScenarioEngine {
                 ResponseShape::ToolCall(tc) => {
                     blocks.extend(Self::build_tool_call_blocks(tc));
                 }
+                // Control-only shapes produce no response blocks —
+                // Streaming and Delay only affect delivery parameters.
+                // Error is handled before block construction (early return);
+                // this branch is technically unreachable but kept for exhaustiveness.
+                ResponseShape::Streaming(_) | ResponseShape::Delay(_) | ResponseShape::Error(_) => {
+                }
                 // Usage-only shapes produce no response blocks — only usage data.
                 ResponseShape::Usage(_) => {}
-                _ => blocks.push(Self::build_text_block("")),
+                // Unknown shapes fall back to empty text block for backward compat.
+                ResponseShape::Unknown => blocks.push(Self::build_text_block("")),
             }
         }
         blocks
@@ -358,7 +463,7 @@ Finally, I'll synthesize a comprehensive answer.",
     ///
     /// Returns the first `UsageResponse` found by iterating through shapes
     /// in order: top-level `Usage` variants, then embedded usage fields in
-    /// `Text`, `Reasoning`, and `ToolCall` variants.
+    /// `Text`, `Reasoning`, `ToolCall`, and `Streaming` variants.
     fn extract_usage(shapes: &[ResponseShape]) -> Option<UsageResponse> {
         for shape in shapes {
             let found = match shape {
@@ -366,6 +471,7 @@ Finally, I'll synthesize a comprehensive answer.",
                 ResponseShape::Text(t) => t.usage.clone(),
                 ResponseShape::Reasoning(r) => r.usage.clone(),
                 ResponseShape::ToolCall(tc) => tc.usage.clone(),
+                ResponseShape::Streaming(s) => s.usage.clone(),
                 ResponseShape::Composite(inner) => Self::extract_usage(inner),
                 _ => None,
             };
