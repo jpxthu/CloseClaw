@@ -689,6 +689,38 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_match_condition_request_params() {
+        let json = r#"{
+            "model_id": "gpt-4o",
+            "request_params": {
+                "stream": true,
+                "max_tokens": 1024,
+                "temperature": 0.7
+            }
+        }"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert_eq!(cond.model_id.as_deref(), Some("gpt-4o"));
+        let params = cond.request_params.as_ref().unwrap();
+        assert_eq!(params.get("stream"), Some(&serde_json::json!(true)));
+        assert_eq!(params.get("max_tokens"), Some(&serde_json::json!(1024)));
+        assert_eq!(params.get("temperature"), Some(&serde_json::json!(0.7)));
+    }
+
+    #[test]
+    fn deserialize_match_condition_request_params_absent() {
+        let json = r#"{"model_id": "gpt-4o"}"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert!(cond.request_params.is_none());
+    }
+
+    #[test]
+    fn deserialize_match_condition_request_params_empty() {
+        let json = r#"{"request_params": {}}"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert!(cond.request_params.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
     fn scenario_file_empty_scenarios() {
         let json = r#"{"scenarios": []}"#;
         let file: ScenarioFile = serde_json::from_str(json).unwrap();

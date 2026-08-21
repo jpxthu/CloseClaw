@@ -174,7 +174,13 @@ fn matches_request_params(features: &RequestFeatures, condition: &MatchCondition
     params.iter().all(|(key, expected)| {
         let actual = features_to_json_value(features, key.as_str());
         match actual {
-            Some(v) => v == *expected,
+            Some(v) => {
+                if key == "temperature" {
+                    json_value_matches_temperature(&v, expected)
+                } else {
+                    v == *expected
+                }
+            }
             None => true, // unknown key => ignore
         }
     })
@@ -183,12 +189,33 @@ fn matches_request_params(features: &RequestFeatures, condition: &MatchCondition
 /// Map a [`RequestFeatures`] field to a JSON value by key name.
 ///
 /// Returns `None` for unknown keys (treated as non-constraining).
+///
+/// For `temperature` (f32), the value is stored as `serde_json::Number`
+/// and compared separately in [`matches_request_params`] using `f32` precision
+/// to avoid mismatches between `f32` serialization and `f64` JSON parsing.
 fn features_to_json_value(features: &RequestFeatures, key: &str) -> Option<serde_json::Value> {
     match key {
         "stream" => Some(serde_json::Value::Bool(features.stream)),
         "max_tokens" => features.max_tokens.map(|v| serde_json::json!(v)),
         "temperature" => features.temperature.map(|v| serde_json::json!(v)),
         _ => None,
+    }
+}
+
+/// Compare two JSON values with f32-appropriate precision for temperature.
+///
+/// When comparing `temperature`, both values are first compared as `f32`
+/// to avoid precision mismatches between the f32 feature value and the
+/// f64 value parsed from the scenario file.
+fn json_value_matches_temperature(
+    actual: &serde_json::Value,
+    expected: &serde_json::Value,
+) -> bool {
+    if let (Some(a), Some(b)) = (actual.as_f64(), expected.as_f64()) {
+        // Compare as f32 to match the feature's native precision
+        (a as f32) == (b as f32)
+    } else {
+        actual == expected
     }
 }
 
@@ -775,3 +802,6 @@ mod tests {
         assert!(result.is_some());
     }
 }
+
+#[cfg(test)]
+mod matcher_request_params_tests;
