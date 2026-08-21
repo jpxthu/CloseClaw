@@ -699,6 +699,269 @@ fn decide_for_models_carrying_delay() {
         d => panic!("expected Models variant with delay, got {:?}", d),
     }
 }
+// ------------------------------------------------------------------
+// Step 1.6: cache_fields_missing priority & state machine tests
+// ------------------------------------------------------------------
+
+/// Target 3: Explicit injection takes priority over cache_fields_missing.
+/// When cache_fields_missing=true but cache_hit_tokens is explicitly set,
+/// the explicit value is returned (100), field missing declaration is ignored.
+#[test]
+fn cache_fields_missing_with_explicit_injection_priority() {
+    let scenario = ScenarioDeclaration {
+        name: "cache-missing-explicit".to_string(),
+        match_: None,
+        turns: vec![TurnResponse {
+            response: ResponseShape::Text(TextResponse {
+                content: "response".to_string(),
+                usage: Some(UsageResponse {
+                    prompt_tokens: Some(100),
+                    completion_tokens: Some(50),
+                    reasoning_tokens: None,
+                    cache_hit_tokens: Some(100),
+                    cache_write_tokens: None,
+                    cache_fields_missing: true,
+                }),
+            }),
+            delay: None,
+            error: None,
+        }],
+        models: None,
+    };
+    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let feat = features("gpt-4", "hi");
+    let outcome = engine.decide(&feat);
+    match outcome {
+        DecisionOutcome::Decision(d) => {
+            let u = d.usage.unwrap();
+            // Explicit injection priority: cache_hit_tokens=100 wins
+            assert_eq!(u.cache_hit_tokens, Some(100));
+            // cache_fields_missing=true but explicit wins, so write is None
+            assert!(u.cache_write_tokens.is_none());
+        }
+        DecisionOutcome::Error(_) => panic!("expected decision"),
+    }
+}
+
+/// Target 3 variant: explicit injection for both hit and write with
+/// cache_fields_missing=true — both explicit values survive.
+#[test]
+fn cache_fields_missing_with_explicit_both_fields() {
+    let scenario = ScenarioDeclaration {
+        name: "cache-missing-explicit-both".to_string(),
+        match_: None,
+        turns: vec![TurnResponse {
+            response: ResponseShape::Text(TextResponse {
+                content: "response".to_string(),
+                usage: Some(UsageResponse {
+                    prompt_tokens: Some(100),
+                    completion_tokens: Some(50),
+                    reasoning_tokens: None,
+                    cache_hit_tokens: Some(100),
+                    cache_write_tokens: Some(200),
+                    cache_fields_missing: true,
+                }),
+            }),
+            delay: None,
+            error: None,
+        }],
+        models: None,
+    };
+    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let feat = features("gpt-4", "hi");
+    let outcome = engine.decide(&feat);
+    match outcome {
+        DecisionOutcome::Decision(d) => {
+            let u = d.usage.unwrap();
+            // Both explicit values preserved despite cache_fields_missing
+            assert_eq!(u.cache_hit_tokens, Some(100));
+            assert_eq!(u.cache_write_tokens, Some(200));
+        }
+        DecisionOutcome::Error(_) => panic!("expected decision"),
+    }
+}
+
+/// Target 4: State machine continuity — after cache_fields_missing=true,
+/// switching back to auto-sim still computes correct cache values.
+/// Tests KvCacheSimulator directly (bypassing ScenarioEngine session tracking).
+///
+/// Request 1: auto-sim produces cache values, but merge_cache_into_usage
+/// skips filling because cache_fields_missing=true.
+/// Request 2: same prefix, cache_fields_missing=false → merge fills auto-sim hit.
+#[test]
+fn state_machine_continuity_after_cache_fields_missing() {
+    use crate::kv_cache::KvCacheSimulator;
+
+    let mut sim = KvCacheSimulator::new();
+
+    // Request 1: cache_fields_missing=true, prefix A
+    // Both requests must have the same prefix for fingerprint match.
+    // 4 messages → prefix = first 3: [system, user("hello"), assistant("hi")]
+    let prefix_a: Vec<crate::scenario::types::MessageEntry> = vec![
+        crate::scenario::types::MessageEntry {
+            role: "system".to_string(),
+            content: "sys".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "assistant".to_string(),
+            content: "hi".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "q1".to_string(),
+        },
+    ];
+    // KvCacheSimulator produces auto-sim values, but merge skips filling.
+    let cache1 = sim.process(&prefix_a, &[], None, None);
+    let mut usage1 = Some(UsageResponse {
+        prompt_tokens: Some(100),
+        completion_tokens: Some(50),
+        cache_fields_missing: true,
+        ..Default::default()
+    });
+    ScenarioEngine::merge_cache_into_usage(&mut usage1, &cache1);
+    let u1 = usage1.unwrap();
+    assert!(
+        u1.cache_hit_tokens.is_none(),
+        "cache_fields_missing=true → no fill"
+    );
+    assert!(
+        u1.cache_write_tokens.is_none(),
+        "cache_fields_missing=true → no fill"
+    );
+
+    // Request 2: same prefix, cache_fields_missing=false → auto-sim hit
+    // KvCacheSimulator tracks the prefix internally, so same prefix = hit.
+    // merge_cache_into_usage fills the fields because cache_fields_missing=false.
+    let prefix_b: Vec<crate::scenario::types::MessageEntry> = vec![
+        crate::scenario::types::MessageEntry {
+            role: "system".to_string(),
+            content: "sys".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "assistant".to_string(),
+            content: "hi".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "q2".to_string(),
+        },
+    ];
+
+    let cache2 = sim.process(&prefix_b, &[], None, None);
+    let mut usage2 = Some(UsageResponse {
+        prompt_tokens: Some(100),
+        completion_tokens: Some(50),
+        cache_fields_missing: false,
+        ..Default::default()
+    });
+    ScenarioEngine::merge_cache_into_usage(&mut usage2, &cache2);
+    let u2 = usage2.unwrap();
+    // State machine tracked the prefix in request 1, so request 2 gets a hit
+    assert!(
+        u2.cache_hit_tokens.is_some(),
+        "same prefix should produce cache hit"
+    );
+    assert!(
+        u2.cache_hit_tokens.unwrap() > 0,
+        "cache hit tokens should be positive"
+    );
+    assert!(
+        u2.cache_write_tokens.is_none(),
+        "same prefix → no write tokens"
+    );
+}
+
+/// Target 4 variant: cache_fields_missing=true then switch to auto-sim
+/// with a different prefix — break with write tokens.
+/// Tests KvCacheSimulator directly (bypassing ScenarioEngine session tracking).
+#[test]
+fn state_machine_continuity_break_after_cache_fields_missing() {
+    use crate::kv_cache::KvCacheSimulator;
+
+    let mut sim = KvCacheSimulator::new();
+
+    // Request 1: cache_fields_missing=true, prefix A
+    let prefix_a: Vec<crate::scenario::types::MessageEntry> = vec![
+        crate::scenario::types::MessageEntry {
+            role: "system".to_string(),
+            content: "sys".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "assistant".to_string(),
+            content: "hi".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "q1".to_string(),
+        },
+    ];
+
+    let _cache1 = sim.process(&prefix_a, &[], None, None);
+    let mut usage1 = Some(UsageResponse {
+        prompt_tokens: Some(100),
+        completion_tokens: Some(50),
+        cache_fields_missing: true,
+        ..Default::default()
+    });
+    ScenarioEngine::merge_cache_into_usage(&mut usage1, &_cache1);
+    // Verify: cache_fields_missing=true → fields not filled
+    let u1 = usage1.unwrap();
+    assert!(u1.cache_hit_tokens.is_none());
+    assert!(u1.cache_write_tokens.is_none());
+
+    // Request 2: cache_fields_missing=false, different prefix → break with write tokens
+    let prefix_b: Vec<crate::scenario::types::MessageEntry> = vec![
+        crate::scenario::types::MessageEntry {
+            role: "system".to_string(),
+            content: "new sys".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "world".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "assistant".to_string(),
+            content: "yo".to_string(),
+        },
+        crate::scenario::types::MessageEntry {
+            role: "user".to_string(),
+            content: "q2".to_string(),
+        },
+    ];
+
+    let cache2 = sim.process(&prefix_b, &[], None, None);
+    let mut usage2 = Some(UsageResponse {
+        prompt_tokens: Some(100),
+        completion_tokens: Some(50),
+        cache_fields_missing: false,
+        ..Default::default()
+    });
+    ScenarioEngine::merge_cache_into_usage(&mut usage2, &cache2);
+    let u2 = usage2.unwrap();
+    // Different prefix → break: write tokens present
+    assert!(
+        u2.cache_write_tokens.is_some(),
+        "different prefix should produce cache write"
+    );
+    assert!(
+        u2.cache_write_tokens.unwrap() > 0,
+        "cache write tokens should be positive"
+    );
+}
+
 mod fixture_contract;
 mod response_blocks;
 mod streaming_fixture_contract;
