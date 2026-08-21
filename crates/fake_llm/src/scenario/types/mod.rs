@@ -27,7 +27,7 @@ pub struct ScenarioFile {
     pub scenarios: Vec<ScenarioDeclaration>,
 }
 
-/// A single scenario declaration: matching condition + response sequence.
+/// A single model entry in the models list response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelEntry {
     /// Model ID (e.g. "gpt-4", "claude-3-opus-20240229").

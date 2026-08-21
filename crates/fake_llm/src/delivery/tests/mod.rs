@@ -1,6 +1,8 @@
 use crate::delivery::sse::*;
 use crate::scenario::types::{ResponseBlock, UsageResponse};
 
+mod inject;
+
 fn text_block(content: &str) -> ResponseBlock {
     ResponseBlock {
         block_type: "text".to_string(),

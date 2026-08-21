@@ -24,10 +24,6 @@ struct PromptTokensDetails {
 // Request types
 // ---------------------------------------------------------------------------
 
-/// OpenAI chat completion request body.
-///
-/// Implements the subset of the OpenAI Chat Completions API required for
-/// protocol-level parsing. Unknown fields are silently ignored.
 /// Stream options for controlling streaming behavior.
 ///
 /// When present, the client signals whether to include token usage
