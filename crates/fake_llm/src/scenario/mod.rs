@@ -172,6 +172,13 @@ impl ScenarioEngine {
     }
 
     /// Build the final decision from matched scenario and turn response.
+    ///
+    /// Shape-level delivery control is extracted here:
+    /// - `Error` shape → `DecisionOutcome::Error` (TurnResponse.error takes
+    ///   priority when both are present; see `decide` above).
+    /// - `Streaming` / `Delay` shapes → delay and granularity parameters are
+    ///   merged into the decision only when the corresponding TurnResponse
+    ///   field is `None`.
     fn build_decision(
         &mut self,
         features: &RequestFeatures,
@@ -179,6 +186,54 @@ impl ScenarioEngine {
         turn_resp: &TurnResponse,
     ) -> DecisionOutcome {
         let shapes = turn_resp.response.to_shapes();
+
+        // --- Error shape: early return ---
+        // Check for Error shape *before* building blocks. TurnResponse.error
+        // is already handled in `decide()` with higher priority, so here we
+        // only handle the shape-level Error (which may coexist with text etc.
+        // in a composite — the error takes precedence).
+        for shape in &shapes {
+            if let ResponseShape::Error(e) = shape {
+                return DecisionOutcome::Error(HttpError {
+                    status: e.status,
+                    message: e.message.clone(),
+                    retry_after: e.retry_after,
+                });
+            }
+        }
+
+        // --- Extract shape-level delivery parameters ---
+        // Only fill when TurnResponse did not explicitly set the field.
+        let mut delay = turn_resp.delay;
+        let mut first_token_delay = turn_resp.first_token_delay;
+        let mut segment_delay = turn_resp.segment_delay;
+        let mut segment_granularity: Option<usize> = None;
+
+        for shape in &shapes {
+            match shape {
+                ResponseShape::Streaming(s) => {
+                    if segment_delay.is_none() {
+                        segment_delay = s.segment_delay_ms;
+                    }
+                    if segment_granularity.is_none() {
+                        segment_granularity = s.segment_granularity;
+                    }
+                }
+                ResponseShape::Delay(d) => {
+                    if delay.is_none() {
+                        delay = d.delay_ms;
+                    }
+                    if first_token_delay.is_none() {
+                        first_token_delay = d.first_token_delay_ms;
+                    }
+                    if segment_delay.is_none() {
+                        segment_delay = d.segment_delay_ms;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         let blocks = Self::build_response_blocks(&shapes);
         let mut usage = Self::extract_usage(&shapes);
         // KV cache simulation: compute cache fields and merge.
@@ -200,10 +255,11 @@ impl ScenarioEngine {
             stream: features.stream,
             response_blocks: blocks,
             http_error: None,
-            delay: turn_resp.delay,
-            first_token_delay: turn_resp.first_token_delay,
-            segment_delay: turn_resp.segment_delay,
+            delay,
+            first_token_delay,
+            segment_delay,
             stream_interrupt_after: turn_resp.stream_interrupt_after,
+            segment_granularity,
             usage,
         })
     }
@@ -275,9 +331,15 @@ impl ScenarioEngine {
                 ResponseShape::ToolCall(tc) => {
                     blocks.extend(Self::build_tool_call_blocks(tc));
                 }
+                // Control-only shapes produce no response blocks —
+                // Streaming and Delay only affect delivery parameters.
+                // Error is handled before block construction (early return).
+                ResponseShape::Streaming(_) | ResponseShape::Delay(_) | ResponseShape::Error(_) => {
+                }
                 // Usage-only shapes produce no response blocks — only usage data.
                 ResponseShape::Usage(_) => {}
-                _ => blocks.push(Self::build_text_block("")),
+                // Unknown shapes fall back to empty text block for backward compat.
+                ResponseShape::Unknown => blocks.push(Self::build_text_block("")),
             }
         }
         blocks

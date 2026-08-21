@@ -270,6 +270,7 @@ impl ScenarioDecision {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         }
     }
@@ -286,6 +287,7 @@ impl ScenarioDecision {
             first_token_delay: None,
             segment_delay: None,
             stream_interrupt_after: None,
+            segment_granularity: None,
             usage: None,
         }
     }

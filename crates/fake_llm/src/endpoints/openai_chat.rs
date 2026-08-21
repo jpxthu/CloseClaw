@@ -52,7 +52,9 @@ pub async fn handler(
                 .as_ref()
                 .is_some_and(|opts| opts.include_usage);
             let config = DeliveryConfig {
-                segment_granularity: DEFAULT_SEGMENT_GRANULARITY,
+                segment_granularity: decision
+                    .segment_granularity
+                    .unwrap_or(DEFAULT_SEGMENT_GRANULARITY),
                 include_usage,
                 stream_interrupt,
             };

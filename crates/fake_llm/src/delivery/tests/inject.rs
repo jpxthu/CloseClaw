@@ -55,6 +55,7 @@ async fn deliver_streaming_first_token_delay() {
         first_token_delay: Some(100),
         segment_delay: None,
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: Some(default_usage()),
     };
     let config = DeliveryConfig {
@@ -81,6 +82,7 @@ async fn deliver_streaming_segment_delay() {
         first_token_delay: None,
         segment_delay: Some(50),
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: Some(default_usage()),
     };
     let config = DeliveryConfig {
@@ -111,6 +113,7 @@ async fn deliver_streaming_combined_delays() {
         first_token_delay: Some(80),
         segment_delay: Some(30),
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: Some(default_usage()),
     };
     let config = DeliveryConfig {
@@ -148,6 +151,7 @@ async fn deliver_streaming_interrupt_mid() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: Some(2),
+        segment_granularity: None,
         usage: Some(default_usage()),
     };
     let config = DeliveryConfig {
@@ -176,6 +180,7 @@ async fn deliver_streaming_interrupt_zero() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: Some(0),
+        segment_granularity: None,
         usage: Some(default_usage()),
     };
     let config = DeliveryConfig {
@@ -204,6 +209,7 @@ async fn deliver_streaming_interrupt_consumable() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: Some(1),
+        segment_granularity: None,
         usage: Some(default_usage()),
     };
     let config = DeliveryConfig {
@@ -253,6 +259,7 @@ async fn deliver_anthropic_streaming_full_sequence() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: Some(default_usage()),
     };
     let config = DeliveryConfig {
@@ -309,6 +316,7 @@ async fn deliver_non_streaming_delay_then_error() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: None,
     };
     let config = DeliveryConfig {
@@ -350,6 +358,7 @@ async fn deliver_non_streaming_delay_then_error_500() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: None,
     };
     let config = DeliveryConfig {
@@ -384,6 +393,7 @@ async fn deliver_non_streaming_delay_no_error() {
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: None,
+        segment_granularity: None,
         usage: None,
     };
     let config = DeliveryConfig {

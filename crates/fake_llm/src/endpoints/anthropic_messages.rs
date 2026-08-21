@@ -48,7 +48,9 @@ pub async fn handler(
                 .stream_interrupt_after
                 .map(|n| StreamInterrupt { after_event: n });
             let config = DeliveryConfig {
-                segment_granularity: DEFAULT_SEGMENT_GRANULARITY,
+                segment_granularity: decision
+                    .segment_granularity
+                    .unwrap_or(DEFAULT_SEGMENT_GRANULARITY),
                 include_usage: true,
                 stream_interrupt,
             };
