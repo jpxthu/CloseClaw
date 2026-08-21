@@ -188,54 +188,18 @@ impl ScenarioEngine {
         let shapes = turn_resp.response.to_shapes();
 
         // --- Error shape: early return ---
-        // Check for Error shape *before* building blocks. TurnResponse.error
-        // is already handled in `decide()` with higher priority, so here we
-        // only handle the shape-level Error (which may coexist with text etc.
-        // in a composite — the error takes precedence).
-        // NOTE: This will not conflict with TurnResponse.error — `decide()`
-        // checks `turn_resp.error` earlier and short-circuits before reaching
-        // `build_decision`. If we are here, TurnResponse.error was None.
-        for shape in &shapes {
-            if let ResponseShape::Error(e) = shape {
-                return DecisionOutcome::Error(HttpError {
-                    status: e.status,
-                    message: e.message.clone(),
-                    retry_after: e.retry_after,
-                });
-            }
+        // TurnResponse.error is already handled in `decide()` with higher
+        // priority. If we are here, TurnResponse.error was None.
+        if let Some(http_err) = Self::extract_error_shape(&shapes) {
+            return DecisionOutcome::Error(http_err);
         }
 
         // --- Extract shape-level delivery parameters ---
         // Only fill when TurnResponse did not explicitly set the field.
-        let mut delay = turn_resp.delay;
-        let mut first_token_delay = turn_resp.first_token_delay;
-        let mut segment_delay = turn_resp.segment_delay;
-        let mut segment_granularity: Option<usize> = None;
-
-        for shape in &shapes {
-            match shape {
-                ResponseShape::Streaming(s) => {
-                    if segment_delay.is_none() {
-                        segment_delay = s.segment_delay_ms;
-                    }
-                    if segment_granularity.is_none() {
-                        segment_granularity = s.segment_granularity;
-                    }
-                }
-                ResponseShape::Delay(d) => {
-                    if delay.is_none() {
-                        delay = d.delay_ms;
-                    }
-                    if first_token_delay.is_none() {
-                        first_token_delay = d.first_token_delay_ms;
-                    }
-                    if segment_delay.is_none() {
-                        segment_delay = d.segment_delay_ms;
-                    }
-                }
-                _ => {}
-            }
-        }
+        // NOTE: segment_granularity is only declared by shapes; there is no
+        // corresponding TurnResponse field, so it has no override source.
+        let (delay, first_token_delay, segment_delay, segment_granularity) =
+            Self::extract_delivery_params(&shapes, turn_resp);
 
         let blocks = Self::build_response_blocks(&shapes);
         let mut usage = Self::extract_usage(&shapes);
@@ -265,6 +229,66 @@ impl ScenarioEngine {
             segment_granularity,
             usage,
         })
+    }
+
+    /// Extract an error shape from the response shapes, if present.
+    ///
+    /// Returns the first `ResponseShape::Error` encountered, converted
+    /// into an `HttpError` for the decision outcome.
+    fn extract_error_shape(shapes: &[ResponseShape]) -> Option<HttpError> {
+        for shape in shapes {
+            if let ResponseShape::Error(e) = shape {
+                return Some(HttpError {
+                    status: e.status,
+                    message: e.message.clone(),
+                    retry_after: e.retry_after,
+                });
+            }
+        }
+        None
+    }
+
+    /// Extract shape-level delivery parameters (delays + granularity).
+    ///
+    /// Iterates through shapes and fills in delivery parameters only
+    /// when the corresponding `TurnResponse` field is `None`.
+    /// `segment_granularity` is only declared by `Streaming` shapes;
+    /// there is no corresponding `TurnResponse` field.
+    fn extract_delivery_params(
+        shapes: &[ResponseShape],
+        turn_resp: &TurnResponse,
+    ) -> (Option<u64>, Option<u64>, Option<u64>, Option<usize>) {
+        let mut delay = turn_resp.delay;
+        let mut first_token_delay = turn_resp.first_token_delay;
+        let mut segment_delay = turn_resp.segment_delay;
+        let mut segment_granularity: Option<usize> = None;
+
+        for shape in shapes {
+            match shape {
+                ResponseShape::Streaming(s) => {
+                    if segment_delay.is_none() {
+                        segment_delay = s.segment_delay_ms;
+                    }
+                    if segment_granularity.is_none() {
+                        segment_granularity = s.segment_granularity;
+                    }
+                }
+                ResponseShape::Delay(d) => {
+                    if delay.is_none() {
+                        delay = d.delay_ms;
+                    }
+                    if first_token_delay.is_none() {
+                        first_token_delay = d.first_token_delay_ms;
+                    }
+                    if segment_delay.is_none() {
+                        segment_delay = d.segment_delay_ms;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        (delay, first_token_delay, segment_delay, segment_granularity)
     }
 
     /// Decide how to respond to a `/v1/models` request.
