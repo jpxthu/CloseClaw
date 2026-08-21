@@ -8,19 +8,20 @@
 use std::collections::HashMap;
 
 use super::types::{MatchCondition, ScenarioDeclaration};
-use crate::types::RequestFeatures;
+use crate::types::{ProtocolKind, RequestFeatures};
 
 /// Pre-built index for efficient scenario matching.
 ///
 /// Created once from the loaded scenario list, then reused for every request.
-/// Scenarios are grouped by `model_id` for O(1) lookup, with ungrouped
-/// scenarios (no model constraint) checked against every request.
+/// Scenarios are grouped by `(model_id, protocol)` for O(1) lookup.
+/// Scenarios without a model constraint are grouped by protocol only,
+/// so that OpenAI requests never match Anthropic-only fallback buckets
+/// and vice versa.
 pub struct MatcherIndex {
-    /// Indices of scenarios with no model_id constraint — checked against
-    /// every request.
-    any_model: Vec<usize>,
-    /// Indices of scenarios grouped by model_id.
-    by_model: HashMap<String, Vec<usize>>,
+    /// Indices of scenarios with no model_id constraint, grouped by protocol.
+    any_by_protocol: HashMap<ProtocolKind, Vec<usize>>,
+    /// Indices of scenarios grouped by `(model_id, protocol)` composite key.
+    by_model: HashMap<(String, ProtocolKind), Vec<usize>>,
     /// Reference to the original scenario list.
     scenarios: Vec<ScenarioDeclaration>,
 }
@@ -28,27 +29,45 @@ pub struct MatcherIndex {
 impl MatcherIndex {
     /// Build an index from a list of scenario declarations.
     pub fn build(scenarios: Vec<ScenarioDeclaration>) -> Self {
-        let mut any_model = Vec::new();
-        let mut by_model: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut any_by_protocol: HashMap<ProtocolKind, Vec<usize>> = HashMap::new();
+        let mut by_model: HashMap<(String, ProtocolKind), Vec<usize>> = HashMap::new();
 
         for (i, scenario) in scenarios.iter().enumerate() {
             match &scenario.match_ {
                 None => {
-                    any_model.push(i);
+                    // Fallback scenarios: no match condition => matches everything.
+                    // Indexed under every protocol so it catches zero-hit requests
+                    // regardless of protocol.
+                    for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
+                        any_by_protocol.entry(proto).or_default().push(i);
+                    }
                 }
-                Some(cond) => match &cond.model_id {
-                    Some(model_id) => {
-                        by_model.entry(model_id.clone()).or_default().push(i);
+                Some(cond) => {
+                    match &cond.model_id {
+                        Some(model_id) => {
+                            // Scenarios with a model constraint but no protocol constraint
+                            // are indexed under every protocol for that model.
+                            for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
+                                by_model
+                                    .entry((model_id.clone(), proto))
+                                    .or_default()
+                                    .push(i);
+                            }
+                        }
+                        None => {
+                            // Has match conditions but no model constraint =>
+                            // goes to any_by_protocol (protocol-isolated).
+                            for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
+                                any_by_protocol.entry(proto).or_default().push(i);
+                            }
+                        }
                     }
-                    None => {
-                        any_model.push(i);
-                    }
-                },
+                }
             }
         }
 
         Self {
-            any_model,
+            any_by_protocol,
             by_model,
             scenarios,
         }
@@ -58,19 +77,23 @@ impl MatcherIndex {
     ///
     /// Returns the index of the matched scenario within the internal list,
     /// or `None` if nothing matches. Panics if multiple scenarios match —
-    /// indicates a scenario file error.
+    /// indicates a scenario file error (should be caught at build time
+    /// via conflict detection in Step 1.3).
     pub fn match_request(&self, features: &RequestFeatures) -> Option<usize> {
         let mut matched: Vec<usize> = Vec::new();
+        let key = (features.model.clone(), features.protocol);
 
-        // Check any-model bucket
-        for &idx in &self.any_model {
-            if scenario_matches(features, &self.scenarios[idx]) {
-                matched.push(idx);
+        // Check any-model bucket for this protocol only
+        if let Some(indices) = self.any_by_protocol.get(&features.protocol) {
+            for &idx in indices {
+                if scenario_matches(features, &self.scenarios[idx]) {
+                    matched.push(idx);
+                }
             }
         }
 
-        // Check model-specific bucket
-        if let Some(model_indices) = self.by_model.get(&features.model) {
+        // Check model-specific bucket for (model, protocol)
+        if let Some(model_indices) = self.by_model.get(&key) {
             for &idx in model_indices {
                 if scenario_matches(features, &self.scenarios[idx]) {
                     matched.push(idx);
@@ -273,6 +296,15 @@ mod tests {
     }
 
     fn feat(model: &str, messages: Vec<&str>, tools: Vec<&str>) -> RequestFeatures {
+        feat_proto(model, messages, tools, ProtocolKind::OpenAi)
+    }
+
+    fn feat_proto(
+        model: &str,
+        messages: Vec<&str>,
+        tools: Vec<&str>,
+        protocol: ProtocolKind,
+    ) -> RequestFeatures {
         RequestFeatures {
             model: model.to_string(),
             stream: false,
@@ -286,7 +318,7 @@ mod tests {
                 })
                 .collect(),
             tools: tools.into_iter().map(String::from).collect(),
-            protocol: ProtocolKind::OpenAi,
+            protocol,
         }
     }
 
@@ -521,6 +553,129 @@ mod tests {
 
         let r3 = index.match_request(&feat("unknown-model", vec!["hi"], vec![]));
         assert!(r3.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Dual-dimension indexing: cross-protocol same-model isolation
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn cross_protocol_same_model_routing() {
+        // A scenario with model_id="gpt-4o" is indexed under both protocol
+        // buckets. Both OpenAI and Anthropic requests for gpt-4o match it.
+        // The dual-dimension key ensures protocol isolation: an OpenAI request
+        // only checks the OpenAI protocol bucket, an Anthropic request only
+        // checks the Anthropic bucket.
+        let scenarios = vec![specific(
+            "gpt4",
+            MatchCondition {
+                model_id: Some("gpt-4o".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+
+        // OpenAI request hits the OpenAI bucket
+        let r = index.match_request(&feat_proto(
+            "gpt-4o",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::OpenAi,
+        ));
+        assert_eq!(index.get(r.unwrap()).name, "gpt4");
+
+        // Anthropic request hits the Anthropic bucket (same scenario)
+        let r = index.match_request(&feat_proto(
+            "gpt-4o",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::Anthropic,
+        ));
+        assert_eq!(index.get(r.unwrap()).name, "gpt4");
+    }
+
+    #[test]
+    fn cross_protocol_fallback_matches_both_protocols() {
+        // Fallback scenario (no match condition) goes into every protocol bucket.
+        let scenarios = vec![fallback("fallback")];
+        let index = MatcherIndex::build(scenarios);
+
+        let r = index.match_request(&feat_proto(
+            "any-model",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::OpenAi,
+        ));
+        assert_eq!(index.get(r.unwrap()).name, "fallback");
+
+        let r = index.match_request(&feat_proto(
+            "any-model",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::Anthropic,
+        ));
+        assert_eq!(index.get(r.unwrap()).name, "fallback");
+    }
+
+    #[test]
+    fn cross_protocol_model_specific_and_fallback() {
+        // Model-specific scenario + fallback: both match for the same model.
+        // This is a real conflict that will be caught in Step 1.3.
+        let scenarios = vec![
+            specific(
+                "gpt4-scene",
+                MatchCondition {
+                    model_id: Some("gpt-4o".to_string()),
+                    ..Default::default()
+                },
+            ),
+            fallback("fallback"),
+        ];
+        let index = MatcherIndex::build(scenarios);
+
+        // Both match -> multi-hit panic (to be replaced by conflict detection
+        // in Step 1.3)
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            index.match_request(&feat_proto(
+                "gpt-4o",
+                vec!["hi"],
+                vec![],
+                ProtocolKind::OpenAi,
+            ))
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn cross_protocol_no_leakage_between_models() {
+        // A scenario for model_id="claude-3" is indexed under both protocol
+        // buckets. OpenAI request for gpt-4o does not match (different model).
+        let scenarios = vec![specific(
+            "claude-scene",
+            MatchCondition {
+                model_id: Some("claude-3".to_string()),
+                ..Default::default()
+            },
+        )];
+        let index = MatcherIndex::build(scenarios);
+
+        // OpenAI request for gpt-4o: no match (model mismatch)
+        let r = index.match_request(&feat_proto(
+            "gpt-4o",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::OpenAi,
+        ));
+        assert!(r.is_none());
+
+        // Anthropic request for claude-3: matches
+        let r = index.match_request(&feat_proto(
+            "claude-3",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::Anthropic,
+        ));
+        assert_eq!(index.get(r.unwrap()).name, "claude-scene");
     }
 
     // ------------------------------------------------------------------
