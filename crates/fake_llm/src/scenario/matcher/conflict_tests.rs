@@ -579,7 +579,9 @@ fn two_fallbacks_conflict() {
 }
 
 #[test]
-fn fallback_and_conditional_conflict() {
+fn fallback_and_conditional_no_conflict() {
+    // Fallback is the zero-match兜底 and coexists legally with
+    // conditional scenarios.
     let scenarios = vec![
         fallback("fb"),
         conditional(
@@ -591,8 +593,7 @@ fn fallback_and_conditional_conflict() {
         ),
     ];
     let conflicts = detect_conflicts(&scenarios);
-    assert_eq!(conflicts.len(), 1);
-    assert!(conflicts[0].reason.contains("fallback"));
+    assert!(conflicts.is_empty());
 }
 
 // ===================================================================
@@ -693,7 +694,8 @@ fn from_dir_conflicting_scenarios_fails_at_startup() {
 }
 
 #[test]
-fn from_dir_fallback_and_conditional_fails() {
+fn from_dir_fallback_and_conditional_succeeds() {
+    // Fallback + conditional is legal — fallback is the zero-match兜底.
     let tmp = tempfile::TempDir::new().unwrap();
     let json = serde_json::json!({
         "scenarios": [
@@ -709,18 +711,16 @@ fn from_dir_fallback_and_conditional_fails() {
         ]
     });
     std::fs::write(
-        tmp.path().join("bad.json"),
+        tmp.path().join("ok.json"),
         serde_json::to_string(&json).unwrap(),
     )
     .unwrap();
 
     let result = crate::scenario::ScenarioEngine::from_dir(tmp.path());
-    assert!(result.is_err());
-    let err_msg = match result {
-        Ok(_) => unreachable!(),
-        Err(e) => format!("{}", e),
-    };
-    assert!(err_msg.contains("conflict"));
+    assert!(
+        result.is_ok(),
+        "from_dir should succeed for fallback + conditional"
+    );
 }
 
 #[test]
@@ -792,7 +792,7 @@ fn matcher_index_build_conflict_error_carry_names() {
 // ===================================================================
 
 #[test]
-fn three_way_conflict_all_pairs() {
+fn three_way_one_conflict() {
     let scenarios = vec![
         fallback("fb"),
         conditional(
@@ -810,8 +810,10 @@ fn three_way_conflict_all_pairs() {
             },
         ),
     ];
-    // fb × a, fb × b, a × b = 3 conflicts
-    assert_eq!(detect_conflicts(&scenarios).len(), 3);
+    // fb × a: no conflict (fallback + conditional)
+    // fb × b: no conflict (fallback + conditional)
+    // a × b: conflict (same model_id)
+    assert_eq!(detect_conflicts(&scenarios).len(), 1);
 }
 
 // ===================================================================

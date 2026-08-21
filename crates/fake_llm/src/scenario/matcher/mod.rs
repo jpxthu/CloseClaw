@@ -42,11 +42,10 @@ impl MatcherIndex {
         let mut by_model: HashMap<(String, ProtocolKind), Vec<usize>> = HashMap::new();
         for (i, scenario) in scenarios.iter().enumerate() {
             match &scenario.match_ {
-                None => {
-                    for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
-                        any_by_protocol.entry(proto).or_default().push(i);
-                    }
-                }
+                // Fallback scenarios are NOT placed in any_by_protocol —
+                // they are only checked as the last-resort兜底 via
+                // fallback_by_protocol.
+                None => {}
                 Some(cond) => match &cond.model_id {
                     Some(model_id) => {
                         for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
@@ -445,8 +444,9 @@ mod tests {
     }
 
     #[test]
-    fn index_fallback_and_specific_is_conflict() {
-        // Fallback + conditional with model_id = conflict at build time.
+    fn index_fallback_and_specific_coexist() {
+        // Fallback + conditional with model_id = legal (fallback is the
+        // zero-match兜底, checked only after conditionals fail).
         let scenarios = vec![
             specific(
                 "specific",
@@ -458,10 +458,14 @@ mod tests {
             fallback("fallback"),
         ];
         let result = MatcherIndex::build(scenarios);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.conflicts.len(), 1);
-        assert!(err.conflicts[0].reason.contains("fallback"));
+        assert!(result.is_ok());
+        let index = result.unwrap();
+        // Request matching specific scenario hits it directly
+        let r = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
+        assert_eq!(index.get(r.unwrap()).name, "specific");
+        // Request with non-matching model falls back
+        let r = index.match_request(&feat("claude-3", vec!["hi"], vec![]));
+        assert_eq!(index.get(r.unwrap()).name, "fallback");
     }
 
     #[test]
@@ -614,8 +618,8 @@ mod tests {
     }
 
     #[test]
-    fn cross_protocol_model_specific_and_fallback_is_conflict() {
-        // Model-specific + fallback = conflict caught at build time.
+    fn cross_protocol_model_specific_and_fallback_coexist() {
+        // Model-specific + fallback = legal (fallback is the zero-match兜底).
         let scenarios = vec![
             specific(
                 "gpt4-scene",
@@ -627,7 +631,24 @@ mod tests {
             fallback("fallback"),
         ];
         let result = MatcherIndex::build(scenarios);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        let index = result.unwrap();
+        // gpt-4o request hits specific
+        let r = index.match_request(&feat_proto(
+            "gpt-4o",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::OpenAi,
+        ));
+        assert_eq!(index.get(r.unwrap()).name, "gpt4-scene");
+        // non-matching model falls back
+        let r = index.match_request(&feat_proto(
+            "claude-3",
+            vec!["hi"],
+            vec![],
+            ProtocolKind::OpenAi,
+        ));
+        assert_eq!(index.get(r.unwrap()).name, "fallback");
     }
 
     #[test]
@@ -932,6 +953,9 @@ mod tests {
 
 #[cfg(test)]
 mod conflict_tests;
+
+#[cfg(test)]
+mod matcher_integration_tests;
 
 #[cfg(test)]
 mod matcher_request_params_tests;
