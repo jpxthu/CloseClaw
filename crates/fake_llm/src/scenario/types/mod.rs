@@ -92,6 +92,9 @@ pub struct MatchCondition {
 pub struct TurnResponse {
     /// The response shape for this turn.
     /// Optional: error-only turns may omit this field.
+    ///
+    /// When the `error` field is also present, `error` takes priority and
+    /// this field is ignored (see [`ScenarioEngine::decide`]).
     #[serde(default)]
     pub response: ResponseShape,
     /// Optional artificial delay before delivering the response (milliseconds).
@@ -108,6 +111,10 @@ pub struct TurnResponse {
     pub segment_delay: Option<u64>,
     /// Optional HTTP error injection. When present, the endpoint returns
     /// this error instead of a normal response.
+    ///
+    /// When this field is `Some`, the error takes priority over the
+    /// `response` field — [`ScenarioEngine::decide`] returns immediately
+    /// with [`DecisionOutcome::Error`], and `response` is never evaluated.
     #[serde(default)]
     pub error: Option<HttpError>,
     /// Optional stream interrupt position. When set, the streaming response
