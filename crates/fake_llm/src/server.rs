@@ -40,10 +40,10 @@ fn create_state(scenarios_dir: Option<&Path>) -> ScenarioState {
                     "Failed to load scenarios from {}, using empty engine",
                     dir.display()
                 );
-                ScenarioEngine::new(vec![])
+                ScenarioEngine::new(vec![]).expect("empty scenario list cannot conflict")
             }
         },
-        _ => ScenarioEngine::new(vec![]),
+        _ => ScenarioEngine::new(vec![]).expect("empty scenario list cannot conflict"),
     };
     ScenarioState {
         engine: Arc::new(Mutex::new(engine)),
@@ -89,7 +89,9 @@ pub async fn start_server_addr(
 /// Build the router (exposed for testing).
 pub fn build_router() -> Router {
     let state = ScenarioState {
-        engine: Arc::new(Mutex::new(ScenarioEngine::new(vec![]))),
+        engine: Arc::new(Mutex::new(
+            ScenarioEngine::new(vec![]).expect("empty scenario list cannot conflict"),
+        )),
     };
     app(state)
 }

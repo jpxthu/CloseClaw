@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------
 
 use super::*;
+use crate::types::ProtocolKind;
 
 #[test]
 fn build_response_blocks_reasoning_shape() {
@@ -113,12 +114,11 @@ fn build_response_blocks_text_shape() {
 }
 
 #[test]
-fn build_response_blocks_usage_shape_produces_empty_text() {
+fn build_response_blocks_usage_shape_produces_no_blocks() {
     let shape = ResponseShape::Usage(UsageResponse::default());
     let blocks = ScenarioEngine::build_response_blocks(&[shape]);
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].block_type, "text");
-    assert_eq!(blocks[0].content.as_deref(), Some(""));
+    // Usage-only shapes produce no response blocks — only usage data.
+    assert!(blocks.is_empty());
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn decide_reasoning_scenario_produces_correct_blocks() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "what is 6*7?");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -188,7 +188,7 @@ fn decide_tool_call_scenario_produces_correct_blocks() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "search for rust");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -245,7 +245,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
         ],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario2]);
+    let mut engine = ScenarioEngine::new(vec![scenario2]).unwrap();
     let feat = features("gpt-4", "search for something");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -277,6 +277,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome2 = engine.decide(&feat2);
     match outcome2 {
@@ -431,7 +432,7 @@ fn decide_composite_turn_produces_all_blocks() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "compute");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -473,13 +474,13 @@ fn decide_composite_turn_with_usage() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
-            // Text produces 1 block, Usage produces 1 empty text block
-            assert_eq!(d.response_blocks.len(), 2);
+            // Text produces 1 block, Usage produces no blocks
+            assert_eq!(d.response_blocks.len(), 1);
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("ok"));
             let u = d.usage.unwrap();
             assert_eq!(u.prompt_tokens, Some(10));

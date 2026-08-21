@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ProtocolKind;
 
 fn text_turn(content: &str) -> TurnResponse {
     TurnResponse {
@@ -26,20 +27,21 @@ fn features(model: &str, msg: &str) -> RequestFeatures {
             content: msg.to_string(),
         }],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
 #[test]
-fn decide_fallback_when_no_match() {
-    let mut engine = ScenarioEngine::new(vec![]);
+fn decide_no_match_no_fallback_returns_error() {
+    let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let feat = features("gpt-4", "hello");
     let outcome = engine.decide(&feat);
     match outcome {
-        DecisionOutcome::Decision(d) => {
-            assert_eq!(d.scenario, "default");
-            assert_eq!(d.response_blocks.len(), 1);
+        DecisionOutcome::Decision(_) => panic!("expected error, got decision"),
+        DecisionOutcome::Error(e) => {
+            assert_eq!(e.status, 500);
+            assert!(e.message.contains("no fallback declared"));
         }
-        DecisionOutcome::Error(_) => panic!("expected decision, got error"),
     }
 }
 
@@ -51,7 +53,7 @@ fn decide_matches_scenario_and_returns_turn() {
         turns: vec![text_turn("hello"), text_turn("world")],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
@@ -84,6 +86,7 @@ fn decide_matches_scenario_and_returns_turn() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome2 = engine.decide(&feat2);
     match outcome2 {
@@ -117,7 +120,7 @@ fn decide_error_injection() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -149,11 +152,13 @@ fn decide_captures_usage() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
+            // Usage-only shape produces empty response blocks
+            assert!(d.response_blocks.is_empty());
             let u = d.usage.unwrap();
             assert_eq!(u.prompt_tokens, Some(10));
             assert_eq!(u.completion_tokens, Some(20));
@@ -181,7 +186,7 @@ fn decide_captures_delay() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -217,6 +222,7 @@ fn features_with_model(model: &str, msg: &str) -> RequestFeatures {
             content: msg.to_string(),
         }],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
@@ -234,6 +240,7 @@ fn features_with_messages(model: &str, messages: Vec<(&str, &str)>) -> RequestFe
             })
             .collect(),
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
@@ -317,6 +324,7 @@ fn decide_fixture_error_injection_rate_limit() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome2 = engine.decide(&feat2);
     match outcome2 {
@@ -344,6 +352,7 @@ fn decide_fixture_error_injection_server_error() {
             content: "search something".to_string(),
         }],
         tools: vec!["web_search".to_string()],
+        protocol: ProtocolKind::OpenAi,
     };
     let outcome = engine.decide(&feat);
     match outcome {
@@ -500,19 +509,20 @@ fn decide_fixture_cache_fields_missing() {
 }
 
 #[test]
-fn decide_unknown_model_returns_default() {
+fn decide_unknown_model_returns_error_when_no_fallback() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
-    // No fixture matches model "unknown-model" -> default placeholder
+    // No fixture matches model "unknown-model" and no fallback declared.
+    // Zero hits with no fallback → error.
     let feat = features_with_model("unknown-model", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
-        DecisionOutcome::Decision(d) => {
-            assert_eq!(d.scenario, "default");
-            assert_eq!(d.response_blocks[0].content.as_deref(), Some("placeholder"));
+        DecisionOutcome::Decision(_) => panic!("expected error, got decision"),
+        DecisionOutcome::Error(e) => {
+            assert_eq!(e.status, 500);
+            assert!(e.message.contains("no fallback declared"));
         }
-        DecisionOutcome::Error(_) => panic!("expected decision"),
     }
 }
 
@@ -536,7 +546,7 @@ fn decide_for_models_returns_scenario_declared_models() {
             },
         ]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Models(entries, delay) => {
@@ -556,13 +566,13 @@ fn decide_for_models_placeholder_when_no_models_declared() {
         turns: vec![text_turn("ok")],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     assert!(matches!(decision, ModelsDecision::Placeholder));
 }
 #[test]
 fn decide_for_models_placeholder_when_no_scenarios() {
-    let mut engine = ScenarioEngine::new(vec![]);
+    let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let decision = engine.decide_for_models();
     assert!(matches!(decision, ModelsDecision::Placeholder));
 }
@@ -592,7 +602,7 @@ fn decide_for_models_error_injection() {
             owned_by: "openai".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Error(e) => {
@@ -624,7 +634,7 @@ fn decide_for_models_returns_models_when_no_error() {
             owned_by: "test-org".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Models(entries, delay) => {
@@ -649,7 +659,7 @@ fn decide_for_models_with_model_id_constraint() {
             owned_by: "openai".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Models(entries, delay) => {
@@ -681,7 +691,7 @@ fn decide_for_models_carrying_delay() {
             owned_by: "org".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     match engine.decide_for_models() {
         ModelsDecision::Models(_, delay) => assert_eq!(delay, Some(500)),
         d => panic!("expected Models variant with delay, got {:?}", d),
@@ -706,6 +716,7 @@ fn per_scenario_isolation_cursors_and_cache() {
         temperature: None,
         messages: prefix.clone(),
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let mk_feat_ext = |model: &str, reply: &str| RequestFeatures {
         model: model.to_string(),
@@ -727,6 +738,7 @@ fn per_scenario_isolation_cursors_and_cache() {
             },
         ],
         tools: vec![],
+        protocol: ProtocolKind::OpenAi,
     };
     let decl = |name: &str, model: &str| ScenarioDeclaration {
         name: name.to_string(),
@@ -738,7 +750,7 @@ fn per_scenario_isolation_cursors_and_cache() {
         models: None,
     };
     let mut engine =
-        ScenarioEngine::new(vec![decl("scene-a", "model-a"), decl("scene-b", "model-b")]);
+        ScenarioEngine::new(vec![decl("scene-a", "model-a"), decl("scene-b", "model-b")]).unwrap();
 
     // Scene A turn 0, Scene B turn 0 (independent cursors)
     match engine.decide(&mk_feat("model-a")) {
@@ -800,7 +812,7 @@ fn cache_fields_missing_with_explicit_injection_priority() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -843,7 +855,7 @@ fn cache_fields_missing_with_explicit_both_fields() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -950,6 +962,7 @@ fn state_machine_continuity_break_after_cache_fields_missing() {
     assert!(u2.cache_write_tokens.unwrap() > 0, "write tokens positive");
 }
 
+mod fallback_integration_tests;
 mod fixture_contract;
 mod reasoning_intensity;
 mod response_blocks;

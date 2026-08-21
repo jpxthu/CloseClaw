@@ -256,7 +256,8 @@ mod tests {
         let files = load_scenario_dir(&dir).unwrap();
         let all_scenarios: Vec<_> = files.into_iter().flat_map(|f| f.scenarios).collect();
         // Each scenario should have a unique model_id or non-overlapping
-        // conditions. Verify by building a MatcherIndex (panics on conflict).
-        let _index = super::super::matcher::MatcherIndex::build(all_scenarios);
+        // conditions. Verify by building a MatcherIndex (returns Err on conflict).
+        let _index = super::super::matcher::MatcherIndex::build(all_scenarios)
+            .expect("fixture scenarios should have no conflicts");
     }
 }
