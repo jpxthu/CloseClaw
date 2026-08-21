@@ -5,29 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Plan Path — plan 双路径选择
-///
-/// 标准路径（需求明确）或 Interview 路径（需求模糊）。
-/// 无显式指定时由系统自动判断。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanPath {
-    /// 标准路径：需求明确，4 阶段工作流
-    #[default]
-    Standard,
-    /// Interview 路径：需求模糊，循环探索
-    Interview,
-}
-
-impl std::fmt::Display for PlanPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Standard => write!(f, "standard"),
-            Self::Interview => write!(f, "interview"),
-        }
-    }
-}
-
 /// Plan Phase — 当前规划阶段枚举
 ///
 /// 阶段切换由 agent 自行判断，代码层不强制状态机转换。
