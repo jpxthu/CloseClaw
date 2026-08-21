@@ -122,26 +122,74 @@ fn scenario_matches(features: &RequestFeatures, scenario: &ScenarioDeclaration) 
 
 /// Check whether all specified fields in a match condition are satisfied.
 fn match_condition_satisfied(features: &RequestFeatures, condition: &MatchCondition) -> bool {
-    if let Some(ref required_model) = condition.model_id {
-        if features.model != *required_model {
-            return false;
-        }
+    if !matches_model_id(features, condition) {
+        return false;
     }
-
-    if let Some(ref substr) = condition.message_contains {
-        let found = features.messages.iter().any(|m| m.content.contains(substr));
-        if !found {
-            return false;
-        }
+    if !matches_message_contains(features, condition) {
+        return false;
     }
-
-    if let Some(ref required_tool) = condition.tool_name {
-        if !features.tools.iter().any(|t| t == required_tool) {
-            return false;
-        }
+    if !matches_tool_name(features, condition) {
+        return false;
     }
-
+    if !matches_request_params(features, condition) {
+        return false;
+    }
     true
+}
+
+/// Check if the request model matches the condition's `model_id`.
+fn matches_model_id(features: &RequestFeatures, condition: &MatchCondition) -> bool {
+    match &condition.model_id {
+        Some(required) => features.model == *required,
+        None => true,
+    }
+}
+
+/// Check if at least one message contains the condition's `message_contains` substring.
+fn matches_message_contains(features: &RequestFeatures, condition: &MatchCondition) -> bool {
+    match &condition.message_contains {
+        Some(substr) => features.messages.iter().any(|m| m.content.contains(substr)),
+        None => true,
+    }
+}
+
+/// Check if the request tools contain the condition's `tool_name`.
+fn matches_tool_name(features: &RequestFeatures, condition: &MatchCondition) -> bool {
+    match &condition.tool_name {
+        Some(required) => features.tools.iter().any(|t| t == required),
+        None => true,
+    }
+}
+
+/// Check if the request parameters match the condition's `request_params`.
+///
+/// Each key-value pair in `request_params` is compared against the
+/// corresponding field in [`RequestFeatures`]. Unknown keys are silently
+/// ignored. When `request_params` is `None`, the check always passes.
+fn matches_request_params(features: &RequestFeatures, condition: &MatchCondition) -> bool {
+    let params = match &condition.request_params {
+        Some(p) => p,
+        None => return true,
+    };
+    params.iter().all(|(key, expected)| {
+        let actual = features_to_json_value(features, key.as_str());
+        match actual {
+            Some(v) => v == *expected,
+            None => true, // unknown key => ignore
+        }
+    })
+}
+
+/// Map a [`RequestFeatures`] field to a JSON value by key name.
+///
+/// Returns `None` for unknown keys (treated as non-constraining).
+fn features_to_json_value(features: &RequestFeatures, key: &str) -> Option<serde_json::Value> {
+    match key {
+        "stream" => Some(serde_json::Value::Bool(features.stream)),
+        "max_tokens" => features.max_tokens.map(|v| serde_json::json!(v)),
+        "temperature" => features.temperature.map(|v| serde_json::json!(v)),
+        _ => None,
+    }
 }
 
 /// Convenience function: match a request against a list of scenario declarations.

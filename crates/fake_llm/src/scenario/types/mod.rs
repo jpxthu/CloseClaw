@@ -77,6 +77,14 @@ pub struct MatchCondition {
     /// Extra key-value match conditions (future extensibility).
     #[serde(default)]
     pub extra: Option<HashMap<String, String>>,
+    /// Request parameter match conditions (e.g. stream, max_tokens, temperature).
+    ///
+    /// Keys correspond to field names on [`RequestFeatures`]: `"stream"`,
+    /// `"max_tokens"`, `"temperature"`. Values are JSON-typed to preserve
+    /// the original types (bool / number). Unknown keys are silently ignored
+    /// during matching.
+    #[serde(default)]
+    pub request_params: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// A single turn's response configuration.
@@ -519,6 +527,7 @@ mod tests {
                     message_contains: Some("hello".to_string()),
                     tool_name: None,
                     extra: None,
+                    request_params: None,
                 }),
                 turns: vec![TurnResponse {
                     response: ResponseShape::Text(TextResponse {
