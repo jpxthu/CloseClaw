@@ -77,6 +77,14 @@ pub struct MatchCondition {
     /// Extra key-value match conditions (future extensibility).
     #[serde(default)]
     pub extra: Option<HashMap<String, String>>,
+    /// Request parameter match conditions (e.g. stream, max_tokens, temperature).
+    ///
+    /// Keys correspond to field names on [`RequestFeatures`]: `"stream"`,
+    /// `"max_tokens"`, `"temperature"`. Values are JSON-typed to preserve
+    /// the original types (bool / number). Unknown keys are silently ignored
+    /// during matching.
+    #[serde(default)]
+    pub request_params: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// A single turn's response configuration.
@@ -84,6 +92,9 @@ pub struct MatchCondition {
 pub struct TurnResponse {
     /// The response shape for this turn.
     /// Optional: error-only turns may omit this field.
+    ///
+    /// When the `error` field is also present, `error` takes priority and
+    /// this field is ignored (see [`ScenarioEngine::decide`]).
     #[serde(default)]
     pub response: ResponseShape,
     /// Optional artificial delay before delivering the response (milliseconds).
@@ -100,6 +111,10 @@ pub struct TurnResponse {
     pub segment_delay: Option<u64>,
     /// Optional HTTP error injection. When present, the endpoint returns
     /// this error instead of a normal response.
+    ///
+    /// When this field is `Some`, the error takes priority over the
+    /// `response` field — [`ScenarioEngine::decide`] returns immediately
+    /// with [`DecisionOutcome::Error`], and `response` is never evaluated.
     #[serde(default)]
     pub error: Option<HttpError>,
     /// Optional stream interrupt position. When set, the streaming response
@@ -519,6 +534,7 @@ mod tests {
                     message_contains: Some("hello".to_string()),
                     tool_name: None,
                     extra: None,
+                    request_params: None,
                 }),
                 turns: vec![TurnResponse {
                     response: ResponseShape::Text(TextResponse {
@@ -670,6 +686,38 @@ mod tests {
             }
             _ => panic!("expected Usage variant"),
         }
+    }
+
+    #[test]
+    fn deserialize_match_condition_request_params() {
+        let json = r#"{
+            "model_id": "gpt-4o",
+            "request_params": {
+                "stream": true,
+                "max_tokens": 1024,
+                "temperature": 0.7
+            }
+        }"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert_eq!(cond.model_id.as_deref(), Some("gpt-4o"));
+        let params = cond.request_params.as_ref().unwrap();
+        assert_eq!(params.get("stream"), Some(&serde_json::json!(true)));
+        assert_eq!(params.get("max_tokens"), Some(&serde_json::json!(1024)));
+        assert_eq!(params.get("temperature"), Some(&serde_json::json!(0.7)));
+    }
+
+    #[test]
+    fn deserialize_match_condition_request_params_absent() {
+        let json = r#"{"model_id": "gpt-4o"}"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert!(cond.request_params.is_none());
+    }
+
+    #[test]
+    fn deserialize_match_condition_request_params_empty() {
+        let json = r#"{"request_params": {}}"#;
+        let cond: MatchCondition = serde_json::from_str(json).unwrap();
+        assert!(cond.request_params.as_ref().unwrap().is_empty());
     }
 
     #[test]
