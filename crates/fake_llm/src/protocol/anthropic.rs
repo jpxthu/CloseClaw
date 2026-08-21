@@ -390,6 +390,8 @@ mod tests {
             ],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
 
@@ -439,6 +441,8 @@ mod tests {
             ],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
 
@@ -479,6 +483,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
 
@@ -512,6 +518,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
 
@@ -543,6 +551,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
 
@@ -573,6 +583,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: Some(crate::scenario::types::UsageResponse {
                 prompt_tokens: Some(100),
                 completion_tokens: Some(50),
@@ -608,6 +620,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: Some(crate::scenario::types::UsageResponse {
                 prompt_tokens: Some(100),
                 completion_tokens: Some(50),
@@ -644,6 +658,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: Some(crate::scenario::types::UsageResponse {
                 prompt_tokens: Some(100),
                 completion_tokens: Some(50),
@@ -680,6 +696,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: Some(crate::scenario::types::UsageResponse {
                 prompt_tokens: Some(100),
                 completion_tokens: Some(50),
@@ -715,6 +733,8 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
 

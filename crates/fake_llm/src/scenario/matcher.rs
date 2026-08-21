@@ -188,6 +188,8 @@ mod tests {
                 usage: None,
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }
     }

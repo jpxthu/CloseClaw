@@ -86,8 +86,17 @@ pub struct ScenarioDecision {
     #[serde(default)]
     pub http_error: Option<HttpError>,
     /// Optional artificial delay before delivery (milliseconds).
+    /// This is the overall delay applied to the entire response.
     #[serde(default)]
     pub delay: Option<u64>,
+    /// Optional delay before the first token is emitted (milliseconds).
+    /// When set, this delay is applied before any streaming content begins.
+    #[serde(default)]
+    pub first_token_delay: Option<u64>,
+    /// Optional delay between each streaming segment (milliseconds).
+    /// Applied between consecutive content deltas in streaming mode.
+    #[serde(default)]
+    pub segment_delay: Option<u64>,
     /// Optional token usage report.
     #[serde(default)]
     pub usage: Option<UsageResponse>,
@@ -102,6 +111,8 @@ impl Default for ScenarioDecision {
             response_blocks: vec![],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         }
     }

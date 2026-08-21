@@ -7,6 +7,8 @@ fn text_turn(content: &str) -> TurnResponse {
             usage: None,
         }),
         delay: None,
+        first_token_delay: None,
+        segment_delay: None,
         error: None,
     }
 }
@@ -101,6 +103,8 @@ fn decide_error_injection() {
                 usage: None,
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: Some(HttpError {
                 status: 500,
                 message: "server error".to_string(),
@@ -133,6 +137,8 @@ fn decide_captures_usage() {
                 ..Default::default()
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: None,
@@ -161,6 +167,8 @@ fn decide_captures_delay() {
                 usage: None,
             }),
             delay: Some(500),
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: None,
@@ -601,6 +609,8 @@ fn decide_for_models_error_injection() {
                 usage: None,
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: Some(HttpError {
                 status: 429,
                 message: "rate limited".to_string(),
@@ -633,6 +643,8 @@ fn decide_for_models_returns_models_when_no_error() {
                 usage: None,
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: Some(vec![ModelEntry {
@@ -686,6 +698,8 @@ fn decide_for_models_carrying_delay() {
                 usage: None,
             }),
             delay: Some(500),
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: Some(vec![types::ModelEntry {
@@ -724,6 +738,8 @@ fn cache_fields_missing_with_explicit_injection_priority() {
                 }),
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: None,
@@ -763,6 +779,8 @@ fn cache_fields_missing_with_explicit_both_fields() {
                 }),
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: None,

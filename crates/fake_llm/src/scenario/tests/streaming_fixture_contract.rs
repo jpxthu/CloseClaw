@@ -129,6 +129,8 @@ fn make_streaming_scenario(meta: &serde_json::Value, shape: ResponseShape) -> Sc
         turns: vec![TurnResponse {
             response: shape,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: None,

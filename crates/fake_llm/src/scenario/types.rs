@@ -84,8 +84,17 @@ pub struct TurnResponse {
     #[serde(default)]
     pub response: ResponseShape,
     /// Optional artificial delay before delivering the response (milliseconds).
+    /// This is the overall delay applied to the entire response.
     #[serde(default)]
     pub delay: Option<u64>,
+    /// Optional delay before the first token is emitted (milliseconds).
+    /// When set, this delay is applied before any streaming content begins.
+    #[serde(default)]
+    pub first_token_delay: Option<u64>,
+    /// Optional delay between each streaming segment (milliseconds).
+    /// Applied between consecutive content deltas in streaming mode.
+    #[serde(default)]
+    pub segment_delay: Option<u64>,
     /// Optional HTTP error injection. When present, the endpoint returns
     /// this error instead of a normal response.
     #[serde(default)]
@@ -316,6 +325,8 @@ impl ScenarioDecision {
             response_blocks: blocks,
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         }
     }
@@ -329,6 +340,8 @@ impl ScenarioDecision {
             response_blocks: vec![],
             http_error: Some(error),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         }
     }
@@ -625,6 +638,8 @@ mod tests {
                         usage: None,
                     }),
                     delay: Some(100),
+                    first_token_delay: None,
+                    segment_delay: None,
                     error: None,
                 }],
                 models: None,
@@ -825,5 +840,40 @@ mod tests {
         }"#;
         let decl: ScenarioDeclaration = serde_json::from_str(json).unwrap();
         assert!(decl.models.is_none());
+    }
+
+    #[test]
+    fn deserialize_turn_response_legacy_delay_only() {
+        // Backward compatibility: old format with only `delay` field
+        let json = r#"{"response": {"type": "text", "content": "ok"}, "delay": 100}"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(turn.delay, Some(100));
+        assert!(turn.first_token_delay.is_none());
+        assert!(turn.segment_delay.is_none());
+    }
+
+    #[test]
+    fn deserialize_turn_response_new_format() {
+        // New format with all three delay fields
+        let json = r#"{
+            "response": {"type": "text", "content": "ok"},
+            "first_token_delay": 500,
+            "segment_delay": 50,
+            "delay": 1000
+        }"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(turn.delay, Some(1000));
+        assert_eq!(turn.first_token_delay, Some(500));
+        assert_eq!(turn.segment_delay, Some(50));
+    }
+
+    #[test]
+    fn deserialize_turn_response_no_delay_fields() {
+        // No delay fields at all
+        let json = r#"{"response": {"type": "text", "content": "ok"}}"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert!(turn.delay.is_none());
+        assert!(turn.first_token_delay.is_none());
+        assert!(turn.segment_delay.is_none());
     }
 }

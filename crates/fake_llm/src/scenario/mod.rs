@@ -157,6 +157,8 @@ impl ScenarioEngine {
             response_blocks: blocks,
             http_error: None,
             delay: turn_resp.delay,
+            first_token_delay: turn_resp.first_token_delay,
+            segment_delay: turn_resp.segment_delay,
             usage,
         })
     }
@@ -177,6 +179,8 @@ impl ScenarioEngine {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         })
     }

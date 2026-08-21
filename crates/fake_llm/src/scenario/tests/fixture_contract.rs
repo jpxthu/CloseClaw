@@ -55,6 +55,8 @@ fn make_fallback(
         turns: vec![TurnResponse {
             response: shape_with_usage,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: None,
         }],
         models: None,
@@ -77,6 +79,8 @@ fn make_error_fallback(
                 usage: None,
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             error: Some(HttpError {
                 status,
                 message: message.to_string(),
@@ -661,6 +665,8 @@ fn anthropic_tool_use_fixture_matches() {
         response_blocks: tool_use_blocks(),
         http_error: None,
         delay: None,
+        first_token_delay: None,
+        segment_delay: None,
         usage: Some(UsageResponse {
             prompt_tokens: Some(39),
             completion_tokens: Some(45),

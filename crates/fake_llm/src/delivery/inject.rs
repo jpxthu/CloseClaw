@@ -263,6 +263,8 @@ mod tests {
             response_blocks: vec![text_block("Hello!")],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: Some(default_usage()),
         };
         let config = DeliveryConfig {
@@ -289,6 +291,8 @@ mod tests {
             response_blocks: vec![text_block("Hi!")],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: Some(default_usage()),
         };
         let config = DeliveryConfig {
@@ -319,6 +323,8 @@ mod tests {
             response_blocks: vec![text_block("Hello!")],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -344,6 +350,8 @@ mod tests {
             response_blocks: vec![text_block("Hi!")],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -377,6 +385,8 @@ mod tests {
                 retry_after: None,
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -408,6 +418,8 @@ mod tests {
             response_blocks: vec![text_block("ok")],
             http_error: None,
             delay: Some(100),
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -441,6 +453,8 @@ mod tests {
                 retry_after: Some(60),
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
         let config = DeliveryConfig {
@@ -475,6 +489,8 @@ mod tests {
                 retry_after: None,
             }),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
             usage: None,
         };
         let config = DeliveryConfig {
