@@ -181,7 +181,7 @@ fn openai_streaming_text_fixture_matches_semantics() {
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_meta(&meta, false);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -352,7 +352,7 @@ fn openai_streaming_tool_use_fixture_matches_semantics() {
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_meta(&meta, false);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -517,7 +517,7 @@ fn anthropic_streaming_text_fixture_matches_semantics() {
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_meta(&meta, true);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -719,7 +719,7 @@ fn anthropic_streaming_tool_use_fixture_matches_semantics() {
         }),
     });
     let scenario = make_streaming_scenario(&meta, shape);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_meta(&meta, true);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,

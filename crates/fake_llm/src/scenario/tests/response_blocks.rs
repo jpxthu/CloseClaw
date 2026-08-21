@@ -144,7 +144,7 @@ fn decide_reasoning_scenario_produces_correct_blocks() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "what is 6*7?");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -189,7 +189,7 @@ fn decide_tool_call_scenario_produces_correct_blocks() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "search for rust");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -246,7 +246,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
         ],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario2]);
+    let mut engine = ScenarioEngine::new(vec![scenario2]).unwrap();
     let feat = features("gpt-4", "search for something");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -433,7 +433,7 @@ fn decide_composite_turn_produces_all_blocks() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "compute");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -475,7 +475,7 @@ fn decide_composite_turn_with_usage() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {

@@ -290,7 +290,7 @@ fn openai_simple_fixture_matches() {
         }),
         usage,
     );
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -345,7 +345,7 @@ fn openai_reasoning_fixture_matches() {
         }),
         usage,
     );
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -396,7 +396,7 @@ fn openai_tool_use_fixture_matches() {
         }),
         usage,
     );
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -441,7 +441,7 @@ fn openai_cache_fixture_matches() {
         content: "HTTP keep-alive allows a single TCP connection to be reused for multiple HTTP request/response cycles instead of opening a new connection per request. The client sends `Connection: keep-alive` (or omits `Connection: close` on HTTP/1.1, where keep-alive is the default), and the server holds the socket open after sending the response. Subsequent requests reuse the same socket, avoiding the cost of TCP handshake, slow-start, and TLS negotiation (for HTTPS).".to_string(),
         usage: None,
     }), usage);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -473,7 +473,7 @@ fn openai_error_auth_fixture_matches() {
     let path = fixture_root().join("openai/error-auth.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 401, "Unauthorized", None);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     match engine.decide(&features) {
         crate::DecisionOutcome::Error(e) => {
@@ -489,7 +489,7 @@ fn openai_error_rate_limit_fixture_matches() {
     let path = fixture_root().join("openai/error-rate-limit.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 429, "Too Many Requests", None);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     match engine.decide(&features) {
         crate::DecisionOutcome::Error(e) => {
@@ -505,7 +505,7 @@ fn openai_error_server_fixture_matches() {
     let path = fixture_root().join("openai/error-server.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 500, "Internal Server Error", None);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     match engine.decide(&features) {
         crate::DecisionOutcome::Error(e) => {
@@ -545,7 +545,7 @@ fn anthropic_simple_fixture_matches() {
         }),
         usage,
     );
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, true);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -634,7 +634,7 @@ fn anthropic_thinking_fixture_matches() {
         }),
         usage,
     );
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, true);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -741,7 +741,7 @@ fn anthropic_cache_fixture_matches() {
             ..Default::default()
         },
     ), usage);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, true);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
@@ -794,7 +794,7 @@ fn anthropic_error_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-error.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 400, "Bad Request", None);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
+    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, true);
     match engine.decide(&features) {
         crate::DecisionOutcome::Error(e) => {

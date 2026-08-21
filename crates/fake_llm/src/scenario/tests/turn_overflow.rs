@@ -11,7 +11,7 @@ fn decide_returns_error_on_turn_overflow() {
         turns: vec![text_turn("only one")],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     // First request -> turn 0, succeeds.
     let feat1 = features("gpt-4", "hi");
@@ -58,7 +58,7 @@ fn decide_error_includes_scenario_name_and_turn_info() {
         turns: vec![text_turn("first")],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     // First request -> turn 0
     let feat1 = features("gpt-4", "go");
@@ -112,7 +112,7 @@ fn decide_for_models_returns_error_on_turn_overflow() {
             owned_by: "openai".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     // First decide_for_models call -> turn 0, returns models
     let d1 = engine.decide_for_models();

@@ -33,7 +33,7 @@ fn features(model: &str, msg: &str) -> RequestFeatures {
 
 #[test]
 fn decide_fallback_when_no_match() {
-    let mut engine = ScenarioEngine::new(vec![]);
+    let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let feat = features("gpt-4", "hello");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -53,7 +53,7 @@ fn decide_matches_scenario_and_returns_turn() {
         turns: vec![text_turn("hello"), text_turn("world")],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
@@ -120,7 +120,7 @@ fn decide_error_injection() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -152,7 +152,7 @@ fn decide_captures_usage() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -184,7 +184,7 @@ fn decide_captures_delay() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -543,7 +543,7 @@ fn decide_for_models_returns_scenario_declared_models() {
             },
         ]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Models(entries, delay) => {
@@ -563,13 +563,13 @@ fn decide_for_models_placeholder_when_no_models_declared() {
         turns: vec![text_turn("ok")],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     assert!(matches!(decision, ModelsDecision::Placeholder));
 }
 #[test]
 fn decide_for_models_placeholder_when_no_scenarios() {
-    let mut engine = ScenarioEngine::new(vec![]);
+    let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let decision = engine.decide_for_models();
     assert!(matches!(decision, ModelsDecision::Placeholder));
 }
@@ -599,7 +599,7 @@ fn decide_for_models_error_injection() {
             owned_by: "openai".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Error(e) => {
@@ -631,7 +631,7 @@ fn decide_for_models_returns_models_when_no_error() {
             owned_by: "test-org".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Models(entries, delay) => {
@@ -656,7 +656,7 @@ fn decide_for_models_with_model_id_constraint() {
             owned_by: "openai".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let decision = engine.decide_for_models();
     match decision {
         ModelsDecision::Models(entries, delay) => {
@@ -688,7 +688,7 @@ fn decide_for_models_carrying_delay() {
             owned_by: "org".to_string(),
         }]),
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     match engine.decide_for_models() {
         ModelsDecision::Models(_, delay) => assert_eq!(delay, Some(500)),
         d => panic!("expected Models variant with delay, got {:?}", d),
@@ -747,7 +747,7 @@ fn per_scenario_isolation_cursors_and_cache() {
         models: None,
     };
     let mut engine =
-        ScenarioEngine::new(vec![decl("scene-a", "model-a"), decl("scene-b", "model-b")]);
+        ScenarioEngine::new(vec![decl("scene-a", "model-a"), decl("scene-b", "model-b")]).unwrap();
 
     // Scene A turn 0, Scene B turn 0 (independent cursors)
     match engine.decide(&mk_feat("model-a")) {
@@ -809,7 +809,7 @@ fn cache_fields_missing_with_explicit_injection_priority() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -852,7 +852,7 @@ fn cache_fields_missing_with_explicit_both_fields() {
         }],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {

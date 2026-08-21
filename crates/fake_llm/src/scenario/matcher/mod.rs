@@ -10,6 +10,9 @@ use std::collections::HashMap;
 use super::types::{MatchCondition, ScenarioDeclaration};
 use crate::types::{ProtocolKind, RequestFeatures};
 
+pub mod conflict;
+pub use conflict::{detect_conflicts, ConflictReport, ScenarioConflictError};
+
 /// Pre-built index for efficient scenario matching.
 ///
 /// Created once from the loaded scenario list, then reused for every request.
@@ -17,6 +20,7 @@ use crate::types::{ProtocolKind, RequestFeatures};
 /// Scenarios without a model constraint are grouped by protocol only,
 /// so that OpenAI requests never match Anthropic-only fallback buckets
 /// and vice versa.
+#[derive(Debug)]
 pub struct MatcherIndex {
     /// Indices of scenarios with no model_id constraint, grouped by protocol.
     any_by_protocol: HashMap<ProtocolKind, Vec<usize>>,
@@ -28,7 +32,10 @@ pub struct MatcherIndex {
 
 impl MatcherIndex {
     /// Build an index from a list of scenario declarations.
-    pub fn build(scenarios: Vec<ScenarioDeclaration>) -> Self {
+    ///
+    /// Returns an error if conflict detection finds scenarios that could
+    /// both match the same request (multi-hit at startup).
+    pub fn build(scenarios: Vec<ScenarioDeclaration>) -> Result<Self, ScenarioConflictError> {
         let mut any_by_protocol: HashMap<ProtocolKind, Vec<usize>> = HashMap::new();
         let mut by_model: HashMap<(String, ProtocolKind), Vec<usize>> = HashMap::new();
 
@@ -45,8 +52,9 @@ impl MatcherIndex {
                 Some(cond) => {
                     match &cond.model_id {
                         Some(model_id) => {
-                            // Scenarios with a model constraint but no protocol constraint
-                            // are indexed under every protocol for that model.
+                            // Scenarios with a model constraint but no protocol
+                            // constraint are indexed under every protocol for
+                            // that model.
                             for proto in [ProtocolKind::OpenAi, ProtocolKind::Anthropic] {
                                 by_model
                                     .entry((model_id.clone(), proto))
@@ -66,19 +74,24 @@ impl MatcherIndex {
             }
         }
 
-        Self {
+        // Run conflict detection before building the index.
+        let conflicts = conflict::detect_conflicts(&scenarios);
+        if !conflicts.is_empty() {
+            return Err(ScenarioConflictError { conflicts });
+        }
+
+        Ok(Self {
             any_by_protocol,
             by_model,
             scenarios,
-        }
+        })
     }
 
     /// Match a request against the indexed scenarios.
     ///
     /// Returns the index of the matched scenario within the internal list,
-    /// or `None` if nothing matches. Panics if multiple scenarios match —
-    /// indicates a scenario file error (should be caught at build time
-    /// via conflict detection in Step 1.3).
+    /// or `None` if nothing matches. Since conflict detection runs at
+    /// build time, at most one scenario can match any given request.
     pub fn match_request(&self, features: &RequestFeatures) -> Option<usize> {
         let mut matched: Vec<usize> = Vec::new();
         let key = (features.model.clone(), features.protocol);
@@ -107,13 +120,17 @@ impl MatcherIndex {
             0 => None,
             1 => Some(matched[0]),
             _ => {
+                // Theoretically unreachable after startup conflict detection,
+                // but kept as a defensive error path.
                 let names: Vec<&str> = matched
                     .iter()
                     .map(|&i| self.scenarios[i].name.as_str())
                     .collect();
-                panic!(
-                    "scenario file error: multiple scenarios matched request (model={}): {:?}",
-                    features.model, names
+                unreachable!(
+                    "internal error: multiple scenarios matched request \
+                     (model={}, protocol={}) — should have been caught \
+                     at startup: {:?}",
+                    features.model, features.protocol, names
                 );
             }
         }
@@ -168,7 +185,8 @@ fn matches_model_id(features: &RequestFeatures, condition: &MatchCondition) -> b
     }
 }
 
-/// Check if at least one message contains the condition's `message_contains` substring.
+/// Check if at least one message contains the condition's
+/// `message_contains` substring.
 fn matches_message_contains(features: &RequestFeatures, condition: &MatchCondition) -> bool {
     match &condition.message_contains {
         Some(substr) => features.messages.iter().any(|m| m.content.contains(substr)),
@@ -214,8 +232,9 @@ fn matches_request_params(features: &RequestFeatures, condition: &MatchCondition
 /// Returns `None` for unknown keys (treated as non-constraining).
 ///
 /// For `temperature` (f32), the value is stored as `serde_json::Number`
-/// and compared separately in [`matches_request_params`] using `f32` precision
-/// to avoid mismatches between `f32` serialization and `f64` JSON parsing.
+/// and compared separately in [`matches_request_params`] using `f32`
+/// precision to avoid mismatches between `f32` serialization and `f64`
+/// JSON parsing.
 fn features_to_json_value(features: &RequestFeatures, key: &str) -> Option<serde_json::Value> {
     match key {
         "stream" => Some(serde_json::Value::Bool(features.stream)),
@@ -242,17 +261,18 @@ fn json_value_matches_temperature(
     }
 }
 
-/// Convenience function: match a request against a list of scenario declarations.
+/// Convenience function: match a request against a list of scenario
+/// declarations.
 ///
-/// Returns a reference to the matched scenario from the input slice, or `None`.
-/// Prefer using [`MatcherIndex`] directly when matching multiple requests
-/// against the same scenario list for better performance.
+/// Returns a reference to the matched scenario from the input slice, or
+/// `None`. Prefer using [`MatcherIndex`] directly when matching multiple
+/// requests against the same scenario list for better performance.
 pub fn match_scenario<'a>(
     features: &RequestFeatures,
     scenarios: &'a [ScenarioDeclaration],
-) -> Option<&'a ScenarioDeclaration> {
-    let index = MatcherIndex::build(scenarios.to_vec());
-    index.match_request(features).map(|i| &scenarios[i])
+) -> Result<Option<&'a ScenarioDeclaration>, ScenarioConflictError> {
+    let index = MatcherIndex::build(scenarios.to_vec())?;
+    Ok(index.match_request(features).map(|i| &scenarios[i]))
 }
 
 #[cfg(test)]
@@ -335,7 +355,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
         assert_eq!(index.get(result.unwrap()).name, "gpt4");
     }
@@ -349,7 +369,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("claude-3", vec!["hi"], vec![]));
         assert!(result.is_none());
     }
@@ -363,7 +383,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec!["please calculate 2+2"], vec![]));
         assert_eq!(index.get(result.unwrap()).name, "math");
     }
@@ -377,7 +397,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec!["hello world"], vec![]));
         assert!(result.is_none());
     }
@@ -391,7 +411,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec!["search", "math"]));
         assert_eq!(index.get(result.unwrap()).name, "web_search");
     }
@@ -405,7 +425,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec!["math"]));
         assert!(result.is_none());
     }
@@ -421,7 +441,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
 
         let r = index.match_request(&feat("gpt-4o", vec!["hello world"], vec!["search"]));
         assert_eq!(index.get(r.unwrap()).name, "specific");
@@ -440,14 +460,14 @@ mod tests {
     #[test]
     fn index_fallback_matches_any() {
         let scenarios = vec![fallback("fallback")];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("any-model", vec!["anything"], vec![]));
         assert_eq!(index.get(result.unwrap()).name, "fallback");
     }
 
     #[test]
-    #[should_panic(expected = "multiple scenarios matched")]
-    fn index_fallback_and_specific_both_match_panics() {
+    fn index_fallback_and_specific_is_conflict() {
+        // Fallback + conditional with model_id = conflict at build time.
         let scenarios = vec![
             specific(
                 "specific",
@@ -458,13 +478,16 @@ mod tests {
             ),
             fallback("fallback"),
         ];
-        let index = MatcherIndex::build(scenarios);
-        index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
+        let result = MatcherIndex::build(scenarios);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.conflicts.len(), 1);
+        assert!(err.conflicts[0].reason.contains("fallback"));
     }
 
     #[test]
-    #[should_panic(expected = "multiple scenarios matched")]
-    fn index_multiple_specific_matches_panics() {
+    fn index_multiple_specific_same_model_is_conflict() {
+        // Two scenarios with same model_id = conflict at build time.
         let scenarios = vec![
             specific(
                 "a",
@@ -481,8 +504,10 @@ mod tests {
                 },
             ),
         ];
-        let index = MatcherIndex::build(scenarios);
-        index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
+        let result = MatcherIndex::build(scenarios);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.conflicts.len(), 1);
     }
 
     #[test]
@@ -495,14 +520,14 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("claude-3", vec!["hi"], vec![]));
         assert!(result.is_none());
     }
 
     #[test]
     fn index_empty_returns_none() {
-        let index = MatcherIndex::build(vec![]);
+        let index = MatcherIndex::build(vec![]).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
         assert!(result.is_none());
     }
@@ -516,7 +541,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat(
             "gpt-4o",
             vec!["first message", "please calculate this"],
@@ -543,7 +568,7 @@ mod tests {
                 },
             ),
         ];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
 
         let r1 = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
         assert_eq!(index.get(r1.unwrap()).name, "gpt4-scene");
@@ -561,11 +586,6 @@ mod tests {
 
     #[test]
     fn cross_protocol_same_model_routing() {
-        // A scenario with model_id="gpt-4o" is indexed under both protocol
-        // buckets. Both OpenAI and Anthropic requests for gpt-4o match it.
-        // The dual-dimension key ensures protocol isolation: an OpenAI request
-        // only checks the OpenAI protocol bucket, an Anthropic request only
-        // checks the Anthropic bucket.
         let scenarios = vec![specific(
             "gpt4",
             MatchCondition {
@@ -573,9 +593,8 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
 
-        // OpenAI request hits the OpenAI bucket
         let r = index.match_request(&feat_proto(
             "gpt-4o",
             vec!["hi"],
@@ -584,7 +603,6 @@ mod tests {
         ));
         assert_eq!(index.get(r.unwrap()).name, "gpt4");
 
-        // Anthropic request hits the Anthropic bucket (same scenario)
         let r = index.match_request(&feat_proto(
             "gpt-4o",
             vec!["hi"],
@@ -596,9 +614,8 @@ mod tests {
 
     #[test]
     fn cross_protocol_fallback_matches_both_protocols() {
-        // Fallback scenario (no match condition) goes into every protocol bucket.
         let scenarios = vec![fallback("fallback")];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
 
         let r = index.match_request(&feat_proto(
             "any-model",
@@ -618,9 +635,8 @@ mod tests {
     }
 
     #[test]
-    fn cross_protocol_model_specific_and_fallback() {
-        // Model-specific scenario + fallback: both match for the same model.
-        // This is a real conflict that will be caught in Step 1.3.
+    fn cross_protocol_model_specific_and_fallback_is_conflict() {
+        // Model-specific + fallback = conflict caught at build time.
         let scenarios = vec![
             specific(
                 "gpt4-scene",
@@ -631,25 +647,12 @@ mod tests {
             ),
             fallback("fallback"),
         ];
-        let index = MatcherIndex::build(scenarios);
-
-        // Both match -> multi-hit panic (to be replaced by conflict detection
-        // in Step 1.3)
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            index.match_request(&feat_proto(
-                "gpt-4o",
-                vec!["hi"],
-                vec![],
-                ProtocolKind::OpenAi,
-            ))
-        }));
+        let result = MatcherIndex::build(scenarios);
         assert!(result.is_err());
     }
 
     #[test]
     fn cross_protocol_no_leakage_between_models() {
-        // A scenario for model_id="claude-3" is indexed under both protocol
-        // buckets. OpenAI request for gpt-4o does not match (different model).
         let scenarios = vec![specific(
             "claude-scene",
             MatchCondition {
@@ -657,9 +660,8 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
 
-        // OpenAI request for gpt-4o: no match (model mismatch)
         let r = index.match_request(&feat_proto(
             "gpt-4o",
             vec!["hi"],
@@ -668,7 +670,6 @@ mod tests {
         ));
         assert!(r.is_none());
 
-        // Anthropic request for claude-3: matches
         let r = index.match_request(&feat_proto(
             "claude-3",
             vec!["hi"],
@@ -691,7 +692,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let result = match_scenario(&feat("gpt-4o", vec!["hi"], vec![]), &scenarios);
+        let result = match_scenario(&feat("gpt-4o", vec!["hi"], vec![]), &scenarios).unwrap();
         assert_eq!(result.unwrap().name, "gpt4");
     }
 
@@ -704,14 +705,14 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let result = match_scenario(&feat("claude-3", vec!["hi"], vec![]), &scenarios);
+        let result = match_scenario(&feat("claude-3", vec!["hi"], vec![]), &scenarios).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn convenience_match_scenario_fallback() {
         let scenarios = vec![fallback("fallback")];
-        let result = match_scenario(&feat("any", vec!["hi"], vec![]), &scenarios);
+        let result = match_scenario(&feat("any", vec!["hi"], vec![]), &scenarios).unwrap();
         assert_eq!(result.unwrap().name, "fallback");
     }
 
@@ -728,7 +729,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec![], vec![]));
         assert!(result.is_none());
     }
@@ -742,11 +743,10 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let r = index.match_request(&feat("any-model", vec!["hi"], vec!["code_exec"]));
         assert_eq!(index.get(r.unwrap()).name, "code");
 
-        // Without the tool -> no match
         assert!(index
             .match_request(&feat("any-model", vec!["hi"], vec![]))
             .is_none());
@@ -770,8 +770,7 @@ mod tests {
                 },
             ),
         ];
-        let index = MatcherIndex::build(scenarios);
-        // Each matches only its own model
+        let index = MatcherIndex::build(scenarios).unwrap();
         assert_eq!(
             index
                 .get(
@@ -792,7 +791,6 @@ mod tests {
                 .name,
             "claude"
         );
-        // Third model: no match
         assert!(index
             .match_request(&feat("gemini", vec![], vec![]))
             .is_none());
@@ -800,7 +798,6 @@ mod tests {
 
     #[test]
     fn index_partial_condition_match_fails() {
-        // Scenario requires model + tool. Request has model but not tool.
         let scenarios = vec![specific(
             "search",
             MatchCondition {
@@ -809,16 +806,13 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
-        // Has model but missing tool -> no match
+        let index = MatcherIndex::build(scenarios).unwrap();
         assert!(index
             .match_request(&feat("gpt-4o", vec!["hi"], vec![]))
             .is_none());
-        // Has tool but wrong model -> no match
         assert!(index
             .match_request(&feat("claude-3", vec!["hi"], vec!["search"]))
             .is_none());
-        // Both match -> success
         let r = index.match_request(&feat("gpt-4o", vec!["hi"], vec!["search"]));
         assert_eq!(index.get(r.unwrap()).name, "search");
     }
@@ -832,23 +826,20 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
-        // Substring match
+        let index = MatcherIndex::build(scenarios).unwrap();
         assert!(index
             .match_request(&feat("gpt-4o", vec!["what is 2+2?"], vec![]))
             .is_some());
-        // Exact match
         assert!(index
             .match_request(&feat("gpt-4o", vec!["2+2"], vec![]))
             .is_some());
-        // No match
         assert!(index
             .match_request(&feat("gpt-4o", vec!["what is 3+3?"], vec![]))
             .is_none());
     }
 
     #[test]
-    fn index_multiple_fallback_scenarios_no_conflict_when_different_models() {
+    fn index_multiple_fallback_scenarios_different_models() {
         let scenarios = vec![
             ScenarioDeclaration {
                 name: "gpt-fallback".to_string(),
@@ -869,8 +860,7 @@ mod tests {
                 models: None,
             },
         ];
-        let index = MatcherIndex::build(scenarios);
-        // Each model matches its own scenario
+        let index = MatcherIndex::build(scenarios).unwrap();
         assert_eq!(
             index
                 .get(
@@ -901,7 +891,7 @@ mod tests {
             turns: vec![turn()],
             models: None,
         }];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         assert_eq!(
             index
                 .get(
@@ -933,7 +923,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat(
             "gpt-4o",
             vec!["first message", "please calculate this"],
@@ -951,7 +941,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let index = MatcherIndex::build(scenarios);
+        let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat(
             "gpt-4o",
             vec!["first", "second", "please calculate"],

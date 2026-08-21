@@ -20,6 +20,7 @@ pub mod session;
 pub mod types;
 
 pub use matcher::MatcherIndex;
+pub use matcher::{detect_conflicts, ScenarioConflictError};
 pub use session::SessionTracker;
 pub use types::*;
 
@@ -88,7 +89,7 @@ impl ScenarioEngine {
         for file in files {
             all_scenarios.extend(file.scenarios);
         }
-        let matcher = MatcherIndex::build(all_scenarios);
+        let matcher = MatcherIndex::build(all_scenarios).context("conflict detection failed")?;
         Ok(Self {
             matcher,
             sessions: SessionTracker::new(),
@@ -98,14 +99,16 @@ impl ScenarioEngine {
     }
 
     /// Create an engine with an explicit scenario list (for testing).
-    pub fn new(scenarios: Vec<ScenarioDeclaration>) -> Self {
-        let matcher = MatcherIndex::build(scenarios);
-        Self {
+    ///
+    /// Returns an error if the scenarios contain conflicts.
+    pub fn new(scenarios: Vec<ScenarioDeclaration>) -> Result<Self, ScenarioConflictError> {
+        let matcher = MatcherIndex::build(scenarios)?;
+        Ok(Self {
             matcher,
             sessions: SessionTracker::new(),
             kv_caches: HashMap::new(),
             request_count: 0,
-        }
+        })
     }
 
     /// Decide how to respond to the given request features.

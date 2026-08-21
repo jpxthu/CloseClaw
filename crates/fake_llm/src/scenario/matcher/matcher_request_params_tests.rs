@@ -60,7 +60,7 @@ fn request_params_stream_true_matches() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
         true,
@@ -81,7 +81,7 @@ fn request_params_stream_true_no_match_when_false() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
         false,
@@ -102,7 +102,7 @@ fn request_params_stream_false_matches() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
         false,
@@ -123,7 +123,7 @@ fn request_params_max_tokens_exact_match() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
         false,
@@ -144,7 +144,7 @@ fn request_params_max_tokens_no_match_when_different() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
         false,
@@ -165,7 +165,7 @@ fn request_params_max_tokens_none_in_condition_matches_any() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     // max_tokens=None in request: features_to_json_value returns None =>
     // match returns true for unknown/missing key
     let r = index.match_request(&feat_with_params(
@@ -188,7 +188,7 @@ fn request_params_temperature_exact_match() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
         false,
@@ -209,7 +209,7 @@ fn request_params_temperature_no_match_when_different() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
         false,
@@ -230,7 +230,7 @@ fn request_params_temperature_none_in_condition_matches_any() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     // temperature=None in request: features_to_json_value returns None =>
     // match returns true for unknown/missing key
     let r = index.match_request(&feat_with_params(
@@ -256,7 +256,7 @@ fn request_params_multi_param_all_must_match() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     // All three match
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
@@ -301,7 +301,7 @@ fn request_params_none_does_not_affect_other_conditions() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     // request_params=None => always passes
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
@@ -339,7 +339,7 @@ fn request_params_with_model_id_and_message_and_tool() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
 
     // All conditions satisfied
     let r = index.match_request(&feat_with_params(
@@ -419,7 +419,7 @@ fn request_params_unknown_key_ignored() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     // Unknown key "unknown_field" is ignored; stream=true matches
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
@@ -441,7 +441,7 @@ fn request_params_empty_map_matches_all() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
     // Empty request_params => all requests pass the params check
     let r = index.match_request(&feat_with_params(
         "gpt-4o",
@@ -465,7 +465,7 @@ fn request_params_partial_multi_param_failure() {
             ..Default::default()
         },
     )];
-    let index = MatcherIndex::build(scenarios);
+    let index = MatcherIndex::build(scenarios).unwrap();
 
     // Only stream matches, temperature missing -> pass (None => unknown key => ignore)
     let r = index.match_request(&feat_with_params(

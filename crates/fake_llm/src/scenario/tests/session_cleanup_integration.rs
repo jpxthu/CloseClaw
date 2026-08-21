@@ -23,7 +23,7 @@ fn cleanup_triggers_after_interval_and_removes_expired() {
         turns,
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     // Session A: create with message "session-a" at the start.
     let feat_a = features("gpt-4", "session-a");
@@ -93,7 +93,7 @@ fn normal_flow_unaffected_by_cleanup() {
         turns,
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     // Start a session.
     let feat1 = features("gpt-4", "start");
