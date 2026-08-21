@@ -47,6 +47,14 @@ pub enum ResponseShape {
     #[serde(rename = "usage")]
     Usage(UsageResponse),
 
+    /// Composite of multiple shapes in a single turn.
+    ///
+    /// Enables combinations like "reasoning + tool_call + usage"
+    /// in a single response. The protocol layer flattens composite
+    /// shapes into individual content blocks.
+    #[serde(rename = "composite")]
+    Composite(Vec<ResponseShape>),
+
     /// Catch-all for unimplemented variants (serde default).
     #[serde(other)]
     #[default]

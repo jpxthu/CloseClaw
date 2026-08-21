@@ -14,6 +14,45 @@ mod response_shapes;
 pub use response_shapes::*;
 
 // ---------------------------------------------------------------------------
+// Response or composite
+// ---------------------------------------------------------------------------
+
+/// A turn's response field that accepts either a single shape or an array.
+///
+/// Existing scenario files with a single shape object continue to work.
+/// New files can use an array to combine multiple shapes in one turn.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ResponseOrComposite {
+    /// Single response shape (backward-compatible default).
+    Single(ResponseShape),
+    /// Multiple response shapes combined in one turn.
+    Multiple(Vec<ResponseShape>),
+}
+
+impl ResponseOrComposite {
+    /// Flatten into a list of owned response shapes.
+    pub fn to_shapes(&self) -> Vec<ResponseShape> {
+        match self {
+            ResponseOrComposite::Single(s) => vec![s.clone()],
+            ResponseOrComposite::Multiple(v) => v.clone(),
+        }
+    }
+}
+
+impl Default for ResponseOrComposite {
+    fn default() -> Self {
+        ResponseOrComposite::Single(ResponseShape::Unknown)
+    }
+}
+
+impl From<ResponseShape> for ResponseOrComposite {
+    fn from(shape: ResponseShape) -> Self {
+        ResponseOrComposite::Single(shape)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Scenario file types
 // ---------------------------------------------------------------------------
 
@@ -96,7 +135,7 @@ pub struct TurnResponse {
     /// When the `error` field is also present, `error` takes priority and
     /// this field is ignored (see [`ScenarioEngine::decide`]).
     #[serde(default)]
-    pub response: ResponseShape,
+    pub response: ResponseOrComposite,
     /// Optional artificial delay before delivering the response (milliseconds).
     /// This is the overall delay applied to the entire response.
     #[serde(default)]
@@ -540,7 +579,8 @@ mod tests {
                     response: ResponseShape::Text(TextResponse {
                         content: "hi".to_string(),
                         usage: None,
-                    }),
+                    })
+                    .into(),
                     delay: Some(100),
                     first_token_delay: None,
                     segment_delay: None,
@@ -931,5 +971,30 @@ mod tests {
         assert!(ReasoningIntensity::Low != ReasoningIntensity::Medium);
         assert!(ReasoningIntensity::Medium != ReasoningIntensity::High);
         assert!(ReasoningIntensity::Low != ReasoningIntensity::High);
+    }
+
+    // -----------------------------------------------------------------------
+    // ResponseOrComposite tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn response_or_composite_deserialize_array_format() {
+        let json = r#"{
+            "response": [
+                {"type": "text", "content": "a"},
+                {"type": "usage", "prompt_tokens": 5}
+            ]
+        }"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        let shapes = turn.response.to_shapes();
+        assert_eq!(shapes.len(), 2);
+        match &shapes[0] {
+            ResponseShape::Text(t) => assert_eq!(t.content, "a"),
+            _ => panic!("expected Text"),
+        }
+        match &shapes[1] {
+            ResponseShape::Usage(u) => assert_eq!(u.prompt_tokens, Some(5)),
+            _ => panic!("expected Usage"),
+        }
     }
 }

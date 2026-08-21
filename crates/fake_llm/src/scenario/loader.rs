@@ -182,8 +182,9 @@ mod tests {
         assert_eq!(file.scenarios[0].name, "rate-limit");
         assert_eq!(file.scenarios[0].turns.len(), 2);
         // Second turn is error-only (no response field, defaults to Unknown)
+        let shapes = file.scenarios[0].turns[1].response.to_shapes();
         assert!(matches!(
-            file.scenarios[0].turns[1].response,
+            shapes[0],
             super::super::types::ResponseShape::Unknown
         ));
         assert_eq!(
@@ -226,7 +227,8 @@ mod tests {
         assert_eq!(file.scenarios[1].name, "fallback-cache-missing");
         // Verify cache_fields_missing is deserialized from the JSON
         // Extract usage from the Text response shape
-        match &file.scenarios[0].turns[0].response {
+        let resp_shapes = file.scenarios[0].turns[0].response.to_shapes();
+        match &resp_shapes[0] {
             super::super::types::ResponseShape::Text(t) => {
                 let u = t.usage.as_ref().expect("usage must be present");
                 assert!(
