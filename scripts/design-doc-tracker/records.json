@@ -144,6 +144,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/fake_llm/README.md",
+    "commit": "95bbc0cc5511b60ac1227b7da000b80a1753944c",
+    "commit_time": "2026-08-21T19:26:36+08:00",
+    "confirmed_time": "2026-08-21T19:40:21.746774+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/fake_llm/delivery.md",
     "commit": "f6e38e007ba1d879641505782ab82461d478006f",
     "commit_time": "2026-08-20T19:09:52+08:00",
