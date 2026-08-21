@@ -197,3 +197,37 @@ pub(crate) fn make_outbound_meta(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
 }
+
+/// Merge incremental-phase DSL instructions with finish-phase DslParser
+/// result from the processor chain metadata.
+///
+/// When DslParser ran in the finish phase (`metadata` contains
+/// `"dsl_result"`), its instructions are appended to the incremental
+/// ones. When DslParser did not run but incremental instructions exist,
+/// they are serialized directly. Returns `None` when both are empty
+/// (no registry or no DSL content).
+pub(crate) fn merge_dsl_results(
+    metadata: &std::collections::HashMap<String, String>,
+    incremental: Vec<closeclaw_common::processor::DslInstruction>,
+) -> Option<String> {
+    use closeclaw_common::processor::DslParseResult;
+
+    if let Some(raw) = metadata.get("dsl_result") {
+        let chain_instructions = serde_json::from_str::<DslParseResult>(raw)
+            .ok()
+            .map(|r| r.instructions)
+            .unwrap_or_default();
+        let merged: Vec<_> = incremental.into_iter().chain(chain_instructions).collect();
+        let r = DslParseResult {
+            instructions: merged,
+        };
+        serde_json::to_string(&r).ok()
+    } else if !incremental.is_empty() {
+        let r = DslParseResult {
+            instructions: incremental,
+        };
+        serde_json::to_string(&r).ok()
+    } else {
+        None
+    }
+}

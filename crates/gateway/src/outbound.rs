@@ -4,12 +4,10 @@
 //! [`IMPlugin`](closeclaw_common::im_plugin::IMPlugin) registry.
 
 use super::{Gateway, GatewayError, Message};
-use crate::outbound_helpers::dispatch_text;
-use crate::outbound_helpers::log_middleware_rejection;
-use crate::outbound_helpers::make_outbound_meta;
-use crate::outbound_helpers::send_render_block;
-use crate::outbound_helpers::StreamContext;
-use crate::outbound_helpers::StreamState;
+use crate::outbound_helpers::{
+    dispatch_text, log_middleware_rejection, make_outbound_meta, merge_dsl_results,
+    send_render_block, StreamContext, StreamState,
+};
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
 use closeclaw_processor_chain::run_middleware_chain;
@@ -773,41 +771,38 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
-        // Run the full outbound Processor Chain (VerbosityFilter →
-        // DslParser → OutboundRawLog). VerbosityFilter executes within
-        // the chain for the finish phase, but Thinking blocks at
-        // Normal/Off verbosity were already filtered in the incremental
-        // phase via VerbosityFilter::should_keep_thinking
-        // (see process_stream_event). At Full verbosity,
-        // VerbosityFilter is a no-op.
+        // Run the outbound Processor Chain (DslParser → OutboundRawLog),
+        // skipping VerbosityFilter which already ran per-chunk during
+        // the incremental phase.
         let meta = make_outbound_meta(&[
             ("channel", channel),
             ("session_id", session_id),
             ("verbosity_level", &verbosity_level.to_string()),
         ]);
+        let dsl_result_incremental = state.dsl_instructions.clone();
         let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            let dsl_result = if dsl_result_incremental.is_empty() {
+                None
+            } else {
+                let r = DslParseResult {
+                    instructions: dsl_result_incremental,
+                };
+                serde_json::to_string(&r).ok()
+            };
             return Ok(StreamResult {
                 content_blocks: content_blocks_for_pipeline,
                 usage: usage_override.unwrap_or(state.usage),
                 retry_attempts: 0,
-                dsl_result: None,
+                dsl_result,
             });
         };
         let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
         let processed = registry
-            .process_outbound(input)
+            .process_outbound_without_verbosity(input)
             .await
             .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
 
-        // DSL result: the full chain runs DslParser, so the chain's
-        // dsl_result is the sole source. Incremental-phase
-        // dsl_instructions are empty (Step 1.3 removed DslParser from
-        // the incremental phase), so no merge is needed.
-        let dsl_result = processed
-            .metadata
-            .get("dsl_result")
-            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
-            .and_then(|r| serde_json::to_string(&r).ok());
+        let dsl_result = merge_dsl_results(&processed.metadata, dsl_result_incremental);
 
         Ok(StreamResult {
             content_blocks: processed.content_blocks,
