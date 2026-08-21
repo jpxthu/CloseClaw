@@ -67,20 +67,15 @@ pub struct TextResponse {
 /// Reasoning intensity level controlling the length of generated
 /// reasoning content. Low produces short reasoning, Medium is the
 /// default, and High produces lengthy reasoning.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReasoningIntensity {
     #[serde(rename = "low")]
     Low,
     #[serde(rename = "medium")]
+    #[default]
     Medium,
     #[serde(rename = "high")]
     High,
-}
-
-impl Default for ReasoningIntensity {
-    fn default() -> Self {
-        Self::Medium
-    }
 }
 
 /// Reasoning / thinking response content.
