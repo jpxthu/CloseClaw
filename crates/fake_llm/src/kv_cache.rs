@@ -91,30 +91,11 @@ impl Default for KvCacheSimulator {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Token estimation & fingerprinting utilities
+// ---------------------------------------------------------------------------
+
 impl KvCacheSimulator {
-    /// Create a simulator with default TTL (5 minutes).
-    pub fn new() -> Self {
-        Self {
-            last_fingerprint: None,
-            last_timestamp: None,
-            ttl: Duration::from_secs(DEFAULT_TTL_SECS),
-            old_prefix_messages: Vec::new(),
-            old_prefix_tools: Vec::new(),
-        }
-    }
-
-    /// Create a simulator with custom TTL.
-    #[cfg(test)]
-    pub fn with_ttl(ttl: Duration) -> Self {
-        Self {
-            last_fingerprint: None,
-            last_timestamp: None,
-            ttl,
-            old_prefix_messages: Vec::new(),
-            old_prefix_tools: Vec::new(),
-        }
-    }
-
     /// Compute a deterministic fingerprint from the request prefix.
     ///
     /// The prefix is: system prompt + tools + all messages except the last
@@ -137,7 +118,6 @@ impl KvCacheSimulator {
         }
 
         // Hash non-system messages in the prefix (all except the last).
-        // Skip system prompt at index 0 to avoid double-hashing.
         let prefix_end = messages.len().saturating_sub(1);
         let start = if has_system { 1 } else { 0 };
         for msg in &messages[start..prefix_end] {
@@ -145,8 +125,7 @@ impl KvCacheSimulator {
             hasher.write_bytes(msg.content.as_bytes());
         }
 
-        // Return 0 for completely empty prefix (no system prompt, no tools,
-        // no prior messages) to ensure determinism.
+        // Return 0 for completely empty prefix to ensure determinism.
         if prefix_end <= start && sorted_tools.is_empty() && !has_system {
             return 0;
         }
@@ -225,11 +204,10 @@ impl KvCacheSimulator {
         }
     }
 
-    /// Estimate token count from prefix content (deterministic, approximate).
-    ///
-    /// Returns the approximate token count of the cacheable prefix: system
-    /// prompt + tools + all messages except the last. Returns 0 when there
-    /// is no cacheable prefix.
+    /// Estimate token count from prefix content (deterministic,
+    /// approximate). Returns the approximate token count of the cacheable
+    /// prefix: system prompt + tools + all messages except the last.
+    /// Returns 0 when there is no cacheable prefix.
     fn estimate_prefix_tokens(messages: &[MessageEntry], tools: &[String]) -> u32 {
         let mut char_count = 0usize;
 
@@ -248,13 +226,123 @@ impl KvCacheSimulator {
             char_count += msg.content.len();
         }
 
-        if char_count == 0 {
-            return 0;
-        }
+        Self::tokens_from_chars(char_count)
+    }
+}
 
-        // ~4 chars per token (approximate, deterministic).
-        // Minimum 1 token to ensure non-zero for non-empty prefixes.
-        ((char_count / 4) as u32).max(1)
+// ---------------------------------------------------------------------------
+// Simulator core
+// ---------------------------------------------------------------------------
+
+impl KvCacheSimulator {
+    /// Create a simulator with default TTL (5 minutes).
+    pub fn new() -> Self {
+        Self {
+            last_fingerprint: None,
+            last_timestamp: None,
+            ttl: Duration::from_secs(DEFAULT_TTL_SECS),
+            old_prefix_messages: Vec::new(),
+            old_prefix_tools: Vec::new(),
+        }
+    }
+
+    /// Create a simulator with custom TTL.
+    #[cfg(test)]
+    pub fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            last_fingerprint: None,
+            last_timestamp: None,
+            ttl,
+            old_prefix_messages: Vec::new(),
+            old_prefix_tools: Vec::new(),
+        }
+    }
+
+    /// Run auto-simulation state machine and return computed fields:
+    /// (hit_tokens, write_tokens, new_state, is_break, was_expired).
+    fn auto_simulate(
+        &self,
+        messages: &[MessageEntry],
+        tools: &[String],
+        fingerprint: u64,
+    ) -> (u32, u32, CacheState, bool, bool) {
+        let prefix_tokens = Self::estimate_prefix_tokens(messages, tools);
+
+        match &self.last_fingerprint {
+            None => {
+                // State: Empty → Writing
+                (0, prefix_tokens, CacheState::Writing, false, false)
+            }
+            Some(last_fp) => {
+                if *last_fp == fingerprint {
+                    // Same prefix — check TTL.
+                    let expired = self
+                        .last_timestamp
+                        .map(|ts| ts.elapsed() > self.ttl)
+                        .unwrap_or(false);
+
+                    if expired {
+                        // Hit → Expired → Writing (rewrite)
+                        (0, prefix_tokens, CacheState::Writing, false, true)
+                    } else {
+                        // Hit → Hit (cache hit)
+                        (prefix_tokens, 0, CacheState::Hit, false, false)
+                    }
+                } else {
+                    // Prefix changed — Break: compute residual hit from
+                    // common prefix, remaining as write tokens.
+                    let residual = Self::common_prefix_tokens(
+                        &self.old_prefix_messages,
+                        &self.old_prefix_tools,
+                        messages,
+                        tools,
+                    );
+                    let write = prefix_tokens.saturating_sub(residual);
+                    (residual, write, CacheState::Writing, true, false)
+                }
+            }
+        }
+    }
+
+    /// Emit tracing log for cache events (auto-simulation path only).
+    fn log_cache_event(
+        hit_tokens: u32,
+        write_tokens: u32,
+        state: &CacheState,
+        is_break: bool,
+        was_expired: bool,
+    ) {
+        match state {
+            CacheState::Hit => {
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    hit_tokens,
+                    "cache hit"
+                );
+            }
+            CacheState::Writing if is_break => {
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    residual_hit = hit_tokens,
+                    write_tokens,
+                    "cache break"
+                );
+            }
+            CacheState::Writing if was_expired => {
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    "cache expired"
+                );
+            }
+            CacheState::Writing => {
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    write_tokens,
+                    "cache write"
+                );
+            }
+            _ => {}
+        }
     }
 
     /// Process a request and return cache simulation result.
@@ -275,17 +363,15 @@ impl KvCacheSimulator {
         if explicit_hit.is_some() || explicit_write.is_some() {
             let state = match &self.last_fingerprint {
                 None => CacheState::Writing,
-                Some(fp) => {
-                    if *fp == fingerprint {
-                        CacheState::Hit
-                    } else {
-                        CacheState::Writing
-                    }
-                }
+                Some(fp) if *fp == fingerprint => CacheState::Hit,
+                _ => CacheState::Writing,
             };
-            // Record state for next request.
+            // Record state for next request (including old prefix data
+            // so subsequent auto-simulation can compute residual hits).
             self.last_fingerprint = Some(fingerprint);
             self.last_timestamp = Some(Instant::now());
+            self.old_prefix_messages = messages.to_vec();
+            self.old_prefix_tools = tools.to_vec();
             return CacheResult {
                 cache_hit_tokens: explicit_hit,
                 cache_write_tokens: explicit_write,
@@ -295,43 +381,7 @@ impl KvCacheSimulator {
         }
 
         // Auto simulation — state machine logic.
-        let prefix_tokens = Self::estimate_prefix_tokens(messages, tools);
-
-        let (hit_tokens, write_tokens, new_state, is_break, was_expired) =
-            match &self.last_fingerprint {
-                None => {
-                    // State: Empty → Writing
-                    (0, prefix_tokens, CacheState::Writing, false, false)
-                }
-                Some(last_fp) => {
-                    if *last_fp == fingerprint {
-                        // Same prefix — check TTL.
-                        let expired = self
-                            .last_timestamp
-                            .map(|ts| ts.elapsed() > self.ttl)
-                            .unwrap_or(false);
-
-                        if expired {
-                            // State: Hit → Expired → Writing (rewrite)
-                            (0, prefix_tokens, CacheState::Writing, false, true)
-                        } else {
-                            // State: Hit → Hit (cache hit)
-                            (prefix_tokens, 0, CacheState::Hit, false, false)
-                        }
-                    } else {
-                        // Prefix changed — Break: compute residual hit from
-                        // common prefix, remaining as write tokens.
-                        let residual = Self::common_prefix_tokens(
-                            &self.old_prefix_messages,
-                            &self.old_prefix_tools,
-                            messages,
-                            tools,
-                        );
-                        let write = prefix_tokens.saturating_sub(residual);
-                        (residual, write, CacheState::Writing, true, false)
-                    }
-                }
-            };
+        let (hit, write, state, brk, exp) = self.auto_simulate(messages, tools, fingerprint);
 
         // Record state for next request.
         self.last_fingerprint = Some(fingerprint);
@@ -340,52 +390,13 @@ impl KvCacheSimulator {
         self.old_prefix_tools = tools.to_vec();
 
         // Observability logging (auto-simulation path only).
-        match new_state {
-            CacheState::Hit => {
-                tracing::info!(
-                    target: "fake_llm::kv_cache",
-                    hit_tokens,
-                    "cache hit"
-                );
-            }
-            CacheState::Writing if is_break => {
-                let residual_hit = hit_tokens;
-                tracing::info!(
-                    target: "fake_llm::kv_cache",
-                    residual_hit,
-                    write_tokens,
-                    "cache break"
-                );
-            }
-            CacheState::Writing if was_expired => {
-                tracing::info!(
-                    target: "fake_llm::kv_cache",
-                    "cache expired"
-                );
-            }
-            CacheState::Writing => {
-                tracing::info!(
-                    target: "fake_llm::kv_cache",
-                    write_tokens,
-                    "cache write"
-                );
-            }
-            _ => {}
-        }
+        Self::log_cache_event(hit, write, &state, brk, exp);
 
         CacheResult {
-            cache_hit_tokens: if hit_tokens > 0 {
-                Some(hit_tokens)
-            } else {
-                None
-            },
-            cache_write_tokens: if write_tokens > 0 {
-                Some(write_tokens)
-            } else {
-                None
-            },
-            state: new_state,
-            is_break,
+            cache_hit_tokens: if hit > 0 { Some(hit) } else { None },
+            cache_write_tokens: if write > 0 { Some(write) } else { None },
+            state,
+            is_break: brk,
         }
     }
 }
@@ -423,7 +434,6 @@ mod tests {
     #[test]
     fn same_prefix_hits_cache() {
         let mut sim = KvCacheSimulator::new();
-        // First request: system + user + assistant + user. Prefix = system + user + assistant.
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -433,8 +443,6 @@ mod tests {
         let r1 = sim.process(&msgs1, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
-        // Second request: same prefix, different last message.
-        // Prefix = system + user + assistant (same as msgs1's full list).
         let msgs2 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -451,8 +459,6 @@ mod tests {
     #[test]
     fn prefix_change_breaks_cache() {
         let mut sim = KvCacheSimulator::new();
-        // First request: system + user + assistant + user.
-        // Prefix = system + user + assistant.
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -462,7 +468,6 @@ mod tests {
         let r1 = sim.process(&msgs1, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
-        // Second request, same prefix: hit.
         let msgs2 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -472,7 +477,6 @@ mod tests {
         let r2 = sim.process(&msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
-        // Third request, different system prompt: break → write.
         let msgs3 = vec![
             msg("system", "You are a different assistant"),
             msg("user", "hello"),
@@ -492,14 +496,11 @@ mod tests {
             msg("user", "hello"),
         ];
 
-        // First request: write.
         let r1 = sim.process(&msgs, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
-        // Wait for TTL to expire.
         std::thread::sleep(Duration::from_millis(20));
 
-        // Second request after expiry: expired → write.
         let r2 = sim.process(&msgs, &[], None, None);
         assert_eq!(r2.state, CacheState::Writing);
         assert!(r2.cache_write_tokens.is_some());
@@ -513,12 +514,10 @@ mod tests {
             msg("user", "hello"),
         ];
 
-        // First request with explicit values.
         let r1 = sim.process(&msgs, &[], Some(100), Some(200));
         assert_eq!(r1.cache_hit_tokens, Some(100));
         assert_eq!(r1.cache_write_tokens, Some(200));
 
-        // Second request: auto simulation runs, explicit values applied.
         let r2 = sim.process(&msgs, &[], Some(50), None);
         assert_eq!(r2.cache_hit_tokens, Some(50));
         assert!(r2.cache_write_tokens.is_none());
@@ -527,7 +526,6 @@ mod tests {
     #[test]
     fn explicit_injection_with_none_falls_back_to_auto() {
         let mut sim = KvCacheSimulator::new();
-        // First request: auto simulation (write).
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -537,7 +535,6 @@ mod tests {
         let r1 = sim.process(&msgs1, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
-        // Second request: same prefix, explicit_hit overrides auto hit.
         let msgs2 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -559,7 +556,6 @@ mod tests {
 
     #[test]
     fn fingerprint_differs_on_content_change() {
-        // Content change in the prefix (not the last message).
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -587,8 +583,6 @@ mod tests {
 
     #[test]
     fn fingerprint_stable_prefix_only() {
-        // Prefix = system + user("hello") + assistant("hi").
-        // Both have the same prefix (all except last message).
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -633,8 +627,6 @@ mod tests {
 
     #[test]
     fn break_residual_same_system_prompt() {
-        // System prompt unchanged, messages change → break with residual
-        // hit > 0 (equal to system prompt tokens).
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
@@ -654,7 +646,7 @@ mod tests {
         let r2 = sim.process(&msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
-        // Third request: different message content, same system prompt.
+        // Different message content, same system prompt.
         let msgs3 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "new topic"),
@@ -664,18 +656,15 @@ mod tests {
         let r3 = sim.process(&msgs3, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.is_break);
-        // Residual hit should be > 0 (system prompt tokens retained).
         assert!(r3.cache_hit_tokens.is_some());
         let residual = r3.cache_hit_tokens.unwrap();
         assert!(residual > 0);
-        // Write tokens = total prefix - residual, should be > 0.
         assert!(r3.cache_write_tokens.is_some());
         assert!(r3.cache_write_tokens.unwrap() > 0);
     }
 
     #[test]
     fn break_residual_completely_different() {
-        // System prompt + all messages change → break with residual hit = 0.
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
@@ -694,7 +683,6 @@ mod tests {
         let r2 = sim.process(&msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
-        // Completely different prefix.
         let msgs3 = vec![
             msg("system", "New system prompt entirely"),
             msg("user", "completely new"),
@@ -704,17 +692,13 @@ mod tests {
         let r3 = sim.process(&msgs3, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.is_break);
-        // No common prefix → residual hit = 0 (None).
         assert!(r3.cache_hit_tokens.is_none());
-        // Full prefix written.
         assert!(r3.cache_write_tokens.is_some());
         assert!(r3.cache_write_tokens.unwrap() > 0);
     }
 
     #[test]
     fn break_residual_partial_message_overlap() {
-        // First N messages same, later messages differ → break with
-        // residual hit = tokens of common prefix portion.
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "sys"),
@@ -733,8 +717,6 @@ mod tests {
         let r2 = sim.process(&msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
-        // Change only the last prefix message (index 2), keep
-        // system + first user message.
         let msgs3 = vec![
             msg("system", "sys"),
             msg("user", "hello"),
@@ -744,12 +726,9 @@ mod tests {
         let r3 = sim.process(&msgs3, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.is_break);
-        // Common prefix: system("sys") + user("hello") = 7 chars
-        // → tokens_from_chars(7) = max(7/4, 1) = 1.
         assert!(r3.cache_hit_tokens.is_some());
         let residual = r3.cache_hit_tokens.unwrap();
         assert!(residual > 0);
-        // Write = total - residual, should be < total prefix tokens.
         let total = KvCacheSimulator::estimate_prefix_tokens(&msgs3, &[]);
         assert!(r3.cache_write_tokens.is_some());
         assert!(r3.cache_write_tokens.unwrap() < total);
@@ -757,10 +736,8 @@ mod tests {
 
     #[test]
     fn is_break_flag_true_only_on_break() {
-        // Verify is_break semantics: true only on break events.
         let mut sim = KvCacheSimulator::new();
 
-        // First request (Writing): is_break = false.
         let msgs1 = vec![
             msg("system", "sys"),
             msg("user", "hello"),
@@ -770,7 +747,6 @@ mod tests {
         let r1 = sim.process(&msgs1, &[], None, None);
         assert!(!r1.is_break);
 
-        // Second request (Hit): is_break = false.
         let msgs2 = vec![
             msg("system", "sys"),
             msg("user", "hello"),
@@ -780,7 +756,6 @@ mod tests {
         let r2 = sim.process(&msgs2, &[], None, None);
         assert!(!r2.is_break);
 
-        // Third request (Break → Writing): is_break = true.
         let msgs3 = vec![
             msg("system", "new sys"),
             msg("user", "hello"),
@@ -790,7 +765,6 @@ mod tests {
         let r3 = sim.process(&msgs3, &[], None, None);
         assert!(r3.is_break);
 
-        // Fourth request (Hit again): is_break = false.
         let msgs4 = vec![
             msg("system", "new sys"),
             msg("user", "hello"),
@@ -803,8 +777,6 @@ mod tests {
 
     #[test]
     fn explicit_injection_correct_values_no_logging() {
-        // Verify explicit injection returns correct values and does
-        // not interfere with auto-simulation state machine.
         let mut sim = KvCacheSimulator::new();
         let msgs = vec![
             msg("system", "sys"),
@@ -813,13 +785,11 @@ mod tests {
             msg("user", "q1"),
         ];
 
-        // Explicit injection on first request.
         let r1 = sim.process(&msgs, &[], Some(100), Some(200));
         assert_eq!(r1.cache_hit_tokens, Some(100));
         assert_eq!(r1.cache_write_tokens, Some(200));
         assert!(!r1.is_break);
 
-        // Same prefix, explicit hit overrides auto.
         let msgs2 = vec![
             msg("system", "sys"),
             msg("user", "hello"),
@@ -832,8 +802,6 @@ mod tests {
         assert!(!r2.is_break);
         assert_eq!(r2.state, CacheState::Hit);
 
-        // Prefix change with explicit values → is_break still false
-        // (explicit injection disables auto break detection).
         let msgs3 = vec![
             msg("system", "different sys"),
             msg("user", "hello"),
@@ -844,5 +812,80 @@ mod tests {
         assert!(r3.cache_hit_tokens.is_none());
         assert_eq!(r3.cache_write_tokens, Some(300));
         assert!(!r3.is_break);
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.4: Regression test for explicit injection → auto-sim break
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn explicit_then_auto_break_residual_correct() {
+        // Verify that after explicit injection, switching back to
+        // auto-simulation correctly computes break residual hit using
+        // the old prefix recorded during explicit injection.
+        let mut sim = KvCacheSimulator::new();
+
+        // Request 1: explicit injection (records prefix A).
+        let msgs_a = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q1"),
+        ];
+        let r1 = sim.process(&msgs_a, &[], Some(100), Some(200));
+        assert_eq!(r1.cache_hit_tokens, Some(100));
+
+        // Request 2: explicit injection with same prefix (records again).
+        let msgs_a2 = vec![
+            msg("system", "sys"),
+            msg("user", "hello"),
+            msg("assistant", "hi"),
+            msg("user", "q2"),
+        ];
+        let r2 = sim.process(&msgs_a2, &[], Some(50), None);
+        assert_eq!(r2.cache_hit_tokens, Some(50));
+
+        // Request 3: auto-simulation with different prefix → break.
+        // old_prefix was set during explicit injection, so residual
+        // hit should be computed from prefix A's data.
+        let msgs_b = vec![
+            msg("system", "new sys"),
+            msg("user", "world"),
+            msg("assistant", "yo"),
+            msg("user", "q3"),
+        ];
+        let r3 = sim.process(&msgs_b, &[], None, None);
+        assert_eq!(r3.state, CacheState::Writing);
+        assert!(r3.is_break);
+        // Completely different prefix → no residual hit.
+        assert!(r3.cache_hit_tokens.is_none());
+        assert!(r3.cache_write_tokens.is_some());
+        assert!(r3.cache_write_tokens.unwrap() > 0);
+
+        // Request 4: auto-simulation, same prefix as r3 → hit.
+        let msgs_b2 = vec![
+            msg("system", "new sys"),
+            msg("user", "world"),
+            msg("assistant", "yo"),
+            msg("user", "q4"),
+        ];
+        let r4 = sim.process(&msgs_b2, &[], None, None);
+        assert_eq!(r4.state, CacheState::Hit);
+        assert!(!r4.is_break);
+
+        // Request 5: auto-simulation with partially overlapping prefix
+        // (same system prompt as msgs_b) → break with residual.
+        let msgs_c = vec![
+            msg("system", "new sys"),
+            msg("user", "different"),
+            msg("assistant", "ok"),
+            msg("user", "q5"),
+        ];
+        let r5 = sim.process(&msgs_c, &[], None, None);
+        assert_eq!(r5.state, CacheState::Writing);
+        assert!(r5.is_break);
+        // System prompt "new sys" is common → residual > 0.
+        assert!(r5.cache_hit_tokens.is_some());
+        assert!(r5.cache_hit_tokens.unwrap() > 0);
     }
 }
