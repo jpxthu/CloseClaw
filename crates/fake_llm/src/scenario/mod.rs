@@ -304,14 +304,13 @@ impl ScenarioEngine {
         usage: &mut Option<UsageResponse>,
         cache: &crate::kv_cache::CacheResult,
     ) {
-        let is_missing = usage.as_ref().is_some_and(|u| u.cache_fields_missing);
-        if is_missing {
+        let u = usage.get_or_insert_with(UsageResponse::default);
+        if u.cache_fields_missing {
             return;
         }
         if cache.cache_hit_tokens.is_none() && cache.cache_write_tokens.is_none() {
             return;
         }
-        let u = usage.get_or_insert_with(UsageResponse::default);
         if u.cache_hit_tokens.is_none() {
             u.cache_hit_tokens = cache.cache_hit_tokens;
         }
