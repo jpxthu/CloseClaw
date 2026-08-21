@@ -15,6 +15,9 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 ///
 /// `session_id` and `channel` are retained as session metadata for potential
 /// future use by stream handlers or logging.
+///
+/// `registry` provides per-chunk DSL parsing during the incremental phase.
+/// When `None`, `dispatch_text` passes text through unchanged (zero overhead).
 #[allow(dead_code)] // read cross-module in outbound.rs
 pub(crate) struct StreamContext<'a> {
     pub plugin: &'a std::sync::Arc<dyn closeclaw_common::im_plugin::IMPlugin>,
@@ -22,6 +25,7 @@ pub(crate) struct StreamContext<'a> {
     pub channel: &'a str,
     pub chat_id: &'a str,
     pub thread_id: Option<&'a str>,
+    pub registry: Option<&'a std::sync::Arc<dyn closeclaw_common::processor::ProcessorChain>>,
 }
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
@@ -31,6 +35,11 @@ pub(crate) struct StreamState {
     pub verbosity_level: VerbosityLevel,
     pub media_name: Option<String>,
     pub media_url: Option<String>,
+    /// DSL instructions accumulated during the incremental phase.
+    /// Each text chunk is parsed via [`ProcessorChain::parse_line_for_dsl`];
+    /// DSL lines are stripped from the text sent to the user and their
+    /// parsed instructions are collected here for the finish phase.
+    pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
 }
 
 impl StreamState {
@@ -48,6 +57,7 @@ impl StreamState {
             verbosity_level,
             media_name: None,
             media_url: None,
+            dsl_instructions: Vec::new(),
         }
     }
 
@@ -108,18 +118,34 @@ pub(crate) async fn log_middleware_rejection(
 // Streaming outbound helpers
 // ---------------------------------------------------------------------------
 
-/// Send text messages from `out` into `state` (no DslParser processing).
+/// Send text messages from `out` into `state`, routing each through
+/// [`ProcessorChain::parse_line_for_dsl`] when a registry is available.
+///
+/// DSL lines are stripped from the text sent to the user; their parsed
+/// instructions accumulate in [`StreamState::dsl_instructions`] for the
+/// finish phase. When `registry` is `None`, text passes through unchanged
+/// (zero-overhead passthrough).
 pub(crate) async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        tracing::info!(chat_id = ctx.chat_id, content = %text, "streaming outbound text");
-        if !text.is_empty() {
-            send_text(ctx, &text).await?;
-            state.content_blocks.push(ContentBlock::Text(text));
+        let (clean_text, dsl_result) = match ctx.registry {
+            Some(registry) => registry.parse_line_for_dsl(&text),
+            None => (
+                text.clone(),
+                closeclaw_common::processor::DslParseResult {
+                    instructions: vec![],
+                },
+            ),
+        };
+        tracing::info!(chat_id = ctx.chat_id, content = %clean_text, "streaming outbound text");
+        if !clean_text.is_empty() {
+            send_text(ctx, &clean_text).await?;
+            state.content_blocks.push(ContentBlock::Text(clean_text));
         }
+        state.dsl_instructions.extend(dsl_result.instructions);
     }
     Ok(())
 }

@@ -677,12 +677,14 @@ impl Gateway {
         let mut state = StreamState::new(verbosity_level);
         let mut first_event_received = false;
         let timeout_duration = std::time::Duration::from_millis(200);
+        let processor_registry = self.processor_registry.read().unwrap().clone();
         let ctx = StreamContext {
             plugin,
             session_id,
             channel,
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
+            registry: processor_registry.as_ref(),
         };
         loop {
             tokio::select! {
