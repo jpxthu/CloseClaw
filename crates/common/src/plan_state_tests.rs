@@ -1,4 +1,4 @@
-//! Tests for PlanState, PlanPhase, and PlanPath basics.
+//! Tests for PlanState and PlanPhase basics.
 
 use super::*;
 
@@ -86,41 +86,6 @@ fn test_plan_state_serialization_field_names_snake_case() {
     assert!(json.get("phase").is_some());
     assert!(json.get("pending_steps").is_some());
     assert!(json.get("plan_file_path").is_some());
-}
-
-#[test]
-fn test_plan_path_default_is_standard() {
-    assert_eq!(PlanPath::default(), PlanPath::Standard);
-}
-
-#[test]
-fn test_plan_path_all_variants() {
-    let variants = [PlanPath::Standard, PlanPath::Interview];
-    assert_eq!(variants.len(), 2);
-}
-
-#[test]
-fn test_plan_path_serde_snake_case() {
-    let cases = [
-        (PlanPath::Standard, r#""standard""#),
-        (PlanPath::Interview, r#""interview""#),
-    ];
-    for (path, expected_json) in cases {
-        let json = serde_json::to_string(&path).unwrap();
-        assert_eq!(
-            json, expected_json,
-            "path {:?} should serialize to {}",
-            path, expected_json
-        );
-        let deserialized: PlanPath = serde_json::from_str(expected_json).unwrap();
-        assert_eq!(deserialized, path);
-    }
-}
-
-#[test]
-fn test_plan_path_display() {
-    assert_eq!(PlanPath::Standard.to_string(), "standard");
-    assert_eq!(PlanPath::Interview.to_string(), "interview");
 }
 
 // --- ExecutionStepStatus serde tests (type stays in common for serde compat) ---

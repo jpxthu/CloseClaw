@@ -1,5 +1,5 @@
 use crate::plan_path::analyze_plan_path;
-use closeclaw_common::PlanPath;
+use closeclaw_execution::PlanPath;
 
 #[test]
 fn test_analyze_standard_clear_with_paths_and_criteria() {

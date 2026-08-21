@@ -10,7 +10,8 @@ use crate::builder::PromptOverrides;
 use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, PlanPath, SessionMode};
+use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, SessionMode};
+use closeclaw_execution::PlanPath;
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Parameters for [`build_dynamic_sections`].
