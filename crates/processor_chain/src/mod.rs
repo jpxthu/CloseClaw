@@ -29,6 +29,8 @@ mod outbound_chain_tests;
 pub mod outbound_raw_log;
 #[cfg(test)]
 mod outbound_raw_log_tests;
+#[cfg(test)]
+mod process_outbound_without_verbosity_tests;
 pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
