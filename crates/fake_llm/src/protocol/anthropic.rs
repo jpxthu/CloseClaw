@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::scenario::types::MessageEntry;
 use crate::types::{
-    extract_text_from_content, extract_tool_names, RequestFeatures, ScenarioDecision,
+    extract_text_from_content, extract_tool_names, ProtocolKind, RequestFeatures, ScenarioDecision,
 };
 
 // ---------------------------------------------------------------------------
@@ -88,6 +88,7 @@ pub fn extract_request_features(req: &MessageRequest) -> RequestFeatures {
         temperature: req.temperature,
         messages,
         tools,
+        protocol: ProtocolKind::Anthropic,
     }
 }
 
@@ -230,13 +231,8 @@ pub fn build_message_response_from_decision(decision: &ScenarioDecision) -> Mess
         }
     }
 
-    let blocks = if blocks.is_empty() {
-        vec![ContentBlock::Text {
-            text: "placeholder".to_string(),
-        }]
-    } else {
-        blocks
-    };
+    // Empty blocks are a valid scenario-declared response — no implicit
+    // placeholder injection (scenarios are the sole control surface).
 
     let stop_reason = if has_tool_use { "tool_use" } else { "end_turn" };
 
@@ -308,6 +304,7 @@ mod tests {
         assert_eq!(features.temperature, Some(0.7));
         assert!(features.messages.is_empty());
         assert!(features.tools.is_empty());
+        assert_eq!(features.protocol, ProtocolKind::Anthropic);
     }
 
     #[test]
@@ -538,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn response_empty_blocks_uses_placeholder() {
+    fn response_empty_blocks_no_placeholder_injection() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -564,10 +561,9 @@ mod tests {
         let resp = build_message_response_from_decision(&decision);
         let json = serde_json::to_value(&resp).unwrap();
 
+        // Empty content text blocks are skipped — no implicit placeholder injection.
         let content = json["content"].as_array().unwrap();
-        assert_eq!(content.len(), 1);
-        assert_eq!(content[0]["type"], "text");
-        assert_eq!(content[0]["text"], "placeholder");
+        assert_eq!(content.len(), 0);
     }
 
     #[test]

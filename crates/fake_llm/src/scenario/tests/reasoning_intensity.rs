@@ -36,7 +36,7 @@ fn reasoning_intensity_low_produces_shorter_text() {
         )],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -69,7 +69,7 @@ fn reasoning_intensity_medium_produces_moderate_text() {
         )],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -99,7 +99,7 @@ fn reasoning_intensity_high_produces_long_text() {
         )],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
@@ -127,7 +127,7 @@ fn reasoning_intensity_ordering_low_lt_medium_lt_high() {
             turns: vec![reasoning_turn("a", "think about it", intensity)],
             models: None,
         };
-        let mut engine = ScenarioEngine::new(vec![scenario]);
+        let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
         let feat = features("gpt-4", "x");
         match engine.decide(&feat) {
             DecisionOutcome::Decision(d) => d.response_blocks[0].reasoning.as_ref().unwrap().len(),
@@ -162,7 +162,7 @@ fn reasoning_intensity_empty_reasoning_stays_empty() {
         turns: vec![reasoning_turn("answer", "", ReasoningIntensity::High)],
         models: None,
     };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
+    let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
     let feat = features("gpt-4", "hi");
     let outcome = engine.decide(&feat);
     match outcome {

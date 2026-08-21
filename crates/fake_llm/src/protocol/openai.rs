@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::scenario::types::MessageEntry;
 use crate::types::{
-    extract_text_from_content, extract_tool_names, RequestFeatures, ScenarioDecision,
+    extract_text_from_content, extract_tool_names, ProtocolKind, RequestFeatures, ScenarioDecision,
 };
 
 // ---------------------------------------------------------------------------
@@ -114,6 +114,7 @@ pub fn extract_request_features(req: &ChatCompletionRequest) -> RequestFeatures 
         temperature: req.temperature,
         messages,
         tools,
+        protocol: ProtocolKind::OpenAi,
     }
 }
 
@@ -258,11 +259,8 @@ pub fn build_chat_completion_response_from_decision(
         }
     }
 
-    let content = if content.is_empty() && tool_calls.is_empty() {
-        "placeholder".to_string()
-    } else {
-        content
-    };
+    // Empty content is a valid scenario-declared response — no implicit
+    // placeholder injection (scenarios are the sole control surface).
 
     let finish_reason = if tool_calls.is_empty() {
         "stop".to_string()
@@ -407,6 +405,7 @@ mod tests {
         assert_eq!(features.temperature, Some(0.7));
         assert!(features.messages.is_empty());
         assert!(features.tools.is_empty());
+        assert_eq!(features.protocol, ProtocolKind::OpenAi);
     }
 
     #[test]
@@ -575,8 +574,9 @@ mod tests {
         let resp = build_chat_completion_response_from_decision(&decision);
         let json = serde_json::to_value(&resp).unwrap();
 
-        // Empty content falls back to placeholder
-        assert_eq!(json["choices"][0]["message"]["content"], "placeholder");
+        // Empty content is a valid scenario-declared response — no implicit
+        // placeholder injection.
+        assert_eq!(json["choices"][0]["message"]["content"], "");
         assert_eq!(
             json["choices"][0]["message"]["reasoning_content"],
             "thinking..."

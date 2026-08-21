@@ -12,8 +12,17 @@ use closeclaw_fake_llm::server::start_server_addr;
 /// Uses port 0 for automatic port assignment by the OS. The server runs in a
 /// background tokio task; dropping the returned handle does NOT shut it down
 /// (the runtime drop does).
+///
+/// Loads fixture scenarios so the engine has a fallback for unmatched requests.
 async fn spawn_server() -> SocketAddr {
-    let addr = start_server_addr("127.0.0.1:0", None)
+    let scenarios_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("fixtures")
+        .join("fake_llm")
+        .join("scenarios-fallback");
+    let addr = start_server_addr("127.0.0.1:0", Some(&scenarios_dir))
         .await
         .expect("failed to start server on 127.0.0.1:0");
     // Retry connecting until the server is ready (max 10 retries, 10ms each).
