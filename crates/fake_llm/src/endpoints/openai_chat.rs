@@ -47,9 +47,13 @@ pub async fn handler(
             let stream_interrupt = decision
                 .stream_interrupt_after
                 .map(|n| StreamInterrupt { after_event: n });
+            let include_usage = req
+                .stream_options
+                .as_ref()
+                .map_or(false, |opts| opts.include_usage);
             let config = DeliveryConfig {
                 segment_granularity: DEFAULT_SEGMENT_GRANULARITY,
-                include_usage: true,
+                include_usage,
                 stream_interrupt,
             };
 
@@ -95,6 +99,7 @@ pub async fn handler(
 mod tests {
     use crate::protocol::openai::{
         build_chat_completion_response, extract_request_features, ChatCompletionRequest,
+        StreamOptions,
     };
 
     #[test]
@@ -108,6 +113,7 @@ mod tests {
             temperature: Some(0.7),
             tools: None,
             stop: None,
+            stream_options: None,
         };
         let features = extract_request_features(&req);
         assert_eq!(features.model, "gpt-4");
@@ -118,5 +124,67 @@ mod tests {
         assert_eq!(json["object"], "chat.completion");
         assert!(json["choices"].is_array());
         assert_eq!(json["choices"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn stream_options_none_yields_include_usage_false() {
+        // When stream_options is absent, include_usage should default to false
+        let req = ChatCompletionRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![],
+            stream: true,
+            max_tokens: None,
+            temperature: None,
+            tools: None,
+            stop: None,
+            stream_options: None,
+        };
+        let include_usage = req
+            .stream_options
+            .as_ref()
+            .map_or(false, |opts| opts.include_usage);
+        assert!(!include_usage);
+    }
+
+    #[test]
+    fn stream_options_include_usage_true() {
+        let req = ChatCompletionRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![],
+            stream: true,
+            max_tokens: None,
+            temperature: None,
+            tools: None,
+            stop: None,
+            stream_options: Some(StreamOptions {
+                include_usage: true,
+            }),
+        };
+        let include_usage = req
+            .stream_options
+            .as_ref()
+            .map_or(false, |opts| opts.include_usage);
+        assert!(include_usage);
+    }
+
+    #[test]
+    fn stream_options_include_usage_false() {
+        let req = ChatCompletionRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![],
+            stream: true,
+            max_tokens: None,
+            temperature: None,
+            tools: None,
+            stop: None,
+            stream_options: Some(StreamOptions {
+                include_usage: false,
+            }),
+        };
+        let include_usage = req
+            .stream_options
+            .as_ref()
+            .map_or(false, |opts| opts.include_usage);
+        assert!(!include_usage);
     }
 }
