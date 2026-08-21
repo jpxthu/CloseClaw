@@ -9,6 +9,8 @@ use anyhow::{Context, Result};
 
 use std::collections::HashMap;
 
+use std::time::Duration;
+
 use crate::kv_cache::KvCacheSimulator;
 use crate::types::{RequestFeatures, ScenarioDecision};
 
@@ -67,7 +69,15 @@ pub struct ScenarioEngine {
     sessions: SessionTracker,
     /// Per-scenario KV cache simulators, keyed by scenario name.
     kv_caches: HashMap<String, KvCacheSimulator>,
+    /// Total number of `decide()` calls since engine creation.
+    request_count: usize,
 }
+
+/// How often (in `decide()` calls) to trigger session cleanup.
+const CLEANUP_INTERVAL: usize = 100;
+
+/// Default session TTL for automatic cleanup (30 minutes).
+const SESSION_TTL: Duration = Duration::from_secs(1800);
 
 impl ScenarioEngine {
     /// Create a new engine by loading scenario files from the given directory.
@@ -83,6 +93,7 @@ impl ScenarioEngine {
             matcher,
             sessions: SessionTracker::new(),
             kv_caches: HashMap::new(),
+            request_count: 0,
         })
     }
 
@@ -93,6 +104,7 @@ impl ScenarioEngine {
             matcher,
             sessions: SessionTracker::new(),
             kv_caches: HashMap::new(),
+            request_count: 0,
         }
     }
 
@@ -100,6 +112,8 @@ impl ScenarioEngine {
     ///
     /// Flow: match scenario → advance session turn → build decision.
     pub fn decide(&mut self, features: &RequestFeatures) -> DecisionOutcome {
+        self.maybe_cleanup();
+
         let matched_idx = match self.matcher.match_request(features) {
             Some(idx) => idx,
             None => return Self::placeholder_decision(features),
@@ -115,19 +129,45 @@ impl ScenarioEngine {
 
         let max_turns = matched.turns.len();
         if turn >= max_turns {
-            panic!(
-                "scenario '{}' exceeded declared turns (turn {}, max {})",
-                matched.name, turn, max_turns
-            );
+            return DecisionOutcome::Error(HttpError {
+                status: 500,
+                message: format!(
+                    "scenario '{}' exceeded declared turns \
+                     (turn {}, max {})",
+                    matched.name, turn, max_turns
+                ),
+                retry_after: None,
+            });
         }
 
-        let turn_resp = &matched.turns[turn];
+        let turn_resp = matched.turns[turn].clone();
         if let Some(error) = &turn_resp.error {
             return DecisionOutcome::Error(error.clone());
         }
 
-        let response_blocks = Self::build_response_blocks(&turn_resp.response);
-        let mut usage = Self::extract_usage(&turn_resp.response);
+        let scenario_name = matched.name.clone();
+        self.build_decision(features, &scenario_name, &turn_resp)
+    }
+
+    /// Trigger session cleanup if the request count is a multiple of
+    /// the cleanup interval.
+    fn maybe_cleanup(&mut self) {
+        self.request_count += 1;
+        if self.request_count.is_multiple_of(CLEANUP_INTERVAL) {
+            self.sessions.cleanup_expired(SESSION_TTL);
+        }
+    }
+
+    /// Build the final decision from matched scenario and turn response.
+    fn build_decision(
+        &mut self,
+        features: &RequestFeatures,
+        scenario_name: &str,
+        turn_resp: &TurnResponse,
+    ) -> DecisionOutcome {
+        let shapes = turn_resp.response.to_shapes();
+        let response_blocks = Self::build_response_blocks(&shapes);
+        let mut usage = Self::extract_usage(&shapes);
         let blocks = if response_blocks.is_empty() {
             vec![ResponseBlock {
                 block_type: "text".to_string(),
@@ -140,25 +180,22 @@ impl ScenarioEngine {
         } else {
             response_blocks
         };
-
-        // KV cache simulation: compute cache fields and merge into usage.
-        // Explicit injection from the turn's usage takes priority over auto.
-        // Each scenario has its own KvCacheSimulator for state isolation.
+        // KV cache simulation: compute cache fields and merge.
+        // Explicit injection takes priority over auto.
         let explicit_hit = usage.as_ref().and_then(|u| u.cache_hit_tokens);
         let explicit_write = usage.as_ref().and_then(|u| u.cache_write_tokens);
-        let kv_cache = self.kv_caches.entry(matched.name.clone()).or_default();
+        let kv_cache = self.kv_caches.entry(scenario_name.to_string()).or_default();
         let cache_result = kv_cache.process(
-            &matched.name,
+            scenario_name,
             &features.messages,
             &features.tools,
             explicit_hit,
             explicit_write,
         );
         Self::merge_cache_into_usage(&mut usage, &cache_result);
-
         DecisionOutcome::Decision(ScenarioDecision {
             model: features.model.clone(),
-            scenario: matched.name.clone(),
+            scenario: scenario_name.to_string(),
             stream: features.stream,
             response_blocks: blocks,
             http_error: None,
@@ -214,10 +251,14 @@ impl ScenarioEngine {
 
             let max_turns = matched.turns.len();
             if turn >= max_turns {
-                panic!(
-                    "scenario '{}' exceeded declared turns (turn {}, max {})",
-                    matched.name, turn, max_turns
-                );
+                return ModelsDecision::Error(HttpError {
+                    status: 500,
+                    message: format!(
+                        "scenario '{}' exceeded declared turns (turn {}, max {})",
+                        matched.name, turn, max_turns
+                    ),
+                    retry_after: None,
+                });
             }
 
             let turn_resp = &matched.turns[turn];
@@ -239,68 +280,71 @@ impl ScenarioEngine {
         ModelsDecision::Placeholder
     }
 
-    /// Build response blocks from a response shape.
-    fn build_response_blocks(shape: &ResponseShape) -> Vec<ResponseBlock> {
-        match shape {
-            ResponseShape::Text(t) => vec![ResponseBlock {
-                block_type: "text".to_string(),
-                content: Some(t.content.clone()),
-                tool_name: None,
-                tool_arguments: None,
-                reasoning: None,
-                signature: None,
-            }],
-            ResponseShape::Reasoning(r) => {
-                let reasoning_text =
-                    Self::generate_reasoning_by_intensity(&r.reasoning, &r.intensity);
-                vec![
-                    ResponseBlock {
-                        block_type: "reasoning".to_string(),
-                        content: None,
-                        tool_name: None,
-                        tool_arguments: None,
-                        reasoning: Some(reasoning_text),
-                        signature: r.signature.clone(),
-                    },
-                    ResponseBlock {
-                        block_type: "text".to_string(),
-                        content: Some(r.content.clone()),
-                        tool_name: None,
-                        tool_arguments: None,
-                        reasoning: None,
-                        signature: None,
-                    },
-                ]
+    /// Build response blocks from a slice of response shapes.
+    ///
+    /// Handles `Composite` variants by recursively flattening them.
+    fn build_response_blocks(shapes: &[ResponseShape]) -> Vec<ResponseBlock> {
+        let mut blocks = Vec::new();
+        for shape in shapes {
+            match shape {
+                ResponseShape::Composite(inner) => {
+                    blocks.extend(Self::build_response_blocks(inner));
+                }
+                ResponseShape::Text(t) => blocks.push(Self::build_text_block(&t.content)),
+                ResponseShape::Reasoning(r) => {
+                    blocks.extend(Self::build_reasoning_blocks(r));
+                }
+                ResponseShape::ToolCall(tc) => {
+                    blocks.extend(Self::build_tool_call_blocks(tc));
+                }
+                ResponseShape::Usage(_) => blocks.push(Self::build_text_block("")),
+                _ => blocks.push(Self::build_text_block("placeholder")),
             }
-            ResponseShape::ToolCall(tc) => tc
-                .calls
-                .iter()
-                .map(|call| ResponseBlock {
-                    block_type: "tool_call".to_string(),
-                    content: None,
-                    tool_name: Some(call.name.clone()),
-                    tool_arguments: Some(call.arguments.clone()),
-                    reasoning: None,
-                    signature: None,
-                })
-                .collect(),
-            ResponseShape::Usage(_) => vec![ResponseBlock {
-                block_type: "text".to_string(),
-                content: Some(String::new()),
-                tool_name: None,
-                tool_arguments: None,
-                reasoning: None,
-                signature: None,
-            }],
-            _ => vec![ResponseBlock {
-                block_type: "text".to_string(),
-                content: Some("placeholder".to_string()),
-                tool_name: None,
-                tool_arguments: None,
-                reasoning: None,
-                signature: None,
-            }],
         }
+        blocks
+    }
+
+    /// Build a single text response block.
+    fn build_text_block(content: &str) -> ResponseBlock {
+        ResponseBlock {
+            block_type: "text".to_string(),
+            content: Some(content.to_string()),
+            tool_name: None,
+            tool_arguments: None,
+            reasoning: None,
+            signature: None,
+        }
+    }
+
+    /// Build reasoning + text blocks from a reasoning shape.
+    fn build_reasoning_blocks(r: &ReasoningResponse) -> Vec<ResponseBlock> {
+        let reasoning_text = Self::generate_reasoning_by_intensity(&r.reasoning, &r.intensity);
+        vec![
+            ResponseBlock {
+                block_type: "reasoning".to_string(),
+                content: None,
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: Some(reasoning_text),
+                signature: r.signature.clone(),
+            },
+            Self::build_text_block(&r.content),
+        ]
+    }
+
+    /// Build tool call blocks from a tool call shape.
+    fn build_tool_call_blocks(tc: &ToolCallResponse) -> Vec<ResponseBlock> {
+        tc.calls
+            .iter()
+            .map(|call| ResponseBlock {
+                block_type: "tool_call".to_string(),
+                content: None,
+                tool_name: Some(call.name.clone()),
+                tool_arguments: Some(call.arguments.clone()),
+                reasoning: None,
+                signature: None,
+            })
+            .collect()
     }
 
     /// Generate reasoning text by intensity level.
@@ -331,15 +375,26 @@ Finally, I'll synthesize a comprehensive answer.",
         }
     }
 
-    /// Extract usage from a response shape, if present.
-    fn extract_usage(shape: &ResponseShape) -> Option<UsageResponse> {
-        match shape {
-            ResponseShape::Usage(u) => Some(u.clone()),
-            ResponseShape::Text(t) => t.usage.clone(),
-            ResponseShape::Reasoning(r) => r.usage.clone(),
-            ResponseShape::ToolCall(tc) => tc.usage.clone(),
-            _ => None,
+    /// Extract usage from a slice of response shapes.
+    ///
+    /// Returns the first `UsageResponse` found by iterating through shapes
+    /// in order: top-level `Usage` variants, then embedded usage fields in
+    /// `Text`, `Reasoning`, and `ToolCall` variants.
+    fn extract_usage(shapes: &[ResponseShape]) -> Option<UsageResponse> {
+        for shape in shapes {
+            let found = match shape {
+                ResponseShape::Usage(u) => Some(u.clone()),
+                ResponseShape::Text(t) => t.usage.clone(),
+                ResponseShape::Reasoning(r) => r.usage.clone(),
+                ResponseShape::ToolCall(tc) => tc.usage.clone(),
+                ResponseShape::Composite(inner) => Self::extract_usage(inner),
+                _ => None,
+            };
+            if found.is_some() {
+                return found;
+            }
         }
+        None
     }
 
     /// Merge KV cache simulation results into usage fields.

@@ -8,17 +8,20 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
 
 /// Unique session identifier derived from a hash of the message history.
 type SessionKey = u64;
 
 /// State for a single tracked session.
 #[derive(Debug, Clone)]
-struct SessionEntry {
+pub(crate) struct SessionEntry {
     /// Full message history for this session (used for prefix comparison).
-    history: Vec<String>,
+    pub(crate) history: Vec<String>,
     /// Current turn index (0-based). 0 means no responses have been given yet.
-    turn: usize,
+    pub(crate) turn: usize,
+    /// Timestamp of the last access to this session.
+    pub(crate) last_active: Instant,
 }
 
 /// Tracks active sessions and their turn cursors.
@@ -34,7 +37,7 @@ struct SessionEntry {
 #[derive(Debug)]
 pub struct SessionTracker {
     /// Outer key: scenario name. Inner map: session history hash → entry.
-    sessions: HashMap<String, HashMap<SessionKey, SessionEntry>>,
+    pub(crate) sessions: HashMap<String, HashMap<SessionKey, SessionEntry>>,
 }
 
 impl SessionTracker {
@@ -64,7 +67,8 @@ impl SessionTracker {
         let scenario_map = self.scenario_sessions(scenario_name);
 
         // Exact match: duplicate request, return current turn without change.
-        if let Some(entry) = scenario_map.get(&history_key) {
+        if let Some(entry) = scenario_map.get_mut(&history_key) {
+            entry.last_active = Instant::now();
             return entry.turn;
         }
 
@@ -84,6 +88,7 @@ impl SessionTracker {
                     SessionEntry {
                         history: messages.to_vec(),
                         turn: 0,
+                        last_active: Instant::now(),
                     },
                 );
                 0
@@ -96,6 +101,7 @@ impl SessionTracker {
                 let new_turn = entry.turn;
                 // Update stored history to the new (longer) history.
                 entry.history = messages.to_vec();
+                entry.last_active = Instant::now();
                 new_turn
             }
             _ => {
@@ -117,8 +123,36 @@ impl SessionTracker {
             && new_history[..session_history.len()] == *session_history
     }
 
+    /// Remove sessions whose `last_active` is older than `ttl`.
+    ///
+    /// Uses `Instant::now()` as the reference time. Returns the total
+    /// number of entries removed across all scenarios.
+    pub fn cleanup_expired(&mut self, ttl: Duration) -> usize {
+        self.cleanup_expired_at(Instant::now(), ttl)
+    }
+
+    /// Remove sessions whose `last_active` is older than `ttl` relative
+    /// to the given `now` timestamp.
+    ///
+    /// Returns the total number of entries removed across all scenarios.
+    pub fn cleanup_expired_at(&mut self, now: Instant, ttl: Duration) -> usize {
+        let cutoff = now - ttl;
+        let mut removed = 0;
+        for sessions in self.sessions.values_mut() {
+            let before = sessions.len();
+            sessions.retain(|_, entry| entry.last_active >= cutoff);
+            removed += before - sessions.len();
+        }
+        removed
+    }
+
+    /// Return the total number of active sessions across all scenarios.
+    pub fn active_session_count(&self) -> usize {
+        self.sessions.values().map(|m| m.len()).sum()
+    }
+
     /// Compute a hash key from a message history slice.
-    fn compute_history_key(messages: &[String]) -> SessionKey {
+    pub(crate) fn compute_history_key(messages: &[String]) -> SessionKey {
         let mut hasher = DefaultHasher::new();
         for msg in messages {
             msg.hash(&mut hasher);
@@ -470,5 +504,96 @@ mod tests {
         let k1 = SessionTracker::compute_history_key(&msgs1);
         let k2 = SessionTracker::compute_history_key(&msgs2);
         assert_ne!(k1, k2);
+    }
+
+    // ------------------------------------------------------------------
+    // Session cleanup tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn cleanup_removes_expired_session() {
+        let mut tracker = SessionTracker::new();
+        let messages = vec!["hello".to_string()];
+
+        let created = Instant::now();
+        tracker.advance_turn(&messages, "test");
+        assert_eq!(tracker.active_session_count(), 1);
+
+        // Cleanup with now = created + 1s and ttl = 0s → session is expired.
+        let removed = tracker.cleanup_expired_at(created + Duration::from_secs(1), Duration::ZERO);
+        assert_eq!(removed, 1);
+        assert_eq!(tracker.active_session_count(), 0);
+    }
+
+    #[test]
+    fn cleanup_preserves_active_session() {
+        let mut tracker = SessionTracker::new();
+        let messages = vec!["hello".to_string()];
+
+        let created = Instant::now();
+        tracker.advance_turn(&messages, "test");
+        assert_eq!(tracker.active_session_count(), 1);
+
+        // Cleanup with now = created + 1s and ttl = 5s → session is still alive.
+        let removed =
+            tracker.cleanup_expired_at(created + Duration::from_secs(1), Duration::from_secs(5));
+        assert_eq!(removed, 0);
+        assert_eq!(tracker.active_session_count(), 1);
+    }
+
+    #[test]
+    fn cleanup_independent_across_scenarios() {
+        let mut tracker = SessionTracker::new();
+
+        // Create sessions in both scenarios at the same instant.
+        tracker.advance_turn(&["a".to_string()], "A");
+        tracker.advance_turn(&["b".to_string()], "B");
+        assert_eq!(tracker.active_session_count(), 2);
+
+        // Cleanup with a TTL that only catches scenario A's session.
+        // Since both were created simultaneously, we use a trick:
+        // refresh scenario B's session so its last_active is newer,
+        // then use a TTL that only catches the unrefreshed A session.
+        let created = Instant::now();
+        // Advance B again (duplicate request) to refresh last_active.
+        tracker.advance_turn(&["b".to_string()], "B");
+        let refreshed = created + Duration::from_millis(1);
+        // TTL = 1ms: A's session (last_active == created) is expired,
+        // B's session (last_active == refreshed) is still fresh.
+        let removed = tracker.cleanup_expired_at(refreshed, Duration::from_millis(1));
+        assert_eq!(removed, 1);
+        assert_eq!(tracker.active_session_count(), 1);
+        // Verify it was scenario A that was removed.
+        assert!(tracker.sessions.get("A").unwrap().is_empty());
+        assert!(!tracker.sessions.get("B").unwrap().is_empty());
+    }
+
+    #[test]
+    fn cleanup_only_removes_expired_not_fresh() {
+        let mut tracker = SessionTracker::new();
+        let created = Instant::now();
+        tracker.advance_turn(&["m".to_string()], "s");
+        assert_eq!(tracker.active_session_count(), 1);
+
+        // Session created at `created`. Cleanup with ttl=0 at created+1
+        // should remove it (last_active == created < created+1).
+        let removed = tracker.cleanup_expired_at(created + Duration::from_secs(1), Duration::ZERO);
+        assert_eq!(removed, 1);
+        assert_eq!(tracker.active_session_count(), 0);
+    }
+
+    #[test]
+    fn active_session_count_tracks_scenarios() {
+        let mut tracker = SessionTracker::new();
+        assert_eq!(tracker.active_session_count(), 0);
+
+        tracker.advance_turn(&["a".to_string()], "X");
+        assert_eq!(tracker.active_session_count(), 1);
+
+        tracker.advance_turn(&["b".to_string()], "X");
+        assert_eq!(tracker.active_session_count(), 2);
+
+        tracker.advance_turn(&["c".to_string()], "Y");
+        assert_eq!(tracker.active_session_count(), 3);
     }
 }

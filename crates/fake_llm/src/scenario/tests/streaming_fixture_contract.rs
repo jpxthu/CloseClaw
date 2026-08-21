@@ -127,7 +127,7 @@ fn make_streaming_scenario(meta: &serde_json::Value, shape: ResponseShape) -> Sc
         name: scenario.to_string(),
         match_: None,
         turns: vec![TurnResponse {
-            response: shape,
+            response: shape.into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,

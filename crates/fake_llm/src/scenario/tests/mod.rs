@@ -5,7 +5,8 @@ fn text_turn(content: &str) -> TurnResponse {
         response: ResponseShape::Text(TextResponse {
             content: content.to_string(),
             usage: None,
-        }),
+        })
+        .into(),
         delay: None,
         first_token_delay: None,
         segment_delay: None,
@@ -102,7 +103,8 @@ fn decide_error_injection() {
             response: ResponseShape::Text(TextResponse {
                 content: String::new(),
                 usage: None,
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,
@@ -137,7 +139,8 @@ fn decide_captures_usage() {
                 prompt_tokens: Some(10),
                 completion_tokens: Some(20),
                 ..Default::default()
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,
@@ -168,7 +171,8 @@ fn decide_captures_delay() {
             response: ResponseShape::Text(TextResponse {
                 content: "slow".to_string(),
                 usage: None,
-            }),
+            })
+            .into(),
             delay: Some(500),
             first_token_delay: None,
             segment_delay: None,
@@ -512,46 +516,6 @@ fn decide_unknown_model_returns_default() {
     }
 }
 
-#[test]
-#[should_panic(expected = "exceeded declared turns")]
-fn decide_panics_on_turn_overflow() {
-    let scenario = ScenarioDeclaration {
-        name: "single-turn".to_string(),
-        match_: None,
-        turns: vec![text_turn("only one")],
-        models: None,
-    };
-    let mut engine = ScenarioEngine::new(vec![scenario]);
-
-    // First request → turn 0, succeeds.
-    let feat1 = features("gpt-4", "hi");
-    let _ = engine.decide(&feat1);
-
-    // Second request with extended history → turn 1, exceeds max 1.
-    let feat2 = RequestFeatures {
-        model: "gpt-4".to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![
-            MessageEntry {
-                role: "user".to_string(),
-                content: "hi".to_string(),
-            },
-            MessageEntry {
-                role: "assistant".to_string(),
-                content: "only one".to_string(),
-            },
-            MessageEntry {
-                role: "user".to_string(),
-                content: "next".to_string(),
-            },
-        ],
-        tools: vec![],
-    };
-    let _ = engine.decide(&feat2);
-}
-
 // ------------------------------------------------------------------
 // decide_for_models tests
 // ------------------------------------------------------------------
@@ -611,7 +575,8 @@ fn decide_for_models_error_injection() {
             response: ResponseShape::Text(TextResponse {
                 content: String::new(),
                 usage: None,
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,
@@ -646,7 +611,8 @@ fn decide_for_models_returns_models_when_no_error() {
             response: ResponseShape::Text(TextResponse {
                 content: String::new(),
                 usage: None,
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,
@@ -702,7 +668,8 @@ fn decide_for_models_carrying_delay() {
             response: ResponseShape::Text(TextResponse {
                 content: String::new(),
                 usage: None,
-            }),
+            })
+            .into(),
             delay: Some(500),
             first_token_delay: None,
             segment_delay: None,
@@ -823,7 +790,8 @@ fn cache_fields_missing_with_explicit_injection_priority() {
                     cache_write_tokens: None,
                     cache_fields_missing: true,
                 }),
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,
@@ -865,7 +833,8 @@ fn cache_fields_missing_with_explicit_both_fields() {
                     cache_write_tokens: Some(200),
                     cache_fields_missing: true,
                 }),
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,
@@ -984,4 +953,6 @@ fn state_machine_continuity_break_after_cache_fields_missing() {
 mod fixture_contract;
 mod reasoning_intensity;
 mod response_blocks;
+mod session_cleanup_integration;
 mod streaming_fixture_contract;
+mod turn_overflow;

@@ -53,7 +53,7 @@ fn make_fallback(
         name: fixture_scenario.to_string(),
         match_: None,
         turns: vec![TurnResponse {
-            response: shape_with_usage,
+            response: shape_with_usage.into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,
@@ -78,7 +78,8 @@ fn make_error_fallback(
             response: ResponseShape::Text(TextResponse {
                 content: String::new(),
                 usage: None,
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,

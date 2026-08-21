@@ -37,7 +37,8 @@ fn specific(name: &str, condition: MatchCondition) -> ScenarioDeclaration {
             response: ResponseShape::Text(TextResponse {
                 content: "ok".to_string(),
                 usage: None,
-            }),
+            })
+            .into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,

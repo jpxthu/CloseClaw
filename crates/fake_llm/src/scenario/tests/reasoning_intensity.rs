@@ -13,7 +13,8 @@ fn reasoning_turn(content: &str, reasoning: &str, intensity: ReasoningIntensity)
             signature: None,
             usage: None,
             intensity,
-        }),
+        })
+        .into(),
         delay: None,
         first_token_delay: None,
         segment_delay: None,
@@ -184,7 +185,8 @@ fn reasoning_intensity_default_medium_from_json() {
         }
     }"#;
     let turn: TurnResponse = serde_json::from_str(json).unwrap();
-    match turn.response {
+    let shapes = turn.response.to_shapes();
+    match &shapes[0] {
         ResponseShape::Reasoning(r) => {
             assert_eq!(r.intensity, ReasoningIntensity::Medium);
         }
