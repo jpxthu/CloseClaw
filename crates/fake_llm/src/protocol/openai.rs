@@ -24,6 +24,16 @@ struct PromptTokensDetails {
 // Request types
 // ---------------------------------------------------------------------------
 
+/// Stream options for controlling streaming behavior.
+///
+/// When present, the client signals whether to include token usage
+/// in the final streaming chunk.
+#[derive(Debug, Deserialize)]
+pub struct StreamOptions {
+    /// Whether to include usage information in the final streaming chunk.
+    pub include_usage: bool,
+}
+
 /// OpenAI chat completion request body.
 ///
 /// Implements the subset of the OpenAI Chat Completions API required for
@@ -49,6 +59,9 @@ pub struct ChatCompletionRequest {
     /// Stop sequences.
     #[serde(default)]
     pub stop: Option<serde_json::Value>,
+    /// Stream options controlling streaming behavior (e.g. usage inclusion).
+    #[serde(default)]
+    pub stream_options: Option<StreamOptions>,
 }
 
 /// A single chat message in OpenAI format.
@@ -385,6 +398,7 @@ mod tests {
             temperature: Some(0.7),
             tools: None,
             stop: None,
+            stream_options: None,
         };
         let features = extract_request_features(&req);
         assert_eq!(features.model, "gpt-4");
@@ -405,6 +419,7 @@ mod tests {
             temperature: None,
             tools: None,
             stop: None,
+            stream_options: None,
         };
         let features = extract_request_features(&req);
         assert!(features.stream);
@@ -463,6 +478,9 @@ mod tests {
             ],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
 
@@ -508,6 +526,9 @@ mod tests {
             ],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
 
@@ -545,6 +566,9 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
 
@@ -578,6 +602,9 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: Some(UsageResponse {
                 prompt_tokens: Some(100),
                 completion_tokens: Some(20),
@@ -611,6 +638,9 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: Some(UsageResponse {
                 prompt_tokens: Some(100),
                 completion_tokens: Some(20),
@@ -644,6 +674,9 @@ mod tests {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: Some(UsageResponse {
                 prompt_tokens: Some(100),
                 completion_tokens: Some(20),
@@ -688,6 +721,9 @@ mod tests {
             ],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
 
@@ -703,5 +739,84 @@ mod tests {
         assert_eq!(calls[0]["index"], 0);
         assert_eq!(calls[1]["function"]["name"], "calc");
         assert_eq!(calls[1]["index"], 1);
+    }
+
+    #[test]
+    fn stream_options_with_include_usage_true() {
+        let json_str = r#"{
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": true,
+            "stream_options": {"include_usage": true}
+        }"#;
+        let req: ChatCompletionRequest = serde_json::from_str(json_str).unwrap();
+        assert!(req.stream);
+        let opts = req.stream_options.unwrap();
+        assert!(opts.include_usage);
+    }
+
+    #[test]
+    fn stream_options_with_include_usage_false() {
+        let json_str = r#"{
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": true,
+            "stream_options": {"include_usage": false}
+        }"#;
+        let req: ChatCompletionRequest = serde_json::from_str(json_str).unwrap();
+        assert!(req.stream);
+        let opts = req.stream_options.unwrap();
+        assert!(!opts.include_usage);
+    }
+
+    #[test]
+    fn stream_options_absent() {
+        let json_str = r#"{
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": true
+        }"#;
+        let req: ChatCompletionRequest = serde_json::from_str(json_str).unwrap();
+        assert!(req.stream);
+        assert!(req.stream_options.is_none());
+    }
+
+    #[test]
+    fn stream_options_backward_compatible_no_field() {
+        // Old request format without stream_options should still parse
+        let json_str = r#"{
+            "model": "gpt-3.5-turbo",
+            "messages": [],
+            "max_tokens": 512
+        }"#;
+        let req: ChatCompletionRequest = serde_json::from_str(json_str).unwrap();
+        assert_eq!(req.model, "gpt-3.5-turbo");
+        assert!(!req.stream);
+        assert!(req.stream_options.is_none());
+    }
+
+    #[test]
+    fn extract_features_with_stream_options() {
+        // Verify that the stream_options field is accessible on the request
+        // and can be used to determine include_usage for DeliveryConfig.
+        let req = ChatCompletionRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![],
+            stream: true,
+            max_tokens: None,
+            temperature: None,
+            tools: None,
+            stop: None,
+            stream_options: Some(StreamOptions {
+                include_usage: true,
+            }),
+        };
+        // The stream_options are not part of RequestFeatures (protocol-agnostic),
+        // but are accessible on the request struct for the endpoint handler.
+        assert!(req.stream_options.as_ref().unwrap().include_usage);
+
+        // Verify feature extraction still works correctly
+        let features = extract_request_features(&req);
+        assert!(features.stream);
     }
 }

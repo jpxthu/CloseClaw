@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
+use std::collections::HashMap;
+
 use crate::kv_cache::KvCacheSimulator;
 use crate::types::{RequestFeatures, ScenarioDecision};
 
@@ -63,7 +65,8 @@ pub enum ModelsDecision {
 pub struct ScenarioEngine {
     matcher: MatcherIndex,
     sessions: SessionTracker,
-    kv_cache: KvCacheSimulator,
+    /// Per-scenario KV cache simulators, keyed by scenario name.
+    kv_caches: HashMap<String, KvCacheSimulator>,
 }
 
 impl ScenarioEngine {
@@ -79,7 +82,7 @@ impl ScenarioEngine {
         Ok(Self {
             matcher,
             sessions: SessionTracker::new(),
-            kv_cache: KvCacheSimulator::new(),
+            kv_caches: HashMap::new(),
         })
     }
 
@@ -89,7 +92,7 @@ impl ScenarioEngine {
         Self {
             matcher,
             sessions: SessionTracker::new(),
-            kv_cache: KvCacheSimulator::new(),
+            kv_caches: HashMap::new(),
         }
     }
 
@@ -140,9 +143,12 @@ impl ScenarioEngine {
 
         // KV cache simulation: compute cache fields and merge into usage.
         // Explicit injection from the turn's usage takes priority over auto.
+        // Each scenario has its own KvCacheSimulator for state isolation.
         let explicit_hit = usage.as_ref().and_then(|u| u.cache_hit_tokens);
         let explicit_write = usage.as_ref().and_then(|u| u.cache_write_tokens);
-        let cache_result = self.kv_cache.process(
+        let kv_cache = self.kv_caches.entry(matched.name.clone()).or_default();
+        let cache_result = kv_cache.process(
+            &matched.name,
             &features.messages,
             &features.tools,
             explicit_hit,
@@ -157,6 +163,9 @@ impl ScenarioEngine {
             response_blocks: blocks,
             http_error: None,
             delay: turn_resp.delay,
+            first_token_delay: turn_resp.first_token_delay,
+            segment_delay: turn_resp.segment_delay,
+            stream_interrupt_after: turn_resp.stream_interrupt_after,
             usage,
         })
     }
@@ -177,6 +186,9 @@ impl ScenarioEngine {
             }],
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         })
     }
@@ -213,6 +225,12 @@ impl ScenarioEngine {
                 return ModelsDecision::Error(error.clone());
             }
 
+            // Advance KV cache state for this scenario (models endpoint
+            // still needs to track prefix state for consistency).
+            let kv_cache = self.kv_caches.entry(matched.name.clone()).or_default();
+            let empty_msgs = vec![];
+            let _ = kv_cache.process(&matched.name, &empty_msgs, &[], None, None);
+
             if let Some(ref models) = matched.models {
                 return ModelsDecision::Models(models.clone(), turn_resp.delay);
             }
@@ -232,24 +250,28 @@ impl ScenarioEngine {
                 reasoning: None,
                 signature: None,
             }],
-            ResponseShape::Reasoning(r) => vec![
-                ResponseBlock {
-                    block_type: "reasoning".to_string(),
-                    content: None,
-                    tool_name: None,
-                    tool_arguments: None,
-                    reasoning: Some(r.reasoning.clone()),
-                    signature: r.signature.clone(),
-                },
-                ResponseBlock {
-                    block_type: "text".to_string(),
-                    content: Some(r.content.clone()),
-                    tool_name: None,
-                    tool_arguments: None,
-                    reasoning: None,
-                    signature: None,
-                },
-            ],
+            ResponseShape::Reasoning(r) => {
+                let reasoning_text =
+                    Self::generate_reasoning_by_intensity(&r.reasoning, &r.intensity);
+                vec![
+                    ResponseBlock {
+                        block_type: "reasoning".to_string(),
+                        content: None,
+                        tool_name: None,
+                        tool_arguments: None,
+                        reasoning: Some(reasoning_text),
+                        signature: r.signature.clone(),
+                    },
+                    ResponseBlock {
+                        block_type: "text".to_string(),
+                        content: Some(r.content.clone()),
+                        tool_name: None,
+                        tool_arguments: None,
+                        reasoning: None,
+                        signature: None,
+                    },
+                ]
+            }
             ResponseShape::ToolCall(tc) => tc
                 .calls
                 .iter()
@@ -278,6 +300,34 @@ impl ScenarioEngine {
                 reasoning: None,
                 signature: None,
             }],
+        }
+    }
+
+    /// Generate reasoning text by intensity level.
+    ///
+    /// - Low: short reasoning (~50 chars)
+    /// - Medium: moderate reasoning (~150 chars, the default)
+    /// - High: lengthy reasoning (~300 chars)
+    ///
+    /// If the input reasoning is non-empty, it is used as the base
+    /// and extended according to the intensity level.
+    fn generate_reasoning_by_intensity(reasoning: &str, intensity: &ReasoningIntensity) -> String {
+        if reasoning.is_empty() {
+            return String::new();
+        }
+        match intensity {
+            ReasoningIntensity::Low => format!("Let me think briefly. {}", reasoning,),
+            ReasoningIntensity::Medium => format!(
+                "Let me consider this carefully. {} I need to verify each step.",
+                reasoning,
+            ),
+            ReasoningIntensity::High => format!(
+                "Let me think through this problem in detail. {} \
+First, I should analyze the input. Then I'll evaluate the options. \
+Next, I'll consider edge cases and potential pitfalls. \
+Finally, I'll synthesize a comprehensive answer.",
+                reasoning,
+            ),
         }
     }
 

@@ -356,10 +356,14 @@ impl KvCacheSimulator {
 impl KvCacheSimulator {
     /// Process a request and return cache simulation result.
     ///
+    /// `scenario_name`: identifies which scenario this request belongs to.
+    /// Used for per-scenario state isolation in the engine layer.
+    ///
     /// `explicit_hit` / `explicit_write`: scenario-declared override values.
     /// When `Some`, these take priority over auto simulation.
     pub fn process(
         &mut self,
+        _scenario_name: &str,
         messages: &[MessageEntry],
         tools: &[String],
         explicit_hit: Option<u32>,
@@ -432,7 +436,7 @@ mod tests {
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
         ];
-        let result = sim.process(&msgs, &[], None, None);
+        let result = sim.process("test", &msgs, &[], None, None);
 
         assert_eq!(result.state, CacheState::Writing);
         assert!(result.cache_hit_tokens.is_none());
@@ -449,7 +453,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "next"),
         ];
-        let r1 = sim.process(&msgs1, &[], None, None);
+        let r1 = sim.process("test", &msgs1, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
         let msgs2 = vec![
@@ -458,7 +462,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "different"),
         ];
-        let r2 = sim.process(&msgs2, &[], None, None);
+        let r2 = sim.process("test", &msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
         assert!(r2.cache_hit_tokens.is_some());
         assert!(r2.cache_hit_tokens.unwrap() > 0);
@@ -474,7 +478,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "follow up"),
         ];
-        let r1 = sim.process(&msgs1, &[], None, None);
+        let r1 = sim.process("test", &msgs1, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
         let msgs2 = vec![
@@ -483,7 +487,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "different"),
         ];
-        let r2 = sim.process(&msgs2, &[], None, None);
+        let r2 = sim.process("test", &msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
         let msgs3 = vec![
@@ -492,7 +496,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "follow up"),
         ];
-        let r3 = sim.process(&msgs3, &[], None, None);
+        let r3 = sim.process("test", &msgs3, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.cache_write_tokens.is_some());
     }
@@ -505,12 +509,12 @@ mod tests {
             msg("user", "hello"),
         ];
 
-        let r1 = sim.process(&msgs, &[], None, None);
+        let r1 = sim.process("test", &msgs, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
         std::thread::sleep(Duration::from_millis(20));
 
-        let r2 = sim.process(&msgs, &[], None, None);
+        let r2 = sim.process("test", &msgs, &[], None, None);
         assert_eq!(r2.state, CacheState::Writing);
         assert!(r2.cache_write_tokens.is_some());
     }
@@ -523,11 +527,11 @@ mod tests {
             msg("user", "hello"),
         ];
 
-        let r1 = sim.process(&msgs, &[], Some(100), Some(200));
+        let r1 = sim.process("test", &msgs, &[], Some(100), Some(200));
         assert_eq!(r1.cache_hit_tokens, Some(100));
         assert_eq!(r1.cache_write_tokens, Some(200));
 
-        let r2 = sim.process(&msgs, &[], Some(50), None);
+        let r2 = sim.process("test", &msgs, &[], Some(50), None);
         assert_eq!(r2.cache_hit_tokens, Some(50));
         assert!(r2.cache_write_tokens.is_none());
     }
@@ -541,7 +545,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "next"),
         ];
-        let r1 = sim.process(&msgs1, &[], None, None);
+        let r1 = sim.process("test", &msgs1, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
         let msgs2 = vec![
@@ -550,7 +554,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "different"),
         ];
-        let r2 = sim.process(&msgs2, &[], Some(999), None);
+        let r2 = sim.process("test", &msgs2, &[], Some(999), None);
         assert_eq!(r2.cache_hit_tokens, Some(999));
         assert_eq!(r2.state, CacheState::Hit);
     }
@@ -643,7 +647,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "follow up"),
         ];
-        let r1 = sim.process(&msgs1, &[], None, None);
+        let r1 = sim.process("test", &msgs1, &[], None, None);
         assert_eq!(r1.state, CacheState::Writing);
 
         let msgs2 = vec![
@@ -652,7 +656,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "different"),
         ];
-        let r2 = sim.process(&msgs2, &[], None, None);
+        let r2 = sim.process("test", &msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
         // Different message content, same system prompt.
@@ -662,7 +666,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "another"),
         ];
-        let r3 = sim.process(&msgs3, &[], None, None);
+        let r3 = sim.process("test", &msgs3, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.is_break);
         assert!(r3.cache_hit_tokens.is_some());
@@ -681,7 +685,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "follow up"),
         ];
-        sim.process(&msgs1, &[], None, None);
+        sim.process("test", &msgs1, &[], None, None);
 
         let msgs2 = vec![
             msg("system", "You are a helpful assistant"),
@@ -689,7 +693,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "different"),
         ];
-        let r2 = sim.process(&msgs2, &[], None, None);
+        let r2 = sim.process("test", &msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
         let msgs3 = vec![
@@ -698,7 +702,7 @@ mod tests {
             msg("assistant", "ok"),
             msg("user", "another"),
         ];
-        let r3 = sim.process(&msgs3, &[], None, None);
+        let r3 = sim.process("test", &msgs3, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.is_break);
         assert!(r3.cache_hit_tokens.is_none());
@@ -715,7 +719,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "old question"),
         ];
-        sim.process(&msgs1, &[], None, None);
+        sim.process("test", &msgs1, &[], None, None);
 
         let msgs2 = vec![
             msg("system", "sys"),
@@ -723,7 +727,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "another"),
         ];
-        let r2 = sim.process(&msgs2, &[], None, None);
+        let r2 = sim.process("test", &msgs2, &[], None, None);
         assert_eq!(r2.state, CacheState::Hit);
 
         let msgs3 = vec![
@@ -732,7 +736,7 @@ mod tests {
             msg("assistant", "different response"),
             msg("user", "new"),
         ];
-        let r3 = sim.process(&msgs3, &[], None, None);
+        let r3 = sim.process("test", &msgs3, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.is_break);
         assert!(r3.cache_hit_tokens.is_some());
@@ -753,7 +757,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q1"),
         ];
-        let r1 = sim.process(&msgs1, &[], None, None);
+        let r1 = sim.process("test", &msgs1, &[], None, None);
         assert!(!r1.is_break);
 
         let msgs2 = vec![
@@ -762,7 +766,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q2"),
         ];
-        let r2 = sim.process(&msgs2, &[], None, None);
+        let r2 = sim.process("test", &msgs2, &[], None, None);
         assert!(!r2.is_break);
 
         let msgs3 = vec![
@@ -771,7 +775,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q3"),
         ];
-        let r3 = sim.process(&msgs3, &[], None, None);
+        let r3 = sim.process("test", &msgs3, &[], None, None);
         assert!(r3.is_break);
 
         let msgs4 = vec![
@@ -780,7 +784,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q4"),
         ];
-        let r4 = sim.process(&msgs4, &[], None, None);
+        let r4 = sim.process("test", &msgs4, &[], None, None);
         assert!(!r4.is_break);
     }
 
@@ -794,7 +798,7 @@ mod tests {
             msg("user", "q1"),
         ];
 
-        let r1 = sim.process(&msgs, &[], Some(100), Some(200));
+        let r1 = sim.process("test", &msgs, &[], Some(100), Some(200));
         assert_eq!(r1.cache_hit_tokens, Some(100));
         assert_eq!(r1.cache_write_tokens, Some(200));
         assert!(!r1.is_break);
@@ -805,7 +809,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q2"),
         ];
-        let r2 = sim.process(&msgs2, &[], Some(500), None);
+        let r2 = sim.process("test", &msgs2, &[], Some(500), None);
         assert_eq!(r2.cache_hit_tokens, Some(500));
         assert!(r2.cache_write_tokens.is_none());
         assert!(!r2.is_break);
@@ -817,7 +821,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q3"),
         ];
-        let r3 = sim.process(&msgs3, &[], None, Some(300));
+        let r3 = sim.process("test", &msgs3, &[], None, Some(300));
         assert!(r3.cache_hit_tokens.is_none());
         assert_eq!(r3.cache_write_tokens, Some(300));
         assert!(!r3.is_break);
@@ -841,7 +845,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q1"),
         ];
-        let r1 = sim.process(&msgs_a, &[], Some(100), Some(200));
+        let r1 = sim.process("test", &msgs_a, &[], Some(100), Some(200));
         assert_eq!(r1.cache_hit_tokens, Some(100));
 
         // Request 2: explicit injection with same prefix (records again).
@@ -851,7 +855,7 @@ mod tests {
             msg("assistant", "hi"),
             msg("user", "q2"),
         ];
-        let r2 = sim.process(&msgs_a2, &[], Some(50), None);
+        let r2 = sim.process("test", &msgs_a2, &[], Some(50), None);
         assert_eq!(r2.cache_hit_tokens, Some(50));
 
         // Request 3: auto-simulation with different prefix → break.
@@ -863,7 +867,7 @@ mod tests {
             msg("assistant", "yo"),
             msg("user", "q3"),
         ];
-        let r3 = sim.process(&msgs_b, &[], None, None);
+        let r3 = sim.process("test", &msgs_b, &[], None, None);
         assert_eq!(r3.state, CacheState::Writing);
         assert!(r3.is_break);
         // Completely different prefix → no residual hit.
@@ -878,7 +882,7 @@ mod tests {
             msg("assistant", "yo"),
             msg("user", "q4"),
         ];
-        let r4 = sim.process(&msgs_b2, &[], None, None);
+        let r4 = sim.process("test", &msgs_b2, &[], None, None);
         assert_eq!(r4.state, CacheState::Hit);
         assert!(!r4.is_break);
 
@@ -890,7 +894,7 @@ mod tests {
             msg("assistant", "ok"),
             msg("user", "q5"),
         ];
-        let r5 = sim.process(&msgs_c, &[], None, None);
+        let r5 = sim.process("test", &msgs_c, &[], None, None);
         assert_eq!(r5.state, CacheState::Writing);
         assert!(r5.is_break);
         // System prompt "new sys" is common → residual > 0.

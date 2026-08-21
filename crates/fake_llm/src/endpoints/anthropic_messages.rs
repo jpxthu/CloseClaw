@@ -9,7 +9,7 @@ use axum::response::sse::Sse;
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, Json};
 
-use crate::delivery::{self, DeliveryConfig, DeliveryResult, Protocol};
+use crate::delivery::{self, DeliveryConfig, DeliveryResult, Protocol, StreamInterrupt};
 use crate::protocol::anthropic::{extract_request_features, MessageRequest};
 use crate::scenario::{DecisionOutcome, ScenarioState};
 
@@ -44,14 +44,28 @@ pub async fn handler(
             Err((status, HeaderMap::new(), e.message))
         }
         DecisionOutcome::Decision(decision) => {
+            let stream_interrupt = decision
+                .stream_interrupt_after
+                .map(|n| StreamInterrupt { after_event: n });
             let config = DeliveryConfig {
                 segment_granularity: DEFAULT_SEGMENT_GRANULARITY,
                 include_usage: true,
+                stream_interrupt,
             };
 
             let result = delivery::deliver(&decision, Protocol::Anthropic, &config).await;
 
             match result {
+                DeliveryResult::SseStreamWithConfig {
+                    events,
+                    segment_delay_ms,
+                    max_events,
+                } => {
+                    let stream = SseEventStream::new(events)
+                        .with_segment_delay(segment_delay_ms)
+                        .with_max_events(max_events);
+                    Ok(Sse::new(stream).into_response())
+                }
                 DeliveryResult::SseStream(events) => {
                     let stream = SseEventStream::new(events);
                     Ok(Sse::new(stream).into_response())
