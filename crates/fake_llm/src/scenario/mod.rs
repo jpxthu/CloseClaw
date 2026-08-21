@@ -60,6 +60,17 @@ pub enum ModelsDecision {
 // ScenarioEngine
 // ---------------------------------------------------------------------------
 
+/// Shape-level delivery parameters extracted from response shapes.
+///
+/// Used internally by `extract_delivery_params` to avoid tuple
+/// destructuring at the call site.
+struct DeliveryParams {
+    delay: Option<u64>,
+    first_token_delay: Option<u64>,
+    segment_delay: Option<u64>,
+    segment_granularity: Option<usize>,
+}
+
 /// Core scenario engine: matches requests to scenarios and advances
 /// multi-turn session cursors.
 ///
@@ -198,8 +209,7 @@ impl ScenarioEngine {
         // Only fill when TurnResponse did not explicitly set the field.
         // NOTE: segment_granularity is only declared by shapes; there is no
         // corresponding TurnResponse field, so it has no override source.
-        let (delay, first_token_delay, segment_delay, segment_granularity) =
-            Self::extract_delivery_params(&shapes, turn_resp);
+        let delivery = Self::extract_delivery_params(&shapes, turn_resp);
 
         let blocks = Self::build_response_blocks(&shapes);
         let mut usage = Self::extract_usage(&shapes);
@@ -222,11 +232,11 @@ impl ScenarioEngine {
             stream: features.stream,
             response_blocks: blocks,
             http_error: None,
-            delay,
-            first_token_delay,
-            segment_delay,
+            delay: delivery.delay,
+            first_token_delay: delivery.first_token_delay,
+            segment_delay: delivery.segment_delay,
             stream_interrupt_after: turn_resp.stream_interrupt_after,
-            segment_granularity,
+            segment_granularity: delivery.segment_granularity,
             usage,
         })
     }
@@ -257,7 +267,7 @@ impl ScenarioEngine {
     fn extract_delivery_params(
         shapes: &[ResponseShape],
         turn_resp: &TurnResponse,
-    ) -> (Option<u64>, Option<u64>, Option<u64>, Option<usize>) {
+    ) -> DeliveryParams {
         let mut delay = turn_resp.delay;
         let mut first_token_delay = turn_resp.first_token_delay;
         let mut segment_delay = turn_resp.segment_delay;
@@ -288,7 +298,12 @@ impl ScenarioEngine {
             }
         }
 
-        (delay, first_token_delay, segment_delay, segment_granularity)
+        DeliveryParams {
+            delay,
+            first_token_delay,
+            segment_delay,
+            segment_granularity,
+        }
     }
 
     /// Decide how to respond to a `/v1/models` request.
@@ -360,7 +375,8 @@ impl ScenarioEngine {
                 }
                 // Control-only shapes produce no response blocks —
                 // Streaming and Delay only affect delivery parameters.
-                // Error is handled before block construction (early return).
+                // Error is handled before block construction (early return);
+                // this branch is technically unreachable but kept for exhaustiveness.
                 ResponseShape::Streaming(_) | ResponseShape::Delay(_) | ResponseShape::Error(_) => {
                 }
                 // Usage-only shapes produce no response blocks — only usage data.

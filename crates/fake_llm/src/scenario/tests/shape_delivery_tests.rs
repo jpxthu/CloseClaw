@@ -59,6 +59,43 @@ fn text_turn(content: &str) -> TurnResponse {
     }
 }
 
+/// Assert that the first response block contains the expected text.
+fn assert_text_content(d: &super::ScenarioDecision, expected: &str) {
+    assert_eq!(d.response_blocks[0].content.as_deref(), Some(expected));
+}
+
+/// Build a TurnResponse with an error shape and all other fields None.
+fn make_error_turn(status: u16, message: &str, retry_after: Option<u64>) -> TurnResponse {
+    TurnResponse {
+        response: ResponseShape::Error(ErrorResponse {
+            status,
+            message: message.to_string(),
+            retry_after,
+        })
+        .into(),
+        delay: None,
+        first_token_delay: None,
+        segment_delay: None,
+        stream_interrupt_after: None,
+        error: None,
+    }
+}
+
+/// Assert delay fields on a `ScenarioDecision` with custom messages.
+fn assert_delay_fields(
+    d: &super::ScenarioDecision,
+    delay: Option<u64>,
+    first_token_delay: Option<u64>,
+    segment_delay: Option<u64>,
+) {
+    assert_eq!(d.delay, delay, "delay mismatch");
+    assert_eq!(
+        d.first_token_delay, first_token_delay,
+        "first_token_delay mismatch"
+    );
+    assert_eq!(d.segment_delay, segment_delay, "segment_delay mismatch");
+}
+
 // ===========================================================================
 // Normal paths
 // ===========================================================================
@@ -382,7 +419,6 @@ fn multi_turn_delay_isolation() {
         name: "turn-delay-iso".to_string(),
         match_: None,
         turns: vec![
-            // Turn 0: delay shape only
             TurnResponse {
                 response: ResponseShape::Delay(DelayResponse {
                     delay_ms: Some(500),
@@ -396,36 +432,31 @@ fn multi_turn_delay_isolation() {
                 stream_interrupt_after: None,
                 error: None,
             },
-            // Turn 1: text only, no delay shape
             text_turn("hello from turn 2"),
         ],
         models: None,
     };
     let mut engine = super::ScenarioEngine::new(vec![scenario]).unwrap();
 
-    // Turn 0
+    // Turn 0: delay shape fills all delay fields
     let feat0 = features("gpt-4", "hi");
     match engine.decide(&feat0) {
         super::DecisionOutcome::Decision(d) => {
-            assert_eq!(d.delay, Some(500));
-            assert_eq!(d.first_token_delay, Some(100));
-            assert_eq!(d.segment_delay, Some(25));
+            assert_delay_fields(&d, Some(500), Some(100), Some(25));
         }
-        super::DecisionOutcome::Error(_) => panic!("expected decision on turn 0"),
+        super::DecisionOutcome::Error(_) => {
+            panic!("expected decision on turn 0")
+        }
     }
 
-    // Turn 1
+    // Turn 1: no delay shape → all delay fields are None
     let feat1 = features_ext(
         "gpt-4",
         vec![("user", "hi"), ("assistant", "ok"), ("user", "next")],
     );
     match engine.decide(&feat1) {
         super::DecisionOutcome::Decision(d) => {
-            // Turn 1 has no delay shape → all delay fields are None
-            assert!(d.delay.is_none());
-            assert!(d.first_token_delay.is_none());
-            assert!(d.segment_delay.is_none());
-            // Content is from the text turn
+            assert_delay_fields(&d, None, None, None);
             assert_eq!(
                 d.response_blocks[0].content.as_deref(),
                 Some("hello from turn 2")
@@ -443,19 +474,7 @@ fn multi_turn_error_in_second_turn() {
         match_: None,
         turns: vec![
             text_turn("first turn ok"),
-            TurnResponse {
-                response: ResponseShape::Error(ErrorResponse {
-                    status: 503,
-                    message: "service unavailable".to_string(),
-                    retry_after: None,
-                })
-                .into(),
-                delay: None,
-                first_token_delay: None,
-                segment_delay: None,
-                stream_interrupt_after: None,
-                error: None,
-            },
+            make_error_turn(503, "service unavailable", None),
         ],
         models: None,
     };
@@ -464,16 +483,11 @@ fn multi_turn_error_in_second_turn() {
     // Turn 0: normal text
     let feat0 = features("gpt-4", "hi");
     match engine.decide(&feat0) {
-        super::DecisionOutcome::Decision(d) => {
-            assert_eq!(
-                d.response_blocks[0].content.as_deref(),
-                Some("first turn ok")
-            );
-        }
+        super::DecisionOutcome::Decision(d) => assert_text_content(&d, "first turn ok"),
         super::DecisionOutcome::Error(_) => panic!("expected decision on turn 0"),
     }
 
-    // Turn 1: error shape
+    // Turn 1: error shape returns Error outcome
     let feat1 = features_ext(
         "gpt-4",
         vec![

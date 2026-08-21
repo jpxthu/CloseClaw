@@ -245,17 +245,17 @@ mod tests {
 
     #[test]
     fn streaming_full_fields() {
-        let json = serde_json::json!({
+        let json = r#"
+        {
             "type": "streaming",
             "segment_granularity": 5,
             "segment_delay_ms": 100,
             "usage": {
                 "prompt_tokens": 10,
-                "completion_tokens": 20,
-            },
-        })
-        .to_string();
-        let shape: ResponseShape = serde_json::from_str(&json).expect("should deserialize");
+                "completion_tokens": 20
+            }
+        }"#;
+        let shape: ResponseShape = serde_json::from_str(json).expect("should deserialize");
         match shape {
             ResponseShape::Streaming(s) => {
                 assert_eq!(s.segment_granularity, Some(5));
