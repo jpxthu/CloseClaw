@@ -16,3 +16,6 @@ pub use sse::{
     generate_anthropic_sse, generate_openai_sse, split_segments, to_axum_event, SseEvent,
     SseEventStream, DEFAULT_SEGMENT_GRANULARITY,
 };
+
+#[cfg(test)]
+mod tests;
