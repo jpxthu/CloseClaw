@@ -50,7 +50,7 @@ pub async fn handler(
             let include_usage = req
                 .stream_options
                 .as_ref()
-                .map_or(false, |opts| opts.include_usage);
+                .is_some_and(|opts| opts.include_usage);
             let config = DeliveryConfig {
                 segment_granularity: DEFAULT_SEGMENT_GRANULARITY,
                 include_usage,
