@@ -27,10 +27,14 @@ struct SessionEntry {
 /// When a new request arrives, the tracker checks if the request's history
 /// is a prefix extension of an existing session's history, indicating a
 /// continuation. If no existing session matches, a new session is created.
+///
+/// Sessions are isolated per scenario: each scenario name maps to an
+/// independent set of sessions, so two different scenarios with the same
+/// message prefix do not interfere with each other.
 #[derive(Debug)]
 pub struct SessionTracker {
-    /// Maps session history hash → session entry.
-    sessions: HashMap<SessionKey, SessionEntry>,
+    /// Outer key: scenario name. Inner map: session history hash → entry.
+    sessions: HashMap<String, HashMap<SessionKey, SessionEntry>>,
 }
 
 impl SessionTracker {
@@ -39,6 +43,11 @@ impl SessionTracker {
         Self {
             sessions: HashMap::new(),
         }
+    }
+
+    /// Get or create the session map for a given scenario.
+    fn scenario_sessions(&mut self, scenario: &str) -> &mut HashMap<SessionKey, SessionEntry> {
+        self.sessions.entry(scenario.to_string()).or_default()
     }
 
     /// Advance the turn for a session identified by the given message history.
@@ -52,16 +61,16 @@ impl SessionTracker {
     /// - If no session matches → create a new session at turn 0.
     pub fn advance_turn(&mut self, messages: &[String], scenario_name: &str) -> usize {
         let history_key = Self::compute_history_key(messages);
+        let scenario_map = self.scenario_sessions(scenario_name);
 
         // Exact match: duplicate request, return current turn without change.
-        if let Some(entry) = self.sessions.get(&history_key) {
+        if let Some(entry) = scenario_map.get(&history_key) {
             return entry.turn;
         }
 
         // Find sessions whose history is a strict prefix of the incoming
         // messages (i.e., the incoming history extends an existing session).
-        let extending: Vec<SessionKey> = self
-            .sessions
+        let extending: Vec<SessionKey> = scenario_map
             .iter()
             .filter(|(_, entry)| Self::is_prefix(&entry.history, messages))
             .map(|(&k, _)| k)
@@ -70,7 +79,7 @@ impl SessionTracker {
         match extending.len() {
             0 => {
                 // No existing session: create a new session at turn 0.
-                self.sessions.insert(
+                scenario_map.insert(
                     history_key,
                     SessionEntry {
                         history: messages.to_vec(),
@@ -82,7 +91,7 @@ impl SessionTracker {
             1 => {
                 // Exactly one matching session: advance its turn.
                 let key = extending[0];
-                let entry = self.sessions.get_mut(&key).unwrap();
+                let entry = scenario_map.get_mut(&key).unwrap();
                 entry.turn += 1;
                 let new_turn = entry.turn;
                 // Update stored history to the new (longer) history.
@@ -134,6 +143,67 @@ mod tests {
         let messages = vec!["hello".to_string()];
         let turn = tracker.advance_turn(&messages, "test");
         assert_eq!(turn, 0);
+    }
+
+    // ------------------------------------------------------------------
+    // Per-scenario isolation tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn same_prefix_different_scenarios_isolated() {
+        let mut tracker = SessionTracker::new();
+        let m1 = vec!["shared prefix".to_string()];
+        let m2 = vec!["shared prefix".to_string(), "continuation".to_string()];
+
+        // Scenario A: turn 0, then turn 1
+        assert_eq!(tracker.advance_turn(&m1, "scenario-a"), 0);
+        assert_eq!(tracker.advance_turn(&m2, "scenario-a"), 1);
+
+        // Scenario B: same prefix, but isolated — starts at turn 0
+        assert_eq!(tracker.advance_turn(&m1, "scenario-b"), 0);
+        assert_eq!(tracker.advance_turn(&m2, "scenario-b"), 1);
+    }
+
+    #[test]
+    fn same_prefix_different_scenarios_cursors_independent() {
+        let mut tracker = SessionTracker::new();
+        let m1 = vec!["prefix".to_string()];
+        let m2 = vec!["prefix".to_string(), "msg2".to_string()];
+        let m3 = vec!["prefix".to_string(), "msg2".to_string(), "msg3".to_string()];
+
+        // Scenario A: advance to turn 2
+        assert_eq!(tracker.advance_turn(&m1, "A"), 0);
+        assert_eq!(tracker.advance_turn(&m2, "A"), 1);
+        assert_eq!(tracker.advance_turn(&m3, "A"), 2);
+
+        // Scenario B: same prefix, starts fresh at turn 0
+        assert_eq!(tracker.advance_turn(&m1, "B"), 0);
+    }
+
+    #[test]
+    fn separate_scenarios_do_not_share_state() {
+        let mut tracker = SessionTracker::new();
+
+        // Build up state in scenario X
+        assert_eq!(tracker.advance_turn(&["x1".to_string()], "X"), 0);
+        assert_eq!(
+            tracker.advance_turn(&["x1".to_string(), "x2".to_string()], "X"),
+            1
+        );
+
+        // Scenario Y is completely independent
+        assert_eq!(tracker.advance_turn(&["y1".to_string()], "Y"), 0);
+        // Extending Y's session
+        assert_eq!(
+            tracker.advance_turn(&["y1".to_string(), "y2".to_string()], "Y"),
+            1
+        );
+
+        // X's cursor is unaffected
+        assert_eq!(
+            tracker.advance_turn(&["x1".to_string(), "x2".to_string(), "x3".to_string()], "X"),
+            2
+        );
     }
 
     #[test]

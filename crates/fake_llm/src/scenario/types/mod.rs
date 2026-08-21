@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{RequestFeatures, ScenarioDecision};
 
+mod response_shapes;
+pub use response_shapes::*;
+
 // ---------------------------------------------------------------------------
 // Scenario file types
 // ---------------------------------------------------------------------------
@@ -24,7 +27,7 @@ pub struct ScenarioFile {
     pub scenarios: Vec<ScenarioDeclaration>,
 }
 
-/// A single scenario declaration: matching condition + response sequence.
+/// A single model entry in the models list response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelEntry {
     /// Model ID (e.g. "gpt-4", "claude-3-opus-20240229").
@@ -84,12 +87,25 @@ pub struct TurnResponse {
     #[serde(default)]
     pub response: ResponseShape,
     /// Optional artificial delay before delivering the response (milliseconds).
+    /// This is the overall delay applied to the entire response.
     #[serde(default)]
     pub delay: Option<u64>,
+    /// Optional delay before the first token is emitted (milliseconds).
+    /// When set, this delay is applied before any streaming content begins.
+    #[serde(default)]
+    pub first_token_delay: Option<u64>,
+    /// Optional delay between each streaming segment (milliseconds).
+    /// Applied between consecutive content deltas in streaming mode.
+    #[serde(default)]
+    pub segment_delay: Option<u64>,
     /// Optional HTTP error injection. When present, the endpoint returns
     /// this error instead of a normal response.
     #[serde(default)]
     pub error: Option<HttpError>,
+    /// Optional stream interrupt position. When set, the streaming response
+    /// stops after sending this many events (0 = first event then disconnect).
+    #[serde(default)]
+    pub stream_interrupt_after: Option<usize>,
 }
 
 /// HTTP error to inject into a response.
@@ -102,127 +118,6 @@ pub struct HttpError {
     /// Optional Retry-After header value (seconds).
     #[serde(default)]
     pub retry_after: Option<u64>,
-}
-
-// ---------------------------------------------------------------------------
-// Response shapes
-// ---------------------------------------------------------------------------
-
-/// Seven categories of protocol-agnostic response shapes.
-///
-/// The protocol layer serializes these into OpenAI or Anthropic format
-/// per `docs/design/llm/protocol-mapping.md`.
-///
-/// Phase 1 implements Text, Error, and Usage. Remaining variants are
-/// placeholders for future phases.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ResponseShape {
-    /// Plain text content response.
-    #[serde(rename = "text")]
-    Text(TextResponse),
-
-    /// Reasoning / thinking content.
-    #[serde(rename = "reasoning")]
-    Reasoning(ReasoningResponse),
-
-    /// Tool call response.
-    #[serde(rename = "tool_call")]
-    ToolCall(ToolCallResponse),
-
-    /// Streaming response (Phase 2+).
-    #[serde(rename = "streaming")]
-    Streaming,
-
-    /// Error response — HTTP status error injection.
-    #[serde(rename = "error")]
-    Error,
-
-    /// Delay-only response (Phase 2+).
-    #[serde(rename = "delay")]
-    Delay,
-
-    /// Token usage report (Phase 2+).
-    #[serde(rename = "usage")]
-    Usage(UsageResponse),
-
-    /// Catch-all for unimplemented variants (serde default).
-    #[serde(other)]
-    #[default]
-    Unknown,
-}
-
-/// Plain text response content.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TextResponse {
-    /// The text content to return.
-    #[serde(default)]
-    pub content: String,
-    /// Optional token usage report.
-    #[serde(default)]
-    pub usage: Option<UsageResponse>,
-}
-
-/// Reasoning / thinking response content.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ReasoningResponse {
-    /// The visible text content.
-    #[serde(default)]
-    pub content: String,
-    /// The hidden reasoning text.
-    #[serde(default)]
-    pub reasoning: String,
-    /// Optional reasoning signature for verification.
-    #[serde(default)]
-    pub signature: Option<String>,
-    /// Optional token usage report.
-    #[serde(default)]
-    pub usage: Option<UsageResponse>,
-}
-
-/// A single tool call entry.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCallEntry {
-    /// The tool function name.
-    pub name: String,
-    /// The arguments as a JSON string.
-    pub arguments: String,
-}
-
-/// Tool call response containing one or more calls.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ToolCallResponse {
-    /// The list of tool calls to execute.
-    #[serde(default)]
-    pub calls: Vec<ToolCallEntry>,
-    /// Optional token usage report.
-    #[serde(default)]
-    pub usage: Option<UsageResponse>,
-}
-
-/// Token usage breakdown.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct UsageResponse {
-    /// Number of prompt tokens.
-    #[serde(default)]
-    pub prompt_tokens: Option<u32>,
-    /// Number of completion tokens.
-    #[serde(default)]
-    pub completion_tokens: Option<u32>,
-    /// Number of reasoning tokens (if applicable).
-    #[serde(default)]
-    pub reasoning_tokens: Option<u32>,
-    /// Cache hit tokens.
-    #[serde(default)]
-    pub cache_hit_tokens: Option<u32>,
-    /// Cache write tokens.
-    #[serde(default)]
-    pub cache_write_tokens: Option<u32>,
-    /// When true, this provider does not return cache fields in
-    /// responses. Auto-simulation is skipped (but the state machine
-    /// still tracks prefix fingerprints internally).
-    #[serde(default)]
-    pub cache_fields_missing: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +211,9 @@ impl ScenarioDecision {
             response_blocks: blocks,
             http_error: None,
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         }
     }
@@ -329,6 +227,9 @@ impl ScenarioDecision {
             response_blocks: vec![],
             http_error: Some(error),
             delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         }
     }
@@ -625,7 +526,10 @@ mod tests {
                         usage: None,
                     }),
                     delay: Some(100),
+                    first_token_delay: None,
+                    segment_delay: None,
                     error: None,
+                    stream_interrupt_after: None,
                 }],
                 models: None,
             }],
@@ -781,6 +685,7 @@ mod tests {
         let turn: TurnResponse = serde_json::from_str(json).unwrap();
         assert!(turn.delay.is_none());
         assert!(turn.error.is_none());
+        assert!(turn.stream_interrupt_after.is_none());
     }
 
     #[test]
@@ -825,5 +730,158 @@ mod tests {
         }"#;
         let decl: ScenarioDeclaration = serde_json::from_str(json).unwrap();
         assert!(decl.models.is_none());
+    }
+
+    #[test]
+    fn deserialize_turn_response_legacy_delay_only() {
+        // Backward compatibility: old format with only `delay` field
+        let json = r#"{"response": {"type": "text", "content": "ok"}, "delay": 100}"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(turn.delay, Some(100));
+        assert!(turn.first_token_delay.is_none());
+        assert!(turn.segment_delay.is_none());
+        assert!(turn.stream_interrupt_after.is_none());
+    }
+
+    #[test]
+    fn deserialize_turn_response_new_format() {
+        // New format with all three delay fields + stream_interrupt_after
+        let json = r#"{
+            "response": {"type": "text", "content": "ok"},
+            "first_token_delay": 500,
+            "segment_delay": 50,
+            "delay": 1000,
+            "stream_interrupt_after": 3
+        }"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(turn.delay, Some(1000));
+        assert_eq!(turn.first_token_delay, Some(500));
+        assert_eq!(turn.segment_delay, Some(50));
+        assert_eq!(turn.stream_interrupt_after, Some(3));
+    }
+
+    #[test]
+    fn deserialize_turn_response_no_delay_fields() {
+        // No delay fields at all
+        let json = r#"{"response": {"type": "text", "content": "ok"}}"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert!(turn.delay.is_none());
+        assert!(turn.first_token_delay.is_none());
+        assert!(turn.segment_delay.is_none());
+        assert!(turn.stream_interrupt_after.is_none());
+    }
+
+    #[test]
+    fn deserialize_turn_response_stream_interrupt_zero() {
+        // Boundary: interrupt after 0 events (first event then disconnect)
+        let json =
+            r#"{"response": {"type": "text", "content": "ok"}, "stream_interrupt_after": 0}"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(turn.stream_interrupt_after, Some(0));
+    }
+
+    #[test]
+    fn deserialize_turn_response_stream_interrupt_absent() {
+        // stream_interrupt_after absent defaults to None
+        let json = r#"{"response": {"type": "text", "content": "ok"}}"#;
+        let turn: TurnResponse = serde_json::from_str(json).unwrap();
+        assert!(turn.stream_interrupt_after.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // ReasoningIntensity tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn reasoning_intensity_default_is_medium() {
+        assert_eq!(ReasoningIntensity::default(), ReasoningIntensity::Medium);
+    }
+
+    #[test]
+    fn reasoning_intensity_serialize_deserialize_low() {
+        let json = serde_json::to_string(&ReasoningIntensity::Low).unwrap();
+        assert_eq!(json, "\"low\"");
+        let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ReasoningIntensity::Low);
+    }
+
+    #[test]
+    fn reasoning_intensity_serialize_deserialize_medium() {
+        let json = serde_json::to_string(&ReasoningIntensity::Medium).unwrap();
+        assert_eq!(json, "\"medium\"");
+        let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ReasoningIntensity::Medium);
+    }
+
+    #[test]
+    fn reasoning_intensity_serialize_deserialize_high() {
+        let json = serde_json::to_string(&ReasoningIntensity::High).unwrap();
+        assert_eq!(json, "\"high\"");
+        let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ReasoningIntensity::High);
+    }
+
+    #[test]
+    fn reasoning_response_default_intensity_is_medium() {
+        let resp = ReasoningResponse::default();
+        assert_eq!(resp.intensity, ReasoningIntensity::Medium);
+    }
+
+    #[test]
+    fn reasoning_response_with_intensity_low() {
+        let json = r#"{
+            "type": "reasoning",
+            "content": "42",
+            "reasoning": "thinking...",
+            "intensity": "low"
+        }"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.intensity, ReasoningIntensity::Low);
+                assert_eq!(r.content, "42");
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn reasoning_response_with_intensity_high() {
+        let json = r#"{
+            "type": "reasoning",
+            "content": "ok",
+            "reasoning": "deep thought",
+            "intensity": "high"
+        }"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.intensity, ReasoningIntensity::High);
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn reasoning_response_intensity_defaults_when_absent() {
+        let json = r#"{
+            "type": "reasoning",
+            "content": "text",
+            "reasoning": "think"
+        }"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.intensity, ReasoningIntensity::Medium);
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn reasoning_intensity_not_equal_cross_variant() {
+        assert!(ReasoningIntensity::Low != ReasoningIntensity::Medium);
+        assert!(ReasoningIntensity::Medium != ReasoningIntensity::High);
+        assert!(ReasoningIntensity::Low != ReasoningIntensity::High);
     }
 }

@@ -551,8 +551,19 @@ pub const DEFAULT_SEGMENT_GRANULARITY: usize = 20;
 ///
 /// Used by both OpenAI and Anthropic endpoint handlers to convert the
 /// `Vec<SseEvent>` from the delivery layer into an Axum SSE response stream.
+///
+/// Supports optional per-segment delay and stream truncation (interrupt).
 pub struct SseEventStream {
     inner: std::vec::IntoIter<SseEvent>,
+    /// Delay (ms) between consecutive events. Stored permanently for
+    /// re-application on every poll cycle after a delay fires.
+    segment_delay_ms: u64,
+    /// Maximum events to emit before stopping. `None` means emit all.
+    max_events: Option<usize>,
+    /// Number of events emitted so far.
+    emitted: usize,
+    /// True when the timer fired and we are ready to yield the next event.
+    delay_fired: bool,
 }
 
 impl SseEventStream {
@@ -560,7 +571,24 @@ impl SseEventStream {
     pub fn new(events: Vec<SseEvent>) -> Self {
         Self {
             inner: events.into_iter(),
+            segment_delay_ms: 0,
+            max_events: None,
+            emitted: 0,
+            delay_fired: true,
         }
+    }
+
+    /// Set per-segment delay between consecutive events.
+    pub fn with_segment_delay(mut self, delay_ms: u64) -> Self {
+        self.segment_delay_ms = delay_ms;
+        self
+    }
+
+    /// Set maximum number of events before truncation (stream interrupt).
+    /// `Some(0)` means stop before emitting any event.
+    pub fn with_max_events(mut self, max: Option<usize>) -> Self {
+        self.max_events = max;
+        self
     }
 }
 
@@ -569,10 +597,35 @@ impl futures_core::Stream for SseEventStream {
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
+        // Check truncation: stop before emitting if we've reached the limit.
+        if let Some(max) = self.max_events {
+            if self.emitted >= max {
+                return std::task::Poll::Ready(None);
+            }
+        }
+
+        // Apply per-segment delay before yielding the next event.
+        // On first call (delay_fired=true, emitted=0), no delay needed.
+        // On subsequent calls, spawn a timer and return Pending.
+        if self.segment_delay_ms > 0 && self.emitted > 0 && !self.delay_fired {
+            let waker = cx.waker().clone();
+            let dur = std::time::Duration::from_millis(self.segment_delay_ms);
+            tokio::spawn(async move {
+                tokio::time::sleep(dur).await;
+                waker.wake();
+            });
+            return std::task::Poll::Pending;
+        }
+
+        // Timer has fired (or no delay configured) — yield the next event.
+        self.delay_fired = false;
         match self.inner.next() {
-            Some(e) => std::task::Poll::Ready(Some(Ok(to_axum_event(e)))),
+            Some(e) => {
+                self.emitted += 1;
+                std::task::Poll::Ready(Some(Ok(to_axum_event(e))))
+            }
             None => std::task::Poll::Ready(None),
         }
     }
