@@ -971,4 +971,7 @@ mod tests {
 }
 
 #[cfg(test)]
+mod conflict_tests;
+
+#[cfg(test)]
 mod matcher_request_params_tests;

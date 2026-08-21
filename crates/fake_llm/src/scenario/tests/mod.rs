@@ -962,6 +962,7 @@ fn state_machine_continuity_break_after_cache_fields_missing() {
     assert!(u2.cache_write_tokens.unwrap() > 0, "write tokens positive");
 }
 
+mod fallback_integration_tests;
 mod fixture_contract;
 mod reasoning_intensity;
 mod response_blocks;
