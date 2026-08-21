@@ -206,6 +206,16 @@ fn openai_done() -> SseEvent {
 
 fn anthropic_message_start(model: &str, usage: &UsageResponse) -> SseEvent {
     let msg_id = format!("msg_fake_{}", model);
+    let mut usage_json = serde_json::json!({
+        "input_tokens": usage.prompt_tokens.unwrap_or(0),
+        "output_tokens": 0
+    });
+    if !usage.cache_fields_missing {
+        usage_json["cache_read_input_tokens"] =
+            serde_json::json!(usage.cache_hit_tokens.unwrap_or(0));
+        usage_json["cache_creation_input_tokens"] =
+            serde_json::json!(usage.cache_write_tokens.unwrap_or(0));
+    }
     SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
@@ -215,12 +225,7 @@ fn anthropic_message_start(model: &str, usage: &UsageResponse) -> SseEvent {
             "content": [],
             "model": model,
             "stop_reason": null,
-            "usage": {
-                "input_tokens": usage.prompt_tokens.unwrap_or(0),
-                "output_tokens": 0,
-                "cache_read_input_tokens": usage.cache_hit_tokens.unwrap_or(0),
-                "cache_creation_input_tokens": usage.cache_write_tokens.unwrap_or(0)
-            }
+            "usage": usage_json
         })
         .to_string(),
     }
@@ -351,6 +356,13 @@ fn anthropic_content_block_stop(index: usize) -> SseEvent {
 }
 
 fn anthropic_message_delta(usage: &UsageResponse, stop_reason: &str) -> SseEvent {
+    let mut usage_json = serde_json::json!({
+        "output_tokens": usage.completion_tokens.unwrap_or(0)
+    });
+    if !usage.cache_fields_missing {
+        usage_json["cache_read_input_tokens"] =
+            serde_json::json!(usage.cache_hit_tokens.unwrap_or(0));
+    }
     SseEvent {
         event_type: "message".into(),
         data: serde_json::json!({
@@ -359,10 +371,7 @@ fn anthropic_message_delta(usage: &UsageResponse, stop_reason: &str) -> SseEvent
                 "stop_reason": stop_reason,
                 "stop_sequence": null
             },
-            "usage": {
-                "output_tokens": usage.completion_tokens.unwrap_or(0),
-                "cache_read_input_tokens": usage.cache_hit_tokens.unwrap_or(0)
-            }
+            "usage": usage_json
         })
         .to_string(),
     }
@@ -579,7 +588,6 @@ pub fn to_axum_event(e: SseEvent) -> axum::response::sse::Event {
 }
 
 // ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,7 +602,6 @@ mod tests {
             signature: None,
         }
     }
-
     fn reasoning_block(reasoning: &str, content: &str) -> ResponseBlock {
         ResponseBlock {
             block_type: "reasoning".to_string(),
@@ -605,7 +612,6 @@ mod tests {
             signature: None,
         }
     }
-
     fn reasoning_block_with_sig(reasoning: &str, content: &str, sig: &str) -> ResponseBlock {
         ResponseBlock {
             block_type: "reasoning".to_string(),
@@ -616,7 +622,6 @@ mod tests {
             signature: Some(sig.to_string()),
         }
     }
-
     fn tool_call_block(name: &str, args: &str) -> ResponseBlock {
         ResponseBlock {
             block_type: "tool_call".to_string(),
@@ -627,7 +632,6 @@ mod tests {
             signature: None,
         }
     }
-
     fn default_usage() -> UsageResponse {
         UsageResponse {
             prompt_tokens: Some(10),
@@ -638,7 +642,6 @@ mod tests {
             cache_fields_missing: false,
         }
     }
-
     fn usage_with(
         prompt: Option<u32>,
         completion: Option<u32>,
@@ -655,49 +658,40 @@ mod tests {
         }
     }
 
-    // ------------------------------------------------------------------
     // split_segments
-    // ------------------------------------------------------------------
 
     #[test]
     fn split_segments_zero_granularity_returns_whole() {
         let result = split_segments("hello world", 0);
         assert_eq!(result, vec!["hello world"]);
     }
-
     #[test]
     fn split_segments_longer_than_content() {
         let result = split_segments("hi", 100);
         assert_eq!(result, vec!["hi"]);
     }
-
     #[test]
     fn split_segments_exact_boundary() {
         let result = split_segments("abcd", 2);
         assert_eq!(result, vec!["ab", "cd"]);
     }
-
     #[test]
     fn split_segments_with_remainder() {
         let result = split_segments("abcde", 2);
         assert_eq!(result, vec!["ab", "cd", "e"]);
     }
-
     #[test]
     fn split_segments_unicode() {
         let result = split_segments("你好世界", 2);
         assert_eq!(result, vec!["你好", "世界"]);
     }
-
     #[test]
     fn split_segments_empty_string() {
         let result = split_segments("", 5);
         assert_eq!(result, vec![""]);
     }
 
-    // ------------------------------------------------------------------
     // OpenAI SSE
-    // ------------------------------------------------------------------
 
     #[test]
     fn openai_sse_text_only() {
@@ -797,9 +791,7 @@ mod tests {
         assert_eq!(finish_data["choices"][0]["finish_reason"], "tool_calls");
     }
 
-    // ------------------------------------------------------------------
     // Anthropic SSE
-    // ------------------------------------------------------------------
 
     #[test]
     fn anthropic_sse_text_only() {
@@ -904,9 +896,7 @@ mod tests {
         assert_eq!(b2["content_block"]["type"], "text");
     }
 
-    // ------------------------------------------------------------------
     // SseEvent structure
-    // ------------------------------------------------------------------
 
     #[test]
     fn sse_event_fields_and_clone() {
@@ -975,5 +965,35 @@ mod tests {
         let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
         let d: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
         assert_eq!(d["usage"]["cache_read_input_tokens"], 150);
+    }
+
+    #[test]
+    fn anthropic_start_cache_fields_missing_omits_cache_tokens() {
+        let blocks = vec![text_block("Hello!")];
+        let mut usage = usage_with(Some(200), Some(100), Some(150), Some(200));
+        usage.cache_fields_missing = true;
+        let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        assert_eq!(
+            d["usage"]["cache_read_input_tokens"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            d["usage"]["cache_creation_input_tokens"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn anthropic_delta_cache_fields_missing_omits_cache_tokens() {
+        let blocks = vec![text_block("Hello!")];
+        let mut usage = usage_with(Some(200), Some(100), Some(150), None);
+        usage.cache_fields_missing = true;
+        let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
+        let d: serde_json::Value = serde_json::from_str(&events[5].data).unwrap();
+        assert_eq!(
+            d["usage"]["cache_read_input_tokens"],
+            serde_json::Value::Null
+        );
     }
 }
