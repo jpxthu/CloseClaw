@@ -35,6 +35,12 @@ pub async fn apply_delay(ms: Option<u64>) {
 pub enum DeliveryResult {
     /// Streaming response: SSE events ready to be sent over the channel.
     SseStream(Vec<SseEvent>),
+    /// Streaming response with delivery config (segment delay, interrupt).
+    SseStreamWithConfig {
+        events: Vec<SseEvent>,
+        segment_delay_ms: u64,
+        max_events: Option<usize>,
+    },
     /// Non-streaming JSON response body.
     JsonResponse(serde_json::Value),
     /// HTTP error with status code, message body, and optional Retry-After header.
@@ -87,12 +93,22 @@ pub enum Protocol {
     Anthropic,
 }
 
+/// Stream interrupt configuration.
+///
+/// Declares at which position the streaming response should be truncated.
+pub struct StreamInterrupt {
+    /// Number of events to emit before disconnecting (0 = first event then stop).
+    pub after_event: usize,
+}
+
 /// Configuration for the delivery layer.
 pub struct DeliveryConfig {
     /// Segment granularity for content splitting in streaming mode.
     pub segment_granularity: usize,
     /// Whether to include usage in the final streaming chunk.
     pub include_usage: bool,
+    /// Optional stream interrupt: truncate the SSE stream after N events.
+    pub stream_interrupt: Option<StreamInterrupt>,
 }
 
 /// Unified delivery entry point.
@@ -122,7 +138,11 @@ pub async fn deliver(
     let usage = decision.usage.clone().unwrap_or_default();
 
     if decision.stream {
-        // Streaming: generate SSE events
+        // Streaming path:
+        // 1. First token delay (before generating events)
+        apply_delay(decision.first_token_delay).await;
+
+        // 2. Generate SSE events
         let events = match protocol {
             Protocol::OpenAi => generate_openai_sse(
                 &decision.response_blocks,
@@ -138,7 +158,15 @@ pub async fn deliver(
                 config.segment_granularity,
             ),
         };
-        DeliveryResult::SseStream(events)
+
+        // 3. Build stream with segment delay and optional interrupt
+        let max_events = config.stream_interrupt.as_ref().map(|si| si.after_event);
+        let segment_delay = decision.segment_delay.unwrap_or(0);
+        DeliveryResult::SseStreamWithConfig {
+            events,
+            segment_delay_ms: segment_delay,
+            max_events,
+        }
     } else {
         // Non-streaming: build JSON response via protocol layer
         let json = match protocol {
@@ -265,20 +293,22 @@ mod tests {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: Some(default_usage()),
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let result = deliver(&decision, Protocol::OpenAi, &config).await;
         match result {
-            DeliveryResult::SseStream(events) => {
+            DeliveryResult::SseStreamWithConfig { events, .. } => {
                 // role chunk, content delta, finish, [DONE]
                 assert_eq!(events.len(), 4);
                 assert_eq!(events[3].data, "[DONE]");
             }
-            _ => panic!("expected SseStream"),
+            _ => panic!("expected SseStreamWithConfig"),
         }
     }
 
@@ -293,20 +323,22 @@ mod tests {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: Some(default_usage()),
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let result = deliver(&decision, Protocol::Anthropic, &config).await;
         match result {
-            DeliveryResult::SseStream(events) => {
+            DeliveryResult::SseStreamWithConfig { events, .. } => {
                 // message_start, content_block_start, ping, text_delta,
                 // content_block_stop, message_delta, message_stop
                 assert_eq!(events.len(), 7);
             }
-            _ => panic!("expected SseStream"),
+            _ => panic!("expected SseStreamWithConfig"),
         }
     }
 
@@ -325,11 +357,13 @@ mod tests {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let result = deliver(&decision, Protocol::OpenAi, &config).await;
         match result {
@@ -352,11 +386,13 @@ mod tests {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let result = deliver(&decision, Protocol::Anthropic, &config).await;
         match result {
@@ -387,11 +423,13 @@ mod tests {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let result = deliver(&decision, Protocol::OpenAi, &config).await;
         match result {
@@ -420,11 +458,13 @@ mod tests {
             delay: Some(100),
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let start = std::time::Instant::now();
         let result = deliver(&decision, Protocol::OpenAi, &config).await;
@@ -455,11 +495,13 @@ mod tests {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let result = deliver(&decision, Protocol::OpenAi, &config).await;
         match result {
@@ -491,11 +533,13 @@ mod tests {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         };
         let config = DeliveryConfig {
             segment_granularity: 0,
             include_usage: false,
+            stream_interrupt: None,
         };
         let result = deliver(&decision, Protocol::OpenAi, &config).await;
         match result {

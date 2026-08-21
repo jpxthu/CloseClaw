@@ -57,6 +57,7 @@ fn make_fallback(
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: None,
@@ -81,6 +82,7 @@ fn make_error_fallback(
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: Some(HttpError {
                 status,
                 message: message.to_string(),
@@ -679,6 +681,7 @@ fn anthropic_tool_use_fixture_matches() {
         delay: None,
         first_token_delay: None,
         segment_delay: None,
+        stream_interrupt_after: None,
         usage: Some(UsageResponse {
             prompt_tokens: Some(39),
             completion_tokens: Some(45),

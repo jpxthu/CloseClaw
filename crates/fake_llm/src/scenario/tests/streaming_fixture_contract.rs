@@ -131,6 +131,7 @@ fn make_streaming_scenario(meta: &serde_json::Value, shape: ResponseShape) -> Sc
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: None,

@@ -97,6 +97,10 @@ pub struct ScenarioDecision {
     /// Applied between consecutive content deltas in streaming mode.
     #[serde(default)]
     pub segment_delay: Option<u64>,
+    /// Optional stream interrupt position. When set, the streaming response
+    /// stops after sending this many events (0 = first event then disconnect).
+    #[serde(default)]
+    pub stream_interrupt_after: Option<usize>,
     /// Optional token usage report.
     #[serde(default)]
     pub usage: Option<UsageResponse>,
@@ -113,6 +117,7 @@ impl Default for ScenarioDecision {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             usage: None,
         }
     }

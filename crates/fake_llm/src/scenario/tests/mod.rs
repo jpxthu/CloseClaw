@@ -9,6 +9,7 @@ fn text_turn(content: &str) -> TurnResponse {
         delay: None,
         first_token_delay: None,
         segment_delay: None,
+        stream_interrupt_after: None,
         error: None,
     }
 }
@@ -105,6 +106,7 @@ fn decide_error_injection() {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: Some(HttpError {
                 status: 500,
                 message: "server error".to_string(),
@@ -139,6 +141,7 @@ fn decide_captures_usage() {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: None,
@@ -169,6 +172,7 @@ fn decide_captures_delay() {
             delay: Some(500),
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: None,
@@ -611,6 +615,7 @@ fn decide_for_models_error_injection() {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: Some(HttpError {
                 status: 429,
                 message: "rate limited".to_string(),
@@ -645,6 +650,7 @@ fn decide_for_models_returns_models_when_no_error() {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: Some(vec![ModelEntry {
@@ -700,6 +706,7 @@ fn decide_for_models_carrying_delay() {
             delay: Some(500),
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: Some(vec![types::ModelEntry {
@@ -714,8 +721,88 @@ fn decide_for_models_carrying_delay() {
     }
 }
 // ------------------------------------------------------------------
-// Step 1.6: cache_fields_missing priority & state machine tests
+// Step 1.3: Per-scenario isolation tests
 // ------------------------------------------------------------------
+
+/// Two scenarios with different models share the same message prefix
+/// but should have independent session cursors and KV cache state.
+#[test]
+fn per_scenario_isolation_cursors_and_cache() {
+    let prefix = vec![MessageEntry {
+        role: "user".to_string(),
+        content: "hello".to_string(),
+    }];
+    let mk_feat = |model: &str| RequestFeatures {
+        model: model.to_string(),
+        stream: false,
+        max_tokens: None,
+        temperature: None,
+        messages: prefix.clone(),
+        tools: vec![],
+    };
+    let mk_feat_ext = |model: &str, reply: &str| RequestFeatures {
+        model: model.to_string(),
+        stream: false,
+        max_tokens: None,
+        temperature: None,
+        messages: vec![
+            MessageEntry {
+                role: "user".into(),
+                content: "hello".into(),
+            },
+            MessageEntry {
+                role: "assistant".into(),
+                content: reply.to_string(),
+            },
+            MessageEntry {
+                role: "user".into(),
+                content: "next".into(),
+            },
+        ],
+        tools: vec![],
+    };
+    let decl = |name: &str, model: &str| ScenarioDeclaration {
+        name: name.to_string(),
+        match_: Some(types::MatchCondition {
+            model_id: Some(model.to_string()),
+            ..Default::default()
+        }),
+        turns: vec![text_turn("t0"), text_turn("t1"), text_turn("t2")],
+        models: None,
+    };
+    let mut engine =
+        ScenarioEngine::new(vec![decl("scene-a", "model-a"), decl("scene-b", "model-b")]);
+
+    // Scene A turn 0, Scene B turn 0 (independent cursors)
+    match engine.decide(&mk_feat("model-a")) {
+        DecisionOutcome::Decision(d) => {
+            assert_eq!(d.response_blocks[0].content.as_deref(), Some("t0"))
+        }
+        _ => panic!("expected Decision"),
+    }
+    match engine.decide(&mk_feat("model-b")) {
+        DecisionOutcome::Decision(d) => {
+            assert_eq!(d.response_blocks[0].content.as_deref(), Some("t0"))
+        }
+        _ => panic!("expected Decision"),
+    }
+    // Scene A turn 1, Scene B turn 1 (cursors advance independently)
+    match engine.decide(&mk_feat_ext("model-a", "t0")) {
+        DecisionOutcome::Decision(d) => {
+            assert_eq!(d.response_blocks[0].content.as_deref(), Some("t1"))
+        }
+        _ => panic!("expected Decision"),
+    }
+    match engine.decide(&mk_feat_ext("model-b", "t0")) {
+        DecisionOutcome::Decision(d) => {
+            assert_eq!(d.response_blocks[0].content.as_deref(), Some("t1"))
+        }
+        _ => panic!("expected Decision"),
+    }
+    // KV cache: each scenario has its own simulator instance.
+    assert!(engine.kv_caches.contains_key("scene-a"));
+    assert!(engine.kv_caches.contains_key("scene-b"));
+}
 
 /// Target 3: Explicit injection takes priority over cache_fields_missing.
 /// When cache_fields_missing=true but cache_hit_tokens is explicitly set,
@@ -740,6 +827,7 @@ fn cache_fields_missing_with_explicit_injection_priority() {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: None,
@@ -781,6 +869,7 @@ fn cache_fields_missing_with_explicit_both_fields() {
             delay: None,
             first_token_delay: None,
             segment_delay: None,
+            stream_interrupt_after: None,
             error: None,
         }],
         models: None,
@@ -819,7 +908,7 @@ fn build_and_merge_usage(
     cache_fields_missing: bool,
 ) -> UsageResponse {
     let entries = make_entries(pairs);
-    let cache = sim.process(&entries, &[], None, None);
+    let cache = sim.process("test", &entries, &[], None, None);
     let mut usage = Some(UsageResponse {
         prompt_tokens: Some(100),
         completion_tokens: Some(50),

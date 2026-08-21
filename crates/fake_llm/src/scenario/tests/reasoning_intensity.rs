@@ -17,6 +17,7 @@ fn reasoning_turn(content: &str, reasoning: &str, intensity: ReasoningIntensity)
         delay: None,
         first_token_delay: None,
         segment_delay: None,
+        stream_interrupt_after: None,
         error: None,
     }
 }
