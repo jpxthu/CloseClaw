@@ -92,10 +92,33 @@ impl Default for KvCacheSimulator {
 }
 
 // ---------------------------------------------------------------------------
-// Token estimation & fingerprinting utilities
+// Construction
 // ---------------------------------------------------------------------------
 
 impl KvCacheSimulator {
+    /// Create a simulator with default TTL (5 minutes).
+    pub fn new() -> Self {
+        Self {
+            last_fingerprint: None,
+            last_timestamp: None,
+            ttl: Duration::from_secs(DEFAULT_TTL_SECS),
+            old_prefix_messages: Vec::new(),
+            old_prefix_tools: Vec::new(),
+        }
+    }
+
+    /// Create a simulator with custom TTL.
+    #[cfg(test)]
+    pub fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            last_fingerprint: None,
+            last_timestamp: None,
+            ttl,
+            old_prefix_messages: Vec::new(),
+            old_prefix_tools: Vec::new(),
+        }
+    }
+
     /// Compute a deterministic fingerprint from the request prefix.
     ///
     /// The prefix is: system prompt + tools + all messages except the last
@@ -132,7 +155,13 @@ impl KvCacheSimulator {
 
         hasher.finish()
     }
+}
 
+// ---------------------------------------------------------------------------
+// Utility — token estimation & common-prefix helpers
+// ---------------------------------------------------------------------------
+
+impl KvCacheSimulator {
     /// Compute the number of tokens in the common prefix of two sets of
     /// prefix components (system prompt + tools + messages).
     ///
@@ -231,33 +260,10 @@ impl KvCacheSimulator {
 }
 
 // ---------------------------------------------------------------------------
-// Simulator core
+// Simulation — state machine core
 // ---------------------------------------------------------------------------
 
 impl KvCacheSimulator {
-    /// Create a simulator with default TTL (5 minutes).
-    pub fn new() -> Self {
-        Self {
-            last_fingerprint: None,
-            last_timestamp: None,
-            ttl: Duration::from_secs(DEFAULT_TTL_SECS),
-            old_prefix_messages: Vec::new(),
-            old_prefix_tools: Vec::new(),
-        }
-    }
-
-    /// Create a simulator with custom TTL.
-    #[cfg(test)]
-    pub fn with_ttl(ttl: Duration) -> Self {
-        Self {
-            last_fingerprint: None,
-            last_timestamp: None,
-            ttl,
-            old_prefix_messages: Vec::new(),
-            old_prefix_tools: Vec::new(),
-        }
-    }
-
     /// Run auto-simulation state machine and return computed fields:
     /// (hit_tokens, write_tokens, new_state, is_break, was_expired).
     fn auto_simulate(
@@ -267,7 +273,6 @@ impl KvCacheSimulator {
         fingerprint: u64,
     ) -> (u32, u32, CacheState, bool, bool) {
         let prefix_tokens = Self::estimate_prefix_tokens(messages, tools);
-
         match &self.last_fingerprint {
             None => {
                 // State: Empty → Writing
@@ -280,7 +285,6 @@ impl KvCacheSimulator {
                         .last_timestamp
                         .map(|ts| ts.elapsed() > self.ttl)
                         .unwrap_or(false);
-
                     if expired {
                         // Hit → Expired → Writing (rewrite)
                         (0, prefix_tokens, CacheState::Writing, false, true)
@@ -303,7 +307,6 @@ impl KvCacheSimulator {
             }
         }
     }
-
     /// Emit tracing log for cache events (auto-simulation path only).
     fn log_cache_event(
         hit_tokens: u32,
@@ -344,7 +347,13 @@ impl KvCacheSimulator {
             _ => {}
         }
     }
+}
 
+// ---------------------------------------------------------------------------
+// Process — request orchestration
+// ---------------------------------------------------------------------------
+
+impl KvCacheSimulator {
     /// Process a request and return cache simulation result.
     ///
     /// `explicit_hit` / `explicit_write`: scenario-declared override values.
