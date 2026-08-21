@@ -160,6 +160,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/fake_llm/fixtures.md",
+    "commit": "1354012ab112d2a6e322bd75d9d2c96cfd728232",
+    "commit_time": "2026-08-21T10:50:23+08:00",
+    "confirmed_time": "2026-08-21T11:01:00.456625+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/gateway/README.md",
     "commit": "511d1a677e37d9cfce034b80a9cadddaec3241d3",
     "commit_time": "2026-08-19T03:22:38+08:00",
