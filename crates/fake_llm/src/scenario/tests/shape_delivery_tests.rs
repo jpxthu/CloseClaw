@@ -575,3 +575,133 @@ fn composite_error_text_early_return_no_blocks() {
         }
     }
 }
+
+// ===========================================================================
+// Review B-2: Streaming shape usage extraction
+// ===========================================================================
+
+/// Streaming shape carries usage → decision usage is populated from it.
+#[test]
+fn streaming_shape_usage_populates_decision() {
+    let scenario = ScenarioDeclaration {
+        name: "streaming-usage".to_string(),
+        match_: None,
+        turns: vec![TurnResponse {
+            response: ResponseShape::Streaming(StreamingResponse {
+                segment_granularity: Some(5),
+                segment_delay_ms: None,
+                usage: Some(UsageResponse {
+                    prompt_tokens: Some(10),
+                    completion_tokens: Some(20),
+                    ..Default::default()
+                }),
+            })
+            .into(),
+            delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
+            error: None,
+        }],
+        models: None,
+    };
+    let mut engine = super::ScenarioEngine::new(vec![scenario]).unwrap();
+    let outcome = engine.decide(&features("gpt-4", "hi"));
+    match outcome {
+        super::DecisionOutcome::Decision(d) => {
+            let u = d.usage.expect("usage should be populated");
+            assert_eq!(u.prompt_tokens, Some(10));
+            assert_eq!(u.completion_tokens, Some(20));
+        }
+        super::DecisionOutcome::Error(_) => panic!("expected decision"),
+    }
+}
+
+/// Streaming shape without usage does not interfere with Text shape usage.
+#[test]
+fn streaming_no_usage_does_not_affect_text_usage() {
+    let scenario = ScenarioDeclaration {
+        name: "streaming-no-usage".to_string(),
+        match_: None,
+        turns: vec![TurnResponse {
+            response: ResponseOrComposite::Multiple(vec![
+                ResponseShape::Streaming(StreamingResponse {
+                    segment_granularity: Some(3),
+                    ..Default::default()
+                }),
+                ResponseShape::Text(TextResponse {
+                    content: "hello".to_string(),
+                    usage: Some(UsageResponse {
+                        prompt_tokens: Some(5),
+                        completion_tokens: Some(10),
+                        ..Default::default()
+                    }),
+                }),
+            ]),
+            delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
+            error: None,
+        }],
+        models: None,
+    };
+    let mut engine = super::ScenarioEngine::new(vec![scenario]).unwrap();
+    let outcome = engine.decide(&features("gpt-4", "hi"));
+    match outcome {
+        super::DecisionOutcome::Decision(d) => {
+            // Text shape usage should be used (Streaming has None)
+            let u = d.usage.expect("usage should be populated");
+            assert_eq!(u.prompt_tokens, Some(5));
+            assert_eq!(u.completion_tokens, Some(10));
+        }
+        super::DecisionOutcome::Error(_) => panic!("expected decision"),
+    }
+}
+
+/// Streaming shape usage takes priority when it appears before Text shape usage.
+#[test]
+fn streaming_usage_first_wins_over_text_usage() {
+    let scenario = ScenarioDeclaration {
+        name: "streaming-usage-first".to_string(),
+        match_: None,
+        turns: vec![TurnResponse {
+            response: ResponseOrComposite::Multiple(vec![
+                ResponseShape::Streaming(StreamingResponse {
+                    segment_granularity: Some(3),
+                    segment_delay_ms: None,
+                    usage: Some(UsageResponse {
+                        prompt_tokens: Some(100),
+                        completion_tokens: Some(200),
+                        ..Default::default()
+                    }),
+                }),
+                ResponseShape::Text(TextResponse {
+                    content: "hello".to_string(),
+                    usage: Some(UsageResponse {
+                        prompt_tokens: Some(1),
+                        completion_tokens: Some(2),
+                        ..Default::default()
+                    }),
+                }),
+            ]),
+            delay: None,
+            first_token_delay: None,
+            segment_delay: None,
+            stream_interrupt_after: None,
+            error: None,
+        }],
+        models: None,
+    };
+    let mut engine = super::ScenarioEngine::new(vec![scenario]).unwrap();
+    let outcome = engine.decide(&features("gpt-4", "hi"));
+    match outcome {
+        super::DecisionOutcome::Decision(d) => {
+            // Streaming shape is first in the composite → its usage wins
+            let u = d.usage.expect("usage should be populated");
+            assert_eq!(u.prompt_tokens, Some(100));
+            assert_eq!(u.completion_tokens, Some(200));
+        }
+        super::DecisionOutcome::Error(_) => panic!("expected decision"),
+    }
+}

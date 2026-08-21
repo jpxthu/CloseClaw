@@ -152,12 +152,19 @@ pub struct ToolCallResponse {
 ///
 /// Carries segment granularity and inter-segment delay that the
 /// scenario engine extracts into the decision's delivery control
-/// fields. When `segment_granularity` is `None` or `0`, the
-/// endpoint uses `DEFAULT_SEGMENT_GRANULARITY`.
+/// fields. When `segment_granularity` is `None`, the endpoint uses
+/// `DEFAULT_SEGMENT_GRANULARITY`. An explicit value (including `0`)
+/// is passed through unchanged (`0` = single segment, matching
+/// `sse.rs::split_segments` semantics).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StreamingResponse {
-    /// Number of content units per segment. `None` or `0` means
-    /// use the endpoint default (typically 1 token per segment).
+    /// Number of content units per segment.
+    ///
+    /// - `None`: endpoint uses `DEFAULT_SEGMENT_GRANULARITY`.
+    /// - `Some(0)`: single segment (no splitting), passed through
+    ///   unchanged (matches `sse.rs::split_segments` semantics).
+    /// - `Some(n)` where n > 0: split content into segments of n units,
+    ///   passed through unchanged.
     #[serde(default)]
     pub segment_granularity: Option<usize>,
     /// Delay between segments in milliseconds.

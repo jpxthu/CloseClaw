@@ -192,6 +192,9 @@ impl ScenarioEngine {
         // is already handled in `decide()` with higher priority, so here we
         // only handle the shape-level Error (which may coexist with text etc.
         // in a composite — the error takes precedence).
+        // NOTE: This will not conflict with TurnResponse.error — `decide()`
+        // checks `turn_resp.error` earlier and short-circuits before reaching
+        // `build_decision`. If we are here, TurnResponse.error was None.
         for shape in &shapes {
             if let ResponseShape::Error(e) = shape {
                 return DecisionOutcome::Error(HttpError {
@@ -420,7 +423,7 @@ Finally, I'll synthesize a comprehensive answer.",
     ///
     /// Returns the first `UsageResponse` found by iterating through shapes
     /// in order: top-level `Usage` variants, then embedded usage fields in
-    /// `Text`, `Reasoning`, and `ToolCall` variants.
+    /// `Text`, `Reasoning`, `ToolCall`, and `Streaming` variants.
     fn extract_usage(shapes: &[ResponseShape]) -> Option<UsageResponse> {
         for shape in shapes {
             let found = match shape {
@@ -428,6 +431,7 @@ Finally, I'll synthesize a comprehensive answer.",
                 ResponseShape::Text(t) => t.usage.clone(),
                 ResponseShape::Reasoning(r) => r.usage.clone(),
                 ResponseShape::ToolCall(tc) => tc.usage.clone(),
+                ResponseShape::Streaming(s) => s.usage.clone(),
                 ResponseShape::Composite(inner) => Self::extract_usage(inner),
                 _ => None,
             };
