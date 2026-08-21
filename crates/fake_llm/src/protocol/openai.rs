@@ -10,6 +10,17 @@ use crate::types::{
 };
 
 // ---------------------------------------------------------------------------
+// Cache token details
+// ---------------------------------------------------------------------------
+
+/// Breakdown of prompt token details for cache information.
+#[derive(Debug, Serialize)]
+struct PromptTokensDetails {
+    /// Number of cached tokens that were a cache hit.
+    cached_tokens: u32,
+}
+
+// ---------------------------------------------------------------------------
 // Request types
 // ---------------------------------------------------------------------------
 
@@ -155,6 +166,8 @@ struct Usage {
     prompt_tokens: u32,
     completion_tokens: u32,
     total_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_tokens_details: Option<PromptTokensDetails>,
 }
 
 /// Build a placeholder OpenAI chat completion response for the given model.
@@ -178,6 +191,7 @@ pub fn build_chat_completion_response(model: &str) -> ChatCompletionResponse {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: 0,
+            prompt_tokens_details: None,
         },
     }
 }
@@ -278,14 +292,20 @@ fn build_usage_from_decision(decision: &ScenarioDecision) -> Usage {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: 0,
+            prompt_tokens_details: None,
         },
         |u| {
             let prompt = u.prompt_tokens.unwrap_or(0);
             let completion = u.completion_tokens.unwrap_or(0);
+            let prompt_tokens_details = u
+                .cache_hit_tokens
+                .filter(|&n| n > 0)
+                .map(|n| PromptTokensDetails { cached_tokens: n });
             Usage {
                 prompt_tokens: prompt,
                 completion_tokens: completion,
                 total_tokens: prompt + completion,
+                prompt_tokens_details,
             }
         },
     )
@@ -538,6 +558,106 @@ mod tests {
             "thinking..."
         );
         assert_eq!(json["choices"][0]["finish_reason"], "stop");
+    }
+
+    #[test]
+    fn usage_with_cache_hit_tokens() {
+        use crate::scenario::types::{ResponseBlock, UsageResponse};
+
+        let decision = ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "cache-hit".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("hello".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: None,
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: Some(UsageResponse {
+                prompt_tokens: Some(100),
+                completion_tokens: Some(20),
+                cache_hit_tokens: Some(50),
+                cache_write_tokens: None,
+                ..Default::default()
+            }),
+        };
+
+        let resp = build_chat_completion_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert_eq!(json["usage"]["prompt_tokens_details"]["cached_tokens"], 50);
+    }
+
+    #[test]
+    fn usage_without_cache_hit_tokens() {
+        use crate::scenario::types::{ResponseBlock, UsageResponse};
+
+        let decision = ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "no-cache".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("hello".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: None,
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: Some(UsageResponse {
+                prompt_tokens: Some(100),
+                completion_tokens: Some(20),
+                cache_hit_tokens: None,
+                cache_write_tokens: None,
+                ..Default::default()
+            }),
+        };
+
+        let resp = build_chat_completion_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        assert!(json["usage"].get("prompt_tokens_details").is_none());
+    }
+
+    #[test]
+    fn usage_with_cache_hit_zero() {
+        use crate::scenario::types::{ResponseBlock, UsageResponse};
+
+        let decision = ScenarioDecision {
+            model: "gpt-4".to_string(),
+            scenario: "cache-zero".to_string(),
+            stream: false,
+            response_blocks: vec![ResponseBlock {
+                block_type: "text".to_string(),
+                content: Some("hello".to_string()),
+                tool_name: None,
+                tool_arguments: None,
+                reasoning: None,
+                signature: None,
+            }],
+            http_error: None,
+            delay: None,
+            usage: Some(UsageResponse {
+                prompt_tokens: Some(100),
+                completion_tokens: Some(20),
+                cache_hit_tokens: Some(0),
+                cache_write_tokens: None,
+                ..Default::default()
+            }),
+        };
+
+        let resp = build_chat_completion_response_from_decision(&decision);
+        let json = serde_json::to_value(&resp).unwrap();
+
+        // cache_hit_tokens == 0 should not appear in JSON
+        assert!(json["usage"].get("prompt_tokens_details").is_none());
     }
 
     #[test]
