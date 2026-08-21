@@ -297,46 +297,81 @@ impl KvCacheSimulator {
         // Auto simulation — state machine logic.
         let prefix_tokens = Self::estimate_prefix_tokens(messages, tools);
 
-        let (hit_tokens, write_tokens, new_state, is_break) = match &self.last_fingerprint {
-            None => {
-                // State: Empty → Writing
-                (0, prefix_tokens, CacheState::Writing, false)
-            }
-            Some(last_fp) => {
-                if *last_fp == fingerprint {
-                    // Same prefix — check TTL.
-                    let expired = self
-                        .last_timestamp
-                        .map(|ts| ts.elapsed() > self.ttl)
-                        .unwrap_or(false);
-
-                    if expired {
-                        // State: Hit → Expired → Writing (rewrite)
-                        (0, prefix_tokens, CacheState::Writing, false)
-                    } else {
-                        // State: Hit → Hit (cache hit)
-                        (prefix_tokens, 0, CacheState::Hit, false)
-                    }
-                } else {
-                    // Prefix changed — Break: compute residual hit from
-                    // common prefix, remaining as write tokens.
-                    let residual = Self::common_prefix_tokens(
-                        &self.old_prefix_messages,
-                        &self.old_prefix_tools,
-                        messages,
-                        tools,
-                    );
-                    let write = prefix_tokens.saturating_sub(residual);
-                    (residual, write, CacheState::Writing, true)
+        let (hit_tokens, write_tokens, new_state, is_break, was_expired) =
+            match &self.last_fingerprint {
+                None => {
+                    // State: Empty → Writing
+                    (0, prefix_tokens, CacheState::Writing, false, false)
                 }
-            }
-        };
+                Some(last_fp) => {
+                    if *last_fp == fingerprint {
+                        // Same prefix — check TTL.
+                        let expired = self
+                            .last_timestamp
+                            .map(|ts| ts.elapsed() > self.ttl)
+                            .unwrap_or(false);
+
+                        if expired {
+                            // State: Hit → Expired → Writing (rewrite)
+                            (0, prefix_tokens, CacheState::Writing, false, true)
+                        } else {
+                            // State: Hit → Hit (cache hit)
+                            (prefix_tokens, 0, CacheState::Hit, false, false)
+                        }
+                    } else {
+                        // Prefix changed — Break: compute residual hit from
+                        // common prefix, remaining as write tokens.
+                        let residual = Self::common_prefix_tokens(
+                            &self.old_prefix_messages,
+                            &self.old_prefix_tools,
+                            messages,
+                            tools,
+                        );
+                        let write = prefix_tokens.saturating_sub(residual);
+                        (residual, write, CacheState::Writing, true, false)
+                    }
+                }
+            };
 
         // Record state for next request.
         self.last_fingerprint = Some(fingerprint);
         self.last_timestamp = Some(Instant::now());
         self.old_prefix_messages = messages.to_vec();
         self.old_prefix_tools = tools.to_vec();
+
+        // Observability logging (auto-simulation path only).
+        match new_state {
+            CacheState::Hit => {
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    hit_tokens,
+                    "cache hit"
+                );
+            }
+            CacheState::Writing if is_break => {
+                let residual_hit = hit_tokens;
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    residual_hit,
+                    write_tokens,
+                    "cache break"
+                );
+            }
+            CacheState::Writing if was_expired => {
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    "cache expired"
+                );
+            }
+            CacheState::Writing => {
+                tracing::info!(
+                    target: "fake_llm::kv_cache",
+                    write_tokens,
+                    "cache write"
+                );
+            }
+            _ => {}
+        }
 
         CacheResult {
             cache_hit_tokens: if hit_tokens > 0 {
