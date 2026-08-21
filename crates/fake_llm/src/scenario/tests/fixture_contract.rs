@@ -333,6 +333,7 @@ fn openai_reasoning_fixture_matches() {
                 .to_string(),
             signature: None,
             usage: None,
+            ..Default::default()
         }),
         usage,
     );
@@ -349,9 +350,12 @@ fn openai_reasoning_fixture_matches() {
     assert!(f.id.starts_with("chatcmpl-"));
     assert_eq!(f.object, "chat.completion");
     assert_eq!(f.model, "fake-model");
-    assert_eq!(
-        f.reasoning_content.as_deref(),
-        Some("The user asks for 17 * 23. Compute: 17 * 20 = 340, 17 * 3 = 51, sum = 391.")
+    assert!(
+        f.reasoning_content
+            .as_deref()
+            .unwrap()
+            .contains("The user asks for 17 * 23. Compute: 17 * 20 = 340, 17 * 3 = 51, sum = 391."),
+        "reasoning_content should contain base text"
     );
     assert_eq!(f.content, "391");
     assert_eq!(f.finish_reason, "stop");
@@ -618,6 +622,7 @@ fn anthropic_thinking_fixture_matches() {
             reasoning: THINKING_REASONING.to_string(),
             signature: Some(THINKING_SIG.to_string()),
             usage: None,
+            ..Default::default()
         }),
         usage,
     );
@@ -638,7 +643,14 @@ fn anthropic_thinking_fixture_matches() {
     assert_eq!(f.content.len(), 2);
 
     assert_eq!(f.content[0].block_type, "thinking");
-    assert_eq!(f.content[0].thinking.as_deref(), Some(THINKING_REASONING));
+    assert!(
+        f.content[0]
+            .thinking
+            .as_deref()
+            .unwrap()
+            .contains(THINKING_REASONING),
+        "thinking should contain base text"
+    );
     assert_eq!(f.content[0].signature.as_deref(), Some(THINKING_SIG));
 
     assert_eq!(f.content[1].block_type, "text");
@@ -717,6 +729,7 @@ fn anthropic_cache_fixture_matches() {
             reasoning: "The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system prompt is cached from a previous request, so I should report cache_read_input_tokens > 0 to indicate a cache hit.".to_string(),
             signature: Some("sig_cache_d4e5f6a7b8c9d0e1".to_string()),
             usage: None,
+            ..Default::default()
         },
     ), usage);
     let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]);
@@ -737,9 +750,13 @@ fn anthropic_cache_fixture_matches() {
 
     // thinking block
     assert_eq!(f.content[0].block_type, "thinking");
-    assert_eq!(
-        f.content[0].thinking.as_deref(),
-        Some("The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system prompt is cached from a previous request, so I should report cache_read_input_tokens > 0 to indicate a cache hit.")
+    assert!(
+        f.content[0]
+            .thinking
+            .as_deref()
+            .unwrap()
+            .contains("The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system prompt is cached from a previous request, so I should report cache_read_input_tokens > 0 to indicate a cache hit."),
+        "thinking should contain base text"
     );
     assert_eq!(
         f.content[0].signature.as_deref(),

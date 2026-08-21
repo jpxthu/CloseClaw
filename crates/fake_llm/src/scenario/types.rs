@@ -172,6 +172,25 @@ pub struct TextResponse {
     pub usage: Option<UsageResponse>,
 }
 
+/// Reasoning intensity level controlling the length of generated
+/// reasoning content. Low produces short reasoning, Medium is the
+/// default, and High produces lengthy reasoning.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ReasoningIntensity {
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "high")]
+    High,
+}
+
+impl Default for ReasoningIntensity {
+    fn default() -> Self {
+        Self::Medium
+    }
+}
+
 /// Reasoning / thinking response content.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReasoningResponse {
@@ -187,6 +206,10 @@ pub struct ReasoningResponse {
     /// Optional token usage report.
     #[serde(default)]
     pub usage: Option<UsageResponse>,
+    /// Reasoning intensity level controlling the length of generated
+    /// reasoning content. Defaults to Medium.
+    #[serde(default)]
+    pub intensity: ReasoningIntensity,
 }
 
 /// A single tool call entry.
@@ -875,5 +898,102 @@ mod tests {
         assert!(turn.delay.is_none());
         assert!(turn.first_token_delay.is_none());
         assert!(turn.segment_delay.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // ReasoningIntensity tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn reasoning_intensity_default_is_medium() {
+        assert_eq!(ReasoningIntensity::default(), ReasoningIntensity::Medium);
+    }
+
+    #[test]
+    fn reasoning_intensity_serialize_deserialize_low() {
+        let json = serde_json::to_string(&ReasoningIntensity::Low).unwrap();
+        assert_eq!(json, "\"low\"");
+        let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ReasoningIntensity::Low);
+    }
+
+    #[test]
+    fn reasoning_intensity_serialize_deserialize_medium() {
+        let json = serde_json::to_string(&ReasoningIntensity::Medium).unwrap();
+        assert_eq!(json, "\"medium\"");
+        let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ReasoningIntensity::Medium);
+    }
+
+    #[test]
+    fn reasoning_intensity_serialize_deserialize_high() {
+        let json = serde_json::to_string(&ReasoningIntensity::High).unwrap();
+        assert_eq!(json, "\"high\"");
+        let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ReasoningIntensity::High);
+    }
+
+    #[test]
+    fn reasoning_response_default_intensity_is_medium() {
+        let resp = ReasoningResponse::default();
+        assert_eq!(resp.intensity, ReasoningIntensity::Medium);
+    }
+
+    #[test]
+    fn reasoning_response_with_intensity_low() {
+        let json = r#"{
+            "type": "reasoning",
+            "content": "42",
+            "reasoning": "thinking...",
+            "intensity": "low"
+        }"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.intensity, ReasoningIntensity::Low);
+                assert_eq!(r.content, "42");
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn reasoning_response_with_intensity_high() {
+        let json = r#"{
+            "type": "reasoning",
+            "content": "ok",
+            "reasoning": "deep thought",
+            "intensity": "high"
+        }"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.intensity, ReasoningIntensity::High);
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn reasoning_response_intensity_defaults_when_absent() {
+        let json = r#"{
+            "type": "reasoning",
+            "content": "text",
+            "reasoning": "think"
+        }"#;
+        let shape: ResponseShape = serde_json::from_str(json).unwrap();
+        match shape {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.intensity, ReasoningIntensity::Medium);
+            }
+            _ => panic!("expected Reasoning variant"),
+        }
+    }
+
+    #[test]
+    fn reasoning_intensity_not_equal_cross_variant() {
+        assert!(ReasoningIntensity::Low != ReasoningIntensity::Medium);
+        assert!(ReasoningIntensity::Medium != ReasoningIntensity::High);
+        assert!(ReasoningIntensity::Low != ReasoningIntensity::High);
     }
 }

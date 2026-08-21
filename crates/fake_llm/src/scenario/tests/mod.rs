@@ -893,5 +893,6 @@ fn state_machine_continuity_break_after_cache_fields_missing() {
 }
 
 mod fixture_contract;
+mod reasoning_intensity;
 mod response_blocks;
 mod streaming_fixture_contract;

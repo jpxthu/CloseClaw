@@ -11,15 +11,21 @@ fn build_response_blocks_reasoning_shape() {
         reasoning: "Let me think step by step...".to_string(),
         signature: Some("sig-abc".to_string()),
         usage: None,
+        ..Default::default()
     });
     let blocks = ScenarioEngine::build_response_blocks(&shape);
 
     // Reasoning shape produces two blocks: reasoning + text
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0].block_type, "reasoning");
-    assert_eq!(
-        blocks[0].reasoning.as_deref(),
-        Some("Let me think step by step...")
+    // Medium intensity wraps the base reasoning
+    assert!(
+        blocks[0]
+            .reasoning
+            .as_deref()
+            .unwrap()
+            .contains("Let me think step by step..."),
+        "reasoning should contain base text"
     );
     assert_eq!(blocks[0].signature.as_deref(), Some("sig-abc"));
     assert!(blocks[0].content.is_none());
@@ -34,11 +40,17 @@ fn build_response_blocks_reasoning_without_signature() {
         reasoning: "hmm".to_string(),
         signature: None,
         usage: None,
+        ..Default::default()
     });
     let blocks = ScenarioEngine::build_response_blocks(&shape);
     assert_eq!(blocks.len(), 2);
     assert_eq!(blocks[0].block_type, "reasoning");
     assert!(blocks[0].signature.is_none());
+    // Medium intensity wraps the base reasoning
+    assert!(
+        blocks[0].reasoning.as_deref().unwrap().contains("hmm"),
+        "reasoning should contain base text"
+    );
     assert_eq!(blocks[1].block_type, "text");
 }
 
@@ -120,6 +132,7 @@ fn decide_reasoning_scenario_produces_correct_blocks() {
                 reasoning: "Let me think...".to_string(),
                 signature: Some("sig1".to_string()),
                 usage: None,
+                ..Default::default()
             }),
             delay: None,
             first_token_delay: None,
@@ -136,9 +149,13 @@ fn decide_reasoning_scenario_produces_correct_blocks() {
             assert_eq!(d.scenario, "reasoning-scene");
             assert_eq!(d.response_blocks.len(), 2);
             assert_eq!(d.response_blocks[0].block_type, "reasoning");
-            assert_eq!(
-                d.response_blocks[0].reasoning.as_deref(),
-                Some("Let me think...")
+            assert!(
+                d.response_blocks[0]
+                    .reasoning
+                    .as_deref()
+                    .unwrap()
+                    .contains("Let me think..."),
+                "reasoning should contain base text"
             );
             assert_eq!(d.response_blocks[1].block_type, "text");
             assert_eq!(d.response_blocks[1].content.as_deref(), Some("42"));
@@ -197,6 +214,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
                     reasoning: "Let me search...".to_string(),
                     signature: None,
                     usage: None,
+                    ..Default::default()
                 }),
                 delay: None,
                 first_token_delay: None,

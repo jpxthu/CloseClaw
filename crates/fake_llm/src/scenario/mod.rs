@@ -236,24 +236,28 @@ impl ScenarioEngine {
                 reasoning: None,
                 signature: None,
             }],
-            ResponseShape::Reasoning(r) => vec![
-                ResponseBlock {
-                    block_type: "reasoning".to_string(),
-                    content: None,
-                    tool_name: None,
-                    tool_arguments: None,
-                    reasoning: Some(r.reasoning.clone()),
-                    signature: r.signature.clone(),
-                },
-                ResponseBlock {
-                    block_type: "text".to_string(),
-                    content: Some(r.content.clone()),
-                    tool_name: None,
-                    tool_arguments: None,
-                    reasoning: None,
-                    signature: None,
-                },
-            ],
+            ResponseShape::Reasoning(r) => {
+                let reasoning_text =
+                    Self::generate_reasoning_by_intensity(&r.reasoning, &r.intensity);
+                vec![
+                    ResponseBlock {
+                        block_type: "reasoning".to_string(),
+                        content: None,
+                        tool_name: None,
+                        tool_arguments: None,
+                        reasoning: Some(reasoning_text),
+                        signature: r.signature.clone(),
+                    },
+                    ResponseBlock {
+                        block_type: "text".to_string(),
+                        content: Some(r.content.clone()),
+                        tool_name: None,
+                        tool_arguments: None,
+                        reasoning: None,
+                        signature: None,
+                    },
+                ]
+            }
             ResponseShape::ToolCall(tc) => tc
                 .calls
                 .iter()
@@ -282,6 +286,34 @@ impl ScenarioEngine {
                 reasoning: None,
                 signature: None,
             }],
+        }
+    }
+
+    /// Generate reasoning text by intensity level.
+    ///
+    /// - Low: short reasoning (~50 chars)
+    /// - Medium: moderate reasoning (~150 chars, the default)
+    /// - High: lengthy reasoning (~300 chars)
+    ///
+    /// If the input reasoning is non-empty, it is used as the base
+    /// and extended according to the intensity level.
+    fn generate_reasoning_by_intensity(reasoning: &str, intensity: &ReasoningIntensity) -> String {
+        if reasoning.is_empty() {
+            return String::new();
+        }
+        match intensity {
+            ReasoningIntensity::Low => format!("Let me think briefly. {}", reasoning,),
+            ReasoningIntensity::Medium => format!(
+                "Let me consider this carefully. {} I need to verify each step.",
+                reasoning,
+            ),
+            ReasoningIntensity::High => format!(
+                "Let me think through this problem in detail. {} \
+First, I should analyze the input. Then I'll evaluate the options. \
+Next, I'll consider edge cases and potential pitfalls. \
+Finally, I'll synthesize a comprehensive answer.",
+                reasoning,
+            ),
         }
     }
 
