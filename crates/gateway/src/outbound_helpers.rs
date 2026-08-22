@@ -171,7 +171,12 @@ pub(crate) async fn dispatch_text(
             {
                 Ok(processed_blocks) => {
                     for block in &processed_blocks {
-                        send_render_block(ctx, block).await?;
+                        if let ContentBlock::Text(ref t) = block {
+                            if t.is_empty() {
+                                continue;
+                            }
+                            send_text(ctx, t).await?;
+                        }
                     }
                     state.content_blocks.extend(processed_blocks);
                 }
