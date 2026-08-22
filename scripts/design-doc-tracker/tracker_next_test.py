@@ -346,19 +346,33 @@ class TestReadOnly(_Fixture):
 
 
 class TestCli(unittest.TestCase):
-    def test_next_command_outputs_single_json_object(self):
-        """`tracker-next.py next` prints exactly one JSON object, rc=0."""
-        repo = Path(
+    @staticmethod
+    def _repo_root() -> Path:
+        return Path(
             subprocess.check_output(
                 ["git", "rev-parse", "--show-toplevel"],
                 cwd=Path(__file__).resolve().parent,
                 text=True,
             ).strip()
         )
-        proc = subprocess.run(
+
+    def _run_next(self) -> subprocess.CompletedProcess:
+        repo = self._repo_root()
+        return subprocess.run(
             [sys.executable, str(repo / "scripts" / "tracker-next.py"), "next"],
             capture_output=True, text=True, timeout=120,
         )
+
+    @staticmethod
+    def _worktree_state(repo: Path) -> str:
+        return subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo, capture_output=True, text=True,
+        ).stdout
+
+    def test_next_command_outputs_single_json_object(self):
+        """`tracker-next.py next` prints exactly one JSON object, rc=0."""
+        proc = self._run_next()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertIsInstance(payload, dict)
@@ -367,6 +381,20 @@ class TestCli(unittest.TestCase):
         self.assertIn("design_docs", payload)
         self.assertIn("blocked_docs", payload)
         self.assertIn("requirement_modules", payload)
+
+    def test_next_command_does_not_dirty_worktree(self):
+        """CLI-level read-only: `next` leaves the real repo untouched.
+
+        Compares `git status --porcelain` before/after (robust to
+        pre-existing unrelated dirtiness) so the query can never dirty
+        records.json or any other tracked file.
+        """
+        repo = self._repo_root()
+        before = self._worktree_state(repo)
+        proc = self._run_next()
+        after = self._worktree_state(repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(before, after)
 
 
 # ---------------------------------------------------------------------------
