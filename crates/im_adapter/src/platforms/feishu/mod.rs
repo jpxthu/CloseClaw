@@ -46,11 +46,12 @@ use closeclaw_common::{
     RenderedOutput,
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
-use closeclaw_debug_log::DebugLog;
+use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
 use closeclaw_gateway::Message;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, warn};
 
 use super::PlatformEntry;
@@ -348,11 +349,21 @@ impl IMPlugin for FeishuPlugin {
         &self,
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, CommonAdapterError> {
+        // Generate trace_id at webhook arrival for cross-chain correlation.
+        let trace_id = uuid::Uuid::new_v4().to_string();
+        {
+            let mut meta = self.adapter.last_metadata.lock().await;
+            meta.insert("trace_id".to_string(), trace_id.clone());
+        }
+
+        let start = Instant::now();
         let mut msg = self
             .adapter
             .parse_inbound(payload)
             .await
             .map_err(convert_to_common_error)?;
+        let parse_duration_ms = start.elapsed().as_millis() as u64;
+
         if let Some(ref mut m) = msg {
             m.content = normalize_urls(&m.content);
             m.content = add_code_block_language_hint(&m.content);
@@ -363,6 +374,37 @@ impl IMPlugin for FeishuPlugin {
                     .unwrap_or(std::mem::take(&mut m.account_id));
             }
         }
+
+        // Emit structured debug_log event for inbound parse.
+        if let Some(ref debug_log) = self.debug_log {
+            let message_type = msg
+                .as_ref()
+                .map(|m| {
+                    serde_json::to_value(&m.message_type)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            let ctx = TraceContext::new_root(trace_id);
+            let event = LogEvent::new(
+                &ctx,
+                None,
+                LogLevel::Info,
+                "feishu",
+                "inbound.parse",
+                serde_json::json!({
+                    "platform": "feishu",
+                    "message_type": message_type,
+                    "parse_duration_ms": parse_duration_ms,
+                }),
+            );
+            let debug_log = debug_log.clone();
+            tokio::spawn(async move {
+                debug_log.log(event).await;
+            });
+        }
+
         Ok(msg)
     }
 
