@@ -281,7 +281,7 @@ fn test_three_step_mixed_blocks_with_dsl() {
 // Streaming error chunks preservation tests (Step 1.3)
 // ===========================================================================
 
-use crate::{GatewayConfig, SessionManager};
+use crate::{GatewayConfig, OutboundMeta, SessionManager};
 use closeclaw_common::processor::{StreamEvent, UnifiedUsage};
 use closeclaw_common::StreamingRenderer;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -433,7 +433,13 @@ async fn test_stream_error_preserves_partial_content() {
     let stream = stream::iter(events);
 
     let result = gw
-        .send_outbound_streaming("sess-err-1", "mock", stream, &plugin, None, None)
+        .send_outbound_streaming(
+            "sess-err-1",
+            "mock",
+            stream,
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     match result {
@@ -464,7 +470,13 @@ async fn test_stream_error_at_start_empty_content() {
     let stream = stream::iter(events);
 
     let result = gw
-        .send_outbound_streaming("sess-err-2", "mock", stream, &plugin, None, None)
+        .send_outbound_streaming(
+            "sess-err-2",
+            "mock",
+            stream,
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     match result {
@@ -516,7 +528,7 @@ async fn test_stream_success_no_error() {
     let stream = stream::iter(events);
 
     let result = gw
-        .send_outbound_streaming("sess-ok", "mock", stream, &plugin, None, None)
+        .send_outbound_streaming("sess-ok", "mock", stream, &plugin, OutboundMeta::default())
         .await;
     assert!(result.is_ok(), "successful stream should not error");
     let sr = result.unwrap();
@@ -564,7 +576,13 @@ async fn test_stream_error_preserves_multiple_blocks() {
     let stream = stream::iter(events);
 
     let result = gw
-        .send_outbound_streaming("sess-err-3", "mock", stream, &plugin, None, None)
+        .send_outbound_streaming(
+            "sess-err-3",
+            "mock",
+            stream,
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     match result {
@@ -664,7 +682,13 @@ async fn test_thinking_indicator_sends_on_block_start() {
     let stream = stream::iter(events);
 
     let _ = gw
-        .send_outbound_streaming("sess-think-1", "mock", stream, &plugin, None, None)
+        .send_outbound_streaming(
+            "sess-think-1",
+            "mock",
+            stream,
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     let calls = calls_ref.lock().expect("lock").clone();
@@ -759,7 +783,7 @@ async fn test_thinking_indicator_suppressed_at_off() {
     let stream = stream::iter(events);
 
     let _ = gw
-        .send_outbound_streaming(session_id, "mock", stream, &plugin, None, None)
+        .send_outbound_streaming(session_id, "mock", stream, &plugin, OutboundMeta::default())
         .await;
 
     let calls = calls_ref.lock().expect("lock").clone();
@@ -838,7 +862,13 @@ async fn test_thinking_indicator_stops_on_block_end() {
     let stream = stream::iter(events);
 
     let _ = gw
-        .send_outbound_streaming("sess-think-end", "mock", stream, &plugin, None, None)
+        .send_outbound_streaming(
+            "sess-think-end",
+            "mock",
+            stream,
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     let calls = calls_ref.lock().expect("lock").clone();

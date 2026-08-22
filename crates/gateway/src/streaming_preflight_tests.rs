@@ -17,7 +17,7 @@ use closeclaw_common::{
     ContentBlock, MiddlewareContext, MiddlewareError, OutboundMiddleware, StreamingRenderer,
 };
 
-use crate::{GatewayConfig, SessionManager};
+use crate::{GatewayConfig, OutboundMeta, SessionManager};
 use closeclaw_common::processor::{StreamEvent, UnifiedUsage};
 use closeclaw_session::persistence::ReasoningLevel;
 use futures::stream;
@@ -262,7 +262,13 @@ async fn test_pre_flight_rejection_terminates_streaming() {
     gw.add_outbound_middleware(Arc::new(RejectingMiddleware));
 
     let result = gw
-        .send_outbound_streaming("pf-reject", "mock", simple_stream(), &plugin, None, None)
+        .send_outbound_streaming(
+            "pf-reject",
+            "mock",
+            simple_stream(),
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     // Should return an error
@@ -287,7 +293,13 @@ async fn test_pre_flight_pass_allows_streaming() {
     gw.add_outbound_middleware(Arc::new(mw));
 
     let result = gw
-        .send_outbound_streaming("pf-pass", "mock", simple_stream(), &plugin, None, None)
+        .send_outbound_streaming(
+            "pf-pass",
+            "mock",
+            simple_stream(),
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     assert!(
@@ -310,7 +322,13 @@ async fn test_pre_flight_called_exactly_once() {
     gw.add_outbound_middleware(Arc::new(mw));
 
     let _ = gw
-        .send_outbound_streaming("pf-once", "mock", simple_stream(), &plugin, None, None)
+        .send_outbound_streaming(
+            "pf-once",
+            "mock",
+            simple_stream(),
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     let count = pre_flight_count.load(Ordering::SeqCst);
@@ -328,7 +346,13 @@ async fn test_no_middleware_streaming_works() {
     let gw = setup_gw("no-mw", Arc::clone(&plugin)).await;
 
     let result = gw
-        .send_outbound_streaming("no-mw", "mock", simple_stream(), &plugin, None, None)
+        .send_outbound_streaming(
+            "no-mw",
+            "mock",
+            simple_stream(),
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     assert!(
@@ -410,7 +434,7 @@ async fn test_raw_log_dir_configured_pipeline_runs() {
     let s = stream::iter(events);
 
     let result = gw
-        .send_outbound_streaming(session_id, "mock", s, &plugin, None, None)
+        .send_outbound_streaming(session_id, "mock", s, &plugin, OutboundMeta::default())
         .await;
 
     // Pipeline should complete without error
@@ -446,7 +470,13 @@ async fn test_no_raw_log_dir_no_error() {
     let gw = setup_gw("no-rawlog", Arc::clone(&plugin)).await;
 
     let result = gw
-        .send_outbound_streaming("no-rawlog", "mock", simple_stream(), &plugin, None, None)
+        .send_outbound_streaming(
+            "no-rawlog",
+            "mock",
+            simple_stream(),
+            &plugin,
+            OutboundMeta::default(),
+        )
         .await;
 
     assert!(

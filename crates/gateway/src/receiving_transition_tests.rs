@@ -11,7 +11,7 @@ use futures::stream;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::{GatewayConfig, SessionManager};
+use crate::{GatewayConfig, OutboundMeta, SessionManager};
 
 use super::outbound_tests::{default_usage, streaming_config, ThinkingIndicatorMock};
 
@@ -106,7 +106,7 @@ async fn test_streaming_receiving_transition() {
     let s = stream::iter(events);
 
     let _ = gw
-        .send_outbound_streaming(session_id, "mock", s, &plugin, None, None)
+        .send_outbound_streaming(session_id, "mock", s, &plugin, OutboundMeta::default())
         .await;
 
     // After first stream event: should be Receiving.
@@ -172,7 +172,7 @@ async fn test_streaming_receiving_set_only_once() {
     let s = stream::iter(events);
 
     let _ = gw
-        .send_outbound_streaming(session_id, "mock", s, &plugin, None, None)
+        .send_outbound_streaming(session_id, "mock", s, &plugin, OutboundMeta::default())
         .await;
 
     assert_eq!(
@@ -225,7 +225,7 @@ async fn test_streaming_error_first_event_sets_receiving() {
     let s = stream::iter(events);
 
     let _ = gw
-        .send_outbound_streaming(session_id, "mock", s, &plugin, None, None)
+        .send_outbound_streaming(session_id, "mock", s, &plugin, OutboundMeta::default())
         .await;
 
     assert_eq!(

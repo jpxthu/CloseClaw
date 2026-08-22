@@ -1,7 +1,7 @@
 // ── send_outbound / route_message / streaming thread_id tests ────────────
 
 use crate::im_adapter::streaming::StreamingRenderer;
-use crate::{Gateway, SessionManager};
+use crate::{Gateway, OutboundMeta, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
@@ -355,7 +355,7 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
     ];
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin_for_stream.clone();
-    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
     assert_eq!(
@@ -498,7 +498,7 @@ async fn test_send_outbound_streaming_forwards_block_delta_index() {
     ];
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
-    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
     assert_eq!(

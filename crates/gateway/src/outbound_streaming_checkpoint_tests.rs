@@ -4,7 +4,7 @@
 //! after streaming completes, mirroring the batch path in
 //! `dispatch_and_persist`.
 
-use crate::{GatewayConfig, Message, SessionManager};
+use crate::{GatewayConfig, Message, OutboundMeta, SessionManager};
 use closeclaw_common::im_plugin::{
     AdapterError, NormalizedMessage, RenderedOutput, StreamingOutput,
 };
@@ -430,7 +430,7 @@ async fn test_streaming_checkpoint_persisted_after_completion() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await;
     assert!(result.is_ok(), "streaming should succeed");
 
@@ -488,7 +488,7 @@ async fn test_streaming_checkpoint_multiple_blocks() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await;
     assert!(result.is_ok());
 
@@ -547,7 +547,7 @@ async fn test_streaming_checkpoint_platform_field() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await;
     assert!(result.is_ok());
 
@@ -587,7 +587,7 @@ async fn test_streaming_no_checkpoint_manager_no_panic() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await;
     assert!(
         result.is_ok(),
@@ -615,7 +615,7 @@ async fn test_streaming_checkpoint_save_failure_no_panic() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await;
     assert!(
         result.is_ok(),
@@ -668,7 +668,7 @@ async fn test_streaming_empty_content_blocks_checkpoint_persisted() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await;
     assert!(result.is_ok());
 
@@ -709,7 +709,7 @@ async fn test_streaming_no_blocks_checkpoint_persisted() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await;
     assert!(result.is_ok());
 
