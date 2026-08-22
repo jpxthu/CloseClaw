@@ -70,29 +70,21 @@ impl closeclaw_common::processor::ProcessorChain for MockChain {
         &self,
         msg: ProcessedMessage,
     ) -> Result<ProcessedMessage, closeclaw_common::processor::ProcessError> {
-        let text = msg
-            .content_blocks
-            .iter()
-            .find_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .unwrap_or("");
-        let (clean, dsl_result) = self.parse_line_for_dsl(text);
-        let mut metadata = msg.metadata;
-        if !dsl_result.instructions.is_empty() {
-            metadata.insert(
-                "dsl_result".to_string(),
-                serde_json::to_string(&dsl_result).unwrap_or_default(),
-            );
+        // Simulate the real ProcessorRegistry: incremental phase skips
+        // DslParser (zero-overhead passthrough) and OutboundRawLog.
+        // Only VerbosityFilter executes here. Text is preserved as-is.
+        let metadata = msg.metadata;
+        // Still record DSL lines for test observability.
+        for block in &msg.content_blocks {
+            if let ContentBlock::Text(t) = block {
+                let trimmed = t.trim();
+                if trimmed.starts_with("::button[") || trimmed.starts_with("::selector[") {
+                    self.parsed.lock().unwrap().push(t.clone());
+                }
+            }
         }
-        let content_blocks = if clean.is_empty() {
-            vec![]
-        } else {
-            vec![ContentBlock::Text(clean)]
-        };
         Ok(ProcessedMessage {
-            content_blocks,
+            content_blocks: msg.content_blocks,
             metadata,
         })
     }
