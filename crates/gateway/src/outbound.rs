@@ -71,6 +71,20 @@ impl From<StreamResult> for UnifiedResponse {
     }
 }
 
+/// Outcome of a single outbound dispatch.
+///
+/// Distinguishes between "message delivered" and "delivery failed but user
+/// notified" so callers like the drain loop can keep `delivered` counts honest
+/// without double-notifying or retrying.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendOutcome {
+    /// Original message delivered successfully.
+    Sent,
+    /// Original message delivery failed; a failure notification was sent to
+    /// the user via the simplified path. The message was NOT delivered.
+    Notified,
+}
+
 /// Per-call context for dispatching a rendered output and persisting its
 /// checkpoint. Bundled into a struct to keep the helper's parameter list short.
 struct DispatchCtx<'a> {
@@ -108,7 +122,7 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         trace_id: Option<String>,
         session_key: Option<String>,
-    ) -> Result<(), GatewayError> {
+    ) -> Result<SendOutcome, GatewayError> {
         // 1. Resolve chat_id and plugin.
         let chat_id = self
             .session_manager
@@ -116,7 +130,10 @@ impl Gateway {
             .await
             .ok_or(GatewayError::MissingSessionId)?;
         let Some(plugin) = self.get_plugin(channel).await else {
-            return self.fallback_to_plain_text(channel, raw_output).await;
+            return self
+                .fallback_to_plain_text(channel, raw_output)
+                .await
+                .map(|()| SendOutcome::Sent);
         };
 
         // 2. Resolve verbosity level and inject into chain metadata.
@@ -141,25 +158,16 @@ impl Gateway {
             )
             .await?;
         if processed.content_blocks.is_empty() {
-            return Ok(());
+            return Ok(SendOutcome::Sent);
         }
 
         let blocks = &processed.content_blocks;
-
-        // 6. Extract dsl_result (serialized as a JSON string by DslParser).
         let dsl_result: Option<DslParseResult> = processed
             .metadata
             .get("dsl_result")
             .and_then(|s| serde_json::from_str(s).ok());
-
-        // 7. Render via the plugin.
         let rendered = plugin.render(blocks, dsl_result.as_ref());
-
-        // 8. Resolve thread_id from session checkpoint.
         let thread_id = self.session_manager.get_thread_id(session_id).await;
-
-        // 9. Dispatch by msg_type and persist checkpoint on success.
-        // On render/send failure, fall back to plain-text send.
         let fallback_text = blocks
             .iter()
             .find_map(|b| match b {
@@ -173,8 +181,8 @@ impl Gateway {
             fallback_text,
             session_id,
             channel,
-            chat_id: chat_id.clone(),
-            thread_id: thread_id.clone(),
+            chat_id,
+            thread_id,
             dsl_result: processed.metadata.get("dsl_result").cloned(),
             content_blocks: serde_json::to_string(&processed.content_blocks).ok(),
             trace_id,
@@ -193,13 +201,18 @@ impl Gateway {
     ///
     /// Before sending, the rendered output is passed through the registered
     /// outbound middleware chain (see [`OutboundMiddleware`]).
-    async fn dispatch_and_persist(&self, ctx: DispatchCtx<'_>) -> Result<(), GatewayError> {
+    async fn dispatch_and_persist(
+        &self,
+        ctx: DispatchCtx<'_>,
+    ) -> Result<SendOutcome, GatewayError> {
         // Run outbound middleware chain (render → middleware → send).
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
             if let Err(e) = run_middleware_chain(&middlewares, &mctx, ctx.rendered).await {
-                return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel).await;
+                return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel)
+                    .await
+                    .map(|()| SendOutcome::Sent);
             }
         }
         // Send via plugin — on failure, notify user and skip outbound history.
@@ -209,7 +222,7 @@ impl Gateway {
             .await
         {
             notify_batch_send_failure(self, ctx.channel, &ctx.chat_id, e).await;
-            return Ok(());
+            return Ok(SendOutcome::Notified);
         }
         // Extract content for checkpoint based on msg_type.
         let content = match ctx.rendered.msg_type.as_str() {
@@ -248,7 +261,7 @@ impl Gateway {
             ctx.trace_id.as_deref(),
             ctx.session_key.as_deref(),
         );
-        Ok(())
+        Ok(SendOutcome::Sent)
     }
 
     /// Emit a unified `send.completed` debug log event.
