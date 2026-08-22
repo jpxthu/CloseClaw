@@ -91,6 +91,8 @@ tempfile = "3.10"
 serial_test = "3.4"
 filetime = "0.2"
 mockito = "1.2"
+# Fake LLM HTTP server for black-box e2e (feature-gated tests)
+closeclaw-fake-llm = { path = "crates/fake_llm" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
 hex = "0.4"

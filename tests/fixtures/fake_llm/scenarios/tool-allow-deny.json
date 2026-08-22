@@ -1,0 +1,33 @@
+{
+    "scenarios": [
+        {
+            "name": "tool-allow-deny-call",
+            "match_": {
+                "model_id": "gpt-4o-tool-allow-deny"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "tool_call",
+                        "calls": [
+                            {
+                                "name": "Read",
+                                "arguments": "{\"path\": \"/tmp/e2e-tool-test.txt\"}"
+                            },
+                            {
+                                "name": "Bash",
+                                "arguments": "{\"command\": \"echo disallowed\"}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Tool call phase complete."
+                    }
+                }
+            ]
+        }
+    ]
+}
