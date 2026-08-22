@@ -143,7 +143,18 @@ impl SessionManager {
     ) -> usize {
         let futures: Vec<_> = level
             .iter()
-            .map(|sid| self.stop_single_session(sid, mode, false, timeout, None, false))
+            .map(|sid| {
+                self.stop_single_session(
+                    sid,
+                    mode,
+                    false,
+                    StopOptions {
+                        timeout,
+                        progress_tx: None,
+                        clear_queue: false,
+                    },
+                )
+            })
             .collect();
 
         let outcomes = futures::future::join_all(futures).await;
@@ -347,6 +358,19 @@ pub(crate) enum StopError {
     Failed,
 }
 
+/// Options for stopping a single session.
+///
+/// Consolidates optional parameters to keep `stop_single_session`
+/// within the CONTRIBUTING.md parameter limit.
+pub(crate) struct StopOptions {
+    /// Timeout for graceful stop waiting.
+    pub timeout: Duration,
+    /// Optional channel for reporting graceful stop progress.
+    pub progress_tx: Option<tokio::sync::mpsc::Sender<GracefulStopProgress>>,
+    /// Whether to clear the unified message queue (`true` for `/stop`).
+    pub clear_queue: bool,
+}
+
 impl SessionManager {
     /// Stop a single session and persist its checkpoint.
     ///
@@ -359,118 +383,85 @@ impl SessionManager {
         session_id: &str,
         mode: ShutdownMode,
         cascade: bool,
-        timeout: Duration,
-        progress_tx: Option<tokio::sync::mpsc::Sender<GracefulStopProgress>>,
-        clear_queue: bool,
+        options: StopOptions,
     ) -> Result<GracefulStopOutcome, StopError> {
         let cs = self
             .get_conversation_session(session_id)
             .await
             .ok_or(StopError::Skipped)?;
 
-        // Forceful path: manually execute the stop sequence without
-        // calling stop(), which internally calls clear_exec_state()
-        // and would wipe tool_states/child_states before we can
-        // collect pending_operations. The design doc requires pending
-        // operations to survive so recovery scan detects them as dirty.
-        //
-        // Execution order per design doc:
-        //   cascade → kill tools → cancel LLM → collect pending → cleanup
         if mode == ShutdownMode::Forceful {
-            // Snapshot transcript state before stop clears exec state.
-            cs.write().await.snapshot_current_state(
-                closeclaw_session::run_health::TranscriptOp::Rewrite,
-                "user-stop",
-            );
-            // Set stopped flag so Gateway's is_stopped() check rejects
-            // new messages during the cascade and kill sequence.
-            let _ = cs.read().await.stopped.compare_exchange(
-                false,
-                true,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            );
-            // 1. Cascade to children with Forceful mode.
-            if cascade {
-                cs.read()
-                    .await
-                    .cascade_stop_children(mode, Duration::ZERO)
-                    .await;
-            }
-            // 2. Kill tool processes and cancel in-flight LLM requests.
-            cs.read().await.force_kill().await;
-            // 3. Collect pending operations NOW — after cascade stopped
-            //    children (removed stale entries) but before exec state
-            //    is cleared. Design doc requires pending_operations to
-            //    survive so recovery scan detects dirty sessions.
-            let pending_ops = {
-                let guard = cs.read().await;
-                guard.collect_pending_operations()
-            };
-            // 4. Clear exec state (tool_states, child_states, LLM state,
-            //    handle maps).
-            cs.read().await.clear_exec_state();
-            // 5. Clear unified message queue when requested (only for
-            //    /stop entry). Must happen before persist so checkpoint
-            //    pending messages do not resurrect discarded queue entries.
-            if clear_queue {
-                let cleared = cs.write().await.clear_queue();
-                tracing::info!(
-                    session_id = %session_id,
-                    cleared,
-                    "stop_single_session: cleared unified message queue"
-                );
-            }
-            // 6. Notify parent about forced termination of run-mode child.
-            self.notify_child_forced_termination(session_id).await;
-            // 7. Persist checkpoint with collected pending operations.
-            return match self
-                .persist_checkpoint_with_pending(session_id, pending_ops)
-                .await
-            {
-                Ok(()) => Ok(GracefulStopOutcome::Completed),
-                Err(_) => Err(StopError::Failed),
-            };
+            return self.stop_forceful(cs, session_id, cascade, options).await;
         }
 
-        // Graceful path:
-        // 1. Set stopped flag BEFORE cascade and waiting, so
-        //    Gateway's is_stopped() check rejects new messages.
-        // 2. Snapshot transcript state before stop clears exec state.
-        // 3. Call stop(cascade, mode) — handles cascade to children
-        //    (recursive graceful stop, waiting for children's
-        //    in-flight ops) + cleanup (clear_exec_state).
-        // 4. graceful_wait — wait for THIS session's in-flight ops
-        //    (LLM stream + tool calls). This happens AFTER cascade
-        //    so children's in-flight ops are handled first.
-        // 5. Persist checkpoint.
-        {
-            let guard = cs.read().await;
-            let _ = guard.stopped.compare_exchange(
-                false,
-                true,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-            );
-        }
+        self.stop_graceful(cs, session_id, cascade, options).await
+    }
+
+    /// Forceful stop path: snapshot → stop flag → cascade → kill →
+    /// collect pending → clear exec → clear queue → notify → persist.
+    ///
+    /// Execution order per design doc:
+    ///   cascade → kill tools → cancel LLM → collect pending → cleanup
+    async fn stop_forceful(
+        &self,
+        cs: std::sync::Arc<
+            tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>,
+        >,
+        session_id: &str,
+        cascade: bool,
+        options: StopOptions,
+    ) -> Result<GracefulStopOutcome, StopError> {
         cs.write().await.snapshot_current_state(
             closeclaw_session::run_health::TranscriptOp::Rewrite,
             "user-stop",
         );
-
-        // Cascade: stop children recursively with Graceful mode.
-        // stop() calls cascade_stop_children which recursively calls
-        // child.stop(true, Graceful) — each child's in-flight ops are
-        // waited on via graceful_stop() before the next sibling is
-        // processed. Returns info about any children that timed out.
-        let cascade_info = cs.read().await.stop(cascade, mode, timeout).await;
-
-        // Wait for THIS session's in-flight ops (after cascade
-        // completes, so children's in-flight ops have been handled).
-        let (pending_ops, outcome) = self
-            .graceful_wait(&cs, session_id, timeout, progress_tx)
+        let _ = cs.read().await.stopped.compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        if cascade {
+            cs.read()
+                .await
+                .cascade_stop_children(ShutdownMode::Forceful, Duration::ZERO)
+                .await;
+        }
+        cs.read().await.force_kill().await;
+        let pending_ops = {
+            let guard = cs.read().await;
+            guard.collect_pending_operations()
+        };
+        cs.read().await.clear_exec_state();
+        self.maybe_clear_queue(&cs, session_id, options.clear_queue)
             .await;
+        self.notify_child_forced_termination(session_id).await;
+        match self
+            .persist_checkpoint_with_pending(session_id, pending_ops)
+            .await
+        {
+            Ok(()) => Ok(GracefulStopOutcome::Completed),
+            Err(_) => Err(StopError::Failed),
+        }
+    }
 
+    /// Graceful stop path: stop flag → snapshot → cascade → wait →
+    /// clear exec → clear queue → persist.
+    async fn stop_graceful(
+        &self,
+        cs: std::sync::Arc<
+            tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>,
+        >,
+        session_id: &str,
+        cascade: bool,
+        options: StopOptions,
+    ) -> Result<GracefulStopOutcome, StopError> {
+        let cascade_info = self
+            .prepare_stop(&cs, cascade, ShutdownMode::Graceful, options.timeout)
+            .await;
+        let (pending_ops, outcome) = self
+            .graceful_wait(&cs, session_id, options.timeout, options.progress_tx)
+            .await;
         match outcome {
             GracefulStopOutcome::Interrupted => {
                 tracing::info!(
@@ -487,51 +478,64 @@ impl SessionManager {
                 waiting_items,
                 remaining,
             } => {
-                // Merge cascade timeout info (children that timed out
-                // during the recursive cascade stop) into the waiting
-                // items so the caller can report the full picture.
-                let mut all_items = waiting_items;
-                let cascade_timeout_count = cascade_info.timed_out_children.len();
-                for (child_id, elapsed) in cascade_info.timed_out_children {
-                    all_items.push((child_id, elapsed));
-                }
-                let remaining = remaining + cascade_timeout_count;
+                let (all_items, remaining) =
+                    merge_cascade_timeout_items(waiting_items, remaining, cascade_info);
                 tracing::info!(
                     session_id = %session_id,
                     remaining,
                     "graceful stop timed out — returning progress to caller"
                 );
-                // Do NOT call stop() or persist — caller decides
-                // whether to force, continue waiting, or abandon.
                 return Ok(GracefulStopOutcome::TimedOut {
                     waiting_items: all_items,
                     remaining,
                 });
             }
-            GracefulStopOutcome::Completed => {
-                // Persist checkpoint below.
-            }
+            GracefulStopOutcome::Completed => {}
         }
+        self.finalize_stop(&cs, session_id, pending_ops, options.clear_queue)
+            .await
+    }
 
-        // Clear exec state now that in-flight ops are done.
-        // This was previously in stop()'s Graceful branch but was
-        // moved here so that graceful_wait() can observe in-flight
-        // state on timeout/escalation.
-        cs.read().await.clear_exec_state();
-
-        // Clear unified message queue when requested (only for
-        // /stop entry). Must happen before persist so checkpoint
-        // pending messages do not resurrect discarded queue entries.
-        if clear_queue {
-            let cleared = cs.write().await.clear_queue();
-            tracing::info!(
-                session_id = %session_id,
-                cleared,
-                "stop_single_session: cleared unified message queue"
+    /// Set stopped flag, snapshot state, and cascade stop children.
+    /// Returns cascade timeout info for result handling.
+    async fn prepare_stop(
+        &self,
+        cs: &std::sync::Arc<
+            tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>,
+        >,
+        cascade: bool,
+        mode: ShutdownMode,
+        timeout: Duration,
+    ) -> closeclaw_session::llm_session::session_handles::CascadeStopInfo {
+        {
+            let guard = cs.read().await;
+            let _ = guard.stopped.compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
             );
         }
+        cs.write().await.snapshot_current_state(
+            closeclaw_session::run_health::TranscriptOp::Rewrite,
+            "user-stop",
+        );
+        cs.read().await.stop(cascade, mode, timeout).await
+    }
 
-        // Persist checkpoint.
+    /// Clear exec state, queue, persist checkpoint, and cleanup tasks.
+    /// Called after successful graceful wait (Completed outcome).
+    async fn finalize_stop(
+        &self,
+        cs: &std::sync::Arc<
+            tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>,
+        >,
+        session_id: &str,
+        pending_ops: Vec<closeclaw_session::persistence::PendingOperation>,
+        clear_queue: bool,
+    ) -> Result<GracefulStopOutcome, StopError> {
+        cs.read().await.clear_exec_state();
+        self.maybe_clear_queue(cs, session_id, clear_queue).await;
         if let Err(e) = self
             .persist_checkpoint_with_pending(session_id, pending_ops)
             .await
@@ -547,6 +551,50 @@ impl SessionManager {
             tm.cleanup_finished().await;
         }
         Ok(GracefulStopOutcome::Completed)
+    }
+}
+
+/// Merge cascade timeout items into the graceful wait's waiting items.
+///
+/// When a graceful stop times out, both the direct wait and the
+/// recursive cascade may produce waiting items. This helper merges
+/// them into a single list with the combined remaining count.
+fn merge_cascade_timeout_items(
+    mut waiting_items: Vec<(String, Duration)>,
+    remaining: usize,
+    cascade_info: closeclaw_session::llm_session::session_handles::CascadeStopInfo,
+) -> (Vec<(String, Duration)>, usize) {
+    let cascade_timeout_count = cascade_info.timed_out_children.len();
+    for (child_id, elapsed) in cascade_info.timed_out_children {
+        waiting_items.push((child_id, elapsed));
+    }
+    (waiting_items, remaining + cascade_timeout_count)
+}
+
+// ── per-session stop helpers ─────────────────────────────────────────────
+
+impl SessionManager {
+    /// Clear the unified message queue if `clear_queue` is true.
+    ///
+    /// Must be called before persist so checkpoint pending messages
+    /// do not resurrect discarded queue entries. Only `/stop` passes
+    /// `clear_queue=true`; system shutdown and cascade paths do not.
+    async fn maybe_clear_queue(
+        &self,
+        cs: &std::sync::Arc<
+            tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>,
+        >,
+        session_id: &str,
+        clear_queue: bool,
+    ) {
+        if clear_queue {
+            let cleared = cs.write().await.clear_queue();
+            tracing::info!(
+                session_id = %session_id,
+                cleared,
+                "stop_single_session: cleared unified message queue"
+            );
+        }
     }
 
     /// Forcefully stop a session: snapshot → force_kill → persist.

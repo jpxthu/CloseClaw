@@ -7,6 +7,7 @@
 //! - `clear_queue()` returns correct count
 
 use super::spawn::SpawnMode;
+use super::stop::StopOptions;
 use super::test_helpers::{register_child_only, setup_parent_with_conv};
 use super::tests::make_test_mgr;
 use closeclaw_common::shutdown::ShutdownMode;
@@ -89,9 +90,11 @@ async fn test_stop_clears_queue_forceful() {
             pid,
             ShutdownMode::Forceful,
             false,
-            Duration::from_secs(30),
-            None,
-            true, // clear_queue
+            StopOptions {
+                timeout: Duration::from_secs(30),
+                progress_tx: None,
+                clear_queue: true,
+            },
         )
         .await;
     assert!(result.is_ok(), "stop should succeed");
@@ -118,9 +121,11 @@ async fn test_stop_clears_queue_graceful() {
             pid,
             ShutdownMode::Graceful,
             false,
-            Duration::from_secs(30),
-            None,
-            true, // clear_queue
+            StopOptions {
+                timeout: Duration::from_secs(30),
+                progress_tx: None,
+                clear_queue: true,
+            },
         )
         .await;
     assert!(result.is_ok());
@@ -148,9 +153,11 @@ async fn test_stop_clears_mixed_priority_queue() {
             pid,
             ShutdownMode::Forceful,
             false,
-            Duration::from_secs(30),
-            None,
-            true,
+            StopOptions {
+                timeout: Duration::from_secs(30),
+                progress_tx: None,
+                clear_queue: true,
+            },
         )
         .await;
     assert!(result.is_ok());
@@ -181,9 +188,11 @@ async fn test_stop_checkpoint_pending_excludes_cleared_queue() {
             pid,
             ShutdownMode::Forceful,
             false,
-            Duration::from_secs(30),
-            None,
-            true, // clear_queue
+            StopOptions {
+                timeout: Duration::from_secs(30),
+                progress_tx: None,
+                clear_queue: true,
+            },
         )
         .await;
     assert!(result.is_ok());
@@ -246,9 +255,11 @@ async fn test_stop_checkpoint_announce_events_excluded() {
             pid,
             ShutdownMode::Forceful,
             false,
-            Duration::from_secs(30),
-            None,
-            true,
+            StopOptions {
+                timeout: Duration::from_secs(30),
+                progress_tx: None,
+                clear_queue: true,
+            },
         )
         .await;
     assert!(result.is_ok());
@@ -429,9 +440,11 @@ async fn test_stop_clears_parent_queue_not_child() {
             pid,
             ShutdownMode::Forceful,
             false,
-            Duration::from_secs(30),
-            None,
-            true,
+            StopOptions {
+                timeout: Duration::from_secs(30),
+                progress_tx: None,
+                clear_queue: true,
+            },
         )
         .await;
     assert!(result.is_ok());

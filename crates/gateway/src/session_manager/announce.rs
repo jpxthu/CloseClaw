@@ -120,20 +120,7 @@ impl SessionManager {
                 );
                 return;
             };
-            let mut cs_write = cs.write().await;
-            for event in &events {
-                let prefix = priority_prefix(&event.priority);
-                let status_label = match event.status {
-                    ChildCompletionStatus::Completed => "任务已完成",
-                    ChildCompletionStatus::Errored => "任务出错",
-                    ChildCompletionStatus::Terminated => "任务被终止",
-                };
-                let text = format!(
-                    "[子 agent {}] {}{}：\n{}",
-                    event.child_agent_id, prefix, status_label, event.result_text
-                );
-                cs_write.inject_system_message(text);
-            }
+            inject_announces_as_system_messages(&cs, &events).await;
         }
     }
 
@@ -205,20 +192,7 @@ impl SessionManager {
                 );
                 return;
             };
-            let mut cs_write = cs.write().await;
-            for event in &events {
-                let prefix = priority_prefix(&event.priority);
-                let status_label = match event.status {
-                    ChildCompletionStatus::Completed => "任务已完成",
-                    ChildCompletionStatus::Errored => "任务出错",
-                    ChildCompletionStatus::Terminated => "任务被终止",
-                };
-                let text = format!(
-                    "[子 agent {}] {}{}：\n{}",
-                    event.child_agent_id, prefix, status_label, event.result_text
-                );
-                cs_write.inject_system_message(text);
-            }
+            inject_announces_as_system_messages(&cs, &events).await;
         }
     }
 
@@ -928,6 +902,36 @@ impl SessionManager {
                 }
             }
         }
+    }
+}
+
+// ── Private helpers ─────────────────────────────────────────────────────────
+
+/// Inject announce events as system messages with priority prefixes.
+///
+/// Each event is formatted as:
+/// `[子 agent {id}] [{priority_prefix}] {status_label}：\n{result_text}`
+///
+/// Extracted from `drain_and_inject_announces` and
+/// `drain_and_inject_announces_filtered` to avoid duplicating the
+/// injection logic.
+async fn inject_announces_as_system_messages(
+    cs: &std::sync::Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+    events: &[AnnounceEvent],
+) {
+    let mut cs_write = cs.write().await;
+    for event in events {
+        let prefix = priority_prefix(&event.priority);
+        let status_label = match event.status {
+            ChildCompletionStatus::Completed => "任务已完成",
+            ChildCompletionStatus::Errored => "任务出错",
+            ChildCompletionStatus::Terminated => "任务被终止",
+        };
+        let text = format!(
+            "[子 agent {}] {}{}：\n{}",
+            event.child_agent_id, prefix, status_label, event.result_text
+        );
+        cs_write.inject_system_message(text);
     }
 }
 

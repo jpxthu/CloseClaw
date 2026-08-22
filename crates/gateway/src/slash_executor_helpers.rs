@@ -12,7 +12,7 @@ use closeclaw_common::slash_router::SystemAppendAction;
 use closeclaw_session::llm_session::ConversationSession;
 use tokio::sync::RwLock;
 
-use super::session_manager::stop::GracefulStopOutcome;
+use super::session_manager::stop::{GracefulStopOutcome, StopOptions};
 use super::{SessionManager, SessionMessageHandler};
 
 /// Stop the current LLM turn, escalating to forceful on timeout.
@@ -24,7 +24,16 @@ pub(crate) async fn gw_stop(sm: &SessionManager, session_id: &str, cascade: bool
     };
     let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
     let result = sm
-        .stop_single_session(session_id, mode, cascade, timeout, None, true)
+        .stop_single_session(
+            session_id,
+            mode,
+            cascade,
+            StopOptions {
+                timeout,
+                progress_tx: None,
+                clear_queue: true,
+            },
+        )
         .await;
 
     match result {
@@ -50,9 +59,11 @@ pub(crate) async fn gw_stop(sm: &SessionManager, session_id: &str, cascade: bool
                     session_id,
                     ShutdownMode::Forceful,
                     cascade,
-                    std::time::Duration::ZERO,
-                    None,
-                    true,
+                    StopOptions {
+                        timeout: std::time::Duration::ZERO,
+                        progress_tx: None,
+                        clear_queue: true,
+                    },
                 )
                 .await;
             match force_result {
