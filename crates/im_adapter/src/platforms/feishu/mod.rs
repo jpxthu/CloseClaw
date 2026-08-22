@@ -4,31 +4,31 @@
 //! [`FeishuAdapter`] (HTTP I/O) behind a single [`IMPlugin`] implementation.
 
 mod adapter;
-mod send_helpers;
-mod post_expand;
-mod text_style;
-#[cfg(test)]
-mod adapter_tests;
 #[cfg(test)]
 mod adapter_sticker_tests;
-mod events;
 #[cfg(test)]
-mod events_tests;
+mod adapter_tests;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
+mod events;
+#[cfg(test)]
+mod events_tests;
 #[cfg(test)]
 mod feishu_adapter_tests;
 #[cfg(test)]
 mod feishu_tests;
+mod post_expand;
+pub mod renderer;
 #[cfg(test)]
 mod send_fallback_tests;
+mod send_helpers;
 #[cfg(test)]
 mod send_warn_tests;
-pub mod renderer;
-pub mod tools;
 #[cfg(test)]
 mod style_tests;
+mod text_style;
+pub mod tools;
 #[cfg(test)]
 mod trace_id_tests;
 
@@ -44,6 +44,7 @@ use closeclaw_common::{
     RenderedOutput,
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
+use closeclaw_debug_log::DebugLog;
 use closeclaw_gateway::Message;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -55,15 +56,15 @@ use super::PlatformEntry;
 pub use adapter::CachedToken;
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
-use renderer::extract_card_plain_text;
 pub use renderer::build_text;
+use renderer::extract_card_plain_text;
 pub use renderer::should_use_card_for_blocks;
 
 // Re-export adapter internals for test modules.
 #[cfg(test)]
 pub(crate) use adapter::{
-    truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
-    FeishuSender, FeishuSenderId, FEISHU_API_BASE, is_capability_error,
+    is_capability_error, truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
+    FeishuSender, FeishuSenderId, FEISHU_API_BASE,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
@@ -164,10 +165,14 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
         let identity_resolver: Option<Arc<dyn IdentityResolver>> =
             load_identity_resolver(config_dir);
 
-        let plugin: Arc<dyn IMPlugin> = Arc::new(FeishuPlugin::with_identity_resolver(
-            adapter,
-            identity_resolver,
-        ));
+        let mut plugin = FeishuPlugin::with_identity_resolver(adapter, identity_resolver);
+
+        // Inject DebugLog from Gateway (if configured).
+        if let Some(debug_log) = gateway.get_debug_log() {
+            plugin.set_debug_log(Arc::new(debug_log));
+        }
+
+        let plugin: Arc<dyn IMPlugin> = Arc::new(plugin);
         gateway.register_plugin(plugin).await;
         info!("Feishu plugin registered");
     } else {
@@ -243,6 +248,8 @@ pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
     identity_resolver: Option<Arc<dyn IdentityResolver>>,
     streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
+    /// Debug log framework instance for structured event logging.
+    debug_log: Option<Arc<DebugLog>>,
 }
 
 impl FeishuPlugin {
@@ -254,6 +261,7 @@ impl FeishuPlugin {
             streaming_renderer: std::sync::Mutex::new(
                 DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
             ),
+            debug_log: None,
         }
     }
 
@@ -269,7 +277,13 @@ impl FeishuPlugin {
             streaming_renderer: std::sync::Mutex::new(
                 DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
             ),
+            debug_log: None,
         }
+    }
+
+    /// Inject a [`DebugLog`] instance for structured event logging.
+    pub fn set_debug_log(&mut self, debug_log: Arc<DebugLog>) {
+        self.debug_log = Some(debug_log);
     }
 
     /// Get the identity resolver for cross-platform account mapping.
@@ -295,11 +309,7 @@ impl FeishuPlugin {
             return;
         }
         let fallback = Self::make_text_message(peer_id, &plain_text);
-        if let Err(e2) = self
-            .adapter
-            .send_message(&fallback, thread_id)
-            .await
-        {
+        if let Err(e2) = self.adapter.send_message(&fallback, thread_id).await {
             warn!(
                 peer_id = %peer_id,
                 error = %e2,
@@ -406,11 +416,7 @@ impl IMPlugin for FeishuPlugin {
             return build_text("");
         }
 
-        let (title, elements) = renderer::dispatch_blocks(
-            content_blocks,
-            dsl_result,
-            true,
-        );
+        let (title, elements) = renderer::dispatch_blocks(content_blocks, dsl_result, true);
         build_card(title, elements)
     }
 
@@ -422,13 +428,14 @@ impl IMPlugin for FeishuPlugin {
     ) -> Result<(), CommonAdapterError> {
         match output.msg_type.as_str() {
             "text" => {
-                let text = output.payload.get("content")
+                let text = output
+                    .payload
+                    .get("content")
                     .and_then(|c| c.get("text"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
                 let message = Self::make_text_message(peer_id, text);
-                if let Err(e) = self.adapter.send_message(&message, _thread_id).await
-                {
+                if let Err(e) = self.adapter.send_message(&message, _thread_id).await {
                     warn!(
                         peer_id = %peer_id,
                         error = %e,

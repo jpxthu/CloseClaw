@@ -30,13 +30,9 @@ impl FeishuAdapter {
             msg_type,
             content,
         };
-        let mut url = format!(
-            "{}/im/v1/messages?receive_id_type=chat_id",
-            self.base_url
-        );
+        let mut url = format!("{}/im/v1/messages?receive_id_type=chat_id", self.base_url);
         if let Some(rid) = root_id {
-            let enc: String =
-                url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
+            let enc: String = url::form_urlencoded::byte_serialize(rid.as_bytes()).collect();
             url = format!("{}&root_id={}", url, enc);
         }
         self.http_client
