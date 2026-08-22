@@ -16,8 +16,8 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 /// `session_id` and `channel` are retained as session metadata for potential
 /// future use by stream handlers or logging.
 ///
-/// `registry` is reserved for future per-chunk processing. Currently,
-/// `dispatch_text` passes text through unchanged (zero overhead).
+/// `registry` drives the incremental-phase processor chain: each text chunk
+/// and non-text block is processed through VerbosityFilter before dispatch.
 #[allow(dead_code)] // read cross-module in outbound.rs
 pub(crate) struct StreamContext<'a> {
     pub gateway: &'a Gateway,
@@ -148,31 +148,52 @@ pub(crate) async fn notify_batch_send_failure(
 // Streaming outbound helpers
 // ---------------------------------------------------------------------------
 
-/// Send text messages from `out` into `state`, routing each through
-/// [`ProcessorChain::process_outbound_incremental`] when a registry is
-/// available.
-///
-/// Each text chunk is wrapped in a [`ProcessedMessage`] and processed
-/// through the incremental-phase chain (VerbosityFilter + DslParser,
-/// skipping OutboundRawLog). DSL lines are stripped from the text sent
-/// to the user; their parsed instructions accumulate in
-/// [`StreamState::dsl_instructions`] for the finish phase.
-///
-/// When `registry` is `None`, text passes through unchanged
-/// (zero-overhead passthrough).
 /// Send text messages from `outbound` into `state` and dispatch to the user.
 ///
-/// DslParser is a zero-overhead passthrough during the incremental phase
-/// (design doc), so text is sent through without DSL stripping. Full DSL
-/// parsing is deferred to the finish phase.
+/// When `ctx.registry` is available, each text chunk is wrapped in a
+/// [`ProcessedMessage`] (single Text block) and processed through the
+/// incremental-phase chain ([`ProcessorChain::process_outbound_incremental`]).
+/// Only VerbosityFilter executes here; DslParser and OutboundRawLog are
+/// skipped per design doc.
+///
+/// When `ctx.registry` is `None`, text passes through unchanged
+/// (zero-overhead passthrough).
 pub(crate) async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
-    for text in out.text_messages {
-        send_text(ctx, &text).await?;
-        state.content_blocks.push(ContentBlock::Text(text));
+    if let Some(registry) = ctx.registry {
+        for text in out.text_messages {
+            let msg = closeclaw_common::processor::ProcessedMessage {
+                content_blocks: vec![ContentBlock::Text(text.clone())],
+                metadata: std::collections::HashMap::from([(
+                    "verbosity_level".to_string(),
+                    state.verbosity_level.to_string(),
+                )]),
+            };
+            match registry.process_outbound_incremental(msg).await {
+                Ok(processed) => {
+                    for block in &processed.content_blocks {
+                        send_render_block(ctx, block).await?;
+                    }
+                    state.content_blocks.extend(processed.content_blocks);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "incremental chain failed for text chunk, sending original"
+                    );
+                    send_text(ctx, &text).await?;
+                    state.content_blocks.push(ContentBlock::Text(text));
+                }
+            }
+        }
+    } else {
+        for text in out.text_messages {
+            send_text(ctx, &text).await?;
+            state.content_blocks.push(ContentBlock::Text(text));
+        }
     }
     Ok(())
 }

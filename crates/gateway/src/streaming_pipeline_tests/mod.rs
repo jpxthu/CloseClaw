@@ -80,31 +80,11 @@ impl closeclaw_common::processor::ProcessorChain for MockProcessorChain {
         &self,
         msg: ProcessedMessage,
     ) -> Result<ProcessedMessage, closeclaw_common::processor::ProcessError> {
-        let text = msg
-            .content_blocks
-            .iter()
-            .find_map(|b| match b {
-                closeclaw_common::processor::ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .unwrap_or("");
-        let (clean, dsl_result) = self.parse_line_for_dsl(text);
-        let mut metadata = msg.metadata;
-        if !dsl_result.instructions.is_empty() {
-            metadata.insert(
-                "dsl_result".to_string(),
-                serde_json::to_string(&dsl_result).unwrap_or_default(),
-            );
-        }
-        let content_blocks = if clean.is_empty() {
-            vec![]
-        } else {
-            vec![closeclaw_common::processor::ContentBlock::Text(clean)]
-        };
-        Ok(ProcessedMessage {
-            content_blocks,
-            metadata,
-        })
+        // Incremental phase: zero-overhead passthrough. DSL lines are NOT
+        // stripped here (design doc: full DslParser deferred to finish phase).
+        // VerbosityFilter would run here in production but is omitted in
+        // this mock (mock does not filter by verbosity).
+        Ok(msg)
     }
 
     fn parse_line_for_dsl(&self, line: &str) -> (String, DslParseResult) {
