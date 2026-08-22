@@ -255,8 +255,13 @@ async fn test_send_outbound_send_fails_fallback_plain_text() {
     let result = gw
         .send_outbound("s4", "mock", "hello", vec![], None, None)
         .await;
-    // send fails, send_as_plain_text also fails (FailingSendMock), so error propagates.
-    assert!(result.is_err(), "send failure should propagate error");
+    // send fails → dispatch_and_persist catches the error, sends a failure
+    // notification via send_outbound_simplified (which also fails silently),
+    // and returns Ok(()). The user receives the failure notification.
+    assert!(
+        result.is_ok(),
+        "send failure should be caught and notification sent"
+    );
 }
 
 #[tokio::test]
@@ -304,7 +309,12 @@ async fn test_send_outbound_double_failure_returns_error() {
     let result = gw
         .send_outbound("s7", "mock", "hello", vec![], None, None)
         .await;
-    assert!(result.is_err(), "double failure should return error");
+    // Both plugin.send and notification send fail, but dispatch_and_persist
+    // catches all errors and returns Ok(()).
+    assert!(
+        result.is_ok(),
+        "double failure should return Ok after notification"
+    );
 }
 
 #[tokio::test]

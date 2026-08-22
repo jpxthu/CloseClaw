@@ -30,6 +30,8 @@ pub mod message;
 mod message_routing;
 pub mod outbound;
 #[cfg(test)]
+mod outbound_batch_failure_tests;
+#[cfg(test)]
 mod outbound_checkpoint_last_message_at_tests;
 #[cfg(test)]
 mod outbound_checkpoint_timing_tests;
@@ -68,6 +70,8 @@ pub mod slash_permission;
 pub mod slash_permission_handlers;
 #[cfg(test)]
 mod slash_permission_tests;
+#[cfg(test)]
+mod step1_5c_tests;
 #[cfg(test)]
 mod streaming_pipeline_tests;
 #[cfg(test)]
