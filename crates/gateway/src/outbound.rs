@@ -703,15 +703,13 @@ impl Gateway {
         Ok(result)
     }
 
-    /// Post-stream pipeline: select content blocks, run the full
-    /// Processor Chain (VerbosityFilter → DslParser → OutboundRawLog),
-    /// and build the final [`StreamResult`].
+    /// Post-stream pipeline: select content blocks, run the
+    /// Processor Chain (DslParser → OutboundRawLog), and build the
+    /// final [`StreamResult`].
     ///
-    /// VerbosityFilter runs in the chain here as well. In the incremental
-    /// phase, Thinking blocks were already filtered via
-    /// [`VerbosityFilter::should_keep_thinking`] (see [`process_stream_event`]),
-    /// so the post-stream filter is a no-op for those blocks. At Full
-    /// verbosity, VerbosityFilter is always a no-op.
+    /// VerbosityFilter is skipped here — Thinking blocks were already
+    /// filtered via [`VerbosityFilter::should_keep_thinking`] during the
+    /// incremental phase (see [`process_stream_event`]).
     async fn finish_streaming_pipeline(
         &self,
         session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
