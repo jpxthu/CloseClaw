@@ -10,13 +10,10 @@
                 {
                     "response": {
                         "type": "tool_call",
-                        "tool_calls": [
+                        "calls": [
                             {
-                                "id": "call_ws_marker",
-                                "function": {
-                                    "name": "Read",
-                                    "arguments": "{\"path\":\"bootstrap_marker.txt\"}"
-                                }
+                                "name": "Read",
+                                "arguments": "{\"path\":\"bootstrap_marker.txt\"}"
                             }
                         ]
                     }
