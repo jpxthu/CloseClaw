@@ -44,6 +44,10 @@ pub struct LineBuffer {
     last_activity: Option<Instant>,
     timeout: Option<Duration>,
     code_block_mode: CodeBlockMode,
+    /// Timestamp of the first Text delta fed into the buffer.
+    /// Used to enforce a strict 200ms first-line timeout that is
+    /// independent of `last_activity` resets.
+    first_text_arrival: Option<Instant>,
 }
 
 impl Default for LineBuffer {
@@ -68,6 +72,7 @@ impl LineBuffer {
             last_activity: None,
             timeout: Some(DEFAULT_TIMEOUT),
             code_block_mode: CodeBlockMode::LineByLine,
+            first_text_arrival: None,
         }
     }
 
@@ -88,12 +93,18 @@ impl LineBuffer {
         self.buffer.clear();
         self.in_code_block = false;
         self.last_activity = None;
+        self.first_text_arrival = None;
     }
 
     /// Feed a text chunk; returns any lines completed by this chunk.
     pub fn feed(&mut self, chunk: &str) -> Vec<String> {
         if chunk.is_empty() {
             return Vec::new();
+        }
+        // Record the instant of the very first Text delta so that
+        // check_timeout can enforce the first-line 200ms deadline.
+        if self.first_text_arrival.is_none() {
+            self.first_text_arrival = Some(Instant::now());
         }
         self.last_activity = Some(Instant::now());
         let mut emitted: Vec<String> = Vec::new();
@@ -164,25 +175,39 @@ impl LineBuffer {
     /// Check if the timeout has elapsed since the last feed. If so, force
     /// output the buffered content and return it.
     pub fn check_timeout(&mut self) -> Option<Vec<String>> {
-        let (Some(last), Some(timeout)) = (self.last_activity, self.timeout) else {
-            return None;
-        };
-        if self.buffer.is_empty() {
+        if self.buffer.is_empty() || self.timeout.is_none() {
             return None;
         }
-        if last.elapsed() >= timeout {
-            if self.in_code_block && self.code_block_mode == CodeBlockMode::WholeBlock {
-                // WholeBlock mode: do not force-emit code block content on timeout.
-                return None;
+        let timeout = self.timeout.unwrap();
+        // WholeBlock mode: do not force-emit code block content on timeout.
+        if self.in_code_block && self.code_block_mode == CodeBlockMode::WholeBlock {
+            return None;
+        }
+        // First-line timeout: if the first Text delta arrived ≥ timeout ago,
+        // force-output regardless of `last_activity` resets caused by rapid
+        // consecutive deltas.
+        if let Some(first_arrival) = self.first_text_arrival {
+            if first_arrival.elapsed() >= timeout {
+                let mut emitted = Vec::new();
+                self.force_emit(&mut emitted);
+                self.last_activity = None;
+                self.first_text_arrival = None;
+                self.in_code_block = false;
+                return Some(emitted);
             }
-            let mut emitted = Vec::new();
-            self.force_emit(&mut emitted);
-            self.last_activity = None;
-            self.in_code_block = false;
-            Some(emitted)
-        } else {
-            None
         }
+        // Standard last-activity timeout.
+        if let Some(last) = self.last_activity {
+            if last.elapsed() >= timeout {
+                let mut emitted = Vec::new();
+                self.force_emit(&mut emitted);
+                self.last_activity = None;
+                self.first_text_arrival = None;
+                self.in_code_block = false;
+                return Some(emitted);
+            }
+        }
+        None
     }
 
     fn force_emit(&mut self, emitted: &mut Vec<String>) {

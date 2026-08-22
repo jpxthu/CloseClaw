@@ -419,12 +419,13 @@ fn test_feed_resets_timeout_timer() {
     let mut buf = LineBuffer::new();
     buf.feed("first");
     thread::sleep(Duration::from_millis(100));
-    buf.feed("second"); // This resets the timer.
-                        // Total ~250ms from first feed, but only ~150ms from second.
-                        // Timer was reset by second feed, so check_timeout returns None.
-    thread::sleep(Duration::from_millis(150));
+    buf.feed("second"); // This resets last_activity but NOT first_text_arrival.
+                        // first_text_arrival was set ~100ms ago, so 200ms hasn't
+                        // elapsed yet.
+    thread::sleep(Duration::from_millis(50));
+    // ~150ms since first feed — first_line timeout hasn't fired yet.
     assert!(buf.check_timeout().is_none());
-    // Now wait for the timeout to actually elapse from the second feed.
+    // Wait for the first_text_arrival clock to hit 200ms.
     thread::sleep(Duration::from_millis(200));
     let result = buf.check_timeout();
     assert!(result.is_some());
@@ -542,6 +543,81 @@ fn test_line_buffer_with_timeout_none_never_emits() {
     assert!(buf.check_timeout().is_none());
     thread::sleep(Duration::from_millis(500));
     assert!(buf.check_timeout().is_none());
+}
+
+// ── First-line fixed timeout tests (Step 1.1) ───────────────────────────
+
+/// Rapid consecutive deltas (each < 200ms apart): the first line must
+/// still be forced out at ~200ms from the *first* delta, not from the
+/// last activity. This is the core fix for the first-line timeout bug.
+#[test]
+fn test_rapid_consecutive_deltas_first_line_200ms() {
+    let mut buf = LineBuffer::new();
+    // First delta — starts the first_text_arrival clock.
+    buf.feed("Hello ");
+    // Rapid subsequent deltas within 200ms of first.
+    thread::sleep(Duration::from_millis(50));
+    buf.feed("world ");
+    thread::sleep(Duration::from_millis(50));
+    buf.feed("from ");
+    thread::sleep(Duration::from_millis(50));
+    buf.feed("Rust ");
+    // Total elapsed since first delta: ~150ms < 200ms → no output yet.
+    assert!(buf.check_timeout().is_none());
+    // Wait for the first-delta clock to hit 200ms (50ms more).
+    thread::sleep(Duration::from_millis(100));
+    let result = buf.check_timeout();
+    assert!(
+        result.is_some(),
+        "Rapid deltas must still trigger first-line timeout ~200ms after first delta"
+    );
+    let lines = result.unwrap();
+    let joined = lines.join("");
+    assert!(
+        joined.contains("Hello world from Rust"),
+        "Expected all accumulated text in forced output: {:?}",
+        lines
+    );
+}
+
+/// Reset clears first_text_arrival so next feed restarts the clock.
+#[test]
+fn test_reset_clears_first_text_arrival() {
+    let mut buf = LineBuffer::new();
+    buf.feed("Hello ");
+    // Wait most of the timeout.
+    thread::sleep(Duration::from_millis(150));
+    // Reset clears the first_text_arrival clock.
+    buf.reset();
+    // Feed again — the clock restarts from now.
+    buf.feed("World");
+    // Only 50ms since second feed — first_line timeout should not fire.
+    thread::sleep(Duration::from_millis(50));
+    assert!(buf.check_timeout().is_none());
+    // Wait for the clock to elapse from the second feed.
+    thread::sleep(Duration::from_millis(200));
+    let result = buf.check_timeout();
+    assert!(result.is_some());
+    assert_eq!(result.unwrap(), vec!["World"]);
+}
+
+/// WholeBlock code block: first_line timeout must NOT force-emit
+/// code block content (consistent with existing WholeBlock timeout skip).
+#[test]
+fn test_first_line_timeout_skips_wholeblock() {
+    let mut buf = LineBuffer::new().with_code_block_mode(CodeBlockMode::WholeBlock);
+    buf.feed("```rust\nfn main() {}\n");
+    // Wait for first-line timeout.
+    thread::sleep(Duration::from_millis(250));
+    let result = buf.check_timeout();
+    assert!(
+        result.is_none(),
+        "WholeBlock mode must not force-emit on first-line timeout"
+    );
+    // Content is still in the buffer.
+    let flushed = buf.flush();
+    assert!(flushed.is_some());
+    assert!(flushed.unwrap().contains("fn main() {}"));
 }
 
 // ── WholeBlock threshold/timeout skip tests (Step 1.2) ────────────────────
