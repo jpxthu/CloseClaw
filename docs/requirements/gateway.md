@@ -37,9 +37,9 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 - 非 Owner 调用 `/approve-once`、`/approve-whitelist`、`/deny` 时收到权限不足提示
 
 > **交叉引用**：审批指令的 Owner 专用语义详见 [slash §F13](slash.md)（审批指令）。
-- Immediate 类指令绕过排队条件，始终立即响应
+- Immediate 类指令绕过排队条件，立即受理；审批指令的结果在 Owner 审批完成后送达
 
-> **交叉引用**：各指令的 Immediate 标记由 Slash 模块逐指令定义，详见 [slash §F1](slash.md)（斜杠指令入口）。
+> **交叉引用**：各指令的 Immediate 标记由 Slash 模块逐指令定义，详见 [slash §F1](slash.md)（斜杠指令入口）。审批指令的等待与回调机制详见 [permission §F5](permission.md)（审批工作流）。
 - 非 Immediate 斜杠指令在满足排队条件时进入该 Session 的待处理队列，排队提示详见 [session §F10](session.md)（消息排队）
 
 排队条件定义详见 [session §F10](session.md)（消息排队），活跃维度详见 [session §F11](session.md)（Session 活跃维度）。
@@ -57,7 +57,8 @@ Gateway 是消息路由中枢。User 通过不同 IM 平台发送的消息由 Ga
 > **交叉引用**：出站消息按目标平台的要求展示，格式自动选择由 IM Adapter 模块负责，详见 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）。
 - 出站消息发送前经过频率限制、敏感操作审计等检查，被拦截的消息不发送
 - 回复过程中出错时统一降级处理，不向 User 呈现不完整内容
-- 出站消息发送后保存到 Session 历史记录
+- LLM 回复和斜杠指令回复发送后保存到 Session 历史记录；排队提示、错误提示等系统提示不保存
+- 流式回复中断时，保存已送达 User 的部分
 
 ### F8. 调试日志
 
@@ -76,9 +77,10 @@ Gateway 在以下环节记录调试日志，用于运维 Agent 排查问题：
 
 - [✓] gateway/README.md
 - [✓] gateway/inbound-flow.md
+- [✓] gateway/outbound-flow.md
 
 ## 非功能需求
 
 - 入站消息队列满时，"服务繁忙"拒绝响应必须在 2 秒内送达 User
-- User 发送文本消息后应在 1 秒内收到系统响应或排队提示
+- User 发送文本消息后应在 1 秒内收到系统响应或排队提示；等待 Owner 审批等异步等待的结果不适用此约束
 - 系统重启后，重启前发送但未完成处理的消息不应丢失

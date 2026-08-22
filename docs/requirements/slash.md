@@ -2,7 +2,7 @@
 
 ## 概述
 
-通过以 `/` 开头的消息，Owner 和 User 可以发送系统控制指令，这些指令不进入 LLM 对话流程，由 Gateway 拦截并分派给对应的指令处理器执行。部分指令标记为 Immediate —— 可绕过排队条件立即响应；非 Immediate 指令需满足排队条件才响应。
+通过以 `/` 开头的消息，Owner 和 User 可以发送系统控制指令，这些指令不进入 LLM 对话流程，由 Gateway 拦截并分派给对应的指令处理器执行。部分指令标记为 Immediate —— 可绕过排队条件，立即受理；非 Immediate 指令需满足排队条件才响应。
 
 排队条件定义详见 [session §F10](session.md)（消息排队），活跃维度详见 [session §F11](session.md)。
 
