@@ -140,9 +140,7 @@ async fn test_parse_inbound_writes_jsonl() {
 
 /// render with debug_log writes outbound.render event to JSONL.
 /// Uses multiline text to trigger the card rendering path (bypasses early return).
-/// NOTE: render uses block_in_place + block_on internally for async debug_log,
-/// so tests must use a multi-threaded tokio runtime.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_render_writes_jsonl() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
@@ -155,8 +153,7 @@ async fn test_render_writes_jsonl() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    // render uses block_on, so output should be available immediately.
-    let lines = read_jsonl_lines(temp_dir.path());
+    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
     assert!(!lines.is_empty(), "render should write JSONL");
 
     let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
@@ -265,9 +262,7 @@ async fn test_parse_inbound_empty_text_no_debug_log() {
 // ===========================================================================
 
 /// parse_inbound generates trace_id in last_metadata; render reads it.
-/// NOTE: render uses block_in_place + block_on internally for async debug_log,
-/// so tests must use a multi-threaded tokio runtime.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_trace_id_propagation_render() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
@@ -286,11 +281,11 @@ async fn test_trace_id_propagation_render() {
         .expect("trace_id should be in metadata");
     assert!(!trace_id.is_empty(), "trace_id should not be empty");
 
-    // render reads trace_id from last_metadata (sync, uses block_on internally)
+    // render reads trace_id from last_metadata
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    let lines = read_jsonl_lines(temp_dir.path());
+    let lines = wait_for_jsonl_lines(temp_dir.path(), 2).await;
     let render_line = lines
         .iter()
         .find(|l| {
@@ -355,7 +350,7 @@ async fn test_trace_id_propagation_send() {
 // 4. Timing accuracy: durations are non-negative
 // ===========================================================================
 
-/// parse_duration_ms is non-negative.
+/// parse_duration_ms is non-negative and reasonable.
 #[tokio::test]
 async fn test_parse_duration_non_negative() {
     let temp_dir = TempDir::new().unwrap();
@@ -372,16 +367,16 @@ async fn test_parse_duration_non_negative() {
     let ms = parsed["payload"]["parse_duration_ms"]
         .as_u64()
         .expect("parse_duration_ms should be u64");
-    // Duration can be 0 for fast operations but must not be negative
-    // (u64 is always >= 0 by type, just verify it's present and numeric)
-    let _ = ms;
+    assert!(
+        ms <= 30_000,
+        "parse_duration_ms should be reasonable, got {}",
+        ms
+    );
 }
 
-/// render_duration_ms is non-negative.
+/// render_duration_ms is non-negative and reasonable.
 /// Uses multiline text to trigger the card rendering path.
-/// NOTE: render uses block_in_place + block_on internally for async debug_log,
-/// so tests must use a multi-threaded tokio runtime.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_render_duration_non_negative() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
@@ -393,16 +388,20 @@ async fn test_render_duration_non_negative() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    let lines = read_jsonl_lines(temp_dir.path());
+    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
     assert!(!lines.is_empty());
     let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
     let ms = parsed["payload"]["render_duration_ms"]
         .as_u64()
         .expect("render_duration_ms should be u64");
-    let _ = ms;
+    assert!(
+        ms <= 30_000,
+        "render_duration_ms should be reasonable, got {}",
+        ms
+    );
 }
 
-/// send_duration_ms is non-negative.
+/// send_duration_ms is non-negative and reasonable.
 #[tokio::test]
 async fn test_send_duration_non_negative() {
     let temp_dir = TempDir::new().unwrap();
@@ -423,7 +422,11 @@ async fn test_send_duration_non_negative() {
     let ms = parsed["payload"]["send_duration_ms"]
         .as_u64()
         .expect("send_duration_ms should be u64");
-    let _ = ms;
+    assert!(
+        ms <= 30_000,
+        "send_duration_ms should be reasonable, got {}",
+        ms
+    );
 }
 
 // ===========================================================================
@@ -458,9 +461,7 @@ async fn test_inbound_parse_event_structure() {
 
 /// outbound.render JSONL contains all required fields.
 /// Uses multiline text to trigger the card rendering path.
-/// NOTE: render uses block_in_place + block_on internally for async debug_log,
-/// so tests must use a multi-threaded tokio runtime.
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn test_outbound_render_event_structure() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
@@ -472,7 +473,7 @@ async fn test_outbound_render_event_structure() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    let lines = read_jsonl_lines(temp_dir.path());
+    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
     assert!(!lines.is_empty());
     let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
 
