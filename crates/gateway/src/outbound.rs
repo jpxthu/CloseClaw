@@ -11,7 +11,6 @@ use crate::outbound_helpers::{
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
 use closeclaw_processor_chain::run_middleware_chain;
-use closeclaw_processor_chain::verbosity_filter::VerbosityFilter;
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
@@ -129,8 +128,9 @@ impl Gateway {
     /// Send an outbound message (agent response) via the registered IM plugin.
     ///
     /// Flow: resolve chat_id + plugin → resolve VerbosityLevel → run processor
-    /// chain (VerbosityFilter → DslParser → OutboundRawLog) → render → dispatch
-    /// by msg_type → persist checkpoint.
+    /// chain (DslParser → OutboundRawLog) → render → dispatch by msg_type → persist
+    /// checkpoint. VerbosityFilter runs in the incremental streaming phase via
+    /// the Processor Chain, not in the batch outbound path.
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -164,7 +164,7 @@ impl Gateway {
             VerbosityLevel::default()
         };
 
-        // 3. Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
+        // 3. Processor chain (DslParser → OutboundRawLog).
         let processed = self
             .process_or_bypass(
                 raw_output,
@@ -707,9 +707,8 @@ impl Gateway {
     /// Processor Chain (DslParser → OutboundRawLog), and build the
     /// final [`StreamResult`].
     ///
-    /// VerbosityFilter is skipped here — Thinking blocks were already
-    /// filtered via [`VerbosityFilter::should_keep_thinking`] during the
-    /// incremental phase (see [`process_stream_event`]).
+    /// VerbosityFilter is skipped here — it already ran during the
+    /// incremental phase via [`ProcessorChain::process_outbound_incremental`].
     async fn finish_streaming_pipeline(
         &self,
         session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
@@ -724,8 +723,8 @@ impl Gateway {
         };
 
         // Run the outbound Processor Chain (DslParser → OutboundRawLog),
-        // skipping VerbosityFilter which already ran per-chunk during
-        // the incremental phase.
+        // skipping VerbosityFilter which already ran during the incremental
+        // phase via process_outbound_incremental.
         let meta = make_outbound_meta(&[
             ("channel", channel),
             ("session_id", session_id),
@@ -777,21 +776,9 @@ impl Gateway {
     ) -> Result<(), GatewayError> {
         match event {
             StreamEvent::BlockDelta { index, delta } => {
-                // VerbosityFilter: skip Thinking deltas at Normal/Off verbosity.
-                if delta.block_type() == ContentBlockType::Thinking
-                    && !VerbosityFilter::should_keep_thinking(state.verbosity_level)
-                {
-                    return Ok(());
-                }
                 self.handle_block_delta(ctx, index, delta, state).await?;
             }
             StreamEvent::BlockEnd { block_type, .. } => {
-                // VerbosityFilter: skip Thinking blocks at Normal/Off verbosity.
-                if block_type == ContentBlockType::Thinking
-                    && !VerbosityFilter::should_keep_thinking(state.verbosity_level)
-                {
-                    return Ok(());
-                }
                 // Thinking indicator: send stop signal before rendering.
                 if block_type == ContentBlockType::Thinking
                     && state.verbosity_level != VerbosityLevel::Off
@@ -826,12 +813,6 @@ impl Gateway {
                 });
             }
             StreamEvent::BlockStart { index, block_type } => {
-                // VerbosityFilter: skip Thinking BlockStart at Normal/Off verbosity.
-                if block_type == ContentBlockType::Thinking
-                    && !VerbosityFilter::should_keep_thinking(state.verbosity_level)
-                {
-                    return Ok(());
-                }
                 // Thinking indicator: send start signal on Thinking BlockStart.
                 if block_type == ContentBlockType::Thinking
                     && state.verbosity_level != VerbosityLevel::Off
@@ -876,10 +857,10 @@ impl Gateway {
     }
 
     /// Handle a [`StreamEvent::BlockEnd`]: send non-text render blocks
-    /// and dispatch remaining text. At Normal/Off verbosity, Thinking blocks
-    /// are already filtered in [`process_stream_event`] via
-    /// [`VerbosityFilter::should_keep_thinking`] before reaching here.
-    /// Only Full-verbosity Thinking blocks pass through to this handler.
+    /// (after incremental chain processing) and dispatch remaining text.
+    /// Non-Text, non-media blocks are processed through
+    /// [`ProcessorChain::process_outbound_incremental`] before dispatch,
+    /// so VerbosityFilter executes uniformly via the chain.
     async fn handle_block_end(
         &self,
         ctx: &StreamContext<'_>,
@@ -897,21 +878,58 @@ impl Gateway {
                 state.content_blocks.push(block);
             } else {
                 let render_blocks = std::mem::take(&mut out.render_blocks);
-                // Non-Text blocks (non-Thinking at Full, or ToolUse/etc.):
-                // send directly via send_render_block.
-                // VerbosityFilter for Thinking already ran in
-                // process_stream_event's BlockEnd arm via
-                // VerbosityFilter::should_keep_thinking.
-                for block in &render_blocks {
-                    send_render_block(ctx, block).await?;
-                }
-                // Push ALL blocks to content_blocks so the
-                // post-stream Processor Chain has the full data set.
-                state.content_blocks.extend(render_blocks);
+                self.process_and_send_non_text_blocks(ctx, &render_blocks, block_type, state)
+                    .await?;
             }
         }
 
         dispatch_text(ctx, out, state).await
+    }
+
+    /// Process non-text render blocks through the incremental chain
+    /// ([`ProcessorChain::process_outbound_incremental`]) before dispatch
+    /// and storage. Falls back to direct send when registry is absent.
+    async fn process_and_send_non_text_blocks(
+        &self,
+        ctx: &StreamContext<'_>,
+        render_blocks: &[ContentBlock],
+        block_type: ContentBlockType,
+        state: &mut StreamState,
+    ) -> Result<(), GatewayError> {
+        if let Some(registry) = ctx.registry {
+            for block in render_blocks {
+                let msg = ProcessedMessage {
+                    content_blocks: vec![block.clone()],
+                    metadata: std::collections::HashMap::from([(
+                        "verbosity_level".to_string(),
+                        state.verbosity_level.to_string(),
+                    )]),
+                };
+                match registry.process_outbound_incremental(msg).await {
+                    Ok(processed) => {
+                        for processed_block in &processed.content_blocks {
+                            send_render_block(ctx, processed_block).await?;
+                        }
+                        state.content_blocks.extend(processed.content_blocks);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            block_type = ?block_type,
+                            "incremental chain failed for non-text block, sending original"
+                        );
+                        send_render_block(ctx, block).await?;
+                        state.content_blocks.push(block.clone());
+                    }
+                }
+            }
+        } else {
+            for block in render_blocks {
+                send_render_block(ctx, block).await?;
+            }
+            state.content_blocks.extend_from_slice(render_blocks);
+        }
+        Ok(())
     }
 
     /// Handle a [`StreamEvent::MessageEnd`]: flush the stream and update

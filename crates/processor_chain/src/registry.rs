@@ -161,6 +161,7 @@ impl ProcessorRegistry {
         let mut ctx = MessageContext::from_normalized(synthetic_from_output(&llm_output));
         ctx.metadata = llm_output.metadata.clone();
         ctx.content_blocks = llm_output.content_blocks.clone();
+        let had_content_blocks = !ctx.content_blocks.is_empty();
 
         let mut sorted = self.outbound.clone();
         sorted.sort_by_key(|p| p.priority());
@@ -210,7 +211,11 @@ impl ProcessorRegistry {
         Ok(ProcessedMessage {
             content_blocks: if ctx.skip {
                 vec![]
-            } else if ctx.content_blocks.is_empty() {
+            } else if ctx.content_blocks.is_empty() && !had_content_blocks {
+                // Only fall back to plain text when no content_blocks were
+                // provided initially (empty chain / bypass path). When blocks
+                // were provided but a processor (e.g. VerbosityFilter) removed
+                // them all, we must return empty — not a spurious Text("").
                 vec![ContentBlock::Text(ctx.content)]
             } else {
                 ctx.content_blocks
