@@ -21,8 +21,8 @@ handler 函数
   │     └── rule        — 读/写权限规则
   │
   └── daemon RPC（需要 daemon 已运行）
-        ├── agent       — 查询 agent
-        └── skill       — 查询/安装 skill
+  │     ├── agent       — 查询 agent
+  │     └── skill       — 查询/安装 skill
 ```
 
 ### 与斜杠指令的关系
@@ -58,7 +58,7 @@ agent 查询的返回内容按命令区分粒度：
    - **本地操作**：
      1. run：启动 daemon 子进程 → 等待运行中
      2. stop：读 PID 文件 → kill 进程 → 清理 PID 文件
-     3. config setup：交互式向导 → 拉取模型列表 → 用户选择 → 写入配置
+     3. config setup：交互式向导（选 Provider、输入凭据）→ 拉取模型列表 → 用户选择 → 写入配置
      4. config validate：读文件 → 校验格式 → 输出结果
      5. rule check/list：读规则文件 → 校验/列表 → 输出结果
    - **daemon RPC**（发送 RPC → daemon 执行 → 返回结果）：
