@@ -32,6 +32,10 @@ pub struct MessageMetadata {
     pub timestamp: i64,
     /// Actual chat/group name (e.g. Feishu group title), or empty.
     pub chat_name: String,
+    /// Trace ID for debug-log correlation (inbound message chain).
+    pub trace_id: Option<String>,
+    /// Session key for debug-log correlation.
+    pub session_key: Option<String>,
 }
 
 impl MessageMetadata {
@@ -41,6 +45,8 @@ impl MessageMetadata {
             channel: String::new(),
             timestamp: chrono::Utc::now().timestamp(),
             chat_name: String::new(),
+            trace_id: None,
+            session_key: None,
         }
     }
 

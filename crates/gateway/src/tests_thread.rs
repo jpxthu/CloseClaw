@@ -355,7 +355,7 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
     ];
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin_for_stream.clone();
-    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
     assert_eq!(
@@ -498,7 +498,7 @@ async fn test_send_outbound_streaming_forwards_block_delta_index() {
     ];
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
-    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+    gw.send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
     assert_eq!(

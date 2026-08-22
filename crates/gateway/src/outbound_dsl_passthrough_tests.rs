@@ -289,7 +289,7 @@ async fn test_dsl_text_block_parses_and_preserves_content() {
     let events = dsl_events();
     let stream = futures::stream::iter(events);
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &make_plugin())
+        .send_outbound_streaming(&sid, "mock", stream, &make_plugin(), None, None)
         .await;
     let sr = result.expect("streaming should succeed");
 
@@ -326,7 +326,7 @@ async fn test_no_dsl_text_block_passthrough() {
     let events = text_events("Hello, no DSL here!");
     let stream = futures::stream::iter(events);
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &make_plugin())
+        .send_outbound_streaming(&sid, "mock", stream, &make_plugin(), None, None)
         .await;
     let sr = result.expect("streaming should succeed");
 
@@ -371,7 +371,7 @@ async fn test_malformed_dsl_fallback_to_original_text() {
     let events = empty_dsl_events();
     let stream = futures::stream::iter(events);
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &make_plugin())
+        .send_outbound_streaming(&sid, "mock", stream, &make_plugin(), None, None)
         .await;
     let sr = result.expect("streaming should succeed");
 
@@ -451,7 +451,7 @@ async fn test_multiple_text_blocks_incremental_accumulation() {
 
     let stream = futures::stream::iter(events);
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &make_plugin())
+        .send_outbound_streaming(&sid, "mock", stream, &make_plugin(), None, None)
         .await;
     let sr = result.expect("streaming should succeed");
 

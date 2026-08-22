@@ -25,7 +25,7 @@ async fn test_stream_error_returns_gateway_stream_error() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     assert!(
@@ -74,7 +74,7 @@ async fn test_stream_error_preserves_partial_content() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     let err = result.unwrap_err();
@@ -140,7 +140,7 @@ async fn test_stream_error_after_completed_blocks_preserves_content() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     let err = result.unwrap_err();
@@ -186,7 +186,7 @@ async fn test_stream_error_empty_partial_content() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     match result.unwrap_err() {
@@ -230,7 +230,7 @@ async fn test_stream_error_text_sent_before_error_appears_in_partial() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     assert!(result.is_err());

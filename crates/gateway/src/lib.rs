@@ -722,6 +722,8 @@ impl Gateway {
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
                 chat_name,
+                trace_id: trace_id.map(|s| s.to_string()),
+                session_key: processed.metadata.get("session_key").cloned(),
             };
             let result = handler
                 .handle_message_with_gateway(&session_id, content, meta, &gw, &plugin)
