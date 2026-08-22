@@ -233,19 +233,15 @@ impl Gateway {
             .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
             .await;
         if ctx.channel == "feishu" {
-            if let Some(tid) = ctx.trace_id.as_deref() {
-                if !tid.is_empty() {
-                    let send_duration_ms = send_start.elapsed().as_millis() as u64;
-                    crate::outbound_helpers::emit_feishu_send_event(
-                        self,
-                        tid,
-                        ctx.session_key.as_deref(),
-                        ctx.channel,
-                        &ctx.chat_id,
-                        send_duration_ms,
-                    );
-                }
-            }
+            let send_duration_ms = send_start.elapsed().as_millis() as u64;
+            crate::outbound_helpers::emit_feishu_send_event(
+                self,
+                ctx.trace_id.as_deref().unwrap_or(""),
+                ctx.session_key.as_deref(),
+                ctx.channel,
+                &ctx.chat_id,
+                send_duration_ms,
+            );
         }
         if let Err(e) = send_result {
             notify_batch_send_failure(self, ctx.channel, &ctx.chat_id, e).await;

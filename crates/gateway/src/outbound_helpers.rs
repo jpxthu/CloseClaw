@@ -211,22 +211,12 @@ pub(crate) async fn send_render_block(
         let render_duration_ms = render_start.elapsed().as_millis() as u64;
         if let Some(trace_id) = ctx.trace_id {
             if !trace_id.is_empty() {
-                let guard = ctx
-                    .gateway
-                    .debug_log
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner());
-                crate::debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
+                emit_feishu_render_event(
+                    ctx.gateway,
                     trace_id,
                     ctx.session_key,
-                    closeclaw_debug_log::LogLevel::Info,
-                    "feishu",
-                    "feishu.outbound.rendered",
-                    serde_json::json!({
-                        "platform": ctx.channel,
-                        "render_duration_ms": render_duration_ms,
-                    }),
+                    ctx.channel,
+                    render_duration_ms,
                 );
             }
         }
@@ -245,23 +235,13 @@ pub(crate) async fn send_render_block(
         let send_duration_ms = send_start.elapsed().as_millis() as u64;
         if let Some(trace_id) = ctx.trace_id {
             if !trace_id.is_empty() {
-                let guard = ctx
-                    .gateway
-                    .debug_log
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner());
-                crate::debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
+                emit_feishu_send_event(
+                    ctx.gateway,
                     trace_id,
                     ctx.session_key,
-                    closeclaw_debug_log::LogLevel::Info,
-                    "feishu",
-                    "feishu.api.send",
-                    serde_json::json!({
-                        "platform": ctx.channel,
-                        "peer_id": ctx.chat_id,
-                        "send_duration_ms": send_duration_ms,
-                    }),
+                    ctx.channel,
+                    ctx.chat_id,
+                    send_duration_ms,
                 );
             }
         }

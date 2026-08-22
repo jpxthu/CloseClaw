@@ -301,7 +301,7 @@ fn emit_inbound_parsed_log(
         None,
         closeclaw_debug_log::LogLevel::Info,
         platform,
-        "inbound.parsed",
+        "feishu.inbound.parsed",
         serde_json::json!({
             "platform": platform,
             "message_type": msg_type_str,
