@@ -143,7 +143,7 @@ impl SessionManager {
     ) -> usize {
         let futures: Vec<_> = level
             .iter()
-            .map(|sid| self.stop_single_session(sid, mode, false, timeout, None))
+            .map(|sid| self.stop_single_session(sid, mode, false, timeout, None, false))
             .collect();
 
         let outcomes = futures::future::join_all(futures).await;
@@ -361,6 +361,7 @@ impl SessionManager {
         cascade: bool,
         timeout: Duration,
         progress_tx: Option<tokio::sync::mpsc::Sender<GracefulStopProgress>>,
+        clear_queue: bool,
     ) -> Result<GracefulStopOutcome, StopError> {
         let cs = self
             .get_conversation_session(session_id)
@@ -409,9 +410,20 @@ impl SessionManager {
             // 4. Clear exec state (tool_states, child_states, LLM state,
             //    handle maps).
             cs.read().await.clear_exec_state();
-            // 5. Notify parent about forced termination of run-mode child.
+            // 5. Clear unified message queue when requested (only for
+            //    /stop entry). Must happen before persist so checkpoint
+            //    pending messages do not resurrect discarded queue entries.
+            if clear_queue {
+                let cleared = cs.write().await.clear_queue();
+                tracing::info!(
+                    session_id = %session_id,
+                    cleared,
+                    "stop_single_session: cleared unified message queue"
+                );
+            }
+            // 6. Notify parent about forced termination of run-mode child.
             self.notify_child_forced_termination(session_id).await;
-            // 6. Persist checkpoint with collected pending operations.
+            // 7. Persist checkpoint with collected pending operations.
             return match self
                 .persist_checkpoint_with_pending(session_id, pending_ops)
                 .await
@@ -506,6 +518,18 @@ impl SessionManager {
         // moved here so that graceful_wait() can observe in-flight
         // state on timeout/escalation.
         cs.read().await.clear_exec_state();
+
+        // Clear unified message queue when requested (only for
+        // /stop entry). Must happen before persist so checkpoint
+        // pending messages do not resurrect discarded queue entries.
+        if clear_queue {
+            let cleared = cs.write().await.clear_queue();
+            tracing::info!(
+                session_id = %session_id,
+                cleared,
+                "stop_single_session: cleared unified message queue"
+            );
+        }
 
         // Persist checkpoint.
         if let Err(e) = self

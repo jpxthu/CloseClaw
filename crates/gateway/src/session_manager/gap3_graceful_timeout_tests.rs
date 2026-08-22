@@ -91,6 +91,7 @@ async fn test_graceful_stop_returns_timedout_with_progress() {
             false,
             Duration::ZERO,
             None,
+            false,
         )
         .await;
 
@@ -132,6 +133,7 @@ async fn test_graceful_timeout_waiting_items_describe_inflight() {
             false,
             Duration::ZERO,
             None,
+            false,
         )
         .await;
 
@@ -169,6 +171,7 @@ async fn test_caller_forceful_after_timeout_cleans_session() {
             false,
             Duration::ZERO,
             None,
+            false,
         )
         .await;
     assert!(
@@ -198,6 +201,7 @@ async fn test_caller_forceful_after_timeout_cleans_session() {
             false,
             Duration::ZERO,
             None,
+            false,
         )
         .await;
     assert!(
@@ -239,6 +243,7 @@ async fn test_caller_continue_waiting_session_not_cleaned() {
             false,
             Duration::ZERO,
             None,
+            false,
         )
         .await;
     assert!(matches!(outcome, Ok(GracefulStopOutcome::TimedOut { .. })));
@@ -335,6 +340,7 @@ async fn test_graceful_idle_completes_immediately_gto() {
             false,
             Duration::from_secs(30),
             None,
+            false,
         )
         .await;
     assert!(

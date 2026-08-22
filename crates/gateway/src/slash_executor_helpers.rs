@@ -24,7 +24,7 @@ pub(crate) async fn gw_stop(sm: &SessionManager, session_id: &str, cascade: bool
     };
     let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
     let result = sm
-        .stop_single_session(session_id, mode, cascade, timeout, None)
+        .stop_single_session(session_id, mode, cascade, timeout, None, true)
         .await;
 
     match result {
@@ -52,6 +52,7 @@ pub(crate) async fn gw_stop(sm: &SessionManager, session_id: &str, cascade: bool
                     cascade,
                     std::time::Duration::ZERO,
                     None,
+                    true,
                 )
                 .await;
             match force_result {
