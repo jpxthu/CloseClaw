@@ -241,11 +241,11 @@
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
-    "commit": "0e818af2960c6fa70c6c0243e315222f9cee8415",
-    "commit_time": "2026-08-17T07:49:18+08:00",
-    "confirmed_time": "2026-08-23T05:48:25.545631+08:00",
+    "commit": "851977f97f83c65ab9bc9de8e00f9fbb3dec45e8",
+    "commit_time": "2026-08-23T05:49:13+08:00",
+    "confirmed_time": "2026-08-23T06:11:39.393261+08:00",
     "comment": "",
-    "blocked_reason": "流式渲染器输入接口描述自相矛盾：架构/数据流章节称渲染器接收 ContentBlock[]（完整块数组），但增量逐行文本输出要求渲染器消费增量事件（代码实际接口为 StreamEvent 事件流）。读者无法从文档唯一确定流式渲染器的数据接口形态"
+    "blocked_reason": "F2b 三轮深度对比标签未收敛：①三组件架构描述（A判code_extra/B判doc_problem）②唯一实质矛盾——流式渲染器输入接口 ContentBlock[] vs StreamEvent（issue #2443 待 Owner 裁决，双方确认仍存在）。其余项（ToolResult/200ms超时触发方/thinking-indicator/code_block.rs）经三轮收敛均为 code_extra（代码有文档沉默、无冲突）。需 Owner 裁决接口表述矛盾归属及三组件描述约束力"
   },
   {
     "path": "docs/design/llm/README.md",
