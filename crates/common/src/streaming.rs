@@ -142,7 +142,9 @@ impl LineBuffer {
         self.in_code_block = in_code;
         self.buffer = current_line;
 
-        if self.buffer.chars().count() >= self.threshold {
+        if self.buffer.chars().count() >= self.threshold
+            && !(self.in_code_block && self.code_block_mode == CodeBlockMode::WholeBlock)
+        {
             self.force_emit(&mut emitted);
         }
         emitted
@@ -169,6 +171,10 @@ impl LineBuffer {
             return None;
         }
         if last.elapsed() >= timeout {
+            if self.in_code_block && self.code_block_mode == CodeBlockMode::WholeBlock {
+                // WholeBlock mode: do not force-emit code block content on timeout.
+                return None;
+            }
             let mut emitted = Vec::new();
             self.force_emit(&mut emitted);
             self.last_activity = None;
