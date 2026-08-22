@@ -731,7 +731,7 @@ async fn test_inbound_parsed_event_emitted() {
     let events = read_events_with_timeout(temp_dir.path()).await;
     let inbound_events: Vec<_> = events
         .iter()
-        .filter(|e| e.event_type == "inbound.parsed" && e.source_module == "feishu")
+        .filter(|e| e.event_type == "feishu.inbound.parsed" && e.source_module == "feishu")
         .collect();
     assert_eq!(
         inbound_events.len(),
@@ -775,7 +775,9 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     assert!(
-        events.iter().all(|e| e.event_type != "inbound.parsed"),
+        events
+            .iter()
+            .all(|e| e.event_type != "feishu.inbound.parsed"),
         "no inbound.parsed event expected when DebugLog is None"
     );
 }
