@@ -5,7 +5,7 @@
 //! When the queue is full, new messages are rejected with a busy reply.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 use super::inbound_wal::{InboundWal, InboundWalEntry};
@@ -154,8 +154,17 @@ async fn process_single_request(
     req: &InboundRequest,
     plugin: &Arc<dyn closeclaw_common::IMPlugin>,
 ) {
+    let start = Instant::now();
     match plugin.parse_inbound(&req.raw_payload).await {
         Ok(Some(normalized)) => {
+            let duration_ms = start.elapsed().as_millis() as u64;
+            emit_inbound_parsed_log(
+                gateway,
+                &req.trace_id,
+                &normalized.platform,
+                &normalized.message_type,
+                duration_ms,
+            );
             handle_normalized_message(gateway, req, normalized, plugin).await;
         }
         Ok(None) => match plugin.parse_card_action(&req.raw_payload).await {
@@ -271,6 +280,36 @@ fn ensure_trace_id(request: &mut InboundRequest) {
     }
 }
 
+/// Emit a `feishu.inbound.parsed` debug event for successful inbound parsing.
+fn emit_inbound_parsed_log(
+    gateway: &Gateway,
+    trace_id: &str,
+    platform: &str,
+    message_type: &closeclaw_common::MessageType,
+    duration_ms: u64,
+) {
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    let msg_type_str = match message_type {
+        closeclaw_common::MessageType::Text => "text",
+        closeclaw_common::MessageType::Image => "image",
+        closeclaw_common::MessageType::File => "file",
+        closeclaw_common::MessageType::Audio => "audio",
+    };
+    super::debug_log_emitter::emit_debug_event(
+        guard.as_ref(),
+        trace_id,
+        None,
+        closeclaw_debug_log::LogLevel::Info,
+        platform,
+        "feishu.inbound.parsed",
+        serde_json::json!({
+            "platform": platform,
+            "message_type": msg_type_str,
+            "parse_duration_ms": duration_ms,
+        }),
+    );
+}
+
 /// Emit a debug event for queue-full rejections.
 fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
@@ -368,8 +407,17 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
         return;
     };
     // Try NormalizedMessage first.
+    let start = Instant::now();
     match plugin.parse_inbound(&request.raw_payload).await {
         Ok(Some(normalized)) => {
+            let duration_ms = start.elapsed().as_millis() as u64;
+            emit_inbound_parsed_log(
+                gateway,
+                &request.trace_id,
+                &normalized.platform,
+                &normalized.message_type,
+                duration_ms,
+            );
             // Defensive: drop empty text messages that slipped through parse_inbound.
             // Per design doc: "text type empty content messages are discarded at parse
             // stage, no NormalizedMessage produced".

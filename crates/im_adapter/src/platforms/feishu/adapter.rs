@@ -168,8 +168,6 @@ struct FeishuGetMessageResponse {
     items: Option<Vec<FeishuMsgItem>>,
 }
 
-
-
 #[derive(Deserialize)]
 pub(crate) struct SendResponse {
     pub(crate) code: i32,
@@ -448,10 +446,8 @@ impl FeishuAdapter {
         file_key: &str,
         resource_type: &str,
     ) -> String {
-        let enc_msg: String =
-            url::form_urlencoded::byte_serialize(message_id.as_bytes()).collect();
-        let enc_key: String =
-            url::form_urlencoded::byte_serialize(file_key.as_bytes()).collect();
+        let enc_msg: String = url::form_urlencoded::byte_serialize(message_id.as_bytes()).collect();
+        let enc_key: String = url::form_urlencoded::byte_serialize(file_key.as_bytes()).collect();
         format!(
             "{}/im/v1/messages/{}/resources/{}?type={}",
             self.base_url, enc_msg, enc_key, resource_type
@@ -474,11 +470,7 @@ impl FeishuAdapter {
         }
         let resp: ResourceResp = self
             .http_client
-            .get(self.build_media_resource_url(
-                message_id,
-                file_key,
-                resource_type,
-            ))
+            .get(self.build_media_resource_url(message_id, file_key, resource_type))
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
@@ -493,10 +485,12 @@ impl FeishuAdapter {
                 "Failed to fetch media download URL"
             );
             return Err(AdapterError::SendFailed(format!(
-                "Feishu media resource error {}: {}", resp.code, resp.msg
+                "Feishu media resource error {}: {}",
+                resp.code, resp.msg
             )));
         }
-        let url = resp.data
+        let url = resp
+            .data
             .and_then(|d| d.get("url").and_then(|u| u.as_str()).map(String::from))
             .filter(|u| !u.is_empty())
             .ok_or_else(|| {
@@ -592,7 +586,10 @@ impl FeishuAdapter {
         match action_value {
             Some(action) => {
                 let mut metadata = HashMap::from([
-                    ("account_id".to_string(), card_event.operator.open_id.clone()),
+                    (
+                        "account_id".to_string(),
+                        card_event.operator.open_id.clone(),
+                    ),
                     ("card_action".to_string(), "true".to_string()),
                 ]);
                 if let Some(chat_id) = card_event
@@ -627,7 +624,11 @@ impl FeishuAdapter {
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
         let original_parent_id = event.event.parent_id.clone();
-        let thread_id = event.event.thread_id.or(event.event.root_id).or(event.event.parent_id);
+        let thread_id = event
+            .event
+            .thread_id
+            .or(event.event.root_id)
+            .or(event.event.parent_id);
         let sender_open_id = event.event.sender.sender_id.open_id.clone();
 
         let (text, media_refs) =
@@ -746,8 +747,6 @@ impl FeishuAdapter {
             }
         }
     }
-
-
 }
 
 #[async_trait]
@@ -825,8 +824,7 @@ impl IMAdapter for FeishuAdapter {
             );
             e
         })?;
-        let content =
-            serde_json::json!({ "text": &message.content }).to_string();
+        let content = serde_json::json!({ "text": &message.content }).to_string();
         let resp = self
             .send_msg(&token, &message.to, "text", &content, root_id)
             .await?;
@@ -861,9 +859,7 @@ impl IMAdapter for FeishuAdapter {
         })?;
 
         let resp = self
-            .send_msg(
-                &token, chat_id, "interactive", card_json, root_id,
-            )
+            .send_msg(&token, chat_id, "interactive", card_json, root_id)
             .await?;
 
         if resp.code != 0 {
@@ -875,9 +871,7 @@ impl IMAdapter for FeishuAdapter {
             );
             if is_capability_error(resp.code) {
                 if let Err(fb_err) = self
-                    .try_fallback_to_text(
-                        chat_id, card_json, &token, root_id,
-                    )
+                    .try_fallback_to_text(chat_id, card_json, &token, root_id)
                     .await
                 {
                     tracing::warn!(

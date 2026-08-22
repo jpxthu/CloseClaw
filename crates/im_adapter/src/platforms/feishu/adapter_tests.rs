@@ -422,6 +422,7 @@ async fn test_parse_image_empty_key() {
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Image);
     assert_eq!(msg.media_refs.len(), 1);
+    #[rustfmt::skip]
     assert!(msg.media_refs[0].key.is_empty(), "image with no image_key should have empty key");
 }
 // ===========================================================================
@@ -996,4 +997,3 @@ async fn test_parse_unknown_type_none() {
     let e = make_message_event("unsupported_type", &serde_json::json!({}).to_string());
     assert!(a.parse_message_event(e).await.unwrap().is_none());
 }
-

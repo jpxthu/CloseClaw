@@ -700,6 +700,7 @@ dependencies = [
  "chrono",
  "closeclaw-common",
  "closeclaw-config",
+ "closeclaw-debug-log",
  "closeclaw-gateway",
  "closeclaw-llm",
  "closeclaw-tools",

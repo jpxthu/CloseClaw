@@ -1,7 +1,7 @@
 //! Feishu renderer — card building and content dispatch logic.
 
-use crate::plugin::RenderedOutput;
 use crate::code_block::{parse_content_segments, ContentSegment};
+use crate::plugin::RenderedOutput;
 use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult};
 use serde::Serialize;
 
@@ -59,18 +59,11 @@ pub(crate) enum CardElement {
         elements: Vec<CardElement>,
     },
     #[serde(rename = "img")]
-    Image {
-        img_key: String,
-        alt: CardText,
-    },
+    Image { img_key: String, alt: CardText },
     #[serde(rename = "audio")]
-    Audio {
-        file_token: String,
-    },
+    Audio { file_token: String },
     #[serde(rename = "file")]
-    File {
-        file_token: String,
-    },
+    File { file_token: String },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -320,8 +313,7 @@ pub(crate) fn dispatch_blocks(
 
     if let Some(r) = dsl_result {
         elements.extend(render_buttons(&r.instructions));
-        elements
-            .extend(render_selectors(&r.instructions, allow_select_static));
+        elements.extend(render_selectors(&r.instructions, allow_select_static));
     }
 
     (title, elements)
@@ -500,9 +492,7 @@ pub(crate) fn extract_card_plain_text(payload: &serde_json::Value) -> String {
                 if let Some(actions) = el.get("actions").and_then(|a| a.as_array()) {
                     for action in actions {
                         if let Some(text) = action.get("text") {
-                            if let Some(content) =
-                                text.get("content").and_then(|c| c.as_str())
-                            {
+                            if let Some(content) = text.get("content").and_then(|c| c.as_str()) {
                                 lines.push(content.to_string());
                             }
                         }
@@ -846,9 +836,7 @@ mod tests {
         }
     }
 
-    fn assert_single_action<'a>(
-        els: &'a [CardElement],
-    ) -> &'a [CardAction] {
+    fn assert_single_action<'a>(els: &'a [CardElement]) -> &'a [CardAction] {
         assert_eq!(els.len(), 1);
         match &els[0] {
             CardElement::Action { actions } => actions,
@@ -915,10 +903,7 @@ mod tests {
     fn render_selectors_no_selectors_returns_empty() {
         let btn = DslInstruction {
             instruction_type: "button".into(),
-            params: std::collections::HashMap::from([(
-                "label".into(),
-                "Click".into(),
-            )]),
+            params: std::collections::HashMap::from([("label".into(), "Click".into())]),
         };
         assert!(render_selectors(&[btn], true).is_empty());
     }
@@ -948,9 +933,9 @@ mod tests {
     fn dispatch_blocks_no_selectors_unchanged_with_param() {
         let blocks = vec![ContentBlock::Text("Hello".into())];
         let (_, elements) = dispatch_blocks(&blocks, None, false);
-        assert!(elements.iter().any(|e|
-            matches!(e, CardElement::Markdown { content } if content == "Hello")
-        ));
+        assert!(elements
+            .iter()
+            .any(|e| matches!(e, CardElement::Markdown { content } if content == "Hello")));
     }
 
     #[test]
@@ -961,12 +946,18 @@ mod tests {
         };
         let blocks = vec![ContentBlock::Text("Choose:".into())];
         let (_, elements) = dispatch_blocks(&blocks, Some(&dsl), false);
-        let action = elements.iter().find(|e| matches!(e, CardElement::Action { .. }));
+        let action = elements
+            .iter()
+            .find(|e| matches!(e, CardElement::Action { .. }));
         assert!(action.is_some(), "expected an Action element");
         match action.unwrap() {
             CardElement::Action { actions } => {
-                assert!(actions.iter().all(|a| matches!(a, CardAction::Button { .. })),
-                    "expected only buttons when allow_select_static=false");
+                assert!(
+                    actions
+                        .iter()
+                        .all(|a| matches!(a, CardAction::Button { .. })),
+                    "expected only buttons when allow_select_static=false"
+                );
             }
             _ => unreachable!(),
         }

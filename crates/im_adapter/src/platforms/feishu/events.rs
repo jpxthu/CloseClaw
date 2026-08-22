@@ -71,10 +71,8 @@ pub(crate) struct FeishuBotInfo {
 pub(crate) fn parse_reaction_event(
     raw: &serde_json::Value,
 ) -> Result<Option<NormalizedMessage>, AdapterError> {
-    let event: FeishuReactionEvent =
-        serde_json::from_value(raw["event"].clone()).map_err(|e| {
-            AdapterError::InvalidPayload(e.to_string())
-        })?;
+    let event: FeishuReactionEvent = serde_json::from_value(raw["event"].clone())
+        .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
     let operator_id = event
         .operator
@@ -104,13 +102,9 @@ pub(crate) fn parse_reaction_event(
 pub(crate) fn parse_bot_added_event(
     raw: &serde_json::Value,
 ) -> Result<Option<NormalizedMessage>, AdapterError> {
-    let event: FeishuBotAddedEvent =
-        serde_json::from_value(raw["event"].clone()).map_err(|e| {
-            AdapterError::InvalidPayload(format!(
-                "bot.added event parse failed: {}",
-                e
-            ))
-        })?;
+    let event: FeishuBotAddedEvent = serde_json::from_value(raw["event"].clone()).map_err(|e| {
+        AdapterError::InvalidPayload(format!("bot.added event parse failed: {}", e))
+    })?;
 
     tracing::info!(
         platform = "feishu",

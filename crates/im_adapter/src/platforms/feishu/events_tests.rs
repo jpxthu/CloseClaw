@@ -25,11 +25,7 @@ fn make_test_adapter() -> FeishuAdapter {
 // ===========================================================================
 
 /// Build a minimal `reaction.created` webhook payload.
-fn make_reaction_payload(
-    message_id: &str,
-    open_id: &str,
-    emoji_type: &str,
-) -> Vec<u8> {
+fn make_reaction_payload(message_id: &str, open_id: &str, emoji_type: &str) -> Vec<u8> {
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
@@ -87,7 +83,10 @@ async fn test_parse_inbound_reaction_created_missing_reaction_type() {
     });
     let bytes = serde_json::to_vec(&payload).unwrap();
     let result: Result<Option<_>, _> = adapter.parse_inbound(&bytes).await;
-    assert!(result.is_err(), "missing reaction_type should cause parse error");
+    assert!(
+        result.is_err(),
+        "missing reaction_type should cause parse error"
+    );
 }
 
 /// reaction.created: missing message_id — graceful parse error (no panic).
@@ -115,7 +114,10 @@ async fn test_parse_inbound_reaction_created_missing_message_id() {
     });
     let bytes = serde_json::to_vec(&payload).unwrap();
     let result: Result<Option<_>, _> = adapter.parse_inbound(&bytes).await;
-    assert!(result.is_err(), "missing message_id should cause parse error");
+    assert!(
+        result.is_err(),
+        "missing message_id should cause parse error"
+    );
 }
 
 /// reaction.created: operator at top level (open_id field) — graceful handling.
@@ -224,7 +226,10 @@ async fn test_parse_inbound_bot_added_missing_bot_open_id() {
     });
     let bytes = serde_json::to_vec(&payload).unwrap();
     let result: Result<Option<_>, _> = adapter.parse_inbound(&bytes).await;
-    assert!(result.is_err(), "missing bot.open_id should cause parse error");
+    assert!(
+        result.is_err(),
+        "missing bot.open_id should cause parse error"
+    );
 }
 
 /// card.action.trigger: still returns Ok(None) — no regression.

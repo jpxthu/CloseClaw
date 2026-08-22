@@ -72,7 +72,10 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
         }
         "text_run" => {
             let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
-            let style = elem.get("style").cloned().unwrap_or(serde_json::Value::Null);
+            let style = elem
+                .get("style")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             apply_text_style(text, &style)
         }
         "img" => "[图片]".to_string(),

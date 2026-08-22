@@ -18,10 +18,7 @@ fn make_test_adapter() -> FeishuAdapter {
 }
 
 /// Build a minimal FeishuEvent for a message event.
-fn make_message_event(
-    message_type: &str,
-    content_json: &str,
-) -> FeishuEvent {
+fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
     FeishuEvent {
         schema: "2.0".to_string(),
         header: FeishuHeader {
@@ -51,33 +48,26 @@ fn make_message_event(
 
 #[test]
 fn test_extract_sticker_with_emoji_type() {
-    let (text, media) = FeishuAdapter::extract_message_content(
-        "sticker",
-        &serde_json::json!({"emoji_type": "OK"}),
-    )
-    .unwrap();
+    let (text, media) =
+        FeishuAdapter::extract_message_content("sticker", &serde_json::json!({"emoji_type": "OK"}))
+            .unwrap();
     assert_eq!(text, "[OK]");
     assert!(media.is_empty());
 }
 
 #[test]
 fn test_extract_sticker_without_emoji_type() {
-    let (text, media) = FeishuAdapter::extract_message_content(
-        "sticker",
-        &serde_json::json!({}),
-    )
-    .unwrap();
+    let (text, media) =
+        FeishuAdapter::extract_message_content("sticker", &serde_json::json!({})).unwrap();
     assert_eq!(text, "[]");
     assert!(media.is_empty());
 }
 
 #[test]
 fn test_extract_sticker_empty_emoji_type() {
-    let (text, media) = FeishuAdapter::extract_message_content(
-        "sticker",
-        &serde_json::json!({"emoji_type": ""}),
-    )
-    .unwrap();
+    let (text, media) =
+        FeishuAdapter::extract_message_content("sticker", &serde_json::json!({"emoji_type": ""}))
+            .unwrap();
     assert_eq!(text, "[]");
     assert!(media.is_empty());
 }
@@ -87,14 +77,9 @@ async fn test_parse_sticker_with_emoji_type() {
     let a = make_test_adapter();
     let e = make_message_event(
         "sticker",
-        &serde_json::json!({"emoji_type": "THUMBSUP"})
-            .to_string(),
+        &serde_json::json!({"emoji_type": "THUMBSUP"}).to_string(),
     );
-    let msg = a
-        .parse_message_event(e)
-        .await
-        .unwrap()
-        .unwrap();
+    let msg = a.parse_message_event(e).await.unwrap().unwrap();
     assert_eq!(msg.content, "[THUMBSUP]");
     assert!(msg.media_refs.is_empty());
 }
@@ -102,15 +87,8 @@ async fn test_parse_sticker_with_emoji_type() {
 #[tokio::test]
 async fn test_parse_sticker_without_emoji_type() {
     let a = make_test_adapter();
-    let e = make_message_event(
-        "sticker",
-        &serde_json::json!({}).to_string(),
-    );
-    let msg = a
-        .parse_message_event(e)
-        .await
-        .unwrap()
-        .unwrap();
+    let e = make_message_event("sticker", &serde_json::json!({}).to_string());
+    let msg = a.parse_message_event(e).await.unwrap().unwrap();
     assert_eq!(msg.content, "[]");
     assert!(msg.media_refs.is_empty());
 }

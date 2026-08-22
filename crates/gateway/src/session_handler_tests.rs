@@ -937,6 +937,8 @@ fn test_to_request_context_maps_fields() {
         channel: "feishu".into(),
         timestamp: 1700000000,
         chat_name: "test-group".into(),
+        trace_id: None,
+        session_key: None,
     };
     let ctx = meta.to_request_context();
     assert_eq!(ctx.sender_id, "ou_sender_123");
@@ -967,6 +969,8 @@ fn test_to_request_context_empty_fields() {
         channel: String::new(),
         timestamp: 0,
         chat_name: String::new(),
+        trace_id: None,
+        session_key: None,
     };
     let ctx = meta.to_request_context();
     assert!(ctx.sender_id.is_empty());
