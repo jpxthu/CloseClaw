@@ -15,21 +15,16 @@ use super::*;
 // No additional imports needed — types used by VerbosityAwareChain impl are
 // accessed via the crate-level `closeclaw_processor_chain` re-exports.
 use closeclaw_common::VerbosityLevel;
-use std::sync::atomic::AtomicUsize;
 
 // ── Verbosity-aware mock ProcessorChain ────────────────────────────────────
 
 /// A mock that applies real VerbosityFilter logic in
 /// `process_outbound_incremental`.
-struct VerbosityAwareChain {
-    _incremental_call_count: AtomicUsize,
-}
+struct VerbosityAwareChain;
 
 impl VerbosityAwareChain {
     fn new() -> Self {
-        Self {
-            _incremental_call_count: AtomicUsize::new(0),
-        }
+        Self
     }
 }
 

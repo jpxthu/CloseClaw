@@ -6,6 +6,7 @@ use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
+use closeclaw_common::processor::{ProcessedMessage, ProcessorChain};
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::UnifiedUsage;
 use closeclaw_llm::types::{ContentBlock, ContentBlockType};
@@ -150,11 +151,10 @@ pub(crate) async fn notify_batch_send_failure(
 
 /// Send text messages from `outbound` into `state` and dispatch to the user.
 ///
-/// When `ctx.registry` is available, each text chunk is wrapped in a
-/// [`ProcessedMessage`] (single Text block) and processed through the
-/// incremental-phase chain ([`ProcessorChain::process_outbound_incremental`]).
-/// Only VerbosityFilter executes here; DslParser and OutboundRawLog are
-/// skipped per design doc.
+/// When `ctx.registry` is available, each text chunk is processed through
+/// the incremental-phase chain ([`ProcessorChain::process_outbound_incremental`])
+/// via [`process_single_through_chain`]. Only VerbosityFilter executes here;
+/// DslParser and OutboundRawLog are skipped per design doc.
 ///
 /// When `ctx.registry` is `None`, text passes through unchanged
 /// (zero-overhead passthrough).
@@ -163,21 +163,17 @@ pub(crate) async fn dispatch_text(
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
-    if let Some(registry) = ctx.registry {
-        for text in out.text_messages {
-            let msg = closeclaw_common::processor::ProcessedMessage {
-                content_blocks: vec![ContentBlock::Text(text.clone())],
-                metadata: std::collections::HashMap::from([(
-                    "verbosity_level".to_string(),
-                    state.verbosity_level.to_string(),
-                )]),
-            };
-            match registry.process_outbound_incremental(msg).await {
-                Ok(processed) => {
-                    for block in &processed.content_blocks {
+    for text in out.text_messages {
+        if let Some(registry) = ctx.registry {
+            let block = ContentBlock::Text(text.clone());
+            match process_single_through_chain(registry.as_ref(), &block, state.verbosity_level)
+                .await
+            {
+                Ok(processed_blocks) => {
+                    for block in &processed_blocks {
                         send_render_block(ctx, block).await?;
                     }
-                    state.content_blocks.extend(processed.content_blocks);
+                    state.content_blocks.extend(processed_blocks);
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -188,9 +184,7 @@ pub(crate) async fn dispatch_text(
                     state.content_blocks.push(ContentBlock::Text(text));
                 }
             }
-        }
-    } else {
-        for text in out.text_messages {
+        } else {
             send_text(ctx, &text).await?;
             state.content_blocks.push(ContentBlock::Text(text));
         }
@@ -265,6 +259,34 @@ pub(crate) async fn send_render_block(
         }
     }
     Ok(())
+}
+
+/// Process a single block through the incremental-phase processor chain.
+///
+/// Wraps the block in a [`ProcessedMessage`] (with `verbosity_level` metadata)
+/// and calls [`ProcessorChain::process_outbound_incremental`]. Returns the
+/// processed content blocks on success, or an error on failure (caller
+/// handles fallback).
+///
+/// This is the shared helper used by both [`dispatch_text`] and
+/// `process_and_send_non_text_blocks` to eliminate duplicated chain
+/// processing logic (E2 review DRY fix).
+pub(crate) async fn process_single_through_chain(
+    registry: &dyn ProcessorChain,
+    block: &ContentBlock,
+    verbosity_level: VerbosityLevel,
+) -> Result<Vec<ContentBlock>, closeclaw_common::processor::ProcessError> {
+    let msg = ProcessedMessage {
+        content_blocks: vec![block.clone()],
+        metadata: std::collections::HashMap::from([(
+            "verbosity_level".to_string(),
+            verbosity_level.to_string(),
+        )]),
+    };
+    registry
+        .process_outbound_incremental(msg)
+        .await
+        .map(|processed| processed.content_blocks)
 }
 
 /// Build outbound metadata from key-value pairs.

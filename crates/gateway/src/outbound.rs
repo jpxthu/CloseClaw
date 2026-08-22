@@ -6,7 +6,8 @@
 use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::{
     dispatch_text, log_middleware_rejection, make_outbound_meta, merge_dsl_results,
-    notify_batch_send_failure, send_render_block, StreamContext, StreamState,
+    notify_batch_send_failure, process_single_through_chain, send_render_block, StreamContext,
+    StreamState,
 };
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
@@ -896,21 +897,16 @@ impl Gateway {
         block_type: ContentBlockType,
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
-        if let Some(registry) = ctx.registry {
-            for block in render_blocks {
-                let msg = ProcessedMessage {
-                    content_blocks: vec![block.clone()],
-                    metadata: std::collections::HashMap::from([(
-                        "verbosity_level".to_string(),
-                        state.verbosity_level.to_string(),
-                    )]),
-                };
-                match registry.process_outbound_incremental(msg).await {
-                    Ok(processed) => {
-                        for processed_block in &processed.content_blocks {
+        for block in render_blocks {
+            if let Some(registry) = ctx.registry {
+                match process_single_through_chain(registry.as_ref(), block, state.verbosity_level)
+                    .await
+                {
+                    Ok(processed_blocks) => {
+                        for processed_block in &processed_blocks {
                             send_render_block(ctx, processed_block).await?;
                         }
-                        state.content_blocks.extend(processed.content_blocks);
+                        state.content_blocks.extend(processed_blocks);
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -922,12 +918,10 @@ impl Gateway {
                         state.content_blocks.push(block.clone());
                     }
                 }
-            }
-        } else {
-            for block in render_blocks {
+            } else {
                 send_render_block(ctx, block).await?;
+                state.content_blocks.push(block.clone());
             }
-            state.content_blocks.extend_from_slice(render_blocks);
         }
         Ok(())
     }
