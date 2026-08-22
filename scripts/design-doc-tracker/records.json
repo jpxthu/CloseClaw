@@ -208,6 +208,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/gateway/outbound-flow.md",
+    "commit": "c1c56b1634d668fbe661d4a64edc246b69f6b1b5",
+    "commit_time": "2026-08-22T09:52:23+08:00",
+    "confirmed_time": "2026-08-22T10:05:50.480677+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/im_adapter/README.md",
     "commit": "08de6958e25cbab77e576f3263a723f0ab9f8d1d",
     "commit_time": "2026-08-19T03:51:12+08:00",
