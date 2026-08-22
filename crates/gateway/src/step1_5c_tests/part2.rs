@@ -63,22 +63,25 @@ async fn test_incremental_dsl_accumulates_into_dsl_result() {
         .await
         .unwrap();
 
-    // Both DSL lines parsed, stripped, no clean text sent.
-    assert_eq!(plugin.drain_sent().len(), 0);
+    // Both DSL lines sent as-is during streaming (no DSL stripping).
+    assert_eq!(plugin.drain_sent().len(), 2);
 
-    // dsl_result contains both accumulated instructions.
-    let dsl = result
-        .dsl_result
-        .as_ref()
-        .expect("dsl_result should be present");
-    let parsed: DslParseResult = serde_json::from_str(dsl).unwrap();
+    // DSL lines pass through in content_blocks (mock doesn't strip in finish).
+    let text_blocks: Vec<String> = result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        parsed.instructions.len(),
+        text_blocks.len(),
         2,
-        "both DSL instructions accumulated"
+        "both DSL lines should be in content_blocks"
     );
-    assert_eq!(parsed.instructions[0].instruction_type, "button");
-    assert_eq!(parsed.instructions[1].params["label"], "No");
+    assert!(text_blocks[0].contains("::button"));
+    assert!(text_blocks[1].contains("::button"));
 }
 
 /// DSL instructions from streaming are merged with any finish-phase DslParser
@@ -133,20 +136,27 @@ async fn test_dsl_mixed_with_non_dsl_accumulates_correctly() {
         .await
         .unwrap();
 
-    // Only non-DSL text sent.
+    // All lines sent as-is during streaming.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 2);
+    assert_eq!(sent.len(), 3, "all lines should be sent");
     assert_eq!(extract_text(&sent[0]), "Hello\n");
-    assert_eq!(extract_text(&sent[1]), "World\n");
+    assert!(extract_text(&sent[1]).contains("::selector"));
+    assert_eq!(extract_text(&sent[2]), "World\n");
 
-    // DSL instruction accumulated.
-    let dsl = result
-        .dsl_result
-        .as_ref()
-        .expect("dsl_result should be present");
-    let parsed: DslParseResult = serde_json::from_str(dsl).unwrap();
-    assert_eq!(parsed.instructions.len(), 1);
-    assert_eq!(parsed.instructions[0].instruction_type, "selector");
+    // All lines in content_blocks.
+    let text_blocks: Vec<String> = result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        text_blocks.len(),
+        3,
+        "all lines should be in content_blocks"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -233,10 +243,11 @@ async fn test_finish_phase_skips_verbosity_filter() {
         .await
         .unwrap();
 
-    // Streaming: Thinking filtered, DSL stripped → only clean text sent.
+    // Streaming: Thinking filtered, all text lines sent as-is.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 1);
-    assert_eq!(extract_text(&sent[0]), "Pick one:");
+    assert_eq!(sent.len(), 2, "both text lines should be sent as-is");
+    assert_eq!(extract_text(&sent[0]), "Pick one:\n");
+    assert!(extract_text(&sent[1]).contains("::button"));
 
     // Post-stream: no Thinking in result (filtered during streaming).
     let has_thinking = result
@@ -245,8 +256,7 @@ async fn test_finish_phase_skips_verbosity_filter() {
         .any(|b| matches!(b, ContentBlock::Thinking { .. }));
     assert!(!has_thinking, "Thinking should be filtered at Normal level");
 
-    // dsl_result: DslParser ran in finish phase (process_outbound_without_verbosity
-    // still invokes DslParser, just skips VerbosityFilter).
+    // dsl_result: DslParser ran in finish phase, stripping DSL from content_blocks.
     let dsl = result
         .dsl_result
         .as_ref()

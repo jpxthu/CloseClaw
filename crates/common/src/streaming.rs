@@ -120,14 +120,6 @@ impl LineBuffer {
             }
             if backtick_run >= 3 {
                 if in_code {
-                    // Closing fence: strip trailing ```
-                    // from output in WholeBlock mode.
-                    if self.code_block_mode == CodeBlockMode::WholeBlock {
-                        let fence = "`".repeat(backtick_run);
-                        if let Some(pos) = current_line.rfind(&fence) {
-                            current_line.truncate(pos);
-                        }
-                    }
                     in_code = false;
                 } else {
                     in_code = true;

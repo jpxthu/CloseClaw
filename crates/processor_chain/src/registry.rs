@@ -143,14 +143,16 @@ fn synthetic_from_output(output: &ProcessedMessage) -> NormalizedMessage {
 }
 
 impl ProcessorRegistry {
-    /// Internal helper: drive the outbound chain with an optional name filter.
+    /// Internal helper: drive the outbound chain with optional name filters.
     ///
-    /// When `exclude` is set, any processor whose name matches is skipped.
-    /// This allows running DslParser + OutboundRawLog without VerbosityFilter.
+    /// When `exclude` is non-empty, any processor whose name matches any entry
+    /// is skipped. This allows running partial chains (e.g. skip DslParser +
+    /// OutboundRawLog in the incremental phase, or skip VerbosityFilter in the
+    /// DslParser-only path).
     async fn process_outbound_filtered(
         &self,
         llm_output: ProcessedMessage,
-        exclude: Option<&str>,
+        exclude: &[&str],
     ) -> Result<ProcessedMessage, ProcessError> {
         if self.outbound.is_empty() {
             return Ok(llm_output);
@@ -167,7 +169,7 @@ impl ProcessorRegistry {
             if ctx.skip {
                 break;
             }
-            if exclude == Some(processor.name()) {
+            if exclude.contains(&processor.name()) {
                 continue;
             }
             match processor.process(&ctx).await {
@@ -226,7 +228,7 @@ impl ProcessorRegistry {
         &self,
         llm_output: ProcessedMessage,
     ) -> Result<ProcessedMessage, ProcessError> {
-        self.process_outbound_filtered(llm_output, None).await
+        self.process_outbound_filtered(llm_output, &[]).await
     }
 }
 
@@ -296,7 +298,7 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
             content_blocks: msg.content_blocks,
             metadata: msg.metadata,
         };
-        self.process_outbound_filtered(main_msg, Some("verbosity_filter"))
+        self.process_outbound_filtered(main_msg, &["verbosity_filter"])
             .await
             .map(convert_processed_message)
             .map_err(convert_process_error)
@@ -313,7 +315,10 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
             content_blocks: msg.content_blocks,
             metadata: msg.metadata,
         };
-        self.process_outbound_filtered(main_msg, Some("outbound_raw_log"))
+        // Incremental phase skips DslParser (zero-overhead passthrough, per
+        // design doc) and OutboundRawLog.  Only VerbosityFilter executes here;
+        // full DslParser parsing is deferred to the finish phase.
+        self.process_outbound_filtered(main_msg, &["DslParser", "outbound_raw_log"])
             .await
             .map(convert_processed_message)
             .map_err(convert_process_error)
