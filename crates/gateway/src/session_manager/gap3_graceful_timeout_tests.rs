@@ -7,7 +7,7 @@
 //! - Caller choosing to continue waiting → session not cleaned up
 //! - `process_stop_level` escalates to forceful on graceful timeout
 
-use super::stop::GracefulStopOutcome;
+use super::stop::{GracefulStopOutcome, StopOptions};
 use super::test_helpers::{register_child_only, setup_parent_with_conv};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
@@ -89,8 +89,11 @@ async fn test_graceful_stop_returns_timedout_with_progress() {
             "child-gto-1",
             ShutdownMode::Graceful,
             false,
-            Duration::ZERO,
-            None,
+            StopOptions {
+                timeout: Duration::ZERO,
+                progress_tx: None,
+                clear_queue: false,
+            },
         )
         .await;
 
@@ -130,8 +133,11 @@ async fn test_graceful_timeout_waiting_items_describe_inflight() {
             "child-gto-2",
             ShutdownMode::Graceful,
             false,
-            Duration::ZERO,
-            None,
+            StopOptions {
+                timeout: Duration::ZERO,
+                progress_tx: None,
+                clear_queue: false,
+            },
         )
         .await;
 
@@ -167,8 +173,11 @@ async fn test_caller_forceful_after_timeout_cleans_session() {
             "child-gto-3",
             ShutdownMode::Graceful,
             false,
-            Duration::ZERO,
-            None,
+            StopOptions {
+                timeout: Duration::ZERO,
+                progress_tx: None,
+                clear_queue: false,
+            },
         )
         .await;
     assert!(
@@ -196,8 +205,11 @@ async fn test_caller_forceful_after_timeout_cleans_session() {
             "child-gto-3",
             ShutdownMode::Forceful,
             false,
-            Duration::ZERO,
-            None,
+            StopOptions {
+                timeout: Duration::ZERO,
+                progress_tx: None,
+                clear_queue: false,
+            },
         )
         .await;
     assert!(
@@ -237,8 +249,11 @@ async fn test_caller_continue_waiting_session_not_cleaned() {
             "child-gto-4",
             ShutdownMode::Graceful,
             false,
-            Duration::ZERO,
-            None,
+            StopOptions {
+                timeout: Duration::ZERO,
+                progress_tx: None,
+                clear_queue: false,
+            },
         )
         .await;
     assert!(matches!(outcome, Ok(GracefulStopOutcome::TimedOut { .. })));
@@ -333,8 +348,11 @@ async fn test_graceful_idle_completes_immediately_gto() {
             "child-gto-6",
             ShutdownMode::Graceful,
             false,
-            Duration::from_secs(30),
-            None,
+            StopOptions {
+                timeout: Duration::from_secs(30),
+                progress_tx: None,
+                clear_queue: false,
+            },
         )
         .await;
     assert!(
