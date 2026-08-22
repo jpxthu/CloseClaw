@@ -623,3 +623,147 @@ async fn e2e_agent_workspace() {
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.3 test case
+// ---------------------------------------------------------------------------
+
+/// §F1 tool allow/deny: agent config.json `tools` whitelist +
+/// `disallowed_tools` blacklist constrain which tools the agent may use.
+///
+/// Design:
+/// - Agent config sets `tools: ["Read", "Write"]` (whitelist) and
+///   `disallowed_tools: ["Bash"]` (blacklist). Tools outside the whitelist
+///   are never sent to the LLM; tools on the blacklist are explicitly denied
+///   even if they appear in the whitelist.
+/// - Fake LLM scenario `tool-allow-deny-call` (model_id
+///   `gpt-4o-tool-allow-deny`) returns a `tool_call` response containing
+///   calls to both `Read` (whitelisted) and `Bash` (blacklisted).
+/// - In the expected-pass state (Blocker B resolved), the daemon would:
+///     1. Build the system prompt with only `Read` and `Write` tools
+///        (via `get_tool_descriptors` filtering) — the LLM never sees
+///        `Bash` in the tool schema.
+///     2. Receive the tool_call response; `Read` executes (file read via
+///        tempfile path), `Bash` is rejected by `check_tool_permission`
+///        (disallowed_tools check).
+///     3. The rejection is observable in the chat response (tool result
+///        containing a deny/error message) and/or daemon stderr.
+///
+/// Observation method selection (rationale): The chat response is the most
+/// reliable observation point because:
+/// - It is the user-visible output channel (the agent's reply to the user).
+/// - Tool results (including rejections) are serialized as ContentBlock::
+///   ToolResult in the response, making deny/error messages directly
+///   inspectable.
+/// - Daemon stderr is less reliable for assertion because log format may
+///   change and requires log-level configuration.
+///
+/// Degradation: Since Blocker B (`SkillListingProviderWrapper` panic in
+/// bridge.rs:186, `Handle::block_on` in async context) prevents any LLM
+/// request from being issued, the fake LLM never receives the request and
+/// the tool_call path is never exercised. This test asserts the observable
+/// infrastructure contract today: (1) the agent config with tools/
+/// disallowed_tools fields is loaded without error, (2) the daemon starts
+/// and responds to chat protocol frames. Once Blocker B is resolved, tighten
+/// the assertions to verify tool execution (Read result in response) and
+/// tool rejection (Bash denied in response).
+///
+/// Tool design: Uses `Read` (built-in file read tool) targeting a tempfile
+/// path — no external network or process dependencies, satisfying the
+/// STANDARDS red line against heavy tool副作用.
+///
+/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
+/// panic. Marked `#[ignore]`.
+#[tokio::test]
+#[cfg(unix)]
+#[ignore]
+#[serial_test::serial]
+async fn e2e_agent_tool_allow_deny() {
+    let temp_dir = tempfile::tempdir().expect("temp dir for test");
+    let config_root = temp_dir.path();
+
+    // Create a target file for the Read tool to read (pure file I/O,
+    // no external dependencies).
+    let target_file = temp_dir.path().join("e2e-tool-test.txt");
+    std::fs::write(&target_file, "tool-test-content").expect("write target file for Read tool");
+
+    let fake_llm_addr = start_fake_llm().await;
+    write_config_tree(config_root, &fake_llm_addr.to_string());
+
+    // Override agent config: whitelist Read+Write, blacklist Bash.
+    let agent_dir = config_root.join("agents").join("master");
+    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+    std::fs::write(
+        agent_dir.join("config.json"),
+        serde_json::json!({
+            "id": "master",
+            "name": "Master",
+            "model": "openai/gpt-4o-tool-allow-deny",
+            "tools": ["Read", "Write"],
+            "disallowed_tools": ["Bash"],
+            "skills": ["*"]
+        })
+        .to_string(),
+    )
+    .expect("write agent config with tool allow/deny");
+
+    let daemon = Command::new(closeclaw_binary())
+        .args(["run", "--config-dir"])
+        .arg(config_root.as_os_str())
+        .arg("--foreground")
+        .current_dir(config_root.join("config"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("failed to spawn daemon");
+    let mut daemon = DaemonGuard(daemon);
+    wait_for_daemon_ready(config_root).await;
+
+    // Assert daemon survived startup with tool allow/deny config.
+    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
+        panic!("daemon exited prematurely during startup: {status:?}");
+    }
+
+    // Send a message — triggers the tool-allow-deny-call scenario.
+    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "use tools please").await;
+
+    // Protocol contract: at least one frame, exactly one terminal frame,
+    // and the daemon is still alive afterwards.
+    assert!(
+        !frames.is_empty(),
+        "chat RPC should answer with at least one frame, got none"
+    );
+    let terminal: Vec<&serde_json::Value> = frames
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.get("type").and_then(|t| t.as_str()),
+                Some("done") | Some("error")
+            )
+        })
+        .collect();
+    assert_eq!(
+        terminal.len(),
+        1,
+        "expected exactly one terminal (Done/Error) frame, got {terminal:?} among {frames:?}"
+    );
+
+    // Daemon must still be alive after the chat turn.
+    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon after turn") {
+        panic!("daemon died during chat turn: {status:?}");
+    }
+
+    // --- Future assertions (Blocker B resolved) ---
+    // When the LLM caller is connected, tighten these assertions:
+    // 1. Assert Read tool result appears in response (whitelisted tool
+    //    executed): response frames contain a ToolResult content block
+    //    with the file content.
+    // 2. Assert Bash tool is rejected: response frames contain a ToolResult
+    //    or error message indicating the tool is disallowed.
+    // 3. Optionally assert daemon stderr contains a deny log entry for
+    //    the Bash tool call.
+
+    let status = daemon.shutdown().await;
+    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+}
