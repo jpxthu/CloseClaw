@@ -46,11 +46,12 @@ use closeclaw_common::{
     RenderedOutput,
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
-use closeclaw_debug_log::DebugLog;
+use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
 use closeclaw_gateway::Message;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, warn};
 
 use super::PlatformEntry;
@@ -336,6 +337,97 @@ impl FeishuPlugin {
             content_blocks: None,
         }
     }
+
+    /// Emit a structured debug_log event asynchronously.
+    ///
+    /// Centralizes the repeated pattern: check debug_log, acquire trace_id,
+    /// build event, spawn async send. Callers only supply `event_type` and
+    /// `payload`. Skips silently when debug_log is None or trace_id is empty.
+    fn emit_debug_event(&self, event_type: &str, payload: serde_json::Value) {
+        let debug_log = match self.debug_log {
+            Some(ref dl) => dl.clone(),
+            None => return,
+        };
+        let trace_id = self
+            .adapter
+            .last_metadata
+            .try_lock()
+            .ok()
+            .and_then(|m| m.get("trace_id").cloned());
+        match trace_id {
+            Some(tid) if !tid.is_empty() => {
+                let ctx = TraceContext::new_root(tid);
+                let event =
+                    LogEvent::new(&ctx, None, LogLevel::Info, "feishu", event_type, payload);
+                tokio::spawn(async move {
+                    debug_log.log(event).await;
+                });
+            }
+            _ => {
+                warn!(
+                    event_type = %event_type,
+                    "emit_debug_event: try_lock failed or trace_id empty — skipping"
+                );
+            }
+        }
+    }
+
+    /// Normalize content and apply identity mapping to an inbound message.
+    fn normalize_inbound_message(&self, msg: &mut NormalizedMessage) {
+        msg.content = normalize_urls(&msg.content);
+        msg.content = add_code_block_language_hint(&msg.content);
+        if let Some(resolver) = self.identity_resolver() {
+            msg.account_id = resolver
+                .resolve(&msg.platform, &msg.sender_id)
+                .unwrap_or(std::mem::take(&mut msg.account_id));
+        }
+    }
+
+    /// Dispatch a rendered output to the platform send API.
+    async fn dispatch_send(
+        &self,
+        peer_id: &str,
+        output: &RenderedOutput,
+        thread_id: Option<&str>,
+    ) -> Result<(), CommonAdapterError> {
+        match output.msg_type.as_str() {
+            "text" => {
+                let text = output
+                    .payload
+                    .get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                let message = Self::make_text_message(peer_id, text);
+                if let Err(e) = self.adapter.send_message(&message, thread_id).await {
+                    warn!(peer_id = %peer_id, error = %e,
+                        "Feishu text send failed — returning Ok(()) per design doc");
+                    Ok(())
+                } else {
+                    Ok(())
+                }
+            }
+            "interactive" => {
+                let card_json = serde_json::to_string(&output.payload)
+                    .map_err(|e| CommonAdapterError::SendFailed(e.to_string()))?;
+                match self
+                    .adapter
+                    .send_card_json(peer_id, &card_json, thread_id)
+                    .await
+                {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        warn!(peer_id = %peer_id, error = %e,
+                            "Feishu interactive card send failed — falling back to plain text");
+                        self.send_interactive_fallback(peer_id, output, thread_id)
+                            .await;
+                        Ok(())
+                    }
+                }
+            }
+            _ => Err(CommonAdapterError::UnsupportedOperation),
+        }
+    }
 }
 
 #[async_trait]
@@ -348,21 +440,47 @@ impl IMPlugin for FeishuPlugin {
         &self,
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, CommonAdapterError> {
+        // Generate trace_id at webhook arrival for cross-chain correlation.
+        let trace_id = uuid::Uuid::new_v4().to_string();
+
+        let start = Instant::now();
         let mut msg = self
             .adapter
             .parse_inbound(payload)
             .await
             .map_err(convert_to_common_error)?;
-        if let Some(ref mut m) = msg {
-            m.content = normalize_urls(&m.content);
-            m.content = add_code_block_language_hint(&m.content);
-            // Apply identity mapping: map (platform, sender_id) → account_id
-            if let Some(resolver) = self.identity_resolver() {
-                m.account_id = resolver
-                    .resolve(&m.platform, &m.sender_id)
-                    .unwrap_or(std::mem::take(&mut m.account_id));
-            }
+        let parse_duration_ms = start.elapsed().as_millis() as u64;
+
+        // Re-insert trace_id after adapter call — adapter's parse_message_event
+        // clears last_metadata and repopulates it with chat_name.
+        {
+            let mut meta = self.adapter.last_metadata.lock().await;
+            meta.insert("trace_id".to_string(), trace_id.clone());
         }
+
+        if let Some(ref mut m) = msg {
+            self.normalize_inbound_message(m);
+        }
+
+        // Emit structured debug_log event for inbound parse.
+        let message_type = msg
+            .as_ref()
+            .map(|m| {
+                serde_json::to_value(&m.message_type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        self.emit_debug_event(
+            "inbound.parse",
+            serde_json::json!({
+                "platform": "feishu",
+                "message_type": message_type,
+                "parse_duration_ms": parse_duration_ms,
+            }),
+        );
+
         Ok(msg)
     }
 
@@ -418,8 +536,22 @@ impl IMPlugin for FeishuPlugin {
             return build_text("");
         }
 
+        let start = Instant::now();
         let (title, elements) = renderer::dispatch_blocks(content_blocks, dsl_result, true);
-        build_card(title, elements)
+        let output = build_card(title, elements);
+        let render_duration_ms = start.elapsed().as_millis() as u64;
+
+        // Emit structured debug_log event for outbound render.
+        self.emit_debug_event(
+            "outbound.render",
+            serde_json::json!({
+                "platform": "feishu",
+                "msg_type": output.msg_type,
+                "render_duration_ms": render_duration_ms,
+            }),
+        );
+
+        output
     }
 
     async fn send(
@@ -428,48 +560,25 @@ impl IMPlugin for FeishuPlugin {
         peer_id: &str,
         _thread_id: Option<&str>,
     ) -> Result<(), CommonAdapterError> {
-        match output.msg_type.as_str() {
-            "text" => {
-                let text = output
-                    .payload
-                    .get("content")
-                    .and_then(|c| c.get("text"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
-                let message = Self::make_text_message(peer_id, text);
-                if let Err(e) = self.adapter.send_message(&message, _thread_id).await {
-                    warn!(
-                        peer_id = %peer_id,
-                        error = %e,
-                        "Feishu text send failed — returning Ok(()) per design doc"
-                    );
-                    return Ok(());
-                }
-                Ok(())
-            }
-            "interactive" => {
-                let card_json = serde_json::to_string(&output.payload)
-                    .map_err(|e| CommonAdapterError::SendFailed(e.to_string()))?;
-                match self
-                    .adapter
-                    .send_card_json(peer_id, &card_json, _thread_id)
-                    .await
-                {
-                    Ok(()) => Ok(()),
-                    Err(e) => {
-                        warn!(
-                            peer_id = %peer_id,
-                            error = %e,
-                            "Feishu interactive card send failed — falling back to plain text"
-                        );
-                        self.send_interactive_fallback(peer_id, output, _thread_id)
-                            .await;
-                        Ok(())
-                    }
-                }
-            }
-            _ => Err(CommonAdapterError::UnsupportedOperation),
-        }
+        let msg_type = output.msg_type.clone();
+        let start = Instant::now();
+        let result = self.dispatch_send(peer_id, output, _thread_id).await;
+        let send_duration_ms = start.elapsed().as_millis() as u64;
+        let success = result.is_ok();
+
+        // Emit structured debug_log event for outbound send.
+        self.emit_debug_event(
+            "outbound.send",
+            serde_json::json!({
+                "platform": "feishu",
+                "peer_id": peer_id,
+                "msg_type": msg_type,
+                "send_duration_ms": send_duration_ms,
+                "success": success,
+            }),
+        );
+
+        result
     }
 
     async fn shutdown(&self) -> Result<(), CommonAdapterError> {
