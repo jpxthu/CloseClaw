@@ -5,7 +5,8 @@
 //! VerbosityFilter → DslParser → OutboundRawLog in order.
 //!
 //! **Incremental-phase tests** verify `process_outbound_incremental`:
-//! runs VerbosityFilter + DslParser while skipping OutboundRawLog.
+//! runs VerbosityFilter only, skipping DslParser and OutboundRawLog
+//! (DslParser is a zero-overhead passthrough per the design doc).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -257,12 +258,10 @@ impl MessageProcessor for TestProc {
     }
 }
 
-/// Incremental phase: OutboundRawLog should be skipped.
-///
-/// Registers VerbosityFilter + DslParser + OutboundRawLog.
-/// `process_outbound_incremental` must only run the first two.
+/// Incremental phase: only VerbosityFilter runs; DslParser and OutboundRawLog
+/// are both skipped (DslParser is a zero-overhead passthrough per design doc).
 #[tokio::test]
-async fn test_incremental_skips_outbound_raw_log() {
+async fn test_incremental_skips_dsl_parser_and_raw_log() {
     let vf_counter = Arc::new(AtomicUsize::new(0));
     let verbosity = Arc::new(TestProc {
         name: "verbosity_filter".to_string(),
@@ -273,7 +272,7 @@ async fn test_incremental_skips_outbound_raw_log() {
     });
     let dsl_counter = Arc::new(AtomicUsize::new(0));
     let dsl = Arc::new(TestProc {
-        name: "dsl_parser".to_string(),
+        name: "DslParser".to_string(),
         phase: ProcessPhase::Outbound,
         priority: 10,
         call_counter: dsl_counter.clone(),
@@ -306,16 +305,16 @@ async fn test_incremental_skips_outbound_raw_log() {
     );
     assert_eq!(
         dsl_counter.load(Ordering::SeqCst),
-        1,
-        "dsl_parser should run"
+        0,
+        "dsl_parser must be skipped (zero-overhead passthrough in incremental phase)"
     );
     assert_eq!(
         raw_log_counter.load(Ordering::SeqCst),
         0,
         "outbound_raw_log must be skipped"
     );
-    // Output reflects last executed processor (dsl_parser)
-    assert_eq!(result.text_content(), Some("dsl_parser"));
+    // Output reflects last executed processor (verbosity_filter)
+    assert_eq!(result.text_content(), Some("verbosity_filter"));
 }
 
 /// Incremental phase: VerbosityFilter filters Thinking blocks.
@@ -343,12 +342,12 @@ async fn test_incremental_verbosity_filter_works() {
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "visible text"));
 }
 
-/// Incremental phase: DslParser strips DSL lines from Text blocks.
+/// Incremental phase: DslParser is a passthrough, DSL lines are not stripped.
 ///
-/// Input contains a DSL line + plain text. DslParser should strip the
-/// DSL line and produce a clean text + DSL result in metadata.
+/// Input contains a DSL line + plain text. DslParser is skipped in the
+/// incremental phase, so both blocks pass through unchanged.
 #[tokio::test]
-async fn test_incremental_dsl_parser_strips_dsl() {
+async fn test_incremental_dsl_parser_passthrough() {
     let mut registry = ProcessorRegistry::new();
     registry.register(Arc::new(VerbosityFilter));
     registry.register(Arc::new(DslParser));
@@ -363,11 +362,14 @@ async fn test_incremental_dsl_parser_strips_dsl() {
     };
     let result = registry.process_outbound_incremental(msg).await.unwrap();
 
-    // DSL line stripped, plain text kept
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello world"));
-    let dsl = result.metadata.get("dsl_result").unwrap();
-    assert!(dsl.contains("button"));
+    // DslParser skipped — both text blocks pass through unchanged
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(
+        matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "::button[label:OK;action:submit]")
+    );
+    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "Hello world"));
+    // No DSL result in metadata since DslParser did not run
+    assert!(result.metadata.get("dsl_result").is_none());
 }
 
 /// Default trait implementation: non-registry impl delegates to full outbound chain.

@@ -6,7 +6,6 @@ use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
-use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::UnifiedUsage;
 use closeclaw_llm::types::{ContentBlock, ContentBlockType};
@@ -17,8 +16,8 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 /// `session_id` and `channel` are retained as session metadata for potential
 /// future use by stream handlers or logging.
 ///
-/// `registry` provides per-chunk DSL parsing during the incremental phase.
-/// When `None`, `dispatch_text` passes text through unchanged (zero overhead).
+/// `registry` is reserved for future per-chunk processing. Currently,
+/// `dispatch_text` passes text through unchanged (zero overhead).
 #[allow(dead_code)] // read cross-module in outbound.rs
 pub(crate) struct StreamContext<'a> {
     pub gateway: &'a Gateway,
@@ -40,9 +39,9 @@ pub(crate) struct StreamState {
     pub media_name: Option<String>,
     pub media_url: Option<String>,
     /// DSL instructions accumulated during the incremental phase.
-    /// Each text chunk is parsed via [`ProcessorChain::process_outbound_incremental`];
-    /// DSL lines are stripped from the text sent to the user and their
-    /// parsed instructions are collected here for the finish phase.
+    /// Currently always empty — DslParser is a zero-overhead passthrough in
+    /// the incremental phase (design doc). Full DSL parsing is deferred to
+    /// the finish phase via `process_outbound_without_verbosity`.
     pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
 }
 
@@ -161,70 +160,19 @@ pub(crate) async fn notify_batch_send_failure(
 ///
 /// When `registry` is `None`, text passes through unchanged
 /// (zero-overhead passthrough).
-/// Extract clean text and DSL instructions from the incremental-phase
-/// processor chain result for a single text chunk.
+/// Send text messages from `outbound` into `state` and dispatch to the user.
 ///
-/// Returns `(clean_text, dsl_instructions)` where `clean_text` is the
-/// text with DSL lines stripped, and `dsl_instructions` are the parsed
-/// DSL directives accumulated from the incremental phase.
-async fn extract_dsl_from_incremental_result(
-    registry: &std::sync::Arc<dyn closeclaw_common::processor::ProcessorChain>,
-    text: &str,
-) -> Result<(String, Vec<closeclaw_common::processor::DslInstruction>), GatewayError> {
-    let msg = ProcessedMessage::from_raw_content(text.to_string());
-    let result = registry
-        .process_outbound_incremental(msg)
-        .await
-        .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-    let dsl = result
-        .metadata
-        .get("dsl_result")
-        .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
-        .map(|r| r.instructions)
-        .unwrap_or_default();
-    let clean = result
-        .content_blocks
-        .into_iter()
-        .find_map(|b| match b {
-            ContentBlock::Text(t) => Some(t),
-            _ => None,
-        })
-        .unwrap_or_default();
-    Ok((clean, dsl))
-}
-
+/// DslParser is a zero-overhead passthrough during the incremental phase
+/// (design doc), so text is sent through without DSL stripping. Full DSL
+/// parsing is deferred to the finish phase.
 pub(crate) async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        let original = text.clone();
-        let (clean_text, dsl_instructions) = match ctx.registry {
-            Some(registry) => extract_dsl_from_incremental_result(registry, &original).await?,
-            None => (text, vec![]),
-        };
-        // When DslParser strips all content (DSL-only text), clean_text
-        // is empty but the fallback returns the original text. Detect this
-        // by comparing with the original to avoid pushing DSL text to
-        // content blocks (which would cause duplicate DSL parsing in the
-        // finish phase).
-        if clean_text.is_empty() {
-            // All content was DSL — don't send or accumulate.
-        } else if clean_text == original && dsl_instructions.is_empty() {
-            // No DSL was present — send and accumulate the original.
-            send_text(ctx, &clean_text).await?;
-            state.content_blocks.push(ContentBlock::Text(original));
-        } else if clean_text == original {
-            // Fallback: DSL was detected but couldn't be stripped.
-            // Don't push to content blocks to avoid duplicate DSL parsing
-            // in the finish phase. DSL instructions are already accumulated.
-        } else {
-            // DSL was stripped — send clean text only.
-            send_text(ctx, &clean_text).await?;
-            state.content_blocks.push(ContentBlock::Text(clean_text));
-        }
-        state.dsl_instructions.extend(dsl_instructions);
+        send_text(ctx, &text).await?;
+        state.content_blocks.push(ContentBlock::Text(text));
     }
     Ok(())
 }

@@ -703,6 +703,87 @@ fn test_whole_block_outside_codeblock_threshold_works() {
     assert_eq!(out[0].chars().count(), 120);
 }
 
+// ── WholeBlock closing fence preservation (Step 1.2) ──────────────────────
+
+/// WholeBlock mode: closing fence (```` ``` ````) is preserved in the emitted
+/// output. Per the design doc, the complete code block (opening fence +
+/// content + closing fence) is emitted as one unit.
+#[test]
+fn test_whole_block_preserves_closing_fence() {
+    let mut buf = LineBuffer::new().with_code_block_mode(CodeBlockMode::WholeBlock);
+    let out = buf.feed("```rust\nfn main() {}\n```\n");
+    let joined = out.join("");
+    assert!(
+        joined.contains("```rust\n"),
+        "opening fence must be present in output: {:?}",
+        joined
+    );
+    assert!(
+        joined.contains("fn main() {}\n"),
+        "code content must be present in output: {:?}",
+        joined
+    );
+    assert!(
+        joined.contains("```\n"),
+        "closing fence must be preserved in output: {:?}",
+        joined
+    );
+}
+
+/// WholeBlock mode: closing fence is part of the emitted block, not stripped.
+/// The entire code block (opening + content + closing) is emitted as one unit.
+#[test]
+fn test_whole_block_closing_fence_in_emitted_unit() {
+    let mut buf = LineBuffer::new().with_code_block_mode(CodeBlockMode::WholeBlock);
+    let out = buf.feed("```\ncode\n```\n");
+    // WholeBlock emits the accumulated block as one element.
+    // The closing ```\n must be part of that element.
+    assert_eq!(out.len(), 1, "WholeBlock should emit as one unit");
+    assert!(
+        out[0].ends_with("```\n"),
+        "emitted unit must end with closing fence: {:?}",
+        out[0]
+    );
+}
+
+/// LineByLine mode regression: closing fence is still emitted line-by-line
+/// (not accumulated). Each line triggers emission on newline.
+#[test]
+fn test_line_by_line_closing_fence_emitted_per_line() {
+    let mut buf = LineBuffer::new(); // Default LineByLine mode
+    let out1 = buf.feed("```rust\n");
+    assert_eq!(out1, vec!["```rust\n"]);
+    let out2 = buf.feed("fn main() {}\n");
+    assert_eq!(out2, vec!["fn main() {}\n"]);
+    let out3 = buf.feed("```\n");
+    assert_eq!(out3, vec!["```\n"]);
+}
+
+/// WholeBlock mode at renderer level: code block with closing fence
+/// is emitted as one complete unit through the renderer.
+#[test]
+fn test_renderer_whole_block_closing_fence_preserved() {
+    let mut r = DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock);
+    r.handle_event(block_start(0, ContentBlockType::Text));
+    let out = r.handle_event(text_delta("```rust\nfn main() {}\n```\n"));
+    let joined = out.text_messages.join("");
+    assert!(
+        joined.contains("```rust\n"),
+        "opening fence must be present: {:?}",
+        out.text_messages
+    );
+    assert!(
+        joined.contains("fn main() {}\n"),
+        "code content must be present: {:?}",
+        out.text_messages
+    );
+    assert!(
+        joined.contains("```\n"),
+        "closing fence must be preserved at renderer level: {:?}",
+        out.text_messages
+    );
+}
+
 // ── First-line timeout lifecycle regression (Step 1.3) ───────────────────
 
 /// Regression: after first-line timeout fires, `first_text_arrival` is
