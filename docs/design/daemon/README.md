@@ -27,6 +27,7 @@
 | 3 | IM Adapters | Renderers, ConfigManager |
 | 3 | Tools Registry | Skills Registry |
 | 3 | ArchiveSweeper | Storage, SessionConfigProvider |
+| 3 | AnnounceSweeper | Storage, SessionConfigProvider |
 | 3 | DreamingScheduler | Storage, SessionConfigProvider |
 | 3 | ApprovalFlow | Permission Engine, AgentRegistry |
 | 4 | Session Manager | LLM Registry, Storage, AgentRegistry, Skills Registry, Tools Registry, SessionConfigProvider |
@@ -70,7 +71,8 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   ├── 层 3（依赖层 2，并行初始化）
   │   ├── IM Adapters（各平台 Adapter 创建，注入对应 Renderer）
   │   ├── Tools Registry（各模块注册工具定义）
-  │   ├── ArchiveSweeper（spawn 后台任务，定时扫描 idle session 归档 + 过期 archive 清理，详见 [session-lifecycle.md](../session/session-lifecycle.md)）
+  │   ├── ArchiveSweeper（spawn 后台任务，定时扫描 idle session 归档 + 过期 archive 清理；归档前通过 SessionManager.is_active() 查询四维活跃状态——该运行时引用在 Session Manager 就绪后接线，不构成启动依赖，详见 [session-lifecycle.md](../session/session-lifecycle.md)）
+  │   ├── AnnounceSweeper（spawn 后台任务，定时扫描 spawn_tree 补推完成通知与僵死检测，详见 [run-health.md](../session/run-health.md)）
   │   ├── DreamingScheduler（spawn 后台任务，定时扫描 archived 会话，触发记忆挖掘与升格）
   │   ├── ApprovalFlow（注入 Permission Engine、AgentRegistry）
   │
@@ -127,13 +129,14 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | Tools Registry | 启动时注册所有工具 |
 | Skills Registry | 启动时创建注册表骨架，加载 bundled skills |
 | LLM Registry | 启动时读取 models.json 供应商定义与凭据文件，构造 LLM Client（UnifiedChatClient）并注入 Session Manager，由 Session Manager 传递给各 ConversationSession 使用（LLM 模块内部架构详见 [llm/README.md](../llm/README.md)） |
-| Session Manager | 启动时创建并注入依赖，Daemon 持有其所有权 |
+| Session Manager | 启动时创建并注入依赖（LLM Registry 构造的 LLM Client、storage、agent registry、tool/skill registry、session config provider），Daemon 持有其所有权 |
 | System Prompt 构建器 | SessionManager 触发构建系统 prompt，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md) |
 | Renderers / Plugins | 启动时注册各平台 Renderer |
 | IM Adapters | 启动时创建各平台适配器 |
 | Gateway | 启动时创建并注入依赖，Daemon 持有其所有权 |
 | Admin RPC Server | 启动时创建 Unix domain socket 管理服务，接收 CLI Admin 命令 |
-| ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider，详见 [session-lifecycle.md](../session/session-lifecycle.md)） |
+| ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider；归档前经 is_active() 查询 SessionManager 四维活跃状态，运行时引用，详见 [session-lifecycle.md](../session/session-lifecycle.md)） |
+| AnnounceSweeper | 启动时 spawn 后台任务，定时扫描 spawn_tree 补推完成通知与僵死检测（详见 [session/run-health.md](../session/run-health.md)） |
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
 | SpawnController | 启动时创建，负责创建并管理子 session，持有 Tools Registry 引用。由 Session Manager 在处理 spawn 请求时调用 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |

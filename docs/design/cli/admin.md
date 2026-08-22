@@ -49,29 +49,23 @@ agent 命令查询 agent 实例（列表、详情）。skill 命令管理已安�
 agent 查询的返回内容按命令区分粒度：
 
 - `agent list`：返回摘要列表，每项含 id、name、model
-- `agent info <id>`：返回该 agent 的完整配置档案（身份标识、模型及备用列表、workspace、bootstrap 模式、bootstrap 文件目录、工具白名单/黑名单、技能白名单、子 Agent 控制参数、记忆配置，字段定义见 [agent 配置字段](../agent/agent-config.md)）。权限基线不在返回集内——权限与 agent 配置独立存储、独立变更，权限查看走 rule 命令。查询不存在的 agent ID 返回错误
+- `agent info <id>`：返回该 agent 的完整配置档案（全部字段以 [agent 配置字段](../agent/agent-config.md) 为准）。权限基线不在返回集内——权限与 agent 配置独立存储、独立变更，权限查看走 rule 命令。查询不存在的 agent ID 返回错误
 
 ## 数据流
 
-```
-closeclaw <command> [args]
-  ↓
-参数解析 → 确定命令类型
-  ↓
-┌─ 本地操作
-│   ├── run：启动 daemon 子进程 → 等待运行中
-│   ├── stop：读 PID 文件 → kill 进程 → 清理 PID 文件
-│   ├── config setup：交互式向导 → 拉取模型列表 → 用户选择 → 写入配置
-│   ├── config validate：读文件 → 校验格式 → 输出结果
-│   └── rule check/list：读规则文件 → 校验/列表 → 输出结果
-│
-└─ daemon RPC
-    ├── agent list：发送 RPC → daemon 遍历 AgentRegistry → 返回摘要列表
-    ├── agent info：发送 RPC → daemon 按 ID 查询 AgentRegistry → 返回完整配置档案（未命中 → 错误）
-    └── skill：发送 RPC → daemon 查询/操作 → 返回结果
-  ↓
-stdout：格式化文本 / 表格 / JSON
-```
+1. `closeclaw <command> [args]` 输入 → 参数解析 → 确定命令类型（本地操作 / daemon RPC）
+2. 按命令类型执行：
+   - **本地操作**：
+     1. run：启动 daemon 子进程 → 等待运行中
+     2. stop：读 PID 文件 → kill 进程 → 清理 PID 文件
+     3. config setup：交互式向导 → 拉取模型列表 → 用户选择 → 写入配置
+     4. config validate：读文件 → 校验格式 → 输出结果
+     5. rule check/list：读规则文件 → 校验/列表 → 输出结果
+   - **daemon RPC**（发送 RPC → daemon 执行 → 返回结果）：
+     1. agent list：daemon 遍历 AgentRegistry → 返回摘要列表
+     2. agent info：daemon 按 ID 查询 AgentRegistry → 返回完整配置档案，未命中返回错误
+     3. skill：daemon 查询/操作 skill → 返回结果
+3. 结果输出到 stdout（格式化文本 / 表格 / JSON）
 
 ## 模块关系
 
