@@ -1,0 +1,33 @@
+{
+    "scenarios": [
+        {
+            "name": "injected-identity",
+            "match_": {
+                "model_id": "gpt-4o-system-prompt",
+                "message_contains": "IDENTITY_SECRET_7X9K2"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "INJECTED_OK"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "system-prompt-fallback",
+            "match_": {
+                "model_id": "gpt-4o-system-prompt"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "NO_INJECTION"
+                    }
+                }
+            ]
+        }
+    ]
+}

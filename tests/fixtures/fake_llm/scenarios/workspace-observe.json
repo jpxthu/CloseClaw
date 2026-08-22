@@ -1,0 +1,44 @@
+{
+    "scenarios": [
+        {
+            "name": "workspace-marker",
+            "match_": {
+                "model_id": "gpt-4o-workspace",
+                "message_contains": "read the file"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "tool_call",
+                        "calls": [
+                            {
+                                "name": "Read",
+                                "arguments": "{\"path\":\"../bootstrap_marker.txt\"}"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "WORKSPACE_CWD_OK"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "workspace-fallback",
+            "match_": {
+                "model_id": "gpt-4o-workspace"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "NO_WORKSPACE_MARKER"
+                    }
+                }
+            ]
+        }
+    ]
+}
