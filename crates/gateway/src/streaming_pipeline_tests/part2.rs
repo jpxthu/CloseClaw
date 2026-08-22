@@ -77,18 +77,12 @@ async fn test_streaming_dsl_results_accumulate_and_merge() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl is called for each text chunk during streaming.
-    let parsed = chain.parsed_lines();
-    assert_eq!(
-        parsed.len(),
-        3,
-        "parse_line_for_dsl should be called for each text chunk"
-    );
-
+    // No DSL parsing in incremental phase — all lines sent as-is.
     let sent = plugin.drain_sent();
-    // DSL lines are stripped — only clean text sent.
-    assert_eq!(sent.len(), 1, "only non-DSL line should be sent");
+    assert_eq!(sent.len(), 3, "all lines should be sent as-is");
     assert_eq!(extract_text(&sent[0]), "Please choose:\n");
+    assert!(extract_text(&sent[1]).contains("::button"));
+    assert!(extract_text(&sent[2]).contains("::button"));
 }
 
 /// DSL-only lines are sent as-is during streaming (no DSL stripping).
@@ -148,24 +142,17 @@ async fn test_streaming_all_dsl_no_plain_text() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl is called for each text chunk during streaming.
-    let parsed = chain.parsed_lines();
-    assert_eq!(
-        parsed.len(),
-        2,
-        "parse_line_for_dsl should be called for each text chunk"
-    );
-
-    // DSL lines are stripped — no clean text to send.
+    // No DSL parsing in incremental phase — DSL lines sent as-is.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        0,
-        "DSL lines should be stripped, no clean text to send"
+        2,
+        "DSL lines should be sent as-is during streaming"
     );
+    assert!(extract_text(&sent[0]).contains("::button"));
+    assert!(extract_text(&sent[1]).contains("::selector"));
 
-    // Content blocks: DSL stripped, no non-empty text blocks.
-    // Note: make_outbound_input may produce a Text("") fallback block.
+    // Content blocks: DSL lines pass through unchanged.
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
@@ -176,8 +163,8 @@ async fn test_streaming_all_dsl_no_plain_text() {
         .collect();
     assert_eq!(
         text_blocks.len(),
-        0,
-        "DSL lines should be stripped from content_blocks"
+        2,
+        "DSL lines should be in content_blocks"
     );
 }
 
@@ -233,9 +220,10 @@ async fn test_streaming_dsl_results_not_lost_after_merge() {
         .unwrap();
 
     let sent = plugin.drain_sent();
-    // DSL line is stripped — only clean text sent.
-    assert_eq!(sent.len(), 1, "only non-DSL line should be sent");
+    // All lines sent as-is during streaming.
+    assert_eq!(sent.len(), 2, "all lines should be sent");
     assert_eq!(extract_text(&sent[0]), "Choose an option:\n");
+    assert!(extract_text(&sent[1]).contains("::button"));
 
     let text_blocks: Vec<String> = result
         .content_blocks
@@ -245,11 +233,19 @@ async fn test_streaming_dsl_results_not_lost_after_merge() {
             _ => None,
         })
         .collect();
-    // DSL stripped from content_blocks.
-    assert_eq!(text_blocks.len(), 1, "DSL line should be stripped");
+    // All lines pass through in content_blocks.
+    assert_eq!(
+        text_blocks.len(),
+        2,
+        "all lines should be in content_blocks"
+    );
     assert!(
         text_blocks.contains(&"Choose an option:\n".to_string()),
         "should contain plain text"
+    );
+    assert!(
+        text_blocks.iter().any(|t| t.contains("::button")),
+        "should contain DSL line"
     );
 }
 
@@ -625,30 +621,38 @@ async fn test_streaming_mixed_thinking_text_dsl_normal_verbosity() {
         .await
         .unwrap();
 
-    // Normal: Thinking filtered in incremental phase — DSL line stripped, only clean text sent.
-    // Note: DslParser.parse strips trailing newlines (str::lines() behavior).
+    // Normal: Thinking filtered in incremental phase — all text lines sent as-is.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        1,
-        "only clean text should be sent (DSL stripped, Thinking filtered)"
+        2,
+        "all text lines should be sent as-is (Thinking filtered)"
     );
-    assert_eq!(extract_text(&sent[0]), "Please choose:");
+    assert_eq!(extract_text(&sent[0]), "Please choose:\n");
+    assert!(extract_text(&sent[1]).contains("::button"));
 
-    // Post-stream: no Thinking in result (filtered), DSL stripped from content.
+    // Post-stream: no Thinking in result (filtered), DSL stripped by finish phase.
     let has_thinking = result
         .content_blocks
         .iter()
         .any(|b| matches!(b, ContentBlock::Thinking { .. }));
     assert!(!has_thinking, "Thinking should be filtered at Normal level");
 
-    // DslResult should contain the parsed instruction.
-    let dsl = result
-        .dsl_result
-        .as_ref()
-        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
-    assert!(dsl.is_some(), "dsl_result should be present");
-    assert_eq!(dsl.unwrap().instructions.len(), 1);
+    // Finish phase DslParser strips DSL — only plain text remains.
+    let text_blocks: Vec<String> = result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        text_blocks.len(),
+        1,
+        "DSL stripped, only plain text remains"
+    );
+    assert_eq!(text_blocks[0], "Please choose:");
 }
 
 /// Streaming: Mixed Thinking + Text + DSL at Full verbosity.
@@ -709,12 +713,12 @@ async fn test_streaming_mixed_thinking_text_dsl_full_verbosity() {
         .await
         .unwrap();
 
-    // Full: Thinking sent via send_render_block + DSL stripped, only clean text sent.
+    // Full: Thinking sent via send_render_block + all text lines sent as-is.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        2,
-        "Thinking (1) + clean text (1, DSL stripped) should be sent at Full verbosity"
+        3,
+        "Thinking (1) + all text lines (2) should be sent at Full verbosity"
     );
 
     // Post-stream: Thinking preserved at Full level.
@@ -724,13 +728,21 @@ async fn test_streaming_mixed_thinking_text_dsl_full_verbosity() {
         .any(|b| matches!(b, ContentBlock::Thinking { .. }));
     assert!(has_thinking, "Thinking should be preserved at Full level");
 
-    // DslResult should contain the parsed instruction.
-    let dsl = result
-        .dsl_result
-        .as_ref()
-        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
-    assert!(dsl.is_some(), "dsl_result should be present");
-    assert_eq!(dsl.unwrap().instructions.len(), 1);
+    // Post-stream: DSL stripped by finish phase, only plain text remains.
+    let text_blocks: Vec<String> = result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        text_blocks.len(),
+        1,
+        "DSL stripped, only plain text remains"
+    );
+    assert_eq!(text_blocks[0], "Click below:");
 }
 
 /// Streaming: Mixed Thinking + Text + DSL at Off verbosity.
@@ -784,27 +796,33 @@ async fn test_streaming_mixed_thinking_text_dsl_off_verbosity() {
         .await
         .unwrap();
 
-    // Off: Thinking filtered, DSL line stripped — no clean text to send.
+    // Off: Thinking filtered, DSL line sent as-is.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        0,
-        "DSL line stripped, no clean text to send at Off verbosity"
+        1,
+        "DSL line should be sent as-is at Off verbosity"
     );
+    assert!(extract_text(&sent[0]).contains("::button"));
 
-    // Post-stream: no Thinking, DSL stripped.
+    // Post-stream: no Thinking, DSL line passes through (mock doesn't strip).
     let has_thinking = result
         .content_blocks
         .iter()
         .any(|b| matches!(b, ContentBlock::Thinking { .. }));
     assert!(!has_thinking, "Thinking should be filtered at Off level");
 
-    let dsl = result
-        .dsl_result
-        .as_ref()
-        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
-    assert!(dsl.is_some(), "dsl_result should be present");
-    assert_eq!(dsl.unwrap().instructions.len(), 1);
+    // DSL line in content_blocks (mock passthrough).
+    let text_blocks: Vec<String> = result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(text_blocks.len(), 1, "DSL line should be in content_blocks");
+    assert!(text_blocks[0].contains("::button"));
 }
 
 /// Streaming: DSL instruction line appears mid-stream mixed with regular text.
@@ -855,23 +873,25 @@ async fn test_streaming_dsl_instruction_mixed_with_text_lines() {
         .await
         .unwrap();
 
-    // All 3 lines parsed, DSL stripped — only clean text sent.
-    // Note: DslParser.parse strips trailing newlines (str::lines() behavior).
+    // All 3 lines sent as-is during streaming.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 2, "only non-DSL lines should be sent");
-    assert_eq!(extract_text(&sent[0]), "Line 1");
-    assert_eq!(extract_text(&sent[1]), "Line 3");
+    assert_eq!(sent.len(), 3, "all lines should be sent as-is");
+    assert_eq!(extract_text(&sent[0]), "Line 1\n");
+    assert!(extract_text(&sent[1]).contains("::button"));
+    assert_eq!(extract_text(&sent[2]), "Line 3\n");
 
-    // Post-stream: DSL parsed, instruction extracted.
-    let dsl = result
-        .dsl_result
-        .as_ref()
-        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
-    assert!(dsl.is_some(), "dsl_result should be present");
-    let instructions = dsl.unwrap().instructions;
-    assert_eq!(instructions.len(), 1, "should extract 1 DSL instruction");
-    assert_eq!(instructions[0].instruction_type, "button");
-    assert_eq!(instructions[0].params["label"], "Click");
+    // Post-stream: DSL stripped by finish phase, plain text remains.
+    let text_blocks: Vec<String> = result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(text_blocks.len(), 2, "DSL stripped, plain text remains");
+    assert_eq!(text_blocks[0], "Line 1");
+    assert_eq!(text_blocks[1], "Line 3");
 }
 // ═══════════════════════════════════════════════════════════════════════════
 // Multi-line DSL: each line independently parsed
@@ -931,22 +951,13 @@ async fn test_streaming_multiline_dsl_each_line_independent() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl is called for each text chunk during streaming.
-    let parsed = chain.parsed_lines();
-    assert_eq!(
-        parsed.len(),
-        2,
-        "parse_line_for_dsl should be called for each text chunk"
-    );
-
-    // Both lines are DSL-like but the mock only recognizes lines starting with ::button[.
-    // Line 1 is DSL (stripped because instruction is pre-loaded).
-    // Line 2 ("action:confirm;value:1]\n") is not DSL, so it passes through.
+    // No DSL parsing in incremental phase — both lines sent as-is.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 1, "only non-DSL line should be sent");
-    assert_eq!(extract_text(&sent[0]), "action:confirm;value:1]\n");
+    assert_eq!(sent.len(), 2, "both lines should be sent as-is");
+    assert!(extract_text(&sent[0]).contains("::button"));
+    assert_eq!(extract_text(&sent[1]), "action:confirm;value:1]\n");
 
-    // Only non-DSL line in content_blocks.
+    // Both lines in content_blocks.
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
@@ -957,7 +968,7 @@ async fn test_streaming_multiline_dsl_each_line_independent() {
         .collect();
     assert_eq!(
         text_blocks.len(),
-        1,
-        "only non-DSL line should remain in content_blocks"
+        2,
+        "both lines should be in content_blocks"
     );
 }

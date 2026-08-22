@@ -50,6 +50,7 @@ impl MockProcessorChain {
     }
 
     /// Get all lines that were parsed.
+    #[allow(dead_code)]
     fn parsed_lines(&self) -> Vec<String> {
         self.parsed_lines.lock().unwrap().clone()
     }
@@ -406,14 +407,7 @@ async fn test_streaming_non_dsl_text_passthrough() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl is called for each text chunk during streaming.
-    let parsed = chain.parsed_lines();
-    assert_eq!(
-        parsed,
-        vec!["Hello world."],
-        "parse_line_for_dsl should be called for each text chunk"
-    );
-
+    // No DSL parsing in incremental phase — dispatch_text sends text directly.
     // Verify the text content is preserved unchanged.
     let text_blocks: Vec<String> = result
         .content_blocks
@@ -479,24 +473,19 @@ async fn test_streaming_dsl_line_extracted_and_accumulated() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl is called for each text chunk during streaming.
-    let parsed = chain.parsed_lines();
-    assert_eq!(
-        parsed,
-        vec!["::button[label:Yes;action:confirm;value:1]\n"],
-        "parse_line_for_dsl should be called for each text chunk"
-    );
-
-    // DSL line is stripped — only clean text (empty for pure DSL) is sent.
+    // No DSL parsing in incremental phase — DSL line is sent as-is.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        0,
-        "DSL line should be stripped, no clean text to send"
+        1,
+        "DSL line should be sent as-is during streaming"
+    );
+    assert_eq!(
+        extract_text(&sent[0]),
+        "::button[label:Yes;action:confirm;value:1]\n"
     );
 
-    // StreamResult: DSL line is stripped, no non-empty text block for pure DSL.
-    // Note: make_outbound_input may produce a Text("") fallback block.
+    // StreamResult: DSL line passes through in content_blocks (mock doesn't strip).
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
@@ -505,17 +494,11 @@ async fn test_streaming_dsl_line_extracted_and_accumulated() {
             _ => None,
         })
         .collect();
+    assert_eq!(text_blocks.len(), 1, "DSL line should be in content_blocks");
     assert!(
-        text_blocks.is_empty(),
-        "DSL line should be stripped from content_blocks"
+        text_blocks[0].contains("::button"),
+        "content_blocks should contain DSL line"
     );
-    // DSL instruction should be accumulated in result.
-    let dsl = result
-        .dsl_result
-        .as_ref()
-        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
-    assert!(dsl.is_some(), "dsl_result should be present");
-    assert_eq!(dsl.unwrap().instructions.len(), 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -579,21 +562,17 @@ async fn test_streaming_mixed_dsl_and_plain_text() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl is called for each text chunk during streaming.
-    let parsed = chain.parsed_lines();
-    assert_eq!(
-        parsed.len(),
-        3,
-        "parse_line_for_dsl should be called for each text chunk"
-    );
-
-    // DSL line is stripped — only clean text lines are sent.
+    // No DSL parsing in incremental phase — all lines sent as-is.
     let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 2, "only non-DSL lines should be dispatched");
+    assert_eq!(sent.len(), 3, "all lines should be dispatched");
     assert_eq!(extract_text(&sent[0]), "Hello world\n");
-    assert_eq!(extract_text(&sent[1]), "Goodbye\n");
+    assert_eq!(
+        extract_text(&sent[1]),
+        "::button[label:Click;action:go;value:ok]\n"
+    );
+    assert_eq!(extract_text(&sent[2]), "Goodbye\n");
 
-    // Content blocks: only clean text lines (DSL stripped).
+    // Content blocks: all lines pass through unchanged.
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
@@ -604,12 +583,16 @@ async fn test_streaming_mixed_dsl_and_plain_text() {
         .collect();
     assert_eq!(
         text_blocks.len(),
-        2,
-        "DSL line should be stripped from content_blocks"
+        3,
+        "all lines should be in content_blocks"
     );
     assert!(
         text_blocks.contains(&"Hello world\n".to_string()),
         "should contain 'Hello world\n'"
+    );
+    assert!(
+        text_blocks.iter().any(|t| t.contains("::button")),
+        "should contain DSL line"
     );
     assert!(
         text_blocks.contains(&"Goodbye\n".to_string()),
