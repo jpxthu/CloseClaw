@@ -30,6 +30,8 @@ pub mod message;
 mod message_routing;
 pub mod outbound;
 #[cfg(test)]
+mod outbound_batch_failure_tests;
+#[cfg(test)]
 mod outbound_checkpoint_last_message_at_tests;
 #[cfg(test)]
 mod outbound_checkpoint_timing_tests;
