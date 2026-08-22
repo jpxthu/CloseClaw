@@ -49,6 +49,7 @@ pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
 /// - `img` → `[图片]`
 /// - `media` → `[视频]`
 /// - `file` → `[文件]`
+/// - `emoji` → `[emoji_type]` placeholder
 /// - unknown tags → text if available, otherwise `[未知消息]`
 pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
     let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
@@ -79,6 +80,18 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
             apply_text_style(text, &style)
         }
         "img" => "[图片]".to_string(),
+        "emoji" => {
+            let emoji_type = elem
+                .get("emoji_type")
+                .and_then(|e| e.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("");
+            if emoji_type.is_empty() {
+                "[未知消息]".to_string()
+            } else {
+                format!("[{}]", emoji_type)
+            }
+        }
         "media" => "[视频]".to_string(),
         "file" => "[文件]".to_string(),
         _ => {

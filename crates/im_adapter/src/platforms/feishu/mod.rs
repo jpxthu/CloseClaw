@@ -5,6 +5,8 @@
 
 mod adapter;
 #[cfg(test)]
+mod adapter_emoji_tests;
+#[cfg(test)]
 mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
