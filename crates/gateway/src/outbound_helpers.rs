@@ -15,6 +15,9 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 ///
 /// `session_id` and `channel` are retained as session metadata for potential
 /// future use by stream handlers or logging.
+///
+/// `registry` provides per-chunk DSL parsing during the incremental phase.
+/// When `None`, `dispatch_text` passes text through unchanged (zero overhead).
 #[allow(dead_code)] // read cross-module in outbound.rs
 pub(crate) struct StreamContext<'a> {
     pub plugin: &'a std::sync::Arc<dyn closeclaw_common::im_plugin::IMPlugin>,
@@ -22,6 +25,7 @@ pub(crate) struct StreamContext<'a> {
     pub channel: &'a str,
     pub chat_id: &'a str,
     pub thread_id: Option<&'a str>,
+    pub registry: Option<&'a std::sync::Arc<dyn closeclaw_common::processor::ProcessorChain>>,
 }
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
@@ -31,6 +35,11 @@ pub(crate) struct StreamState {
     pub verbosity_level: VerbosityLevel,
     pub media_name: Option<String>,
     pub media_url: Option<String>,
+    /// DSL instructions accumulated during the incremental phase.
+    /// Each text chunk is parsed via [`ProcessorChain::parse_line_for_dsl`];
+    /// DSL lines are stripped from the text sent to the user and their
+    /// parsed instructions are collected here for the finish phase.
+    pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
 }
 
 impl StreamState {
@@ -48,6 +57,7 @@ impl StreamState {
             verbosity_level,
             media_name: None,
             media_url: None,
+            dsl_instructions: Vec::new(),
         }
     }
 
@@ -104,22 +114,65 @@ pub(crate) async fn log_middleware_rejection(
     Ok(())
 }
 
+/// Log a warning and send a failure notification when batch send fails.
+///
+/// Called from `dispatch_and_persist` when `plugin.send()` returns an error.
+/// Sends a user-facing notification via the simplified path (no retry, no
+/// outbound history write) and returns `Ok(())` so the caller can terminate
+/// the flow cleanly, matching the design doc §批量出错降级.
+pub(crate) async fn notify_batch_send_failure(
+    gateway: &Gateway,
+    channel: &str,
+    chat_id: &str,
+    send_error: closeclaw_common::im_plugin::AdapterError,
+) {
+    tracing::warn!(
+        channel,
+        chat_id,
+        error = %send_error,
+        "batch plugin.send failed, sending failure notification"
+    );
+    let _ = gateway
+        .send_outbound_simplified(
+            chat_id,
+            channel,
+            "⚠️ 回复发送失败：消息未能送达，请稍后重试",
+        )
+        .await;
+}
+
 // ---------------------------------------------------------------------------
 // Streaming outbound helpers
 // ---------------------------------------------------------------------------
 
-/// Send text messages from `out` into `state` (no DslParser processing).
+/// Send text messages from `out` into `state`, routing each through
+/// [`ProcessorChain::parse_line_for_dsl`] when a registry is available.
+///
+/// DSL lines are stripped from the text sent to the user; their parsed
+/// instructions accumulate in [`StreamState::dsl_instructions`] for the
+/// finish phase. When `registry` is `None`, text passes through unchanged
+/// (zero-overhead passthrough).
 pub(crate) async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        tracing::info!(chat_id = ctx.chat_id, content = %text, "streaming outbound text");
-        if !text.is_empty() {
-            send_text(ctx, &text).await?;
-            state.content_blocks.push(ContentBlock::Text(text));
+        let (clean_text, dsl_result) = match ctx.registry {
+            Some(registry) => registry.parse_line_for_dsl(&text),
+            None => (
+                text.clone(),
+                closeclaw_common::processor::DslParseResult {
+                    instructions: vec![],
+                },
+            ),
+        };
+        tracing::info!(chat_id = ctx.chat_id, content = %clean_text, "streaming outbound text");
+        if !clean_text.is_empty() {
+            send_text(ctx, &clean_text).await?;
+            state.content_blocks.push(ContentBlock::Text(clean_text));
         }
+        state.dsl_instructions.extend(dsl_result.instructions);
     }
     Ok(())
 }
@@ -170,4 +223,65 @@ pub(crate) fn make_outbound_meta(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
+}
+
+/// Extract checkpoint content from a rendered output based on msg_type.
+///
+/// Returns the text for "text" payloads, a JSON string for "interactive",
+/// or an error for unknown types. Extracted from [`dispatch_and_persist`]
+/// to keep the function body within the 50-line limit.
+pub(crate) fn extract_content_for_checkpoint(
+    rendered: &RenderedOutput,
+    fallback_text: &str,
+) -> Result<String, crate::GatewayError> {
+    match rendered.msg_type.as_str() {
+        "text" => Ok(rendered
+            .payload
+            .get("content")
+            .and_then(|v| v.get("text"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(fallback_text)
+            .to_string()),
+        "interactive" => {
+            Ok(serde_json::to_string(&rendered.payload).unwrap_or_else(|_| "{}".to_string()))
+        }
+        _ => Err(crate::GatewayError::OutboundError(format!(
+            "unknown msg_type: {}",
+            rendered.msg_type
+        ))),
+    }
+}
+
+/// Merge incremental-phase DSL instructions with finish-phase DslParser
+/// result from the processor chain metadata.
+///
+/// When DslParser ran in the finish phase (`metadata` contains
+/// `"dsl_result"`), its instructions are appended to the incremental
+/// ones. When DslParser did not run but incremental instructions exist,
+/// they are serialized directly. Returns `None` when both are empty
+/// (no registry or no DSL content).
+pub(crate) fn merge_dsl_results(
+    metadata: &std::collections::HashMap<String, String>,
+    incremental: Vec<closeclaw_common::processor::DslInstruction>,
+) -> Option<String> {
+    use closeclaw_common::processor::DslParseResult;
+
+    if let Some(raw) = metadata.get("dsl_result") {
+        let chain_instructions = serde_json::from_str::<DslParseResult>(raw)
+            .ok()
+            .map(|r| r.instructions)
+            .unwrap_or_default();
+        let merged: Vec<_> = incremental.into_iter().chain(chain_instructions).collect();
+        let r = DslParseResult {
+            instructions: merged,
+        };
+        serde_json::to_string(&r).ok()
+    } else if !incremental.is_empty() {
+        let r = DslParseResult {
+            instructions: incremental,
+        };
+        serde_json::to_string(&r).ok()
+    } else {
+        None
+    }
 }

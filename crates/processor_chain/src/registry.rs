@@ -285,6 +285,23 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
             .map_err(convert_process_error)
     }
 
+    async fn process_outbound_without_verbosity(
+        &self,
+        msg: closeclaw_common::processor::ProcessedMessage,
+    ) -> Result<
+        closeclaw_common::processor::ProcessedMessage,
+        closeclaw_common::processor::ProcessError,
+    > {
+        let main_msg = ProcessedMessage {
+            content_blocks: msg.content_blocks,
+            metadata: msg.metadata,
+        };
+        self.process_outbound_filtered(main_msg, Some("verbosity_filter"))
+            .await
+            .map(convert_processed_message)
+            .map_err(convert_process_error)
+    }
+
     fn inbound_len(&self) -> usize {
         self.inbound_len()
     }

@@ -345,6 +345,21 @@ pub trait ProcessorChain: Send + Sync {
         0
     }
 
+    /// Process outbound message skipping VerbosityFilter.
+    ///
+    /// Used by the streaming finish phase where VerbosityFilter has already
+    /// executed per-chunk during the incremental phase, so re-running it on
+    /// the final assembled message would double-filter.
+    ///
+    /// Default implementation falls back to the full outbound chain — safe
+    /// for non-registry implementations where VerbosityFilter is not present.
+    async fn process_outbound_without_verbosity(
+        &self,
+        msg: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        self.process_outbound(msg).await
+    }
+
     /// Process only the outbound raw-log processor, skipping all other
     /// processors (VerbosityFilter, DslParser, etc.).
     ///

@@ -336,3 +336,76 @@ async fn test_streaming_all_media_types_not_sent() {
         .iter()
         .any(|b| matches!(b, ContentBlock::File { .. })));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VerbosityFilter consistency: batch vs streaming per-block
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Streaming: VerbosityFilter consistency — batch filter and streaming
+/// per-block filter produce the same result for mixed content.
+/// This verifies the plan requirement: "流式路径和批量路径对相同输入产生相同过滤结果".
+#[tokio::test]
+async fn test_streaming_batch_consistency_verbos_filter() {
+    use closeclaw_common::VerbosityLevel;
+
+    // Same input blocks for both paths.
+    let blocks = vec![
+        ContentBlock::Thinking {
+            thinking: "reasoning".to_string(),
+            signature: None,
+        },
+        ContentBlock::Text("Hello".to_string()),
+        ContentBlock::Thinking {
+            thinking: "more reasoning".to_string(),
+            signature: None,
+        },
+        ContentBlock::Text("World".to_string()),
+        ContentBlock::ToolUse {
+            id: "c1".into(),
+            name: "tool".into(),
+            input: "{}".into(),
+        },
+    ];
+
+    let levels = [
+        VerbosityLevel::Full,
+        VerbosityLevel::Normal,
+        VerbosityLevel::Off,
+    ];
+
+    for level in levels {
+        // Batch path: full filter
+        let batch_result = closeclaw_processor_chain::verbosity_filter::VerbosityFilter::filter(
+            blocks.clone(),
+            level,
+        );
+
+        // Streaming path: per-block should_keep_block filter
+        let streaming_result: Vec<_> = blocks
+            .iter()
+            .filter(|b| {
+                closeclaw_processor_chain::verbosity_filter::VerbosityFilter::should_keep_block(
+                    b, level,
+                )
+            })
+            .cloned()
+            .collect();
+
+        assert_eq!(
+            batch_result.len(),
+            streaming_result.len(),
+            "block count mismatch at {:?}",
+            level
+        );
+
+        // Verify the same blocks are kept (by discriminant)
+        for (batch_block, stream_block) in batch_result.iter().zip(streaming_result.iter()) {
+            assert_eq!(
+                std::mem::discriminant(batch_block),
+                std::mem::discriminant(stream_block),
+                "block type mismatch at {:?}",
+                level
+            );
+        }
+    }
+}
