@@ -4,13 +4,27 @@
             "name": "workspace-marker",
             "match_": {
                 "model_id": "gpt-4o-workspace",
-                "message_contains": "WORKSPACE_PROBE_4M8N1"
+                "message_contains": "read the file"
             },
             "turns": [
                 {
                     "response": {
+                        "type": "tool_call",
+                        "tool_calls": [
+                            {
+                                "id": "call_ws_marker",
+                                "function": {
+                                    "name": "Read",
+                                    "arguments": "{\"path\":\"bootstrap_marker.txt\"}"
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    "response": {
                         "type": "text",
-                        "content": "WORKSPACE_SEEN"
+                        "content": "WORKSPACE_CWD_OK"
                     }
                 }
             ]

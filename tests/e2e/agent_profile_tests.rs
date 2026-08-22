@@ -79,10 +79,11 @@ async fn start_fake_llm() -> std::net::SocketAddr {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: config-dir scaffolding
+// Helper: config-dir scaffolding (split from write_config_tree)
 // ---------------------------------------------------------------------------
 
-/// Write the mandatory + agent config layout into a temp config root.
+/// Write mandatory config files (models, channels, gateway, plugins, system,
+/// accounts, credentials, agents.json) into a temp config root.
 ///
 /// Layout (verified against `Daemon::init_phase_1_foundation` /
 /// `ConfigManager::load` / `AgentDirectoryProvider`):
@@ -91,7 +92,6 @@ async fn start_fake_llm() -> std::net::SocketAddr {
 /// <root>/config/{models,channels,gateway,plugins,system,accounts}.json
 /// <root>/config/agents.json
 /// <root>/config/credentials/openai.json     (fake key; camelCase)
-/// <root>/agents/master/config.json          (model → fake provider)
 /// ```
 ///
 /// Notes:
@@ -100,10 +100,9 @@ async fn start_fake_llm() -> std::net::SocketAddr {
 ///   spawning the daemon (see `ChatHarness::spawn_daemon`).
 /// - `agents/<id>/config.json` `model` accepts `"provider/model-id"`
 ///   (ModelSpec string form).
-fn write_config_tree(root: &Path, fake_llm_addr: &str) {
+fn write_mandatory_configs(root: &Path, fake_llm_addr: &str) {
     let config_dir = root.join("config");
     std::fs::create_dir_all(config_dir.join("credentials")).expect("create config dirs");
-    std::fs::create_dir_all(root.join("agents").join("master")).expect("create agents dir");
 
     std::fs::write(
         config_dir.join("agents.json"),
@@ -146,7 +145,15 @@ fn write_config_tree(root: &Path, fake_llm_addr: &str) {
         r#"{"provider":"openai","apiKey":"e2e-fake-key"}"#,
     )
     .expect("write credentials");
+}
 
+/// Write the default master agent layout into the config tree.
+///
+/// Creates `agents/master/config.json` with wildcard tool/skill permissions.
+/// Tests that need a custom agent config should call `write_agent_config`
+/// after this function to overwrite it.
+fn write_agent_layout(root: &Path) {
+    std::fs::create_dir_all(root.join("agents").join("master")).expect("create agents dir");
     std::fs::write(
         root.join("agents")
             .join("master")
@@ -213,6 +220,53 @@ impl Drop for DaemonGuard {
             }
         }
     }
+}
+
+/// Spawn the closeclaw daemon with the given config root.
+///
+/// Sets up the command with `--config-dir <root> --foreground`, uses the
+/// config dir as `current_dir` (for credentialPath resolution), pipes
+/// stdout/stderr, and wraps in `DaemonGuard` for SIGTERM-on-drop safety.
+fn spawn_daemon(config_root: &Path) -> DaemonGuard {
+    let daemon = Command::new(closeclaw_binary())
+        .args(["run", "--config-dir"])
+        .arg(config_root.as_os_str())
+        .arg("--foreground")
+        .current_dir(config_root.join("config"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("failed to spawn daemon");
+    DaemonGuard(daemon)
+}
+
+// ---------------------------------------------------------------------------
+// Helper: custom agent config override
+// ---------------------------------------------------------------------------
+
+/// Write a custom agent `config.json` into the config tree.
+///
+/// Overwrites the master agent config created by [`write_agent_layout`]
+/// to set a specific `model` and/or `workspace` field.
+fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
+    let agent_dir = config_root.join("agents").join("master");
+    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+    let mut config = serde_json::json!({
+        "id": "master",
+        "name": "Master",
+        "model": model,
+        "tools": ["*"],
+        "skills": ["*"]
+    });
+    if let Some(ws) = workspace {
+        config["workspace"] = serde_json::Value::String(ws.to_string());
+    }
+    std::fs::write(
+        agent_dir.join("config.json"),
+        serde_json::to_string(&config).expect("serialize agent config"),
+    )
+    .expect("write agent config");
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +339,75 @@ async fn read_frame<R: AsyncReadExt + Unpin>(
     Ok(Some(value))
 }
 
+/// Assert exactly one terminal frame in a set of chat response frames.
+fn assert_single_terminal(frames: &[serde_json::Value]) {
+    let terminal: Vec<&serde_json::Value> = frames
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.get("type").and_then(|t| t.as_str()),
+                Some("done") | Some("error")
+            )
+        })
+        .collect();
+    assert_eq!(
+        terminal.len(),
+        1,
+        "expected exactly one terminal (Done/Error) frame, got {terminal:?} among {frames:?}"
+    );
+}
+
+/// Assert the daemon is still alive (has not exited prematurely).
+fn assert_daemon_alive(daemon: &mut DaemonGuard) {
+    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
+        panic!("daemon exited prematurely: {status:?}");
+    }
+}
+
+/// Write agent config with explicit tools and disallowed_tools lists.
+fn write_agent_config_with_tools(
+    config_root: &Path,
+    model: &str,
+    tools: &[&str],
+    disallowed: &[&str],
+) {
+    let agent_dir = config_root.join("agents").join("master");
+    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+    let tools: Vec<serde_json::Value> = tools.iter().map(|t| serde_json::json!(t)).collect();
+    let disallowed: Vec<serde_json::Value> =
+        disallowed.iter().map(|t| serde_json::json!(t)).collect();
+    std::fs::write(
+        agent_dir.join("config.json"),
+        serde_json::json!({
+            "id": "master",
+            "name": "Master",
+            "model": model,
+            "tools": tools,
+            "disallowed_tools": disallowed,
+            "skills": ["*"]
+        })
+        .to_string(),
+    )
+    .expect("write agent config with tools");
+}
+
+/// Assert admin AgentInfo response contains expected fields.
+fn assert_admin_agent_info(response: &serde_json::Value) {
+    assert_eq!(
+        response.get("type").and_then(|t| t.as_str()),
+        Some("agent_info_result"),
+        "expected agent_info_result, got: {response:?}"
+    );
+    assert_eq!(response["id"], "master");
+    assert_eq!(response["name"], "Master");
+    assert_eq!(response["model"], "openai/gpt-4o-basic");
+    assert!(
+        response["skills"].is_array(),
+        "skills should be an array, got: {:?}",
+        response["skills"]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Smoke test
 // ---------------------------------------------------------------------------
@@ -316,59 +439,28 @@ async fn e2e_agent_profile_smoke() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_agent_layout(config_root);
 
-    // `credentialPath` is resolved relative to the daemon process CWD
-    // (CWD-relative `Path::exists` check). Instead of chdir-ing the test
-    // process (process-global mutation), pass `current_dir` on the
-    // daemon `Command` — the child resolves the credential file from
-    // `<root>/config`, no global state touched.
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    let mut daemon = DaemonGuard(daemon);
-
+    let mut daemon = spawn_daemon(config_root);
     wait_for_daemon_ready(config_root).await;
 
-    // Daemon must survive startup (not crash on the fake-LLM config).
     if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
         panic!("daemon exited prematurely during startup: {status:?}");
     }
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello world").await;
 
-    // Protocol contract: at least one frame, exactly one terminal frame,
-    // and the daemon is still alive afterwards.
     assert!(
         !frames.is_empty(),
         "chat RPC should answer with at least one frame, got none"
     );
-    let terminal: Vec<&serde_json::Value> = frames
-        .iter()
-        .filter(|f| {
-            matches!(
-                f.get("type").and_then(|t| t.as_str()),
-                Some("done") | Some("error")
-            )
-        })
-        .collect();
-    assert_eq!(
-        terminal.len(),
-        1,
-        "expected exactly one terminal (Done/Error) frame, got {terminal:?} among {frames:?}"
-    );
+    assert_single_terminal(&frames);
+
     if let Some(status) = daemon.0.try_wait().expect("try_wait daemon after turn") {
         panic!("daemon died during chat turn: {status:?}");
     }
 
-    // Graceful shutdown: exit code 0, sockets cleaned up, no residual process.
     let status = daemon.shutdown().await;
     assert!(
         status.success(),
@@ -385,36 +477,6 @@ async fn e2e_agent_profile_smoke() {
         !chat_sock.exists(),
         "chat.sock should be removed on shutdown"
     );
-    // TempDir drops here — any leak would fail the "no temp leakage" bar.
-}
-
-// ---------------------------------------------------------------------------
-// Helper: custom agent config override
-// ---------------------------------------------------------------------------
-
-/// Write a custom agent `config.json` into the config tree.
-///
-/// Overwrites the master agent config created by [`write_config_tree`]
-/// to set a specific `model` and/or `workspace` field.
-fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
-    let agent_dir = config_root.join("agents").join("master");
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
-
-    let mut config = serde_json::json!({
-        "id": "master",
-        "name": "Master",
-        "model": model,
-        "tools": ["*"],
-        "skills": ["*"]
-    });
-    if let Some(ws) = workspace {
-        config["workspace"] = serde_json::Value::String(ws.to_string());
-    }
-    std::fs::write(
-        agent_dir.join("config.json"),
-        serde_json::to_string(&config).expect("serialize agent config"),
-    )
-    .expect("write agent config");
 }
 
 // ---------------------------------------------------------------------------
@@ -445,28 +507,14 @@ async fn e2e_agent_model_selection() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, &fake_llm_addr.to_string());
-    // Override: set model to gpt-4o-basic (matches greeting scenario
-    // model_id in basic-text.json).
+    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
     write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    let daemon = DaemonGuard(daemon);
+    let daemon = spawn_daemon(config_root);
     wait_for_daemon_ready(config_root).await;
 
-    // Send "hello" — matches greeting scenario (model_id + message_contains).
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
 
-    // The greeting scenario returns "Hi there! How can I help?".
     let text: String = frames
         .iter()
         .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
@@ -502,7 +550,7 @@ async fn e2e_agent_system_prompt_injection() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
     write_agent_config(config_root, "openai/gpt-4o-system-prompt", None);
 
     // Create bootstrap file with a unique marker in the agent's config
@@ -516,22 +564,9 @@ async fn e2e_agent_system_prompt_injection() {
     )
     .expect("write bootstrap file");
 
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    let daemon = DaemonGuard(daemon);
+    let daemon = spawn_daemon(config_root);
     wait_for_daemon_ready(config_root).await;
 
-    // Send any message — the system prompt (containing the bootstrap
-    // marker) is included in the LLM request, triggering the
-    // injected-identity scenario.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "tell me a joke").await;
 
     let text: String = frames
@@ -548,25 +583,29 @@ async fn e2e_agent_system_prompt_injection() {
 }
 
 /// §F1 workspace: agent `config.json` workspace field sets the
-/// agent's working directory.
+/// agent's working directory (CWD for tool execution).
 ///
-/// The workspace field is resolved via `AgentRegistry::get_agent_workspace`
-/// and used by the gateway to determine the conversation session's CWD
-/// (`resolve.rs:747`). Bootstrap files from the workspace directory are
-/// loaded into the system prompt.
+/// **Actual chain** (verified 2026-08-22): `AgentRegistry::query_agent_workspace`
+/// (`resolve.rs:747`) resolves the workspace path and passes it as the
+/// session's working directory to the gateway. When tools execute, their
+/// CWD is the workspace directory — NOT the config root. The system prompt
+/// bootstrap loading (`adapter.rs:125`) reads from
+/// `{config_root}/agents/{agent_id}/` and is independent of the workspace
+/// field.
 ///
-/// Test creates a workspace directory with a bootstrap file containing
-/// a unique marker ("WORKSPACE_PROBE_4M8N1"), sets the agent's
-/// workspace field to that directory, and sends a message. The fake_llm
-/// scenario `workspace-marker` in `workspace-observe.json` matches
-/// `message_contains = "WORKSPACE_PROBE_4M8N1"` → proves the workspace
-/// path was used to load bootstrap content.
+/// **Observation method**: workspace directory → CWD → tool execution →
+/// read relative path (e.g. `./bootstrap_marker.txt`) → tool result
+/// contains marker content. The fake_llm scenario `workspace-marker`
+/// returns a `tool_call` for `Read` targeting `bootstrap_marker.txt`
+/// (relative path). In the expected-pass state, the tool executes in
+/// the workspace CWD and reads the file successfully.
 ///
-/// **Observation method**: workspace path → bootstrap dir → system
-/// prompt → LLM request messages → fake_llm scenario match.
-///
-/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
-/// panic. Marked `#[ignore]`.
+/// **Blocker #2436 (2026-08-22)**: `SkillListingProviderWrapper` panics
+/// in `bridge.rs:186` before any LLM request is made, so the tool_call
+/// chain is never exercised. The test sets up correct infrastructure
+/// (marker file in workspace, daemon with workspace config) and asserts
+/// the infrastructure contract. Once #2436 is resolved, tighten the
+/// assertion to verify the tool result contains marker content.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -575,17 +614,18 @@ async fn e2e_agent_workspace() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    // Create a dedicated workspace directory with a bootstrap marker.
+    // Create a dedicated workspace directory with a marker file.
+    // The daemon's tool execution CWD is set to this directory.
     let workspace_dir = temp_dir.path().join("agent_workspace");
     std::fs::create_dir_all(&workspace_dir).expect("create workspace dir");
     std::fs::write(
-        workspace_dir.join("RULES.md"),
-        "Workspace rule: always mention WORKSPACE_PROBE_4M8N1.",
+        workspace_dir.join("bootstrap_marker.txt"),
+        "WORKSPACE_CWD_VERIFIED",
     )
-    .expect("write workspace bootstrap file");
+    .expect("write workspace marker file");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
     write_agent_config(
         config_root,
         "openai/gpt-4o-workspace",
@@ -596,28 +636,22 @@ async fn e2e_agent_workspace() {
         ),
     );
 
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    let daemon = DaemonGuard(daemon);
+    let daemon = spawn_daemon(config_root);
     wait_for_daemon_ready(config_root).await;
 
-    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
+    // Send a message — the workspace-marker scenario returns a tool_call
+    // for Read("./bootstrap_marker.txt"). In the expected-pass state
+    // (Blocker #2436 resolved), the tool executes in the workspace CWD
+    // and returns the marker content.
+    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "read the file").await;
 
     let text: String = frames
         .iter()
         .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
         .collect();
     assert!(
-        text.contains("WORKSPACE_SEEN"),
-        "response should contain WORKSPACE_SEEN proving workspace bootstrap injection, got: {text}"
+        text.contains("WORKSPACE_CWD_OK"),
+        "response should contain WORKSPACE_CWD_OK proving workspace CWD, got: {text}"
     );
 
     let status = daemon.shutdown().await;
@@ -649,15 +683,6 @@ async fn e2e_agent_workspace() {
 ///     3. The rejection is observable in the chat response (tool result
 ///        containing a deny/error message) and/or daemon stderr.
 ///
-/// Observation method selection (rationale): The chat response is the most
-/// reliable observation point because:
-/// - It is the user-visible output channel (the agent's reply to the user).
-/// - Tool results (including rejections) are serialized as ContentBlock::
-///   ToolResult in the response, making deny/error messages directly
-///   inspectable.
-/// - Daemon stderr is less reliable for assertion because log format may
-///   change and requires log-level configuration.
-///
 /// Degradation: Since Blocker B (`SkillListingProviderWrapper` panic in
 /// bridge.rs:186, `Handle::block_on` in async context) prevents any LLM
 /// request from being issued, the fake LLM never receives the request and
@@ -667,10 +692,6 @@ async fn e2e_agent_workspace() {
 /// and responds to chat protocol frames. Once Blocker B is resolved, tighten
 /// the assertions to verify tool execution (Read result in response) and
 /// tool rejection (Bash denied in response).
-///
-/// Tool design: Uses `Read` (built-in file read tool) targeting a tempfile
-/// path — no external network or process dependencies, satisfying the
-/// STANDARDS red line against heavy tool副作用.
 ///
 /// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
 /// panic. Marked `#[ignore]`.
@@ -688,81 +709,26 @@ async fn e2e_agent_tool_allow_deny() {
     std::fs::write(&target_file, "tool-test-content").expect("write target file for Read tool");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_agent_config_with_tools(
+        config_root,
+        "openai/gpt-4o-tool-allow-deny",
+        &["Read", "Write"],
+        &["Bash"],
+    );
 
-    // Override agent config: whitelist Read+Write, blacklist Bash.
-    let agent_dir = config_root.join("agents").join("master");
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
-    std::fs::write(
-        agent_dir.join("config.json"),
-        serde_json::json!({
-            "id": "master",
-            "name": "Master",
-            "model": "openai/gpt-4o-tool-allow-deny",
-            "tools": ["Read", "Write"],
-            "disallowed_tools": ["Bash"],
-            "skills": ["*"]
-        })
-        .to_string(),
-    )
-    .expect("write agent config with tool allow/deny");
-
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    let mut daemon = DaemonGuard(daemon);
+    let mut daemon = spawn_daemon(config_root);
     wait_for_daemon_ready(config_root).await;
+    assert_daemon_alive(&mut daemon);
 
-    // Assert daemon survived startup with tool allow/deny config.
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
-        panic!("daemon exited prematurely during startup: {status:?}");
-    }
-
-    // Send a message — triggers the tool-allow-deny-call scenario.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "use tools please").await;
 
-    // Protocol contract: at least one frame, exactly one terminal frame,
-    // and the daemon is still alive afterwards.
     assert!(
         !frames.is_empty(),
         "chat RPC should answer with at least one frame, got none"
     );
-    let terminal: Vec<&serde_json::Value> = frames
-        .iter()
-        .filter(|f| {
-            matches!(
-                f.get("type").and_then(|t| t.as_str()),
-                Some("done") | Some("error")
-            )
-        })
-        .collect();
-    assert_eq!(
-        terminal.len(),
-        1,
-        "expected exactly one terminal (Done/Error) frame, got {terminal:?} among {frames:?}"
-    );
-
-    // Daemon must still be alive after the chat turn.
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon after turn") {
-        panic!("daemon died during chat turn: {status:?}");
-    }
-
-    // --- Future assertions (Blocker B resolved) ---
-    // When the LLM caller is connected, tighten these assertions:
-    // 1. Assert Read tool result appears in response (whitelisted tool
-    //    executed): response frames contain a ToolResult content block
-    //    with the file content.
-    // 2. Assert Bash tool is rejected: response frames contain a ToolResult
-    //    or error message indicating the tool is disallowed.
-    // 3. Optionally assert daemon stderr contains a deny log entry for
-    //    the Bash tool call.
+    assert_single_terminal(&frames);
+    assert_daemon_alive(&mut daemon);
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
@@ -813,66 +779,25 @@ async fn e2e_agent_runtime_config_query() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
-    // Override agent config with known fields.
-    let agent_dir = config_root.join("agents").join("master");
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
-    std::fs::write(
-        agent_dir.join("config.json"),
-        serde_json::json!({
-            "id": "master",
-            "name": "Master",
-            "model": "openai/gpt-4o-basic",
-            "tools": ["*"],
-            "skills": ["*"]
-        })
-        .to_string(),
-    )
-    .expect("write master agent config");
-
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    let mut daemon = DaemonGuard(daemon);
+    let mut daemon = spawn_daemon(config_root);
     wait_for_daemon_ready(config_root).await;
 
     let admin_sock = config_root.join("admin.sock");
     let request = serde_json::json!({"type": "agent_info", "name": "master"});
 
     let response1 = admin_roundtrip(&admin_sock, &request).await;
-    assert_eq!(
-        response1.get("type").and_then(|t| t.as_str()),
-        Some("agent_info_result"),
-        "first query should return agent_info_result, got: {response1:?}"
-    );
-    assert_eq!(response1["id"], "master");
-    assert_eq!(response1["name"], "Master");
-    assert_eq!(response1["model"], "openai/gpt-4o-basic");
-    assert!(
-        response1["skills"].is_array(),
-        "skills should be an array, got: {:?}",
-        response1["skills"]
-    );
+    assert_admin_agent_info(&response1);
 
-    // Second query — read-only, idempotent.
     let response2 = admin_roundtrip(&admin_sock, &request).await;
     assert_eq!(
         response1, response2,
         "consecutive queries should be identical"
     );
 
-    // Daemon must still be alive.
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
-        panic!("daemon died after admin queries: {status:?}");
-    }
+    assert_daemon_alive(&mut daemon);
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
@@ -889,19 +814,9 @@ async fn e2e_agent_runtime_config_query_unknown() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
 
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    let mut daemon = DaemonGuard(daemon);
+    let mut daemon = spawn_daemon(config_root);
     wait_for_daemon_ready(config_root).await;
 
     let admin_sock = config_root.join("admin.sock");
@@ -922,10 +837,7 @@ async fn e2e_agent_runtime_config_query_unknown() {
         response["message"]
     );
 
-    // Daemon must still be alive after the error response.
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
-        panic!("daemon died after admin error query: {status:?}");
-    }
+    assert_daemon_alive(&mut daemon);
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");

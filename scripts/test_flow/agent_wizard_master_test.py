@@ -26,9 +26,6 @@ BINARY = os.environ.get(
     Path(__file__).parent.parent.parent / "target" / "debug" / "closeclaw",
 )
 
-sys.path.insert(0, str(Path(__file__).parent))
-from test_helpers import run_wizard  # noqa: E402
-
 import pexpect
 
 
