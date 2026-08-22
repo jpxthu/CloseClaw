@@ -19,6 +19,8 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
         channel: channel.to_string(),
         timestamp: ts,
         chat_name: String::new(),
+        trace_id: None,
+        session_key: None,
     }
 }
 
@@ -183,6 +185,8 @@ fn test_channel_context_renders_actual_chat_name() {
         channel: "feishu".to_string(),
         timestamp: 1700000000,
         chat_name: "Dev Team".to_string(),
+        trace_id: None,
+        session_key: None,
     };
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     let channel_ctx = sections
@@ -210,6 +214,8 @@ fn test_channel_context_empty_chat_name_fallback() {
         channel: "feishu".to_string(),
         timestamp: 1700000000,
         chat_name: String::new(),
+        trace_id: None,
+        session_key: None,
     };
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     let channel_ctx = sections
@@ -239,6 +245,8 @@ fn test_channel_context_chat_name_independent_of_channel_type() {
             channel: ch.to_string(),
             timestamp: 0,
             chat_name: "My Group".to_string(),
+            trace_id: None,
+            session_key: None,
         };
         let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
         let rendered = sections
