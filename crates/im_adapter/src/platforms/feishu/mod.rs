@@ -460,8 +460,41 @@ impl IMPlugin for FeishuPlugin {
             return build_text("");
         }
 
+        let start = Instant::now();
         let (title, elements) = renderer::dispatch_blocks(content_blocks, dsl_result, true);
-        build_card(title, elements)
+        let output = build_card(title, elements);
+        let render_duration_ms = start.elapsed().as_millis() as u64;
+
+        // Emit structured debug_log event for outbound render.
+        if let Some(ref debug_log) = self.debug_log {
+            let trace_id = self
+                .adapter
+                .last_metadata
+                .try_lock()
+                .ok()
+                .and_then(|m| m.get("trace_id").cloned())
+                .unwrap_or_default();
+            let msg_type = output.msg_type.clone();
+            let ctx = TraceContext::new_root(trace_id);
+            let event = LogEvent::new(
+                &ctx,
+                None,
+                LogLevel::Info,
+                "feishu",
+                "outbound.render",
+                serde_json::json!({
+                    "platform": "feishu",
+                    "msg_type": msg_type,
+                    "render_duration_ms": render_duration_ms,
+                }),
+            );
+            let debug_log = debug_log.clone();
+            tokio::runtime::Handle::current().block_on(async move {
+                debug_log.log(event).await;
+            });
+        }
+
+        output
     }
 
     async fn send(
