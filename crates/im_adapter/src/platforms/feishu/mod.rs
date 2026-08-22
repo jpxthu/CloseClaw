@@ -351,10 +351,6 @@ impl IMPlugin for FeishuPlugin {
     ) -> Result<Option<NormalizedMessage>, CommonAdapterError> {
         // Generate trace_id at webhook arrival for cross-chain correlation.
         let trace_id = uuid::Uuid::new_v4().to_string();
-        {
-            let mut meta = self.adapter.last_metadata.lock().await;
-            meta.insert("trace_id".to_string(), trace_id.clone());
-        }
 
         let start = Instant::now();
         let mut msg = self
@@ -363,6 +359,13 @@ impl IMPlugin for FeishuPlugin {
             .await
             .map_err(convert_to_common_error)?;
         let parse_duration_ms = start.elapsed().as_millis() as u64;
+
+        // Re-insert trace_id after adapter call — adapter's parse_message_event
+        // clears last_metadata and repopulates it with chat_name.
+        {
+            let mut meta = self.adapter.last_metadata.lock().await;
+            meta.insert("trace_id".to_string(), trace_id.clone());
+        }
 
         if let Some(ref mut m) = msg {
             m.content = normalize_urls(&m.content);
@@ -489,8 +492,10 @@ impl IMPlugin for FeishuPlugin {
                 }),
             );
             let debug_log = debug_log.clone();
-            tokio::runtime::Handle::current().block_on(async move {
-                debug_log.log(event).await;
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async move {
+                    debug_log.log(event).await;
+                });
             });
         }
 
