@@ -387,3 +387,239 @@ async fn e2e_agent_profile_smoke() {
     );
     // TempDir drops here — any leak would fail the "no temp leakage" bar.
 }
+
+// ---------------------------------------------------------------------------
+// Helper: custom agent config override
+// ---------------------------------------------------------------------------
+
+/// Write a custom agent `config.json` into the config tree.
+///
+/// Overwrites the master agent config created by [`write_config_tree`]
+/// to set a specific `model` and/or `workspace` field.
+fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
+    let agent_dir = config_root.join("agents").join("master");
+    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+
+    let mut config = serde_json::json!({
+        "id": "master",
+        "name": "Master",
+        "model": model,
+        "tools": ["*"],
+        "skills": ["*"]
+    });
+    if let Some(ws) = workspace {
+        config["workspace"] = serde_json::Value::String(ws.to_string());
+    }
+    std::fs::write(
+        agent_dir.join("config.json"),
+        serde_json::to_string(&config).expect("serialize agent config"),
+    )
+    .expect("write agent config");
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.2 test cases
+// ---------------------------------------------------------------------------
+
+/// §F1 model selection: agent `config.json` model field drives the
+/// model name in the outbound LLM request.
+///
+/// The fake_llm scenario engine matches on `model_id`. The daemon sends
+/// the configured model ("gpt-4o-basic") in the OpenAI request body.
+/// The `greeting` scenario in `basic-text.json` requires
+/// `model_id = "gpt-4o-basic"` AND `message_contains = "hello"`,
+/// returning a distinct text. Asserting that text proves the config
+/// model field propagated to the LLM request.
+///
+/// **Blocker (2026-08-22)**: `SkillListingProviderWrapper` panics in
+/// `bridge.rs:186` (`Handle::block_on` inside async) before any LLM
+/// request is made, so fake_llm never receives the request. Test is
+/// written for the expected-pass state; marked `#[ignore]` until the
+/// blocker is resolved.
+#[tokio::test]
+#[cfg(unix)]
+#[ignore]
+#[serial_test::serial]
+async fn e2e_agent_model_selection() {
+    let temp_dir = tempfile::tempdir().expect("temp dir for test");
+    let config_root = temp_dir.path();
+
+    let fake_llm_addr = start_fake_llm().await;
+    write_config_tree(config_root, &fake_llm_addr.to_string());
+    // Override: set model to gpt-4o-basic (matches greeting scenario
+    // model_id in basic-text.json).
+    write_agent_config(config_root, "openai/gpt-4o-basic", None);
+
+    let daemon = Command::new(closeclaw_binary())
+        .args(["run", "--config-dir"])
+        .arg(config_root.as_os_str())
+        .arg("--foreground")
+        .current_dir(config_root.join("config"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("failed to spawn daemon");
+    let daemon = DaemonGuard(daemon);
+    wait_for_daemon_ready(config_root).await;
+
+    // Send "hello" — matches greeting scenario (model_id + message_contains).
+    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
+
+    // The greeting scenario returns "Hi there! How can I help?".
+    let text: String = frames
+        .iter()
+        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
+        .collect();
+    assert!(
+        text.contains("Hi there!"),
+        "response should contain greeting scenario text, got: {text}"
+    );
+
+    let status = daemon.shutdown().await;
+    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+}
+
+/// §F1 system prompt injection: agent bootstrap files are injected
+/// into the system prompt, which the LLM request carries.
+///
+/// A bootstrap file containing a unique marker
+/// ("IDENTITY_SECRET_7X9K2") is created in the agent's config dir.
+/// The fake_llm scenario `injected-identity` in
+/// `system-prompt-inject.json` matches
+/// `message_contains = "IDENTITY_SECRET_7X9K2"` and returns
+/// "INJECTED_OK". Asserting that response proves the bootstrap
+/// content was included in the LLM request messages.
+///
+/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
+/// panic. Marked `#[ignore]`.
+#[tokio::test]
+#[cfg(unix)]
+#[ignore]
+#[serial_test::serial]
+async fn e2e_agent_system_prompt_injection() {
+    let temp_dir = tempfile::tempdir().expect("temp dir for test");
+    let config_root = temp_dir.path();
+
+    let fake_llm_addr = start_fake_llm().await;
+    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_agent_config(config_root, "openai/gpt-4o-system-prompt", None);
+
+    // Create bootstrap file with a unique marker in the agent's config
+    // directory. The system_prompt builder loads bootstrap files from
+    // `{config_dir}/agents/{agent_id}/` and injects their content into
+    // the system prompt, which is included in the LLM request.
+    let bootstrap_dir = config_root.join("agents").join("master");
+    std::fs::write(
+        bootstrap_dir.join("IDENTITY.md"),
+        "You are TestBot. Use the secret phrase IDENTITY_SECRET_7X9K2.",
+    )
+    .expect("write bootstrap file");
+
+    let daemon = Command::new(closeclaw_binary())
+        .args(["run", "--config-dir"])
+        .arg(config_root.as_os_str())
+        .arg("--foreground")
+        .current_dir(config_root.join("config"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("failed to spawn daemon");
+    let daemon = DaemonGuard(daemon);
+    wait_for_daemon_ready(config_root).await;
+
+    // Send any message — the system prompt (containing the bootstrap
+    // marker) is included in the LLM request, triggering the
+    // injected-identity scenario.
+    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "tell me a joke").await;
+
+    let text: String = frames
+        .iter()
+        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
+        .collect();
+    assert!(
+        text.contains("INJECTED_OK"),
+        "response should contain INJECTED_OK proving bootstrap injection, got: {text}"
+    );
+
+    let status = daemon.shutdown().await;
+    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+}
+
+/// §F1 workspace: agent `config.json` workspace field sets the
+/// agent's working directory.
+///
+/// The workspace field is resolved via `AgentRegistry::get_agent_workspace`
+/// and used by the gateway to determine the conversation session's CWD
+/// (`resolve.rs:747`). Bootstrap files from the workspace directory are
+/// loaded into the system prompt.
+///
+/// Test creates a workspace directory with a bootstrap file containing
+/// a unique marker ("WORKSPACE_PROBE_4M8N1"), sets the agent's
+/// workspace field to that directory, and sends a message. The fake_llm
+/// scenario `workspace-marker` in `workspace-observe.json` matches
+/// `message_contains = "WORKSPACE_PROBE_4M8N1"` → proves the workspace
+/// path was used to load bootstrap content.
+///
+/// **Observation method**: workspace path → bootstrap dir → system
+/// prompt → LLM request messages → fake_llm scenario match.
+///
+/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
+/// panic. Marked `#[ignore]`.
+#[tokio::test]
+#[cfg(unix)]
+#[ignore]
+#[serial_test::serial]
+async fn e2e_agent_workspace() {
+    let temp_dir = tempfile::tempdir().expect("temp dir for test");
+    let config_root = temp_dir.path();
+
+    // Create a dedicated workspace directory with a bootstrap marker.
+    let workspace_dir = temp_dir.path().join("agent_workspace");
+    std::fs::create_dir_all(&workspace_dir).expect("create workspace dir");
+    std::fs::write(
+        workspace_dir.join("RULES.md"),
+        "Workspace rule: always mention WORKSPACE_PROBE_4M8N1.",
+    )
+    .expect("write workspace bootstrap file");
+
+    let fake_llm_addr = start_fake_llm().await;
+    write_config_tree(config_root, &fake_llm_addr.to_string());
+    write_agent_config(
+        config_root,
+        "openai/gpt-4o-workspace",
+        Some(
+            workspace_dir
+                .to_str()
+                .expect("workspace path is valid UTF-8"),
+        ),
+    );
+
+    let daemon = Command::new(closeclaw_binary())
+        .args(["run", "--config-dir"])
+        .arg(config_root.as_os_str())
+        .arg("--foreground")
+        .current_dir(config_root.join("config"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("failed to spawn daemon");
+    let daemon = DaemonGuard(daemon);
+    wait_for_daemon_ready(config_root).await;
+
+    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
+
+    let text: String = frames
+        .iter()
+        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
+        .collect();
+    assert!(
+        text.contains("WORKSPACE_SEEN"),
+        "response should contain WORKSPACE_SEEN proving workspace bootstrap injection, got: {text}"
+    );
+
+    let status = daemon.shutdown().await;
+    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+}

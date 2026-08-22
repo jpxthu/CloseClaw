@@ -1,0 +1,33 @@
+{
+    "scenarios": [
+        {
+            "name": "workspace-marker",
+            "match_": {
+                "model_id": "gpt-4o-workspace",
+                "message_contains": "WORKSPACE_PROBE_4M8N1"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "WORKSPACE_SEEN"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "workspace-fallback",
+            "match_": {
+                "model_id": "gpt-4o-workspace"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "NO_WORKSPACE_MARKER"
+                    }
+                }
+            ]
+        }
+    ]
+}
