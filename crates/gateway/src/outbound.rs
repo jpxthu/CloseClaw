@@ -71,6 +71,23 @@ impl From<StreamResult> for UnifiedResponse {
     }
 }
 
+/// Bundled context for streaming outbound dispatch.
+///
+/// Groups trace metadata and optional session-assembled content that
+/// every streaming outbound helper needs, keeping individual parameter
+/// lists within the project's 6-parameter hard limit.
+#[derive(Debug, Clone, Default)]
+pub struct OutboundMeta {
+    /// Inbound trace ID for debug-log event correlation.
+    pub trace_id: Option<String>,
+    /// Inbound session key for debug-log event correlation.
+    pub session_key: Option<String>,
+    /// Session-assembled content blocks (used by `send_outbound_streaming_assembled`).
+    pub session_content_blocks: Vec<ContentBlock>,
+    /// Session-assembled usage override.
+    pub session_usage: Option<UnifiedUsage>,
+}
+
 /// Outcome of a single outbound dispatch.
 ///
 /// Distinguishes between "message delivered" and "delivery failed but user
@@ -494,19 +511,10 @@ impl Gateway {
         channel: &str,
         stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
         plugin: &std::sync::Arc<dyn IMPlugin>,
-        trace_id: Option<String>,
-        session_key: Option<String>,
+        meta: OutboundMeta,
     ) -> Result<StreamResult, GatewayError> {
-        self.send_outbound_streaming_inner(
-            session_id,
-            channel,
-            stream,
-            plugin,
-            None,
-            trace_id,
-            session_key,
-        )
-        .await
+        self.send_outbound_streaming_inner(session_id, channel, stream, plugin, meta)
+            .await
     }
 
     /// Streaming outbound dispatch with session-assembled content blocks.
@@ -519,21 +527,10 @@ impl Gateway {
         channel: &str,
         stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
         plugin: &std::sync::Arc<dyn IMPlugin>,
-        session_content_blocks: Vec<ContentBlock>,
-        session_usage: Option<UnifiedUsage>,
-        trace_id: Option<String>,
-        session_key: Option<String>,
+        meta: OutboundMeta,
     ) -> Result<StreamResult, GatewayError> {
-        self.send_outbound_streaming_inner(
-            session_id,
-            channel,
-            stream,
-            plugin,
-            Some((session_content_blocks, session_usage)),
-            trace_id,
-            session_key,
-        )
-        .await
+        self.send_outbound_streaming_inner(session_id, channel, stream, plugin, meta)
+            .await
     }
 
     /// Core streaming outbound dispatch.
@@ -553,10 +550,16 @@ impl Gateway {
         channel: &str,
         mut stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
         plugin: &std::sync::Arc<dyn IMPlugin>,
-        session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
-        trace_id: Option<String>,
-        session_key: Option<String>,
+        meta: OutboundMeta,
     ) -> Result<StreamResult, GatewayError> {
+        let session_blocks = if meta.session_content_blocks.is_empty() {
+            None
+        } else {
+            Some((
+                meta.session_content_blocks.clone(),
+                meta.session_usage.clone(),
+            ))
+        };
         let chat_id = self
             .session_manager
             .get_chat_id(session_id)
@@ -632,8 +635,8 @@ impl Gateway {
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
             registry: processor_registry.as_ref(),
-            trace_id: trace_id.as_deref(),
-            session_key: session_key.as_deref(),
+            trace_id: meta.trace_id.as_deref(),
+            session_key: meta.session_key.as_deref(),
         };
         loop {
             tokio::select! {
