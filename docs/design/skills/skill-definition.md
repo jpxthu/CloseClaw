@@ -40,11 +40,11 @@ Agent 专属目录下的技能仅对该 Agent 可见，不影响其他 Agent。
 
 ### 磁盘加载
 
-每个 System Prompt 组装边界（新建会话、恢复会话、压缩重建，见 [skill-listing-injection.md](skill-listing-injection.md)），磁盘加载层扫描前四层文件系统目录（ExtraDirs、Global、Agent 专属、Project）并按优先级从低到高加载。Bundled 技能不与文件系统目录一起扫描——编译时内嵌，通过 BuiltinSkillRegistry 独立加载。解析每个 SKILL.md 的 frontmatter，同名时高优先级覆盖低优先级。组装边界之间不扫描，注册中心内容保持稳定。
+每个 System Prompt 组装边界（触发事件清单见 [skill-listing-injection.md](skill-listing-injection.md)），磁盘加载层扫描前四层文件系统目录（ExtraDirs、Global、Agent 专属、Project）并按优先级从低到高加载。Bundled 技能不与文件系统目录一起扫描——编译时内嵌，通过 BuiltinSkillRegistry 独立加载。解析每个 SKILL.md 的 frontmatter，同名时高优先级覆盖低优先级。组装边界之间不扫描，注册中心内容保持稳定。
 
 正文采用按需加载策略：组装时只解析 frontmatter 并注册 skill 元数据，skill 被调用时才读取正文。
 
-目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存。扫描阶段的错误不导致 session 启动失败。
+目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存。扫描阶段的错误不导致 session 启动失败，不影响进行中的会话。
 
 ### 注册中心
 
@@ -55,7 +55,7 @@ Agent 专属目录下的技能仅对该 Agent 可见，不影响其他 Agent。
 
 查询路由：先查 DiskSkillRegistry，未命中再查 BuiltinSkillRegistry。同名覆盖仅在同一注册表内生效；跨注册表的优先级由查询路由顺序保证——DiskSkillRegistry 优先于 BuiltinSkillRegistry。
 
-技能文件变更在下一个 System Prompt 组装边界反映（新建会话、恢复会话、压缩重建，详见 [skill-listing-injection.md](skill-listing-injection.md)）；组装之间清单内容不变。
+技能文件变更在下一个 System Prompt 组装边界反映（详见 [skill-listing-injection.md](skill-listing-injection.md)）；组装之间清单内容不变。
 
 ### 错误处理
 
@@ -69,7 +69,7 @@ Agent 专属目录下的技能仅对该 Agent 可见，不影响其他 Agent。
 
 ### 加载与刷新
 
-1. 到达组装边界（新建会话、恢复会话、压缩重建），按优先级从低到高扫描四层文件系统目录：
+1. 到达组装边界（见 [skill-listing-injection.md](skill-listing-injection.md)），按优先级从低到高扫描四层文件系统目录：
    1. ExtraDirs 扫描（路径不存在 → 跳过）
    2. Global 目录扫描
    3. Agent 专属目录扫描

@@ -41,7 +41,7 @@ Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、�
 
 ### 加载与注册
 
-磁盘加载层在每个 System Prompt 组装边界（新建会话、恢复会话、压缩重建）按优先级从低到高扫描四层文件系统目录。实际扫描顺序为 ExtraDirs → Global → Agent → Project（优先级从低到高）。BuiltinSkillRegistry 由编译期嵌入的内置数据初始化，Bundled 技能不参与磁盘扫描，独立加载。高优先级层中的同名技能覆盖低优先级层中已加载的。组装边界之间不扫描，注册中心内容稳定；技能文件变更在下一个组装边界反映，详见 [skill-listing-injection.md](skill-listing-injection.md)。
+磁盘加载层在每个 System Prompt 组装边界（触发事件清单见 [system_prompt 模块](../system_prompt/README.md)）按优先级从低到高扫描四层文件系统目录。实际扫描顺序为 ExtraDirs → Global → Agent → Project（优先级从低到高）。BuiltinSkillRegistry 由编译期嵌入的内置数据初始化，Bundled 技能不参与磁盘扫描，独立加载。高优先级层中的同名技能覆盖低优先级层中已加载的。组装边界之间不扫描，注册中心内容稳定；技能文件变更在下一个组装边界反映，详见 [skill-listing-injection.md](skill-listing-injection.md)。
 
 ### 技能清单生成
 
