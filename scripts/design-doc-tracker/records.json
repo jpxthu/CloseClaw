@@ -243,9 +243,9 @@
     "path": "docs/design/im_adapter/streaming-render.md",
     "commit": "0e818af2960c6fa70c6c0243e315222f9cee8415",
     "commit_time": "2026-08-17T07:49:18+08:00",
-    "confirmed_time": "2026-08-17T08:12:11.241850+08:00",
+    "confirmed_time": "2026-08-23T05:48:25.545631+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "流式渲染器输入接口描述自相矛盾：架构/数据流章节称渲染器接收 ContentBlock[]（完整块数组），但增量逐行文本输出要求渲染器消费增量事件（代码实际接口为 StreamEvent 事件流）。读者无法从文档唯一确定流式渲染器的数据接口形态"
   },
   {
     "path": "docs/design/llm/README.md",
