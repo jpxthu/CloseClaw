@@ -119,11 +119,7 @@ impl LineBuffer {
                 continue;
             }
             if backtick_run >= 3 {
-                if in_code {
-                    in_code = false;
-                } else {
-                    in_code = true;
-                }
+                in_code = !in_code;
             }
             backtick_run = 0;
             current_line.push(ch);
