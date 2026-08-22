@@ -702,3 +702,35 @@ fn test_whole_block_outside_codeblock_threshold_works() {
     );
     assert_eq!(out[0].chars().count(), 120);
 }
+
+// ── First-line timeout lifecycle regression (Step 1.3) ───────────────────
+
+/// Regression: after first-line timeout fires, `first_text_arrival` is
+/// cleared. The next feed starts a fresh clock and must wait the full
+/// timeout before triggering again.
+#[test]
+fn test_first_line_timeout_lifecycle_resets_clock() {
+    let mut buf = LineBuffer::new();
+
+    // Phase 1: first-line timeout triggers on initial feed.
+    buf.feed("Hello ");
+    thread::sleep(Duration::from_millis(250));
+    let result = buf.check_timeout();
+    assert!(result.is_some(), "first-line timeout must fire after 250ms");
+    assert_eq!(result.unwrap(), vec!["Hello "]);
+    // Buffer is drained.
+    assert!(buf.flush().is_none());
+
+    // Phase 2: new feed after timeout — clock should restart.
+    buf.feed("World ");
+    // Immediately: should NOT trigger (fresh clock).
+    assert!(buf.check_timeout().is_none());
+    // Wait full timeout.
+    thread::sleep(Duration::from_millis(250));
+    let result = buf.check_timeout();
+    assert!(
+        result.is_some(),
+        "second feed must wait full timeout before triggering"
+    );
+    assert_eq!(result.unwrap(), vec!["World "]);
+}

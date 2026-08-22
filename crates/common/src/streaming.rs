@@ -168,6 +168,7 @@ impl LineBuffer {
         } else {
             self.in_code_block = false;
             self.last_activity = None;
+            self.first_text_arrival = None;
             Some(std::mem::take(&mut self.buffer))
         }
     }
@@ -188,26 +189,27 @@ impl LineBuffer {
         // consecutive deltas.
         if let Some(first_arrival) = self.first_text_arrival {
             if first_arrival.elapsed() >= timeout {
-                let mut emitted = Vec::new();
-                self.force_emit(&mut emitted);
-                self.last_activity = None;
-                self.first_text_arrival = None;
-                self.in_code_block = false;
-                return Some(emitted);
+                return self.do_force_emit();
             }
         }
         // Standard last-activity timeout.
         if let Some(last) = self.last_activity {
             if last.elapsed() >= timeout {
-                let mut emitted = Vec::new();
-                self.force_emit(&mut emitted);
-                self.last_activity = None;
-                self.first_text_arrival = None;
-                self.in_code_block = false;
-                return Some(emitted);
+                return self.do_force_emit();
             }
         }
         None
+    }
+
+    /// Force-emit the buffer and reset all timeout-related state.
+    /// Returns the emitted lines.
+    fn do_force_emit(&mut self) -> Option<Vec<String>> {
+        let mut emitted = Vec::new();
+        self.force_emit(&mut emitted);
+        self.last_activity = None;
+        self.first_text_arrival = None;
+        self.in_code_block = false;
+        Some(emitted)
     }
 
     fn force_emit(&mut self, emitted: &mut Vec<String>) {
