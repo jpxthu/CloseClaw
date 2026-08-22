@@ -543,3 +543,86 @@ fn test_line_buffer_with_timeout_none_never_emits() {
     thread::sleep(Duration::from_millis(500));
     assert!(buf.check_timeout().is_none());
 }
+
+// ── WholeBlock threshold/timeout skip tests (Step 1.2) ────────────────────
+
+/// WholeBlock mode: code block content exceeding the character threshold
+/// must NOT be force-emitted. The content stays buffered until the closing
+/// fence arrives.
+#[test]
+fn test_whole_block_threshold_skips_force_emit() {
+    let mut buf = LineBuffer::with_threshold(100).with_code_block_mode(CodeBlockMode::WholeBlock);
+    // Open a code block.
+    let out = buf.feed("```rust\n");
+    assert!(out.is_empty(), "opening fence should not emit");
+    // Feed >100 chars of code block content (no closing fence).
+    let code_content = "a".repeat(120);
+    let out = buf.feed(&code_content);
+    assert!(
+        out.is_empty(),
+        "WholeBlock mode must not force-emit code block content at threshold"
+    );
+    // flush() should still hold the content.
+    let flushed = buf.flush();
+    assert!(flushed.is_some());
+    let content = flushed.unwrap();
+    assert!(
+        content.chars().count() > 100,
+        "flushed content should be the accumulated code block"
+    );
+    assert!(content.contains(&code_content));
+}
+
+/// WholeBlock mode: code block content must NOT be force-emitted on timeout.
+#[test]
+fn test_whole_block_timeout_skips_force_emit() {
+    let mut buf = LineBuffer::with_threshold(100)
+        .with_code_block_mode(CodeBlockMode::WholeBlock)
+        .with_timeout(Some(Duration::from_millis(200)));
+    // Open a code block and feed content.
+    buf.feed("```rust\n");
+    buf.feed("some code here\n");
+    // Wait for timeout to elapse.
+    thread::sleep(Duration::from_millis(250));
+    // check_timeout must return None — content stays buffered.
+    let result = buf.check_timeout();
+    assert!(
+        result.is_none(),
+        "WholeBlock mode must not force-emit code block content on timeout"
+    );
+    // Content should still be in the buffer.
+    let flushed = buf.flush();
+    assert!(flushed.is_some());
+    let content = flushed.unwrap();
+    assert!(content.contains("some code here"));
+}
+
+/// LineByLine mode regression: code block content exceeding the threshold
+/// must still be force-emitted (the default behavior).
+#[test]
+fn test_linebyline_threshold_still_works() {
+    let mut buf = LineBuffer::with_threshold(100); // Default LineByLine mode.
+                                                   // Open a code block.
+    buf.feed("```\n");
+    // Feed >100 chars with no newline — should trigger force_emit.
+    let code_content = "b".repeat(120);
+    let out = buf.feed(&code_content);
+    assert_eq!(out.len(), 1, "LineByLine mode must force-emit at threshold");
+    assert_eq!(out[0].chars().count(), 120);
+}
+
+/// WholeBlock mode regression: outside a code block, the threshold still
+/// forces emission as normal.
+#[test]
+fn test_whole_block_outside_codeblock_threshold_works() {
+    let mut buf = LineBuffer::with_threshold(100).with_code_block_mode(CodeBlockMode::WholeBlock);
+    // Feed >100 chars outside any code block.
+    let text = "c".repeat(120);
+    let out = buf.feed(&text);
+    assert_eq!(
+        out.len(),
+        1,
+        "WholeBlock mode outside code block must still force-emit at threshold"
+    );
+    assert_eq!(out[0].chars().count(), 120);
+}
