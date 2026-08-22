@@ -55,7 +55,7 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
 
 查询路由：先查 DiskSkillRegistry，未命中再查 BuiltinSkillRegistry。同名覆盖仅在同一注册表内生效；跨注册表的优先级由查询路由顺序保证——DiskSkillRegistry 优先于 BuiltinSkillRegistry。
 
-注册中心内容在 session 内冻结。
+技能文件变更在下一个 System Prompt 组装边界反映（新建会话、恢复会话、压缩重建，详见 [skill-listing-injection.md](skill-listing-injection.md)）；组装之间清单内容不变。
 
 ### 错误处理
 
@@ -80,7 +80,7 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
    - 同名覆盖 → 低优先级版本跳过并记录
 4. 磁盘扫描的技能 → 写入 DiskSkillRegistry
 5. 内置技能 → 写入 BuiltinSkillRegistry
-6. 注册中心冻结
+6. 注册中心就绪，供 SP 组装和技能调用查询
 
 ### 按需加载正文
 
