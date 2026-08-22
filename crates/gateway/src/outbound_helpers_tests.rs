@@ -16,6 +16,21 @@ use closeclaw_common::OutboundMiddleware;
 use closeclaw_common::{ContentBlock, MiddlewareContext, MiddlewareError};
 
 use crate::outbound_helpers::{send_text, StreamContext};
+use crate::{Gateway, GatewayConfig, SessionManager};
+
+// ---------------------------------------------------------------------------
+// Test helpers
+
+fn test_gw() -> Gateway {
+    let config = GatewayConfig {
+        name: "outbound_helpers_test".into(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        ..Default::default()
+    };
+    let sm = std::sync::Arc::new(SessionManager::new(&config, None, None, Default::default()));
+    Gateway::new(config, sm)
+}
 
 // ---------------------------------------------------------------------------
 // Mock plugin
@@ -150,14 +165,18 @@ fn make_stream_ctx<'a>(
     session_id: &'a str,
     channel: &'a str,
     chat_id: &'a str,
+    gateway: &'a Gateway,
 ) -> StreamContext<'a> {
     StreamContext {
+        gateway,
         plugin,
         session_id,
         channel,
         chat_id,
         thread_id: None,
         registry: None,
+        trace_id: None,
+        session_key: None,
     }
 }
 
@@ -169,7 +188,8 @@ fn make_stream_ctx<'a>(
 #[tokio::test]
 async fn test_send_text_dispatches_directly() {
     let (plugin, tracker) = make_plugin();
-    let ctx = make_stream_ctx(&plugin, "s1", "mock", "chat1");
+    let gw = test_gw();
+    let ctx = make_stream_ctx(&plugin, "s1", "mock", "chat1", &gw);
     send_text(&ctx, "hello world").await.unwrap();
     assert!(tracker.was_send_called());
     assert_eq!(tracker.last_sent_text().unwrap(), "hello world");
@@ -179,7 +199,8 @@ async fn test_send_text_dispatches_directly() {
 #[tokio::test]
 async fn test_send_text_empty_string() {
     let (plugin, tracker) = make_plugin();
-    let ctx = make_stream_ctx(&plugin, "s2", "mock", "chat2");
+    let gw = test_gw();
+    let ctx = make_stream_ctx(&plugin, "s2", "mock", "chat2", &gw);
     send_text(&ctx, "").await.unwrap();
     assert!(tracker.was_send_called());
     assert_eq!(tracker.last_sent_text().unwrap(), "");
@@ -189,7 +210,8 @@ async fn test_send_text_empty_string() {
 #[tokio::test]
 async fn test_send_text_special_characters() {
     let (plugin, tracker) = make_plugin();
-    let ctx = make_stream_ctx(&plugin, "s3", "mock", "chat3");
+    let gw = test_gw();
+    let ctx = make_stream_ctx(&plugin, "s3", "mock", "chat3", &gw);
     send_text(&ctx, "hello 🌍 <script>alert('xss')</script>")
         .await
         .unwrap();

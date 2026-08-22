@@ -287,6 +287,14 @@ impl Gateway {
         }
     }
 
+    /// Get a clone of the current [`DebugLog`] instance, if configured.
+    pub fn get_debug_log(&self) -> Option<DebugLog> {
+        self.debug_log
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     /// Start the inbound bounded queue.
     ///
     /// Creates a bounded mpsc channel with capacity from
@@ -714,6 +722,8 @@ impl Gateway {
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
                 chat_name,
+                trace_id: trace_id.map(|s| s.to_string()),
+                session_key: processed.metadata.get("session_key").cloned(),
             };
             let result = handler
                 .handle_message_with_gateway(&session_id, content, meta, &gw, &plugin)

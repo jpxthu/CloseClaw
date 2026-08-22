@@ -14,6 +14,8 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
         timestamp: ts,
+        trace_id: None,
+        session_key: None,
     }
 }
 

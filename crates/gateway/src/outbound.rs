@@ -166,7 +166,18 @@ impl Gateway {
             .metadata
             .get("dsl_result")
             .and_then(|s| serde_json::from_str(s).ok());
+        let render_start = std::time::Instant::now();
         let rendered = plugin.render(blocks, dsl_result.as_ref());
+        if channel == "feishu" {
+            let render_duration_ms = render_start.elapsed().as_millis() as u64;
+            crate::outbound_helpers::emit_feishu_render_event(
+                self,
+                trace_id.as_deref().unwrap_or(""),
+                session_key.as_deref(),
+                channel,
+                render_duration_ms,
+            );
+        }
         let thread_id = self.session_manager.get_thread_id(session_id).await;
         let fallback_text = blocks
             .iter()
@@ -216,11 +227,23 @@ impl Gateway {
             }
         }
         // Send via plugin — on failure, notify user and skip outbound history.
-        if let Err(e) = ctx
+        let send_start = std::time::Instant::now();
+        let send_result = ctx
             .plugin
             .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
-            .await
-        {
+            .await;
+        if ctx.channel == "feishu" {
+            let send_duration_ms = send_start.elapsed().as_millis() as u64;
+            crate::outbound_helpers::emit_feishu_send_event(
+                self,
+                ctx.trace_id.as_deref().unwrap_or(""),
+                ctx.session_key.as_deref(),
+                ctx.channel,
+                &ctx.chat_id,
+                send_duration_ms,
+            );
+        }
+        if let Err(e) = send_result {
             notify_batch_send_failure(self, ctx.channel, &ctx.chat_id, e).await;
             return Ok(SendOutcome::Notified);
         }
@@ -285,7 +308,7 @@ impl Gateway {
     /// Used by [`send_outbound_simplified`] for non-text message rejection
     /// replies where the design doc requires log → render → send without
     /// VerbosityFilter / DslParser / middleware.
-    async fn process_outbound_raw_log_only(
+    pub(crate) async fn process_outbound_raw_log_only(
         &self,
         raw_output: &str,
         content_blocks: Vec<ContentBlock>,
@@ -303,7 +326,7 @@ impl Gateway {
     }
 
     /// Run the outbound processor chain if configured, otherwise bypass.
-    async fn process_or_bypass(
+    pub(crate) async fn process_or_bypass(
         &self,
         _raw_output: &str,
         content_blocks: Vec<ContentBlock>,
@@ -348,7 +371,7 @@ impl Gateway {
     /// the target channel. Logs a warning, records the raw text to the
     /// outbound log (via `process_outbound_raw_log_only`), and returns `Ok(())`
     /// so the caller does not fail.
-    async fn fallback_to_plain_text(
+    pub(crate) async fn fallback_to_plain_text(
         &self,
         channel: &str,
         raw_output: &str,
@@ -364,7 +387,7 @@ impl Gateway {
     }
 
     /// Fallback to plain-text send when render/send fails.
-    async fn send_as_plain_text(
+    pub(crate) async fn send_as_plain_text(
         &self,
         plugin: &Arc<dyn IMPlugin>,
         raw_output: &str,
@@ -462,85 +485,6 @@ impl Gateway {
         }
     }
 
-    /// Lightweight outbound to a specific chat (no session_id required).
-    /// Useful for system messages like busy replies.
-    pub async fn send_outbound_to_chat(
-        &self,
-        chat_id: &str,
-        channel: &str,
-        raw_output: &str,
-    ) -> Result<(), GatewayError> {
-        let Some(plugin) = self.get_plugin(channel).await else {
-            return self.fallback_to_plain_text(channel, raw_output).await;
-        };
-
-        // Processor chain (VerbosityFilter → DslParser → OutboundRawLog).
-        let blocks = vec![ContentBlock::Text(raw_output.to_string())];
-        let processed = self
-            .process_or_bypass(raw_output, blocks, channel, "", VerbosityLevel::default())
-            .await?;
-        if processed.content_blocks.is_empty() {
-            return Ok(());
-        }
-
-        // Extract dsl_result stored by the DSL processor.
-        let dsl_result: Option<DslParseResult> = processed
-            .metadata
-            .get("dsl_result")
-            .and_then(|s| serde_json::from_str(s).ok());
-
-        // Render via the plugin.
-        let rendered = plugin.render(&processed.content_blocks, dsl_result.as_ref());
-
-        // Run outbound middleware chain (render → middleware → send).
-        let middlewares = self.get_outbound_middlewares().await;
-        if !middlewares.is_empty() {
-            let mctx = Self::make_middleware_ctx("", channel, chat_id);
-            if let Err(e) = run_middleware_chain(&middlewares, &mctx, &rendered).await {
-                return log_middleware_rejection(self, e, chat_id, channel).await;
-            }
-        }
-
-        // Dispatch via plugin.send.
-        plugin.send(&rendered, chat_id, None).await?;
-        Ok(())
-    }
-
-    /// Send a simplified outbound message, skipping the full processor chain
-    /// and middleware. Used for non-text message rejection replies where the
-    /// design doc specifies a short path: log → render → send.
-    pub async fn send_outbound_simplified(
-        &self,
-        chat_id: &str,
-        channel: &str,
-        raw_output: &str,
-    ) -> Result<(), GatewayError> {
-        let Some(plugin) = self.get_plugin(channel).await else {
-            return self.fallback_to_plain_text(channel, raw_output).await;
-        };
-        let blocks = vec![ContentBlock::Text(raw_output.to_string())];
-
-        // Run only the outbound raw-log processor (skip Verbosity/DslParser).
-        let processed = self
-            .process_outbound_raw_log_only(raw_output, blocks.clone(), channel)
-            .await?;
-        if processed.content_blocks.is_empty() {
-            return Ok(());
-        }
-
-        // Render without DSL result — skips Verbosity/DslParser.
-        let rendered = plugin.render(&processed.content_blocks, None);
-
-        // Send directly — no outbound middleware chain.
-        // On render/send failure, fall back to plain-text send.
-        if plugin.send(&rendered, chat_id, None).await.is_err() {
-            self.send_as_plain_text(&plugin, raw_output, chat_id, None)
-                .await
-        } else {
-            Ok(())
-        }
-    }
-
     /// Send a streaming LLM response via the registered IM plugin.
     ///
     /// Delegates to [`send_outbound_streaming_inner`] for core logic.
@@ -550,9 +494,19 @@ impl Gateway {
         channel: &str,
         stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
         plugin: &std::sync::Arc<dyn IMPlugin>,
+        trace_id: Option<String>,
+        session_key: Option<String>,
     ) -> Result<StreamResult, GatewayError> {
-        self.send_outbound_streaming_inner(session_id, channel, stream, plugin, None)
-            .await
+        self.send_outbound_streaming_inner(
+            session_id,
+            channel,
+            stream,
+            plugin,
+            None,
+            trace_id,
+            session_key,
+        )
+        .await
     }
 
     /// Streaming outbound dispatch with session-assembled content blocks.
@@ -567,6 +521,8 @@ impl Gateway {
         plugin: &std::sync::Arc<dyn IMPlugin>,
         session_content_blocks: Vec<ContentBlock>,
         session_usage: Option<UnifiedUsage>,
+        trace_id: Option<String>,
+        session_key: Option<String>,
     ) -> Result<StreamResult, GatewayError> {
         self.send_outbound_streaming_inner(
             session_id,
@@ -574,6 +530,8 @@ impl Gateway {
             stream,
             plugin,
             Some((session_content_blocks, session_usage)),
+            trace_id,
+            session_key,
         )
         .await
     }
@@ -596,6 +554,8 @@ impl Gateway {
         mut stream: impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin,
         plugin: &std::sync::Arc<dyn IMPlugin>,
         session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
+        trace_id: Option<String>,
+        session_key: Option<String>,
     ) -> Result<StreamResult, GatewayError> {
         let chat_id = self
             .session_manager
@@ -665,12 +625,15 @@ impl Gateway {
         let timeout_duration = std::time::Duration::from_millis(200);
         let processor_registry = self.processor_registry.read().unwrap().clone();
         let ctx = StreamContext {
+            gateway: self,
             plugin,
             session_id,
             channel,
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
             registry: processor_registry.as_ref(),
+            trace_id: trace_id.as_deref(),
+            session_key: session_key.as_deref(),
         };
         loop {
             tokio::select! {

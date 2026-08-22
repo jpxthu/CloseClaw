@@ -20,12 +20,15 @@ use closeclaw_llm::types::{ContentBlock, ContentBlockType};
 /// When `None`, `dispatch_text` passes text through unchanged (zero overhead).
 #[allow(dead_code)] // read cross-module in outbound.rs
 pub(crate) struct StreamContext<'a> {
+    pub gateway: &'a Gateway,
     pub plugin: &'a std::sync::Arc<dyn closeclaw_common::im_plugin::IMPlugin>,
     pub session_id: &'a str,
     pub channel: &'a str,
     pub chat_id: &'a str,
     pub thread_id: Option<&'a str>,
     pub registry: Option<&'a std::sync::Arc<dyn closeclaw_common::processor::ProcessorChain>>,
+    pub trace_id: Option<&'a str>,
+    pub session_key: Option<&'a str>,
 }
 
 /// Mutable state carried across stream events in `send_outbound_streaming`.
@@ -202,16 +205,47 @@ pub(crate) async fn send_render_block(
     ctx: &StreamContext<'_>,
     block: &ContentBlock,
 ) -> Result<(), GatewayError> {
+    let render_start = std::time::Instant::now();
     let rendered = ctx.plugin.render(std::slice::from_ref(block), None);
+    if ctx.channel == "feishu" {
+        let render_duration_ms = render_start.elapsed().as_millis() as u64;
+        if let Some(trace_id) = ctx.trace_id {
+            if !trace_id.is_empty() {
+                emit_feishu_render_event(
+                    ctx.gateway,
+                    trace_id,
+                    ctx.session_key,
+                    ctx.channel,
+                    render_duration_ms,
+                );
+            }
+        }
+    }
     tracing::info!(
         chat_id = ctx.chat_id,
         content = ?rendered.payload,
         msg_type = %rendered.msg_type,
         "streaming outbound render block"
     );
+    let send_start = std::time::Instant::now();
     ctx.plugin
         .send(&rendered, ctx.chat_id, ctx.thread_id)
         .await?;
+    if ctx.channel == "feishu" {
+        let send_duration_ms = send_start.elapsed().as_millis() as u64;
+        if let Some(trace_id) = ctx.trace_id {
+            if !trace_id.is_empty() {
+                emit_feishu_send_event(
+                    ctx.gateway,
+                    trace_id,
+                    ctx.session_key,
+                    ctx.channel,
+                    ctx.chat_id,
+                    send_duration_ms,
+                );
+            }
+        }
+    }
     Ok(())
 }
 
@@ -283,5 +317,135 @@ pub(crate) fn merge_dsl_results(
         serde_json::to_string(&r).ok()
     } else {
         None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Feishu debug-log helpers
+// ---------------------------------------------------------------------------
+
+/// Emit a `feishu.outbound.rendered` debug event.
+pub(crate) fn emit_feishu_render_event(
+    gateway: &Gateway,
+    trace_id: &str,
+    session_key: Option<&str>,
+    channel: &str,
+    render_duration_ms: u64,
+) {
+    if trace_id.is_empty() {
+        return;
+    }
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    crate::debug_log_emitter::emit_debug_event(
+        guard.as_ref(),
+        trace_id,
+        session_key,
+        closeclaw_debug_log::LogLevel::Info,
+        "feishu",
+        "feishu.outbound.rendered",
+        serde_json::json!({
+            "platform": channel,
+            "render_duration_ms": render_duration_ms,
+        }),
+    );
+}
+
+/// Emit a `feishu.api.send` debug event.
+pub(crate) fn emit_feishu_send_event(
+    gateway: &Gateway,
+    trace_id: &str,
+    session_key: Option<&str>,
+    channel: &str,
+    peer_id: &str,
+    send_duration_ms: u64,
+) {
+    if trace_id.is_empty() {
+        return;
+    }
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    crate::debug_log_emitter::emit_debug_event(
+        guard.as_ref(),
+        trace_id,
+        session_key,
+        closeclaw_debug_log::LogLevel::Info,
+        "feishu",
+        "feishu.api.send",
+        serde_json::json!({
+            "platform": channel,
+            "peer_id": peer_id,
+            "send_duration_ms": send_duration_ms,
+        }),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Convenience outbound methods
+// ---------------------------------------------------------------------------
+
+impl Gateway {
+    /// Lightweight outbound to a specific chat (no session_id required).
+    pub async fn send_outbound_to_chat(
+        &self,
+        chat_id: &str,
+        channel: &str,
+        raw_output: &str,
+    ) -> Result<(), GatewayError> {
+        let Some(plugin) = self.get_plugin(channel).await else {
+            return self.fallback_to_plain_text(channel, raw_output).await;
+        };
+        let blocks = vec![closeclaw_llm::types::ContentBlock::Text(
+            raw_output.to_string(),
+        )];
+        let processed = self
+            .process_or_bypass(raw_output, blocks, channel, "", VerbosityLevel::default())
+            .await?;
+        if processed.content_blocks.is_empty() {
+            return Ok(());
+        }
+        let dsl_result: Option<closeclaw_common::processor::DslParseResult> = processed
+            .metadata
+            .get("dsl_result")
+            .and_then(|s| serde_json::from_str(s).ok());
+        let rendered = plugin.render(&processed.content_blocks, dsl_result.as_ref());
+        let middlewares = self.get_outbound_middlewares().await;
+        if !middlewares.is_empty() {
+            let mctx = Gateway::make_middleware_ctx("", channel, chat_id);
+            if let Err(e) =
+                closeclaw_processor_chain::run_middleware_chain(&middlewares, &mctx, &rendered)
+                    .await
+            {
+                return log_middleware_rejection(self, e, chat_id, channel).await;
+            }
+        }
+        plugin.send(&rendered, chat_id, None).await?;
+        Ok(())
+    }
+
+    /// Simplified outbound: raw-log → render → send (no Verbosity/DslParser/middleware).
+    pub async fn send_outbound_simplified(
+        &self,
+        chat_id: &str,
+        channel: &str,
+        raw_output: &str,
+    ) -> Result<(), GatewayError> {
+        let Some(plugin) = self.get_plugin(channel).await else {
+            return self.fallback_to_plain_text(channel, raw_output).await;
+        };
+        let blocks = vec![closeclaw_llm::types::ContentBlock::Text(
+            raw_output.to_string(),
+        )];
+        let processed = self
+            .process_outbound_raw_log_only(raw_output, blocks.clone(), channel)
+            .await?;
+        if processed.content_blocks.is_empty() {
+            return Ok(());
+        }
+        let rendered = plugin.render(&processed.content_blocks, None);
+        if plugin.send(&rendered, chat_id, None).await.is_err() {
+            self.send_as_plain_text(&plugin, raw_output, chat_id, None)
+                .await
+        } else {
+            Ok(())
+        }
     }
 }

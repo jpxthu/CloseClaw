@@ -59,7 +59,7 @@ async fn test_incremental_dsl_accumulates_into_dsl_result() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -129,7 +129,7 @@ async fn test_dsl_mixed_with_non_dsl_accumulates_correctly() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -229,7 +229,7 @@ async fn test_finish_phase_skips_verbosity_filter() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -342,7 +342,7 @@ async fn test_finish_phase_full_verbosity_preserves_thinking() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -395,7 +395,7 @@ async fn test_empty_chunk_no_send_no_block() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -449,7 +449,7 @@ async fn test_empty_dsl_line_no_instruction_accumulated() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -498,7 +498,7 @@ async fn test_registry_none_passthrough() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -527,7 +527,7 @@ async fn test_empty_stream_produces_empty_result() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await
         .unwrap();
 
@@ -676,7 +676,7 @@ async fn test_stream_error_propagates_as_stream_error() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     assert!(result.is_err(), "StreamEvent::Error should propagate");
@@ -717,7 +717,7 @@ async fn test_stream_error_preserves_partial_content() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     match result.unwrap_err() {
@@ -772,7 +772,7 @@ async fn test_streaming_plugin_send_failure_returns_error() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
 
     // Plugin.send fails → GatewayError::AdapterError (from SendFailed).

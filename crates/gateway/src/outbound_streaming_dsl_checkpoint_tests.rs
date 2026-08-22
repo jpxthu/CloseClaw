@@ -318,7 +318,7 @@ async fn test_streaming_checkpoint_persists_dsl_result() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
     assert!(result.is_ok(), "streaming should succeed");
 
@@ -408,7 +408,7 @@ async fn test_streaming_checkpoint_dsl_result_none_when_no_dsl() {
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
     assert!(result.is_ok());
 
@@ -455,7 +455,7 @@ async fn test_streaming_checkpoint_dsl_result_none_when_processor_without_dsl() 
     let stream = futures::stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
         .await;
     assert!(result.is_ok());
 

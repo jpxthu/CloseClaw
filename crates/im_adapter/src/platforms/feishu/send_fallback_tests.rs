@@ -83,25 +83,22 @@ async fn start_fail_then_succeed_server(
                 }))
             }),
         )
-        .route(
-            "/im/v1/messages",
-            {
-                let cc = call_count.clone();
-                let fc = fail_count.clone();
-                post(move || async move {
-                    let mut count = cc.lock().await;
-                    *count += 1;
-                    if *count <= *fc {
-                        Json(serde_json::json!({
-                            "code": 230001,
-                            "msg": "permission denied"
-                        }))
-                    } else {
-                        Json(serde_json::json!({"code": 0, "msg": "ok"}))
-                    }
-                })
-            },
-        );
+        .route("/im/v1/messages", {
+            let cc = call_count.clone();
+            let fc = fail_count.clone();
+            post(move || async move {
+                let mut count = cc.lock().await;
+                *count += 1;
+                if *count <= *fc {
+                    Json(serde_json::json!({
+                        "code": 230001,
+                        "msg": "permission denied"
+                    }))
+                } else {
+                    Json(serde_json::json!({"code": 0, "msg": "ok"}))
+                }
+            })
+        });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -390,7 +387,10 @@ async fn send_card_capability_error_fallback_to_text_succeeds() {
     let adapter = make_adapter(&url);
     let card = card_payload_with_markdown("fallback content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
-    assert!(result.is_ok(), "should return Ok when card fails but text fallback succeeds");
+    assert!(
+        result.is_ok(),
+        "should return Ok when card fails but text fallback succeeds"
+    );
     // The text fallback should have been called: total calls = 1 card + 1 text = 2
     assert_eq!(mock.msg_call_count.load(Ordering::SeqCst), 2);
 }
@@ -402,7 +402,10 @@ async fn send_card_capability_error_fallback_text_also_fails() {
     let adapter = make_adapter(&url);
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
-    assert!(result.is_err(), "should return Err when both card and text fail");
+    assert!(
+        result.is_err(),
+        "should return Err when both card and text fail"
+    );
     // 1 card + 1 text fallback = 2 calls
     assert_eq!(mock.msg_call_count.load(Ordering::SeqCst), 2);
 }
