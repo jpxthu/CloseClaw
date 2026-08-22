@@ -21,6 +21,13 @@ use tempfile::TempDir;
 // Test helpers
 // ---------------------------------------------------------------------------
 
+/// Pre-populate last_metadata with a trace_id for tests that call
+/// render/send without first calling parse_inbound.
+async fn set_test_trace_id(adapter: &FeishuAdapter, trace_id: &str) {
+    let mut meta = adapter.last_metadata.lock().await;
+    meta.insert("trace_id".to_string(), trace_id.to_string());
+}
+
 fn make_test_adapter() -> FeishuAdapter {
     let http_client = reqwest::Client::new();
     FeishuAdapter {
@@ -140,6 +147,7 @@ async fn test_render_writes_jsonl() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
     let adapter = Arc::new(make_test_adapter());
+    set_test_trace_id(&adapter, "test-render-trace").await;
     let mut plugin = FeishuPlugin::new(adapter);
     plugin.set_debug_log(Arc::new(debug_log));
 
@@ -170,6 +178,7 @@ async fn test_send_writes_jsonl() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
     let adapter = Arc::new(make_test_adapter());
+    set_test_trace_id(&adapter, "test-send-trace").await;
     let mut plugin = FeishuPlugin::new(adapter);
     plugin.set_debug_log(Arc::new(debug_log));
 
@@ -377,6 +386,7 @@ async fn test_render_duration_non_negative() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
     let adapter = Arc::new(make_test_adapter());
+    set_test_trace_id(&adapter, "test-render-trace").await;
     let mut plugin = FeishuPlugin::new(adapter);
     plugin.set_debug_log(Arc::new(debug_log));
 
@@ -398,6 +408,7 @@ async fn test_send_duration_non_negative() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
     let adapter = Arc::new(make_test_adapter());
+    set_test_trace_id(&adapter, "test-send-trace").await;
     let mut plugin = FeishuPlugin::new(adapter);
     plugin.set_debug_log(Arc::new(debug_log));
 
@@ -454,6 +465,7 @@ async fn test_outbound_render_event_structure() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
     let adapter = Arc::new(make_test_adapter());
+    set_test_trace_id(&adapter, "test-render-trace").await;
     let mut plugin = FeishuPlugin::new(adapter);
     plugin.set_debug_log(Arc::new(debug_log));
 
@@ -480,6 +492,7 @@ async fn test_outbound_send_event_structure() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
     let adapter = Arc::new(make_test_adapter());
+    set_test_trace_id(&adapter, "test-send-trace").await;
     let mut plugin = FeishuPlugin::new(adapter);
     plugin.set_debug_log(Arc::new(debug_log));
 
@@ -508,6 +521,7 @@ async fn test_send_failure_records_event() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
     let adapter = Arc::new(make_test_adapter());
+    set_test_trace_id(&adapter, "test-send-trace").await;
     let mut plugin = FeishuPlugin::new(adapter);
     plugin.set_debug_log(Arc::new(debug_log));
 

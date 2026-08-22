@@ -475,28 +475,33 @@ impl IMPlugin for FeishuPlugin {
                 .last_metadata
                 .try_lock()
                 .ok()
-                .and_then(|m| m.get("trace_id").cloned())
-                .unwrap_or_default();
-            let msg_type = output.msg_type.clone();
-            let ctx = TraceContext::new_root(trace_id);
-            let event = LogEvent::new(
-                &ctx,
-                None,
-                LogLevel::Info,
-                "feishu",
-                "outbound.render",
-                serde_json::json!({
-                    "platform": "feishu",
-                    "msg_type": msg_type,
-                    "render_duration_ms": render_duration_ms,
-                }),
-            );
-            let debug_log = debug_log.clone();
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async move {
-                    debug_log.log(event).await;
-                });
-            });
+                .and_then(|m| m.get("trace_id").cloned());
+            match &trace_id {
+                Some(tid) if !tid.is_empty() => {
+                    let ctx = TraceContext::new_root(tid.clone());
+                    let event = LogEvent::new(
+                        &ctx,
+                        None,
+                        LogLevel::Info,
+                        "feishu",
+                        "outbound.render",
+                        serde_json::json!({
+                            "platform": "feishu",
+                            "msg_type": output.msg_type,
+                            "render_duration_ms": render_duration_ms,
+                        }),
+                    );
+                    let debug_log = debug_log.clone();
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async move {
+                            debug_log.log(event).await;
+                        });
+                    });
+                }
+                _ => {
+                    warn!("render: try_lock failed or trace_id empty — skipping debug_log event");
+                }
+            }
         }
 
         output
@@ -510,7 +515,6 @@ impl IMPlugin for FeishuPlugin {
     ) -> Result<(), CommonAdapterError> {
         let msg_type = output.msg_type.clone();
         let start = Instant::now();
-        let success;
         let result = match output.msg_type.as_str() {
             "text" => {
                 let text = output
@@ -555,7 +559,7 @@ impl IMPlugin for FeishuPlugin {
             _ => Err(CommonAdapterError::UnsupportedOperation),
         };
         let send_duration_ms = start.elapsed().as_millis() as u64;
-        success = result.is_ok();
+        let success = result.is_ok();
 
         // Emit structured debug_log event for outbound send.
         if let Some(ref debug_log) = self.debug_log {
@@ -564,27 +568,33 @@ impl IMPlugin for FeishuPlugin {
                 .last_metadata
                 .try_lock()
                 .ok()
-                .and_then(|m| m.get("trace_id").cloned())
-                .unwrap_or_default();
-            let ctx = TraceContext::new_root(trace_id);
-            let event = LogEvent::new(
-                &ctx,
-                None,
-                LogLevel::Info,
-                "feishu",
-                "outbound.send",
-                serde_json::json!({
-                    "platform": "feishu",
-                    "peer_id": peer_id,
-                    "msg_type": msg_type,
-                    "send_duration_ms": send_duration_ms,
-                    "success": success,
-                }),
-            );
-            let debug_log = debug_log.clone();
-            tokio::spawn(async move {
-                debug_log.log(event).await;
-            });
+                .and_then(|m| m.get("trace_id").cloned());
+            match &trace_id {
+                Some(tid) if !tid.is_empty() => {
+                    let ctx = TraceContext::new_root(tid.clone());
+                    let event = LogEvent::new(
+                        &ctx,
+                        None,
+                        LogLevel::Info,
+                        "feishu",
+                        "outbound.send",
+                        serde_json::json!({
+                            "platform": "feishu",
+                            "peer_id": peer_id,
+                            "msg_type": msg_type,
+                            "send_duration_ms": send_duration_ms,
+                            "success": success,
+                        }),
+                    );
+                    let debug_log = debug_log.clone();
+                    tokio::spawn(async move {
+                        debug_log.log(event).await;
+                    });
+                }
+                _ => {
+                    warn!("send: try_lock failed or trace_id empty — skipping debug_log event");
+                }
+            }
         }
 
         result
