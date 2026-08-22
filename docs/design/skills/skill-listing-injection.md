@@ -24,7 +24,7 @@ DiskSkillRegistry + BuiltinSkillRegistry  ─── 数据源
        (SP Builder 组件，消费格式化结果产出 SkillsSection)
 ```
 
-清单生成仅在 SP 组装时触发，组装事件之间内容不变。技能文件变更在下一个组装边界反映——每次组装（含压缩完成后的 SP 重建）均从注册中心读取当前最新内容（组装触发事件清单见 [system_prompt 模块](../system_prompt/README.md)）。SP 重建时，SkillsFragmentProvider 从 Session 读取激活标记，将已激活的条件技能纳入清单一并渲染。
+清单生成仅在 SP 组装时触发，组装之间内容不变。技能文件变更在下一个组装边界反映——每次组装（含压缩完成后的 SP 重建）均从注册中心读取当前最新内容（组装触发事件清单见 [system_prompt 模块](../system_prompt/README.md)）。SP 重建时，SkillsFragmentProvider 从 Session 读取激活标记，将已激活的条件技能纳入清单一并渲染。
 
 条件激活（paths 匹配）的增量注入由 Session 模块负责，不属于本子功能的生成范围——Session 在检测到路径匹配后，以系统消息形式在下一 turn 注入单条技能条目，无需触发 SP 重建。
 

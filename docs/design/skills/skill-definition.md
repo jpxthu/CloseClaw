@@ -40,11 +40,11 @@ Agent 专属目录下的技能仅对该 Agent 可见，不影响其他 Agent。
 
 ### 磁盘加载
 
-每个 System Prompt 组装边界（触发事件清单见 [skill-listing-injection.md](skill-listing-injection.md)），磁盘加载层扫描前四层文件系统目录（ExtraDirs、Global、Agent 专属、Project）并按优先级从低到高加载。Bundled 技能不与文件系统目录一起扫描——编译时内嵌，通过 BuiltinSkillRegistry 独立加载。解析每个 SKILL.md 的 frontmatter，同名时高优先级覆盖低优先级。组装边界之间不扫描，注册中心内容保持稳定。
+每个 System Prompt 组装边界（触发事件清单见 [system_prompt 模块](../system_prompt/README.md)），磁盘加载层扫描前四层文件系统目录（ExtraDirs、Global、Agent 专属、Project）并按优先级从低到高加载。Bundled 技能不与文件系统目录一起扫描——编译时内嵌，通过 BuiltinSkillRegistry 独立加载。解析每个 SKILL.md 的 frontmatter，同名时高优先级覆盖低优先级。组装边界之间不扫描，注册中心内容保持稳定。
 
 正文采用按需加载策略：组装时只解析 frontmatter 并注册 skill 元数据，skill 被调用时才读取正文。
 
-目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存。扫描阶段的错误不导致 session 启动失败，不影响进行中的会话。
+目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存。扫描阶段的错误不导致组装失败，不影响会话。
 
 ### 注册中心
 
@@ -69,11 +69,11 @@ Agent 专属目录下的技能仅对该 Agent 可见，不影响其他 Agent。
 
 ### 加载与刷新
 
-1. 到达组装边界（见 [skill-listing-injection.md](skill-listing-injection.md)），按优先级从低到高扫描四层文件系统目录：
-   1. ExtraDirs 扫描（路径不存在 → 跳过）
-   2. Global 目录扫描
-   3. Agent 专属目录扫描
-   4. Project 目录扫描
+1. 到达组装边界（触发事件见 [system_prompt 模块](../system_prompt/README.md)），按优先级从低到高扫描四层文件系统目录：
+   - ExtraDirs 扫描（路径不存在 → 跳过）
+   - Global 目录扫描
+   - Agent 专属目录扫描
+   - Project 目录扫描
 2. Bundled 技能通过 BuiltinSkillRegistry 独立加载（编译时内嵌，不走文件系统扫描）
 3. 逐个解析每个 SKILL.md 的 frontmatter：
    - 格式错误或必填字段缺失 → 跳过该 skill 并记录
@@ -84,7 +84,7 @@ Agent 专属目录下的技能仅对该 Agent 可见，不影响其他 Agent。
 
 ### 按需加载正文
 
-Skill 被 Agent 调用时，从注册中心查找 skill 实例，按需加载正文内容。磁盘技能从对应 SKILL.md 文件读取；内置技能从 BuiltinSkillRegistry 实例中直接获取。启动阶段不加载正文。
+Skill 被 Agent 调用时，从注册中心查找 skill 实例，按需加载正文内容。磁盘技能从对应 SKILL.md 文件读取；内置技能从 BuiltinSkillRegistry 实例中直接获取。组装时不加载正文。
 
 ## 模块关系
 

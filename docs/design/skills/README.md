@@ -12,12 +12,13 @@ Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、�
 
 ```
 五层技能来源（优先级从高到低）
-  ├─ Project:  <project>/.closeclaw/skills/
-  ├─ Agent:   ~/.closeclaw/agents/<id>/skills/
-  ├─ Global:  ~/.closeclaw/skills/
-  ├─ ExtraDirs: 全局技能配置（config/skills.json 的 extraDirs）指定的外部目录
-  └─ Bundled: 编译期内置（不走磁盘加载）
-  ↓
+  Project   — <project>/.closeclaw/skills/
+  Agent     — ~/.openclaw/agents/<id>/skills/
+  Global    — ~/.openclaw/skills/
+  ExtraDirs — 全局技能配置（config/skills.json 的 extraDirs）指定的外部目录
+  Bundled   — 编译期内置（不走磁盘加载）
+
+前四层磁盘目录 ↓
 磁盘加载层（Disk Loader）
   → 扫描四层磁盘目录 → 解析 SKILL.md frontmatter → 同名高优先级覆盖低优先级
   ↓
