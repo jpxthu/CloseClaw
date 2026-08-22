@@ -548,3 +548,378 @@ async fn test_no_debug_log_no_session_resolved_or_route_decision() {
     }
     assert!(!has_jsonl, "no jsonl files expected when DebugLog is None");
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Step 1.4: inbound.parsed event and outbound feishu debug_log events
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Mock IMPlugin that returns a NormalizedMessage from parse_inbound
+/// and records send calls for outbound tests.
+struct FeishuMockPlugin {
+    send_called: std::sync::atomic::AtomicBool,
+}
+
+impl FeishuMockPlugin {
+    fn new() -> Self {
+        Self {
+            send_called: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::IMPlugin for FeishuMockPlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<closeclaw_common::NormalizedMessage>, closeclaw_common::AdapterError> {
+        Ok(Some(closeclaw_common::NormalizedMessage {
+            platform: "feishu".to_string(),
+            sender_id: "ou_sender".to_string(),
+            account_id: "ou_sender".to_string(),
+            peer_id: "oc_chat".to_string(),
+            content: "hello from mock".to_string(),
+            message_type: closeclaw_common::MessageType::Text,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            thread_id: None,
+            media_refs: vec![],
+        }))
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[closeclaw_common::processor::ContentBlock],
+        _dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
+    ) -> closeclaw_common::RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                closeclaw_common::processor::ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        closeclaw_common::RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &closeclaw_common::RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), closeclaw_common::AdapterError> {
+        self.send_called
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// Mock IMPlugin for non-feishu platform (e.g. discord).
+struct DiscordMockPlugin;
+
+#[async_trait::async_trait]
+impl closeclaw_common::IMPlugin for DiscordMockPlugin {
+    fn platform(&self) -> &str {
+        "discord"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<closeclaw_common::NormalizedMessage>, closeclaw_common::AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[closeclaw_common::processor::ContentBlock],
+        _dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
+    ) -> closeclaw_common::RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                closeclaw_common::processor::ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        closeclaw_common::RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &closeclaw_common::RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), closeclaw_common::AdapterError> {
+        Ok(())
+    }
+}
+
+/// Setup Gateway with DebugLog and a mock feishu plugin.
+async fn setup_gw_with_feishu_mock(
+    temp_dir: &TempDir,
+) -> (crate::Gateway, Arc<SessionManager>, Arc<FeishuMockPlugin>) {
+    let config = make_config();
+    let ws = temp_dir.path().join("ws");
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        Some(ws),
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let debug_log = make_debug_log(temp_dir).await;
+    gw.set_debug_log(debug_log).await;
+    let plugin = Arc::new(FeishuMockPlugin::new());
+    gw.register_plugin(plugin.clone()).await;
+    (gw, sm, plugin)
+}
+
+// ── inbound.parsed event ──────────────────────────────────────────────────
+
+/// When inbound parsing succeeds and DebugLog is configured,
+/// a `feishu.inbound.parsed` event must be emitted with correct fields.
+#[tokio::test]
+async fn test_inbound_parsed_event_emitted() {
+    let temp_dir = TempDir::new().expect("TempDir::new failed");
+    let (gw, _sm, _plugin) = setup_gw_with_feishu_mock(&temp_dir).await;
+
+    let trace_id = "trace-inbound-parsed-001";
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "ev_test",
+            "event_type": "im.message.receive_v1",
+            "create_time": "1234567890",
+            "token": "tok",
+            "app_id": "test_app_id"
+        },
+        "event": {
+            "sender": {
+                "sender_id": { "open_id": "ou_sender" },
+                "sender_type": "user"
+            },
+            "content": serde_json::json!({"text": "hello"}).to_string(),
+            "chat_id": "oc_chat",
+            "message_type": "text"
+        }
+    });
+    let request = crate::InboundRequest {
+        platform: "feishu".to_string(),
+        raw_payload: serde_json::to_vec(&payload).unwrap(),
+        peer_id: "oc_chat".to_string(),
+        trace_id: trace_id.to_string(),
+    };
+
+    // Process via enqueue_inbound (bypass mode — queue not started).
+    gw.enqueue_inbound(request).await.unwrap();
+
+    // Give spawned tasks time to write events.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let events = read_events_with_timeout(temp_dir.path()).await;
+    let inbound_events: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "inbound.parsed" && e.source_module == "feishu")
+        .collect();
+    assert_eq!(
+        inbound_events.len(),
+        1,
+        "expected exactly one feishu.inbound.parsed event"
+    );
+    let evt = inbound_events[0];
+    assert_eq!(evt.trace_id, trace_id);
+    assert_eq!(evt.payload["platform"].as_str().unwrap(), "feishu");
+    assert_eq!(evt.payload["message_type"].as_str().unwrap(), "text");
+    assert!(
+        evt.payload["parse_duration_ms"].as_u64().is_some(),
+        "parse_duration_ms should be a number"
+    );
+}
+
+/// When DebugLog is not configured, inbound.parsed event must not be emitted.
+#[tokio::test]
+async fn test_no_debug_log_no_inbound_parsed_event() {
+    let temp_dir = TempDir::new().expect("TempDir::new failed");
+    let config = make_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    // No debug_log set.
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(FeishuMockPlugin::new());
+    gw.register_plugin(plugin).await;
+
+    let request = crate::InboundRequest {
+        platform: "feishu".to_string(),
+        raw_payload: b"test".to_vec(),
+        peer_id: "oc_chat".to_string(),
+        trace_id: "trace-no-dl-inbound-001".to_string(),
+    };
+    gw.enqueue_inbound(request).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let events = read_events_with_timeout(temp_dir.path()).await;
+    assert!(
+        events.iter().all(|e| e.event_type != "inbound.parsed"),
+        "no inbound.parsed event expected when DebugLog is None"
+    );
+}
+
+// ── outbound feishu render/send events ────────────────────────────────────
+
+/// When send_outbound is called with channel="feishu" and DebugLog is configured,
+/// feishu.outbound.rendered and feishu.api.send events must be emitted.
+#[tokio::test]
+async fn test_outbound_feishu_events_emitted() {
+    let temp_dir = TempDir::new().expect("TempDir::new failed");
+    let (gw, sm, _plugin) = setup_gw_with_feishu_mock(&temp_dir).await;
+
+    // Create a session mapped to a chat_id.
+    let session_id = "sess-outbound-feishu-001";
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::Session {
+            id: session_id.to_string(),
+            agent_id: "oc_chat".to_string(),
+            channel: "feishu".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+
+    let trace_id = "trace-outbound-feishu-001";
+    let session_key = "feishu:ou_sender:oc_chat";
+    let content_blocks = vec![closeclaw_common::processor::ContentBlock::Text(
+        "test response".to_string(),
+    )];
+
+    let result = gw
+        .send_outbound(
+            session_id,
+            "feishu",
+            "test response",
+            content_blocks,
+            Some(trace_id.to_string()),
+            Some(session_key.to_string()),
+        )
+        .await;
+    assert!(result.is_ok(), "send_outbound should succeed");
+
+    // Give spawned tasks time to write events.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let events = read_events_with_timeout(temp_dir.path()).await;
+
+    // Check feishu.outbound.rendered event.
+    let render_events: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "feishu.outbound.rendered" && e.source_module == "feishu")
+        .collect();
+    assert_eq!(
+        render_events.len(),
+        1,
+        "expected exactly one feishu.outbound.rendered event"
+    );
+    let render_evt = render_events[0];
+    assert_eq!(render_evt.trace_id, trace_id);
+    assert_eq!(render_evt.payload["platform"].as_str().unwrap(), "feishu");
+    assert!(
+        render_evt.payload["render_duration_ms"].as_u64().is_some(),
+        "render_duration_ms should be a number"
+    );
+
+    // Check feishu.api.send event.
+    let send_events: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "feishu.api.send" && e.source_module == "feishu")
+        .collect();
+    assert_eq!(
+        send_events.len(),
+        1,
+        "expected exactly one feishu.api.send event"
+    );
+    let send_evt = send_events[0];
+    assert_eq!(send_evt.trace_id, trace_id);
+    assert_eq!(send_evt.payload["platform"].as_str().unwrap(), "feishu");
+    assert_eq!(send_evt.payload["peer_id"].as_str().unwrap(), "oc_chat");
+    assert!(
+        send_evt.payload["send_duration_ms"].as_u64().is_some(),
+        "send_duration_ms should be a number"
+    );
+}
+
+/// When send_outbound is called with channel="discord" (non-feishu),
+/// no feishu-specific events must be emitted.
+#[tokio::test]
+async fn test_outbound_non_feishu_no_feishu_events() {
+    let temp_dir = TempDir::new().expect("TempDir::new failed");
+    let config = make_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let debug_log = make_debug_log(&temp_dir).await;
+    gw.set_debug_log(debug_log).await;
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(DiscordMockPlugin);
+    gw.register_plugin(plugin).await;
+
+    let session_id = "sess-outbound-discord-001";
+    sm.sessions.write().await.insert(
+        session_id.to_string(),
+        crate::Session {
+            id: session_id.to_string(),
+            agent_id: "chat_discord".to_string(),
+            channel: "discord".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+
+    let content_blocks = vec![closeclaw_common::processor::ContentBlock::Text(
+        "test response".to_string(),
+    )];
+
+    let result = gw
+        .send_outbound(
+            session_id,
+            "discord",
+            "test response",
+            content_blocks,
+            Some("trace-discord-001".to_string()),
+            Some("discord:u1:chat1".to_string()),
+        )
+        .await;
+    assert!(result.is_ok(), "send_outbound should succeed for discord");
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let events = read_events_with_timeout(temp_dir.path()).await;
+    assert!(
+        events
+            .iter()
+            .all(|e| e.event_type != "feishu.outbound.rendered"),
+        "no feishu.outbound.rendered event expected for discord channel"
+    );
+    assert!(
+        events.iter().all(|e| e.event_type != "feishu.api.send"),
+        "no feishu.api.send event expected for discord channel"
+    );
+}

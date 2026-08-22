@@ -11,6 +11,8 @@ mod adapter_tests;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
+#[cfg(test)]
+mod debug_log_tests;
 mod events;
 #[cfg(test)]
 mod events_tests;
