@@ -345,6 +345,21 @@ pub trait ProcessorChain: Send + Sync {
         0
     }
 
+    /// Process outbound message through the incremental phase chain.
+    ///
+    /// Used during streaming to run VerbosityFilter and DslParser (passthrough)
+    /// while skipping OutboundRawLog. The incremental phase handles per-chunk
+    /// filtering before the message reaches the renderer.
+    ///
+    /// Default implementation delegates to the full outbound chain for backward
+    /// compatibility with non-registry implementations.
+    async fn process_outbound_incremental(
+        &self,
+        msg: ProcessedMessage,
+    ) -> Result<ProcessedMessage, ProcessError> {
+        self.process_outbound(msg).await
+    }
+
     /// Process outbound message skipping VerbosityFilter.
     ///
     /// Used by the streaming finish phase where VerbosityFilter has already

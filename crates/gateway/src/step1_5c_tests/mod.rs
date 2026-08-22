@@ -66,6 +66,37 @@ impl closeclaw_common::processor::ProcessorChain for MockChain {
         Ok(msg)
     }
 
+    async fn process_outbound_incremental(
+        &self,
+        msg: ProcessedMessage,
+    ) -> Result<ProcessedMessage, closeclaw_common::processor::ProcessError> {
+        let text = msg
+            .content_blocks
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .unwrap_or("");
+        let (clean, dsl_result) = self.parse_line_for_dsl(text);
+        let mut metadata = msg.metadata;
+        if !dsl_result.instructions.is_empty() {
+            metadata.insert(
+                "dsl_result".to_string(),
+                serde_json::to_string(&dsl_result).unwrap_or_default(),
+            );
+        }
+        let content_blocks = if clean.is_empty() {
+            vec![]
+        } else {
+            vec![ContentBlock::Text(clean)]
+        };
+        Ok(ProcessedMessage {
+            content_blocks,
+            metadata,
+        })
+    }
+
     fn parse_line_for_dsl(&self, line: &str) -> (String, DslParseResult) {
         self.parsed.lock().unwrap().push(line.to_string());
         let trimmed = line.trim();
