@@ -524,6 +524,65 @@ fn test_renderer_with_code_block_mode_whole() {
     );
 }
 
+// ── Code fence state flip (in_code toggle) regression tests ────────────────
+
+/// Enter a code block: fence + content in one chunk triggers the toggle
+/// (toggle fires when a non-backtick char arrives after ≥3 backticks).
+/// Inside the block, '.' must NOT trigger a line split.
+#[test]
+fn test_enter_code_block_toggles_in_code() {
+    let mut buf = LineBuffer::new();
+    // Fence + content in one chunk — toggle fires on first non-backtick char.
+    let out = buf.feed("```\nfoo.bar.baz\n");
+    // Opening fence emits on newline, content emits on newline, no split on '.'.
+    assert_eq!(out, vec!["```\n", "foo.bar.baz\n"]);
+    // Buffer is in code mode — subsequent '.' should not split.
+    let out2 = buf.feed("still.in.code\n");
+    assert_eq!(out2, vec!["still.in.code\n"]);
+}
+
+/// Leave a code block: open, content, close, then text with terminator.
+/// After closing fence, sentence terminators must split again.
+#[test]
+fn test_leave_code_block_toggles_in_code() {
+    let mut buf = LineBuffer::new();
+    // Open code block (fence + newline in one chunk).
+    buf.feed("```\n");
+    // Inside code block — no split on '.'.
+    let out1 = buf.feed("code.here\n");
+    assert_eq!(out1, vec!["code.here\n"]);
+    // Close code block — fence + newline triggers exit.
+    let out2 = buf.feed("```\n");
+    assert_eq!(out2, vec!["```\n"]);
+    // After closing — split on terminator ('.' triggers emission).
+    let out3 = buf.feed("Back to text. Done.");
+    // Both '.' chars trigger emission since we're outside code block.
+    assert_eq!(out3, vec!["Back to text.", " Done."]);
+}
+
+/// Consecutive two fence flips: open → close → open → close.
+/// Verifies the toggle accumulates correctly across multiple flips.
+#[test]
+fn test_consecutive_fence_flips_roundtrip() {
+    let mut buf = LineBuffer::new();
+    // First code block.
+    buf.feed("```\n");
+    let out1 = buf.feed("block1\n");
+    assert_eq!(out1, vec!["block1\n"]);
+    buf.feed("```\n");
+    // Outside — must split on terminator.
+    let out2 = buf.feed("between. ");
+    assert_eq!(out2, vec!["between."]);
+    // Second code block.
+    buf.feed("```\n");
+    let out3 = buf.feed("block2\n");
+    assert_eq!(out3, vec!["block2\n"]);
+    buf.feed("```\n");
+    // Outside again — split on terminator.
+    let out4 = buf.feed("final.");
+    assert_eq!(out4, vec!["final."]);
+}
+
 // ── Edge cases ────────────────────────────────────────────────────────────
 
 #[test]
