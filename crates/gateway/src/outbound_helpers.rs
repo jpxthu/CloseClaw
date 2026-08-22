@@ -6,6 +6,7 @@ use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::StreamingOutput;
+use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::UnifiedUsage;
 use closeclaw_llm::types::{ContentBlock, ContentBlockType};
@@ -39,7 +40,7 @@ pub(crate) struct StreamState {
     pub media_name: Option<String>,
     pub media_url: Option<String>,
     /// DSL instructions accumulated during the incremental phase.
-    /// Each text chunk is parsed via [`ProcessorChain::parse_line_for_dsl`];
+    /// Each text chunk is parsed via [`ProcessorChain::process_outbound_incremental`];
     /// DSL lines are stripped from the text sent to the user and their
     /// parsed instructions are collected here for the finish phase.
     pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
@@ -149,11 +150,16 @@ pub(crate) async fn notify_batch_send_failure(
 // ---------------------------------------------------------------------------
 
 /// Send text messages from `out` into `state`, routing each through
-/// [`ProcessorChain::parse_line_for_dsl`] when a registry is available.
+/// [`ProcessorChain::process_outbound_incremental`] when a registry is
+/// available.
 ///
-/// DSL lines are stripped from the text sent to the user; their parsed
-/// instructions accumulate in [`StreamState::dsl_instructions`] for the
-/// finish phase. When `registry` is `None`, text passes through unchanged
+/// Each text chunk is wrapped in a [`ProcessedMessage`] and processed
+/// through the incremental-phase chain (VerbosityFilter + DslParser,
+/// skipping OutboundRawLog). DSL lines are stripped from the text sent
+/// to the user; their parsed instructions accumulate in
+/// [`StreamState::dsl_instructions`] for the finish phase.
+///
+/// When `registry` is `None`, text passes through unchanged
 /// (zero-overhead passthrough).
 pub(crate) async fn dispatch_text(
     ctx: &StreamContext<'_>,
@@ -161,21 +167,53 @@ pub(crate) async fn dispatch_text(
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        let (clean_text, dsl_result) = match ctx.registry {
-            Some(registry) => registry.parse_line_for_dsl(&text),
-            None => (
-                text.clone(),
-                closeclaw_common::processor::DslParseResult {
-                    instructions: vec![],
-                },
-            ),
+        let (clean_text, dsl_instructions) = match ctx.registry {
+            Some(registry) => {
+                let msg = ProcessedMessage::from_raw_content(text.clone());
+                let result = registry
+                    .process_outbound_incremental(msg)
+                    .await
+                    .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+                let dsl = result
+                    .metadata
+                    .get("dsl_result")
+                    .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
+                    .map(|r| r.instructions)
+                    .unwrap_or_default();
+                let clean = result
+                    .content_blocks
+                    .into_iter()
+                    .find_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                (clean, dsl)
+            }
+            None => (text.clone(), vec![]),
         };
-        tracing::info!(chat_id = ctx.chat_id, content = %clean_text, "streaming outbound text");
-        if !clean_text.is_empty() {
+        // When DslParser strips all content (DSL-only text), clean_text
+        // is empty but the fallback returns the original text. Detect this
+        // by comparing with the original to avoid pushing DSL text to
+        // content blocks (which would cause duplicate DSL parsing in the
+        // finish phase).
+        let original = text.clone();
+        if clean_text.is_empty() {
+            // All content was DSL — don't send or accumulate.
+        } else if clean_text == original && dsl_instructions.is_empty() {
+            // No DSL was present — send and accumulate the original.
+            send_text(ctx, &clean_text).await?;
+            state.content_blocks.push(ContentBlock::Text(original));
+        } else if clean_text == original {
+            // Fallback: DSL was detected but couldn't be stripped.
+            // Don't push to content blocks to avoid duplicate DSL parsing
+            // in the finish phase. DSL instructions are already accumulated.
+        } else {
+            // DSL was stripped — send clean text only.
             send_text(ctx, &clean_text).await?;
             state.content_blocks.push(ContentBlock::Text(clean_text));
         }
-        state.dsl_instructions.extend(dsl_result.instructions);
+        state.dsl_instructions.extend(dsl_instructions);
     }
     Ok(())
 }
