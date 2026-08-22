@@ -1,13 +1,11 @@
-//! Step 1.7 — Tests for streaming incremental phase zero-overhead passthrough.
+//! Tests for streaming finish-phase chain and incremental-phase chain.
 //!
-//! Verifies that the outbound processor chain applied during the
-//! streaming **finish** phase (post-stream pipeline) processes blocks
-//! correctly: VerbosityFilter → DslParser → OutboundRawLog in order.
+//! **Finish-phase tests** verify the outbound processor chain applied
+//! during the streaming finish phase (post-stream pipeline):
+//! VerbosityFilter → DslParser → OutboundRawLog in order.
 //!
-//! The streaming **incremental** phase does NOT go through the processor
-//! chain (blocks are sent directly by the Gateway), so these tests
-//! validate the finish-phase chain behavior which is the only
-//! processor-chain touchpoint in streaming.
+//! **Incremental-phase tests** verify `process_outbound_incremental`:
+//! runs VerbosityFilter + DslParser while skipping OutboundRawLog.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -208,4 +206,215 @@ async fn test_finish_phase_empty_blocks_wraps_content() {
 
     assert_eq!(result.content_blocks.len(), 1);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Incremental-phase tests (process_outbound_incremental)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use async_trait::async_trait;
+
+use crate::processor_chain::context::MessageContext;
+use crate::processor_chain::error::ProcessError;
+use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
+use closeclaw_common::ProcessorChain;
+
+/// A test processor that counts invocations and optionally injects metadata.
+struct TestProc {
+    name: String,
+    phase: ProcessPhase,
+    priority: u8,
+    call_counter: Arc<AtomicUsize>,
+    metadata_kv: Option<(String, String)>,
+}
+
+#[async_trait]
+impl MessageProcessor for TestProc {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn phase(&self) -> ProcessPhase {
+        self.phase
+    }
+    fn priority(&self) -> u8 {
+        self.priority
+    }
+    async fn process(
+        &self,
+        _ctx: &MessageContext,
+    ) -> Result<Option<ProcessedMessage>, ProcessError> {
+        self.call_counter.fetch_add(1, Ordering::SeqCst);
+        let mut metadata = HashMap::new();
+        if let Some((ref k, ref v)) = self.metadata_kv {
+            metadata.insert(k.clone(), v.clone());
+        }
+        Ok(Some(ProcessedMessage {
+            content_blocks: vec![ContentBlock::Text(self.name.clone())],
+            metadata,
+        }))
+    }
+}
+
+/// Incremental phase: OutboundRawLog should be skipped.
+///
+/// Registers VerbosityFilter + DslParser + OutboundRawLog.
+/// `process_outbound_incremental` must only run the first two.
+#[tokio::test]
+async fn test_incremental_skips_outbound_raw_log() {
+    let vf_counter = Arc::new(AtomicUsize::new(0));
+    let verbosity = Arc::new(TestProc {
+        name: "verbosity_filter".to_string(),
+        phase: ProcessPhase::Outbound,
+        priority: 5,
+        call_counter: vf_counter.clone(),
+        metadata_kv: None,
+    });
+    let dsl_counter = Arc::new(AtomicUsize::new(0));
+    let dsl = Arc::new(TestProc {
+        name: "dsl_parser".to_string(),
+        phase: ProcessPhase::Outbound,
+        priority: 10,
+        call_counter: dsl_counter.clone(),
+        metadata_kv: None,
+    });
+    let raw_log_counter = Arc::new(AtomicUsize::new(0));
+    let raw_log = Arc::new(TestProc {
+        name: "outbound_raw_log".to_string(),
+        phase: ProcessPhase::Outbound,
+        priority: 20,
+        call_counter: raw_log_counter.clone(),
+        metadata_kv: None,
+    });
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(verbosity);
+    registry.register(dsl);
+    registry.register(raw_log);
+
+    let msg = closeclaw_common::processor::ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text("test".to_string())],
+        metadata: HashMap::new(),
+    };
+    let result = registry.process_outbound_incremental(msg).await.unwrap();
+
+    assert_eq!(
+        vf_counter.load(Ordering::SeqCst),
+        1,
+        "verbosity_filter should run"
+    );
+    assert_eq!(
+        dsl_counter.load(Ordering::SeqCst),
+        1,
+        "dsl_parser should run"
+    );
+    assert_eq!(
+        raw_log_counter.load(Ordering::SeqCst),
+        0,
+        "outbound_raw_log must be skipped"
+    );
+    // Output reflects last executed processor (dsl_parser)
+    assert_eq!(result.text_content(), Some("dsl_parser"));
+}
+
+/// Incremental phase: VerbosityFilter filters Thinking blocks.
+///
+/// Input contains Thinking + Text blocks at "off" verbosity.
+/// VerbosityFilter should remove the Thinking block.
+#[tokio::test]
+async fn test_incremental_verbosity_filter_works() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(VerbosityFilter));
+    registry.register(Arc::new(DslParser));
+
+    let blocks = vec![
+        thinking_block("internal reasoning"),
+        text_block("visible text"),
+    ];
+    let msg = closeclaw_common::processor::ProcessedMessage {
+        content_blocks: blocks,
+        metadata: make_meta("off"),
+    };
+    let result = registry.process_outbound_incremental(msg).await.unwrap();
+
+    // Off verbosity: Thinking filtered, only Text remains
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "visible text"));
+}
+
+/// Incremental phase: DslParser strips DSL lines from Text blocks.
+///
+/// Input contains a DSL line + plain text. DslParser should strip the
+/// DSL line and produce a clean text + DSL result in metadata.
+#[tokio::test]
+async fn test_incremental_dsl_parser_strips_dsl() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(VerbosityFilter));
+    registry.register(Arc::new(DslParser));
+
+    let blocks = vec![
+        text_block("::button[label:OK;action:submit]"),
+        text_block("Hello world"),
+    ];
+    let msg = closeclaw_common::processor::ProcessedMessage {
+        content_blocks: blocks,
+        metadata: make_meta("full"),
+    };
+    let result = registry.process_outbound_incremental(msg).await.unwrap();
+
+    // DSL line stripped, plain text kept
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello world"));
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+}
+
+/// Default trait implementation: non-registry impl delegates to full outbound chain.
+///
+/// Verifies backward compatibility: a bare ProcessorChain impl's
+/// `process_outbound_incremental` falls back to `process_outbound`.
+#[tokio::test]
+async fn test_default_impl_delegates_to_full_chain() {
+    struct DummyChain;
+
+    #[async_trait]
+    impl ProcessorChain for DummyChain {
+        async fn process_inbound(
+            &self,
+            _msg: closeclaw_common::im_plugin::NormalizedMessage,
+        ) -> Result<
+            closeclaw_common::processor::ProcessedMessage,
+            closeclaw_common::processor::ProcessError,
+        > {
+            unimplemented!()
+        }
+
+        async fn process_outbound(
+            &self,
+            msg: closeclaw_common::processor::ProcessedMessage,
+        ) -> Result<
+            closeclaw_common::processor::ProcessedMessage,
+            closeclaw_common::processor::ProcessError,
+        > {
+            // Signal that full chain ran by injecting metadata
+            let mut m = msg;
+            m.metadata
+                .insert("full_chain".to_string(), "yes".to_string());
+            Ok(m)
+        }
+    }
+
+    let chain = DummyChain;
+    let msg = closeclaw_common::processor::ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text("test".to_string())],
+        metadata: HashMap::new(),
+    };
+    let result = chain.process_outbound_incremental(msg).await.unwrap();
+
+    assert_eq!(
+        result.metadata.get("full_chain").map(|s| s.as_str()),
+        Some("yes"),
+        "default impl must delegate to process_outbound"
+    );
 }
