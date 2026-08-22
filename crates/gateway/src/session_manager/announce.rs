@@ -1,15 +1,9 @@
 //! Announce pipeline: child → parent push-based completion notification.
 //!
-//! When a run-mode child session completes, the gateway calls
-//! `SessionManager::try_push_announce` to read the child's final assistant
-//! message, build an `AnnounceEvent`, and push it onto the parent session's
-//! `announce_queue`. The parent session drains the queue at the start of
-//! its next turn and injects each event as a `role="system"` message.
-//!
-//! Step 1.2 introduces the `AnnounceEvent` type and queue storage on
-//! `ConversationSession` (see `closeclaw_session::llm_session`). This module adds
-//! the `SessionManager`-level accessors (`push_announce`, `drain_announces`)
-//! in Step 1.3 and `try_push_announce` in Step 1.4.
+//! When a run-mode child session completes, `SessionManager::try_push_announce`
+//! reads the child's final assistant message, builds an `AnnounceEvent`, and
+//! pushes it onto the parent's `announce_queue`. The parent drains and injects
+//! each event as a `role="system"` message at the start of its next turn.
 
 use super::spawn::SpawnMode;
 use super::SessionManager;
@@ -22,6 +16,22 @@ use closeclaw_session::spawn::types::ChildSessionStatus;
 use closeclaw_tasks::NotificationPriority;
 use std::collections::HashMap;
 use tracing::{debug, warn};
+
+// ── Priority prefix helper ────────────────────────────────────────────────
+
+/// Map a [`NotificationPriority`] to a display prefix injected into
+/// system messages so the user can distinguish urgency at a glance.
+///
+/// - `Now`  → `[紧急]`
+/// - `Next` → `[注意]`
+/// - `Later` → `[后台]`
+fn priority_prefix(priority: &NotificationPriority) -> &'static str {
+    match priority {
+        NotificationPriority::Now => "[紧急] ",
+        NotificationPriority::Next => "[注意] ",
+        NotificationPriority::Later => "[后台] ",
+    }
+}
 
 // ── Queue accessors (push / drain) ─────────────────────────────────────────
 
@@ -111,15 +121,16 @@ impl SessionManager {
                 return;
             };
             let mut cs_write = cs.write().await;
-            for event in events {
+            for event in &events {
+                let prefix = priority_prefix(&event.priority);
                 let status_label = match event.status {
                     ChildCompletionStatus::Completed => "任务已完成",
                     ChildCompletionStatus::Errored => "任务出错",
                     ChildCompletionStatus::Terminated => "任务被终止",
                 };
                 let text = format!(
-                    "[子 agent {}] {}：\n{}",
-                    event.child_agent_id, status_label, event.result_text
+                    "[子 agent {}] {}{}：\n{}",
+                    event.child_agent_id, prefix, status_label, event.result_text
                 );
                 cs_write.inject_system_message(text);
             }
@@ -158,7 +169,7 @@ impl SessionManager {
                     matched.push(notif_to_announce(notif.clone()));
                 }
                 QueueEntry::SystemNotification(ref text, ref priority) if predicate(priority) => {
-                    cs.inject_system_message(text.clone());
+                    cs.inject_system_message(format!("{}{}", priority_prefix(priority), text));
                 }
                 QueueEntry::SystemNotification(text, priority) => {
                     cs.push_queue_entry(QueueEntry::SystemNotification(text, priority));
@@ -195,15 +206,16 @@ impl SessionManager {
                 return;
             };
             let mut cs_write = cs.write().await;
-            for event in events {
+            for event in &events {
+                let prefix = priority_prefix(&event.priority);
                 let status_label = match event.status {
                     ChildCompletionStatus::Completed => "任务已完成",
                     ChildCompletionStatus::Errored => "任务出错",
                     ChildCompletionStatus::Terminated => "任务被终止",
                 };
                 let text = format!(
-                    "[子 agent {}] {}：\n{}",
-                    event.child_agent_id, status_label, event.result_text
+                    "[子 agent {}] {}{}：\n{}",
+                    event.child_agent_id, prefix, status_label, event.result_text
                 );
                 cs_write.inject_system_message(text);
             }
@@ -213,13 +225,9 @@ impl SessionManager {
     /// Drain unsent outbound pending messages for a single session and
     /// re-deliver them through the gateway's outbound pipeline.
     ///
-    /// Called during daemon startup (Step 1.2) after recovery scan and
-    /// IM adapter registration, for each dirty session that has
-    /// `outbound_pending` entries with `sent == false`. This ensures
-    /// outbound messages created before a crash are re-delivered even
-    /// when no inbound message activates the session.
-    ///
-    /// Strategy: "better duplicate than miss" — no dedup protection.
+    /// Called during daemon startup for each dirty session that has
+    /// `outbound_pending` entries with `sent == false`. Strategy: better
+    /// duplicate than miss — no dedup protection.
     /// Delivery failure is logged as a warning and does not block
     /// processing of subsequent messages.
     ///
@@ -396,25 +404,13 @@ impl SessionManager {
     /// Try to push an announce event from a completed child session to
     /// its parent's in-memory queue.
     ///
-    /// Called by `SessionMessageHandler::clear_busy_and_send` (Step 1.5)
-    /// after a child session finishes `append_response`. Behavior:
+    /// Called by `clear_busy_and_send` after a child finishes
+    /// `append_response`. Walks the children table to find the run-mode
+    /// parent, reads the child's last assistant text, and pushes a fresh
+    /// `AnnounceEvent` onto the parent's `announce_queue`.
     ///
-    /// 1. Walk the `children` table to find the entry where
-    ///    `child.session_id == child_session_id` and `mode == Run`.
-    ///    A non-child session (not present in the table) or a child
-    ///    with `mode == Session` is a no-op — no announce is produced.
-    /// 2. Read the child's last `role="assistant"` message and
-    ///    concatenate its `ContentBlock::Text` blocks into
-    ///    `result_text`. `ContentBlock::Thinking` blocks are
-    ///    intentionally excluded.
-    /// 3. Drop the child read lock before acquiring the parent write
-    ///    lock to avoid holding two session locks at once (which could
-    ///    deadlock if another task is doing the reverse).
-    /// 4. Push a fresh `AnnounceEvent` onto the parent session's
-    ///    `announce_queue` via `push_announce_to_queue`.
-    ///
-    /// Errors are logged but not propagated — announce delivery is a
-    /// best-effort signal and must not block child completion.
+    /// Errors are logged but not propagated — announce delivery is
+    /// best-effort and must not block child completion.
     pub async fn try_push_announce(&self, child_session_id: &str, priority: NotificationPriority) {
         let Some((parent_session_id, child_agent_id)) =
             self.find_run_mode_parent(child_session_id).await
