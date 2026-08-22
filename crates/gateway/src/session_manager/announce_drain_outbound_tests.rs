@@ -346,13 +346,15 @@ async fn test_drain_outbound_partial_failure() {
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    // Only msg-a was actually delivered; msg-b and msg-c failed but user was
+    // notified via simplified path. delivered count must not include failures.
     assert_eq!(
         result.unwrap(),
         1,
-        "only 1 message should be delivered (2nd fails)"
+        "only the successful message should be counted as delivered"
     );
 
-    // Plugin received 2 attempts (1 success + 1 failure).
+    // Only the first send actually succeeded at the plugin level.
     let sent = plugin.sent_messages().await;
     assert_eq!(
         sent.len(),
@@ -361,17 +363,18 @@ async fn test_drain_outbound_partial_failure() {
     );
     assert_eq!(sent[0].0, "first");
 
-    // Verify checkpoint: msg-a sent, msg-b and msg-c unsent.
+    // Verify checkpoint: only msg-a is marked as sent. msg-b and msg-c stay
+    // unsent (SendOutcome::Notified does not call mark_sent).
     let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
     assert_eq!(saved_cp.outbound_pending.len(), 3);
     assert!(saved_cp.outbound_pending[0].sent, "msg-a should be sent");
     assert!(
         !saved_cp.outbound_pending[1].sent,
-        "msg-b should remain unsent"
+        "msg-b should NOT be marked sent (send failed, user notified)"
     );
     assert!(
         !saved_cp.outbound_pending[2].sent,
-        "msg-c should remain unsent"
+        "msg-c should NOT be marked sent (send failed, user notified)"
     );
 }
 
@@ -921,5 +924,67 @@ async fn test_drain_outbound_clears_pending_operations() {
         saved_cp.pending_operations.len(),
         0,
         "OutboundMessage entries should be cleared from pending_operations after delivery"
+    );
+}
+
+// ── Test: Pending operations cleaned up for Notified messages ───────────
+
+/// When a message send fails (SendOutcome::Notified), its OutboundMessage
+/// entry should still be removed from pending_operations since the user
+/// was already notified and the message won't be retried.
+#[tokio::test]
+async fn test_drain_outbound_clears_pending_operations_for_notified() {
+    clear_global_prompt_state();
+
+    // Plugin that fails immediately (all sends fail → Notified).
+    let (mgr, _gw, _plugin) = setup_with_failing_gateway(0).await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-clear-notified";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    use closeclaw_session::pending_operation_detail::PendingOperationDetail;
+    use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
+    let mut cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
+        PendingMessage::with_target_channel(
+            "msg-n1".into(),
+            "will fail".into(),
+            "test_channel".into(),
+        ),
+    ]);
+    cp.pending_operations = vec![PendingOperation {
+        op_id: "msg-n1".into(),
+        op_type: PendingOperationType::OutboundMessage,
+        detail: PendingOperationDetail::OutboundMessage {
+            target_channel: "test_channel".into(),
+            message_id: "msg-n1".into(),
+            delivery_status: "pending".into(),
+        },
+        status: closeclaw_session::persistence::PendingOperationStatus::Running,
+        created_at: chrono::Utc::now(),
+    }];
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(
+        result.unwrap(),
+        0,
+        "no messages delivered (all failed with notification)"
+    );
+
+    // Verify pending_operations was cleaned up even though send failed
+    // (Notified = handled, no retry needed).
+    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert_eq!(
+        saved_cp.pending_operations.len(),
+        0,
+        "OutboundMessage entries should be cleared for Notified messages"
+    );
+    // Message should NOT be marked as sent (wasn't actually delivered).
+    assert!(
+        !saved_cp.outbound_pending[0].sent,
+        "Notified message should not be marked as sent"
     );
 }

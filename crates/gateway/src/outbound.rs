@@ -4,12 +4,10 @@
 //! [`IMPlugin`](closeclaw_common::im_plugin::IMPlugin) registry.
 
 use super::{Gateway, GatewayError, Message};
-use crate::outbound_helpers::dispatch_text;
-use crate::outbound_helpers::log_middleware_rejection;
-use crate::outbound_helpers::make_outbound_meta;
-use crate::outbound_helpers::send_render_block;
-use crate::outbound_helpers::StreamContext;
-use crate::outbound_helpers::StreamState;
+use crate::outbound_helpers::{
+    dispatch_text, log_middleware_rejection, make_outbound_meta, merge_dsl_results,
+    notify_batch_send_failure, send_render_block, StreamContext, StreamState,
+};
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
 use closeclaw_processor_chain::run_middleware_chain;
@@ -73,6 +71,20 @@ impl From<StreamResult> for UnifiedResponse {
     }
 }
 
+/// Outcome of a single outbound dispatch.
+///
+/// Distinguishes between "message delivered" and "delivery failed but user
+/// notified" so callers like the drain loop can keep `delivered` counts honest
+/// without double-notifying or retrying.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendOutcome {
+    /// Original message delivered successfully.
+    Sent,
+    /// Original message delivery failed; a failure notification was sent to
+    /// the user via the simplified path. The message was NOT delivered.
+    Notified,
+}
+
 /// Per-call context for dispatching a rendered output and persisting its
 /// checkpoint. Bundled into a struct to keep the helper's parameter list short.
 struct DispatchCtx<'a> {
@@ -110,7 +122,7 @@ impl Gateway {
         content_blocks: Vec<ContentBlock>,
         trace_id: Option<String>,
         session_key: Option<String>,
-    ) -> Result<(), GatewayError> {
+    ) -> Result<SendOutcome, GatewayError> {
         // 1. Resolve chat_id and plugin.
         let chat_id = self
             .session_manager
@@ -118,7 +130,10 @@ impl Gateway {
             .await
             .ok_or(GatewayError::MissingSessionId)?;
         let Some(plugin) = self.get_plugin(channel).await else {
-            return self.fallback_to_plain_text(channel, raw_output).await;
+            return self
+                .fallback_to_plain_text(channel, raw_output)
+                .await
+                .map(|()| SendOutcome::Sent);
         };
 
         // 2. Resolve verbosity level and inject into chain metadata.
@@ -143,25 +158,16 @@ impl Gateway {
             )
             .await?;
         if processed.content_blocks.is_empty() {
-            return Ok(());
+            return Ok(SendOutcome::Sent);
         }
 
         let blocks = &processed.content_blocks;
-
-        // 6. Extract dsl_result (serialized as a JSON string by DslParser).
         let dsl_result: Option<DslParseResult> = processed
             .metadata
             .get("dsl_result")
             .and_then(|s| serde_json::from_str(s).ok());
-
-        // 7. Render via the plugin.
         let rendered = plugin.render(blocks, dsl_result.as_ref());
-
-        // 8. Resolve thread_id from session checkpoint.
         let thread_id = self.session_manager.get_thread_id(session_id).await;
-
-        // 9. Dispatch by msg_type and persist checkpoint on success.
-        // On render/send failure, fall back to plain-text send.
         let fallback_text = blocks
             .iter()
             .find_map(|b| match b {
@@ -175,8 +181,8 @@ impl Gateway {
             fallback_text,
             session_id,
             channel,
-            chat_id: chat_id.clone(),
-            thread_id: thread_id.clone(),
+            chat_id,
+            thread_id,
             dsl_result: processed.metadata.get("dsl_result").cloned(),
             content_blocks: serde_json::to_string(&processed.content_blocks).ok(),
             trace_id,
@@ -195,64 +201,44 @@ impl Gateway {
     ///
     /// Before sending, the rendered output is passed through the registered
     /// outbound middleware chain (see [`OutboundMiddleware`]).
-    async fn dispatch_and_persist(&self, ctx: DispatchCtx<'_>) -> Result<(), GatewayError> {
+    async fn dispatch_and_persist(
+        &self,
+        ctx: DispatchCtx<'_>,
+    ) -> Result<SendOutcome, GatewayError> {
         // Run outbound middleware chain (render → middleware → send).
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
             if let Err(e) = run_middleware_chain(&middlewares, &mctx, ctx.rendered).await {
-                return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel).await;
+                return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel)
+                    .await
+                    .map(|()| SendOutcome::Sent);
             }
         }
-        match ctx.rendered.msg_type.as_str() {
-            "text" => {
-                let text = ctx
-                    .rendered
-                    .payload
-                    .get("content")
-                    .and_then(|v| v.get("text"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(ctx.fallback_text)
-                    .to_string();
-                let msg = Self::make_outbound_msg(
-                    ctx.channel,
-                    ctx.chat_id.clone(),
-                    text,
-                    Some(ctx.channel.to_string()),
-                    ctx.dsl_result.clone(),
-                    ctx.content_blocks.clone(),
-                );
-                ctx.plugin
-                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
-                    .await?;
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
-                    .await;
-            }
-            "interactive" => {
-                let payload_str = serde_json::to_string(&ctx.rendered.payload)
-                    .unwrap_or_else(|_| "{}".to_string());
-                let msg = Self::make_outbound_msg(
-                    ctx.channel,
-                    ctx.chat_id.clone(),
-                    payload_str,
-                    Some(ctx.channel.to_string()),
-                    ctx.dsl_result.clone(),
-                    ctx.content_blocks.clone(),
-                );
-                ctx.plugin
-                    .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
-                    .await?;
-                self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
-                    .await;
-            }
-            _ => {
-                return Err(GatewayError::OutboundError(format!(
-                    "unknown msg_type: {}",
-                    ctx.rendered.msg_type
-                )))
-            }
+        // Send via plugin — on failure, notify user and skip outbound history.
+        if let Err(e) = ctx
+            .plugin
+            .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+            .await
+        {
+            notify_batch_send_failure(self, ctx.channel, &ctx.chat_id, e).await;
+            return Ok(SendOutcome::Notified);
         }
-        // Debug log: send.completed (unified for text and interactive)
+        // Extract content for checkpoint based on msg_type.
+        let content = crate::outbound_helpers::extract_content_for_checkpoint(
+            ctx.rendered,
+            ctx.fallback_text,
+        )?;
+        let msg = Self::make_outbound_msg(
+            ctx.channel,
+            ctx.chat_id.clone(),
+            content,
+            Some(ctx.channel.to_string()),
+            ctx.dsl_result.clone(),
+            ctx.content_blocks.clone(),
+        );
+        self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
+            .await;
         self.emit_send_completed_log(
             ctx.session_id,
             ctx.channel,
@@ -260,7 +246,7 @@ impl Gateway {
             ctx.trace_id.as_deref(),
             ctx.session_key.as_deref(),
         );
-        Ok(())
+        Ok(SendOutcome::Sent)
     }
 
     /// Emit a unified `send.completed` debug log event.
@@ -677,12 +663,14 @@ impl Gateway {
         let mut state = StreamState::new(verbosity_level);
         let mut first_event_received = false;
         let timeout_duration = std::time::Duration::from_millis(200);
+        let processor_registry = self.processor_registry.read().unwrap().clone();
         let ctx = StreamContext {
             plugin,
             session_id,
             channel,
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
+            registry: processor_registry.as_ref(),
         };
         loop {
             tokio::select! {
@@ -771,41 +759,38 @@ impl Gateway {
             None => (std::mem::take(&mut state.content_blocks), None),
         };
 
-        // Run the full outbound Processor Chain (VerbosityFilter →
-        // DslParser → OutboundRawLog). VerbosityFilter executes within
-        // the chain for the finish phase, but Thinking blocks at
-        // Normal/Off verbosity were already filtered in the incremental
-        // phase via VerbosityFilter::should_keep_thinking
-        // (see process_stream_event). At Full verbosity,
-        // VerbosityFilter is a no-op.
+        // Run the outbound Processor Chain (DslParser → OutboundRawLog),
+        // skipping VerbosityFilter which already ran per-chunk during
+        // the incremental phase.
         let meta = make_outbound_meta(&[
             ("channel", channel),
             ("session_id", session_id),
             ("verbosity_level", &verbosity_level.to_string()),
         ]);
+        let dsl_result_incremental = state.dsl_instructions.clone();
         let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            let dsl_result = if dsl_result_incremental.is_empty() {
+                None
+            } else {
+                let r = DslParseResult {
+                    instructions: dsl_result_incremental,
+                };
+                serde_json::to_string(&r).ok()
+            };
             return Ok(StreamResult {
                 content_blocks: content_blocks_for_pipeline,
                 usage: usage_override.unwrap_or(state.usage),
                 retry_attempts: 0,
-                dsl_result: None,
+                dsl_result,
             });
         };
         let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
         let processed = registry
-            .process_outbound(input)
+            .process_outbound_without_verbosity(input)
             .await
             .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
 
-        // DSL result: the full chain runs DslParser, so the chain's
-        // dsl_result is the sole source. Incremental-phase
-        // dsl_instructions are empty (Step 1.3 removed DslParser from
-        // the incremental phase), so no merge is needed.
-        let dsl_result = processed
-            .metadata
-            .get("dsl_result")
-            .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
-            .and_then(|r| serde_json::to_string(&r).ok());
+        let dsl_result = merge_dsl_results(&processed.metadata, dsl_result_incremental);
 
         Ok(StreamResult {
             content_blocks: processed.content_blocks,

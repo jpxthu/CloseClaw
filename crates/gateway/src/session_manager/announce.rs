@@ -308,16 +308,25 @@ impl SessionManager {
         // 7. Deliver each unsent message. Channel: target_channel → session fallback.
         //    Content: transcript O(1) lookup → outbound_pending cache fallback.
         let mut delivered = 0usize;
+        let mut handled_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
         for idx in &unsent_indices {
-            let pm = &cp.outbound_pending[*idx];
-            let channel = if !pm.target_channel.is_empty() {
-                pm.target_channel.clone()
+            // Clone fields before any mutable access to avoid borrow conflicts.
+            let (msg_id, target_channel, content_cache) = {
+                let pm = &cp.outbound_pending[*idx];
+                (
+                    pm.message_id.clone(),
+                    pm.target_channel.clone(),
+                    pm.content.clone(),
+                )
+            };
+            let channel = if !target_channel.is_empty() {
+                target_channel
             } else if let Some(ref ch) = fallback_channel {
                 ch.clone()
             } else {
                 warn!(
                     session_id = %session_id,
-                    message_id = %pm.message_id,
+                    message_id = %msg_id,
                     "drain_outbound_pending: no channel available for message, skipping"
                 );
                 continue;
@@ -325,21 +334,29 @@ impl SessionManager {
             // Look up message content from the pre-built transcript map.
             // Falls back to outbound_pending cache if not found.
             let content = transcript_map
-                .get(&pm.content)
+                .get(&content_cache)
                 .cloned()
-                .unwrap_or_else(|| pm.content.clone());
+                .unwrap_or(content_cache);
             match gw
                 .send_outbound(session_id, &channel, &content, vec![], None, None)
                 .await
             {
-                Ok(()) => {
+                Ok(crate::outbound::SendOutcome::Sent) => {
                     cp.outbound_pending[*idx].mark_sent();
                     delivered += 1;
+                    handled_ids.insert(msg_id);
+                }
+                Ok(crate::outbound::SendOutcome::Notified) => {
+                    // Original send failed; user was already notified via
+                    // simplified path. Do NOT mark_sent (wasn't delivered)
+                    // and do NOT count as delivered. Track as handled so
+                    // pending_operations is cleaned up (no retry needed).
+                    handled_ids.insert(msg_id);
                 }
                 Err(e) => {
                     warn!(
                         session_id = %session_id,
-                        message_id = %pm.message_id,
+                        message_id = %msg_id,
                         error = %e,
                         "drain_outbound_pending: delivery failed, skipping"
                     );
@@ -347,19 +364,14 @@ impl SessionManager {
             }
         }
 
-        // 8. Remove OutboundMessage entries from pending_operations for delivered
-        //     messages, then persist the updated checkpoint.
-        if delivered > 0 {
-            let delivered_msg_ids: std::collections::HashSet<String> = unsent_indices
-                .iter()
-                .filter(|idx| cp.outbound_pending[**idx].sent)
-                .map(|idx| cp.outbound_pending[*idx].message_id.clone())
-                .collect();
+        // 8. Remove OutboundMessage entries from pending_operations for handled
+        //     messages (delivered or notified), then persist the updated checkpoint.
+        if !handled_ids.is_empty() {
             cp.pending_operations.retain(|op| {
                 if op.op_type
                     == closeclaw_session::persistence::PendingOperationType::OutboundMessage
                 {
-                    !delivered_msg_ids.contains(&op.op_id)
+                    !handled_ids.contains(&op.op_id)
                 } else {
                     true
                 }

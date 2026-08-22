@@ -157,6 +157,7 @@ fn make_stream_ctx<'a>(
         channel,
         chat_id,
         thread_id: None,
+        registry: None,
     }
 }
 

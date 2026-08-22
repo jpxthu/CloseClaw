@@ -84,7 +84,7 @@ impl closeclaw_common::processor::ProcessorChain for MockProcessorChain {
             let mut instructions = self.dsl_instructions.lock().unwrap();
             if !instructions.is_empty() {
                 let instruction = instructions.remove(0);
-                // DSL line: return empty string as clean text (DSL line removed)
+                // DSL line: return empty string as clean text (DSL stripped)
                 return (
                     String::new(),
                     DslParseResult {
@@ -375,11 +375,12 @@ async fn test_streaming_non_dsl_text_passthrough() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
+    // parse_line_for_dsl is called for each text chunk during streaming.
     let parsed = chain.parsed_lines();
-    assert!(
-        parsed.is_empty(),
-        "parse_line_for_dsl should not be called during streaming"
+    assert_eq!(
+        parsed,
+        vec!["Hello world."],
+        "parse_line_for_dsl should be called for each text chunk"
     );
 
     // Verify the text content is preserved unchanged.
@@ -447,38 +448,43 @@ async fn test_streaming_dsl_line_extracted_and_accumulated() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
+    // parse_line_for_dsl is called for each text chunk during streaming.
     let parsed = chain.parsed_lines();
-    assert!(
-        parsed.is_empty(),
-        "parse_line_for_dsl should not be called during streaming"
+    assert_eq!(
+        parsed,
+        vec!["::button[label:Yes;action:confirm;value:1]\n"],
+        "parse_line_for_dsl should be called for each text chunk"
     );
 
-    // DSL line is sent as-is (not stripped) during streaming.
+    // DSL line is stripped — only clean text (empty for pure DSL) is sent.
     let sent = plugin.drain_sent();
     assert_eq!(
         sent.len(),
-        1,
-        "DSL line should be sent as text during streaming"
-    );
-    assert_eq!(
-        extract_text(&sent[0]),
-        "::button[label:Yes;action:confirm;value:1]\n"
+        0,
+        "DSL line should be stripped, no clean text to send"
     );
 
-    // StreamResult includes the DSL line as a text block.
+    // StreamResult: DSL line is stripped, no non-empty text block for pure DSL.
+    // Note: make_outbound_input may produce a Text("") fallback block.
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
         .filter_map(|b| match b {
-            ContentBlock::Text(t) => Some(t.clone()),
+            ContentBlock::Text(t) if !t.is_empty() => Some(t.clone()),
             _ => None,
         })
         .collect();
-    assert_eq!(
-        text_blocks,
-        vec!["::button[label:Yes;action:confirm;value:1]\n"]
+    assert!(
+        text_blocks.is_empty(),
+        "DSL line should be stripped from content_blocks"
     );
+    // DSL instruction should be accumulated in result.
+    let dsl = result
+        .dsl_result
+        .as_ref()
+        .map(|s| serde_json::from_str::<closeclaw_common::processor::DslParseResult>(s).unwrap());
+    assert!(dsl.is_some(), "dsl_result should be present");
+    assert_eq!(dsl.unwrap().instructions.len(), 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -542,24 +548,21 @@ async fn test_streaming_mixed_dsl_and_plain_text() {
         .await
         .unwrap();
 
-    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
+    // parse_line_for_dsl is called for each text chunk during streaming.
     let parsed = chain.parsed_lines();
-    assert!(
-        parsed.is_empty(),
-        "parse_line_for_dsl should not be called during streaming"
-    );
-
-    // All lines are sent as-is (including DSL lines).
-    let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 3, "all lines should be dispatched");
-    assert_eq!(extract_text(&sent[0]), "Hello world\n");
     assert_eq!(
-        extract_text(&sent[1]),
-        "::button[label:Click;action:go;value:ok]\n"
+        parsed.len(),
+        3,
+        "parse_line_for_dsl should be called for each text chunk"
     );
-    assert_eq!(extract_text(&sent[2]), "Goodbye\n");
 
-    // Content blocks: all lines accumulated.
+    // DSL line is stripped — only clean text lines are sent.
+    let sent = plugin.drain_sent();
+    assert_eq!(sent.len(), 2, "only non-DSL lines should be dispatched");
+    assert_eq!(extract_text(&sent[0]), "Hello world\n");
+    assert_eq!(extract_text(&sent[1]), "Goodbye\n");
+
+    // Content blocks: only clean text lines (DSL stripped).
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
@@ -568,7 +571,11 @@ async fn test_streaming_mixed_dsl_and_plain_text() {
             _ => None,
         })
         .collect();
-    assert_eq!(text_blocks.len(), 3);
+    assert_eq!(
+        text_blocks.len(),
+        2,
+        "DSL line should be stripped from content_blocks"
+    );
     assert!(
         text_blocks.contains(&"Hello world\n".to_string()),
         "should contain 'Hello world\n'"
@@ -838,16 +845,21 @@ async fn test_streaming_empty_line_not_sent() {
     let sent = plugin.drain_sent();
     assert_eq!(sent.len(), 0, "empty lines should not be sent");
 
-    // No text blocks accumulated.
+    // Empty lines should not be sent or accumulated in the incremental phase.
+    // Note: finish_streaming_pipeline may produce a Text("") block via
+    // make_outbound_input fallback when content_blocks is empty.
     let text_blocks: Vec<String> = result
         .content_blocks
         .iter()
         .filter_map(|b| match b {
-            ContentBlock::Text(t) => Some(t.clone()),
+            ContentBlock::Text(t) if !t.is_empty() => Some(t.clone()),
             _ => None,
         })
         .collect();
-    assert!(text_blocks.is_empty(), "no text blocks for empty lines");
+    assert!(
+        text_blocks.is_empty(),
+        "no non-empty text blocks for empty lines"
+    );
 }
 
 /// Very long text lines (exceeding LineBuffer threshold) are force-emitted
@@ -907,74 +919,6 @@ async fn test_streaming_long_line_force_emitted() {
         .collect();
     assert_eq!(text_blocks.len(), 1);
     assert_eq!(text_blocks[0], long_text);
-}
-
-/// Multi-line DSL markers: `::button` syntax spans multiple lines.
-/// During streaming, all lines are sent as-is (no DSL parsing).
-#[tokio::test]
-async fn test_streaming_multiline_dsl_each_line_independent() {
-    let chain = Arc::new(MockProcessorChain::new());
-    let plugin = Arc::new(CapturingPlugin::new("mock"));
-    let (gw, _sm, sid) = setup_streaming(chain.clone(), plugin.clone()).await;
-
-    let events = vec![
-        Ok::<_, String>(StreamEvent::BlockStart {
-            index: 0,
-            block_type: ContentBlockType::Text,
-        }),
-        // Line 1: incomplete DSL (no closing bracket)
-        Ok(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: "::button[label:Yes\n".to_string(),
-            },
-        }),
-        // Line 2: continuation (not valid DSL by itself)
-        Ok(StreamEvent::BlockDelta {
-            index: 0,
-            delta: ContentDelta::Text {
-                text: "action:confirm;value:1]\n".to_string(),
-            },
-        }),
-        Ok(StreamEvent::BlockEnd {
-            index: 0,
-            block_type: ContentBlockType::Text,
-        }),
-        Ok(StreamEvent::MessageEnd {
-            usage: Some(default_usage()),
-            finish_reason: Some("stop".to_string()),
-        }),
-    ];
-    let stream = stream::iter(events);
-    let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
-    let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
-        .await
-        .unwrap();
-
-    // parse_line_for_dsl should NOT be called during streaming (DSL deferred).
-    let parsed = chain.parsed_lines();
-    assert!(
-        parsed.is_empty(),
-        "parse_line_for_dsl should not be called during streaming"
-    );
-
-    // Both lines are sent as-is (no DSL parsing).
-    let sent = plugin.drain_sent();
-    assert_eq!(sent.len(), 2);
-    assert_eq!(extract_text(&sent[0]), "::button[label:Yes\n");
-    assert_eq!(extract_text(&sent[1]), "action:confirm;value:1]\n");
-
-    // Both lines are in content_blocks.
-    let text_blocks: Vec<String> = result
-        .content_blocks
-        .iter()
-        .filter_map(|b| match b {
-            ContentBlock::Text(t) => Some(t.clone()),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(text_blocks.len(), 2);
 }
 
 mod part2;
