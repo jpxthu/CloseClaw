@@ -43,7 +43,7 @@ async fn test_streaming_image_block_not_sent_via_render() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -94,7 +94,7 @@ async fn test_streaming_audio_block_not_sent_via_render() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -143,7 +143,7 @@ async fn test_streaming_file_block_not_sent_via_render() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -224,7 +224,7 @@ async fn test_streaming_mixed_text_and_image() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -313,7 +313,7 @@ async fn test_streaming_all_media_types_not_sent() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 

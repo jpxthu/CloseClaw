@@ -93,6 +93,7 @@ mod tests_slash_permission;
 mod tests_slash_permission_integration;
 pub mod types;
 pub mod workflow_owner;
+pub use outbound::OutboundMeta;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};

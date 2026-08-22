@@ -73,7 +73,7 @@ async fn test_streaming_dsl_results_accumulate_and_merge() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let _result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -144,7 +144,7 @@ async fn test_streaming_all_dsl_no_plain_text() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -228,7 +228,7 @@ async fn test_streaming_dsl_results_not_lost_after_merge() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -288,7 +288,7 @@ async fn test_streaming_block_end_flushes_partial_text() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -333,7 +333,7 @@ async fn test_streaming_message_end_flushes_remaining_text() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -451,7 +451,7 @@ async fn test_streaming_verbosity_off_filters_thinking_sends_text() {
     let stream = stream::iter(thinking_then_text_events());
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -492,7 +492,7 @@ async fn test_streaming_verbosity_normal_filters_thinking_post_stream() {
     let stream = stream::iter(thinking_then_text_events());
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -532,7 +532,7 @@ async fn test_streaming_verbosity_full_sends_thinking_block() {
     let stream = stream::iter(thinking_then_text_events());
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -621,7 +621,7 @@ async fn test_streaming_mixed_thinking_text_dsl_normal_verbosity() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -705,7 +705,7 @@ async fn test_streaming_mixed_thinking_text_dsl_full_verbosity() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -780,7 +780,7 @@ async fn test_streaming_mixed_thinking_text_dsl_off_verbosity() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -851,7 +851,7 @@ async fn test_streaming_dsl_instruction_mixed_with_text_lines() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
@@ -927,7 +927,7 @@ async fn test_streaming_multiline_dsl_each_line_independent() {
     let stream = stream::iter(events);
     let plugin_arc: Arc<dyn IMPlugin> = plugin.clone();
     let result = gw
-        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, None, None)
+        .send_outbound_streaming(&sid, "mock", stream, &plugin_arc, OutboundMeta::default())
         .await
         .unwrap();
 
