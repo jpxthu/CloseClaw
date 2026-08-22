@@ -225,6 +225,33 @@ pub(crate) fn make_outbound_meta(
         .collect()
 }
 
+/// Extract checkpoint content from a rendered output based on msg_type.
+///
+/// Returns the text for "text" payloads, a JSON string for "interactive",
+/// or an error for unknown types. Extracted from [`dispatch_and_persist`]
+/// to keep the function body within the 50-line limit.
+pub(crate) fn extract_content_for_checkpoint(
+    rendered: &RenderedOutput,
+    fallback_text: &str,
+) -> Result<String, crate::GatewayError> {
+    match rendered.msg_type.as_str() {
+        "text" => Ok(rendered
+            .payload
+            .get("content")
+            .and_then(|v| v.get("text"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(fallback_text)
+            .to_string()),
+        "interactive" => {
+            Ok(serde_json::to_string(&rendered.payload).unwrap_or_else(|_| "{}".to_string()))
+        }
+        _ => Err(crate::GatewayError::OutboundError(format!(
+            "unknown msg_type: {}",
+            rendered.msg_type
+        ))),
+    }
+}
+
 /// Merge incremental-phase DSL instructions with finish-phase DslParser
 /// result from the processor chain metadata.
 ///

@@ -174,7 +174,6 @@ async fn test_streaming_all_dsl_no_plain_text() {
             _ => None,
         })
         .collect();
-    eprintln!("DEBUG all_dsl: text_blocks={:?}", text_blocks);
     assert_eq!(
         text_blocks.len(),
         0,

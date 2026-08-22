@@ -743,12 +743,10 @@ async fn test_stream_error_preserves_partial_content() {
 #[tokio::test]
 async fn test_streaming_plugin_send_failure_returns_error() {
     let chain = Arc::new(MockChain::new());
-    let plugin: Arc<dyn IMPlugin> = Arc::new(FailingPlugin {
-        platform: "mock".to_string(),
-        renderer: std::sync::Mutex::new(
-            crate::im_adapter::streaming::DefaultStreamingRenderer::new(),
-        ),
-    });
+    let plugin: Arc<dyn IMPlugin> = Arc::new(FailingPlugin(super::MockImPlugin::new(
+        "mock",
+        super::SendBehavior::Fail,
+    )));
     let (gw, _sm, sid) = setup(chain, plugin.clone()).await;
 
     let events = vec![
@@ -777,8 +775,18 @@ async fn test_streaming_plugin_send_failure_returns_error() {
         .send_outbound_streaming(&sid, "mock", stream, &plugin_arc)
         .await;
 
-    // Plugin.send fails → GatewayError::SendError.
-    assert!(result.is_err(), "plugin.send failure should return error");
+    // Plugin.send fails → GatewayError::AdapterError (from SendFailed).
+    let err = result.unwrap_err();
+    match &err {
+        crate::GatewayError::AdapterError(msg) => {
+            assert!(
+                msg.contains("network error"),
+                "error message should mention 'network error', got: {}",
+                msg
+            );
+        }
+        other => panic!("expected GatewayError::AdapterError, got {:?}", other),
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

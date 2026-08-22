@@ -225,25 +225,10 @@ impl Gateway {
             return Ok(SendOutcome::Notified);
         }
         // Extract content for checkpoint based on msg_type.
-        let content = match ctx.rendered.msg_type.as_str() {
-            "text" => ctx
-                .rendered
-                .payload
-                .get("content")
-                .and_then(|v| v.get("text"))
-                .and_then(|v| v.as_str())
-                .unwrap_or(ctx.fallback_text)
-                .to_string(),
-            "interactive" => {
-                serde_json::to_string(&ctx.rendered.payload).unwrap_or_else(|_| "{}".to_string())
-            }
-            _ => {
-                return Err(GatewayError::OutboundError(format!(
-                    "unknown msg_type: {}",
-                    ctx.rendered.msg_type
-                )))
-            }
-        };
+        let content = crate::outbound_helpers::extract_content_for_checkpoint(
+            ctx.rendered,
+            ctx.fallback_text,
+        )?;
         let msg = Self::make_outbound_msg(
             ctx.channel,
             ctx.chat_id.clone(),
