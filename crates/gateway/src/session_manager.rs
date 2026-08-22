@@ -840,6 +840,8 @@ mod announce_dedup_tests;
 #[cfg(test)]
 mod announce_drain_outbound_tests;
 #[cfg(test)]
+mod announce_prefix_tests;
+#[cfg(test)]
 mod announce_priority_tests;
 #[cfg(test)]
 mod announce_reclaim_tests;
@@ -919,6 +921,8 @@ mod spawn_reclaim_gc_tests;
 mod spawn_tests;
 #[cfg(test)]
 mod spawn_tree_tests;
+#[cfg(test)]
+mod stop_queue_clear_tests;
 #[cfg(test)]
 mod stop_tests;
 #[cfg(test)]
