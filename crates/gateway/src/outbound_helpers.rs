@@ -161,43 +161,54 @@ pub(crate) async fn notify_batch_send_failure(
 ///
 /// When `registry` is `None`, text passes through unchanged
 /// (zero-overhead passthrough).
+/// Extract clean text and DSL instructions from the incremental-phase
+/// processor chain result for a single text chunk.
+///
+/// Returns `(clean_text, dsl_instructions)` where `clean_text` is the
+/// text with DSL lines stripped, and `dsl_instructions` are the parsed
+/// DSL directives accumulated from the incremental phase.
+async fn extract_dsl_from_incremental_result(
+    registry: &std::sync::Arc<dyn closeclaw_common::processor::ProcessorChain>,
+    text: &str,
+) -> Result<(String, Vec<closeclaw_common::processor::DslInstruction>), GatewayError> {
+    let msg = ProcessedMessage::from_raw_content(text.to_string());
+    let result = registry
+        .process_outbound_incremental(msg)
+        .await
+        .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+    let dsl = result
+        .metadata
+        .get("dsl_result")
+        .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
+        .map(|r| r.instructions)
+        .unwrap_or_default();
+    let clean = result
+        .content_blocks
+        .into_iter()
+        .find_map(|b| match b {
+            ContentBlock::Text(t) => Some(t),
+            _ => None,
+        })
+        .unwrap_or_default();
+    Ok((clean, dsl))
+}
+
 pub(crate) async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
+        let original = text.clone();
         let (clean_text, dsl_instructions) = match ctx.registry {
-            Some(registry) => {
-                let msg = ProcessedMessage::from_raw_content(text.clone());
-                let result = registry
-                    .process_outbound_incremental(msg)
-                    .await
-                    .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-                let dsl = result
-                    .metadata
-                    .get("dsl_result")
-                    .and_then(|s| serde_json::from_str::<DslParseResult>(s).ok())
-                    .map(|r| r.instructions)
-                    .unwrap_or_default();
-                let clean = result
-                    .content_blocks
-                    .into_iter()
-                    .find_map(|b| match b {
-                        ContentBlock::Text(t) => Some(t),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                (clean, dsl)
-            }
-            None => (text.clone(), vec![]),
+            Some(registry) => extract_dsl_from_incremental_result(registry, &original).await?,
+            None => (text, vec![]),
         };
         // When DslParser strips all content (DSL-only text), clean_text
         // is empty but the fallback returns the original text. Detect this
         // by comparing with the original to avoid pushing DSL text to
         // content blocks (which would cause duplicate DSL parsing in the
         // finish phase).
-        let original = text.clone();
         if clean_text.is_empty() {
             // All content was DSL — don't send or accumulate.
         } else if clean_text == original && dsl_instructions.is_empty() {
