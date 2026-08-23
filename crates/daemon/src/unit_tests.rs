@@ -334,9 +334,9 @@ fn test_validate_phase_components_with_announce_sweeper_succeeds() {
     let phases = result.unwrap();
     assert_eq!(phases.len(), 6, "expected 6 phases");
     // AnnounceSweeper must appear in Phase 3 (index 2)
-    use crate::startup::ComponentId;
+    use crate::startup::{ComponentId, Service};
     assert!(
-        phases[2].contains(&ComponentId::AnnounceSweeper),
+        phases[2].contains(&ComponentId::Service(Service::AnnounceSweeper)),
         "Phase 3 must contain AnnounceSweeper"
     );
 }
@@ -345,13 +345,13 @@ fn test_validate_phase_components_with_announce_sweeper_succeeds() {
 /// validate_phase_components to return CircularDependency.
 #[test]
 fn test_validate_phase_components_missing_announce_sweeper_fails() {
-    use crate::startup::{all_component_entries, topo_sort_layers, ComponentId};
+    use crate::startup::{all_component_entries, topo_sort_layers, ComponentId, Service};
 
     let entries = all_component_entries();
     let mut layers = topo_sort_layers(&entries).expect("topo sort should succeed");
 
     // Remove AnnounceSweeper from Layer 3 (index 2)
-    layers[2].retain(|id| *id != ComponentId::AnnounceSweeper);
+    layers[2].retain(|id| *id != ComponentId::Service(Service::AnnounceSweeper));
 
     let result = Daemon::validate_phase_components(&layers);
     assert!(

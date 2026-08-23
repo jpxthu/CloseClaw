@@ -80,7 +80,6 @@ pub(crate) fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
 mod llm_init;
 #[cfg(test)]
 pub mod test_helpers;
-
 // --- Topological startup orchestration ---
 impl Daemon {
     /// Resolve the deterministic startup order from the component dependency
@@ -97,32 +96,37 @@ impl Daemon {
     fn validate_phase_components(
         layers: &[Vec<crate::startup::ComponentId>],
     ) -> Result<Vec<Vec<crate::startup::ComponentId>>, StartupError> {
-        use crate::startup::ComponentId::*;
-        let expected: Vec<_> = [
-            vec![ConfigManager, Storage],
+        use crate::startup::{ComponentId, Foundation, Service};
+        let c = |f: Foundation| ComponentId::Foundation(f);
+        let s = |sv: Service| ComponentId::Service(sv);
+        let expected: Vec<Vec<ComponentId>> = vec![
+            vec![c(Foundation::ConfigManager), c(Foundation::Storage)],
             vec![
-                AgentRegistry,
-                ConfigHotReload,
-                PermissionEngine,
-                RenderersPlugins,
-                SessionConfigProvider,
-                SkillsRegistry,
+                s(Service::AgentRegistry),
+                s(Service::ConfigHotReload),
+                s(Service::PermissionEngine),
+                s(Service::RenderersPlugins),
+                s(Service::SessionConfigProvider),
+                s(Service::SkillsRegistry),
+                s(Service::LLMRegistry),
             ],
             vec![
-                AnnounceSweeper,
-                ApprovalFlow,
-                ArchiveSweeper,
-                DreamingScheduler,
-                IMAdapters,
-                SkillWatcher,
-                ToolsRegistry,
+                s(Service::AnnounceSweeper),
+                s(Service::ApprovalFlow),
+                s(Service::ArchiveSweeper),
+                s(Service::DreamingScheduler),
+                s(Service::IMAdapters),
+                s(Service::SkillWatcher),
+                s(Service::ToolsRegistry),
             ],
-            vec![SessionManager, SpawnController, SystemPromptBuilder],
-            vec![Gateway],
-            vec![AdminRpcServer],
-        ]
-        .into_iter()
-        .collect();
+            vec![
+                s(Service::SessionManager),
+                s(Service::SpawnController),
+                s(Service::SystemPromptBuilder),
+            ],
+            vec![s(Service::Gateway)],
+            vec![s(Service::AdminRpcServer)],
+        ];
         for (i, exp) in expected.iter().enumerate() {
             let mut actual = layers.get(i).cloned().unwrap_or_default();
             let mut exp_sorted = exp.clone();
