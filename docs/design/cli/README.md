@@ -15,30 +15,25 @@ closeclaw <command>
 ├── Chat 层（消息链路内）
 │   └── closeclaw chat
 │       └── TerminalPlugin（实现 IM 插件接口，以 terminal 渠道注册）
-│           ├── 入站：stdin → TerminalAdapter → NormalizedMessage
-│           └── 出站：ContentBlock[] → TerminalRenderer → RenderedOutput → TerminalPlugin 发送 → stdout
+│           ├── 入站：stdin → TerminalAdapter → NormalizedMessage →（交由 Gateway Processor Chain 入站处理后路由）
+│           └── 出站：（Gateway Processor Chain 出站产出 ContentBlock[]）→ TerminalRenderer → RenderedOutput → TerminalPlugin 发送 → stdout
 │
 └── Admin 层（消息链路外）
     ├── closeclaw run          — 启动 daemon
     ├── closeclaw stop         — 停止 daemon
     ├── closeclaw config       — 管理配置文件
     ├── closeclaw agent        — 管理 agent
-    ├── closeclaw rule         — 管理权限规则
+    ├── closeclaw rule         — 查看权限规则（只读）
     └── closeclaw skill        — 管理 skill
 ```
 
 ### Chat 层与 IM 渠道的关系
 
-CLI Chat 与飞书、Discord 等 IM 渠道实现同一个 IMPlugin trait（完整接口契约见 [common/core-traits](../common/core-traits.md#implugin)），在 Gateway 的 Plugin Registry 中平级注册。不同之处封装在 TerminalPlugin 内部：
-- 入站渠道：stdin（无 webhook）
-- 出站渠道：stdout（无 IM API）
-- 权限：调用者默认为 Owner（单用户），无需鉴权
-
-斜杠指令和普通对话的语义与其他渠道完全一致——同一套 SlashDispatcher 处理，Gateway 按统一规则路由。斜杠指令回复和 LLM 回复均以 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）形式进入出站链路，经 Processor Chain 处理后渲染发送。
+CLI Chat 与飞书、Discord 等 IM 渠道实现同一个 IMPlugin trait（接口契约见 [common/core-traits](../common/core-traits.md#implugin)），在 Gateway 的 Plugin Registry 中平级注册。差异全部封装在 TerminalPlugin 内部：入站走 stdin、出站走 stdout、调用者默认为 Owner（单用户）无需鉴权。terminal 渠道的实现细节见 [CLI Chat](chat.md)。
 
 ### 跨操作系统
 
-CLI 支持 Linux、macOS、Windows。OS 差异通过 [platform 模块](../platform/README.md) 做薄层封装，CLI 的业务逻辑不感知操作系统差异。
+CLI 支持 Linux、macOS 及 Windows（经 WSL2，行为等同 Linux）。OS 差异通过 [platform 模块](../platform/README.md) 做薄层封装，CLI 的业务逻辑不感知操作系统差异。
 
 ### 子功能索引
 
@@ -52,36 +47,23 @@ CLI 支持 Linux、macOS、Windows。OS 差异通过 [platform 模块](../platfo
 
 ### Chat 层
 
-```
-stdin 输入
-  ↓
-TerminalAdapter 解析输入 → NormalizedMessage（包含 platform、sender_id、peer_id 等字段，terminal 渠道专用字段值见 chat.md）
-  ↓
-Processor Chain 入站 → 处理后消息 → Gateway 路由
-  ├── / 开头 → SlashDispatcher → SlashResult → ContentBlock[]（进入出站）
-  └── 普通文本 → Session → LLM → ContentBlock[]
-  ↓
-Processor Chain 出站 → TerminalPlugin（渲染 → 发送）
-  ├── TerminalRenderer 渲染 → RenderedOutput（ANSI 文本数据）
-  └── TerminalPlugin 发送 → stdout
-  ↓
-stdout
-```
+1. stdin 输入，TerminalAdapter 解析为 NormalizedMessage（terminal 渠道专用字段值见 chat.md）
+2. Processor Chain 入站处理后，消息进入 Gateway 路由，按内容分流：
+   - 以 `/` 开头 → SlashDispatcher → ContentBlock[]
+   - 普通文本 → Session → LLM → ContentBlock[]
+3. ContentBlock[] 经 Processor Chain 出站（VerbosityFilter → DslParser → OutboundRawLog）到达 TerminalPlugin
+4. TerminalPlugin 先渲染后发送，两步顺序执行：TerminalRenderer 渲染 → RenderedOutput（ANSI 文本），随后 TerminalPlugin 发送 → stdout
 
 ### Admin 层
 
-```
-closeclaw <command> [args]
-  ↓
-参数解析 → handler 函数
-  ├── 本地操作（stop：终止 daemon 进程；config setup：写入文件）
-  └── daemon RPC（远程管理调用）
-  ↓
-stdout / 文件写入 / 进程管理
-```
+1. `closeclaw <command> [args]` 输入，参数解析后由对应 handler 函数执行
+2. 按命令类型分派执行：
+   - 本地操作（stop 终止 daemon 进程、config setup 写入文件等，不经 daemon）
+   - daemon RPC（agent/skill 等远程管理调用，经管理协议发往 daemon）
+3. 两类命令的结果均落到 stdout（状态提示）、文件写入或进程管理副作用
 
 ## 模块关系
 
 - **上游**：操作系统终端（stdin / 命令参数）、用户、Gateway（Chat 层出站方向通过 IMPlugin trait 调用 TerminalPlugin 发送渲染结果）
-- **下游**：Gateway（Chat 层产 NormalizedMessage 入站路由，消费 ContentBlock[] 出站）、daemon（run/stop 启停、管理 RPC）、Config 模块（config 命令写配置）、Permission 模块（rule 命令管理权限规则）、LLM 模块（config setup 向导调用模型发现）
+- **下游**：Gateway（Chat 层产 NormalizedMessage 入站路由，消费 ContentBlock[] 出站）、daemon（run/stop 启停；agent/skill 命令经管理 RPC 查询与操作 daemon 状态）、Config 模块（config 命令写配置）、Permission 模块（rule 命令只读查看权限规则）、LLM 模块（config setup 向导调用模型发现）
 - **无关**：IM Adapter 各平台实现（terminal 渠道与飞书/Discord 平级，实现位于 cli/ 模块，无相互调用）

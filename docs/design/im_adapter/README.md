@@ -79,6 +79,8 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 - 含 Thinking/ToolUse/ToolResult 块 → 富格式消息
 - 含 Image/Audio/File 块 → 富格式消息
 
+例外：terminal 渠道无富格式消息形态，恒输出 text 消息——富内容在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）。
+
 ## 数据流
 
 ### 入站路径
