@@ -1,5 +1,7 @@
 //! Bootstrap file collection mode.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 /// Bootstrap file collection mode.
@@ -10,4 +12,13 @@ pub enum BootstrapMode {
     Minimal,
     /// Full set, including files that need persistent context/memory.
     Full,
+}
+
+impl fmt::Display for BootstrapMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BootstrapMode::Minimal => write!(f, "minimal"),
+            BootstrapMode::Full => write!(f, "full"),
+        }
+    }
 }

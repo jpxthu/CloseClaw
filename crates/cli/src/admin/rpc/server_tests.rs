@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_config::agents::AgentConfig;
+use closeclaw_config::agents::{AgentConfig, ConfigSource, ModelSpec, ResolvedAgentConfig};
 use closeclaw_skills::DiskSkillRegistry;
 
-use crate::admin::rpc::protocol::{AdminRequest, AdminResponse};
+use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfoResult};
 use crate::admin::rpc::server::{
     dispatch, dispatch_agent_create, dispatch_agent_info, dispatch_agent_list,
     dispatch_skill_install, dispatch_skill_list, reload_registry, AdminContext,
@@ -288,4 +288,211 @@ fn test_populate_then_reload_no_stale_data() {
         2,
         "registry should contain exactly 2 agents after reload"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.3 — agent info behavior dimension tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn make_full_config() -> ResolvedAgentConfig {
+    #[allow(deprecated)] // default_child_agent is deprecated; test includes it for completeness
+    let cfg = AgentConfig {
+        id: "full-agent".to_string(),
+        name: Some("Full Agent".to_string()),
+        parent_id: Some("parent-1".to_string()),
+        model: Some(ModelSpec::single("gpt-4o")),
+        workspace: Some("/workspace/full".to_string()),
+        agent_dir: Some("/agent/dir/full".to_string()),
+        bootstrap_mode: Some(closeclaw_common::BootstrapMode::Minimal),
+        skills: vec!["skill-a".to_string(), "skill-b".to_string()],
+        tools: vec!["read".to_string(), "write".to_string()],
+        disallowed_tools: vec!["dangerous".to_string()],
+        subagents: closeclaw_config::agents::SubagentsConfig {
+            allow_agents: vec!["child-a".to_string()],
+            require_agent_id: Some(true),
+            max_spawn_depth: Some(3),
+            max_children: Some(10),
+            timeout: Some(120),
+            timeout_warning: Some(60),
+            timeout_notify_interval_ratio: Some(0.5),
+            default_child_agent: None,
+            model: Some(ModelSpec::single("gpt-4o-mini")),
+        },
+        memory: Some(closeclaw_config::agents::MemoryConfig::default()),
+        ..AgentConfig::default()
+    };
+    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "test", None).unwrap()
+}
+
+/// Helper: build a ResolvedAgentConfig with all fields at defaults.
+fn make_default_config() -> ResolvedAgentConfig {
+    let cfg = AgentConfig {
+        id: "default-agent".to_string(),
+        ..AgentConfig::default()
+    };
+    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "test", None).unwrap()
+}
+
+/// Populate the test context's registry with the given configs.
+fn populate_registry(ctx: &AdminContext, configs: Vec<ResolvedAgentConfig>) {
+    ctx.agent_registry.populate(configs);
+}
+
+/// Normal path: fully configured agent -> all 12 fields present and correct.
+#[test]
+fn test_dispatch_agent_info_full_fields() {
+    let ctx = make_test_context();
+    populate_registry(&ctx, vec![make_full_config()]);
+
+    let resp = dispatch_agent_info("full-agent", &ctx);
+    match resp {
+        AdminResponse::AgentInfoResult(info) => {
+            assert_eq!(info.id, "full-agent");
+            assert_eq!(info.name, "Full Agent");
+            assert_eq!(info.parent_id.as_deref(), Some("parent-1"));
+            assert_eq!(
+                info.model.as_ref().map(|m| m.primary.as_str()),
+                Some("gpt-4o")
+            );
+            assert_eq!(info.workspace.as_deref(), Some("/workspace/full"));
+            assert_eq!(info.agent_dir.as_deref(), Some("/agent/dir/full"));
+            assert_eq!(
+                info.bootstrap_mode,
+                closeclaw_common::BootstrapMode::Minimal
+            );
+            assert_eq!(info.skills, vec!["skill-a", "skill-b"]);
+            assert_eq!(info.tools, vec!["read", "write"]);
+            assert_eq!(info.disallowed_tools, vec!["dangerous"]);
+            assert_eq!(info.subagents.max_spawn_depth, Some(3));
+            assert_eq!(info.subagents.max_children, Some(10));
+            assert!(info.memory.is_some());
+        }
+        other => panic!("expected AgentInfoResult, got {:?}", other),
+    }
+}
+
+/// Default values: all-default config -> fields use defaults.
+#[test]
+fn test_dispatch_agent_info_default_values() {
+    let ctx = make_test_context();
+    populate_registry(&ctx, vec![make_default_config()]);
+
+    let resp = dispatch_agent_info("default-agent", &ctx);
+    match resp {
+        AdminResponse::AgentInfoResult(info) => {
+            assert_eq!(info.id, "default-agent");
+            assert_eq!(info.name, "default-agent");
+            assert!(info.parent_id.is_none());
+            assert!(info.model.is_none());
+            assert!(info.workspace.is_none());
+            assert!(info.agent_dir.is_none());
+            assert_eq!(info.bootstrap_mode, closeclaw_common::BootstrapMode::Full);
+            // AgentConfig::default() uses default_all() -> ["*"]
+            assert_eq!(info.skills, vec!["*"]);
+            assert_eq!(info.tools, vec!["*"]);
+            assert!(info.disallowed_tools.is_empty());
+            assert_eq!(info.subagents.max_spawn_depth, Some(1));
+            assert_eq!(info.subagents.max_children, Some(5));
+            assert!(
+                info.memory.is_none(),
+                "default config should have memory=null"
+            );
+        }
+        other => panic!("expected AgentInfoResult, got {:?}", other),
+    }
+}
+
+/// Error path: nonexistent id -> Error message contains the id.
+#[test]
+fn test_dispatch_agent_info_error_contains_id() {
+    let ctx = make_test_context();
+    let resp = dispatch_agent_info("missing-agent", &ctx);
+    match resp {
+        AdminResponse::Error { message } => {
+            assert!(
+                message.contains("missing-agent"),
+                "error should contain the id: {}",
+                message
+            );
+            assert!(message.contains("not found"));
+        }
+        other => panic!("expected Error, got {:?}", other),
+    }
+}
+
+/// Query by name (not id) should not match - verifies id semantics.
+#[test]
+fn test_dispatch_agent_info_name_not_queried() {
+    let ctx = make_test_context();
+    let cfg = AgentConfig {
+        id: "actual-id".to_string(),
+        name: Some("Display Name".to_string()),
+        ..AgentConfig::default()
+    };
+    let resolved = ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "test", None).unwrap();
+    populate_registry(&ctx, vec![resolved]);
+
+    // Querying by the display name should fail
+    let resp = dispatch_agent_info("Display Name", &ctx);
+    match resp {
+        AdminResponse::Error { message } => {
+            assert!(message.contains("Display Name"));
+            assert!(message.contains("not found"));
+        }
+        other => panic!("expected Error for name query, got {:?}", other),
+    }
+    // Querying by the actual id should succeed
+    let resp = dispatch_agent_info("actual-id", &ctx);
+    assert!(matches!(resp, AdminResponse::AgentInfoResult(_)));
+}
+
+/// Protocol roundtrip: AgentInfoResult serde field names are camelCase.
+#[test]
+fn test_agent_info_result_camelcase_fields() {
+    use closeclaw_config::agents::SubagentsConfig;
+    let info = AgentInfoResult {
+        id: "test".to_string(),
+        name: "Test".to_string(),
+        parent_id: Some("p".to_string()),
+        model: Some(ModelSpec::single("gpt-4o")),
+        workspace: Some("/ws".to_string()),
+        agent_dir: Some("/ad".to_string()),
+        bootstrap_mode: closeclaw_common::BootstrapMode::Full,
+        skills: vec![],
+        tools: vec![],
+        disallowed_tools: vec![],
+        subagents: SubagentsConfig::default(),
+        memory: None,
+    };
+    let resp = AdminResponse::AgentInfoResult(Box::new(info));
+    let value = serde_json::to_value(&resp).unwrap();
+
+    // Tagged enum flattens struct fields; type is at top level
+    assert_eq!(value["type"], "agent_info_result");
+
+    // Verify camelCase field names match agent-config.md
+    assert!(value.get("id").is_some(), "missing 'id' field");
+    assert!(value.get("name").is_some(), "missing 'name' field");
+    assert!(value.get("parentId").is_some(), "missing 'parentId' field");
+    assert!(value.get("model").is_some(), "missing 'model' field");
+    assert!(
+        value.get("workspace").is_some(),
+        "missing 'workspace' field"
+    );
+    assert!(value.get("agentDir").is_some(), "missing 'agentDir' field");
+    assert!(
+        value.get("bootstrapMode").is_some(),
+        "missing 'bootstrapMode' field"
+    );
+    assert!(value.get("skills").is_some(), "missing 'skills' field");
+    assert!(value.get("tools").is_some(), "missing 'tools' field");
+    assert!(
+        value.get("disallowedTools").is_some(),
+        "missing 'disallowedTools' field"
+    );
+    assert!(
+        value.get("subagents").is_some(),
+        "missing 'subagents' field"
+    );
+    assert!(value.get("memory").is_some(), "missing 'memory' field");
 }

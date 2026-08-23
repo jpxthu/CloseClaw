@@ -77,6 +77,10 @@ pub struct ResolvedAgentConfig {
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
     pub memory: crate::agents::config_types::MemoryConfig,
+    /// Whether the agent config explicitly set a `memory` field.
+    /// When `false`, the `memory` value is inherited from global defaults
+    /// and `agent info` should report `null` per the design doc.
+    pub memory_configured: bool,
     /// Run-health hook review configuration.
     pub hooks: Vec<HookConfig>,
     /// Whether parallel tool calls are enabled for this agent.
@@ -157,6 +161,7 @@ impl ResolvedAgentConfig {
             .name
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| config.id.clone());
+        let memory_configured = config.memory.is_some();
         let memory = match (global_memory, config.memory) {
             (Some(global), Some(agent)) => global.merge_overrides(&agent),
             (Some(global), None) => global.clone(),
@@ -176,6 +181,7 @@ impl ResolvedAgentConfig {
             disallowed_tools: config.disallowed_tools,
             subagents: apply_subagent_defaults(config.subagents),
             memory,
+            memory_configured,
             hooks: config.hooks,
             parallel_tool_calls: config.parallel_tool_calls,
             source,
@@ -243,6 +249,7 @@ impl ResolvedAgentConfig {
                 user.disallowed_tools,
             ),
             subagents: merge_subagents(project.subagents, user.subagents),
+            memory_configured: project.memory.is_some() || user.memory.is_some(),
             hooks: override_if_non_empty(project.hooks, user.hooks),
             parallel_tool_calls: project.parallel_tool_calls && user.parallel_tool_calls,
             memory: {
