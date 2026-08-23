@@ -49,11 +49,11 @@
   },
   {
     "path": "docs/design/cli/admin.md",
-    "commit": "86d1bd748fe6e027e9d769bd31bea5ddeee8b2fb",
-    "commit_time": "2026-06-20T12:30:40+08:00",
-    "confirmed_time": "2026-08-23T21:06:54.675227+08:00",
+    "commit": "99c1444c8fb7f379d40f7169de87242adf0bf002",
+    "commit_time": "2026-08-24T02:09:29+08:00",
+    "confirmed_time": "2026-08-24T02:15:52.753436+08:00",
     "comment": "",
-    "blocked_reason": "F2b 发现: (1) must_fix: agent info 仅返回4个字段(id,name,model,skills), 文档要求返回完整配置档案(AgentConfig有15+字段); (2) doc_problem: 文档写 agent info <id> 但代码按 name 查找, AgentConfig 中 id 和 name 是不同字段, 设计意图不清晰"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/chat.md",
@@ -241,11 +241,11 @@
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
-    "commit": "851977f97f83c65ab9bc9de8e00f9fbb3dec45e8",
-    "commit_time": "2026-08-23T05:49:13+08:00",
-    "confirmed_time": "2026-08-23T06:11:39.393261+08:00",
+    "commit": "99c1444c8fb7f379d40f7169de87242adf0bf002",
+    "commit_time": "2026-08-24T02:09:29+08:00",
+    "confirmed_time": "2026-08-24T02:12:37.707396+08:00",
     "comment": "",
-    "blocked_reason": "F2b 三轮深度对比标签未收敛：①三组件架构描述（A判code_extra/B判doc_problem）②唯一实质矛盾——流式渲染器输入接口 ContentBlock[] vs StreamEvent（issue #2443 待 Owner 裁决，双方确认仍存在）。其余项（ToolResult/200ms超时触发方/thinking-indicator/code_block.rs）经三轮收敛均为 code_extra（代码有文档沉默、无冲突）。需 Owner 裁决接口表述矛盾归属及三组件描述约束力"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/README.md",
