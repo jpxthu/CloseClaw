@@ -28,8 +28,9 @@ impl Default for ArchiveConfig {
 /// Handles automatic archival of completed plan files.
 ///
 /// Scans `plans/` for `.md` files where all step markers are in
-/// terminal state (`[x]` done or `[~]` skipped), and moves those
-/// older than the configured threshold to `plans/archive/`.
+/// terminal state (`[x]` done, `[!]` failed, or `[~]` skipped),
+/// and moves those older than the configured threshold to
+/// `plans/archive/`.
 #[derive(Debug)]
 pub struct PlanArchiver {
     config: ArchiveConfig,
@@ -192,9 +193,8 @@ pub(crate) fn parse_step_markers(content: &str) -> Vec<StepState> {
 ///
 /// A plan is completed when the Tasks section contains at least one
 /// step marker and **all** steps are in a terminal state:
-/// - `[x]` (done) or `[~]` (skipped) — considered completed.
-/// - `[ ]`, `[-]`, `[!]` — plan is still active or failed, not
-///   eligible for archival.
+/// - `[x]` (done), `[!]` (failed), or `[~]` (skipped) — terminal.
+/// - `[ ]`, `[-]` — plan is still active, not eligible for archival.
 ///
 /// An empty Tasks section (no step markers) is **not** treated as
 /// completed to avoid archiving empty/plans that were never started.
@@ -205,7 +205,7 @@ pub(crate) fn is_completed_plan(content: &str) -> bool {
     }
     states
         .iter()
-        .all(|s| matches!(s, StepState::Done | StepState::Skipped))
+        .all(|s| matches!(s, StepState::Done | StepState::Failed | StepState::Skipped))
 }
 
 /// Errors that can occur during plan archival.

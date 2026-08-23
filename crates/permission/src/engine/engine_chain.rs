@@ -89,6 +89,7 @@ impl PermissionEngine {
                             ),
                             rule: "<chain_intersection>".to_string(),
                             risk_level: assess_risk_level(request.body()),
+                            approval_request_id: None,
                         };
                     }
                 }

@@ -11,6 +11,21 @@ use crate::bootstrap::BootstrapMode;
 use crate::request_context::RequestContext;
 use crate::session_mode::SessionMode;
 
+/// Mode transition type — signals which transition triggered prompt injection.
+///
+/// Used by [`DynamicPromptContext`] to communicate mode changes to the
+/// system prompt builder, which injects the corresponding prompt from
+/// design doc §6.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModeTransition {
+    /// Re-entering Plan Mode after having previously exited it.
+    PlanModeReentry,
+    /// Exiting Plan Mode (user triggered execution).
+    PlanModeExit,
+    /// Exiting Auto Mode (auto execution completed).
+    AutoModeExit,
+}
+
 /// Overrides for the three-tier priority prompt system.
 ///
 /// When resolving the final system prompt, the caller checks these in order:
@@ -88,6 +103,11 @@ pub struct DynamicPromptContext<'a> {
     /// When `true`, the dynamic builder may inject a GitStatus section
     /// if the working directory is a git repository.
     pub is_git_status_enabled: bool,
+    /// Mode transition that triggered this prompt build.
+    ///
+    /// When `Some`, a mode transition prompt from design doc §6 is
+    /// injected. `None` means no transition occurred on this request.
+    pub mode_transition: Option<ModeTransition>,
 }
 
 /// Builder for the dynamic portion of the system prompt.

@@ -64,6 +64,7 @@ impl PermissionEngine {
                     reason: format!("unknown action: {}", action),
                     rule: "<check>".to_string(),
                     risk_level: assess_risk_level(&body),
+                    approval_request_id: None,
                 };
             }
         };
