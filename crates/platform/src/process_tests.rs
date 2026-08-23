@@ -6,6 +6,87 @@ use crate::process::{
 use std::os::unix::process::ExitStatusExt;
 use tempfile::TempDir;
 
+// ── is_process_alive boundary tests ──────────────────────────────
+
+/// PID 1 (init/systemd) should be alive on any running Linux system.
+#[test]
+fn test_is_process_alive_pid1() {
+    assert!(
+        is_process_alive(1),
+        "PID 1 (init/systemd) should be alive on a running system"
+    );
+}
+
+/// An extremely large PID (u32::MAX) should not be alive.
+#[test]
+fn test_is_process_alive_large_pid() {
+    assert!(
+        !is_process_alive(u32::MAX),
+        "PID u32::MAX should not be alive"
+    );
+}
+
+/// A killed child process should no longer be alive after wait.
+#[test]
+fn test_is_process_alive_after_kill() {
+    let mut child = spawn_sleep_child();
+    let pid = child.id();
+    assert!(is_process_alive(pid), "child should be alive before kill");
+    child.kill().expect("failed to kill child");
+    child.wait().expect("failed to wait on child");
+    // After wait, the PID is reaped by the OS.
+    assert!(
+        !is_process_alive(pid),
+        "killed+waited child should not be alive"
+    );
+}
+
+// ── check_stale_pid boundary tests ───────────────────────────────
+
+/// Alive PID file should NOT be removed by check_stale_pid.
+#[test]
+fn test_check_stale_pid_alive_preserves_file() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    let my_pid = std::process::id();
+    write_pid_file(&path, my_pid).unwrap();
+
+    let result = check_stale_pid(&path).unwrap();
+    assert_eq!(result, Some(my_pid));
+    assert!(
+        path.exists(),
+        "PID file must be preserved for alive process"
+    );
+}
+
+/// Stale PID file should be removed by check_stale_pid.
+#[test]
+fn test_check_stale_pid_stale_removes_file() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    write_pid_file(&path, 99999999).unwrap();
+    assert!(path.exists(), "PID file should exist before check");
+
+    let result = check_stale_pid(&path).unwrap();
+    assert_eq!(result, None, "stale PID should return None");
+    assert!(!path.exists(), "stale PID file should be removed");
+}
+
+/// No PID file should return None without creating any file.
+#[test]
+fn test_check_stale_pid_no_file_no_side_effect() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    assert!(!path.exists());
+
+    let result = check_stale_pid(&path).unwrap();
+    assert_eq!(result, None);
+    assert!(
+        !path.exists(),
+        "should not create a PID file when none existed"
+    );
+}
+
 #[test]
 fn test_write_and_read_pid_file() {
     let tmp = TempDir::new().unwrap();

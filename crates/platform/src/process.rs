@@ -41,9 +41,16 @@ use tracing::info;
 pub fn is_process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
+        // PIDs exceeding i32::MAX cannot exist on Unix (kernel pid_max is
+        // typically 4194304). Casting to i32 would wrap to a negative value,
+        // making kill(-1, 0) send to all processes — a false positive.
+        let pid_i32 = match i32::try_from(pid) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
         // SAFETY: kill with signal 0 is a standard POSIX existence check.
         // No signal is delivered; the kernel merely validates the PID.
-        let ret = unsafe { libc::kill(pid as i32, 0) };
+        let ret = unsafe { libc::kill(pid_i32, 0) };
         if ret == 0 {
             return true;
         }

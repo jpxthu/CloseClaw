@@ -6,7 +6,8 @@
 //! 3. DaemonRunner error propagates through handle_run_foreground
 //! 4. Foreground mode writes the PID file correctly
 
-use super::run::{handle_run, handle_run_foreground, DaemonRunner};
+use super::run::{ensure_no_running_daemon, handle_run, handle_run_foreground, DaemonRunner};
+use closeclaw_platform::process::{pid_file_path, write_pid_file};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -269,5 +270,54 @@ async fn test_handle_run_background_cleans_stale_pid() {
     assert!(
         !mock.was_called(),
         "DaemonRunner should not be called in background mode"
+    );
+}
+
+// ── ensure_no_running_daemon tests ──────────────────────────────────────
+
+/// No PID file → ensure_no_running_daemon succeeds.
+#[test]
+fn test_ensure_no_running_daemon_no_file() {
+    let tmp = TempDir::new().unwrap();
+    let pid_file = pid_file_path(tmp.path());
+    assert!(ensure_no_running_daemon(&pid_file).is_ok());
+}
+
+/// Stale PID file → ensure_no_running_daemon succeeds (file is cleaned).
+#[test]
+fn test_ensure_no_running_daemon_stale() {
+    let tmp = TempDir::new().unwrap();
+    let pid_file = pid_file_path(tmp.path());
+    write_pid_file(&pid_file, 99999999).unwrap();
+    assert!(pid_file.exists(), "PID file should exist before check");
+
+    let result = ensure_no_running_daemon(&pid_file);
+    assert!(result.is_ok(), "stale PID should not block: {result:?}");
+    assert!(!pid_file.exists(), "stale PID file should be removed");
+}
+
+/// Alive PID → ensure_no_running_daemon returns error.
+#[test]
+fn test_ensure_no_running_daemon_alive() {
+    let tmp = TempDir::new().unwrap();
+    let pid_file = pid_file_path(tmp.path());
+    let my_pid = std::process::id();
+    write_pid_file(&pid_file, my_pid).unwrap();
+
+    let result = ensure_no_running_daemon(&pid_file);
+    assert!(result.is_err(), "should error when daemon is alive");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("daemon already running"),
+        "error should mention daemon already running, got: {err_msg}"
+    );
+    assert!(
+        err_msg.contains(&my_pid.to_string()),
+        "error should include the alive PID, got: {err_msg}"
+    );
+    // PID file should NOT be removed for an alive process.
+    assert!(
+        pid_file.exists(),
+        "PID file should be preserved for alive process"
     );
 }
