@@ -635,7 +635,7 @@ fn make_plan_mode_ctx() -> PromptGenerationContext {
 }
 
 #[tokio::test]
-async fn test_plan_mode_filters_write_tools() {
+async fn test_plan_mode_shows_write_and_edit_tools() {
     let reg = ToolRegistry::new();
     // Register read-only and write tools.
     reg.register(DummyTool {
@@ -648,6 +648,9 @@ async fn test_plan_mode_filters_write_tools() {
     })
     .await
     .unwrap();
+    // Write and Edit are in PLAN_MODE_ALWAYS_VISIBLE so they remain visible
+    // in Plan Mode (permission layer restricts writes to plans/ via
+    // is_plans_path()).
     reg.register(DummyTool {
         name: "Write".to_string(),
         group: "file_ops".to_string(),
@@ -668,6 +671,18 @@ async fn test_plan_mode_filters_write_tools() {
     })
     .await
     .unwrap();
+    // A non-read-only tool that is NOT in PLAN_MODE_ALWAYS_VISIBLE
+    // should still be filtered out.
+    reg.register(DummyTool {
+        name: "CommandExec".to_string(),
+        group: "exec".to_string(),
+        summary_text: "Execute command".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
 
     let ctx = make_plan_mode_ctx();
     let section = reg.build_tools_section(&ctx).await;
@@ -677,12 +692,16 @@ async fn test_plan_mode_filters_write_tools() {
         "Read should be visible in Plan mode"
     );
     assert!(
-        !section.contains("Write"),
-        "Write should be hidden in Plan mode"
+        section.contains("Write"),
+        "Write should be visible in Plan mode (always-visible list)"
     );
     assert!(
-        !section.contains("Edit"),
-        "Edit should be hidden in Plan mode"
+        section.contains("Edit"),
+        "Edit should be visible in Plan mode (always-visible list)"
+    );
+    assert!(
+        !section.contains("CommandExec"),
+        "CommandExec should be hidden in Plan mode"
     );
 }
 
