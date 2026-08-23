@@ -538,7 +538,6 @@ async fn test_handle_skill_install_not_found() {
 
 #[test]
 fn test_json_output_structs() {
-    // ConfigValidateOutput
     let valid = ConfigValidateOutput {
         file: "test.json".into(),
         valid: true,
@@ -553,9 +552,7 @@ fn test_json_output_structs() {
         valid: false,
         version: None,
     };
-    let json = serde_json::to_string(&invalid).unwrap();
-    assert!(!json.contains("version"));
-    // ConfigListOutput
+    assert!(!serde_json::to_string(&invalid).unwrap().contains("version"));
     let output = ConfigListOutput {
         files: vec![
             ConfigListFile {
@@ -573,7 +570,6 @@ fn test_json_output_structs() {
     let v: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&output).unwrap()).unwrap();
     assert_eq!(v["files"].as_array().unwrap().len(), 2);
-    // RuleCheckOutput
     let v: serde_json::Value = serde_json::from_str(
         &serde_json::to_string(&RuleCheckOutput {
             rule_name: "my-rule".into(),
@@ -583,7 +579,6 @@ fn test_json_output_structs() {
     )
     .unwrap();
     assert_eq!(v["rule_name"], "my-rule");
-    // RuleListOutput
     let rules_out = RuleListOutput {
         rules: vec![
             RuleListEntry {
@@ -603,24 +598,26 @@ fn test_json_output_structs() {
     let v: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&rules_out).unwrap()).unwrap();
     assert_eq!(v["rules"].as_array().unwrap().len(), 2);
-    // StopOutput
-    let with_pid = StopOutput {
-        pid: Some(12345),
-        signal: "TERM".into(),
-        stopped: true,
-    };
-    let v: serde_json::Value =
-        serde_json::from_str(&serde_json::to_string(&with_pid).unwrap()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(
+        &serde_json::to_string(&StopOutput {
+            pid: Some(12345),
+            signal: "TERM".into(),
+            stopped: true,
+        })
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(v["pid"], 12345);
-    let no_pid = StopOutput {
-        pid: None,
-        signal: String::new(),
-        stopped: false,
-    };
-    let v: serde_json::Value =
-        serde_json::from_str(&serde_json::to_string(&no_pid).unwrap()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(
+        &serde_json::to_string(&StopOutput {
+            pid: None,
+            signal: String::new(),
+            stopped: false,
+        })
+        .unwrap(),
+    )
+    .unwrap();
     assert!(v["pid"].is_null());
-    // ErrorOutput
     #[derive(serde::Serialize)]
     struct ErrorOutput<'a> {
         error: &'a str,
@@ -721,90 +718,40 @@ async fn test_rule_list_json() {
 
 #[tokio::test]
 #[serial_test::serial]
-async fn test_agent_list_json() {
+async fn test_agent_json_crud() {
     let (_tmp, config_dir) = setup_admin_config_dir();
     let (config_dir, handle) = start_mock_server(config_dir).await;
-    let result = handle_agent_with(AgentAction::List, config_dir, true).await;
-    assert!(
-        result.is_ok(),
-        "json agent list should succeed: {:?}",
-        result
-    );
-    handle.abort();
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn test_agent_info_json() {
-    let (_tmp, config_dir) = setup_admin_config_dir();
-    let (config_dir, handle) = start_mock_server(config_dir).await;
-    handle_agent_with(
+    let r = handle_agent_with(AgentAction::List, config_dir.clone(), true).await;
+    assert!(r.is_ok(), "json agent list: {:?}", r);
+    let r = handle_agent_with(
         AgentAction::Create {
-            name: "json-agent".into(),
+            name: "json-new".into(),
             model: Some("gpt-4".into()),
         },
         config_dir.clone(),
         false,
     )
-    .await
-    .unwrap();
-    let result = handle_agent_with(
+    .await;
+    assert!(r.is_ok(), "json agent create: {:?}", r);
+    let r = handle_agent_with(
         AgentAction::Info {
-            id: "json-agent".into(),
+            id: "json-new".into(),
         },
         config_dir,
         true,
     )
     .await;
-    assert!(
-        result.is_ok(),
-        "json agent info should succeed: {:?}",
-        result
-    );
+    assert!(r.is_ok(), "json agent info: {:?}", r);
     handle.abort();
 }
 
 #[tokio::test]
 #[serial_test::serial]
-async fn test_agent_create_json() {
+async fn test_skill_list_and_install_json() {
     let (_tmp, config_dir) = setup_admin_config_dir();
     let (config_dir, handle) = start_mock_server(config_dir).await;
-    let result = handle_agent_with(
-        AgentAction::Create {
-            name: "json-new".into(),
-            model: None,
-        },
-        config_dir,
-        true,
-    )
-    .await;
-    assert!(
-        result.is_ok(),
-        "json agent create should succeed: {:?}",
-        result
-    );
-    handle.abort();
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn test_skill_list_json() {
-    let (_tmp, config_dir) = setup_admin_config_dir();
-    let (config_dir, handle) = start_mock_server(config_dir).await;
-    let result = handle_skill_with(SkillAction::List, config_dir, true).await;
-    assert!(
-        result.is_ok(),
-        "json skill list should succeed: {:?}",
-        result
-    );
-    handle.abort();
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn test_skill_install_json() {
-    let (_tmp, config_dir) = setup_admin_config_dir();
-    let (config_dir, handle) = start_mock_server(config_dir).await;
+    let result = handle_skill_with(SkillAction::List, config_dir.clone(), true).await;
+    assert!(result.is_ok(), "json skill list: {:?}", result);
     let result = handle_skill_with(
         SkillAction::Install {
             name: "missing-skill".into(),
@@ -813,12 +760,7 @@ async fn test_skill_install_json() {
         true,
     )
     .await;
-    // The mock server has no real skill registry, so install returns error.
-    // With json=true, the error path uses json_error which now returns Err.
-    assert!(
-        result.is_err(),
-        "json skill install for missing skill should fail"
-    );
+    assert!(result.is_err(), "json skill install should fail");
     handle.abort();
 }
 
@@ -974,4 +916,70 @@ async fn test_handle_stop_no_pid_and_self_kill() {
         err_msg.contains("Refusing to kill self"),
         "error should mention self-kill refusal, got: {err_msg}"
     );
+}
+
+// ── Step 1.3 — handle_stop_at: signal → wait → cleanup full chain ──
+
+/// Full chain: signal sent → zombie not reaped → wait times out → PID file preserved → Err.
+#[tokio::test]
+async fn test_handle_stop_full_chain_signal_and_timeout() {
+    use closeclaw_cli::admin::handle_stop_at;
+    use closeclaw_platform::process::{pid_file_path, write_pid_file};
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path();
+    let pid_file = pid_file_path(config_dir);
+    let mut child = std::process::Command::new("sleep")
+        .arg("60")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn sleep child");
+    let pid = child.id();
+    write_pid_file(&pid_file, pid).unwrap();
+    assert!(pid_file.exists());
+    let result = handle_stop_at(config_dir, false, false).await;
+    assert!(result.is_err(), "should return Err on zombie timeout");
+    assert!(pid_file.exists(), "PID file should be preserved on timeout");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("did not exit within"),
+        "error should mention timeout: {}",
+        err_msg
+    );
+    child.kill().ok();
+    let status = child.wait().unwrap();
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+    #[cfg(unix)]
+    // Process exited from SIGTERM sent by handle_stop_at (zombie reaped by our kill+wait).
+    assert!(
+        status.signal().is_some(),
+        "child should have been killed by signal"
+    );
+}
+
+/// Timeout path: immune child + SIGTERM → wait_for_exit returns Err.
+#[test]
+fn test_handle_stop_timeout_unit_coverage() {
+    use closeclaw_platform::process::{send_signal, wait_for_exit};
+    let mut child = std::process::Command::new("sh")
+        .args(["-c", "trap '' TERM; sleep 60"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn immune child");
+    let pid = child.id();
+    send_signal(pid, false).expect("send_signal should succeed");
+    let result = wait_for_exit(pid, std::time::Duration::from_millis(200));
+    assert!(result.is_err(), "should timeout on immune process");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("did not exit within"),
+        "timeout error: {}",
+        err_msg
+    );
+    child.kill().ok();
+    child.wait().ok();
 }

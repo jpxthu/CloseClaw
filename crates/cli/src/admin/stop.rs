@@ -30,7 +30,8 @@ pub async fn handle_stop_at(config_dir: &std::path::Path, force: bool, json: boo
         anyhow::bail!("Refusing to kill self.");
     }
     closeclaw_platform::process::send_signal(pid, force)?;
-    let _ = std::fs::remove_file(&p);
+    closeclaw_platform::process::wait_for_exit(pid, std::time::Duration::from_secs(5))?;
+    std::fs::remove_file(&p)?;
     let sig = if force { "KILL" } else { "TERM" };
     if json {
         json_output(&StopOutput {
