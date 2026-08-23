@@ -747,3 +747,45 @@ fn test_build_request_non_stream_does_not_inject_stream_options() {
         "non-streaming request should not contain stream_options"
     );
 }
+
+// ── reasoning_tokens extraction from completion_tokens_details ─────────────
+
+#[test]
+fn test_parse_response_reasoning_tokens_extracted() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": { "role": "assistant", "content": "hi" },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 200,
+            "total_tokens": 300,
+            "completion_tokens_details": {
+                "reasoning_tokens": 120
+            }
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.usage.reasoning_tokens, Some(120));
+    assert_eq!(resp.usage.completion_tokens, 200);
+}
+
+#[test]
+fn test_parse_response_reasoning_tokens_missing() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": { "role": "assistant", "content": "hi" },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.usage.reasoning_tokens, None);
+}
