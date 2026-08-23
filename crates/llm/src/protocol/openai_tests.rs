@@ -721,3 +721,29 @@ fn test_parse_response_no_cached_tokens() {
     assert_eq!(resp.usage.cache_read_tokens, None);
     assert_eq!(resp.usage.cache_write_tokens, None);
 }
+
+// ── stream_options.include_usage injection ───────────────────────────────────
+
+#[test]
+fn test_build_request_stream_injects_stream_options() {
+    let proto = OpenAiProtocol::new();
+    let mut request = make_request();
+    request.stream = true;
+    let body = proto.build_request(&request).unwrap();
+    let stream_options = body
+        .get("stream_options")
+        .expect("stream_options should exist");
+    assert_eq!(stream_options["include_usage"], true);
+}
+
+#[test]
+fn test_build_request_non_stream_does_not_inject_stream_options() {
+    let proto = OpenAiProtocol::new();
+    let request = make_request();
+    // make_request() has stream=false by default
+    let body = proto.build_request(&request).unwrap();
+    assert!(
+        body.get("stream_options").is_none(),
+        "non-streaming request should not contain stream_options"
+    );
+}

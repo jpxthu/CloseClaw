@@ -69,6 +69,13 @@ impl ChatProtocol for OpenAiProtocol {
             "stream": request.stream,
         });
 
+        if request.stream {
+            body.as_object_mut().unwrap().insert(
+                "stream_options".to_string(),
+                serde_json::json!({"include_usage": true}),
+            );
+        }
+
         if let Some(max_tokens) = request.max_tokens {
             body.as_object_mut()
                 .unwrap()
