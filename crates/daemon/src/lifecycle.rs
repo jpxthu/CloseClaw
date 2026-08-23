@@ -103,6 +103,69 @@ impl Daemon {
             Arc::clone(&session_config_provider),
         )
         .await?;
+
+        // ── LLM call chain assembly ──────────────────────────────────────
+        // Wire up CacheAdapter → UnifiedChatClient → FallbackChain → LLMCaller
+        // and inject into SessionManager + Gateway. This must happen after
+        // Phase 5 when the session_manager and gateway are available.
+        let llm_registry = Self::init_llm_registry(
+            std::path::Path::new(config_dir),
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        let provider_ids = llm_registry.list().await;
+        let mut chain_entries: Vec<closeclaw_llm::unified_fallback::ChainEntry> = Vec::new();
+        for provider_id in &provider_ids {
+            if let Some(provider) = llm_registry.get(provider_id).await {
+                let cache_adapter = closeclaw_llm::cache_adapter::for_provider(provider_id);
+                let client = closeclaw_llm::UnifiedChatClient::new(
+                    provider,
+                    Arc::new(closeclaw_llm::protocol::OpenAiProtocol::new()),
+                    closeclaw_llm::InterpreterRegistry::default(),
+                    closeclaw_llm::PluginPipeline::new(),
+                    cache_adapter,
+                );
+                chain_entries.push(closeclaw_llm::unified_fallback::ChainEntry {
+                    provider_id: provider_id.clone(),
+                    model_id: provider_id.clone(),
+                    client: Arc::new(client),
+                });
+            }
+        }
+        let cooldown_manager = Arc::new(closeclaw_llm::retry::CooldownManager::new());
+        let unified_fallback =
+            Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
+                chain_entries,
+                Arc::clone(&cooldown_manager),
+            ));
+        let fallback_llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
+            Arc::clone(&unified_fallback),
+        ));
+        session_manager
+            .set_llm_caller(fallback_llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
+            .await;
+        info!(count = provider_ids.len(), "LLM call chain assembled");
+
+        // Create SessionMessageHandler for busy/pending state machine.
+        let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
+        let active_searcher_llm_caller = Arc::new(
+            closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
+                client: Arc::clone(&unified_fallback),
+                model: String::new(),
+            },
+        );
+        let fallback_client_for_compact = Arc::new(
+            closeclaw_llm::fallback::FallbackClient::from_strings(llm_registry, vec![]),
+        );
+        let session_handler = Arc::new(closeclaw_gateway::SessionMessageHandler::new(
+            Arc::clone(&session_manager),
+            fallback_client_for_compact,
+            output_tx,
+            active_searcher_llm_caller,
+            closeclaw_common::CompactConfig::default(),
+        ));
+        gateway.set_session_handler(session_handler);
+
         // Inject recovery notifications into dirty sessions at startup.
         // Must happen after Phase 5 when LLM caller, system prompt builder,
         // and other dependencies are wired into SessionManager.
@@ -157,6 +220,8 @@ impl Daemon {
             plan_archive_task_handle: Some(plan_archive_handle),
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
+            // TODO: wire output_rx to outbound pipeline
+            _output_rx: output_rx,
         })
     }
 

@@ -122,7 +122,7 @@ pub struct Gateway {
     session_manager: Arc<SessionManager>,
     processor_registry: std::sync::RwLock<Option<Arc<dyn ProcessorChain>>>,
     checkpoint_manager: Option<Arc<CheckpointManager<dyn PersistenceService>>>,
-    session_handler: Option<Arc<SessionMessageHandler>>,
+    session_handler: std::sync::OnceLock<Arc<SessionMessageHandler>>,
     /// Daemon-level approval flow for intercepting `/approve` / `/deny` commands.
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,
     /// Slash command dispatcher.
@@ -164,7 +164,7 @@ impl Gateway {
             session_manager,
             processor_registry: std::sync::RwLock::new(Some(Arc::new(registry))),
             checkpoint_manager: None,
-            session_handler: None,
+            session_handler: std::sync::OnceLock::new(),
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
@@ -193,7 +193,7 @@ impl Gateway {
             session_manager,
             processor_registry: std::sync::RwLock::new(Some(registry)),
             checkpoint_manager: None,
-            session_handler: None,
+            session_handler: std::sync::OnceLock::new(),
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
@@ -231,9 +231,19 @@ impl Gateway {
     /// Configure a SessionMessageHandler for busy/pending LLM session management.
     /// When a handler is installed, inbound messages are routed through the
     /// busy/pending state machine. When `None` (default), Gateway behaves as before.
-    pub fn with_session_handler(mut self, handler: Arc<SessionMessageHandler>) -> Self {
-        self.session_handler = Some(handler);
+    pub fn with_session_handler(self, handler: Arc<SessionMessageHandler>) -> Self {
+        let _ = self.session_handler.set(handler);
         self
+    }
+
+    /// Set the session handler (ARC-safe setter).
+    ///
+    /// Unlike [`with_session_handler`](Self::with_session_handler) which
+    /// consumes `self` (used during Gateway construction), this method
+    /// takes `&self` so it can be called on an already-wrapped
+    /// `Arc<Gateway>`.
+    pub fn set_session_handler(&self, handler: Arc<SessionMessageHandler>) {
+        let _ = self.session_handler.set(handler);
     }
 
     /// Wire the back-reference to the owning `Arc<Gateway>`.
@@ -461,14 +471,12 @@ impl Gateway {
     }
 
     pub async fn has_session_handler(&self) -> bool {
-        self.session_handler.is_some()
+        self.session_handler.get().is_some()
     }
 
     /// Returns a reference to the model knowledge base, if the session handler is set.
     pub fn model_knowledge(&self) -> Option<&ProviderModelKnowledge> {
-        self.session_handler
-            .as_ref()
-            .and_then(|h| h.model_knowledge())
+        self.session_handler.get().and_then(|h| h.model_knowledge())
     }
 
     pub fn config_name(&self) -> &str {
@@ -702,7 +710,7 @@ impl Gateway {
             return Some(result);
         }
 
-        let handler = self.session_handler.as_ref()?;
+        let handler = self.session_handler.get().cloned()?;
 
         // Streaming path: plugin is registered for this channel AND the
         // self-ref is wired AND the handler has a back-ref. Falls back

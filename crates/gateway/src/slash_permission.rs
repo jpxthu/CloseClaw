@@ -252,7 +252,7 @@ impl Gateway {
     }
 
     async fn send_reply_if_available(&self, text: &str) {
-        if let Some(sh) = self.session_handler.as_ref() {
+        if let Some(sh) = self.session_handler.get() {
             sh.send_reply(text.to_owned()).await;
         }
     }
@@ -283,7 +283,7 @@ impl Gateway {
                 error = %e,
                 "slash reply outbound failed, falling back to send_reply"
             );
-            if let Some(sh) = self.session_handler.as_ref() {
+            if let Some(sh) = self.session_handler.get() {
                 sh.send_reply(raw_output).await;
             }
         }
@@ -334,7 +334,7 @@ impl Gateway {
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
         let executor: Arc<dyn SlashEffectExecutor> = Arc::new(GatewaySlashExecutor {
             session_manager: Arc::clone(&self.session_manager),
-            session_handler: self.session_handler.clone(),
+            session_handler: self.session_handler.get().cloned(),
         });
         let side_effect_ctx = SideEffectContext {
             session_id: session_id.to_owned(),
@@ -427,23 +427,13 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         closeclaw_session::compaction::CompactionResult,
         closeclaw_session::compaction::CompactionError,
     > {
-        gw_compact(
-            &self.session_manager,
-            &self.session_handler,
-            session_id,
-            instruction,
-        )
-        .await
+        let sh = self.session_handler.clone();
+        gw_compact(&self.session_manager, &sh, session_id, instruction).await
     }
 
     async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize {
-        gw_system_append(
-            &self.session_manager,
-            &self.session_handler,
-            session_id,
-            action,
-        )
-        .await
+        let sh = self.session_handler.clone();
+        gw_system_append(&self.session_manager, &sh, session_id, action).await
     }
 
     async fn execute_set_reasoning(
@@ -451,9 +441,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         session_id: &str,
         level: closeclaw_session::persistence::ReasoningLevel,
     ) {
+        let sh = self.session_handler.clone();
         if let Some(cs) = gw_get_cs_or_reply(
             &self.session_manager,
-            &self.session_handler,
+            &sh,
             session_id,
             "session 不存在，无法设置推理深度",
         )
@@ -468,9 +459,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         session_id: &str,
         level: closeclaw_common::VerbosityLevel,
     ) {
+        let sh = self.session_handler.clone();
         if let Some(cs) = gw_get_cs_or_reply(
             &self.session_manager,
-            &self.session_handler,
+            &sh,
             session_id,
             "session 不存在，无法设置输出详细度",
         )
@@ -481,9 +473,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
     }
 
     async fn execute_set_mode(&self, session_id: &str, mode: &str) {
+        let sh = self.session_handler.clone();
         if let Some(cs) = gw_get_cs_or_reply(
             &self.session_manager,
-            &self.session_handler,
+            &sh,
             session_id,
             "session 不存在，无法设置 mode",
         )

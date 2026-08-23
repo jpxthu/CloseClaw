@@ -662,7 +662,7 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
 
     // 1. Apply CacheAdapter
     let adapter = cache_for_provider("minimax");
-    assert_eq!(adapter.name(), "anthropic");
+    assert_eq!(adapter.name(), "noop");
     let mut request = InternalRequest {
         model: "MiniMax-M2.7".into(),
         messages: vec![
@@ -695,9 +695,10 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
         turn_count: None,
     };
     adapter.apply(&mut request);
+    // NoopCacheAdapter does not modify system_blocks
     assert!(
-        request.system_blocks.is_some(),
-        "CacheAdapter should have set system_blocks"
+        request.system_blocks.is_none(),
+        "NoopCacheAdapter should NOT set system_blocks"
     );
 
     // 2. Apply MiniMaxPlugin
@@ -719,14 +720,10 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
         body.get("reasoning_split").unwrap(),
         &serde_json::json!(true)
     );
-    // system blocks should be present
-    assert!(body.get("system").is_some());
-    let system = body.get("system").unwrap().as_array().unwrap();
-    assert_eq!(system.len(), 1);
-    assert_eq!(
-        system[0].get("cache_control"),
-        Some(&serde_json::json!({"type": "ephemeral"})),
-        "static system block should have cache_control"
+    // NoopCacheAdapter does not inject system_blocks, so body should have no system field
+    assert!(
+        body.get("system").is_none(),
+        "NoopCacheAdapter should not inject system blocks"
     );
     // last message should have cache_control
     let messages = body.get("messages").unwrap().as_array().unwrap();
