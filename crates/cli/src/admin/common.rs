@@ -82,7 +82,7 @@ pub struct RuleListOutput {
 
 #[derive(Serialize)]
 pub struct StopOutput {
-    pub pid: u32,
+    pub pid: Option<u32>,
     pub signal: String,
     pub stopped: bool,
 }

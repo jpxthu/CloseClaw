@@ -534,9 +534,6 @@ async fn test_handle_skill_install_not_found() {
 
 // ---------------------------------------------------------------------------
 // JSON output struct tests
-//
-// These verify that the JSON output structs serialize correctly and contain
-// the expected fields. They don't require stdout capture.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -632,7 +629,7 @@ fn test_rule_list_output_json() {
 #[test]
 fn test_stop_output_json() {
     let output = StopOutput {
-        pid: 12345,
+        pid: Some(12345),
         signal: "TERM".to_string(),
         stopped: true,
     };
@@ -641,6 +638,20 @@ fn test_stop_output_json() {
     assert_eq!(v["pid"], 12345);
     assert_eq!(v["signal"], "TERM");
     assert_eq!(v["stopped"], true);
+}
+
+#[test]
+fn test_stop_output_json_no_pid() {
+    let output = StopOutput {
+        pid: None,
+        signal: String::new(),
+        stopped: false,
+    };
+    let json = serde_json::to_string(&output).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(v["pid"].is_null());
+    assert_eq!(v["signal"], "");
+    assert_eq!(v["stopped"], false);
 }
 
 #[test]
@@ -659,11 +670,7 @@ fn test_json_error_output() {
 }
 
 // ---------------------------------------------------------------------------
-// JSON output path tests (run with --nocapture to verify stdout output)
-//
-// These tests verify the JSON output path end-to-end by calling the handlers
-// with json=true. They must be run with `cargo test -- --nocapture` because
-// the handlers print JSON to stdout via json_output().
+// JSON output path tests (run with --nocapture)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
