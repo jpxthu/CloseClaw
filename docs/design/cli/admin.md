@@ -21,8 +21,8 @@ handler 函数
   │     └── rule        — 读/写权限规则
   │
   └── daemon RPC（需要 daemon 已运行）
-        ├── agent       — 查询/管理 agent
-        └── skill       — 查询/安装 skill
+  │     ├── agent       — 查询 agent
+  │     └── skill       — 查询/安装 skill
 ```
 
 ### 与斜杠指令的关系
@@ -44,28 +44,28 @@ rule 命令管理权限规则。check 子命令校验单条规则语法，list �
 
 **daemon RPC**：依赖 daemon 已运行，通过管理协议查询或操作 daemon 状态。
 
-agent 命令管理 agent 实例（创建、查询、列表）。skill 命令管理已安装的 skill（列表、安装）。
+agent 命令查询 agent 实例（列表、详情）。skill 命令管理已安装的 skill（列表、安装）。
+
+agent 查询的返回内容按命令区分粒度：
+
+- `agent list`：返回摘要列表，每项含 id、name、model
+- `agent info <id>`：返回该 agent 的完整配置档案（全部字段以 [agent 配置字段](../agent/agent-config.md) 为准）。权限基线不在返回集内——权限与 agent 配置独立存储、独立变更，权限查看走 rule 命令。查询不存在的 agent ID 返回错误
 
 ## 数据流
 
-```
-closeclaw <command> [args]
-  ↓
-参数解析 → 确定命令类型
-  ↓
-┌─ 本地操作
-│   ├── run：启动 daemon 子进程 → 等待运行中
-│   ├── stop：读 PID 文件 → kill 进程 → 清理 PID 文件
-│   ├── config setup：交互式向导 → 拉取模型列表 → 用户选择 → 写入配置
-│   ├── config validate：读文件 → 校验格式 → 输出结果
-│   └── rule check/list：读规则文件 → 校验/列表 → 输出结果
-│
-└─ daemon RPC
-    ├── agent：发送 RPC → daemon 查询/操作 → 返回结果
-    └── skill：发送 RPC → daemon 查询/操作 → 返回结果
-  ↓
-stdout：格式化文本 / 表格 / JSON
-```
+1. `closeclaw <command> [args]` 输入 → 参数解析 → 确定命令类型（本地操作 / daemon RPC）
+2. 按命令类型执行：
+   - **本地操作**：
+     1. run：启动 daemon 子进程 → 等待运行中
+     2. stop：读 PID 文件 → kill 进程 → 清理 PID 文件
+     3. config setup：交互式向导（选 Provider、输入凭据）→ 拉取模型列表 → 用户选择 → 写入配置
+     4. config validate：读文件 → 校验格式 → 输出结果
+     5. rule check/list：读规则文件 → 校验/列表 → 输出结果
+   - **daemon RPC**（发送 RPC → daemon 执行 → 返回结果）：
+     1. agent list：daemon 遍历 AgentRegistry → 返回摘要列表
+     2. agent info：daemon 按 ID 查询 AgentRegistry → 返回完整配置档案，未命中返回错误
+     3. skill：daemon 查询/操作 skill → 返回结果
+3. 结果输出到 stdout（格式化文本 / 表格 / JSON）
 
 ## 模块关系
 

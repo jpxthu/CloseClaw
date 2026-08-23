@@ -4,7 +4,7 @@
 
 关联需求文档：[../../requirements/skills.md](../../requirements/skills.md)
 
-Skills 模块提供可复用技能插件体系——用户创建 SKILL.md 文件放入指定目录后，Agent 在下次 session 启动时自动发现并加载该技能。用户创建的磁盘技能以纯 prompt 指令方式扩展 Agent 能力，不携带工具权限。
+Skills 模块提供可复用技能插件体系——用户创建 SKILL.md 文件放入指定目录后，Agent 在下一个 System Prompt 组装边界自动发现并加载该技能。用户创建的磁盘技能以纯 prompt 指令方式扩展 Agent 能力，不携带工具权限。
 
 ## 架构
 
@@ -12,12 +12,13 @@ Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、�
 
 ```
 五层技能来源（优先级从高到低）
-  ├─ Project:  <project>/.closeclaw/skills/
-  ├─ Agent:   ~/.closeclaw/agents/<id>/skills/
-  ├─ Global:  ~/.closeclaw/skills/
-  ├─ ExtraDirs: 全局技能配置（config/skills.json 的 extraDirs）指定的外部目录
-  └─ Bundled: 编译期内置（不走磁盘加载）
-  ↓
+  Project   — <project>/.closeclaw/skills/
+  Agent     — ~/.openclaw/agents/<id>/skills/
+  Global    — ~/.openclaw/skills/
+  ExtraDirs — 全局技能配置（config/skills.json 的 extraDirs）指定的外部目录
+  Bundled   — 编译期内置（不走磁盘加载）
+
+前四层磁盘目录 ↓
 磁盘加载层（Disk Loader）
   → 扫描四层磁盘目录 → 解析 SKILL.md frontmatter → 同名高优先级覆盖低优先级
   ↓
@@ -41,7 +42,7 @@ Skills 模块由三个核心组件构成：磁盘加载层、注册中心层、�
 
 ### 加载与注册
 
-Session 启动时，磁盘加载层按优先级从低到高依次扫描四层文件系统目录。实际扫描顺序为 ExtraDirs → Global → Agent → Project（优先级从低到高）。BuiltinSkillRegistry 在启动时由编译期嵌入的内置数据初始化，Bundled 技能不参与磁盘扫描，通过 BuiltinSkillRegistry 独立加载。高优先级层中的同名技能覆盖低优先级层中已加载的。加载完成后注册中心冻结，技能集合在 session 内不可变。
+磁盘加载层在每个 System Prompt 组装边界（触发事件清单见 [system_prompt 模块](../system_prompt/README.md)）按优先级从低到高扫描四层文件系统目录。实际扫描顺序为 ExtraDirs → Global → Agent → Project（优先级从低到高）。BuiltinSkillRegistry 由编译期嵌入的内置数据初始化，Bundled 技能不参与磁盘扫描，独立加载。高优先级层中的同名技能覆盖低优先级层中已加载的。组装边界之间不扫描，注册中心内容稳定；技能文件变更在下一个组装边界反映，详见 [skill-listing-injection.md](skill-listing-injection.md)。
 
 ### 技能清单生成
 
