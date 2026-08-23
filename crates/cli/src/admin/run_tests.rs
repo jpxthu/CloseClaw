@@ -148,3 +148,126 @@ async fn test_handle_run_foreground_writes_pid_file() {
         "PID file should contain the current process ID"
     );
 }
+
+// ── Test 5: Foreground rejects start when alive instance detected ───────────
+
+/// When a PID file exists and the process is alive, handle_run_foreground
+/// must bail with "daemon already running".
+#[tokio::test]
+async fn test_handle_run_foreground_rejects_alive_daemon() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_str().unwrap().to_string();
+
+    // Write our own PID to simulate a running daemon.
+    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    closeclaw_platform::process::write_pid_file(&pid_file, std::process::id()).unwrap();
+
+    let mock = MockDaemonRunner::success();
+    let result = handle_run_foreground(&config_dir, false, &mock).await;
+    assert!(result.is_err(), "should reject when daemon is alive");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("daemon already running"),
+        "error should mention daemon already running, got: {err_msg}"
+    );
+    assert!(
+        !mock.was_called(),
+        "DaemonRunner should NOT be called when daemon is alive"
+    );
+}
+
+// ── Test 6: Foreground cleans stale PID file and starts normally ────────────
+
+/// When a PID file exists but the process is dead, handle_run_foreground
+/// must clean the stale PID and proceed normally.
+#[tokio::test]
+async fn test_handle_run_foreground_cleans_stale_pid() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_str().unwrap().to_string();
+
+    // Write a PID that does not exist (stale).
+    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    closeclaw_platform::process::write_pid_file(&pid_file, 99999999).unwrap();
+
+    let mock = MockDaemonRunner::success();
+    let result = handle_run_foreground(&config_dir, false, &mock).await;
+    assert!(
+        result.is_ok(),
+        "should succeed after cleaning stale PID: {result:?}"
+    );
+    assert!(
+        mock.was_called(),
+        "DaemonRunner should be called after stale PID is cleaned"
+    );
+}
+
+// ── Test 7: Foreground succeeds with no existing PID file ───────────────────
+
+/// When no PID file exists, handle_run_foreground must proceed normally.
+#[tokio::test]
+async fn test_handle_run_foreground_no_pid_file() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_str().unwrap().to_string();
+
+    let mock = MockDaemonRunner::success();
+    let result = handle_run_foreground(&config_dir, false, &mock).await;
+    assert!(
+        result.is_ok(),
+        "should succeed with no existing PID file: {result:?}"
+    );
+    assert!(mock.was_called(), "DaemonRunner should be called");
+}
+
+// ── Test 8: Background rejects start when alive instance detected ───────────
+
+/// When a PID file exists and the process is alive, handle_run(background)
+/// must bail with "daemon already running".
+#[tokio::test]
+async fn test_handle_run_background_rejects_alive_daemon() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_str().unwrap().to_string();
+
+    // Write our own PID to simulate a running daemon.
+    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    closeclaw_platform::process::write_pid_file(&pid_file, std::process::id()).unwrap();
+
+    let mock = MockDaemonRunner::success();
+    let result = handle_run(config_dir, false, false, &mock).await;
+    assert!(result.is_err(), "should reject when daemon is alive");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("daemon already running"),
+        "error should mention daemon already running, got: {err_msg}"
+    );
+    assert!(
+        !mock.was_called(),
+        "DaemonRunner should NOT be called when daemon is alive"
+    );
+}
+
+// ── Test 9: Background cleans stale PID file ────────────────────────────────
+
+/// When a PID file exists but the process is dead, handle_run(background)
+/// must clean the stale PID and proceed.
+#[tokio::test]
+async fn test_handle_run_background_cleans_stale_pid() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_str().unwrap().to_string();
+
+    // Write a PID that does not exist (stale).
+    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    closeclaw_platform::process::write_pid_file(&pid_file, 99999999).unwrap();
+
+    let mock = MockDaemonRunner::success();
+    let _result = handle_run(config_dir, false, false, &mock).await;
+    // It will fail because spawn fails (binary not found), but the key
+    // point is that the stale PID was cleaned and it got past the check.
+    assert!(
+        !pid_file.exists(),
+        "stale PID file should have been removed"
+    );
+    assert!(
+        !mock.was_called(),
+        "DaemonRunner should not be called in background mode"
+    );
+}
