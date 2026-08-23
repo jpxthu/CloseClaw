@@ -567,7 +567,7 @@ fn test_llm_chain_assembly_correct_adapters() {
         ));
         chain_entries.push(ChainEntry {
             provider_id: provider_id.to_string(),
-            model_id: String::new(),
+            model_id: provider_id.to_string(),
             client,
         });
     }
@@ -581,6 +581,20 @@ fn test_llm_chain_assembly_correct_adapters() {
     assert_eq!(chain[0].provider_id, "openai");
     assert_eq!(chain[1].provider_id, "anthropic");
     assert_eq!(chain[2].provider_id, "minimax");
+
+    // Verify model_id equals provider_id for each entry
+    assert_eq!(
+        chain[0].model_id, "openai",
+        "model_id should equal provider_id"
+    );
+    assert_eq!(
+        chain[1].model_id, "anthropic",
+        "model_id should equal provider_id"
+    );
+    assert_eq!(
+        chain[2].model_id, "minimax",
+        "model_id should equal provider_id"
+    );
 
     // Verify each client's Debug output contains the correct adapter name
     // (UnifiedChatClient Debug impl includes cache_adapter.name())
