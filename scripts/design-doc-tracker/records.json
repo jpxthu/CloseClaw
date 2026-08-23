@@ -57,9 +57,9 @@
   },
   {
     "path": "docs/design/cli/chat.md",
-    "commit": "5b8c6e593d65f02d051e9787f3f0bb89dcafc5cf",
-    "commit_time": "2026-08-18T18:50:38+08:00",
-    "confirmed_time": "2026-08-18T19:09:40.739480+08:00",
+    "commit": "1bd6b96409b4ed80b88e751aa1e80cd3e2394d70",
+    "commit_time": "2026-08-24T06:31:59+08:00",
+    "confirmed_time": "2026-08-24T06:56:10.162110+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -81,11 +81,11 @@
   },
   {
     "path": "docs/design/common/core-traits.md",
-    "commit": "fb21f52630b7ea9ce47a0675809f7ce6557f86f9",
-    "commit_time": "2026-08-20T06:40:36+08:00",
-    "confirmed_time": "2026-08-24T03:59:37.221356+08:00",
+    "commit": "1bd6b96409b4ed80b88e751aa1e80cd3e2394d70",
+    "commit_time": "2026-08-24T06:31:59+08:00",
+    "confirmed_time": "2026-08-24T06:34:42.211262+08:00",
     "comment": "",
-    "blocked_reason": "STANDARDS.md 与 core-traits.md 对 common crate 未收录 trait 的处理路径互斥：core-traits.md 要求'应放在领域模块文档中'（补文档）；STANDARDS.md 要求'代码放错了，应移至对应领域模块的 crate，不是文档缺了'（迁代码且否定补文档）；DI 准入标准又要求 2+ 模块消费的 trait 留在 common。common crate 现存 30 个未收录 pub trait 多数被 2+ 模块消费，三条规则无法同时满足，需 Owner 裁定处理路径。另：IMPlugin 存在 parse_card_action/validate_signature 等 8 处方法级文档缺失，待文档矛盾裁定后一并处理。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/common/data-flow.md",
