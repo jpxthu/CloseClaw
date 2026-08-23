@@ -127,7 +127,7 @@ impl Daemon {
                 );
                 chain_entries.push(closeclaw_llm::unified_fallback::ChainEntry {
                     provider_id: provider_id.clone(),
-                    model_id: String::new(),
+                    model_id: provider_id.clone(),
                     client: Arc::new(client),
                 });
             }
@@ -147,7 +147,7 @@ impl Daemon {
         info!(count = provider_ids.len(), "LLM call chain assembled");
 
         // Create SessionMessageHandler for busy/pending state machine.
-        let (output_tx, _output_rx) = tokio::sync::mpsc::channel(64);
+        let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
         let active_searcher_llm_caller = Arc::new(
             closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
                 client: Arc::clone(&unified_fallback),
@@ -220,6 +220,8 @@ impl Daemon {
             plan_archive_task_handle: Some(plan_archive_handle),
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
+            // TODO: wire output_rx to outbound pipeline
+            _output_rx: output_rx,
         })
     }
 
