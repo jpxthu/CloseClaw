@@ -651,3 +651,263 @@ fn test_validate_phase_components_with_system_prompt_builder() {
         "Phase 3 (CoreServices) must NOT contain SystemPromptBuilder"
     );
 }
+
+// ======================================================================
+// Step 1.4 — LLM Registry dependency-driven startup unit tests
+// ======================================================================
+
+// --- Normal path: all_component_entries + deps + topo sort ---
+
+/// LLMRegistry must appear in `all_component_entries()`.
+#[test]
+fn test_llm_registry_present_in_all_component_entries() {
+    let entries = all_component_entries();
+    let ids: Vec<ComponentId> = entries.iter().map(|e| e.id).collect();
+    assert!(
+        ids.contains(&sid(LLMRegistry)),
+        "all_component_entries() must contain LLMRegistry"
+    );
+}
+
+/// LLMRegistry must be in layer 2 (Registries phase) of the topo sort.
+#[test]
+fn test_llm_registry_in_layer_two_of_topo_sort() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    // Layer index 1 = second layer = Registries phase
+    assert!(
+        layers[1].contains(&sid(LLMRegistry)),
+        "LLMRegistry must be in layer 2 (Registries phase), got layers: {:?}",
+        layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| (i, l.iter().map(|c| c.name()).collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// LLMRegistry is NOT in layer 1 (Foundation phase).
+#[test]
+fn test_llm_registry_not_in_layer_one() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    assert!(
+        !layers[0].contains(&sid(LLMRegistry)),
+        "LLMRegistry must not be in layer 1 (Foundation phase)"
+    );
+}
+
+/// SessionManager deps include LLMRegistry (design doc Layer 4 dependency).
+#[test]
+fn test_session_manager_deps_include_llm_registry() {
+    let entries = all_component_entries();
+    let dep_map: std::collections::HashMap<ComponentId, Vec<ComponentId>> =
+        entries.iter().map(|e| (e.id, e.deps.clone())).collect();
+    assert!(
+        dep_map[&sid(SessionManager)].contains(&sid(LLMRegistry)),
+        "SessionManager deps must include LLMRegistry, got: {:?}",
+        dep_map[&sid(SessionManager)]
+    );
+}
+
+/// validate_phase_components places LLMRegistry in Registries phase (index 1).
+#[test]
+fn test_validate_phase_components_places_llm_registry_in_registries() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    let phases = crate::Daemon::validate_phase_components(&layers)
+        .expect("validate_phase_components should succeed");
+    // Registries phase (index 1) must contain LLMRegistry
+    assert!(
+        phases[1].contains(&sid(LLMRegistry)),
+        "Registries phase (index 1) must contain LLMRegistry"
+    );
+    // Foundation phase must NOT contain LLMRegistry
+    assert!(
+        !phases[0].contains(&sid(LLMRegistry)),
+        "Foundation phase (index 0) must NOT contain LLMRegistry"
+    );
+    // Wiring phase must NOT contain LLMRegistry
+    assert!(
+        !phases[3].contains(&sid(LLMRegistry)),
+        "Wiring phase (index 3) must NOT contain LLMRegistry"
+    );
+}
+
+// --- Boundary values: enum variant count ---
+
+/// Foundation enum must have exactly 2 variants (within the 20-variant limit).
+#[test]
+fn test_foundation_enum_variant_count() {
+    let entries = all_component_entries();
+    let foundation_count = entries
+        .iter()
+        .filter(|e| matches!(e.id, ComponentId::Foundation(_)))
+        .count();
+    assert_eq!(
+        foundation_count, 2,
+        "Foundation must have exactly 2 variants (ConfigManager, Storage)"
+    );
+}
+
+/// Service enum must have exactly 19 variants (total components = 21 ≤ 20 per enum).
+#[test]
+fn test_service_enum_variant_count() {
+    let entries = all_component_entries();
+    let service_count = entries
+        .iter()
+        .filter(|e| matches!(e.id, ComponentId::Service(_)))
+        .count();
+    assert_eq!(
+        service_count, 19,
+        "Service must have exactly 19 variants (total 21 components)"
+    );
+}
+
+// --- Boundary values: validate_phase_components layer 2 consistency ---
+
+/// validate_phase_components layer 2 (Registries) must include LLMRegistry
+/// and match the actual topo sort layer 2.
+#[test]
+fn test_validate_phase_components_layer_two_matches_topo_sort() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    let phases = crate::Daemon::validate_phase_components(&layers)
+        .expect("validate_phase_components should succeed");
+    // Layer 2 components from topo sort
+    let mut topo_layer2 = layers[1].clone();
+    topo_layer2.sort_by_key(|id| id.name().to_string());
+    // Phase components for Registries (index 1)
+    let mut phase_registries = phases[1].clone();
+    phase_registries.sort_by_key(|id| id.name().to_string());
+    assert_eq!(
+        topo_layer2, phase_registries,
+        "Topo sort layer 2 must match Registries phase components"
+    );
+}
+
+/// LLMRegistry must be in the Registries phase expected set.
+#[test]
+fn test_validate_phase_components_registries_expected_includes_llm_registry() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    let phases = crate::Daemon::validate_phase_components(&layers)
+        .expect("validate_phase_components should succeed");
+    let registries_phase = &phases[1];
+    assert!(
+        registries_phase.contains(&sid(LLMRegistry)),
+        "Registries phase expected set must include LLMRegistry"
+    );
+}
+
+// --- State transition: init_llm_registry produces a usable registry ---
+
+/// init_llm_registry with empty env_overrides and no credentials files
+/// must return an empty registry (no providers registered).
+#[tokio::test]
+async fn test_init_llm_registry_empty_env_returns_empty_registry() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry =
+        crate::Daemon::init_llm_registry(dir.path(), &std::collections::HashMap::new()).await;
+    let providers = registry.list().await;
+    assert!(
+        providers.is_empty(),
+        "init_llm_registry with no credentials must return empty registry"
+    );
+}
+
+/// init_llm_registry with a specific env override must register that provider.
+#[tokio::test]
+async fn test_init_llm_registry_with_env_override_registers_provider() {
+    let dir = tempfile::tempdir().unwrap();
+    let overrides = std::collections::HashMap::from([("OPENAI_API_KEY", "sk-test")]);
+    let registry = crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    let providers = registry.list().await;
+    assert!(
+        providers.contains(&"openai".to_string()),
+        "init_llm_registry must register openai provider from env override"
+    );
+}
+
+/// init_llm_registry must NOT register providers for empty API keys.
+#[tokio::test]
+async fn test_init_llm_registry_empty_key_not_registered() {
+    let dir = tempfile::tempdir().unwrap();
+    let overrides =
+        std::collections::HashMap::from([("OPENAI_API_KEY", ""), ("ANTHROPIC_API_KEY", "")]);
+    let registry = crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    let providers = registry.list().await;
+    assert!(
+        providers.is_empty(),
+        "init_llm_registry must not register providers for empty keys"
+    );
+}
+
+// --- Error path: circular dependency detection with LLMRegistry ---
+
+/// A dependency graph where A → LLMRegistry → A must detect a cycle.
+#[test]
+fn test_circular_dependency_through_llm_registry() {
+    // Build a custom graph: LLMRegistry depends on ConfigManager,
+    // but ConfigManager depends on LLMRegistry (cycle)
+    let e_llm = entry(sid(LLMRegistry), "LLMRegistry", vec![fid(ConfigManager)]);
+    let e_cfg = entry(fid(ConfigManager), "ConfigManager", vec![sid(LLMRegistry)]);
+    let err = topo_sort_layers(&[e_llm, e_cfg]).unwrap_err();
+    assert!(
+        matches!(err, StartupError::CircularDependency),
+        "expected CircularDependency when LLMRegistry ↔ ConfigManager cycle, got: {err:?}"
+    );
+}
+
+/// LLMRegistry in the full component graph must NOT introduce a cycle.
+#[test]
+fn test_full_graph_with_llm_registry_is_acyclic() {
+    let entries = all_component_entries();
+    let result = topo_sort_layers(&entries);
+    assert!(
+        result.is_ok(),
+        "full component graph with LLMRegistry must be acyclic, got: {:?}",
+        result.err()
+    );
+    let layers = result.unwrap();
+    // All 21 components must be reachable (no cycle)
+    let total: usize = layers.iter().map(|l| l.len()).sum();
+    assert_eq!(
+        total, 21,
+        "all 21 components must be in topo sort result (no cycle)"
+    );
+}
+
+/// LLMRegistry misplacement into Foundation phase must be rejected.
+#[test]
+fn test_validate_rejects_llm_registry_in_foundation_phase() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    // Swap LLMRegistry from layer 2 into layer 1 (Foundation)
+    let mut wrong_layers = layers.clone();
+    wrong_layers[1].retain(|id| *id != sid(LLMRegistry));
+    wrong_layers[0].push(sid(LLMRegistry));
+    wrong_layers[0].sort_by_key(|id| id.name().to_string());
+    let err = crate::Daemon::validate_phase_components(&wrong_layers).unwrap_err();
+    assert!(
+        matches!(err, StartupError::CircularDependency),
+        "validation must reject LLMRegistry in Foundation phase"
+    );
+}
+
+/// LLMRegistry misplacement into Wiring phase must be rejected.
+#[test]
+fn test_validate_rejects_llm_registry_in_wiring_phase() {
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    // Swap LLMRegistry from layer 2 into layer 3 (Wiring)
+    let mut wrong_layers = layers.clone();
+    wrong_layers[1].retain(|id| *id != sid(LLMRegistry));
+    wrong_layers[3].push(sid(LLMRegistry));
+    wrong_layers[3].sort_by_key(|id| id.name().to_string());
+    let err = crate::Daemon::validate_phase_components(&wrong_layers).unwrap_err();
+    assert!(
+        matches!(err, StartupError::CircularDependency),
+        "validation must reject LLMRegistry in Wiring phase"
+    );
+}
