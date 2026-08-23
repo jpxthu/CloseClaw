@@ -78,6 +78,8 @@ pub enum AdminRequest {
     SkillList,
     /// Install a skill by name.
     SkillInstall { name: String },
+    /// Trigger an immediate skill directory rescan.
+    SkillRescan,
     /// Health check — returns Pong.
     Ping,
 }
@@ -183,6 +185,17 @@ mod tests {
     #[test]
     fn test_ping_request_serialization() {
         let req = AdminRequest::Ping;
+        let json = serde_json::to_vec(&req).unwrap();
+        let deserialized: AdminRequest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            serde_json::to_string(&deserialized).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_skill_rescan_request_serialization() {
+        let req = AdminRequest::SkillRescan;
         let json = serde_json::to_vec(&req).unwrap();
         let deserialized: AdminRequest = serde_json::from_slice(&json).unwrap();
         assert_eq!(

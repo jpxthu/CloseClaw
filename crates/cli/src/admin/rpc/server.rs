@@ -131,6 +131,7 @@ pub(crate) async fn dispatch(request: AdminRequest, context: &AdminContext) -> A
         }
         AdminRequest::SkillList => dispatch_skill_list(context).await,
         AdminRequest::SkillInstall { name } => dispatch_skill_install(&name, context).await,
+        AdminRequest::SkillRescan => dispatch_skill_rescan(context).await,
         AdminRequest::Ping => AdminResponse::Pong,
     }
 }
@@ -402,6 +403,22 @@ async fn copy_skill_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io
         }
     }
     Ok(())
+}
+
+/// Trigger an immediate skill directory rescan.
+///
+/// Executes the rescan handle (if available) to rebuild the skill
+/// registry from disk, then returns the updated skill listing.
+async fn dispatch_skill_rescan(context: &AdminContext) -> AdminResponse {
+    match &context.skill_rescan {
+        Some(handle) => {
+            handle();
+            dispatch_skill_list(context).await
+        }
+        None => AdminResponse::Error {
+            message: "skill rescan not available".to_string(),
+        },
+    }
 }
 
 /// Send a length-prefixed JSON response.

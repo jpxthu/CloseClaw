@@ -58,6 +58,8 @@ pub enum SkillAction {
         /// Skill name
         name: String,
     },
+    /// Trigger an immediate skill directory rescan
+    Rescan,
 }
 
 /// Interactive chat with an agent via the terminal.

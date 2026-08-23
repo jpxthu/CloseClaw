@@ -15,6 +15,7 @@ pub async fn handle_skill_with(action: SkillAction, cfg_dir: PathBuf, json: bool
     match action {
         SkillAction::List => handle_skill_list_rpc(&client, json).await,
         SkillAction::Install { name } => handle_skill_install_rpc(&client, &name, json).await,
+        SkillAction::Rescan => handle_skill_rescan_rpc(&client, json).await,
     }
 }
 
@@ -69,6 +70,31 @@ async fn handle_skill_install_rpc(client: &AdminClient, name: &str, json: bool) 
             if json {
                 return Err(json_error(&message));
             }
+            anyhow::bail!("{}", message);
+        }
+        _ => anyhow::bail!("Unexpected response from daemon"),
+    }
+    Ok(())
+}
+
+async fn handle_skill_rescan_rpc(client: &AdminClient, json: bool) -> Result<()> {
+    let resp = client
+        .call(&AdminRequest::SkillRescan)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
+    if json {
+        json_output(&resp);
+        return Ok(());
+    }
+    match resp {
+        AdminResponse::SkillListResult { skills } => {
+            println!("Rescanned skills: {} loaded", skills.len());
+            for s in &skills {
+                let ver = s.version.as_deref().unwrap_or("-");
+                println!("  {} v{}", s.name, ver);
+            }
+        }
+        AdminResponse::Error { message } => {
             anyhow::bail!("{}", message);
         }
         _ => anyhow::bail!("Unexpected response from daemon"),
