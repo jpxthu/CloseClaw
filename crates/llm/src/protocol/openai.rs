@@ -208,6 +208,7 @@ impl ChatProtocol for OpenAiProtocol {
             let mut next_block_index: usize = 0;
             let mut active_block_type: Option<ContentBlockType> = None;
             let mut usage: Option<RawUsage> = None;
+            let mut message_end_yielded = false;
 
             while let Some(chunk) = stream.next().await {
                 let data = chunk.data.trim();
@@ -231,13 +232,11 @@ impl ChatProtocol for OpenAiProtocol {
                     _ => continue,
                 };
                 let choice = &choices[0];
-                let delta = match choice.get("delta") {
-                    Some(d) => d,
-                    None => continue,
-                };
                 let finish_reason = choice.get("finish_reason").and_then(|v| v.as_str());
 
-                // End current block when transitioning to tool_calls
+                // Process delta content only when delta is present
+                if let Some(delta) = choice.get("delta") {
+                    // End current block when transitioning to tool_calls
                 if delta.get("tool_calls").and_then(|v| v.as_array()).is_some() {
                     if let Some(idx) = block_index {
                         // Only end non-tool blocks (text/thinking → tool_calls transition)
@@ -363,6 +362,8 @@ impl ChatProtocol for OpenAiProtocol {
                     }
                 }
 
+                } // end if let Some(delta)
+
                 // finish_reason = "tool_calls" ends the tool block
                 if finish_reason == Some("tool_calls") {
                     if let Some(idx) = block_index {
@@ -371,15 +372,18 @@ impl ChatProtocol for OpenAiProtocol {
                         active_block_type = None;
                     }
                     yield StreamEvent::MessageEnd { usage: usage.clone().map(Into::into), finish_reason: Some("tool_calls".to_string()) };
+                    message_end_yielded = true;
                     break;
                 }
             }
 
-            if let Some(idx) = block_index {
-                let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
-                yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
+            if !message_end_yielded {
+                if let Some(idx) = block_index {
+                    let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
+                    yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
+                }
+                yield StreamEvent::MessageEnd { usage: usage.map(Into::into), finish_reason: Some("stop".to_string()) };
             }
-            yield StreamEvent::MessageEnd { usage: usage.map(Into::into), finish_reason: Some("stop".to_string()) };
         })
     }
 }
