@@ -67,9 +67,9 @@
     "path": "docs/design/cli/renderer.md",
     "commit": "5d09d59a42f3b557dec622b92d968646d5000f2e",
     "commit_time": "2026-08-13T13:55:36+08:00",
-    "confirmed_time": "2026-08-13T15:10:36.692547+08:00",
+    "confirmed_time": "2026-08-24T07:29:08.379228+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "文档内部矛盾：§架构称 TerminalRenderer 引用流式渲染器，§模块关系称 TerminalPlugin 持有/取用流式渲染组件，两节冲突（代码与模块关系节一致）；另 §块类型渲染规则引用行渲染为 │ 前缀与纯文本模式『markdown 标记保留原样』表述存在歧义（单侧报告待确认）。附带代码 gap：DSL 提示行与正文间缺空行（数据流步骤5），待文档澄清后处理"
   },
   {
     "path": "docs/design/common/README.md",
