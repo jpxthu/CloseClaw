@@ -49,7 +49,7 @@ NormalizedMessage 中引用的子结构：
 
 ### ContentBlock
 
-ContentBlock 是跨模块传递的结构化内容单元。所有出站内容——LLM 回复和斜杠指令回复——均以 ContentBlock[] 数组形式传递，贯穿 Verbosity 过滤、DSL 解析、出站日志记录和平台渲染全链路。入站方向经 Processor Chain 处理后，标准化文本以 ContentBlock::Text 形式放入 [ProcessedMessage](#processedmessage) 的 content_blocks 字段，入站不涉及 ContentBlock 的其他变体。
+ContentBlock 是跨模块传递的结构化内容单元。所有出站内容——LLM 回复和斜杠指令回复——均以 ContentBlock[] 数组形式传递，贯穿 Verbosity 过滤、DSL 解析、出站日志记录和平台渲染全链路。入站方向经 Processor Chain 处理后，标准化文本以 ContentBlock::Text 形式放入 [ProcessedMessage](#processedmessage) 的 content_blocks 字段，入站不涉及 ContentBlock 的其他变体。流式场景下，同一份内容以 [StreamEvent](#streamevent) 增量事件形式传递，完整块由消费方按事件边界组装。
 
 ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
 
@@ -80,7 +80,7 @@ Image/Audio/File 三个变体结构相同，字段定义：
 **变体处理规则**：
 
 - **Text 是唯一可能包含 DSL 指令的变体**。DslParser 仅遍历 Text 块逐行扫描 DSL，解析后从 Text 块中移除 DSL 行。其余 6 种变体由 DslParser 透传
-- **流式渲染差异化**：Text 块逐行缓冲输出（以句末标点或换行符为行边界）；Thinking/ToolUse/ToolResult 块等待全块就绪后一次交付渲染；Image/Audio/File 块不参与流式渲染，交由平台格式渲染器处理
+- **流式渲染差异化**：Text 块逐行缓冲输出（以句末标点或换行符为行边界）；Thinking/ToolUse/ToolResult 块等待全块就绪后一次交付渲染；Image/Audio/File 不以流式事件形式出现，在非流式路径中交由平台格式渲染器处理
 - **输出格式决策**：各平台 Renderer 按内容特征选择输出格式（纯文本 vs 富格式），完整规则见 [RenderedOutput §输出格式决策](#renderedoutput)
 - **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)
 
@@ -102,6 +102,27 @@ DSL 指令是消息中的交互元素（按钮、选择器等），每条为一�
 | `instructions` | list(DslInstruction) | 解析出的 DSL 指令列表，按原文出现顺序排列。无 DSL 指令时为空列表 |
 
 DslParseResult 与经 DslParser 剥离 DSL 行后的 ContentBlock[] 一同传递——ContentBlock[] 承载去 DSL 后的纯文本和其他内容块，DslParseResult 承载从 ContentBlock[] 中提取的结构化指令。两者通过 [ProcessedMessage](#processedmessage) 打包交付 Renderer。
+
+### StreamEvent
+
+StreamEvent 是流式输出的统一增量事件，ContentBlock 的流式形态——描述一条消息在生成过程中的边界变化。LLM 模块将各协议 SSE 事件归一化为 StreamEvent 后逐事件对外交付；流式链路上的消费方（VerbosityFilter、DslParser 透传、流式渲染器）以事件流为输入，实现「块未结束即逐行输出」的增量行为。
+
+StreamEvent 共 5 种事件：
+
+| 事件 | 语义 |
+|------|------|
+| BlockStart | 内容块开始。开启一个 ContentBlock 边界，携带块类型（LLM 流式产出的内容块变体：Text/Thinking/ToolUse/ToolResult，语义沿用 [ContentBlock](#contentblock) 变体定义。Image/Audio/File 不以流式事件形式出现） |
+| BlockDelta | 内容增量。携带当前块的增量内容（文本片段、参数 JSON 片段等），一个块内可有任意多个增量 |
+| BlockEnd | 内容块结束。该块内容已完整，块级消费方据此判定全块就绪 |
+| MessageEnd | 消息结束。携带结束原因（完整结束/工具调用）与最终用量，此后不再有事件 |
+| Error | 错误。流式调用失败，流终止 |
+
+**事件与块的关系**：一个 `BlockStart → 若干 BlockDelta → BlockEnd` 序列重组出一个完整的 ContentBlock；消息级完整 ContentBlock[] 由消费方按 BlockEnd 边界累积组装。典型事件顺序（文本 + 工具调用混合响应）：Thinking 块序列 → Text 块序列 → ToolUse 块序列 → MessageEnd。
+
+**消费契约**：
+- 增量消费方按事件流逐事件处理，不等待完整块——Text 块的逐行渲染依赖 BlockDelta 携带的文本片段
+- 以完整块为处理粒度的消费方（Verbosity 过滤、Thinking/Tool 整块渲染）按块边界（BlockStart/BlockEnd）判定作用对象，等待 BlockEnd 后一次处理
+- 事件流的协议归一化规则（OpenAI/Anthropic SSE → StreamEvent）由 LLM 模块定义，见 [llm protocol-mapping](../llm/protocol-mapping.md)
 
 ### ProcessedMessage
 
@@ -235,14 +256,14 @@ ProcessedMessage { content_blocks, metadata[dsl_result] }
   ↓
 [IM Adapter 渲染] — 按块类型选择渲染策略，输出平台原生格式：
     - 批量模式：一次性渲染全部 ContentBlock[]
-    - 流式模式：增量渲染，Text 块逐行缓冲输出，非文本类块等全块就绪后一次渲染
+    - 流式模式：消费 [StreamEvent](#streamevent) 增量事件，Text 块逐行缓冲输出，非文本类块等 BlockEnd 全块就绪后一次渲染
   ↓
 [中间件插入点] — Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件。中间件为 Gateway 内部的拦截链，具体中间件类型和注册机制由 Gateway 管理，不在 shared-types 范围
   ↓
 IM Adapter 发送到目标平台
 ```
 
-ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。VerbosityFilter 在流式增量阶段逐 chunk 过滤；DslParser 在流式增量阶段零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出。
+ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。流式模式下增量内容以 [StreamEvent](#streamevent) 事件流形式在链上传递：VerbosityFilter 按块边界逐事件过滤；DslParser 零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段对完整 ContentBlock[] 执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出。
 
 各共享类型流动路径的详细描述见下文各类型的数据流节。
 
@@ -405,6 +426,12 @@ Plan Mode 结束时销毁 PlanState
 - **DslInstruction 生产者**：Processor Chain 出站（DslParser 逐行解析 DSL 指令，每条产出一个 DslInstruction）
 - **DslInstruction 消费者**：IM Adapter 各平台 Renderer（按 instruction_type 选择渲染策略）
 - **无关**：Processor Chain 入站（DSL 解析仅在出站方向执行）、IM Adapter 入站链（入站方向不涉及 DSL）、LLM Provider（LLM 不感知 DSL）、Session（Session 不操作 DslParseResult）
+
+### StreamEvent
+
+- **生产者**：LLM 模块（Protocol 层 + ModelInterpreter 将各协议 SSE 事件归一化为 StreamEvent，映射规则见 [llm protocol-mapping](../llm/protocol-mapping.md)）
+- **消费者**：流式出站链路——Session（接收事件流并转发 Gateway）、Gateway（增量阶段调度 Processor Chain 与 IM Adapter 流式渲染）、Processor Chain 出站（VerbosityFilter 按块边界逐事件过滤、DslParser 透传）、IM Adapter 流式渲染器（逐事件消费，Text 块依赖 BlockDelta 逐行输出）
+- **无关**：入站链路（入站不产生流式事件）、SlashDispatcher（斜杠指令回复为完整 ContentBlock[]，走批量模式）
 
 ### ProcessedMessage
 
