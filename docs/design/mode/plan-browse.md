@@ -28,21 +28,26 @@ plan 以独立文件持久化在 `workspace/plans/`（格式见 [plan-mode.md](p
 1. User 发送 `/plans`（无参数）
 2. Gateway 拦截 → 分派给 PlanBrowseHandler（非 Immediate，排队执行）
 3. 扫描 `workspace/plans/` 目录，逐个读取 plan 文件 Tasks 节的步骤完成标记
-4. 汇总每个 plan 的标题与步骤完成情况（已完成/总数）
+4. 汇总每个 plan 的标题与步骤完成统计，规则如下：
+   - 展示统一为「N/总数 完成」，后接非零的失败、已跳过计数，如「4/4 完成」「2/4 完成 1 失败 1 跳过」「2/4 完成 1 失败」（末例剩余 1 步为未开始或进行中）
+   - 完成 `[x]` 计入 N；失败 `[!]`、已跳过 `[~]` 不计入 N，非零时单独列出
+   - 未开始 `[ ]` 与进行中 `[-]` 不计入任何统计项，数量为总数与已列计数之差
+   - 总数为步骤总数
 5. 回复 User
 
 ### `/plans <名称>` 查看
 
 1. User 发送 `/plans <名称>`
 2. Gateway 拦截 → 分派给 PlanBrowseHandler
-3. 定位 `workspace/plans/{名称}.md`
+3. 定位 `workspace/plans/{identifier}.md`（`<名称>` 即 plan 文件 identifier，命名格式见 [plan-mode.md](plan-mode.md)）
 4. 读取并展示 plan 完整内容
 5. 回复 User；plan 不存在时提示未找到
 
 ### 自然语言浏览与废弃
 
-- User 表达浏览意图（列出或查看）→ Agent 用只读工具扫描/读取 plans 目录
-- User 表达废弃意图 → Agent 删除对应 plan 文件
+- User 表达列出意图 → Agent 用只读工具扫描 plans 目录，展示所有 plan 标题与步骤完成统计（口径同 `/plans` 列出）
+- User 表达查看意图 → Agent 用只读工具读取指定 plan 文件，展示完整内容；plan 不存在时提示未找到
+- User 表达废弃意图 → Agent 删除对应 plan 文件并回执确认；plan 不存在时提示未找到
 
 废弃是删除操作：删除后 plan 不再出现在列表中，不可恢复。plan 的自动归档（全部步骤终态 + 最后访问超配置天数）是独立机制，见 [README.md](README.md) 与 [execution.md](execution.md)。
 
@@ -65,7 +70,7 @@ plan 以独立文件持久化在 `workspace/plans/`（格式见 [plan-mode.md](p
 
 | 模块 | 说明 |
 |------|------|
-| Permission | 废弃删除的是 User 自己的 plan 文件，非系统危险操作，无需审批 |
+| Permission | 废弃删除的是 User 自己 workspace 内的 plan 文件，处于 workspace 路径强制授权范围（见 [permission](../permission/README.md)），自动放行，无需审批 |
 | LLM Provider | 不直接调用 |
 | Processor Chain / Renderer | 无关 |
 | IM Adapter | 无关 |
