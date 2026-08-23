@@ -895,22 +895,25 @@ impl std::fmt::Debug for ConversationSession {
                 &self.streaming_sink.as_ref().map(|_| "<StreamingSink>"),
             )
             .field("stream_enabled", &self.stream_enabled)
-            .field("llm_state", &*self.llm_state.read().expect("rc poisoned"))
+            .field(
+                "llm_state",
+                &*self.llm_state.read().expect("llm_state lock poisoned"),
+            )
             .field(
                 "tool_states",
-                &*self.tool_states.read().expect("rc poisoned"),
+                &*self.tool_states.read().expect("tool_states lock poisoned"),
             )
             .field(
                 "child_states",
-                &*self.child_states.read().expect("rc poisoned"),
+                &*self.child_states.read().expect("child_states lock poison"),
             )
             .field(
                 "tool_handles",
-                &self.tool_handles.read().expect("rc poisoned").len(),
+                &self.tool_handles.read().expect("tool_handles lock").len(),
             )
             .field(
                 "child_handles",
-                &self.child_handles.read().expect("rc poisoned").len(),
+                &self.child_handles.read().expect("child_handles lock").len(),
             )
             .field("cancel_token", &"<CancelToken>")
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
