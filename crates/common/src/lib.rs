@@ -56,7 +56,6 @@ pub mod slash_router;
 #[cfg(test)]
 pub mod slash_router_tests;
 pub mod slash_session_query;
-pub mod storage_provider;
 pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
@@ -82,7 +81,7 @@ pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, Sect
 pub use hook_config::{HookConfig, HookParams, HookType};
 pub use identity::IdentityResolver;
 pub use im_plugin::{
-    AdapterError, CardActionEvent, IMAdapter, IMPlugin, MediaRef, MessageType, NormalizedMessage,
+    AdapterError, CardActionEvent, IMPlugin, MediaRef, MessageType, NormalizedMessage,
     RenderedOutput, StreamingOutput,
 };
 pub use llm_caller::LlmCaller;
@@ -133,7 +132,6 @@ pub use executor::{
 };
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
-pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{
     split_static_dynamic, DynamicPromptBuilder, DynamicPromptContext, ModeTransition,
     PromptOverrides, SystemPromptBuilder,
