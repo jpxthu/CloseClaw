@@ -15,6 +15,76 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tracing::info;
 
+/// Shared rescan handle for `skill rescan` admin command.
+///
+/// Encapsulates the scan configuration and shared state references needed
+/// to perform an immediate skill registry rescan on demand. The admin server
+/// invokes `perform()` when handling a `SkillRescan` RPC request.
+pub(crate) struct SkillRescanHandle {
+    registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
+    scan_config: ScanConfig,
+    shared_cache: Arc<RwLock<SectionCache>>,
+}
+
+impl SkillRescanHandle {
+    fn new(
+        registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
+        scan_config: ScanConfig,
+        shared_cache: Arc<RwLock<SectionCache>>,
+    ) -> Self {
+        Self {
+            registry,
+            scan_config,
+            shared_cache,
+        }
+    }
+
+    /// Trigger an immediate skill registry rescan.
+    ///
+    /// Rebuilds the registry from disk, preserves the `agent_skills_query`
+    /// reference from the previous registry, and invalidates the
+    /// `skill_listing` cache so the next system prompt build picks up
+    /// changes.
+    pub(crate) fn perform(&self) {
+        perform_skill_rescan(&self.registry, &self.scan_config, &self.shared_cache);
+    }
+}
+
+/// Re-scan skill directories and update the shared registry + cache.
+///
+/// This is the core rescan logic shared between the file-watcher hot-reload
+/// path and the `skill rescan` admin command. It rebuilds the registry from
+/// disk, preserves the `agent_skills_query` reference from the old registry,
+/// and invalidates the `skill_listing` section cache.
+pub(crate) fn perform_skill_rescan(
+    registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+    scan_config: &ScanConfig,
+    shared_cache: &Arc<RwLock<SectionCache>>,
+) {
+    let mut new_registry = init_disk_skills(scan_config);
+
+    // Preserve the AgentRegistry reference from the old registry
+    // so the Skills Registry can continue querying agent configs
+    // directly after rescan.
+    if let Ok(guard) = registry.read() {
+        if let Some(ref old_reg) = *guard {
+            if let Some(agent_reg) = old_reg.agent_skills_query() {
+                new_registry.set_agent_skills_query(Arc::clone(agent_reg));
+            }
+        }
+    }
+
+    // Update shared state
+    if let Ok(mut guard) = registry.write() {
+        *guard = Some(new_registry);
+    }
+
+    // Invalidate cache so next build picks up new listing
+    shared_cache.write().unwrap().invalidate_skill_listing();
+
+    tracing::info!("skill registry rescan complete");
+}
+
 /// Initialize skill hot reload system.
 ///
 /// Implements the design doc's file-change-driven hot reload path:
@@ -37,6 +107,7 @@ pub(crate) async fn init_skill_hot_reload(
 ) -> anyhow::Result<(
     Arc<RwLock<Option<DiskSkillRegistry>>>,
     Option<SkillWatcherHandle>,
+    SkillRescanHandle,
 )> {
     let agent_id = Path::new(config_dir).file_name().and_then(|s| s.to_str());
     let global_dir = derive_global_dir(config_dir);
@@ -62,12 +133,19 @@ pub(crate) async fn init_skill_hot_reload(
     let registry = init_disk_skills(&scan_config);
     let registry_len = registry.len();
     let registry_arc = Arc::new(RwLock::new(Some(registry)));
-    let registry_for_watcher = Arc::clone(&registry_arc);
 
     info!(loaded = registry_len, "skill registry initialized");
 
+    // Build the rescan handle — shared between watcher and admin RPC.
+    let rescan_handle = SkillRescanHandle::new(
+        Arc::clone(&registry_arc),
+        scan_config.clone(),
+        Arc::clone(&shared_cache),
+    );
+
     // Start watcher — re-scan uses the same ScanConfig as initial scan
-    let watcher_config = scan_config.clone();
+    let watcher_config = scan_config;
+    let registry_for_watcher = Arc::clone(&registry_arc);
     let watcher = if skill_dirs.is_empty() {
         info!("no skill directories to watch, skipping hot reload watcher");
         None
@@ -75,34 +153,14 @@ pub(crate) async fn init_skill_hot_reload(
         Some(start_skill_watcher(
             skill_dirs,
             Box::new(move || {
-                let mut new_registry = init_disk_skills(&watcher_config);
-
-                // Preserve the AgentRegistry reference from the old registry
-                // so the Skills Registry can continue querying agent configs
-                // directly after hot-reload.
-                if let Ok(guard) = registry_for_watcher.read() {
-                    if let Some(ref old_reg) = *guard {
-                        if let Some(agent_reg) = old_reg.agent_skills_query() {
-                            new_registry.set_agent_skills_query(Arc::clone(agent_reg));
-                        }
-                    }
-                }
-
-                // Update shared state
-                if let Ok(mut guard) = registry_for_watcher.write() {
-                    *guard = Some(new_registry);
-                }
-
-                // Invalidate cache so next build picks up new listing
-                shared_cache.write().unwrap().invalidate_skill_listing();
-
+                perform_skill_rescan(&registry_for_watcher, &watcher_config, &shared_cache);
                 tracing::info!("skill registry reloaded after file change");
             }),
         )?)
     };
 
     info!("skill hot reload initialized");
-    Ok((registry_arc, watcher))
+    Ok((registry_arc, watcher, rescan_handle))
 }
 
 /// Derive the global skills directory from the config directory.
@@ -546,5 +604,228 @@ mod tests {
     fn test_build_skill_dirs_empty_extra_dirs() {
         let skill_dirs = build_skill_dirs(None, None, None, vec![]);
         assert!(skill_dirs.is_empty());
+    }
+
+    // --- Rescan behavior tests (perform_skill_rescan) ---
+
+    /// Helper: create a minimal SKILL.md in the given directory.
+    fn create_skill_in_dir(dir: &Path, name: &str) {
+        let skill_dir = dir.join(name);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\ndescription: {} skill\n---\n# {}\n", name, name),
+        )
+        .unwrap();
+    }
+
+    /// Helper: build a mock AgentSkillsQuery that returns the given skills list.
+    struct MockAgentSkillsQuery {
+        skills: Vec<String>,
+    }
+
+    impl closeclaw_common::AgentSkillsQuery for MockAgentSkillsQuery {
+        fn get_agent_skills(&self, _agent_id: &str) -> Option<Vec<String>> {
+            Some(self.skills.clone())
+        }
+    }
+
+    /// Normal path: rescan picks up a skill added after initial scan.
+    ///
+    /// Verifies that after perform_skill_rescan, a newly created skill
+    /// directory (with SKILL.md) appears in the registry's skill list.
+    #[test]
+    fn test_perform_skill_rescan_rebuilds_registry_with_new_skill() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("skills");
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        let scan_config = ScanConfig {
+            global_dir: Some(global_dir.clone()),
+            ..Default::default()
+        };
+
+        let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
+
+        // Initial scan: no skills yet
+        let initial_registry = init_disk_skills(&scan_config);
+        assert_eq!(initial_registry.len(), 0);
+        let registry = Arc::new(RwLock::new(Some(initial_registry)));
+
+        // Add a skill to the directory AFTER initial scan
+        create_skill_in_dir(&global_dir, "new-skill");
+
+        // Perform rescan
+        perform_skill_rescan(&registry, &scan_config, &shared_cache);
+
+        // Verify the new skill is now in the registry
+        let guard = registry.read().unwrap();
+        let reg = guard.as_ref().unwrap();
+        assert_eq!(reg.len(), 1, "rescan should pick up newly added skill");
+        assert_eq!(reg.list(), vec!["new-skill"]);
+    }
+
+    /// Normal path: rescan preserves the agent_skills_query reference.
+    ///
+    /// Verifies that after perform_skill_rescan, the agent_skills_query
+    /// set on the old registry is carried over to the new registry.
+    #[test]
+    fn test_perform_skill_rescan_preserves_agent_skills_query() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("skills");
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        let scan_config = ScanConfig {
+            global_dir: Some(global_dir.clone()),
+            ..Default::default()
+        };
+        let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
+
+        // Create initial registry with agent_skills_query set
+        let mut initial_registry = init_disk_skills(&scan_config);
+        let mock_query: Arc<dyn closeclaw_common::AgentSkillsQuery> =
+            Arc::new(MockAgentSkillsQuery {
+                skills: vec!["skill-a".to_string()],
+            });
+        initial_registry.set_agent_skills_query(Arc::clone(&mock_query));
+        let registry = Arc::new(RwLock::new(Some(initial_registry)));
+
+        // Perform rescan (no skills on disk)
+        perform_skill_rescan(&registry, &scan_config, &shared_cache);
+
+        // Verify agent_skills_query is preserved
+        let guard = registry.read().unwrap();
+        let reg = guard.as_ref().unwrap();
+        assert!(
+            reg.agent_skills_query().is_some(),
+            "agent_skills_query should survive rescan"
+        );
+        // Verify the query still works
+        let result = reg
+            .agent_skills_query()
+            .unwrap()
+            .get_agent_skills("test-agent");
+        assert_eq!(result, Some(vec!["skill-a".to_string()]));
+    }
+
+    /// Normal path: rescan invalidates the skill_listing cache.
+    ///
+    /// Verifies that after perform_skill_rescan, the skill_listing
+    /// section is removed from the shared SectionCache.
+    #[test]
+    fn test_perform_skill_rescan_invalidates_skill_listing_cache() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("skills");
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        let scan_config = ScanConfig {
+            global_dir: Some(global_dir.clone()),
+            ..Default::default()
+        };
+        let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
+
+        // Populate the skill_listing cache entry
+        {
+            let mut cache = shared_cache.write().unwrap();
+            cache.put("skill_listing", "old listing".to_string(), None);
+        }
+        // Confirm cache entry exists
+        assert!(
+            shared_cache
+                .read()
+                .unwrap()
+                .get("skill_listing", None)
+                .is_some(),
+            "skill_listing should be cached before rescan"
+        );
+
+        let initial_registry = init_disk_skills(&scan_config);
+        let registry = Arc::new(RwLock::new(Some(initial_registry)));
+
+        // Perform rescan
+        perform_skill_rescan(&registry, &scan_config, &shared_cache);
+
+        // Verify skill_listing cache is invalidated
+        assert!(
+            shared_cache
+                .read()
+                .unwrap()
+                .get("skill_listing", None)
+                .is_none(),
+            "skill_listing cache should be invalidated after rescan"
+        );
+    }
+
+    /// State transition: rescan on empty dir replaces old registry.
+    ///
+    /// Verifies that the old registry (potentially containing skills)
+    /// is completely replaced by the rescan result.
+    #[test]
+    fn test_perform_skill_rescan_replaces_old_registry() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("skills");
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        let scan_config = ScanConfig {
+            global_dir: Some(global_dir.clone()),
+            ..Default::default()
+        };
+        let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
+
+        // Add a skill, scan, then remove it
+        create_skill_in_dir(&global_dir, "old-skill");
+        let initial_registry = init_disk_skills(&scan_config);
+        assert_eq!(initial_registry.len(), 1);
+        let registry = Arc::new(RwLock::new(Some(initial_registry)));
+
+        // Remove the skill from disk
+        std::fs::remove_dir_all(global_dir.join("old-skill")).unwrap();
+
+        // Rescan should reflect the empty state
+        perform_skill_rescan(&registry, &scan_config, &shared_cache);
+
+        let guard = registry.read().unwrap();
+        let reg = guard.as_ref().unwrap();
+        assert_eq!(
+            reg.len(),
+            0,
+            "rescan should replace old registry with empty one"
+        );
+    }
+
+    /// SkillRescanHandle::perform delegates to perform_skill_rescan.
+    ///
+    /// Verifies that the handle correctly triggers a rescan and the
+    /// result is reflected in the shared registry.
+    #[test]
+    fn test_rescan_handle_perform_triggers_rescan() {
+        let tmp = TempDir::new().unwrap();
+        let global_dir = tmp.path().join("skills");
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        let scan_config = ScanConfig {
+            global_dir: Some(global_dir.clone()),
+            ..Default::default()
+        };
+        let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
+
+        let initial_registry = init_disk_skills(&scan_config);
+        let registry = Arc::new(RwLock::new(Some(initial_registry)));
+
+        let handle = SkillRescanHandle::new(
+            Arc::clone(&registry),
+            scan_config.clone(),
+            Arc::clone(&shared_cache),
+        );
+
+        // Add a skill after initial scan
+        create_skill_in_dir(&global_dir, "handled-skill");
+
+        // Trigger rescan via handle
+        handle.perform();
+
+        let guard = registry.read().unwrap();
+        let reg = guard.as_ref().unwrap();
+        assert_eq!(reg.list(), vec!["handled-skill"]);
     }
 }

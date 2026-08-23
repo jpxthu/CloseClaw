@@ -23,6 +23,7 @@ fn make_test_context() -> AdminContext {
         skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
         config_manager,
         config_dir,
+        skill_rescan: None,
     }
 }
 
@@ -169,6 +170,7 @@ fn make_context_with_agents(config_dir: &std::path::Path) -> AdminContext {
         skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
         config_manager: Arc::new(config_manager),
         config_dir: config_dir.to_path_buf(),
+        skill_rescan: None,
     }
 }
 
@@ -495,4 +497,84 @@ fn test_agent_info_result_camelcase_fields() {
         "missing 'subagents' field"
     );
     assert!(value.get("memory").is_some(), "missing 'memory' field");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.3 — skill rescan dispatch tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Error path: skill_rescan handle is None -> Error response.
+///
+/// Verifies that when the admin context has no rescan handle (e.g.
+/// in test contexts without a running daemon), dispatch returns an
+/// error indicating rescan is not available.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_no_handle_returns_error() {
+    let ctx = make_test_context();
+    assert!(ctx.skill_rescan.is_none());
+
+    let resp = dispatch(AdminRequest::SkillRescan, &ctx).await;
+    match resp {
+        AdminResponse::Error { message } => {
+            assert!(
+                message.contains("not available"),
+                "error should indicate rescan is not available: {}",
+                message
+            );
+        }
+        other => panic!("expected Error for None handle, got {:?}", other),
+    }
+}
+
+/// Normal path: skill_rescan handle exists -> executes and returns SkillListResult.
+///
+/// Verifies that when a rescan handle is provided, dispatch executes
+/// it (rebuilding the registry) and then returns the updated skill list.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_with_handle_executes_and_returns_list() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("config");
+    let config_sub = config_dir.join("config");
+    std::fs::create_dir_all(&config_sub).unwrap();
+    std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
+    let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
+
+    // Create a rescan handle that populates the registry with a known skill
+    let skill_registry = Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default())));
+    let skill_registry_clone = Arc::clone(&skill_registry);
+    let handle: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        // Simulate a rescan: create a minimal registry with one skill
+        // by scanning a temp directory
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let skill_dir = tmp_dir.path().join("test-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\ndescription: a test skill\n---\n# Test\n",
+        )
+        .unwrap();
+        let scan_config = closeclaw_skills::ScanConfig {
+            global_dir: Some(tmp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let new_registry = closeclaw_skills::init_disk_skills(&scan_config);
+        *skill_registry_clone.write().unwrap() = Some(new_registry);
+    });
+
+    let ctx = AdminContext {
+        agent_registry: Arc::new(AgentRegistry::new()),
+        skill_registry,
+        config_manager,
+        config_dir,
+        skill_rescan: Some(handle),
+    };
+
+    let resp = dispatch(AdminRequest::SkillRescan, &ctx).await;
+    match resp {
+        AdminResponse::SkillListResult { skills } => {
+            assert_eq!(skills.len(), 1, "rescanned registry should have 1 skill");
+            assert_eq!(skills[0].name, "test-skill");
+        }
+        other => panic!("expected SkillListResult, got {:?}", other),
+    }
 }
