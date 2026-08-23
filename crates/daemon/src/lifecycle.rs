@@ -37,6 +37,7 @@ impl Daemon {
             skill_watcher,
             shared_cache,
             session_config_provider,
+            llm_registry,
         ) = Self::init_phase_2_registries(config_dir, &config_manager).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
@@ -108,11 +109,6 @@ impl Daemon {
         // Wire up CacheAdapter → UnifiedChatClient → FallbackChain → LLMCaller
         // and inject into SessionManager + Gateway. This must happen after
         // Phase 5 when the session_manager and gateway are available.
-        let llm_registry = Self::init_llm_registry(
-            std::path::Path::new(config_dir),
-            &std::collections::HashMap::new(),
-        )
-        .await;
         let provider_ids = llm_registry.list().await;
         let mut chain_entries: Vec<closeclaw_llm::unified_fallback::ChainEntry> = Vec::new();
         for provider_id in &provider_ids {
@@ -154,9 +150,11 @@ impl Daemon {
                 model: String::new(),
             },
         );
-        let fallback_client_for_compact = Arc::new(
-            closeclaw_llm::fallback::FallbackClient::from_strings(llm_registry, vec![]),
-        );
+        let fallback_client_for_compact =
+            Arc::new(closeclaw_llm::fallback::FallbackClient::from_strings(
+                Arc::clone(&llm_registry),
+                vec![],
+            ));
         let session_handler = Arc::new(closeclaw_gateway::SessionMessageHandler::new(
             Arc::clone(&session_manager),
             fallback_client_for_compact,
@@ -220,7 +218,7 @@ impl Daemon {
             plan_archive_task_handle: Some(plan_archive_handle),
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
-            // TODO: wire output_rx to outbound pipeline
+            llm_registry: Arc::clone(&llm_registry),
             _output_rx: output_rx,
         })
     }

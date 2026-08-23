@@ -16,7 +16,7 @@ pub mod startup;
 pub mod trait_adapters;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
-use closeclaw_common::NoopMetricsEmitter;
+use closeclaw_common::{NoopMetricsEmitter, SessionLookup};
 use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};
@@ -28,20 +28,15 @@ type StartupPlan = (
     Vec<Vec<crate::startup::ComponentId>>,
     Vec<Vec<crate::startup::ComponentId>>,
 );
-use closeclaw_common::SessionLookup;
-use closeclaw_gateway::sweeper::ArchiveSweeper;
-/// Re-export `SpawnController` from gateway so consumers can access it
-/// via `closeclaw_daemon::SpawnController`, aligning with the design doc
-/// which places SpawnController at the daemon layer.
 pub use closeclaw_gateway::SpawnController;
-use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
+use closeclaw_gateway::{sweeper::ArchiveSweeper, Gateway, GatewayConfig, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
-use closeclaw_session::checkpoint_manager::CheckpointManager;
-use closeclaw_session::persistence::PersistenceService;
-use closeclaw_session::storage::SqliteStorage;
+use closeclaw_session::{
+    checkpoint_manager::CheckpointManager, persistence::PersistenceService, storage::SqliteStorage,
+};
 use closeclaw_skills::builtin::builtin_skills;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillWatcherHandle};
 use closeclaw_system_prompt::sections::SectionCache;
@@ -51,6 +46,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::info;
 mod noop_miner_llm;
+mod skills_helper;
 /// Parse an .env file into key-value pairs (comments, whitespace trimmed).
 pub(crate) fn parse_env_file(path: &std::path::Path) -> std::io::Result<Vec<(String, String)>> {
     let content = std::fs::read_to_string(path)?;
@@ -80,7 +76,6 @@ pub(crate) fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
 mod llm_init;
 #[cfg(test)]
 pub mod test_helpers;
-
 // --- Topological startup orchestration ---
 impl Daemon {
     /// Resolve the deterministic startup order from the component dependency
@@ -97,32 +92,37 @@ impl Daemon {
     fn validate_phase_components(
         layers: &[Vec<crate::startup::ComponentId>],
     ) -> Result<Vec<Vec<crate::startup::ComponentId>>, StartupError> {
-        use crate::startup::ComponentId::*;
-        let expected: Vec<_> = [
-            vec![ConfigManager, Storage],
+        use crate::startup::{ComponentId, Foundation, Service};
+        let c = |f: Foundation| ComponentId::Foundation(f);
+        let s = |sv: Service| ComponentId::Service(sv);
+        let expected: Vec<Vec<ComponentId>> = vec![
+            vec![c(Foundation::ConfigManager), c(Foundation::Storage)],
             vec![
-                AgentRegistry,
-                ConfigHotReload,
-                PermissionEngine,
-                RenderersPlugins,
-                SessionConfigProvider,
-                SkillsRegistry,
+                s(Service::AgentRegistry),
+                s(Service::ConfigHotReload),
+                s(Service::PermissionEngine),
+                s(Service::RenderersPlugins),
+                s(Service::SessionConfigProvider),
+                s(Service::SkillsRegistry),
+                s(Service::LLMRegistry),
             ],
             vec![
-                AnnounceSweeper,
-                ApprovalFlow,
-                ArchiveSweeper,
-                DreamingScheduler,
-                IMAdapters,
-                SkillWatcher,
-                ToolsRegistry,
+                s(Service::AnnounceSweeper),
+                s(Service::ApprovalFlow),
+                s(Service::ArchiveSweeper),
+                s(Service::DreamingScheduler),
+                s(Service::IMAdapters),
+                s(Service::SkillWatcher),
+                s(Service::ToolsRegistry),
             ],
-            vec![SessionManager, SpawnController, SystemPromptBuilder],
-            vec![Gateway],
-            vec![AdminRpcServer],
-        ]
-        .into_iter()
-        .collect();
+            vec![
+                s(Service::SessionManager),
+                s(Service::SpawnController),
+                s(Service::SystemPromptBuilder),
+            ],
+            vec![s(Service::Gateway)],
+            vec![s(Service::AdminRpcServer)],
+        ];
         for (i, exp) in expected.iter().enumerate() {
             let mut actual = layers.get(i).cloned().unwrap_or_default();
             let mut exp_sorted = exp.clone();
@@ -168,7 +168,7 @@ impl Daemon {
         Ok((config_manager, storage, data_dir))
     }
 
-    /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry.
+    /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry, LLMRegistry.
     async fn init_phase_2_registries(
         config_dir: &str,
         config_manager: &ConfigManager,
@@ -179,11 +179,12 @@ impl Daemon {
         Option<SkillWatcherHandle>,
         Arc<RwLock<SectionCache>>,
         Arc<dyn SessionConfigProvider>,
+        Arc<closeclaw_llm::LLMRegistry>,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
-        let extra_dirs = Self::resolve_extra_dirs(config_manager);
+        let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
         let (skill_registry, skill_watcher) = skill_reload::init_skill_hot_reload(
             config_dir,
             None,
@@ -199,6 +200,11 @@ impl Daemon {
                     closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
                 )
             });
+        let llm_registry = Self::init_llm_registry(
+            std::path::Path::new(config_dir),
+            &std::collections::HashMap::new(),
+        )
+        .await;
         Ok((
             agent_registry,
             skill_registry,
@@ -206,34 +212,8 @@ impl Daemon {
             skill_watcher,
             shared_cache,
             session_config_provider,
+            llm_registry,
         ))
-    }
-
-    /// Resolve extra skill directories from skills.json.
-    ///
-    /// Reads `extraDirs` from `SkillsConfigData`, expands `~` to home.
-    /// Non-existent paths are kept as-is (loader skips them).
-    fn resolve_extra_dirs(config_manager: &ConfigManager) -> Vec<PathBuf> {
-        let Some(v) = config_manager.section(ConfigSection::Skills) else {
-            return Vec::new();
-        };
-        let Ok(cfg) = serde_json::from_value::<closeclaw_config::SkillsConfigData>(v) else {
-            return Vec::new();
-        };
-        let home = dirs::home_dir();
-        cfg.config
-            .extra_dirs
-            .iter()
-            .map(|d| {
-                if let Some(r) = d.strip_prefix("~/") {
-                    home.as_ref()
-                        .map(|h| h.join(r))
-                        .unwrap_or_else(|| PathBuf::from(d))
-                } else {
-                    PathBuf::from(d)
-                }
-            })
-            .collect()
     }
 
     /// Phase 3: Core services — Gateway, SessionManager, IM plugins, SlashDispatcher.
