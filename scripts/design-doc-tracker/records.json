@@ -385,11 +385,11 @@
   },
   {
     "path": "docs/design/mode/plan-browse.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-08-23T16:25:36.126627+08:00",
+    "commit": "ab6882ba4f68a8b413521024864852ea61eca3b4",
+    "commit_time": "2026-08-23T16:26:43+08:00",
+    "confirmed_time": "2026-08-23T16:36:13.372660+08:00",
     "comment": "",
-    "blocked_reason": "步骤完成标记的'完成'定义在 plan-browse.md 与 execution.md 之间存在语义矛盾：plan-browse.md 将 [!] 失败和 [~] 跳过均计入'已完成'计数，但 execution.md 将 [!] 定义为失败、[~] 定义为跳过，用户无法区分失败/跳过步骤与真正完成的步骤"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/mode/plan-mode.md",
