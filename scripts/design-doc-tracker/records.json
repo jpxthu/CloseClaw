@@ -384,6 +384,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/mode/plan-browse.md",
+    "commit": "ab6882ba4f68a8b413521024864852ea61eca3b4",
+    "commit_time": "2026-08-23T16:26:43+08:00",
+    "confirmed_time": "2026-08-23T16:36:13.372660+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/mode/plan-mode.md",
     "commit": "5080e425773f7f95b17765dfe05d74fb77ffb5d0",
     "commit_time": "2026-07-19T09:54:59+08:00",
