@@ -23,6 +23,7 @@ fn make_test_context() -> AdminContext {
         skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
         config_manager,
         config_dir,
+        skill_rescan: None,
     }
 }
 
@@ -169,6 +170,7 @@ fn make_context_with_agents(config_dir: &std::path::Path) -> AdminContext {
         skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
         config_manager: Arc::new(config_manager),
         config_dir: config_dir.to_path_buf(),
+        skill_rescan: None,
     }
 }
 

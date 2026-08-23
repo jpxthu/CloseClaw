@@ -24,6 +24,9 @@ pub struct AdminContext {
     pub skill_registry: Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>,
     pub config_manager: Arc<ConfigManager>,
     pub config_dir: PathBuf,
+    /// Skill rescan handle — `None` in test contexts where daemon
+    /// components are not fully initialized.
+    pub skill_rescan: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// Admin RPC server that binds a Unix domain socket and handles
