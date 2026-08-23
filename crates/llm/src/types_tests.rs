@@ -271,6 +271,7 @@ fn test_raw_usage_conversion() {
         total_tokens: Some(150),
         cache_read_tokens: Some(20),
         cache_write_tokens: Some(10),
+        reasoning_tokens: None,
     };
     let usage: UnifiedUsage = raw.into();
     assert_eq!(usage.prompt_tokens, 100);
@@ -282,6 +283,25 @@ fn test_raw_usage_conversion() {
 }
 
 #[test]
+fn test_raw_usage_conversion_with_reasoning_tokens() {
+    let raw = RawUsage {
+        prompt_tokens: 100,
+        completion_tokens: 200,
+        total_tokens: Some(300),
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        reasoning_tokens: Some(120),
+    };
+    let usage: UnifiedUsage = raw.into();
+    assert_eq!(usage.prompt_tokens, 100);
+    assert_eq!(usage.completion_tokens, 200);
+    assert_eq!(usage.total_tokens, Some(300));
+    assert_eq!(usage.reasoning_tokens, Some(120));
+    assert_eq!(usage.cache_read_tokens, None);
+    assert_eq!(usage.cache_write_tokens, None);
+}
+
+#[test]
 fn test_raw_usage_conversion_no_optional_fields() {
     let raw = RawUsage {
         prompt_tokens: 10,
@@ -289,6 +309,7 @@ fn test_raw_usage_conversion_no_optional_fields() {
         total_tokens: None,
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let usage: UnifiedUsage = raw.into();
     assert_eq!(usage.prompt_tokens, 10);
@@ -326,6 +347,7 @@ fn test_internal_response_conversion() {
             total_tokens: Some(30),
             cache_read_tokens: Some(5),
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".to_string()),
     };

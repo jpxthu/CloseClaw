@@ -721,3 +721,71 @@ fn test_parse_response_no_cached_tokens() {
     assert_eq!(resp.usage.cache_read_tokens, None);
     assert_eq!(resp.usage.cache_write_tokens, None);
 }
+
+// ── stream_options.include_usage injection ───────────────────────────────────
+
+#[test]
+fn test_build_request_stream_injects_stream_options() {
+    let proto = OpenAiProtocol::new();
+    let mut request = make_request();
+    request.stream = true;
+    let body = proto.build_request(&request).unwrap();
+    let stream_options = body
+        .get("stream_options")
+        .expect("stream_options should exist");
+    assert_eq!(stream_options["include_usage"], true);
+}
+
+#[test]
+fn test_build_request_non_stream_does_not_inject_stream_options() {
+    let proto = OpenAiProtocol::new();
+    let request = make_request();
+    // make_request() has stream=false by default
+    let body = proto.build_request(&request).unwrap();
+    assert!(
+        body.get("stream_options").is_none(),
+        "non-streaming request should not contain stream_options"
+    );
+}
+
+// ── reasoning_tokens extraction from completion_tokens_details ─────────────
+
+#[test]
+fn test_parse_response_reasoning_tokens_extracted() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": { "role": "assistant", "content": "hi" },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 200,
+            "total_tokens": 300,
+            "completion_tokens_details": {
+                "reasoning_tokens": 120
+            }
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.usage.reasoning_tokens, Some(120));
+    assert_eq!(resp.usage.completion_tokens, 200);
+}
+
+#[test]
+fn test_parse_response_reasoning_tokens_missing() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({
+        "choices": [{
+            "message": { "role": "assistant", "content": "hi" },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.usage.reasoning_tokens, None);
+}

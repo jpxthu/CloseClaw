@@ -151,6 +151,7 @@ impl Provider for OpenAIProvider {
                 total_tokens: Some(openai_resp.usage.total_tokens),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: choice.finish_reason,
         })

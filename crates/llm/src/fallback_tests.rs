@@ -48,6 +48,7 @@ fn chat_to_internal(
                 total_tokens: Some(resp.usage.total_tokens),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: None,
         }),
@@ -423,6 +424,7 @@ impl Provider for StreamingProvider {
                 total_tokens: Some(0),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: None,
         })
@@ -489,6 +491,7 @@ impl Provider for HangingStreamingProvider {
                 total_tokens: Some(0),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: None,
         })

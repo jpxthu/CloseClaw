@@ -156,6 +156,7 @@ impl Scenario {
                 total_tokens: Some(*prompt_tokens + *completion_tokens),
                 cache_read_tokens: *cache_read_tokens,
                 cache_write_tokens: *cache_write_tokens,
+                reasoning_tokens: None,
             },
             Self::Err {
                 prompt_tokens,
@@ -167,6 +168,7 @@ impl Scenario {
                 total_tokens: Some(*prompt_tokens + *completion_tokens),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             Self::Models { .. } => RawUsage {
                 prompt_tokens: 0,
@@ -174,6 +176,7 @@ impl Scenario {
                 total_tokens: Some(0),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             Self::Delay { inner, .. } => inner.raw_usage(),
         }

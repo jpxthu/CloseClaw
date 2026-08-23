@@ -183,6 +183,7 @@ impl MiniMaxProvider {
                 total_tokens: usage.and_then(|u| u.total_tokens),
                 cache_read_tokens: usage.and_then(|u| u.cache_read_tokens),
                 cache_write_tokens: usage.and_then(|u| u.cache_write_tokens),
+                reasoning_tokens: None,
             },
             finish_reason: api_resp.stop_reason,
         })
