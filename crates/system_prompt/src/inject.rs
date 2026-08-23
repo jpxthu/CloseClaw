@@ -10,6 +10,7 @@ use crate::builder::PromptOverrides;
 use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
+use closeclaw_common::system_prompt::ModeTransition;
 use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, SessionMode};
 use closeclaw_execution::PlanPath;
 use closeclaw_gateway::session_handler::MessageMetadata;
@@ -36,6 +37,12 @@ pub struct DynamicSectionsParams<'a> {
     pub is_sub_agent: bool,
     /// When `true`, injects GitStatus section when workdir is a git repo.
     pub is_git_status_enabled: bool,
+    /// Mode transition that triggered this prompt build.
+    ///
+    /// When `Some`, a `ModeTransition` section is injected with the
+    /// corresponding design doc §6 prompt. `None` means no transition
+    /// occurred on this request.
+    pub mode_transition: Option<ModeTransition>,
 }
 
 /// Build dynamic sections from metadata and session state.
@@ -82,8 +89,11 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
         });
     }
 
-    // Mode transition injection removed (design doc §6 — transition prompts
-    // are no longer injected via System Prompt sections).
+    // Mode transition prompt injection (design doc §6).
+    // Injected when a session mode change occurred on this request.
+    if let Some(transition) = params.mode_transition {
+        sections.push(Section::ModeTransition(transition));
+    }
 
     // 4. GitStatus (when enabled and workdir is a git repo)
     if let Some(path) = params.workdir_path {
@@ -256,6 +266,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             is_compacted: context.is_compacted,
             is_sub_agent: context.is_sub_agent,
             is_git_status_enabled: context.is_git_status_enabled,
+            mode_transition: context.mode_transition,
         });
         let mut dynamic_rendered: String = sections.iter().map(|s| s.render()).collect();
         // Append the appends section directly (independent of dynamic sections)

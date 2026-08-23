@@ -37,6 +37,14 @@ pub(crate) fn format_content_block(b: &ContentBlock) -> Vec<String> {
 }
 
 impl ConversationSession {
+    /// Consume and return the pending mode transition, if any.
+    pub fn take_mode_transition(&self) -> Option<closeclaw_common::system_prompt::ModeTransition> {
+        self.pending_mode_transition
+            .lock()
+            .expect("rc poisoned")
+            .take()
+    }
+
     /// Inject a [`DynamicPromptBuilder`] for per-request dynamic-layer injection.
     pub fn set_dynamic_prompt_builder(
         &mut self,
@@ -365,6 +373,7 @@ impl ConversationSession {
                 is_compacted: self.is_compacted,
                 is_sub_agent: self.is_sub_agent,
                 is_git_status_enabled: self.is_git_status_enabled,
+                mode_transition: self.take_mode_transition(),
             };
             builder.build_prompt_parts(&context)
         } else {

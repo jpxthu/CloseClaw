@@ -37,6 +37,8 @@ pub use closeclaw_common::tool_session::KillHandle;
 mod memory_injection;
 pub use memory_injection::{InjectionPosition, MemoryInjection};
 
+mod mode_transition;
+
 mod progress_notifier;
 pub use progress_notifier::PROGRESS_APPEND_PREFIX;
 
@@ -204,6 +206,7 @@ pub struct ConversationSession {
     /// Session mode controlling session-level behavior constraints.
     /// Orthogonal to `ReasoningMode` — see [`SessionMode`] docs.
     session_mode: Arc<Mutex<SessionMode>>,
+    pending_mode_transition: mode_transition::PendingTransition,
     /// Per-request context for dynamic-layer injection.
     request_context: Arc<Mutex<closeclaw_common::RequestContext>>,
     /// LLM caller injected by Gateway for delegating LLM requests.
@@ -286,6 +289,7 @@ impl ConversationSession {
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
+            pending_mode_transition: Arc::new(Mutex::new(None)),
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             file_mtimes: Arc::new(RwLock::new(HashMap::new())),
@@ -516,11 +520,17 @@ impl ConversationSession {
     }
     /// Overrides the session mode at runtime.
     pub fn set_session_mode(&mut self, mode: SessionMode) {
-        *self
-            .session_mode
-            .lock()
-            .expect("session_mode lock poisoned") = mode;
+        let prev = {
+            let mut lock = self.session_mode.lock().expect("rc");
+            let p = *lock;
+            *lock = mode;
+            p
+        };
+        if let Some(t) = mode_transition::detect(prev, mode) {
+            *self.pending_mode_transition.lock().expect("rc") = Some(t);
+        }
     }
+
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
         *self.request_context.lock().expect("rc poisoned") = ctx;
@@ -883,36 +893,22 @@ impl std::fmt::Debug for ConversationSession {
                 &self.streaming_sink.as_ref().map(|_| "<StreamingSink>"),
             )
             .field("stream_enabled", &self.stream_enabled)
-            .field(
-                "llm_state",
-                &*self.llm_state.read().expect("llm_state lock poisoned"),
-            )
+            .field("llm_state", &*self.llm_state.read().expect("rc poisoned"))
             .field(
                 "tool_states",
-                &*self.tool_states.read().expect("tool_states lock poisoned"),
+                &*self.tool_states.read().expect("rc poisoned"),
             )
             .field(
                 "child_states",
-                &*self
-                    .child_states
-                    .read()
-                    .expect("child_states lock poisoned"),
+                &*self.child_states.read().expect("rc poisoned"),
             )
             .field(
                 "tool_handles",
-                &self
-                    .tool_handles
-                    .read()
-                    .expect("tool_handles lock poisoned")
-                    .len(),
+                &self.tool_handles.read().expect("rc poisoned").len(),
             )
             .field(
                 "child_handles",
-                &self
-                    .child_handles
-                    .read()
-                    .expect("child_handles lock poisoned")
-                    .len(),
+                &self.child_handles.read().expect("rc poisoned").len(),
             )
             .field("cancel_token", &"<CancelToken>")
             .field("stopped", &self.stopped.load(Ordering::SeqCst))

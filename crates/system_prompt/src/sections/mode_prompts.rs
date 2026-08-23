@@ -229,3 +229,42 @@ or otherwise make any changes to the system.\n\
 \n\
 You are only allowed to take READ-ONLY actions. Answer the spawning\n\
 agent's query comprehensively, using the available read-only tools.";
+
+// ---------------------------------------------------------------------------
+// Mode Transition prompts — design doc section 6.
+// ---------------------------------------------------------------------------
+
+/// Re-entering Plan Mode after having previously exited it.
+pub(crate) const PLAN_MODE_REENTRY: &str = "\
+## Re-entering Plan Mode\
+\
+You are returning to plan mode after having previously exited it.\
+\
+Before proceeding with any new planning, you should:\
+1. Read the existing plan file to understand what was previously\
+   planned.\
+2. Evaluate the user's current request against that plan.\
+3. Decide how to proceed:\
+   - Different task: start fresh by overwriting the existing plan.\
+   - Same task, continuing: modify the existing plan while cleaning up\
+     outdated or irrelevant sections.\
+4. Always edit the plan file before presenting the completed plan to the\
+   user.\
+\
+Treat this as a fresh planning session. Do not assume the existing\
+plan is relevant without evaluating it first.";
+
+/// Exiting Plan Mode.
+pub(crate) const PLAN_MODE_EXIT: &str = "\
+## Exited Plan Mode\
+\
+You have exited plan mode. You can now make edits, run tools, and take\
+actions. Reference the plan file if needed.";
+
+/// Exiting Auto Mode.
+pub(crate) const AUTO_MODE_EXIT: &str = "\
+## Exited Auto Mode\
+\
+You have exited auto mode. The user may now want to interact more\
+directly. You should ask clarifying questions when the approach is\
+ambiguous rather than making assumptions.";
