@@ -356,7 +356,10 @@ fn test_dispatch_agent_info_full_fields() {
             );
             assert_eq!(info.workspace.as_deref(), Some("/workspace/full"));
             assert_eq!(info.agent_dir.as_deref(), Some("/agent/dir/full"));
-            assert_eq!(info.bootstrap_mode, "minimal");
+            assert_eq!(
+                info.bootstrap_mode,
+                closeclaw_common::BootstrapMode::Minimal
+            );
             assert_eq!(info.skills, vec!["skill-a", "skill-b"]);
             assert_eq!(info.tools, vec!["read", "write"]);
             assert_eq!(info.disallowed_tools, vec!["dangerous"]);
@@ -383,14 +386,17 @@ fn test_dispatch_agent_info_default_values() {
             assert!(info.model.is_none());
             assert!(info.workspace.is_none());
             assert!(info.agent_dir.is_none());
-            assert_eq!(info.bootstrap_mode, "full");
+            assert_eq!(info.bootstrap_mode, closeclaw_common::BootstrapMode::Full);
             // AgentConfig::default() uses default_all() -> ["*"]
             assert_eq!(info.skills, vec!["*"]);
             assert_eq!(info.tools, vec!["*"]);
             assert!(info.disallowed_tools.is_empty());
             assert_eq!(info.subagents.max_spawn_depth, Some(1));
             assert_eq!(info.subagents.max_children, Some(5));
-            assert!(info.memory.is_some());
+            assert!(
+                info.memory.is_none(),
+                "default config should have memory=null"
+            );
         }
         other => panic!("expected AgentInfoResult, got {:?}", other),
     }
@@ -451,7 +457,7 @@ fn test_agent_info_result_camelcase_fields() {
         model: Some(ModelSpec::single("gpt-4o")),
         workspace: Some("/ws".to_string()),
         agent_dir: Some("/ad".to_string()),
-        bootstrap_mode: "full".to_string(),
+        bootstrap_mode: closeclaw_common::BootstrapMode::Full,
         skills: vec![],
         tools: vec![],
         disallowed_tools: vec![],

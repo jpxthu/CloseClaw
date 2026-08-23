@@ -163,15 +163,16 @@ pub(crate) fn dispatch_agent_info(id: &str, context: &AdminContext) -> AdminResp
                     .agent_dir
                     .as_ref()
                     .map(|p| p.to_string_lossy().into_owned()),
-                bootstrap_mode: match entry.bootstrap_mode {
-                    closeclaw_common::BootstrapMode::Full => "full".to_string(),
-                    closeclaw_common::BootstrapMode::Minimal => "minimal".to_string(),
-                },
+                bootstrap_mode: entry.bootstrap_mode,
                 skills: entry.skills.clone(),
                 tools: entry.tools.clone(),
                 disallowed_tools: entry.disallowed_tools.clone(),
                 subagents: entry.subagents.clone(),
-                memory: Some(entry.memory.clone()),
+                memory: if entry.memory_configured {
+                    Some(entry.memory.clone())
+                } else {
+                    None
+                },
             };
             AdminResponse::AgentInfoResult(Box::new(agent_info))
         }

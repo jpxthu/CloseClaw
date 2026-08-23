@@ -125,11 +125,44 @@ async fn handle_agent_info_rpc(client: &AdminClient, id: &str, json: bool) -> Re
             match info.memory {
                 Some(ref mem) => {
                     println!("  Memory:");
-                    println!("    Storage: {:#?}", mem.storage);
-                    println!("    Mining: {:#?}", mem.mining);
-                    println!("    Dreaming: {:#?}", mem.dreaming);
-                    println!("    Search: {:#?}", mem.search);
-                    println!("    Forgetting: {:#?}", mem.forgetting);
+                    // Storage
+                    if let Some(ref db) = mem.storage.db_path {
+                        println!("    Storage DB: {}", db);
+                    }
+                    if let Some(ref md) = mem.storage.memory_md_path {
+                        println!("    Storage MD: {}", md);
+                    }
+                    // Mining
+                    if let Some(enabled) = mem.mining.enabled {
+                        println!("    Mining: {}", if enabled { "on" } else { "off" });
+                    }
+                    if let Some(ref dedup) = mem.mining.dedup_window_days {
+                        println!("    Mining Dedup Window: {} days", dedup);
+                    }
+                    if let Some(ref max) = mem.mining.max_events_per_session {
+                        println!("    Mining Max Events: {}", max);
+                    }
+                    // Dreaming
+                    if let Some(enabled) = mem.dreaming.enabled {
+                        println!("    Dreaming: {}", if enabled { "on" } else { "off" });
+                    }
+                    if let Some(ref model) = mem.dreaming.model {
+                        println!("    Dreaming Model: {}", model);
+                    }
+                    if let Some(ref schedule) = mem.dreaming.schedule {
+                        println!("    Dreaming Schedule: {}", schedule);
+                    }
+                    // Search
+                    if let Some(enabled) = mem.search.enabled {
+                        println!("    Search: {}", if enabled { "on" } else { "off" });
+                    }
+                    if let Some(ref model) = mem.search.model {
+                        println!("    Search Model: {}", model);
+                    }
+                    // Forgetting
+                    if let Some(ref days) = mem.forgetting.injection_extension_days {
+                        println!("    Forgetting Extension: {} days", days);
+                    }
                 }
                 None => {
                     println!("  Memory: null");

@@ -8,6 +8,7 @@
 //! [4-byte big-endian length (u32)][JSON frame bytes]
 //! ```
 
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{MemoryConfig, ModelSpec, SubagentsConfig};
 use serde::{Deserialize, Serialize};
 
@@ -41,7 +42,7 @@ pub struct AgentInfoResult {
     /// Bootstrap files directory path.
     pub agent_dir: Option<String>,
     /// Bootstrap file loading mode.
-    pub bootstrap_mode: String,
+    pub bootstrap_mode: BootstrapMode,
     /// Available skill names.
     pub skills: Vec<String>,
     /// Available tool names.
@@ -224,7 +225,7 @@ mod tests {
             model: Some(closeclaw_config::agents::ModelSpec::single("gpt-4")),
             workspace: None,
             agent_dir: None,
-            bootstrap_mode: "full".to_string(),
+            bootstrap_mode: closeclaw_common::BootstrapMode::Full,
             skills: vec!["skill-a".to_string(), "skill-b".to_string()],
             tools: vec!["*".to_string()],
             disallowed_tools: vec![],

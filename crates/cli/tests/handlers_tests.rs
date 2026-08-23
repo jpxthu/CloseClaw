@@ -954,7 +954,7 @@ fn test_agent_info_json_output_all_fields() {
         model: Some(ModelSpec::single("claude-3-opus")),
         workspace: Some("/tmp/ws".to_string()),
         agent_dir: Some("/tmp/ad".to_string()),
-        bootstrap_mode: "minimal".to_string(),
+        bootstrap_mode: closeclaw_common::BootstrapMode::Minimal,
         skills: vec!["s1".to_string()],
         tools: vec!["t1".to_string()],
         disallowed_tools: vec!["d1".to_string()],
