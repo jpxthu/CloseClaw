@@ -388,6 +388,7 @@ async fn test_sandbox_evaluate_permission_request() {
                 reason,
                 rule: _,
                 risk_level: _,
+                approval_request_id: _,
             } => {
                 panic!(
                     "expected Allowed with permissive rules, got Denied: {}",
