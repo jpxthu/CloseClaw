@@ -798,6 +798,7 @@ impl TerminalRenderer {
         dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
         let mut output_text = String::new();
+        let mut has_any_block = false;
 
         // DSL preprocessing before ContentBlock traversal (design doc requirement)
         if let Some(dsl) = dsl_result {
@@ -809,8 +810,15 @@ impl TerminalRenderer {
 
         for block in content_blocks {
             let rendered = self.render_block(block);
+            if has_any_block {
+                // Data flow step 4: blank line between adjacent content blocks
+                output_text.push('\n');
+            } else if !output_text.is_empty() {
+                // Data flow step 5: blank line between DSL hints and body
+                output_text.push('\n');
+            }
             output_text.push_str(&rendered);
-            output_text.push('\n');
+            has_any_block = true;
         }
 
         let text = if self.ansi {
