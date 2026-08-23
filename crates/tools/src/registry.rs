@@ -96,10 +96,17 @@ fn plan_mode_tool_visible(tool: &Arc<dyn Tool>) -> bool {
 }
 
 /// Tools that remain visible in Plan Mode even though they are not read-only.
+///
+/// Write and Edit are included because the design doc defines "plan 文件写工具"
+/// as the only visible write tools in Plan Mode. The permission engine's
+/// `is_plans_path()` check ensures these tools can only write to the `plans/`
+/// directory, so the safety boundary is preserved at the permission layer.
 const PLAN_MODE_ALWAYS_VISIBLE: &[&str] = &[
     "sessions_spawn", // spawn Explore/Plan agents
     "progress",       // plan progress tracking
     "execute_plan",   // trigger execution from Plan Mode
+    "Write",          // plan file writing, restricted to plans/ by is_plans_path()
+    "Edit",           // plan file editing, restricted to plans/ by is_plans_path()
 ];
 
 impl ToolRegistryImpl {
