@@ -41,7 +41,7 @@ impl ConversationSession {
     pub fn take_mode_transition(&self) -> Option<closeclaw_common::system_prompt::ModeTransition> {
         self.pending_mode_transition
             .lock()
-            .expect("rc poisoned")
+            .expect("pending_mode_transition lock poisoned")
             .take()
     }
 

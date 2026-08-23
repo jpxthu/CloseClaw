@@ -163,13 +163,9 @@ pub struct ConversationSession {
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every mutation.
     last_activity_at: i64,
-    /// Task IDs already injected via memory-injection this session.
-    /// Used for session-level dedup so that the same task's results
-    /// are injected at most once per session lifetime.
+    /// Task IDs already injected this session (session-level dedup).
     injected_task_ids: Arc<Mutex<HashSet<String>>>,
-    /// Skill listing provider for per-turn skill injection.
-    /// Injected by Gateway at session creation. When set, each LLM turn
-    /// prepends a tool-role attachment with the agent's skill listing.
+    /// Skill listing provider injected by Gateway for per-turn skill injection.
     pub(crate) skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
     /// Snapshot of the last skill listing (excluding conditional skills)
     /// used for incremental diff computation. `None` on the first turn.
@@ -178,28 +174,17 @@ pub struct ConversationSession {
     /// re-injection on the next turn. Cleared by
     /// [`prepare_turn_skill_listing`] after the snapshot is reset.
     pub(crate) pending_compaction_listing_reset: bool,
-    /// Names of conditional skills that have been activated during this
-    /// session's lifetime via file-path matching. Activated skills are
-    /// included in subsequent turn listings as incremental additions.
+    /// Conditional skills activated via file-path matching this session.
     pub(crate) activated_conditional_skills: HashSet<String>,
-    /// Agent-level skill whitelist filter. When set, only skills whose
-    /// names appear in this list are included in the injected listing.
-    /// A list containing `"*"` means no filtering.
+    /// Agent-level skill whitelist filter. `*` means no filtering.
     pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
-    /// Runtime-only execution progress appends. Entries are tagged with
-    /// [`PROGRESS_APPEND_PREFIX`] and managed by
-    /// [`PlanStateNotifier::on_progress_changed`]. Merged into
-    /// [`system_appends()`](Self::system_appends) at read time so the
-    /// system prompt builder sees them automatically.
+    /// Runtime progress appends managed by PlanStateNotifier.
     progress_appends: Arc<Mutex<Vec<String>>>,
-    /// Per-session file mtime tracking for staleness checks.
-    /// Records the mtime observed at each Read operation so subsequent
-    /// Edit/Write calls can detect external modifications.
+    /// File mtime tracking for staleness checks on Edit/Write.
     file_mtimes: Arc<RwLock<HashMap<PathBuf, SystemTime>>>,
     /// Per-turn read range tracking for file dedup.
-    /// Maps canonical path → list of (mtime, ranges) read so far.
     file_read_ranges: Arc<RwLock<HashMap<PathBuf, closeclaw_common::FileReadCache>>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
@@ -222,12 +207,7 @@ pub struct ConversationSession {
     /// Manual backgrounding signal. When notified, foreground commands
     /// being executed should be moved to background.
     pub manual_background_signal: Arc<tokio::sync::Notify>,
-    /// Optional persistence service for `persist_pending_checkpoint`.
-    ///
-    /// Injected by the Gateway after session creation so that
-    /// `ToolSession::persist_pending_checkpoint` can persist the
-    /// current pending operations without requiring a reference to
-    /// the Gateway's `CheckpointManager`.
+    /// Persistence service for persist_pending_checkpoint (injected by Gateway).
     checkpoint_storage: Option<Arc<dyn crate::persistence::PersistenceService>>,
     /// Whether the session has the git_status config switch enabled.
     /// When `true`, the dynamic builder may inject a GitStatus section
@@ -905,15 +885,26 @@ impl std::fmt::Debug for ConversationSession {
             )
             .field(
                 "child_states",
-                &*self.child_states.read().expect("child_states lock poison"),
+                &*self
+                    .child_states
+                    .read()
+                    .expect("child_states lock poisoned"),
             )
             .field(
                 "tool_handles",
-                &self.tool_handles.read().expect("tool_handles lock").len(),
+                &self
+                    .tool_handles
+                    .read()
+                    .expect("tool_handles lock poisoned")
+                    .len(),
             )
             .field(
                 "child_handles",
-                &self.child_handles.read().expect("child_handles lock").len(),
+                &self
+                    .child_handles
+                    .read()
+                    .expect("child_handles lock poisoned")
+                    .len(),
             )
             .field("cancel_token", &"<CancelToken>")
             .field("stopped", &self.stopped.load(Ordering::SeqCst))
