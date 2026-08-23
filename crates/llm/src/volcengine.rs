@@ -238,6 +238,7 @@ impl Provider for VolcEngineProvider {
                 total_tokens: usage.total_tokens,
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: choice.finish_reason,
         })

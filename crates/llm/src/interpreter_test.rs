@@ -29,6 +29,7 @@ fn test_default_interpreter_response_identity() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -163,6 +164,7 @@ fn test_minimax_interpreter_empty_content_uses_reasoning() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -185,6 +187,7 @@ fn test_minimax_interpreter_text_content_preferred() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -207,6 +210,7 @@ fn test_minimax_interpreter_both_empty() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -248,6 +252,7 @@ fn test_glm_interpreter_reasoning_threshold_short() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -273,6 +278,7 @@ fn test_glm_interpreter_reasoning_threshold_exact_boundary() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -295,6 +301,7 @@ fn test_glm_interpreter_text_preferred_over_reasoning() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -344,6 +351,7 @@ fn test_deepseek_interpreter_empty_content_uses_reasoning() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -366,6 +374,7 @@ fn test_deepseek_interpreter_text_content_preferred() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -394,6 +403,7 @@ fn test_deepseek_interpreter_text_and_reasoning_prefers_text() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -448,6 +458,7 @@ fn test_minimax_interpreter_text_and_thinking_both_nonempty() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -478,6 +489,7 @@ fn test_minimax_interpreter_empty_thinking_string() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -507,6 +519,7 @@ fn test_minimax_interpreter_all_empty_strings() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -533,6 +546,7 @@ fn test_glm_interpreter_empty_content_blocks() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -556,6 +570,7 @@ fn test_glm_interpreter_text_and_thinking_both_nonempty() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -586,6 +601,7 @@ fn test_glm_interpreter_empty_thinking_string() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -610,6 +626,7 @@ fn test_deepseek_interpreter_empty_content_blocks() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -633,6 +650,7 @@ fn test_deepseek_interpreter_text_and_thinking_both_nonempty() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -663,6 +681,7 @@ fn test_deepseek_interpreter_empty_thinking_string() {
             total_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: None,
     };
@@ -694,6 +713,7 @@ fn test_deepseek_interpreter_preserves_signature() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -727,6 +747,7 @@ fn test_deepseek_interpreter_no_signature_yields_none() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -765,6 +786,7 @@ fn test_deepseek_interpreter_signature_last_wins() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -793,6 +815,7 @@ fn test_deepseek_interpreter_thinking_only_preserves_signature() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };
@@ -823,6 +846,7 @@ fn test_default_interpreter_preserves_signature() {
             total_tokens: Some(15),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".into()),
     };

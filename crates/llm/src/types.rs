@@ -76,6 +76,9 @@ pub struct RawUsage {
     /// Cache write (creation) tokens (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u32>,
+    /// Reasoning tokens (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u32>,
 }
 
 /// Internal response assembled by a Protocol from raw provider output.
@@ -132,7 +135,7 @@ impl From<RawUsage> for UnifiedUsage {
             prompt_tokens: raw.prompt_tokens,
             completion_tokens: raw.completion_tokens,
             total_tokens: raw.total_tokens,
-            reasoning_tokens: None,
+            reasoning_tokens: raw.reasoning_tokens,
             cache_read_tokens: raw.cache_read_tokens,
             cache_write_tokens: raw.cache_write_tokens,
         }

@@ -238,6 +238,7 @@ pub(crate) async fn parse_openai_response(
             total_tokens: Some(mimo_resp.usage.total_tokens),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: choice.finish_reason,
     })
@@ -318,6 +319,7 @@ pub(crate) fn parse_anthropic_usage(body: &serde_json::Value) -> RawUsage {
         total_tokens,
         cache_read_tokens,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     }
 }
 

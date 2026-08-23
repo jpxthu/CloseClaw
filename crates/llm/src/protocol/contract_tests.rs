@@ -80,6 +80,7 @@ fn openai_simple_text() {
             total_tokens: Some(18),
             cache_read_tokens: Some(0),
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
     );
 }
@@ -117,6 +118,7 @@ fn openai_reasoning() {
             total_tokens: Some(38),
             cache_read_tokens: Some(0),
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
     );
 }
@@ -156,6 +158,7 @@ fn openai_tool_use() {
             total_tokens: Some(30),
             cache_read_tokens: Some(0),
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
     );
 }
@@ -185,6 +188,7 @@ fn openai_cache() {
             total_tokens: Some(110),
             cache_read_tokens: Some(28),
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
     );
 }
@@ -269,6 +273,7 @@ fn anthropic_simple_text() {
             total_tokens: None,
             cache_read_tokens: Some(0),
             cache_write_tokens: Some(0),
+            reasoning_tokens: None,
         },
     );
 }
@@ -310,6 +315,7 @@ fn anthropic_thinking() {
             total_tokens: None,
             cache_read_tokens: Some(0),
             cache_write_tokens: Some(0),
+            reasoning_tokens: None,
         },
     );
 }
@@ -354,6 +360,7 @@ fn anthropic_tool_use() {
             total_tokens: None,
             cache_read_tokens: Some(0),
             cache_write_tokens: Some(0),
+            reasoning_tokens: None,
         },
     );
 }
@@ -397,6 +404,7 @@ fn anthropic_cache() {
             total_tokens: None,
             cache_read_tokens: Some(256),
             cache_write_tokens: Some(0),
+            reasoning_tokens: None,
         },
     );
 }

@@ -283,6 +283,7 @@ impl FakeProvider {
                 total_tokens: Some(0),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: None,
         }
@@ -339,6 +340,7 @@ impl FakeProvider {
             total_tokens: Some(0),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         };
         let blocks = vec![RawContentBlock::Text(fallback)];
         let events = generate_openai_sse(&blocks, "fake-fallback", &usage, false, 0);
@@ -432,6 +434,7 @@ impl FakeProvider {
                 total_tokens: Some(prompt_tokens + completion_tokens),
                 cache_read_tokens,
                 cache_write_tokens,
+                reasoning_tokens: None,
             };
             let events = if *protocol == ProtocolId::new("anthropic") {
                 generate_anthropic_sse(&final_blocks, model, &usage, segment_granularity)

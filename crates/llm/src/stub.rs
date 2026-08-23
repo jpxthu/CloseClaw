@@ -90,6 +90,7 @@ impl Provider for StubProvider {
                 total_tokens: Some(prompt_tokens + self.response.len() as u32 / 4),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: None,
         })
