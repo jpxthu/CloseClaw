@@ -8,41 +8,20 @@ TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlo
 
 TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染由 IM Adapter 模块的流式渲染组件驱动——TerminalRenderer 引用流式渲染器，TerminalPlugin 在流式模式中通过该渲染器逐行产生增量输出，不经过 TerminalRenderer 自身的批量渲染。
 
-```
-ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
-  ↓
-TerminalRenderer
-  ├── 终端检测：检查 TERM 环境变量 / ANSI 支持，同时获取终端可用宽度
-  │     ├── 支持 ANSI → 启用颜色和格式
-  │     └── 不支持 → 全部回退纯文本
-  ├── DSL 交互元素预处理
-  │     ├── 按钮 / 选择器 → 纯文本提示行（终端无交互元素）
-  │     └── 其他 DSL → 忽略
-  ├── 遍历 ContentBlock[]
-  │     ├── Text
-  │     │     ├── 普通文本 → ANSI 格式化文本
-  │     │     └── 代码块 → 注入 ANSI 语法高亮 + 行号
-  │     ├── Thinking    → 折叠块（ANSI dim 样式）
-  │     ├── ToolUse     → 工具调用展示（原始 JSON 参数）
-  │     ├── ToolResult  → 工具结果展示
-  │     ├── Image       → 占位符 "[image: name]"
-  │     ├── Audio       → 占位符 "[audio: name]"
-  │     └── File        → 占位符 "[file: name]"
-  └── 输出截断：各块输出超过终端可用宽度时截断并追加 "... (truncated)"
-  ↓
-RenderedOutput { msg_type: "text", payload: ANSI 文本 }
-```
+1. ContentBlock[] + DslParseResult 输入
+2. 获取终端能力信息（platform 提供：ANSI 标记 + 宽度）→ 确定渲染模式（ANSI / 纯文本）
+3. DSL 交互元素预处理：按钮/选择器 → 纯文本提示行（并入最终输出最前部，见数据流）
+4. 遍历 ContentBlock[] 逐块渲染（策略见 §块类型渲染规则），逐块输出超过终端宽度时截断
+5. 返回单个 RenderedOutput（msg_type 恒 "text"；ANSI 模式 payload 为 ANSI 文本，纯文本模式 payload 为剥离 ANSI 转义后的纯文本）
 
 ### 终端能力检测
 
-渲染前检测终端 ANSI 支持和尺寸：
+终端能力检测由 [platform 模块](../platform/README.md)提供（检测规则与主流终端覆盖见 platform 文档），TerminalRenderer 在渲染时消费其结果：
 
-- **ANSI 检测**：`TERM` 环境变量含 `xterm`、`screen`、`ansi`、`vt100` 或 `color` → 启用 ANSI。Windows 下检测 Windows Terminal 环境 → 启用 ANSI。其余 → 回退纯文本模式
-- **终端宽度获取**：通过操作系统终端尺寸接口获取当前可用列数，用于各块的输出截断判断。宽度获取失败时回退到默认值（约 80 列）
+- **ANSI 能力标记**：支持 → 启用 ANSI 模式；不支持 → 回退纯文本模式
+- **终端可用宽度**：用于各块输出的截断判断
 
-上述检测覆盖主流终端：Ubuntu bash（通常 TERM=xterm-256color）、macOS Terminal（xterm-256color）、WSL2（xterm-256color）均默认启用 ANSI。
-
-纯文本模式下，所有 ANSI 转义序列被移除，仅保留文本内容和边界标记。
+纯文本模式下，所有 ANSI 转义序列被移除，仅保留文本内容和边界标记；markdown 格式标记保留原样输出（与列表标记的处理一致——纯文本模式不做格式转换，只做 ANSI 剥离）。
 
 ### 块类型渲染规则
 
@@ -74,38 +53,22 @@ Image、Audio、File 等终端不支持的块类型，渲染为带文件名的�
 
 终端检测和 DSL 预处理在遍历内容块之前统一完成，然后逐块渲染。渲染是纯数据转换，不执行 I/O：
 
-```
-ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
-  ↓
-终端能力检测 → 确定渲染模式（ANSI / 纯文本）+ 获取终端可用宽度
-  ↓
-DSL 交互元素预处理：
-  ├── 按钮 / 选择器 → 生成纯文本提示行（如 "[Button: label (action: xxx)]"）
-  └── 其他 DSL → 忽略
-  ↓
-遍历 content_blocks，按类型渲染
-  ├── Text（普通文本）→ ANSI 格式化，markdown 标记转 ANSI 样式
-  ├── Text（代码块）→ 注入语言标注行 + 行号 + 语法高亮 ANSI 颜色码
-  ├── Thinking → 折叠块，dim 样式包裹，首尾边界标记
-  ├── ToolUse → 工具名 + 原始 JSON 参数
-  ├── ToolResult → 工具结果，按终端宽度截断
-  ├── Image / Audio / File → 占位符
-  ├── 每种块类型独立渲染，块间空行分隔
-  └── 各块输出超过终端可用宽度时截断并追加 "... (truncated)"
-  ↓
-全部渲染完成后返回单个 RenderedOutput
-  ↓
-RenderedOutput { msg_type: "text", payload: ANSI 文本 }
-  ↓
-TerminalPlugin 的 send 方法将 payload 写入 stdout
-```
+1. ContentBlock[] + DslParseResult 输入（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)）
+2. 获取终端能力信息（经 platform 模块：ANSI 能力标记 + 可用宽度）→ 确定渲染模式（ANSI / 纯文本）
+3. DSL 交互元素预处理：按钮 / 选择器生成纯文本提示行（如 "[Button: label (action: xxx)]"）并汇总为提示行列表；其他 DSL 忽略
+4. 遍历 ContentBlock[] 逐块渲染，按块类型分派渲染策略（各策略见 §块类型渲染规则），块间空行分隔，各块输出超过终端可用宽度时截断并追加 "... (truncated)"
+5. 提示行列表并入最终输出：作为独立段落置于全部渲染内容最前，与正文之间空一行
+6. 全部渲染完成后返回单个 RenderedOutput（msg_type 恒 "text"，见 [common RenderedOutput §输出格式决策](../common/shared-types.md#renderedoutput) 的终端渠道例外）
+7. TerminalPlugin 的 send 方法将 payload 写入 stdout
 
-> **流式路径**：不走 TerminalRenderer 的批量渲染逻辑。ContentBlock[] 经统一预处理（VerbosityFilter → DslParser 零开销透传）后，IM Adapter 以流式模式驱动渲染。TerminalPlugin 逐行产生增量 RenderedOutput 后立即写入 stdout。流式结束后，DslParser 完整解析 → OutboundRawLog 写入出站日志。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+空输入约定：ContentBlock[] 为空且无 DSL 提示行时，返回空 payload 的 RenderedOutput，不产生输出内容。
+
+> **流式路径**：流式模式不走本组件的批量渲染逻辑，由 IM Adapter 流式渲染组件驱动（见 §架构），完整路径见 [CLI Chat §数据流](chat.md)。
 
 ## 模块关系
 
-- **上游**：TerminalPlugin（调用 TerminalRenderer 完成渲染，消费产出的 RenderedOutput 并通过 send 写入 stdout）
-- **下游**：无——渲染是纯数据转换，不调用其他模块
+- **上游**：TerminalPlugin（调用 TerminalRenderer 完成渲染）
+- **下游**：TerminalPlugin（消费 TerminalRenderer 产出的 RenderedOutput，通过 send 写入 stdout）——渲染是纯数据转换，除此之外不调用其他模块
 - **与模块内其他子功能**：被 TerminalPlugin 持有和调用，作为 IMPlugin 渲染职责的 terminal 渠道实现。TerminalPlugin 在流式模式中取用流式渲染组件逐行产生增量输出
 - **与 IM Adapter 的关系**：TerminalRenderer 是 IM Adapter 框架下 terminal 渠道的渲染实现，遵循 IMPlugin 约定——渲染返回 RenderedOutput，发送由插件完成。流式渲染使用 IM Adapter 模块的流式渲染组件作为共享渲染器
 - **无关**：IM Adapter 各平台渲染实现（飞书、Discord 等）——渲染策略和目标格式不同，无共享逻辑
