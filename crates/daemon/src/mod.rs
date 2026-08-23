@@ -14,6 +14,7 @@ pub mod shutdown;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
+use crate::skill_reload::SkillRescanHandle;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::{NoopMetricsEmitter, SessionLookup};
@@ -28,7 +29,6 @@ type StartupPlan = (
     Vec<Vec<crate::startup::ComponentId>>,
     Vec<Vec<crate::startup::ComponentId>>,
 );
-use crate::skill_reload::SkillRescanHandle;
 pub use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{sweeper::ArchiveSweeper, Gateway, GatewayConfig, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;

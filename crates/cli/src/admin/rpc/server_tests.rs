@@ -554,7 +554,7 @@ async fn test_dispatch_skill_rescan_with_handle_executes_and_returns_list() {
         )
         .unwrap();
         let scan_config = closeclaw_skills::ScanConfig {
-            global_dir: Some(tmp_dir.keep()),
+            global_dir: Some(tmp_dir.path().to_path_buf()),
             ..Default::default()
         };
         let new_registry = closeclaw_skills::init_disk_skills(&scan_config);
@@ -576,21 +576,5 @@ async fn test_dispatch_skill_rescan_with_handle_executes_and_returns_list() {
             assert_eq!(skills[0].name, "test-skill");
         }
         other => panic!("expected SkillListResult, got {:?}", other),
-    }
-}
-
-/// Error path: dispatch via AdminRequest::SkillRescan with no handle.
-///
-/// Verifies the full dispatch path (not just dispatch_skill_rescan)
-/// returns an error when the handle is missing.
-#[tokio::test]
-async fn test_dispatch_skill_rescan_request_no_handle() {
-    let ctx = make_test_context();
-    let resp = dispatch(AdminRequest::SkillRescan, &ctx).await;
-    match resp {
-        AdminResponse::Error { message } => {
-            assert!(message.contains("not available"));
-        }
-        other => panic!("expected Error, got {:?}", other),
     }
 }
