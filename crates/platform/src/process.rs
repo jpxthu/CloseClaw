@@ -117,6 +117,40 @@ pub fn read_pid_file(path: &Path) -> Option<u32> {
     content.trim().parse::<u32>().ok()
 }
 
+/// Waits for a process to exit, polling at 100ms intervals.
+///
+/// Uses [`is_process_alive`] as the probe primitive. Returns `Ok(())`
+/// once the process is no longer alive. Returns `Err` if the process
+/// is still alive after `timeout` elapses.
+///
+/// This is a synchronous blocking function (uses `std::thread::sleep`)
+/// intended for CLI local operations only.
+///
+/// # Arguments
+///
+/// * `pid` - The process ID to wait for.
+/// * `timeout` - Maximum duration to wait before returning an error.
+///
+/// # Errors
+///
+/// Returns an error if the process is still alive after the timeout.
+pub fn wait_for_exit(pid: u32, timeout: std::time::Duration) -> anyhow::Result<()> {
+    let start = std::time::Instant::now();
+    let poll_interval = std::time::Duration::from_millis(100);
+    loop {
+        if !is_process_alive(pid) {
+            return Ok(());
+        }
+        if start.elapsed() >= timeout {
+            anyhow::bail!(
+                "Process {pid} did not exit within {}ms",
+                timeout.as_millis()
+            );
+        }
+        std::thread::sleep(poll_interval);
+    }
+}
+
 /// Sends a termination signal to the process identified by `pid`.
 ///
 /// On Unix, sends SIGTERM by default or SIGINT when `force` is true.

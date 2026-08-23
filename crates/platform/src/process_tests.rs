@@ -1,6 +1,6 @@
 use crate::process::{
     check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
-    write_pid_file, SpawnOptions,
+    wait_for_exit, write_pid_file, SpawnOptions,
 };
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -252,5 +252,66 @@ fn test_is_process_alive_nonexistent() {
     assert!(
         !is_process_alive(99999999),
         "non-existent PID should not be alive"
+    );
+}
+
+// ── wait_for_exit boundary tests ──────────────────────────────────
+
+/// Dead process (killed+waited) should return Ok immediately.
+#[test]
+fn test_wait_for_exit_dead_process() {
+    let mut child = spawn_sleep_child();
+    let pid = child.id();
+    child.kill().expect("failed to kill child");
+    child.wait().expect("failed to wait on child");
+
+    let result = wait_for_exit(pid, std::time::Duration::from_secs(1));
+    assert!(
+        result.is_ok(),
+        "wait_for_exit on dead process should return Ok: {:?}",
+        result
+    );
+}
+
+/// Alive process with very short timeout should return Err, not panic.
+#[test]
+fn test_wait_for_exit_alive_short_timeout() {
+    let mut child = spawn_sleep_child();
+    let pid = child.id();
+
+    let result = wait_for_exit(pid, std::time::Duration::from_millis(200));
+    assert!(
+        result.is_err(),
+        "wait_for_exit on alive process with short timeout should return Err"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("did not exit within"),
+        "error should mention timeout: {}",
+        err_msg
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+/// PID 1 (init/systemd) + short timeout should return Err.
+#[test]
+fn test_wait_for_exit_pid1_short_timeout() {
+    let result = wait_for_exit(1, std::time::Duration::from_millis(200));
+    assert!(
+        result.is_err(),
+        "wait_for_exit on PID 1 with short timeout should return Err"
+    );
+}
+
+/// Dead PID (never existed) should return Ok immediately.
+#[test]
+fn test_wait_for_exit_nonexistent_pid() {
+    let result = wait_for_exit(99999999, std::time::Duration::from_secs(1));
+    assert!(
+        result.is_ok(),
+        "wait_for_exit on non-existent PID should return Ok: {:?}",
+        result
     );
 }
