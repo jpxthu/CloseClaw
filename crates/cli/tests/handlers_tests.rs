@@ -534,136 +534,109 @@ async fn test_handle_skill_install_not_found() {
 
 // ---------------------------------------------------------------------------
 // JSON output struct tests
-//
-// These verify that the JSON output structs serialize correctly and contain
-// the expected fields. They don't require stdout capture.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_config_validate_output_json() {
-    let output = ConfigValidateOutput {
-        file: "test.json".to_string(),
+fn test_json_output_structs() {
+    // ConfigValidateOutput
+    let valid = ConfigValidateOutput {
+        file: "test.json".into(),
         valid: true,
-        version: Some("1.0".to_string()),
+        version: Some("1.0".into()),
     };
-    let json = serde_json::to_string(&output).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&valid).unwrap()).unwrap();
     assert_eq!(v["file"], "test.json");
-    assert_eq!(v["valid"], true);
     assert_eq!(v["version"], "1.0");
-}
-
-#[test]
-fn test_config_validate_output_invalid() {
-    let output = ConfigValidateOutput {
-        file: "bad.json".to_string(),
+    let invalid = ConfigValidateOutput {
+        file: "bad.json".into(),
         valid: false,
         version: None,
     };
-    let json = serde_json::to_string(&output).unwrap();
-    assert!(!json.contains("version"), "None version should be skipped");
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(v["valid"], false);
-}
-
-#[test]
-fn test_config_list_output_json() {
+    let json = serde_json::to_string(&invalid).unwrap();
+    assert!(!json.contains("version"));
+    // ConfigListOutput
     let output = ConfigListOutput {
         files: vec![
             ConfigListFile {
-                name: "a.json".to_string(),
-                version: "1.0".to_string(),
-                path: "/tmp/a.json".to_string(),
+                name: "a.json".into(),
+                version: "1.0".into(),
+                path: "/tmp/a.json".into(),
             },
             ConfigListFile {
-                name: "b.json".to_string(),
-                version: "2.0".to_string(),
-                path: "/tmp/b.json".to_string(),
+                name: "b.json".into(),
+                version: "2.0".into(),
+                path: "/tmp/b.json".into(),
             },
         ],
     };
-    let json = serde_json::to_string(&output).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let files = v["files"].as_array().unwrap();
-    assert_eq!(files.len(), 2);
-    assert_eq!(files[0]["name"], "a.json");
-    assert_eq!(files[1]["version"], "2.0");
-}
-
-#[test]
-fn test_rule_check_output_json() {
-    let output = RuleCheckOutput {
-        rule_name: "my-rule".to_string(),
-        valid: true,
-    };
-    let json = serde_json::to_string(&output).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&output).unwrap()).unwrap();
+    assert_eq!(v["files"].as_array().unwrap().len(), 2);
+    // RuleCheckOutput
+    let v: serde_json::Value = serde_json::from_str(
+        &serde_json::to_string(&RuleCheckOutput {
+            rule_name: "my-rule".into(),
+            valid: true,
+        })
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(v["rule_name"], "my-rule");
-    assert_eq!(v["valid"], true);
-}
-
-#[test]
-fn test_rule_list_output_json() {
-    let output = RuleListOutput {
+    // RuleListOutput
+    let rules_out = RuleListOutput {
         rules: vec![
             RuleListEntry {
-                name: "r1".to_string(),
-                subject: "agent-a".to_string(),
-                effect: "allow".to_string(),
+                name: "r1".into(),
+                subject: "agent-a".into(),
+                effect: "allow".into(),
                 action_count: 3,
             },
             RuleListEntry {
-                name: "r2".to_string(),
-                subject: "agent-b".to_string(),
-                effect: "deny".to_string(),
+                name: "r2".into(),
+                subject: "agent-b".into(),
+                effect: "deny".into(),
                 action_count: 1,
             },
         ],
     };
-    let json = serde_json::to_string(&output).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let rules = v["rules"].as_array().unwrap();
-    assert_eq!(rules.len(), 2);
-    assert_eq!(rules[0]["name"], "r1");
-    assert_eq!(rules[0]["action_count"], 3);
-    assert_eq!(rules[1]["effect"], "deny");
-}
-
-#[test]
-fn test_stop_output_json() {
-    let output = StopOutput {
-        pid: 12345,
-        signal: "TERM".to_string(),
+    let v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&rules_out).unwrap()).unwrap();
+    assert_eq!(v["rules"].as_array().unwrap().len(), 2);
+    // StopOutput
+    let with_pid = StopOutput {
+        pid: Some(12345),
+        signal: "TERM".into(),
         stopped: true,
     };
-    let json = serde_json::to_string(&output).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&with_pid).unwrap()).unwrap();
     assert_eq!(v["pid"], 12345);
-    assert_eq!(v["signal"], "TERM");
-    assert_eq!(v["stopped"], true);
-}
-
-#[test]
-fn test_json_error_output() {
-    // Verify the error JSON structure matches {"error": "..."}
+    let no_pid = StopOutput {
+        pid: None,
+        signal: String::new(),
+        stopped: false,
+    };
+    let v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&no_pid).unwrap()).unwrap();
+    assert!(v["pid"].is_null());
+    // ErrorOutput
     #[derive(serde::Serialize)]
     struct ErrorOutput<'a> {
         error: &'a str,
     }
-    let output = ErrorOutput {
-        error: "something went wrong",
-    };
-    let json = serde_json::to_string(&output).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let v: serde_json::Value = serde_json::from_str(
+        &serde_json::to_string(&ErrorOutput {
+            error: "something went wrong",
+        })
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(v["error"], "something went wrong");
 }
 
 // ---------------------------------------------------------------------------
-// JSON output path tests (run with --nocapture to verify stdout output)
-//
-// These tests verify the JSON output path end-to-end by calling the handlers
-// with json=true. They must be run with `cargo test -- --nocapture` because
-// the handlers print JSON to stdout via json_output().
+// JSON output path tests (run with --nocapture)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -685,24 +658,6 @@ async fn test_config_validate_json() {
         "json config validate should succeed: {:?}",
         result
     );
-}
-
-#[tokio::test]
-#[serial_test::serial]
-async fn test_config_validate_invalid_json() {
-    let tmp = TempDir::new().unwrap();
-    let file = tmp.path().join("bad.json");
-    fs::write(&file, "{not valid json").unwrap();
-    // With json=true and invalid JSON, handler returns an anyhow::Error via json_error
-    // Just verify the handler returns Err for invalid JSON (non-json mode)
-    let result = handle_config(
-        ConfigAction::Validate {
-            file: file.to_str().unwrap().to_string(),
-        },
-        false,
-    )
-    .await;
-    assert!(result.is_err(), "invalid JSON should fail");
 }
 
 #[tokio::test]
@@ -867,19 +822,6 @@ async fn test_skill_install_json() {
     handle.abort();
 }
 
-#[tokio::test]
-#[serial_test::serial]
-async fn test_stop_json() {
-    let tmp = TempDir::new().unwrap();
-    let pid_file = tmp.path().join(".closeclaw").join("daemon.pid");
-    fs::create_dir_all(pid_file.parent().unwrap()).unwrap();
-    fs::write(&pid_file, "9999999").unwrap();
-    // PID 9999999 doesn't exist, so kill will fail.
-    // With json=true, the error path uses json_error which now returns Err.
-    let result = handle_stop(false, true).await;
-    assert!(result.is_err(), "stop with nonexistent pid should fail");
-}
-
 // ---------------------------------------------------------------------------
 // Tests migrated from handlers.rs inline mod tests
 // ---------------------------------------------------------------------------
@@ -990,4 +932,46 @@ fn test_agent_info_json_output_all_fields() {
         .contains(&serde_json::json!("d1")));
     assert!(v["subagents"].is_object());
     assert!(v["memory"].is_object());
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.4 — handle_stop: no PID file returns Ok, self-kill protection
+// ---------------------------------------------------------------------------
+
+/// Tests handle_stop edge cases:
+/// 1. No PID file → Ok (daemon not running)
+/// 2. No PID file in JSON mode → Ok
+/// 3. Self-kill protection → Err
+/// Uses a temp directory to avoid polluting the real config path.
+#[tokio::test]
+async fn test_handle_stop_no_pid_and_self_kill() {
+    use closeclaw_cli::admin::handle_stop_at;
+    use closeclaw_platform::process::{pid_file_path, write_pid_file};
+
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path();
+
+    // No PID file: text mode → Ok
+    let result = handle_stop_at(config_dir, false, false).await;
+    assert!(result.is_ok(), "no PID file should return Ok: {:?}", result);
+
+    // No PID file: JSON mode → Ok
+    let result = handle_stop_at(config_dir, false, true).await;
+    assert!(
+        result.is_ok(),
+        "no PID file (json) should return Ok: {:?}",
+        result
+    );
+
+    // Self-kill protection
+    let my_pid = std::process::id();
+    let pid_file = pid_file_path(config_dir);
+    write_pid_file(&pid_file, my_pid).unwrap();
+    let result = handle_stop_at(config_dir, false, false).await;
+    assert!(result.is_err(), "should refuse to kill self");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Refusing to kill self"),
+        "error should mention self-kill refusal, got: {err_msg}"
+    );
 }

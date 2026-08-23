@@ -11,6 +11,20 @@ const SOCKET_WAIT_TIMEOUT_MS: u64 = 30_000;
 /// Interval between admin socket connection attempts (milliseconds).
 const SOCKET_POLL_INTERVAL_MS: u64 = 200;
 
+/// Ensures no daemon is already running by checking the PID file.
+///
+/// If the PID file exists and the process is alive, returns an error.
+/// If the PID file exists but the process is dead (stale), the file is
+/// removed and the call succeeds. If no PID file exists, succeeds.
+pub(crate) fn ensure_no_running_daemon(pid_file: &Path) -> Result<()> {
+    match closeclaw_platform::process::check_stale_pid(pid_file)? {
+        Some(pid) => {
+            anyhow::bail!("daemon already running (PID {pid})");
+        }
+        None => Ok(()),
+    }
+}
+
 /// Trait abstraction for running the daemon in-process.
 ///
 /// This breaks the circular dependency between `closeclaw-cli` and
@@ -47,6 +61,9 @@ pub async fn handle_run_foreground(
     daemon_runner: &dyn DaemonRunner,
 ) -> Result<()> {
     let (config_dir, pid_file) = prepare_run(config_dir)?;
+
+    // Pre-check: reject if a daemon is already running, clean stale PID.
+    ensure_no_running_daemon(&pid_file)?;
 
     // Write PID file BEFORE running the daemon so integration tests can
     // find the daemon's PID after startup.
@@ -117,6 +134,9 @@ pub async fn handle_run(
 
     // Background mode: spawn child process running the daemon.
     let (config_dir_path, pid_file) = prepare_run(&config_dir)?;
+
+    // Pre-check: reject if a daemon is already running, clean stale PID.
+    ensure_no_running_daemon(&pid_file)?;
 
     let current_exe =
         std::env::current_exe().context("failed to resolve current executable path")?;
