@@ -49,9 +49,9 @@
   },
   {
     "path": "docs/design/cli/admin.md",
-    "commit": "99c1444c8fb7f379d40f7169de87242adf0bf002",
-    "commit_time": "2026-08-24T02:09:29+08:00",
-    "confirmed_time": "2026-08-24T02:15:52.753436+08:00",
+    "commit": "26c41c1c847f13c2c9e2683a687b01720f12736a",
+    "commit_time": "2026-08-24T06:20:43+08:00",
+    "confirmed_time": "2026-08-24T06:31:05.658800+08:00",
     "comment": "",
     "blocked_reason": ""
   },
