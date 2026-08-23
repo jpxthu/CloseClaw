@@ -792,6 +792,13 @@ impl TerminalRenderer {
     }
 
     /// Render content blocks and DSL results into a `RenderedOutput`.
+    ///
+    /// **Newline convention:** all `render_*` block-rendering methods
+    /// (`render_thinking`, `render_tool_use`, `render_tool_result`, etc.)
+    /// **must** end with a trailing `\n`. The inter-block blank-line
+    /// separation logic in this method relies on that trailing newline —
+    /// a blank line is formed by appending an extra `\n` between the
+    /// preceding block's trailing newline and the next block.
     pub fn render(
         &self,
         content_blocks: &[ContentBlock],

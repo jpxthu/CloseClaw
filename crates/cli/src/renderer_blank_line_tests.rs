@@ -19,6 +19,12 @@ fn payload_text(output: &closeclaw_common::RenderedOutput) -> &str {
     output.payload.as_str().unwrap()
 }
 
+/// Count occurrences of `"\n\n"` in `text` — each represents a blank-line
+/// separator (inter-block or DSL-body).
+fn count_blank_lines(text: &str) -> usize {
+    text.matches("\n\n").count()
+}
+
 // ── Normal path ─────────────────────────────────────────────────────────────
 
 /// Multi-block (2+ blocks): blank line between adjacent blocks exists.
@@ -257,6 +263,13 @@ fn test_long_chain_four_blocks_three_blank_lines() {
     ];
     let output = renderer.render(&blocks, None);
     let text = payload_text(&output);
+    // 4 blocks → exactly 3 inter-block blank lines, no DSL-body blank line
+    assert_eq!(
+        count_blank_lines(text),
+        3,
+        "4 blocks should produce exactly 3 blank-line separators, got: {:?}",
+        text
+    );
     // Text block ends with "hello\n", blank line "\n", Thinking starts
     assert!(
         text.contains("hello\n\n"),
@@ -314,6 +327,13 @@ fn test_long_chain_with_dsl() {
     ];
     let output = renderer.render(&blocks, Some(&dsl));
     let text = payload_text(&output);
+    // DSL (1) + 4 blocks (3 inter-block) = 4 blank lines total
+    assert_eq!(
+        count_blank_lines(text),
+        4,
+        "DSL + 4 blocks should produce exactly 4 blank-line separators, got: {:?}",
+        text
+    );
     // DSL-body blank line
     assert!(
         text.contains("[Button:") && text.contains("\n\nintro"),
@@ -360,6 +380,13 @@ fn test_multi_line_dsl_blank_line_to_body() {
     };
     let output = renderer.render(&[ContentBlock::Text("body".into())], Some(&dsl));
     let text = payload_text(&output);
+    // 2 DSL instructions + 1 block → exactly 1 DSL-body blank line
+    assert_eq!(
+        count_blank_lines(text),
+        1,
+        "2-line DSL + 1 block should produce exactly 1 blank-line separator, got: {:?}",
+        text
+    );
     // DSL lines end with "\n", then blank line "\n", then body
     assert!(
         text.contains("[Button: B") && text.contains("\n\nbody"),
@@ -409,6 +436,13 @@ fn test_three_blocks_two_blank_lines() {
     ];
     let output = renderer.render(&blocks, None);
     let text = payload_text(&output);
+    // 3 text blocks → exactly 2 inter-block blank lines
+    assert_eq!(
+        count_blank_lines(text),
+        2,
+        "3 blocks should produce exactly 2 blank-line separators, got: {:?}",
+        text
+    );
     assert!(text.contains("a\n\nb"), "blank line between a and b");
     assert!(text.contains("b\n\nc"), "blank line between b and c");
     // No blank line at start or end of body
