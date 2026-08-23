@@ -396,13 +396,19 @@ fn parse_usage(body: &serde_json::Value) -> RawUsage {
         .and_then(|v| v.as_u64())
         .map(|v| v as u32);
 
+    let reasoning_tokens = usage_obj
+        .and_then(|u| u.get("completion_tokens_details"))
+        .and_then(|d| d.get("reasoning_tokens"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
     RawUsage {
         prompt_tokens,
         completion_tokens,
         total_tokens,
         cache_read_tokens,
         cache_write_tokens: None,
-        reasoning_tokens: None,
+        reasoning_tokens,
     }
 }
 
