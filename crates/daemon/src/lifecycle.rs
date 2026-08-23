@@ -38,6 +38,7 @@ impl Daemon {
             shared_cache,
             session_config_provider,
             llm_registry,
+            skill_rescan_handle,
         ) = Self::init_phase_2_registries(config_dir, &config_manager).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
@@ -184,6 +185,7 @@ impl Daemon {
             &skill_registry,
             &config_manager,
             config_dir,
+            skill_rescan_handle,
         )
         .await;
         let (chat_handle, chat_sock_path) = Self::init_phase_6_chat_rpc(&gateway, config_dir).await;

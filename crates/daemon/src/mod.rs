@@ -14,6 +14,7 @@ pub mod shutdown;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
+use crate::skill_reload::SkillRescanHandle;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::{NoopMetricsEmitter, SessionLookup};
@@ -180,18 +181,20 @@ impl Daemon {
         Arc<RwLock<SectionCache>>,
         Arc<dyn SessionConfigProvider>,
         Arc<closeclaw_llm::LLMRegistry>,
+        SkillRescanHandle,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
-        let (skill_registry, skill_watcher) = skill_reload::init_skill_hot_reload(
-            config_dir,
-            None,
-            Arc::clone(&shared_cache),
-            extra_dirs,
-        )
-        .await?;
+        let (skill_registry, skill_watcher, skill_rescan_handle) =
+            skill_reload::init_skill_hot_reload(
+                config_dir,
+                None,
+                Arc::clone(&shared_cache),
+                extra_dirs,
+            )
+            .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
         let session_config_provider =
             config_manager.session_config_provider().unwrap_or_else(|| {
@@ -213,6 +216,7 @@ impl Daemon {
             shared_cache,
             session_config_provider,
             llm_registry,
+            skill_rescan_handle,
         ))
     }
 
@@ -910,6 +914,7 @@ impl Daemon {
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
         config_manager: &Arc<ConfigManager>,
         config_dir: &str,
+        skill_rescan_handle: SkillRescanHandle,
     ) -> (tokio::task::JoinHandle<()>, PathBuf) {
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
         let admin_context = AdminContext {
@@ -917,6 +922,7 @@ impl Daemon {
             skill_registry: skill_registry.clone(),
             config_manager: Arc::clone(config_manager),
             config_dir: PathBuf::from(config_dir),
+            skill_rescan: Some(Arc::new(move || skill_rescan_handle.perform())),
         };
         let admin_server = AdminServer::new(&admin_sock_path, admin_context);
         let admin_handle = tokio::spawn(async move {
