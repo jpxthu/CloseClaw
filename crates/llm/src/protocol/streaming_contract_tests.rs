@@ -143,10 +143,13 @@ async fn openai_streaming_text_contract() {
             finish_reason,
         } => {
             assert_eq!(finish_reason.as_deref(), Some("stop"));
-            assert!(
-                usage.is_none(),
-                "current impl emits usage=None on stream exhaustion"
-            );
+            // Usage should be extracted from the final chunk
+            let u = usage
+                .as_ref()
+                .expect("usage should be present from final chunk");
+            assert_eq!(u.prompt_tokens, 14);
+            assert_eq!(u.completion_tokens, 4);
+            assert_eq!(u.total_tokens, Some(18));
         }
         other => panic!("expected MessageEnd, got {:?}", other),
     }

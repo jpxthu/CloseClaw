@@ -789,3 +789,141 @@ fn test_parse_response_reasoning_tokens_missing() {
     let resp = proto.parse_response(body).unwrap();
     assert_eq!(resp.usage.reasoning_tokens, None);
 }
+
+// ── SSE stream usage extraction ─────────────────────────────────────────────
+
+/// Combined test for usage extraction: (1) usage in final chunk,
+/// (2) no usage → None, (3) usage in same chunk as finish_reason.
+#[tokio::test]
+async fn test_sse_stream_usage_scenarios() {
+    // Scenario 1: usage in final chunk alongside finish_reason
+    let proto = OpenAiProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(r#"{"choices":[{"delta":{"content":"Hello"}}]}"#),
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"content":" there!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}"#,
+        ),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+    // BlockStart + 2 BlockDeltas + BlockEnd
+    let _ = stream.next().await.unwrap().unwrap();
+    let _ = stream.next().await.unwrap().unwrap();
+    let _ = stream.next().await.unwrap().unwrap();
+    let _ = stream.next().await.unwrap().unwrap();
+    match stream.next().await.unwrap().unwrap() {
+        StreamEvent::MessageEnd {
+            usage,
+            finish_reason,
+        } => {
+            let u = usage.unwrap();
+            assert_eq!(u.prompt_tokens, 10);
+            assert_eq!(u.completion_tokens, 5);
+            assert_eq!(u.total_tokens, Some(15));
+            assert_eq!(finish_reason.as_deref(), Some("stop"));
+        }
+        _ => panic!("expected MessageEnd"),
+    }
+    assert!(stream.next().await.is_none());
+
+    // Scenario 2: no usage chunk → usage is None
+    let proto2 = OpenAiProtocol::new();
+    let m2 = proto2.create_sse_machine();
+    let in2: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(r#"{"choices":[{"delta":{"content":"Hi"}}]}"#),
+        make_sse_chunk(r#"{"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}"#),
+    ]));
+    let mut s2 = proto2.parse_sse_stream(in2, m2).await;
+    for _ in 0..4 {
+        let _ = s2.next().await.unwrap().unwrap();
+    }
+    match s2.next().await.unwrap().unwrap() {
+        StreamEvent::MessageEnd { usage, .. } => {
+            assert!(usage.is_none());
+        }
+        _ => panic!("expected MessageEnd"),
+    }
+    assert!(s2.next().await.is_none());
+
+    // Scenario 3: usage in same chunk as finish_reason (no prior content)
+    let proto3 = OpenAiProtocol::new();
+    let m3 = proto3.create_sse_machine();
+    let in3: IncomingSseStream = Box::pin(futures::stream::iter(vec![make_sse_chunk(
+        r#"{"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}"#,
+    )]));
+    let mut s3 = proto3.parse_sse_stream(in3, m3).await;
+    let _ = s3.next().await.unwrap().unwrap(); // BlockStart
+    let _ = s3.next().await.unwrap().unwrap(); // BlockDelta
+    let _ = s3.next().await.unwrap().unwrap(); // BlockEnd
+    match s3.next().await.unwrap().unwrap() {
+        StreamEvent::MessageEnd { usage, .. } => {
+            let u = usage.unwrap();
+            assert_eq!(u.prompt_tokens, 20);
+            assert_eq!(u.completion_tokens, 10);
+            assert_eq!(u.total_tokens, Some(30));
+        }
+        _ => panic!("expected MessageEnd"),
+    }
+    assert!(s3.next().await.is_none());
+}
+
+#[tokio::test]
+async fn test_sse_stream_tool_calls_with_usage() {
+    let proto = OpenAiProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_x","type":"function","function":{"name":"search","arguments":""}}]}}]}"#,
+        ),
+        make_sse_chunk(
+            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"q\": \"rust\"}"}}]}}]}"#,
+        ),
+        make_sse_chunk(
+            r#"{"choices":[{"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":30,"completion_tokens":15,"total_tokens":45}}"#,
+        ),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+    for _ in 0..5 {
+        let _ = stream.next().await.unwrap().unwrap();
+    }
+    match stream.next().await.unwrap().unwrap() {
+        StreamEvent::MessageEnd {
+            usage,
+            finish_reason,
+        } => {
+            let u = usage.unwrap();
+            assert_eq!(u.prompt_tokens, 30);
+            assert_eq!(u.completion_tokens, 15);
+            assert_eq!(u.total_tokens, Some(45));
+            assert_eq!(finish_reason.as_deref(), Some("tool_calls"));
+        }
+        _ => panic!("expected MessageEnd"),
+    }
+    assert!(stream.next().await.is_none());
+}
+
+#[tokio::test]
+async fn test_sse_stream_usage_only_in_dedicated_chunk() {
+    // Usage arrives in a separate final chunk (no choices) before [DONE]
+    let proto = OpenAiProtocol::new();
+    let machine = proto.create_sse_machine();
+    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
+        make_sse_chunk(r#"{"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}"#),
+        make_sse_chunk(r#"{"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}"#),
+    ]));
+    let mut stream = proto.parse_sse_stream(incoming, machine).await;
+    let _ = stream.next().await.unwrap().unwrap(); // BlockStart
+    let _ = stream.next().await.unwrap().unwrap(); // BlockDelta
+    let _ = stream.next().await.unwrap().unwrap(); // BlockEnd
+    let mut found = false;
+    while let Some(evt) = stream.next().await {
+        if let StreamEvent::MessageEnd { usage, .. } = evt.unwrap() {
+            let u = usage.unwrap();
+            assert_eq!(u.prompt_tokens, 5);
+            assert_eq!(u.completion_tokens, 2);
+            assert_eq!(u.total_tokens, Some(7));
+            found = true;
+        }
+    }
+    assert!(found);
+}
