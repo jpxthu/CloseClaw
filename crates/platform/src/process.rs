@@ -32,6 +32,62 @@ impl Default for SpawnOptions {
 
 use tracing::info;
 
+/// Checks whether a process with the given PID is alive.
+///
+/// On Unix, uses `kill(pid, 0)` to probe. An `EPERM` error is treated
+/// as "alive" (process exists but belongs to a different user).
+///
+/// On Windows, queries `tasklist` and checks for the PID in the output.
+pub fn is_process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        // SAFETY: kill with signal 0 is a standard POSIX existence check.
+        // No signal is delivered; the kernel merely validates the PID.
+        let ret = unsafe { libc::kill(pid as i32, 0) };
+        if ret == 0 {
+            return true;
+        }
+        // EPERM means the process exists but we lack permission to signal it.
+        let err = std::io::Error::last_os_error();
+        err.raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        let output = match std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => return false,
+        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // tasklist /NH outputs a line with the PID if found, empty otherwise.
+        stdout.contains(&pid.to_string())
+    }
+}
+
+/// Checks a PID file for a stale or live daemon process.
+///
+/// * Returns `Some(pid)` if the PID file exists and the process is alive.
+/// * Returns `Ok(None)` if the PID file does not exist.
+/// * If the PID file exists but the process is dead (stale), the file is
+///   deleted and `Ok(None)` is returned.
+/// * Returns `Err` if the PID file cannot be read or removed.
+pub fn check_stale_pid(pid_file: &Path) -> anyhow::Result<Option<u32>> {
+    match read_pid_file(pid_file) {
+        None => Ok(None),
+        Some(pid) => {
+            if is_process_alive(pid) {
+                Ok(Some(pid))
+            } else {
+                // Stale PID file — remove it so the caller can start fresh.
+                std::fs::remove_file(pid_file)?;
+                Ok(None)
+            }
+        }
+    }
+}
+
 /// Returns the platform-specific PID file path.
 ///
 /// On Unix: `{config_dir}/daemon.pid`

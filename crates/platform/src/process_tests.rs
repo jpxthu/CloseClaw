@@ -1,5 +1,6 @@
 use crate::process::{
-    pid_file_path, read_pid_file, send_signal, spawn_daemon, write_pid_file, SpawnOptions,
+    check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
+    write_pid_file, SpawnOptions,
 };
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -152,5 +153,75 @@ fn test_spawn_daemon_invalid_command() {
     assert!(
         result.is_err(),
         "spawn_daemon with invalid command should return error"
+    );
+}
+
+// ── is_process_alive tests ────────────────────────────────────────
+
+#[test]
+fn test_is_process_alive_self() {
+    // The current process is definitely alive.
+    let pid = std::process::id();
+    assert!(is_process_alive(pid), "current process should be alive");
+}
+
+#[test]
+fn test_is_process_alive_nonexistent() {
+    // PID 99999999 almost certainly does not exist.
+    assert!(
+        !is_process_alive(99999999),
+        "non-existent PID should not be alive"
+    );
+}
+
+#[test]
+fn test_is_process_alive_child() {
+    let mut child = spawn_sleep_child();
+    let pid = child.id();
+    assert!(is_process_alive(pid), "spawned child should be alive");
+    child.kill().ok();
+    child.wait().ok();
+    // After kill+wait the process is dead.
+    // Give the OS a moment to reap it.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    assert!(!is_process_alive(pid), "killed child should not be alive");
+}
+
+// ── check_stale_pid tests ─────────────────────────────────────────
+
+#[test]
+fn test_check_stale_pid_no_file() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    let result = check_stale_pid(&path).unwrap();
+    assert_eq!(result, None, "no PID file should return None");
+}
+
+#[test]
+fn test_check_stale_pid_stale_cleaned() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    // Write a PID that almost certainly does not exist.
+    write_pid_file(&path, 99999999).unwrap();
+    assert!(path.exists(), "PID file should exist before check");
+
+    let result = check_stale_pid(&path).unwrap();
+    assert_eq!(result, None, "stale PID file should return None");
+    assert!(!path.exists(), "stale PID file should have been removed");
+}
+
+#[test]
+fn test_check_stale_pid_alive() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    // Use our own PID — it's alive.
+    let my_pid = std::process::id();
+    write_pid_file(&path, my_pid).unwrap();
+
+    let result = check_stale_pid(&path).unwrap();
+    assert_eq!(result, Some(my_pid), "alive PID should be returned");
+    assert!(
+        path.exists(),
+        "PID file should not be removed for live process"
     );
 }
