@@ -4,6 +4,7 @@
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
+use closeclaw_llm::LLMRegistry;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::storage::SqliteStorage;
@@ -69,6 +70,9 @@ pub struct Daemon {
     pub spawn_controller: Option<Arc<SpawnController>>,
     /// SystemPromptBuilder reference — static-layer prompt construction
     pub system_prompt_builder: Option<Arc<dyn closeclaw_common::SystemPromptBuilder>>,
+    /// LLM provider registry — reads models.json, constructs LLM clients.
+    /// Initialized in Phase 2, consumed by LLM call chain assembly.
+    pub llm_registry: Arc<LLMRegistry>,
     /// Receiver half of the SessionMessageHandler output channel.
     /// Retained here to prevent the sender from being silently closed;
     /// will be wired to the outbound pipeline in a future step.

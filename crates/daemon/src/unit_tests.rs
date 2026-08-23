@@ -680,7 +680,7 @@ fn config_manager_with_extra_dirs(dirs: &[&str]) -> closeclaw_config::ConfigMana
 #[test]
 fn test_resolve_extra_dirs_tilde_expanded() {
     let cm = config_manager_with_extra_dirs(&["~/my-skills"]);
-    let result = Daemon::resolve_extra_dirs(&cm);
+    let result = skills_helper::resolve_extra_dirs(&cm);
     assert_eq!(result.len(), 1);
     let expected_home = dirs::home_dir().expect("home_dir should exist");
     assert_eq!(result[0], expected_home.join("my-skills"));
@@ -690,7 +690,7 @@ fn test_resolve_extra_dirs_tilde_expanded() {
 #[test]
 fn test_resolve_extra_dirs_tilde_nested_path() {
     let cm = config_manager_with_extra_dirs(&["~/a/b/c"]);
-    let result = Daemon::resolve_extra_dirs(&cm);
+    let result = skills_helper::resolve_extra_dirs(&cm);
     assert_eq!(result.len(), 1);
     let expected_home = dirs::home_dir().expect("home_dir should exist");
     assert_eq!(result[0], expected_home.join("a/b/c"));
@@ -700,7 +700,7 @@ fn test_resolve_extra_dirs_tilde_nested_path() {
 #[test]
 fn test_resolve_extra_dirs_absolute_path_unchanged() {
     let cm = config_manager_with_extra_dirs(&["/opt/skills"]);
-    let result = Daemon::resolve_extra_dirs(&cm);
+    let result = skills_helper::resolve_extra_dirs(&cm);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], std::path::PathBuf::from("/opt/skills"));
 }
@@ -709,7 +709,7 @@ fn test_resolve_extra_dirs_absolute_path_unchanged() {
 #[test]
 fn test_resolve_extra_dirs_relative_path_unchanged() {
     let cm = config_manager_with_extra_dirs(&["relative/skills"]);
-    let result = Daemon::resolve_extra_dirs(&cm);
+    let result = skills_helper::resolve_extra_dirs(&cm);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0], std::path::PathBuf::from("relative/skills"));
 }
@@ -729,7 +729,7 @@ fn test_resolve_extra_dirs_no_skills_config() {
     .unwrap();
     let cm = closeclaw_config::ConfigManager::new(config_subdir).unwrap();
     cm.load().unwrap();
-    let result = Daemon::resolve_extra_dirs(&cm);
+    let result = skills_helper::resolve_extra_dirs(&cm);
     assert!(result.is_empty());
 }
 
@@ -744,7 +744,7 @@ fn test_resolve_extra_dirs_invalid_json() {
     std::fs::write(config_subdir.join("skills.json"), "not valid json {{{").unwrap();
     let cm = closeclaw_config::ConfigManager::new(config_subdir).unwrap();
     cm.load().unwrap();
-    let result = Daemon::resolve_extra_dirs(&cm);
+    let result = skills_helper::resolve_extra_dirs(&cm);
     assert!(result.is_empty(), "invalid JSON should yield empty Vec");
 }
 
@@ -752,7 +752,7 @@ fn test_resolve_extra_dirs_invalid_json() {
 #[test]
 fn test_resolve_extra_dirs_mixed_paths() {
     let cm = config_manager_with_extra_dirs(&["~/my-skills", "/opt/skills", "relative/skills"]);
-    let result = Daemon::resolve_extra_dirs(&cm);
+    let result = skills_helper::resolve_extra_dirs(&cm);
     assert_eq!(result.len(), 3);
     let expected_home = dirs::home_dir().expect("home_dir should exist");
     assert_eq!(result[0], expected_home.join("my-skills"));
