@@ -8,7 +8,8 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use closeclaw_common::SessionMode;
+use closeclaw_common::session_mode::SessionMode;
+use closeclaw_common::system_prompt::ModeTransition;
 use closeclaw_execution::PlanPath;
 
 mod mode_prompts;
@@ -40,6 +41,10 @@ pub enum Section {
         sparse: bool,
         sub_agent: bool,
     },
+    /// Mode transition prompt, injected when a session mode change occurs.
+    /// Carries the transition type and renders the corresponding prompt
+    /// from design doc §6.
+    ModeTransition(ModeTransition),
 }
 
 impl Section {
@@ -58,6 +63,7 @@ impl Section {
             Section::GitStatus(_) => "git_status",
             Section::WorkingDirectory(_) => "working_directory",
             Section::ModeInstruction { .. } => "mode_instruction",
+            Section::ModeTransition(_) => "mode_transition",
         }
     }
     /// Render the section as a string for the system prompt
@@ -86,6 +92,7 @@ impl Section {
                 sparse,
                 sub_agent,
             } => render_mode_instruction_with_flags(*mode, *plan_path, *sparse, *sub_agent),
+            Section::ModeTransition(transition) => render_mode_transition(*transition),
         }
     }
 }
@@ -161,6 +168,17 @@ fn render_interview_path_instruction() -> String {
         "## Mode: Plan \u{2014} Interview Path\n\n{}\n\n{}\n",
         PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT
     )
+}
+
+/// Render mode transition prompt based on transition type.
+///
+/// Content verbatim from design doc section 6.
+fn render_mode_transition(transition: ModeTransition) -> String {
+    match transition {
+        ModeTransition::PlanModeReentry => PLAN_MODE_REENTRY.to_string(),
+        ModeTransition::PlanModeExit => PLAN_MODE_EXIT.to_string(),
+        ModeTransition::AutoModeExit => AUTO_MODE_EXIT.to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------

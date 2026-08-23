@@ -122,12 +122,24 @@ fn test_is_completed_all_skipped() {
     assert!(is_completed_plan(content));
 }
 
+#[test]
+fn test_is_completed_all_failed() {
+    let content = "## Tasks\n\n- [!] Step 1\n- [!] Step 2\n";
+    assert!(is_completed_plan(content));
+}
+
+#[test]
+fn test_is_completed_done_failed_skipped_mix() {
+    let content = "## Tasks\n\n- [x] Done\n- [!] Failed\n- [~] Skipped\n";
+    assert!(is_completed_plan(content));
+}
+
 // --- Error path ---
 
 #[test]
-fn test_is_not_completed_has_failed() {
+fn test_is_completed_has_failed() {
     let content = "## Tasks\n\n- [x] Step 1\n- [!] Step 2 failed\n";
-    assert!(!is_completed_plan(content));
+    assert!(is_completed_plan(content));
 }
 
 #[test]
@@ -175,9 +187,9 @@ fn test_is_not_completed_single_pending() {
 }
 
 #[test]
-fn test_is_not_completed_single_failed() {
+fn test_is_completed_single_failed() {
     let content = "## Tasks\n\n- [!] Only step\n";
-    assert!(!is_completed_plan(content));
+    assert!(is_completed_plan(content));
 }
 
 // --- State transition: simulating plan from active to complete ---
@@ -270,7 +282,7 @@ fn test_archiver_skips_active_step_plan() {
 }
 
 #[test]
-fn test_archiver_skips_failed_step_plan() {
+fn test_archiver_archives_failed_step_plan() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = create_plan_file(
         dir.path(),
@@ -281,8 +293,8 @@ fn test_archiver_skips_failed_step_plan() {
 
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
-    assert_eq!(count, 0);
-    assert!(path.exists());
+    assert_eq!(count, 1);
+    assert!(!path.exists());
 }
 
 #[test]
@@ -352,18 +364,18 @@ fn test_archiver_multiple_files_mixed_step_status() {
     fs::write(&path3, "# P3\n\n## Tasks\n\n- [x] A\n- [ ] B\n").unwrap();
     set_old_mtime(&path3);
 
-    // Has failed, old → should NOT archive
+    // Has failed, old → should archive (failed is terminal)
     let path4 = plans_dir.join("failed-old.md");
     fs::write(&path4, "# P4\n\n## Tasks\n\n- [x] A\n- [!] B\n").unwrap();
     set_old_mtime(&path4);
 
     let archiver = PlanArchiver::new(7);
     let count = archiver.archive(dir.path()).unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(count, 2);
     assert!(!path1.exists());
     assert!(path2.exists());
     assert!(path3.exists());
-    assert!(path4.exists());
+    assert!(!path4.exists());
 }
 
 #[test]

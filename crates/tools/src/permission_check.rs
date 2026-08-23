@@ -65,10 +65,23 @@ async fn route_denial(
     is_sub_agent: bool,
     approval_flow: &Arc<ApprovalMutex>,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    let reason = match response {
-        PR::Denied { reason, .. } => reason.clone(),
+    let (reason, existing_request_id) = match response {
+        PR::Denied {
+            reason,
+            approval_request_id,
+            ..
+        } => (reason.clone(), approval_request_id.clone()),
         _ => return Ok(None),
     };
+    // If the engine already submitted to the approval flow, use that
+    // request ID directly instead of re-submitting.
+    if let Some(request_id) = existing_request_id {
+        return Ok(Some(ToolResult {
+            data: approval_utils::build_approval_pending(request_id),
+            new_messages: vec![],
+            context_modifier: None,
+        }));
+    }
     let mut flow = approval_flow.lock().await;
     if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, is_sub_agent)
     {
@@ -94,10 +107,23 @@ async fn route_command_denial(
     is_sub_agent: bool,
     approval_flow: &Arc<ApprovalMutex>,
 ) -> CommandPermissionResult {
-    let reason = match response {
-        PR::Denied { reason, .. } => reason.clone(),
+    let (reason, existing_request_id) = match response {
+        PR::Denied {
+            reason,
+            approval_request_id,
+            ..
+        } => (reason.clone(), approval_request_id.clone()),
         _ => return CommandPermissionResult::Permitted,
     };
+    // If the engine already submitted to the approval flow, use that
+    // request ID directly instead of re-submitting.
+    if let Some(request_id) = existing_request_id {
+        return CommandPermissionResult::PendingApproval(ToolResult {
+            data: approval_utils::build_approval_pending(request_id),
+            new_messages: vec![],
+            context_modifier: None,
+        });
+    }
     let mut flow = approval_flow.lock().await;
     if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, is_sub_agent)
     {

@@ -135,8 +135,8 @@ pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
 pub use storage_provider::{PersistResult, SessionCheckpoint, SessionStatus, StorageProvider};
 pub use system_prompt::{
-    split_static_dynamic, DynamicPromptBuilder, DynamicPromptContext, PromptOverrides,
-    SystemPromptBuilder,
+    split_static_dynamic, DynamicPromptBuilder, DynamicPromptContext, ModeTransition,
+    PromptOverrides, SystemPromptBuilder,
 };
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
 pub use lazy_tool::{LazyTool, ToolMeta};

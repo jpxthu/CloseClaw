@@ -684,5 +684,11 @@ pub enum PermissionResponse {
         reason: String,
         rule: String,
         risk_level: RiskLevel,
+        /// When set, indicates the operation was already submitted to the
+        /// approval flow and is pending owner approval. Callers should
+        /// return this as an `approval_pending` result instead of
+        /// re-submitting to the approval flow.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_request_id: Option<String>,
     },
 }
