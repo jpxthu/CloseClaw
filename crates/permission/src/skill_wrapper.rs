@@ -371,6 +371,7 @@ mod tests {
             reason: "no".to_string(),
             rule: "r".to_string(),
             risk_level: EngineRiskLevel::High,
+            approval_request_id: None,
         };
         match to_eval_result(resp) {
             PermissionEvalResult::Denied { reason, risk_level } => {

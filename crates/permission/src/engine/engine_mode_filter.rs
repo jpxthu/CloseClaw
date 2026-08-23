@@ -52,6 +52,7 @@ impl PermissionEngine {
                     reason: "write operation denied in Plan mode".to_string(),
                     rule: "<plan_mode_filter>".to_string(),
                     risk_level: assess_risk_level(body),
+                    approval_request_id: None,
                 })
             }
             PermissionRequestBody::CommandExec { .. } => {
@@ -65,6 +66,7 @@ impl PermissionEngine {
                     reason: "command execution denied in Plan mode".to_string(),
                     rule: "<plan_mode_filter>".to_string(),
                     risk_level: assess_risk_level(body),
+                    approval_request_id: None,
                 })
             }
             PermissionRequestBody::ConfigWrite { .. } => {
@@ -78,6 +80,7 @@ impl PermissionEngine {
                     reason: "config write denied in Plan mode".to_string(),
                     rule: "<plan_mode_filter>".to_string(),
                     risk_level: assess_risk_level(body),
+                    approval_request_id: None,
                 })
             }
             PermissionRequestBody::ToolCall { skill, .. } if skill == "ask_user_question" => {
@@ -105,12 +108,15 @@ impl PermissionEngine {
     ///
     /// Design doc: "Auto Mode 下完整工具集可见，但危险操作需运行时审查"
     /// and "不擅自向外部平台发送消息". Dangerous operations (High/Critical
-    /// risk) and outgoing MessageSend are denied in Auto Mode.
+    /// risk) are routed through the approval flow for owner confirmation.
+    /// Outgoing MessageSend is directly denied (prohibited behavior).
     ///
     /// Owner is exempt.
     ///
-    /// Returns `Some(Denied)` if the operation should be blocked,
-    /// `None` to proceed with normal evaluation.
+    /// Returns `Some(Denied)` if the operation should be blocked or
+    /// requires approval (with `approval_request_id` set when routed
+    /// through the approval flow), `None` to proceed with normal
+    /// evaluation.
     pub(super) fn check_auto_mode_filter(
         &self,
         request: &PermissionRequest,
@@ -127,9 +133,12 @@ impl PermissionEngine {
 
         let risk = assess_risk_level(body);
         if risk.is_high_or_critical() {
+            // Route through approval flow instead of directly denying.
+            let caller = request.caller();
+            let approval_request_id = self.submit_auto_mode_approval(&caller, body, risk, agent_id);
             info!(
                 agent = agent_id,
-                result = "denied",
+                result = "approval_pending",
                 reason = "auto_mode_risk_gate",
                 risk_level = ?risk,
                 "permission check completed"
@@ -140,6 +149,7 @@ impl PermissionEngine {
                     .to_string(),
                 rule: "<auto_mode_filter>".to_string(),
                 risk_level: risk,
+                approval_request_id,
             });
         }
 
@@ -160,6 +170,7 @@ impl PermissionEngine {
                     .to_string(),
                 rule: "<auto_mode_filter>".to_string(),
                 risk_level: RiskLevel::Low,
+                approval_request_id: None,
             });
         }
 

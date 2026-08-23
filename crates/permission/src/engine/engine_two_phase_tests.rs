@@ -326,11 +326,7 @@ fn test_extra_deny_subjects_match() {
         Some(extra),
     );
     match resp {
-        PermissionResponse::Denied {
-            reason,
-            rule,
-            risk_level: _,
-        } => {
+        PermissionResponse::Denied { reason, rule, .. } => {
             assert!(reason.contains("parent agent restriction"));
             assert_eq!(rule, "<extra_deny>");
         }

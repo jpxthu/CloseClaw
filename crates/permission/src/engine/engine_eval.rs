@@ -5,8 +5,8 @@ use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_tem
 use super::engine_matching::action_matches_request;
 use super::engine_risk::{assess_risk_level, RiskLevel};
 use super::engine_types::{
-    Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule, RuleSet,
-    Subject,
+    Caller, Defaults, Effect, PermissionRequest, PermissionRequestBody, PermissionResponse, Rule,
+    RuleSet, Subject,
 };
 use super::engine_workspace;
 use super::rejection_log::{build_rejection_log, RejectionLogger};
@@ -18,6 +18,21 @@ use std::sync::Arc;
 use tracing::info;
 // NOTE: Cache fields (agent_permissions, user_effective_permissions) removed per
 // design doc: "权限评估每次新鲜计算，不缓存评估结果"
+
+/// Callback type for submitting auto-mode dangerous operations to the
+/// approval flow.
+///
+/// # Arguments
+/// * `caller` — Who initiated the operation.
+/// * `body` — The permission request body.
+/// * `risk_level` — Risk assessment of the operation.
+/// * `agent_id` — The agent instance ID.
+///
+/// # Returns
+/// `Some(request_id)` if the operation was enqueued for owner approval,
+/// `None` if the submission was rejected (e.g., sub-agent or duplicate).
+pub type ApprovalCallback =
+    Arc<dyn Fn(&Caller, &PermissionRequestBody, RiskLevel, &str) -> Option<String> + Send + Sync>;
 
 /// Build O(1) lookup indices from a RuleSet.
 ///
@@ -72,6 +87,11 @@ pub struct PermissionEngine {
     /// Optional audit logger for recording both approved and rejected
     /// permission requests in Auto Mode.
     audit_logger: Option<Arc<dyn AuditLogger>>,
+    /// Optional callback for submitting auto-mode dangerous operations
+    /// to the approval flow. When set, high/critical risk operations
+    /// in Auto Mode are routed through this callback instead of being
+    /// directly denied.
+    approval_callback: Option<ApprovalCallback>,
 }
 
 // --- Construction & index management ---
@@ -89,6 +109,7 @@ impl PermissionEngine {
             session_mode_query: None,
             rejection_logger: None,
             audit_logger: None,
+            approval_callback: None,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
@@ -157,6 +178,33 @@ impl PermissionEngine {
     /// Get a reference to the audit logger, if set.
     pub fn audit_logger(&self) -> Option<&Arc<dyn AuditLogger>> {
         self.audit_logger.as_ref()
+    }
+
+    /// Inject an approval callback for auto-mode dangerous operations.
+    ///
+    /// When set, high/critical risk operations in Auto Mode are routed
+    /// through this callback instead of being directly denied. The
+    /// callback receives the caller, request body, risk level, and
+    /// agent ID, and returns an optional approval request ID.
+    pub fn with_approval_callback(mut self, callback: ApprovalCallback) -> Self {
+        self.approval_callback = Some(callback);
+        self
+    }
+
+    /// Submit an auto-mode dangerous operation to the approval flow.
+    ///
+    /// Returns `Some(request_id)` if the operation was enqueued for
+    /// owner approval, or `None` if the approval flow rejected the
+    /// submission (e.g., sub-agent or duplicate).
+    pub(super) fn submit_auto_mode_approval(
+        &self,
+        caller: &Caller,
+        body: &PermissionRequestBody,
+        risk_level: RiskLevel,
+        agent_id: &str,
+    ) -> Option<String> {
+        let callback = self.approval_callback.as_ref()?;
+        callback(caller, body, risk_level, agent_id)
     }
 
     /// Log a rejection if the logger is set, the response is `Denied`,
@@ -307,6 +355,7 @@ impl PermissionEngine {
                     reason: "config directory access denied by hardcoded rule".to_string(),
                     rule: "<config_dir_guard>".to_string(),
                     risk_level: assess_risk_level(request.body()),
+                    approval_request_id: None,
                 };
             }
         }
@@ -362,6 +411,7 @@ impl PermissionEngine {
                     reason: "config write cannot be whitelisted, only single approval".to_string(),
                     rule: "<config_write_guard>".to_string(),
                     risk_level: assess_risk_level(request.body()),
+                    approval_request_id: None,
                 })
             }
             other => other,
@@ -410,6 +460,7 @@ impl PermissionEngine {
                     reason: "config write cannot be whitelisted, only single approval".to_string(),
                     rule: "<config_write_guard>".to_string(),
                     risk_level: assess_risk_level(request.body()),
+                    approval_request_id: None,
                 })
             }
             other => other,
@@ -421,11 +472,13 @@ impl PermissionEngine {
                 reason: "action denied by agent rule".to_string(),
                 rule: "<agent_phase>".to_string(),
                 risk_level: assess_risk_level(request.body()),
+                approval_request_id: None,
             },
             (_, Some(PermissionResponse::Denied { .. })) => PermissionResponse::Denied {
                 reason: "action denied by user rule".to_string(),
                 rule: "<user_phase>".to_string(),
                 risk_level: assess_risk_level(request.body()),
+                approval_request_id: None,
             },
             (
                 Some(PermissionResponse::Allowed { .. }),
@@ -486,6 +539,7 @@ impl PermissionEngine {
                         reason: "action denied by parent agent restriction".to_string(),
                         rule: "<extra_deny>".to_string(),
                         risk_level: assess_risk_level(request.body()),
+                        approval_request_id: None,
                     };
                     self.log_rejection(&extra_denied, request.body());
                     return extra_denied;
@@ -648,6 +702,7 @@ impl PermissionEngine {
                         reason,
                         rule: rule.name.clone(),
                         risk_level: assess_risk_level(request_body),
+                        approval_request_id: None,
                     }),
                     user_only_matched,
                 );
@@ -748,6 +803,7 @@ impl PermissionEngine {
                     .to_string(),
                 rule: "<config_write_default_guard>".to_string(),
                 risk_level: assess_risk_level(request),
+                approval_request_id: None,
             };
         }
 
@@ -774,6 +830,7 @@ impl PermissionEngine {
                 reason: reason.to_string(),
                 rule: "default".to_string(),
                 risk_level: assess_risk_level(request),
+                approval_request_id: None,
             },
         }
     }
