@@ -6,9 +6,11 @@
 //! Covers Step 1.6 test dimensions:
 //! - Boundary: Normal→Normal produces no mode instruction
 //! - Ordering: ChannelContext → WorkingDirectory → ModeInstruction → GitStatus
+//! - Mode transition: §6 transition prompts are injected when mode_transition is set
 
 use super::inject::{build_dynamic_sections, DynamicSectionsParams};
-use closeclaw_common::SessionMode;
+use closeclaw_common::session_mode::SessionMode;
+use closeclaw_common::system_prompt::ModeTransition;
 use closeclaw_execution::PlanPath;
 use closeclaw_gateway::session_handler::MessageMetadata;
 use std::collections::HashSet;
@@ -35,6 +37,7 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
+        mode_transition: None,
     }
 }
 
@@ -428,8 +431,9 @@ fn test_git_status_disabled_with_workdir_no_git_section() {
 
 // ── Negative: no removed Section types appear ────────────────────────────
 
-/// Verify build_dynamic_sections never produces SessionState,
-/// ModeTransition, or AppendSection (all removed from dynamic layer).
+/// Verify build_dynamic_sections never produces SessionState
+/// or AppendSection (removed from dynamic layer).
+/// ModeTransition IS now a valid section type (design doc §6).
 #[test]
 fn test_no_removed_section_types() {
     let meta = make_meta("user1", "ch", 0);
@@ -441,6 +445,222 @@ fn test_no_removed_section_types() {
     });
     let names: HashSet<&str> = sections.iter().map(|s| s.name()).collect();
     assert!(!names.contains("session_state"));
-    assert!(!names.contains("mode_transition"));
     assert!(!names.contains("append_section"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mode Transition Tests — design doc §6
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Plan Mode re-entry injects a ModeTransition section with §6 re-entry content.
+#[test]
+fn test_plan_mode_reentry_injects_transition() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        session_mode: SessionMode::Plan,
+        mode_transition: Some(ModeTransition::PlanModeReentry),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let transition = sections.iter().find(|s| s.name() == "mode_transition");
+    assert!(
+        transition.is_some(),
+        "Plan Mode re-entry should inject ModeTransition section"
+    );
+    let rendered = transition.unwrap().render();
+    assert!(
+        rendered.contains("Re-entering Plan Mode"),
+        "Should contain re-entry heading, got: {}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Read the existing plan file"),
+        "Should contain re-entry instructions"
+    );
+    // Format: heading followed by blank line
+    assert!(
+        rendered.contains("## Re-entering Plan Mode\n\n"),
+        "Heading should be followed by a blank line, got: {}",
+        rendered
+    );
+    // Format: paragraphs separated by blank lines
+    assert!(
+        rendered.contains("exited it.\n\n"),
+        "Paragraphs should be separated by blank lines, got: {}",
+        rendered
+    );
+    // Format: numbered list items on separate lines
+    assert!(
+        rendered.contains("1. Read the existing plan file"),
+        "List items should be on separate lines, got: {}",
+        rendered
+    );
+}
+
+/// Plan Mode exit injects a ModeTransition section with §6 exit content.
+#[test]
+fn test_plan_mode_exit_injects_transition() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        session_mode: SessionMode::Normal,
+        mode_transition: Some(ModeTransition::PlanModeExit),
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let transition = sections.iter().find(|s| s.name() == "mode_transition");
+    assert!(
+        transition.is_some(),
+        "Plan Mode exit should inject ModeTransition section"
+    );
+    let rendered = transition.unwrap().render();
+    assert!(
+        rendered.contains("Exited Plan Mode"),
+        "Should contain exit heading, got: {}",
+        rendered
+    );
+    // Format: heading followed by blank line
+    assert!(
+        rendered.contains("## Exited Plan Mode\n\n"),
+        "Heading should be followed by a blank line, got: {}",
+        rendered
+    );
+    // Format: content paragraph present
+    assert!(
+        rendered.contains("You have exited plan mode."),
+        "Content paragraph should be present, got: {}",
+        rendered
+    );
+}
+
+/// Auto Mode exit injects a ModeTransition section with §6 auto exit content.
+#[test]
+fn test_auto_mode_exit_injects_transition() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        session_mode: SessionMode::Normal,
+        mode_transition: Some(ModeTransition::AutoModeExit),
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let transition = sections.iter().find(|s| s.name() == "mode_transition");
+    assert!(
+        transition.is_some(),
+        "Auto Mode exit should inject ModeTransition section"
+    );
+    let rendered = transition.unwrap().render();
+    assert!(
+        rendered.contains("Exited Auto Mode"),
+        "Should contain auto exit heading, got: {}",
+        rendered
+    );
+    // Format: heading followed by blank line
+    assert!(
+        rendered.contains("## Exited Auto Mode\n\n"),
+        "Heading should be followed by a blank line, got: {}",
+        rendered
+    );
+    // Format: content paragraph present
+    assert!(
+        rendered.contains("directly. You should"),
+        "Content should flow as a single paragraph, got: {}",
+        rendered
+    );
+}
+
+/// No mode transition → no ModeTransition section.
+#[test]
+fn test_no_mode_transition_no_section() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
+    assert!(
+        !sections.iter().any(|s| s.name() == "mode_transition"),
+        "Without mode_transition, no ModeTransition section should appear"
+    );
+}
+
+/// Mode transition content matches design doc §6 verbatim.
+#[test]
+fn test_mode_transition_content_matches_design_doc() {
+    let meta = make_meta("u", "ch", 0);
+
+    // Plan re-entry
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        session_mode: SessionMode::Plan,
+        mode_transition: Some(ModeTransition::PlanModeReentry),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_transition")
+        .unwrap()
+        .render();
+    assert!(rendered.contains("Treat this as a fresh planning session."));
+    assert!(rendered.contains("Do not assume the existing"));
+    // Format: heading + blank line + paragraphs separated by blank lines
+    assert!(
+        rendered.contains("## Re-entering Plan Mode\n\n"),
+        "Re-entry: heading must be followed by blank line"
+    );
+    assert!(
+        rendered.contains("exited it.\n\n"),
+        "Re-entry: paragraphs must be separated by blank lines"
+    );
+
+    // Plan exit
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        session_mode: SessionMode::Normal,
+        mode_transition: Some(ModeTransition::PlanModeExit),
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_transition")
+        .unwrap()
+        .render();
+    assert!(rendered.contains("You can now make edits, run tools, and take"));
+    assert!(rendered.contains("Reference the plan file if needed."));
+    // Format: heading + blank line
+    assert!(
+        rendered.contains("## Exited Plan Mode\n\n"),
+        "Exit: heading must be followed by blank line"
+    );
+
+    // Auto exit
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        session_mode: SessionMode::Normal,
+        mode_transition: Some(ModeTransition::AutoModeExit),
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_transition")
+        .unwrap()
+        .render();
+    assert!(rendered.contains("The user may now want to interact more"));
+    assert!(rendered.contains("ask clarifying questions when the approach is"));
+    // Format: heading + blank line + paragraphs separated by blank lines
+    assert!(
+        rendered.contains("## Exited Auto Mode\n\n"),
+        "Auto exit: heading must be followed by blank line"
+    );
+    assert!(
+        rendered.contains("directly. You should"),
+        "Auto exit: content should flow as a single paragraph"
+    );
+}
+
+/// Mode transition appears after ModeInstruction in section ordering.
+#[test]
+fn test_mode_transition_ordering_after_mode_instruction() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        session_mode: SessionMode::Plan,
+        mode_transition: Some(ModeTransition::PlanModeReentry),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let mode_idx = sections.iter().position(|s| s.name() == "mode_instruction");
+    let transition_idx = sections.iter().position(|s| s.name() == "mode_transition");
+    assert!(mode_idx.is_some(), "ModeInstruction should be present");
+    assert!(transition_idx.is_some(), "ModeTransition should be present");
+    assert!(
+        mode_idx.unwrap() < transition_idx.unwrap(),
+        "ModeInstruction should come before ModeTransition"
+    );
 }

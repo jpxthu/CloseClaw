@@ -37,6 +37,8 @@ pub use closeclaw_common::tool_session::KillHandle;
 mod memory_injection;
 pub use memory_injection::{InjectionPosition, MemoryInjection};
 
+mod mode_transition;
+
 mod progress_notifier;
 pub use progress_notifier::PROGRESS_APPEND_PREFIX;
 
@@ -161,13 +163,9 @@ pub struct ConversationSession {
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every mutation.
     last_activity_at: i64,
-    /// Task IDs already injected via memory-injection this session.
-    /// Used for session-level dedup so that the same task's results
-    /// are injected at most once per session lifetime.
+    /// Task IDs already injected this session (session-level dedup).
     injected_task_ids: Arc<Mutex<HashSet<String>>>,
-    /// Skill listing provider for per-turn skill injection.
-    /// Injected by Gateway at session creation. When set, each LLM turn
-    /// prepends a tool-role attachment with the agent's skill listing.
+    /// Skill listing provider injected by Gateway for per-turn skill injection.
     pub(crate) skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
     /// Snapshot of the last skill listing (excluding conditional skills)
     /// used for incremental diff computation. `None` on the first turn.
@@ -176,34 +174,24 @@ pub struct ConversationSession {
     /// re-injection on the next turn. Cleared by
     /// [`prepare_turn_skill_listing`] after the snapshot is reset.
     pub(crate) pending_compaction_listing_reset: bool,
-    /// Names of conditional skills that have been activated during this
-    /// session's lifetime via file-path matching. Activated skills are
-    /// included in subsequent turn listings as incremental additions.
+    /// Conditional skills activated via file-path matching this session.
     pub(crate) activated_conditional_skills: HashSet<String>,
-    /// Agent-level skill whitelist filter. When set, only skills whose
-    /// names appear in this list are included in the injected listing.
-    /// A list containing `"*"` means no filtering.
+    /// Agent-level skill whitelist filter. `*` means no filtering.
     pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
-    /// Runtime-only execution progress appends. Entries are tagged with
-    /// [`PROGRESS_APPEND_PREFIX`] and managed by
-    /// [`PlanStateNotifier::on_progress_changed`]. Merged into
-    /// [`system_appends()`](Self::system_appends) at read time so the
-    /// system prompt builder sees them automatically.
+    /// Runtime progress appends managed by PlanStateNotifier.
     progress_appends: Arc<Mutex<Vec<String>>>,
-    /// Per-session file mtime tracking for staleness checks.
-    /// Records the mtime observed at each Read operation so subsequent
-    /// Edit/Write calls can detect external modifications.
+    /// File mtime tracking for staleness checks on Edit/Write.
     file_mtimes: Arc<RwLock<HashMap<PathBuf, SystemTime>>>,
     /// Per-turn read range tracking for file dedup.
-    /// Maps canonical path → list of (mtime, ranges) read so far.
     file_read_ranges: Arc<RwLock<HashMap<PathBuf, closeclaw_common::FileReadCache>>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
     /// Session mode controlling session-level behavior constraints.
     /// Orthogonal to `ReasoningMode` — see [`SessionMode`] docs.
     session_mode: Arc<Mutex<SessionMode>>,
+    pending_mode_transition: mode_transition::PendingTransition,
     /// Per-request context for dynamic-layer injection.
     request_context: Arc<Mutex<closeclaw_common::RequestContext>>,
     /// LLM caller injected by Gateway for delegating LLM requests.
@@ -219,12 +207,7 @@ pub struct ConversationSession {
     /// Manual backgrounding signal. When notified, foreground commands
     /// being executed should be moved to background.
     pub manual_background_signal: Arc<tokio::sync::Notify>,
-    /// Optional persistence service for `persist_pending_checkpoint`.
-    ///
-    /// Injected by the Gateway after session creation so that
-    /// `ToolSession::persist_pending_checkpoint` can persist the
-    /// current pending operations without requiring a reference to
-    /// the Gateway's `CheckpointManager`.
+    /// Persistence service for persist_pending_checkpoint (injected by Gateway).
     checkpoint_storage: Option<Arc<dyn crate::persistence::PersistenceService>>,
     /// Whether the session has the git_status config switch enabled.
     /// When `true`, the dynamic builder may inject a GitStatus section
@@ -286,6 +269,7 @@ impl ConversationSession {
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
+            pending_mode_transition: Arc::new(Mutex::new(None)),
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             file_mtimes: Arc::new(RwLock::new(HashMap::new())),
@@ -516,11 +500,19 @@ impl ConversationSession {
     }
     /// Overrides the session mode at runtime.
     pub fn set_session_mode(&mut self, mode: SessionMode) {
-        *self
-            .session_mode
-            .lock()
-            .expect("session_mode lock poisoned") = mode;
+        let prev = {
+            let sm = &self.session_mode;
+            let mut lock = sm.lock().expect("session_mode lock poisoned");
+            let p = *lock;
+            *lock = mode;
+            p
+        };
+        if let Some(t) = mode_transition::detect(prev, mode) {
+            let pmt = &self.pending_mode_transition;
+            *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
+        }
     }
+
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
         *self.request_context.lock().expect("rc poisoned") = ctx;

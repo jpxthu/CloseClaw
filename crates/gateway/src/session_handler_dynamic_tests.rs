@@ -68,6 +68,7 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
+        mode_transition: None,
     }
 }
 
