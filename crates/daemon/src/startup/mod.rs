@@ -5,17 +5,25 @@
 //! [`topo_sort_layers`]) consumes these declarations to derive the deterministic
 //! initialization order.
 
-/// Identifies a daemon component for startup orchestration.
+/// Core infrastructure components with no dependencies (Layer 0/1).
 ///
-/// Each variant corresponds to a component declared in the design doc dependency
-/// table. The `name()` method provides a stable, human-readable label used for
-/// alphabetical ordering within each layer.
+/// Separated from [`Service`] to keep the overall enum variant count
+/// within the 20-variant CI limit while supporting additional service
+/// components like [`Service::LLMRegistry`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ComponentId {
+pub enum Foundation {
     /// Loads and merges configuration files.
     ConfigManager,
     /// SQLite-backed session persistence.
     Storage,
+}
+
+/// Service-layer components that depend on [`Foundation`] components.
+///
+/// Separated from [`Foundation`] to keep the overall enum variant count
+/// within the 20-variant CI limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Service {
     /// Per-agent idle/purge thresholds from session_config.json.
     SessionConfigProvider,
     /// Agent configuration registry.
@@ -52,6 +60,21 @@ pub enum ComponentId {
     SpawnController,
     /// Unix domain socket management service for CLI Admin commands.
     AdminRpcServer,
+    /// LLM provider registry — reads models.json, constructs LLM clients.
+    LLMRegistry,
+}
+
+/// Identifies a daemon component for startup orchestration.
+///
+/// Wraps [`Foundation`] and [`Service`] sub-enums. The `name()` method
+/// provides a stable, human-readable label used for alphabetical ordering
+/// within each layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ComponentId {
+    /// Core infrastructure with no dependencies.
+    Foundation(Foundation),
+    /// Service-layer components with foundation dependencies.
+    Service(Service),
 }
 
 impl ComponentId {
@@ -60,26 +83,31 @@ impl ComponentId {
     /// Used as the sort key for deterministic layer-internal ordering.
     pub fn name(&self) -> &'static str {
         match self {
-            Self::ConfigManager => "ConfigManager",
-            Self::Storage => "Storage",
-            Self::SessionConfigProvider => "SessionConfigProvider",
-            Self::AgentRegistry => "AgentRegistry",
-            Self::SkillsRegistry => "SkillsRegistry",
-            Self::RenderersPlugins => "RenderersPlugins",
-            Self::IMAdapters => "IMAdapters",
-            Self::PermissionEngine => "PermissionEngine",
-            Self::ToolsRegistry => "ToolsRegistry",
-            Self::ArchiveSweeper => "ArchiveSweeper",
-            Self::AnnounceSweeper => "AnnounceSweeper",
-            Self::SkillWatcher => "SkillWatcher",
-            Self::ConfigHotReload => "ConfigHotReload",
-            Self::DreamingScheduler => "DreamingScheduler",
-            Self::SessionManager => "SessionManager",
-            Self::SystemPromptBuilder => "SystemPromptBuilder",
-            Self::ApprovalFlow => "ApprovalFlow",
-            Self::Gateway => "Gateway",
-            Self::SpawnController => "SpawnController",
-            Self::AdminRpcServer => "AdminRpcServer",
+            Self::Foundation(f) => match f {
+                Foundation::ConfigManager => "ConfigManager",
+                Foundation::Storage => "Storage",
+            },
+            Self::Service(s) => match s {
+                Service::SessionConfigProvider => "SessionConfigProvider",
+                Service::AgentRegistry => "AgentRegistry",
+                Service::SkillsRegistry => "SkillsRegistry",
+                Service::RenderersPlugins => "RenderersPlugins",
+                Service::IMAdapters => "IMAdapters",
+                Service::PermissionEngine => "PermissionEngine",
+                Service::ToolsRegistry => "ToolsRegistry",
+                Service::ArchiveSweeper => "ArchiveSweeper",
+                Service::AnnounceSweeper => "AnnounceSweeper",
+                Service::SkillWatcher => "SkillWatcher",
+                Service::ConfigHotReload => "ConfigHotReload",
+                Service::DreamingScheduler => "DreamingScheduler",
+                Service::SessionManager => "SessionManager",
+                Service::SystemPromptBuilder => "SystemPromptBuilder",
+                Service::ApprovalFlow => "ApprovalFlow",
+                Service::Gateway => "Gateway",
+                Service::SpawnController => "SpawnController",
+                Service::AdminRpcServer => "AdminRpcServer",
+                Service::LLMRegistry => "LLMRegistry",
+            },
         }
     }
 }
@@ -108,71 +136,95 @@ pub struct ComponentEntry {
 
 impl ComponentDeps for ComponentId {
     fn deps(&self) -> &[ComponentId] {
-        use ComponentId::*;
+        use self::Foundation::*;
+        use self::Service::*;
         match self {
-            ConfigManager => &[],
-            Storage => &[],
-            SessionConfigProvider => &[ConfigManager],
-            AgentRegistry => &[ConfigManager],
-            SkillsRegistry => &[ConfigManager],
-            RenderersPlugins => &[ConfigManager],
-            IMAdapters => &[RenderersPlugins, ConfigManager],
-            PermissionEngine => &[ConfigManager],
-            ToolsRegistry => &[SkillsRegistry],
-            ArchiveSweeper => &[Storage, SessionConfigProvider],
-            AnnounceSweeper => &[Storage, SessionConfigProvider],
-            SkillWatcher => &[SkillsRegistry],
-            ConfigHotReload => &[ConfigManager],
-            DreamingScheduler => &[Storage, SessionConfigProvider],
-            SessionManager => &[
-                Storage,
-                AgentRegistry,
-                SkillsRegistry,
-                ToolsRegistry,
-                SessionConfigProvider,
+            Self::Foundation(ConfigManager) => &[],
+            Self::Foundation(Storage) => &[],
+            Self::Service(SessionConfigProvider) => &[Self::Foundation(ConfigManager)],
+            Self::Service(AgentRegistry) => &[Self::Foundation(ConfigManager)],
+            Self::Service(SkillsRegistry) => &[Self::Foundation(ConfigManager)],
+            Self::Service(RenderersPlugins) => &[Self::Foundation(ConfigManager)],
+            Self::Service(IMAdapters) => &[
+                Self::Service(RenderersPlugins),
+                Self::Foundation(ConfigManager),
             ],
-            SystemPromptBuilder => &[AgentRegistry, SkillsRegistry, ToolsRegistry],
-            ApprovalFlow => &[PermissionEngine, AgentRegistry],
-            Gateway => &[
-                SessionManager,
-                IMAdapters,
-                PermissionEngine,
-                ApprovalFlow,
-                RenderersPlugins,
+            Self::Service(PermissionEngine) => &[Self::Foundation(ConfigManager)],
+            Self::Service(ToolsRegistry) => &[Self::Service(SkillsRegistry)],
+            Self::Service(ArchiveSweeper) => &[
+                Self::Foundation(Storage),
+                Self::Service(SessionConfigProvider),
             ],
-            SpawnController => &[AgentRegistry, ToolsRegistry],
-            AdminRpcServer => &[Gateway],
+            Self::Service(AnnounceSweeper) => &[
+                Self::Foundation(Storage),
+                Self::Service(SessionConfigProvider),
+            ],
+            Self::Service(SkillWatcher) => &[Self::Service(SkillsRegistry)],
+            Self::Service(ConfigHotReload) => &[Self::Foundation(ConfigManager)],
+            Self::Service(DreamingScheduler) => &[
+                Self::Foundation(Storage),
+                Self::Service(SessionConfigProvider),
+            ],
+            Self::Service(LLMRegistry) => &[Self::Foundation(ConfigManager)],
+            Self::Service(SessionManager) => &[
+                Self::Service(LLMRegistry),
+                Self::Foundation(Storage),
+                Self::Service(AgentRegistry),
+                Self::Service(SkillsRegistry),
+                Self::Service(ToolsRegistry),
+                Self::Service(SessionConfigProvider),
+            ],
+            Self::Service(SystemPromptBuilder) => &[
+                Self::Service(AgentRegistry),
+                Self::Service(SkillsRegistry),
+                Self::Service(ToolsRegistry),
+            ],
+            Self::Service(ApprovalFlow) => &[
+                Self::Service(PermissionEngine),
+                Self::Service(AgentRegistry),
+            ],
+            Self::Service(Gateway) => &[
+                Self::Service(SessionManager),
+                Self::Service(IMAdapters),
+                Self::Service(PermissionEngine),
+                Self::Service(ApprovalFlow),
+                Self::Service(RenderersPlugins),
+            ],
+            Self::Service(SpawnController) => {
+                &[Self::Service(AgentRegistry), Self::Service(ToolsRegistry)]
+            }
+            Self::Service(AdminRpcServer) => &[Self::Service(Gateway)],
         }
     }
 }
 
-/// Returns [`ComponentEntry`]s for all 20 daemon components.
+/// Returns [`ComponentEntry`]s for all daemon components.
 ///
 /// Each entry bundles the component identity, its human-readable name,
 /// and the dependencies declared via [`ComponentDeps`].
 pub fn all_component_entries() -> Vec<ComponentEntry> {
-    use ComponentId::*;
     [
-        ConfigManager,
-        Storage,
-        SessionConfigProvider,
-        AgentRegistry,
-        SkillsRegistry,
-        RenderersPlugins,
-        IMAdapters,
-        PermissionEngine,
-        ToolsRegistry,
-        ArchiveSweeper,
-        AnnounceSweeper,
-        SkillWatcher,
-        ConfigHotReload,
-        DreamingScheduler,
-        SessionManager,
-        SystemPromptBuilder,
-        ApprovalFlow,
-        Gateway,
-        SpawnController,
-        AdminRpcServer,
+        ComponentId::Foundation(Foundation::ConfigManager),
+        ComponentId::Foundation(Foundation::Storage),
+        ComponentId::Service(Service::SessionConfigProvider),
+        ComponentId::Service(Service::AgentRegistry),
+        ComponentId::Service(Service::SkillsRegistry),
+        ComponentId::Service(Service::RenderersPlugins),
+        ComponentId::Service(Service::IMAdapters),
+        ComponentId::Service(Service::PermissionEngine),
+        ComponentId::Service(Service::ToolsRegistry),
+        ComponentId::Service(Service::ArchiveSweeper),
+        ComponentId::Service(Service::AnnounceSweeper),
+        ComponentId::Service(Service::SkillWatcher),
+        ComponentId::Service(Service::ConfigHotReload),
+        ComponentId::Service(Service::DreamingScheduler),
+        ComponentId::Service(Service::LLMRegistry),
+        ComponentId::Service(Service::SessionManager),
+        ComponentId::Service(Service::SystemPromptBuilder),
+        ComponentId::Service(Service::ApprovalFlow),
+        ComponentId::Service(Service::Gateway),
+        ComponentId::Service(Service::SpawnController),
+        ComponentId::Service(Service::AdminRpcServer),
     ]
     .into_iter()
     .map(|id| ComponentEntry {
@@ -319,29 +371,38 @@ pub enum StartupPhase {
 impl StartupPhase {
     /// Returns the set of [`ComponentId`]s that belong to this phase.
     fn component_ids(&self) -> &'static [ComponentId] {
-        use ComponentId::*;
+        use self::Foundation::*;
+        use self::Service::*;
         match self {
-            Self::Foundation => &[ConfigManager, Storage],
+            Self::Foundation => &[
+                ComponentId::Foundation(ConfigManager),
+                ComponentId::Foundation(Storage),
+            ],
             Self::Registries => &[
-                AgentRegistry,
-                ConfigHotReload,
-                PermissionEngine,
-                RenderersPlugins,
-                SessionConfigProvider,
-                SkillsRegistry,
+                ComponentId::Service(AgentRegistry),
+                ComponentId::Service(ConfigHotReload),
+                ComponentId::Service(PermissionEngine),
+                ComponentId::Service(RenderersPlugins),
+                ComponentId::Service(SessionConfigProvider),
+                ComponentId::Service(SkillsRegistry),
+                ComponentId::Service(LLMRegistry),
             ],
             Self::CoreServices => &[
-                AnnounceSweeper,
-                ApprovalFlow,
-                ArchiveSweeper,
-                DreamingScheduler,
-                IMAdapters,
-                SkillWatcher,
-                ToolsRegistry,
+                ComponentId::Service(AnnounceSweeper),
+                ComponentId::Service(ApprovalFlow),
+                ComponentId::Service(ArchiveSweeper),
+                ComponentId::Service(DreamingScheduler),
+                ComponentId::Service(IMAdapters),
+                ComponentId::Service(SkillWatcher),
+                ComponentId::Service(ToolsRegistry),
             ],
-            Self::Wiring => &[SessionManager, SpawnController, SystemPromptBuilder],
-            Self::BackgroundAndFinal => &[Gateway],
-            Self::PostGateway => &[AdminRpcServer],
+            Self::Wiring => &[
+                ComponentId::Service(SessionManager),
+                ComponentId::Service(SpawnController),
+                ComponentId::Service(SystemPromptBuilder),
+            ],
+            Self::BackgroundAndFinal => &[ComponentId::Service(Gateway)],
+            Self::PostGateway => &[ComponentId::Service(AdminRpcServer)],
         }
     }
 }
