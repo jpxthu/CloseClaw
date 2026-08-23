@@ -942,25 +942,21 @@ fn test_agent_info_json_output_all_fields() {
 /// 1. No PID file → Ok (daemon not running)
 /// 2. No PID file in JSON mode → Ok
 /// 3. Self-kill protection → Err
-/// Temporarily removes/restores the real PID file.
+/// Uses a temp directory to avoid polluting the real config path.
 #[tokio::test]
-#[serial_test::serial]
 async fn test_handle_stop_no_pid_and_self_kill() {
-    use closeclaw_cli::admin::handle_stop;
-    use closeclaw_platform::process::{pid_file_path, read_pid_file, write_pid_file};
+    use closeclaw_cli::admin::handle_stop_at;
+    use closeclaw_platform::process::{pid_file_path, write_pid_file};
 
-    let config_dir = closeclaw_platform::config::root_dir().unwrap();
-    let pid_file = pid_file_path(&config_dir);
-    let original = read_pid_file(&pid_file);
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path();
 
     // No PID file: text mode → Ok
-    let _ = fs::remove_file(&pid_file);
-    let result = handle_stop(false, false).await;
+    let result = handle_stop_at(config_dir, false, false).await;
     assert!(result.is_ok(), "no PID file should return Ok: {:?}", result);
 
     // No PID file: JSON mode → Ok
-    let _ = fs::remove_file(&pid_file);
-    let result = handle_stop(false, true).await;
+    let result = handle_stop_at(config_dir, false, true).await;
     assert!(
         result.is_ok(),
         "no PID file (json) should return Ok: {:?}",
@@ -969,18 +965,13 @@ async fn test_handle_stop_no_pid_and_self_kill() {
 
     // Self-kill protection
     let my_pid = std::process::id();
+    let pid_file = pid_file_path(config_dir);
     write_pid_file(&pid_file, my_pid).unwrap();
-    let result = handle_stop(false, false).await;
+    let result = handle_stop_at(config_dir, false, false).await;
     assert!(result.is_err(), "should refuse to kill self");
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("Refusing to kill self"),
         "error should mention self-kill refusal, got: {err_msg}"
     );
-
-    // Restore original state
-    let _ = fs::remove_file(&pid_file);
-    if let Some(pid) = original {
-        let _ = write_pid_file(&pid_file, pid);
-    }
 }
