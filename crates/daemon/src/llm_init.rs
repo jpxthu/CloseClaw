@@ -16,7 +16,6 @@ impl Daemon {
     /// 1. Try to load api_key from `config_dir/config/credentials/<provider>.json`
     /// 2. Fall back to `env_overrides` map
     /// 3. Fall back to the corresponding env var if neither has it
-    #[allow(dead_code)] // only invoked from `#[cfg(test)] mod unit_tests`
     pub(crate) async fn init_llm_registry(
         config_dir: &Path,
         env_overrides: &HashMap<&str, &str>,
