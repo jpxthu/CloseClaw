@@ -273,9 +273,9 @@
   },
   {
     "path": "docs/design/llm/protocol-mapping.md",
-    "commit": "dfaea69925ec261c532dee229b7431d2b396728d",
-    "commit_time": "2026-06-29T01:12:01+08:00",
-    "confirmed_time": "2026-06-29T01:19:53.039073+08:00",
+    "commit": "30cedaf33fa8627e5bc37ae949d45a38e7ec52c6",
+    "commit_time": "2026-08-23T16:06:24+08:00",
+    "confirmed_time": "2026-08-23T16:17:12.129568+08:00",
     "comment": "",
     "blocked_reason": ""
   },
