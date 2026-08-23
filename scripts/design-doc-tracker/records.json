@@ -51,9 +51,9 @@
     "path": "docs/design/cli/admin.md",
     "commit": "86d1bd748fe6e027e9d769bd31bea5ddeee8b2fb",
     "commit_time": "2026-06-20T12:30:40+08:00",
-    "confirmed_time": "2026-06-20T12:35:31.599807+08:00",
+    "confirmed_time": "2026-08-23T21:06:54.675227+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "F2b 发现: (1) must_fix: agent info 仅返回4个字段(id,name,model,skills), 文档要求返回完整配置档案(AgentConfig有15+字段); (2) doc_problem: 文档写 agent info <id> 但代码按 name 查找, AgentConfig 中 id 和 name 是不同字段, 设计意图不清晰"
   },
   {
     "path": "docs/design/cli/chat.md",
