@@ -521,13 +521,15 @@ impl ConversationSession {
     /// Overrides the session mode at runtime.
     pub fn set_session_mode(&mut self, mode: SessionMode) {
         let prev = {
-            let mut lock = self.session_mode.lock().expect("rc");
+            let sm = &self.session_mode;
+            let mut lock = sm.lock().expect("session_mode lock poisoned");
             let p = *lock;
             *lock = mode;
             p
         };
         if let Some(t) = mode_transition::detect(prev, mode) {
-            *self.pending_mode_transition.lock().expect("rc") = Some(t);
+            let pmt = &self.pending_mode_transition;
+            *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
         }
     }
 
