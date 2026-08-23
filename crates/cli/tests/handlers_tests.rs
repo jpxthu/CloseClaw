@@ -935,3 +935,58 @@ fn test_env_write_uses_raw_key() {
     let written = format!("{}={}", k, v);
     assert!(written.contains("my-secret-key-123"));
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.3 — CLI JSON output contains all 12 agent info fields
+// ---------------------------------------------------------------------------
+
+/// Verify AgentInfoResult serializes to JSON with all 12 fields present.
+/// Uses serde_json directly to avoid needing a running daemon.
+#[test]
+fn test_agent_info_json_output_all_fields() {
+    use closeclaw_cli::admin::rpc::protocol::{AdminResponse, AgentInfoResult};
+    use closeclaw_config::agents::{MemoryConfig, ModelSpec, SubagentsConfig};
+
+    let info = AgentInfoResult {
+        id: "cli-test-agent".to_string(),
+        name: "CLI Test Agent".to_string(),
+        parent_id: Some("parent-id".to_string()),
+        model: Some(ModelSpec::single("claude-3-opus")),
+        workspace: Some("/tmp/ws".to_string()),
+        agent_dir: Some("/tmp/ad".to_string()),
+        bootstrap_mode: "minimal".to_string(),
+        skills: vec!["s1".to_string()],
+        tools: vec!["t1".to_string()],
+        disallowed_tools: vec!["d1".to_string()],
+        subagents: SubagentsConfig::default(),
+        memory: Some(MemoryConfig::default()),
+    };
+    let resp = AdminResponse::AgentInfoResult(Box::new(info));
+    let json_str = serde_json::to_string(&resp).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+    // Tagged enum flattens struct fields; type is at top level
+    assert_eq!(v["type"], "agent_info_result");
+
+    assert_eq!(v["id"], "cli-test-agent");
+    assert_eq!(v["name"], "CLI Test Agent");
+    assert_eq!(v["parentId"], "parent-id");
+    assert_eq!(v["model"], "claude-3-opus");
+    assert_eq!(v["workspace"], "/tmp/ws");
+    assert_eq!(v["agentDir"], "/tmp/ad");
+    assert_eq!(v["bootstrapMode"], "minimal");
+    assert!(v["skills"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("s1")));
+    assert!(v["tools"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("t1")));
+    assert!(v["disallowedTools"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("d1")));
+    assert!(v["subagents"].is_object());
+    assert!(v["memory"].is_object());
+}
