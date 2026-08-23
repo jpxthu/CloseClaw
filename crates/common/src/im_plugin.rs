@@ -208,26 +208,6 @@ pub struct StreamingOutput {
 }
 
 // ---------------------------------------------------------------------------
-// IMAdapter trait
-// ---------------------------------------------------------------------------
-
-/// Trait for sending messages through an IM adapter.
-///
-/// This is a simplified interface for components that only need to send
-/// messages (e.g., notification during session restoration). For full
-/// inbound/outbound handling, use [`IMPlugin`].
-#[async_trait]
-pub trait IMAdapter: Send + Sync {
-    /// Send the rendered output to the target.
-    async fn send(
-        &self,
-        output: &RenderedOutput,
-        peer_id: &str,
-        thread_id: Option<&str>,
-    ) -> Result<(), AdapterError>;
-}
-
-// ---------------------------------------------------------------------------
 // IMPlugin trait
 // ---------------------------------------------------------------------------
 
