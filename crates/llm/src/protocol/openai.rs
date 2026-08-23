@@ -402,6 +402,7 @@ fn parse_usage(body: &serde_json::Value) -> RawUsage {
         total_tokens,
         cache_read_tokens,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     }
 }
 

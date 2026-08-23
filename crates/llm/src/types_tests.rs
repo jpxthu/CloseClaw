@@ -271,6 +271,7 @@ fn test_raw_usage_conversion() {
         total_tokens: Some(150),
         cache_read_tokens: Some(20),
         cache_write_tokens: Some(10),
+        reasoning_tokens: None,
     };
     let usage: UnifiedUsage = raw.into();
     assert_eq!(usage.prompt_tokens, 100);
@@ -289,6 +290,7 @@ fn test_raw_usage_conversion_no_optional_fields() {
         total_tokens: None,
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let usage: UnifiedUsage = raw.into();
     assert_eq!(usage.prompt_tokens, 10);
@@ -326,6 +328,7 @@ fn test_internal_response_conversion() {
             total_tokens: Some(30),
             cache_read_tokens: Some(5),
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: Some("stop".to_string()),
     };

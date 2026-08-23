@@ -428,6 +428,7 @@ async fn parse_openai_response(
             total_tokens: usage.total_tokens,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            reasoning_tokens: None,
         },
         finish_reason: choice.finish_reason,
     })
@@ -513,6 +514,7 @@ fn parse_anthropic_usage(body: &serde_json::Value) -> RawUsage {
         total_tokens,
         cache_read_tokens,
         cache_write_tokens,
+        reasoning_tokens: None,
     }
 }
 

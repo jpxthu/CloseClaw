@@ -435,6 +435,7 @@ fn parse_usage(body: &serde_json::Value) -> RawUsage {
         total_tokens,
         cache_read_tokens,
         cache_write_tokens,
+        reasoning_tokens: None,
     }
 }
 
@@ -648,6 +649,7 @@ fn update_usage_from_message_delta(parsed: &serde_json::Value, usage: &mut Optio
         total_tokens: usage.as_ref().and_then(|u| u.total_tokens),
         cache_read_tokens: usage.as_ref().and_then(|u| u.cache_read_tokens),
         cache_write_tokens: usage.as_ref().and_then(|u| u.cache_write_tokens),
+        reasoning_tokens: None,
     });
 }
 

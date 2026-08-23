@@ -51,6 +51,7 @@ fn test_openai_sse_basic() {
         total_tokens: Some(30),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(
         &[RawContentBlock::Text("hi".into())],
@@ -88,6 +89,7 @@ fn test_openai_sse_multiple_segments() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(
         &[
@@ -127,6 +129,7 @@ fn test_openai_sse_include_usage() {
         total_tokens: Some(150),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(
         &[RawContentBlock::Text("a".into())],
@@ -150,6 +153,7 @@ fn test_openai_sse_exclude_usage() {
         total_tokens: Some(150),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(
         &[RawContentBlock::Text("a".into())],
@@ -171,6 +175,7 @@ fn test_openai_sse_usage_computed_when_total_none() {
         total_tokens: None,
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(&[RawContentBlock::Text("x".into())], "m", &usage, true, 0);
 
@@ -188,6 +193,7 @@ fn test_anthropic_sse_basic() {
         total_tokens: Some(30),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_anthropic_sse(
         &[RawContentBlock::Text("hello".into())],
@@ -245,6 +251,7 @@ fn test_anthropic_sse_multiple_segments() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_anthropic_sse(
         &[
@@ -282,6 +289,7 @@ fn test_anthropic_sse_empty_content() {
         total_tokens: Some(1),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_anthropic_sse(&[RawContentBlock::Text("".into())], "claude-3", &usage, 0);
 
@@ -299,6 +307,7 @@ fn test_anthropic_sse_always_includes_usage() {
         total_tokens: Some(300),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_anthropic_sse(&[RawContentBlock::Text("x".into())], "m", &usage, 0);
 
@@ -321,6 +330,7 @@ fn test_both_protocols_end_with_stop() {
         total_tokens: Some(2),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let oai = generate_openai_sse(&[RawContentBlock::Text("a".into())], "m", &usage, false, 0);
     let ant = generate_anthropic_sse(&[RawContentBlock::Text("a".into())], "m", &usage, 0);
@@ -340,6 +350,7 @@ fn test_all_events_use_message_event_type() {
         total_tokens: Some(2),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let oai = generate_openai_sse(&[RawContentBlock::Text("a".into())], "m", &usage, false, 0);
     let ant = generate_anthropic_sse(&[RawContentBlock::Text("a".into())], "m", &usage, 0);
@@ -362,6 +373,7 @@ fn test_openai_sse_thinking_only() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(
         &[RawContentBlock::Thinking {
@@ -401,6 +413,7 @@ fn test_openai_sse_tool_use_only() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(
         &[RawContentBlock::ToolUse {
@@ -448,6 +461,7 @@ fn test_openai_sse_mixed_text_and_tool_use() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_openai_sse(
         &[
@@ -500,6 +514,7 @@ fn test_anthropic_sse_thinking_with_signature() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_anthropic_sse(
         &[RawContentBlock::Thinking {
@@ -535,6 +550,7 @@ fn test_anthropic_sse_tool_use() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_anthropic_sse(
         &[RawContentBlock::ToolUse {
@@ -574,6 +590,7 @@ fn test_anthropic_sse_mixed_blocks() {
         total_tokens: Some(15),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        reasoning_tokens: None,
     };
     let events = generate_anthropic_sse(
         &[

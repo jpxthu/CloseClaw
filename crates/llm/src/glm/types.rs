@@ -252,6 +252,7 @@ impl GlmProvider {
                     .and_then(|u| u.prompt_tokens_details.as_ref())
                     .and_then(|d| d.cached_tokens),
                 cache_write_tokens: None,
+                reasoning_tokens: None,
             },
             finish_reason: None,
         })

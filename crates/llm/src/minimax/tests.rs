@@ -789,6 +789,7 @@ fn make_internal_response(
             total_tokens: Some(150),
             cache_read_tokens: cache_read,
             cache_write_tokens: cache_write,
+            reasoning_tokens: None,
         },
         finish_reason: Some("end_turn".to_string()),
     }
