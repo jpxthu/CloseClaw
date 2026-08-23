@@ -237,17 +237,17 @@ impl ChatProtocol for OpenAiProtocol {
                 // Process delta content only when delta is present
                 if let Some(delta) = choice.get("delta") {
                     // End current block when transitioning to tool_calls
-                if delta.get("tool_calls").and_then(|v| v.as_array()).is_some() {
-                    if let Some(idx) = block_index {
-                        // Only end non-tool blocks (text/thinking → tool_calls transition)
-                        if active_block_type != Some(ContentBlockType::ToolUse) {
-                            let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
-                            yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
-                            block_index = None;
-                            active_block_type = None;
+                    if delta.get("tool_calls").and_then(|v| v.as_array()).is_some() {
+                        if let Some(idx) = block_index {
+                            // Only end non-tool blocks (text/thinking → tool_calls transition)
+                            if active_block_type != Some(ContentBlockType::ToolUse) {
+                                let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
+                                yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
+                                block_index = None;
+                                active_block_type = None;
+                            }
                         }
                     }
-                }
 
                 // Content delta
                 // Document rule: content is prioritized over reasoning_content.
