@@ -458,7 +458,7 @@ async fn test_handle_agent_info_found() {
     // Get info
     let result = handle_agent_with(
         AgentAction::Info {
-            name: "info-agent".into(),
+            id: "info-agent".into(),
         },
         config_dir,
         false,
@@ -474,7 +474,7 @@ async fn test_handle_agent_info_not_found() {
     let (config_dir, handle) = start_mock_server(config_dir).await;
     let result = handle_agent_with(
         AgentAction::Info {
-            name: "nonexistent".into(),
+            id: "nonexistent".into(),
         },
         config_dir,
         false,
@@ -794,7 +794,7 @@ async fn test_agent_info_json() {
     .unwrap();
     let result = handle_agent_with(
         AgentAction::Info {
-            name: "json-agent".into(),
+            id: "json-agent".into(),
         },
         config_dir,
         true,

@@ -8,9 +8,10 @@
 //! [4-byte big-endian length (u32)][JSON frame bytes]
 //! ```
 
+use closeclaw_config::agents::{MemoryConfig, ModelSpec, SubagentsConfig};
 use serde::{Deserialize, Serialize};
 
-/// Information about a registered agent.
+/// Information about a registered agent (summary for list).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentInfo {
     /// Agent identifier.
@@ -19,6 +20,38 @@ pub struct AgentInfo {
     pub name: String,
     /// Model identifier, if configured.
     pub model: Option<String>,
+}
+
+/// Full agent configuration profile.
+///
+/// Serde field names use camelCase to match `agent-config.md` field table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentInfoResult {
+    /// Agent unique identifier.
+    pub id: String,
+    /// Human-readable display name.
+    pub name: String,
+    /// Parent agent ID, if any.
+    pub parent_id: Option<String>,
+    /// Default LLM model.
+    pub model: Option<ModelSpec>,
+    /// Working directory path.
+    pub workspace: Option<String>,
+    /// Bootstrap files directory path.
+    pub agent_dir: Option<String>,
+    /// Bootstrap file loading mode.
+    pub bootstrap_mode: String,
+    /// Available skill names.
+    pub skills: Vec<String>,
+    /// Available tool names.
+    pub tools: Vec<String>,
+    /// Disallowed tool names.
+    pub disallowed_tools: Vec<String>,
+    /// Sub-agent spawn control parameters.
+    pub subagents: SubagentsConfig,
+    /// Memory subsystem configuration.
+    pub memory: Option<MemoryConfig>,
 }
 
 /// Information about a registered skill.
@@ -37,7 +70,7 @@ pub enum AdminRequest {
     /// List all registered agents.
     AgentList,
     /// Get detailed info for a specific agent.
-    AgentInfo { name: String },
+    AgentInfo { id: String },
     /// Create a new agent with the given name and optional model.
     AgentCreate { name: String, model: Option<String> },
     /// List all installed skills.
@@ -54,13 +87,8 @@ pub enum AdminRequest {
 pub enum AdminResponse {
     /// List of agents.
     AgentListResult { agents: Vec<AgentInfo> },
-    /// Detailed agent info.
-    AgentInfoResult {
-        id: String,
-        name: String,
-        model: Option<String>,
-        skills: Vec<String>,
-    },
+    /// Detailed agent info (full configuration profile).
+    AgentInfoResult(Box<AgentInfoResult>),
     /// List of skills.
     SkillListResult { skills: Vec<SkillInfo> },
     /// Operation succeeded.
@@ -89,7 +117,7 @@ mod tests {
     #[test]
     fn test_agent_info_request_serialization() {
         let req = AdminRequest::AgentInfo {
-            name: "test-agent".to_string(),
+            id: "test-agent".to_string(),
         };
         let json = serde_json::to_vec(&req).unwrap();
         let deserialized: AdminRequest = serde_json::from_slice(&json).unwrap();
@@ -188,12 +216,21 @@ mod tests {
 
     #[test]
     fn test_agent_info_response_serialization() {
-        let resp = AdminResponse::AgentInfoResult {
+        use closeclaw_config::agents::SubagentsConfig;
+        let resp = AdminResponse::AgentInfoResult(Box::new(AgentInfoResult {
             id: "agent1".to_string(),
             name: "Agent One".to_string(),
-            model: Some("gpt-4".to_string()),
+            parent_id: None,
+            model: Some(closeclaw_config::agents::ModelSpec::single("gpt-4")),
+            workspace: None,
+            agent_dir: None,
+            bootstrap_mode: "full".to_string(),
             skills: vec!["skill-a".to_string(), "skill-b".to_string()],
-        };
+            tools: vec!["*".to_string()],
+            disallowed_tools: vec![],
+            subagents: SubagentsConfig::default(),
+            memory: None,
+        }));
         let json = serde_json::to_vec(&resp).unwrap();
         let deserialized: AdminResponse = serde_json::from_slice(&json).unwrap();
         assert_eq!(

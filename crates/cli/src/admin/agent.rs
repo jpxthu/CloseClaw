@@ -14,7 +14,7 @@ pub async fn handle_agent_with(action: AgentAction, cfg_dir: PathBuf, json: bool
     let client = AdminClient::new(admin_socket_path(&cfg_dir).to_string_lossy().into_owned());
     match action {
         AgentAction::List => handle_agent_list_rpc(&client, json).await,
-        AgentAction::Info { name } => handle_agent_info_rpc(&client, &name, json).await,
+        AgentAction::Info { id } => handle_agent_info_rpc(&client, &id, json).await,
         AgentAction::Create { name, model } => {
             handle_agent_create_rpc(&client, &name, model, json).await
         }
@@ -50,11 +50,9 @@ async fn handle_agent_list_rpc(client: &AdminClient, json: bool) -> Result<()> {
     }
 }
 
-async fn handle_agent_info_rpc(client: &AdminClient, name: &str, json: bool) -> Result<()> {
+async fn handle_agent_info_rpc(client: &AdminClient, id: &str, json: bool) -> Result<()> {
     let resp = client
-        .call(&AdminRequest::AgentInfo {
-            name: name.to_string(),
-        })
+        .call(&AdminRequest::AgentInfo { id: id.to_string() })
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
     if json {
@@ -62,19 +60,20 @@ async fn handle_agent_info_rpc(client: &AdminClient, name: &str, json: bool) -> 
         return Ok(());
     }
     match resp {
-        AdminResponse::AgentInfoResult {
-            id,
-            name,
-            model,
-            skills,
-        } => {
-            println!("Agent: {}", name);
-            println!("  ID: {}", id);
-            println!("  Model: {}", model.as_deref().unwrap_or("-"));
-            if skills.is_empty() {
+        AdminResponse::AgentInfoResult(agent_info) => {
+            println!("Agent: {}", agent_info.name);
+            println!("  ID: {}", agent_info.id);
+            println!(
+                "  Model: {}",
+                agent_info
+                    .model
+                    .as_ref()
+                    .map_or("-".to_string(), |m| m.to_string())
+            );
+            if agent_info.skills.is_empty() {
                 println!("  Skills: (none)");
             } else {
-                println!("  Skills: {}", skills.join(", "));
+                println!("  Skills: {}", agent_info.skills.join(", "));
             }
             Ok(())
         }

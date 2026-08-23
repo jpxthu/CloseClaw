@@ -16,8 +16,8 @@ pub enum AgentAction {
     },
     /// Get agent info
     Info {
-        /// Agent name
-        name: String,
+        /// Agent ID
+        id: String,
     },
 }
 

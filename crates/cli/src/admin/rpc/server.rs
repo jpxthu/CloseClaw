@@ -8,7 +8,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfo, SkillInfo};
+use crate::admin::rpc::protocol::{
+    AdminRequest, AdminResponse, AgentInfo, AgentInfoResult, SkillInfo,
+};
 use closeclaw_agent::config::AgentConfig;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::agents::ModelSpec;
@@ -120,7 +122,7 @@ async fn handle_connection(stream: UnixStream, context: Arc<AdminContext>) -> st
 pub(crate) async fn dispatch(request: AdminRequest, context: &AdminContext) -> AdminResponse {
     match request {
         AdminRequest::AgentList => dispatch_agent_list(context),
-        AdminRequest::AgentInfo { name } => dispatch_agent_info(&name, context),
+        AdminRequest::AgentInfo { id } => dispatch_agent_info(&id, context),
         AdminRequest::AgentCreate { name, model } => {
             dispatch_agent_create(&name, model, context).await
         }
@@ -144,17 +146,37 @@ pub(crate) fn dispatch_agent_list(context: &AdminContext) -> AdminResponse {
     AdminResponse::AgentListResult { agents }
 }
 
-/// Get info for a specific agent — returns detailed config information.
-pub(crate) fn dispatch_agent_info(name: &str, context: &AdminContext) -> AdminResponse {
-    match context.agent_registry.get(name) {
-        Some(entry) => AdminResponse::AgentInfoResult {
-            id: entry.id.clone(),
-            name: entry.name.clone(),
-            model: entry.model.as_ref().map(|m| m.primary.clone()),
-            skills: entry.skills.clone(),
-        },
+/// Get info for a specific agent — returns full configuration profile.
+pub(crate) fn dispatch_agent_info(id: &str, context: &AdminContext) -> AdminResponse {
+    match context.agent_registry.get(id) {
+        Some(entry) => {
+            let agent_info = AgentInfoResult {
+                id: entry.id.clone(),
+                name: entry.name.clone(),
+                parent_id: entry.parent_id.clone(),
+                model: entry.model.clone(),
+                workspace: entry
+                    .workspace
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().into_owned()),
+                agent_dir: entry
+                    .agent_dir
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().into_owned()),
+                bootstrap_mode: match entry.bootstrap_mode {
+                    closeclaw_common::BootstrapMode::Full => "full".to_string(),
+                    closeclaw_common::BootstrapMode::Minimal => "minimal".to_string(),
+                },
+                skills: entry.skills.clone(),
+                tools: entry.tools.clone(),
+                disallowed_tools: entry.disallowed_tools.clone(),
+                subagents: entry.subagents.clone(),
+                memory: Some(entry.memory.clone()),
+            };
+            AdminResponse::AgentInfoResult(Box::new(agent_info))
+        }
         None => AdminResponse::Error {
-            message: format!("agent '{}' not found", name),
+            message: format!("agent '{}' not found", id),
         },
     }
 }
