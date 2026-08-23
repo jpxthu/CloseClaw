@@ -40,11 +40,11 @@ Agent 专属目录下的技能仅对该 Agent 可见，不影响其他 Agent。
 
 ### 磁盘加载
 
-Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs、Global、Agent 专属、Project）并按优先级从低到高加载。Bundled 技能不与文件系统目录一起扫描——编译时内嵌，通过 BuiltinSkillRegistry 独立加载。解析每个 SKILL.md 文件的 frontmatter，同名时高优先级覆盖低优先级。
+每个 System Prompt 组装边界（触发事件清单见 [system_prompt 模块](../system_prompt/README.md)），磁盘加载层扫描前四层文件系统目录（ExtraDirs、Global、Agent 专属、Project）并按优先级从低到高加载。Bundled 技能不与文件系统目录一起扫描——编译时内嵌，通过 BuiltinSkillRegistry 独立加载。解析每个 SKILL.md 的 frontmatter，同名时高优先级覆盖低优先级。组装边界之间不扫描，注册中心内容保持稳定。
 
-正文采用按需加载策略：启动时只解析 frontmatter 并注册 skill 元数据，skill 被调用时才读取正文。
+正文采用按需加载策略：组装时只解析 frontmatter 并注册 skill 元数据，skill 被调用时才读取正文。
 
-目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存。扫描阶段的错误不导致 session 启动失败。
+目录扫描仅遍历一级子目录下的 SKILL.md 文件，不递归子目录。扫描结果以 frontmatter 元数据缓存。扫描阶段的错误不导致组装失败，不影响会话。
 
 ### 注册中心
 
@@ -55,7 +55,7 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
 
 查询路由：先查 DiskSkillRegistry，未命中再查 BuiltinSkillRegistry。同名覆盖仅在同一注册表内生效；跨注册表的优先级由查询路由顺序保证——DiskSkillRegistry 优先于 BuiltinSkillRegistry。
 
-注册中心内容在 session 内冻结。
+技能文件变更在下一个 System Prompt 组装边界反映（详见 [skill-listing-injection.md](skill-listing-injection.md)）；组装之间清单内容不变。
 
 ### 错误处理
 
@@ -67,27 +67,27 @@ Session 启动时，磁盘加载层扫描前四层文件系统目录（ExtraDirs
 
 ## 数据流
 
-### 启动加载
+### 加载与刷新
 
-1. Session 启动，按优先级从低到高扫描四层文件系统目录：
-   1. ExtraDirs 扫描（路径不存在 → 跳过）
-   2. Global 目录扫描
-   3. Agent 专属目录扫描
-   4. Project 目录扫描
+1. 到达组装边界（触发事件见 [system_prompt 模块](../system_prompt/README.md)），按优先级从低到高扫描四层文件系统目录：
+   - ExtraDirs 扫描（路径不存在 → 跳过）
+   - Global 目录扫描
+   - Agent 专属目录扫描
+   - Project 目录扫描
 2. Bundled 技能通过 BuiltinSkillRegistry 独立加载（编译时内嵌，不走文件系统扫描）
 3. 逐个解析每个 SKILL.md 的 frontmatter：
    - 格式错误或必填字段缺失 → 跳过该 skill 并记录
    - 同名覆盖 → 低优先级版本跳过并记录
 4. 磁盘扫描的技能 → 写入 DiskSkillRegistry
 5. 内置技能 → 写入 BuiltinSkillRegistry
-6. 注册中心冻结
+6. 注册中心就绪，供 SP 组装和技能调用查询
 
 ### 按需加载正文
 
-Skill 被 Agent 调用时，从注册中心查找 skill 实例，按需加载正文内容。磁盘技能从对应 SKILL.md 文件读取；内置技能从 BuiltinSkillRegistry 实例中直接获取。启动阶段不加载正文。
+Skill 被 Agent 调用时，从注册中心查找 skill 实例，按需加载正文内容。磁盘技能从对应 SKILL.md 文件读取；内置技能从 BuiltinSkillRegistry 实例中直接获取。组装时不加载正文。
 
 ## 模块关系
 
-- **上游**：Session 启动流程（触发磁盘加载）、Agent 配置（提供 agent-id）
+- **上游**：System Prompt 组装流程（触发磁盘加载）、Agent 配置（提供 agent-id）
 - **下游**：文件系统（扫描目录、读取 SKILL.md 文件）、skill-listing-injection（消费注册中心数据生成技能清单，供 Agent 调度决策使用）、[skill-execution](skill-execution.md)（消费注册中心数据按需加载正文）
 - **共享类型**：Skill 元数据结构（优先级层级、frontmatter 字段），定义于本文档，被 skill-listing-injection 和 skill-execution 消费
