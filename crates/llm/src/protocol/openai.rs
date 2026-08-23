@@ -207,6 +207,7 @@ impl ChatProtocol for OpenAiProtocol {
             let mut block_index: Option<usize> = None;
             let mut next_block_index: usize = 0;
             let mut active_block_type: Option<ContentBlockType> = None;
+            let mut usage: Option<RawUsage> = None;
 
             while let Some(chunk) = stream.next().await {
                 let data = chunk.data.trim();
@@ -218,6 +219,12 @@ impl ChatProtocol for OpenAiProtocol {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
+
+                // Extract usage from chunks that carry it (final chunk when
+                // stream_options.include_usage is set).
+                if parsed.get("usage").is_some() {
+                    usage = Some(parse_usage(&parsed));
+                }
 
                 let choices = match parsed.get("choices").and_then(|v| v.as_array()) {
                     Some(arr) if !arr.is_empty() => arr,
@@ -363,7 +370,7 @@ impl ChatProtocol for OpenAiProtocol {
                         block_index = None;
                         active_block_type = None;
                     }
-                    yield StreamEvent::MessageEnd { usage: None, finish_reason: Some("tool_calls".to_string()) };
+                    yield StreamEvent::MessageEnd { usage: usage.clone().map(Into::into), finish_reason: Some("tool_calls".to_string()) };
                     break;
                 }
             }
@@ -372,7 +379,7 @@ impl ChatProtocol for OpenAiProtocol {
                 let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
                 yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
             }
-            yield StreamEvent::MessageEnd { usage: None, finish_reason: Some("stop".to_string()) };
+            yield StreamEvent::MessageEnd { usage: usage.map(Into::into), finish_reason: Some("stop".to_string()) };
         })
     }
 }
