@@ -14,11 +14,11 @@ Gateway 按交付模式分两种执行时序调度同一条出站 Processor Chai
 
 **批量出错降级**：出站链处理器异常按链级容错策略处理（VerbosityFilter 失败等同不过滤、DslParser 失败原样透传、OutboundRawLog 失败跳过日志，详见 [processor_chain 出站链路](../processor_chain/outbound-chain.md)），不阻塞发送。渲染或发送失败时消息未送达——批量模式一次性渲染发送，不存在部分送达，天然满足「不呈现不完整内容」；Gateway 经简化出站路径向 User 发送「回复发送失败」提示并记录告警日志，不自动重试（避免平台限流场景下重复发送）。
 
-**流式模式**：LLM 逐片产出 ContentBlock[] 增量。Gateway 分四个阶段调度：
+**流式模式**：LLM 逐事件产出 [StreamEvent](../common/shared-types.md#streamevent) 流式事件。Gateway 分四个阶段调度：
 
 1. **Pre-flight 中间件**：增量阶段开始前，Gateway 执行出站中间件链（审计、频率限制）。中间件基于 Session 元数据做预检——被拒则终止流式，Gateway 经简化出站路径发送拒绝通知（跳过中间件，避免同一中间件再次拒绝）；通过则进入增量阶段。
-2. **增量阶段**：每个 chunk 经 VerbosityFilter 逐 chunk 过滤后送入 DslParser（增量文本零开销透传，无 DSL 指令），跳过 OutboundRawLog（出站调试日志）。Gateway 交付 IM Adapter 增量渲染并逐片发送。
-3. **收尾阶段**：全部 ContentBlock[] 到齐后，Gateway 执行 DslParser 完整解析 DSL 指令 → OutboundRawLog 写入出站调试日志。VerbosityFilter 已在增量阶段按 chunk 过滤，收尾阶段不重跑。流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生新渲染输出——流式回复中实际发送的内容在增量阶段已全部完成。最后 Gateway 将增量阶段 VerbosityFilter 过滤后的完整消息写入 session checkpoint 持久化存储。
+2. **增量阶段**：LLM 流式响应以 [StreamEvent](../common/shared-types.md#streamevent) 事件流逐事件传递——经 VerbosityFilter 按块边界过滤后送入 DslParser（零开销透传，无 DSL 指令），跳过 OutboundRawLog（出站调试日志）。Gateway 交付 IM Adapter 流式渲染器逐事件增量渲染并逐片发送。
+3. **收尾阶段**：全部 ContentBlock[] 到齐后，Gateway 执行 DslParser 完整解析 DSL 指令 → OutboundRawLog 写入出站调试日志。VerbosityFilter 已在增量阶段按块边界过滤，收尾阶段不重跑。流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生新渲染输出——流式回复中实际发送的内容在增量阶段已全部完成。最后 Gateway 将增量阶段 VerbosityFilter 过滤后的完整消息写入 session checkpoint 持久化存储。
 4. **出错降级**：流式进行中出错（LLM 流中断或 IM 发送失败）时，Gateway 终止流式会话，经简化出站路径追加"回复中断"错误提示（明确标记本次回复不完整），出站历史记录已发送部分并写入错误事件标记。
 
 Gateway 管理流式会话状态，跟踪当前流式进度、累积消息内容，确保增量阶段、收尾阶段与出错降级的状态连贯。
@@ -71,7 +71,7 @@ Gateway 在渲染完成后、发送前提供中间件拦截点。流式模式下
 ### 流式模式
 
 1. Pre-flight：增量阶段开始前执行中间件链（基于 Session 元数据预检）。被拒 → 终止流式，经简化出站路径发送拒绝通知，流程结束。
-2. 增量阶段：chunk → VerbosityFilter（逐 chunk 过滤）→ DslParser（零开销透传）→ IM Adapter 增量渲染 → 逐片发送。
+2. 增量阶段：StreamEvent 事件 → VerbosityFilter（按块边界过滤）→ DslParser（零开销透传）→ IM Adapter 流式渲染器（逐事件增量渲染）→ 逐片发送。
 3. 增量阶段结束后二选一：
    - 正常收尾（LLM 流完整）：完整 ContentBlock[] → DslParser 完整解析 → OutboundRawLog → 出站历史记录写入 session checkpoint。
    - 出错降级（LLM 流中断或 IM 发送失败）：终止流式 → 简化出站路径追加"回复中断"提示 → 出站历史记录已发送部分并写入错误事件标记。
@@ -84,7 +84,7 @@ Gateway 在渲染完成后、发送前提供中间件拦截点。流式模式下
 
 **关键判断点**：
 
-- **交付模式**：ContentBlock[] 完整到齐 → 批量模式；LLM 逐片产出 → 流式模式
+- **交付模式**：ContentBlock[] 完整到齐 → 批量模式；LLM 以 [StreamEvent](../common/shared-types.md#streamevent) 事件流逐事件产出 → 流式模式
 - **通道选择**：对话回复（含斜杠指令回复）→ 完整出站链；纯文本错误回复 / 系统通知 / 降级提示（流式中断、批量发送失败）→ 简化出站路径
 - **中间件拦截**：批量模式在渲染后发送前执行；流式模式前置为 pre-flight（基于 Session 元数据），避免增量发送后无法撤回
 - **出错降级**：批量模式渲染/发送失败 → 简化路径发「回复发送失败」提示，不重试；流式模式增量中断 → 简化路径追加「回复中断」提示，出站历史记录已发送部分并标记错误事件

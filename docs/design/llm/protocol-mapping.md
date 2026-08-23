@@ -2,7 +2,7 @@
 
 ## 概述
 
-协议映射层定义 OpenAI 和 Anthropic 两种 LLM 协议到统一内容块和统一流式事件的转换规则。这是 LLM 模块五层架构中 Protocol 层和 ModelInterpreter 层的桥梁规范——Protocol 层按协议解析原始响应，ModelInterpreter 按此映射将协议原生字段归一化为统一内容块。
+协议映射层定义 OpenAI 和 Anthropic 两种 LLM 协议到统一内容块和统一流式事件（[StreamEvent](../../common/shared-types.md#streamevent)）的转换规则。这是 LLM 模块五层架构中 Protocol 层和 ModelInterpreter 层的桥梁规范——Protocol 层按协议解析原始响应，ModelInterpreter 按此映射将协议原生字段归一化为统一内容块。
 
 此规范中立于具体供应商，只描述协议本身的映射关系。各供应商的特有行为（如 MiniMax OpenAI 协议下 thinking 混在文本中的标签格式）在各 provider 文档中说明。
 
@@ -45,15 +45,15 @@ Anthropic 协议下，content 是类型化结构数组。每个元素通过 `typ
 
 ### 统一流式事件
 
-流式输出通过五种统一事件传递，屏蔽两种协议 SSE 在事件粒度上的差异：
+流式输出通过 [StreamEvent](../../common/shared-types.md#streamevent) 五种统一事件传递（类型语义与消费契约见 common 定义），本表定义两种协议 SSE 到该事件的映射规则，屏蔽协议在事件粒度上的差异：
 
-| 统一事件 | OpenAI SSE 来源 | Anthropic SSE 来源 |
+| StreamEvent 事件 | OpenAI SSE 来源 | Anthropic SSE 来源 |
 |---------|----------------|-------------------|
-| 内容块开始 | 首个非空 `delta.content` / `delta.reasoning_content` / `delta.tool_calls[0].id` 出现 | `content_block_start` 事件 |
-| 内容增量 | `delta.content` / `delta.reasoning_content` / `delta.tool_calls` | `content_block_delta` 事件（`text_delta` / `thinking_delta` / `signature_delta` / `input_json_delta`） |
-| 内容块结束 | `finish_reason=stop` 出现；`finish_reason=tool_calls` 出现（结束 ToolUse 块） | `content_block_stop` 事件 |
-| 消息结束 | `finish_reason=stop` 后接 `[DONE]`；`finish_reason=tool_calls`（直接结束，无 `[DONE]`） | `message_delta(stop_reason)` 后接 `message_stop` |
-| 错误事件 | HTTP 错误状态码 + 错误 body | HTTP 错误状态码 + `error` 事件 |
+| BlockStart（块开始） | 首个非空 `delta.content` / `delta.reasoning_content` / `delta.tool_calls[0].id` 出现 | `content_block_start` 事件 |
+| BlockDelta（块增量） | `delta.content` / `delta.reasoning_content` / `delta.tool_calls` | `content_block_delta` 事件（`text_delta` / `thinking_delta` / `signature_delta` / `input_json_delta`） |
+| BlockEnd（块结束） | `finish_reason=stop` 出现；`finish_reason=tool_calls` 出现（结束 ToolUse 块） | `content_block_stop` 事件 |
+| MessageEnd（消息结束） | `finish_reason=stop` 后接 `[DONE]`；`finish_reason=tool_calls`（直接结束，无 `[DONE]`） | `message_delta(stop_reason)` 后接 `message_stop` |
+| Error（错误） | HTTP 错误状态码 + 错误 body | HTTP 错误状态码 + `error` 事件 |
 
 Anthropic SSE 事件序列的典型顺序：`message_start` → `content_block_start(thinking)` → 若干 `thinking_delta` → 一个 `signature_delta` → `content_block_stop` → `content_block_start(text)` → 若干 `text_delta` → `content_block_stop` → `message_delta` → `message_stop`。
 
@@ -101,7 +101,7 @@ OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reaso
 供应商 API 返回原始响应
   → Provider 层返回 HTTP body（JSON 或 SSE 流）
     → Protocol 层按协议格式解析为内部结构
-      → ModelInterpreter 按本映射表归一化为统一内容块/流式事件
+      → ModelInterpreter 按本映射表归一化为统一内容块/StreamEvent 流式事件
         → 上层业务只看到统一模型
 ```
 

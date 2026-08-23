@@ -13,7 +13,7 @@ Gateway 自身不含业务逻辑，通过编排下游模块完成消息流转。
 Gateway 由以下职责组成：
 
 - **IM Adapter 管理**：注册和维护各平台插件（含 webhook 平台和 terminal 通道的 CLI）。入站方向将平台原始格式归一化为统一结构。
-- **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息日志记录、session_key 计算和文本标准化。出站链按交付模式决定执行时机——批量模式一次性执行完整链；流式模式分四个阶段——pre-flight（增量开始前执行一次出站中间件链做检查，被拒则终止流式并发送拒绝通知）、增量阶段（逐 chunk 过滤渲染，DslParser 零开销透传、跳过出站调试日志）、收尾阶段（执行 DSL 解析和出站调试日志，不重跑 VerbosityFilter。流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出）和出错降级（流式进行中出错时终止流式会话，经简化出站路径追加错误提示，详见 [出站流程](outbound-flow.md)）。
+- **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息日志记录、session_key 计算和文本标准化。出站链按交付模式决定执行时机——批量模式一次性执行完整链；流式模式分四个阶段——pre-flight（增量开始前执行一次出站中间件链做检查，被拒则终止流式并发送拒绝通知）、增量阶段（消费 [StreamEvent](../common/shared-types.md#streamevent) 流式事件，按事件过滤渲染，DslParser 零开销透传、跳过出站调试日志）、收尾阶段（执行 DSL 解析和出站调试日志，不重跑 VerbosityFilter。流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出）和出错降级（流式进行中出错时终止流式会话，经简化出站路径追加错误提示，详见 [出站流程](outbound-flow.md)）。
 - **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给斜杠指令处理（其中 `/approve-once`、`/approve-whitelist`、`/deny` 在 Gateway 层硬拦截不进 SlashDispatcher），否则路由到 Session 进入 LLM 对话流程。普通消息路由前，Gateway 先根据配置定义的机器人→Agent 绑定确定对应的 Agent，将 agent_id 一并传给 SessionManager。
 - **出站中间件**：渲染完成后、发送前，Gateway 按注册顺序链式执行中间件（流式模式前置为 pre-flight）。详见 [出站流程](outbound-flow.md) 出站中间件节。
 - **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，调用其渲染接口产出平台格式内容。渲染完成后、发送前，Gateway 执行中间件链，通过后调用 IM Adapter 的发送接口完成消息投递。渲染和发送为分离接口。
@@ -81,7 +81,7 @@ Gateway 收到入站 webhook 后，消息先进入入站消息队列（有界持
 **关键概要**：
 
 - **批量模式**：ContentBlock[] 完整到齐后一次性执行出站链，渲染 → 中间件 → 发送 → 写出站历史；渲染/发送失败经简化路径发"回复发送失败"提示。斜杠指令回复统一走批量模式。
-- **流式模式**：pre-flight 中间件 → 增量阶段（逐 chunk 过滤渲染）→ 收尾阶段（DSL 完整解析、写调试日志、写出站历史）→ 出错降级（简化路径追加错误提示）。
+- **流式模式**：pre-flight 中间件 → 增量阶段（逐 [StreamEvent](../common/shared-types.md#streamevent) 事件过滤渲染）→ 收尾阶段（DSL 完整解析、写调试日志、写出站历史）→ 出错降级（简化路径追加错误提示）。
 - **简化出站路径**：非文本错误回复、系统通知、降级提示（含流式中断与批量发送失败）——跳过完整链，仅经调试日志（配置时）→ 渲染 → 发送，不写出站历史。
 - **出站日志的两种形态**：出站调试日志（OutboundRawLog，链内 processor，仅 `raw_log_dir` 配置时注册）与出站历史记录（发送成功后写入 session checkpoint 的交付记录）。字段、定位与完整时序详见 [出站流程](outbound-flow.md)。
 

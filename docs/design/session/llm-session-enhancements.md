@@ -18,8 +18,8 @@ ConversationSession
   │
   ├── 调用 LLM ──────────────────────────────────────────
   │     ├── 流式路径：遍历 provider 链选择可用流式 provider
-  │     │     ├── 逐 chunk 组装 ContentBlock[]
-  │     │     └── Done chunk 到达 → 提取用量信息（暂存）
+  │     │     ├── 逐事件消费 [StreamEvent](../common/shared-types.md#streamevent)，按 BlockEnd 边界组装 ContentBlock[]
+  │     │     └── MessageEnd 到达 → 提取用量信息（暂存）
   │     │
   │     └── 非流式路径：直接调用 provider 获取完整响应
   │           └── 返回完整响应
@@ -34,9 +34,9 @@ ConversationSession
 
 会话支持流式和非流式两条路径，通过请求中的 `stream` 标志位选择。
 
-**流式路径**：Session 层接收 LLM 流式 chunk，逐块组装 ContentBlock[] 并通过 Gateway 统一出站路径（Verbosity → Processor Chain → 出站日志）实时推送至 IM Adapter 渲染发送。Session 层持有 ContentBlock[] 组装状态，不感知下游 IM 类型和渲染模式。
+**流式路径**：Session 层接收 LLM 的 [StreamEvent](../common/shared-types.md#streamevent) 流式事件，逐事件转发 Gateway 统一出站路径（Verbosity → Processor Chain → 出站日志）实时推送至 IM Adapter 渲染发送，并按 BlockEnd 边界组装完整 ContentBlock[] 用于消息历史。Session 层持有组装状态，不感知下游 IM 类型和渲染模式。
 
-流式输出过程中发生错误时，已输出的文本片段保留给用户，同时展示错误提示。不完整的响应不写入 message history。
+流式输出过程中发生错误时，已输出的文本片段保留给用户，同时展示错误提示。不完整的响应不写入 message history；例外：错误发生前已完整生成的 Thinking 块（对应 BlockEnd 已到达）保留在对话历史中并参与后续上下文（需求 [llm §F2](../../requirements/llm.md)）；工具调用的多轮交互需将上一轮推理内容带回模型，保持上下文连续（需求 llm §F5，Thinking 保留策略见下方「Thinking 内容管理」节）。系统同时向用户提示该响应不完整。
 
 各 LLM provider 通过各自的流式接口实现 SSE 事件解析，处理各自的事件格式差异。
 
@@ -60,7 +60,7 @@ Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时
 
 **Usage 扩展**：除基础的 prompt/completion/total tokens 外，增加 `cache_read_tokens`（命中缓存的输入 token）、`cache_write_tokens`（新写入缓存的 token）和 `reasoning_tokens`（推理消耗的 token，与文本输出分开统计）。若 API 响应不携带缓存字段则对应字段显示为 0。
 
-**RunningStats** 跨轮次累加所有用量，保留上一轮快照用于命中率对比。支持查询缓存命中率（cache_read / total_input）。流式过程中 RunningStats 在每次 Done chunk 到达时更新（此时才有完整 usage），中途查询返回上一次累加值。会话结束时 RunningStats 清零。
+**RunningStats** 跨轮次累加所有用量，保留上一轮快照用于命中率对比。支持查询缓存命中率（cache_read / total_input）。流式过程中 RunningStats 在 MessageEnd 事件到达时更新（此时才有完整 usage），中途查询返回上一次累加值。会话结束时 RunningStats 清零。
 
 **缓存命中率下降检测**：
 
@@ -97,11 +97,11 @@ LLM 响应中的 Thinking 内容以独立 block 形式保留在消息历史中�
   ├── 路径选择
   │     ├── stream=true → 流式路径
   │     │     ├── provider 流式调用
-  │     │     ├── 每 chunk → 组装 ContentBlock[] → 实时推送至 IM Adapter
-  │     │     ├── Done chunk → ContentBlock[] 完成（携带用量，暂存）
-  │     │     └── Error chunk → 错误通知
+  │     │     ├── 每个事件 → 转发出站 + 按 BlockEnd 组装 ContentBlock[] → 实时推送至 IM Adapter
+  │     │     ├── MessageEnd 事件 → ContentBlock[] 完成（携带用量，暂存）
+  │     │     └── Error 事件 → 错误通知
   │     │                       → 已输出片段保留给用户
-  │     │                       → message history 不写入
+  │     │                       → message history 不写入（已完整生成的 Thinking 块除外，保留）
   │     │
   │     └── stream=false → 非流式路径
   │           └── provider 非流式调用 → 返回完整 ContentBlock[]

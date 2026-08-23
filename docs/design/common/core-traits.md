@@ -119,6 +119,8 @@
 
 **渲染与发送的分离**：渲染产出数据（RenderedOutput），发送执行副作用。Gateway 在两步之间可插入审计、频率限制等中间件。
 
+**与流式渲染的关系**：上表渲染方法描述批量路径（接收完整 ContentBlock[] + DslParseResult）。流式渲染是独立路径——各平台插件组合持有流式渲染器组件，消费 [StreamEvent](shared-types.md#streamevent) 事件流增量渲染后经本 trait 的发送能力投递，不经过本 trait 的渲染方法（详见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)）。
+
 **平台插件实现**和注册机制详见 [IM Adapter 模块](../im_adapter/README.md)。
 
 **入站身份映射**：IMPlugin 在入站解析时负责填充 [NormalizedMessage](shared-types.md#normalizedmessage) 的全部字段，包括通过 sender_id 查询账户绑定表获取 account_id。映射规则和账户配置详见 [config 模块](../config/README.md)。
