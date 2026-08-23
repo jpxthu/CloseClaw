@@ -69,6 +69,12 @@ pub struct Daemon {
     pub spawn_controller: Option<Arc<SpawnController>>,
     /// SystemPromptBuilder reference — static-layer prompt construction
     pub system_prompt_builder: Option<Arc<dyn closeclaw_common::SystemPromptBuilder>>,
+    /// Receiver half of the SessionMessageHandler output channel.
+    /// Retained here to prevent the sender from being silently closed;
+    /// will be wired to the outbound pipeline in a future step.
+    #[allow(dead_code)]
+    pub(crate) _output_rx:
+        tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
 }
 
 /// Dependencies for Phase 5 background initialization.

@@ -467,6 +467,195 @@ fn test_miner_config_from_mining_config_custom_values() {
 }
 
 // ============================================================
+// Step 1.4: Daemon LLM chain assembly verification
+// ============================================================
+
+/// Verify that `init_llm_registry` returns a registry containing
+/// all providers configured via credentials files.
+#[tokio::test]
+async fn test_init_llm_registry_contains_configured_providers() {
+    let tmp = TempDir::new().unwrap();
+    let creds_dir = tmp.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+
+    // Create credential files for openai and anthropic
+    std::fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":"openai-key"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        creds_dir.join("anthropic.json"),
+        r#"{"provider":"anthropic","apiKey":"anthropic-key"}"#,
+    )
+    .unwrap();
+
+    let registry = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+    let listed = registry.list().await;
+
+    assert!(listed.contains(&"openai".to_string()));
+    assert!(listed.contains(&"anthropic".to_string()));
+}
+
+/// Verify that `init_llm_registry` registers providers from env
+/// overrides when no credentials files exist.
+#[tokio::test]
+async fn test_init_llm_registry_env_override_providers() {
+    let tmp = TempDir::new().unwrap();
+    let overrides: HashMap<&str, &str> = HashMap::from([
+        ("OPENAI_API_KEY", "env-openai-key"),
+        ("MINIMAX_API_KEY", "env-minimax-key"),
+    ]);
+
+    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let listed = registry.list().await;
+
+    assert!(listed.contains(&"openai".to_string()));
+    assert!(listed.contains(&"minimax".to_string()));
+}
+
+/// Verify that `for_provider` maps anthropic to AnthropicCacheAdapter
+/// and minimax to NoopCacheAdapter, matching the design doc.
+#[test]
+fn test_cache_adapter_mapping_matches_design_doc() {
+    // Anthropic → explicit prefix caching
+    let anthropic_adapter = closeclaw_llm::cache_adapter::for_provider("anthropic");
+    assert_eq!(anthropic_adapter.name(), "anthropic");
+
+    // MiniMax → no explicit cache params (noop)
+    let minimax_adapter = closeclaw_llm::cache_adapter::for_provider("minimax");
+    assert_eq!(minimax_adapter.name(), "noop");
+
+    // OpenAI → no explicit cache params (noop)
+    let openai_adapter = closeclaw_llm::cache_adapter::for_provider("openai");
+    assert_eq!(openai_adapter.name(), "noop");
+
+    // Kimi → prompt_cache_key
+    let kimi_adapter = closeclaw_llm::cache_adapter::for_provider("kimi");
+    assert_eq!(kimi_adapter.name(), "kimi");
+}
+
+/// Verify that the full LLM chain assembly produces correct chain
+/// entries with correct cache adapters for each provider.
+#[test]
+fn test_llm_chain_assembly_correct_adapters() {
+    use closeclaw_llm::cache_adapter::for_provider;
+    use closeclaw_llm::interpreter::InterpreterRegistry;
+    use closeclaw_llm::plugin::PluginPipeline;
+    use closeclaw_llm::protocol::OpenAiProtocol;
+    use closeclaw_llm::retry::CooldownManager;
+    use closeclaw_llm::stub::StubProvider;
+    use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+
+    // Build chain entries mirroring the lifecycle.rs assembly logic
+    let providers = vec![
+        ("openai", "openai"),
+        ("anthropic", "anthropic"),
+        ("minimax", "minimax"),
+    ];
+
+    let mut chain_entries: Vec<ChainEntry> = Vec::new();
+    for (provider_id, _) in &providers {
+        let provider: Arc<dyn closeclaw_llm::provider::Provider> = Arc::new(StubProvider::new());
+        let cache_adapter = for_provider(provider_id);
+        let client = Arc::new(closeclaw_llm::UnifiedChatClient::new(
+            provider,
+            Arc::new(OpenAiProtocol::new()),
+            InterpreterRegistry::default(),
+            PluginPipeline::new(),
+            cache_adapter,
+        ));
+        chain_entries.push(ChainEntry {
+            provider_id: provider_id.to_string(),
+            model_id: provider_id.to_string(),
+            client,
+        });
+    }
+
+    let cooldown = Arc::new(CooldownManager::new());
+    let fallback = UnifiedFallbackClient::new(chain_entries, cooldown);
+
+    // Verify chain has correct entries
+    let chain = fallback.chain();
+    assert_eq!(chain.len(), 3);
+    assert_eq!(chain[0].provider_id, "openai");
+    assert_eq!(chain[1].provider_id, "anthropic");
+    assert_eq!(chain[2].provider_id, "minimax");
+
+    // Verify model_id equals provider_id for each entry
+    assert_eq!(
+        chain[0].model_id, "openai",
+        "model_id should equal provider_id"
+    );
+    assert_eq!(
+        chain[1].model_id, "anthropic",
+        "model_id should equal provider_id"
+    );
+    assert_eq!(
+        chain[2].model_id, "minimax",
+        "model_id should equal provider_id"
+    );
+
+    // Verify each client's Debug output contains the correct adapter name
+    // (UnifiedChatClient Debug impl includes cache_adapter.name())
+    let debug_0 = format!("{:?}", chain[0].client);
+    assert!(
+        debug_0.contains("noop"),
+        "openai client should use noop adapter, got: {debug_0}"
+    );
+
+    let debug_1 = format!("{:?}", chain[1].client);
+    assert!(
+        debug_1.contains("anthropic"),
+        "anthropic client should use anthropic adapter, got: {debug_1}"
+    );
+
+    let debug_2 = format!("{:?}", chain[2].client);
+    assert!(
+        debug_2.contains("noop"),
+        "minimax client should use noop adapter, got: {debug_2}"
+    );
+}
+
+/// Verify that FallbackLlmCaller wraps the correct UnifiedFallbackClient
+/// and that the chain is accessible through it.
+#[test]
+fn test_fallback_llm_caller_chain_accessible() {
+    use closeclaw_gateway::llm_caller_impl::FallbackLlmCaller;
+    use closeclaw_llm::cache_adapter::for_provider;
+    use closeclaw_llm::interpreter::InterpreterRegistry;
+    use closeclaw_llm::plugin::PluginPipeline;
+    use closeclaw_llm::protocol::OpenAiProtocol;
+    use closeclaw_llm::retry::CooldownManager;
+    use closeclaw_llm::stub::StubProvider;
+    use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+
+    let provider: Arc<dyn closeclaw_llm::provider::Provider> = Arc::new(StubProvider::new());
+    let cache_adapter = for_provider("anthropic");
+    let client = Arc::new(closeclaw_llm::UnifiedChatClient::new(
+        provider,
+        Arc::new(OpenAiProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+        cache_adapter,
+    ));
+    let entry = ChainEntry {
+        provider_id: "anthropic".to_string(),
+        model_id: "claude-3".to_string(),
+        client,
+    };
+    let cooldown = Arc::new(CooldownManager::new());
+    let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
+    let caller = FallbackLlmCaller(Arc::clone(&fallback));
+
+    // Verify the caller's inner fallback client has the expected chain
+    let chain = caller.0.chain();
+    assert_eq!(chain.len(), 1);
+    assert_eq!(chain[0].provider_id, "anthropic");
+    assert_eq!(chain[0].model_id, "claude-3");
+}
+
+// ============================================================
 // Step 1.3: resolve_extra_dirs path expansion tests
 // ============================================================
 

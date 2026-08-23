@@ -69,7 +69,7 @@ impl Gateway {
                     request_id = %request_id,
                     "new user registration request auto-submitted"
                 );
-                if let Some(sh) = self.session_handler.as_ref() {
+                if let Some(sh) = self.session_handler.get() {
                     sh.send_reply(format!(
                         "👋 您是新用户，已向 Owner 提交注册申请（请求 ID: {}）。请等待审批。",
                         request_id
@@ -85,7 +85,7 @@ impl Gateway {
                     channel,
                     "user creation request already pending or failed"
                 );
-                if let Some(sh) = self.session_handler.as_ref() {
+                if let Some(sh) = self.session_handler.get() {
                     sh.send_reply("⏳ 您的注册请求正在审批中，请等待。".to_owned())
                         .await;
                 }
