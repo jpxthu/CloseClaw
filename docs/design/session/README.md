@@ -141,7 +141,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 3. ConversationSession 将 system_prompt + messages + reasoning level 组装为 LLM 请求
 4. LLM 状态设为 Requesting
 5. LLM provider 调用
-   - 流式模式：Session 层接收 LLM 流式 chunk，逐块组装 ContentBlock[] 并通过统一出站路径（Verbosity → Processor Chain → 出站日志）实时推送至 IM Adapter 渲染发送
+   - 流式模式：Session 层接收 LLM 的 [StreamEvent](../common/shared-types.md#streamevent) 流式事件，逐事件转发统一出站路径（Verbosity → Processor Chain → 出站日志）实时推送至 IM Adapter 渲染发送，完整 ContentBlock[] 按 BlockEnd 边界组装用于消息历史
    - 非流式：返回完整响应
 6. Thinking 内容作为独立 block 保留在消息历史中，展示层默认过滤（不输出给用户）
 7. 完整 ContentBlock[]（含 Thinking block）写入 message history

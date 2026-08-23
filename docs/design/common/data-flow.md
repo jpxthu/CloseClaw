@@ -52,16 +52,17 @@ ProcessedMessage { content_blocks, metadata: { dsl_result } }
   ↓
 [IM Adapter 渲染]
   批量模式：一次性渲染全部 ContentBlock[]
-  流式模式：增量渲染，规则见 [shared-types ContentBlock §流式渲染差异化](shared-types.md)
+  流式模式：消费 [StreamEvent](shared-types.md#streamevent) 事件流增量渲染，规则见 [shared-types ContentBlock §流式渲染差异化](shared-types.md)
   ↓
 [中间件插入点] — Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件
   ↓
 IM Adapter 发送
 ```
 
-出站方向涉及四种共享类型：
+出站方向涉及五种共享类型：
 
-- **[ContentBlock](shared-types.md#contentblock)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），仅 Text 变体参与 DSL 解析，其余 6 种变体由 DslParser 透传。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。
+- **[ContentBlock](shared-types.md#contentblock)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），仅 Text 变体参与 DSL 解析，其余 6 种变体由 DslParser 透传。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。批量交付形态。
+- **[StreamEvent](shared-types.md#streamevent)**：ContentBlock 的流式形态——5 种增量事件（BlockStart/BlockDelta/BlockEnd/MessageEnd/Error）。LLM 模块归一化产出 → Session 转发 → Processor Chain 增量阶段逐事件处理 → IM Adapter 流式渲染器增量消费。流式交付形态。
 - **[DslParseResult / DslInstruction](shared-types.md#dslparseresult)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser、终于 Renderer 渲染。
 - **[ProcessedMessage](shared-types.md#processedmessage)**（出站形态）：Processor Chain 出站产出 → Gateway 出站日志 → IM Adapter 渲染。content_blocks 为经 DslParser 处理后的 ContentBlock[]，metadata 含 dsl_result（DslParseResult 的序列化值）。
 - **[SlashResult](shared-types.md#slashresult)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。Exec 变体在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
@@ -74,6 +75,6 @@ IM Adapter 发送
 
 - **入站上游**：IM Adapter（产出 NormalizedMessage）
 - **入站下游**：Gateway（消费 ProcessedMessage 做路由决策）
-- **出站上游**：Session（LLM 产出 ContentBlock[]）、SlashDispatcher（产出 SlashResult）
+- **出站上游**：Session（LLM 产出 ContentBlock[]，流式场景转发出 StreamEvent）、SlashDispatcher（产出 SlashResult）
 - **出站下游**：IM Adapter（消费 ProcessedMessage 渲染并发送）
 - **无关**：LLM Provider（不接触 ProcessedMessage，只产出 ContentBlock[]）、Session 生命周期管理（通过 Gateway 间接消费）

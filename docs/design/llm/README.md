@@ -6,7 +6,7 @@ LLM 模块为 CloseClaw 提供统一的多供应商、多协议、多模型 LLM 
 
 ## 架构
 
-LLM 模块采用五层分离架构，每层只做一件事，层间通过标准类型传递。模块支持两种协议：OpenAI 协议（内容以纯文本字符串承载，推理过程通过独立字段承载）和 Anthropic 协议（内容以类型化结构数组承载，推理过程和工具调用为独立内容块）。Protocol 层负责屏蔽两种协议的序列化差异，ModelInterpreter 按 [protocol-mapping](protocol-mapping.md) 将协议原生字段归一化为统一内容块和流式事件。
+LLM 模块采用五层分离架构，每层只做一件事，层间通过标准类型传递。模块支持两种协议：OpenAI 协议（内容以纯文本字符串承载，推理过程通过独立字段承载）和 Anthropic 协议（内容以类型化结构数组承载，推理过程和工具调用为独立内容块）。Protocol 层负责屏蔽两种协议的序列化差异，ModelInterpreter 按 [protocol-mapping](protocol-mapping.md) 将协议原生字段归一化为统一内容块和 [StreamEvent](../common/shared-types.md#streamevent) 流式事件。
 
 **前缀稳定性原则**：同一 session 内连续多次 API 调用之间，请求的前缀部分（静态 system prompt + 历史消息）必须完全相同，只有尾部新增内容变化——这是前缀缓存生效的前提。任何在请求前缀中注入可变内容的做法都会系统性破坏 KV cache，导致所有 token 按全价计费。此原则贯穿 system prompt 静态/动态分离（上游 system_prompt 模块负责）、消息历史尾部缓存标记（Protocol 层在请求序列化时完成）、以及 cache adapter 的缓存控制参数注入（CacheAdapter 层负责）。
 
@@ -45,7 +45,7 @@ LLM Client（UnifiedChatClient）—— 统一入口
 |----|------|------|---------|
 | CacheAdapter | 按供应商策略处理 system prompt 静态区（Anthropic 显式 cache_control 注入、其他供应商透传） | 请求 | 否（KV cache 优化） |
 | Plugin | 模型专属行为注入——注入额外参数（请求）、过滤内容块（响应）、处理流式事件 | 请求 + 响应 | 是（业务行为） |
-| ModelInterpreter | 将协议原生字段归一化为统一内容块（如 reasoning_content → Thinking block） | 响应 | 是（协议标准逻辑） |
+| ModelInterpreter | 将协议原生字段归一化为统一内容块（如 reasoning_content → Thinking block）和 [StreamEvent](../common/shared-types.md#streamevent) 流式事件 | 响应 | 是（协议标准逻辑） |
 | Protocol | 按协议标准序列化请求、解析响应、解析流式 SSE 事件 | 请求 + 响应 | 是（协议标准逻辑） |
 | Provider | 保存访问凭据和端点地址，发送 HTTP 请求、接收响应、映射厂商错误码 | 请求 + 响应 | 否 |
 
@@ -55,7 +55,7 @@ LLM Client（UnifiedChatClient）—— 统一入口
 
 ### 流式事件
 
-流式输出通过统一事件模型传递：内容块开始、内容增量、内容块结束、消息结束、错误事件。详细事件映射见 [protocol-mapping](protocol-mapping.md)。
+流式输出以统一流式事件 [StreamEvent](../common/shared-types.md#streamevent) 传递：块开始、块增量、块结束、消息结束、错误。详细事件映射见 [protocol-mapping](protocol-mapping.md)。
 
 ### 模型发现
 
@@ -92,7 +92,7 @@ LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发�
 外部调用方将响应内容写入消息数组后，上层 Rendering Layer / processor_chain 负责读取并渲染（不在 LLM 模块范围内）。
 ```
 
-流式调用路径（请求阶段与标准链路一致：Session → CacheAdapter → Plugin before_request → Protocol → Provider）：Provider 以 SSE 流读取原始数据块 → Protocol 层通过状态机将原始事件转换为统一流式事件 → ModelInterpreter 对流事件做额外归一化 → Plugin 对流事件做过滤/加工 → 上层逐事件消费。
+流式调用路径（请求阶段与标准链路一致：Session → CacheAdapter → Plugin before_request → Protocol → Provider）：Provider 以 SSE 流读取原始数据块 → Protocol 层通过状态机将原始事件转换为 [StreamEvent](../common/shared-types.md#streamevent) 统一流式事件 → ModelInterpreter 对流事件做额外归一化 → Plugin 对流事件做过滤/加工 → 上层逐事件消费。
 
 ## 模块关系
 
