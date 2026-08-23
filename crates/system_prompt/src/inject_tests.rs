@@ -476,6 +476,24 @@ fn test_plan_mode_reentry_injects_transition() {
         rendered.contains("Read the existing plan file"),
         "Should contain re-entry instructions"
     );
+    // Format: heading followed by blank line
+    assert!(
+        rendered.contains("## Re-entering Plan Mode\n\n"),
+        "Heading should be followed by a blank line, got: {}",
+        rendered
+    );
+    // Format: paragraphs separated by blank lines
+    assert!(
+        rendered.contains("exited it.\n\n"),
+        "Paragraphs should be separated by blank lines, got: {}",
+        rendered
+    );
+    // Format: numbered list items on separate lines
+    assert!(
+        rendered.contains("1. Read the existing plan file"),
+        "List items should be on separate lines, got: {}",
+        rendered
+    );
 }
 
 /// Plan Mode exit injects a ModeTransition section with §6 exit content.
@@ -498,6 +516,18 @@ fn test_plan_mode_exit_injects_transition() {
         "Should contain exit heading, got: {}",
         rendered
     );
+    // Format: heading followed by blank line
+    assert!(
+        rendered.contains("## Exited Plan Mode\n\n"),
+        "Heading should be followed by a blank line, got: {}",
+        rendered
+    );
+    // Format: content paragraph present
+    assert!(
+        rendered.contains("You have exited plan mode."),
+        "Content paragraph should be present, got: {}",
+        rendered
+    );
 }
 
 /// Auto Mode exit injects a ModeTransition section with §6 auto exit content.
@@ -518,6 +548,18 @@ fn test_auto_mode_exit_injects_transition() {
     assert!(
         rendered.contains("Exited Auto Mode"),
         "Should contain auto exit heading, got: {}",
+        rendered
+    );
+    // Format: heading followed by blank line
+    assert!(
+        rendered.contains("## Exited Auto Mode\n\n"),
+        "Heading should be followed by a blank line, got: {}",
+        rendered
+    );
+    // Format: content paragraph present
+    assert!(
+        rendered.contains("directly. You should"),
+        "Content should flow as a single paragraph, got: {}",
         rendered
     );
 }
@@ -551,6 +593,15 @@ fn test_mode_transition_content_matches_design_doc() {
         .render();
     assert!(rendered.contains("Treat this as a fresh planning session."));
     assert!(rendered.contains("Do not assume the existing"));
+    // Format: heading + blank line + paragraphs separated by blank lines
+    assert!(
+        rendered.contains("## Re-entering Plan Mode\n\n"),
+        "Re-entry: heading must be followed by blank line"
+    );
+    assert!(
+        rendered.contains("exited it.\n\n"),
+        "Re-entry: paragraphs must be separated by blank lines"
+    );
 
     // Plan exit
     let sections = build_dynamic_sections(&DynamicSectionsParams {
@@ -565,6 +616,11 @@ fn test_mode_transition_content_matches_design_doc() {
         .render();
     assert!(rendered.contains("You can now make edits, run tools, and take"));
     assert!(rendered.contains("Reference the plan file if needed."));
+    // Format: heading + blank line
+    assert!(
+        rendered.contains("## Exited Plan Mode\n\n"),
+        "Exit: heading must be followed by blank line"
+    );
 
     // Auto exit
     let sections = build_dynamic_sections(&DynamicSectionsParams {
@@ -579,6 +635,15 @@ fn test_mode_transition_content_matches_design_doc() {
         .render();
     assert!(rendered.contains("The user may now want to interact more"));
     assert!(rendered.contains("ask clarifying questions when the approach is"));
+    // Format: heading + blank line + paragraphs separated by blank lines
+    assert!(
+        rendered.contains("## Exited Auto Mode\n\n"),
+        "Auto exit: heading must be followed by blank line"
+    );
+    assert!(
+        rendered.contains("directly. You should"),
+        "Auto exit: content should flow as a single paragraph"
+    );
 }
 
 /// Mode transition appears after ModeInstruction in section ordering.
