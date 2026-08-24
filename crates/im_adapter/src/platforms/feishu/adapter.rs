@@ -688,6 +688,9 @@ impl FeishuAdapter {
             media_refs,
             thread_id,
             account_id: sender_open_id,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
         }))
     }
 
