@@ -62,6 +62,9 @@ impl MessageMetadata {
     }
 }
 
+/// Single source of truth for the queuing notification text.
+pub(crate) const QUEUING_NOTIFICATION_TEXT: &str = "⏳ 正在排队...";
+
 /// Outcome of handling an inbound message.
 #[derive(Debug)]
 pub enum HandleResult {
@@ -252,7 +255,7 @@ impl SessionMessageHandler {
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued("⏳ 正在排队...".to_string());
+            return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
         }
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).

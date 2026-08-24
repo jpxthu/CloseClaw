@@ -758,16 +758,6 @@ impl Gateway {
         Some(result)
     }
 
-    /// Return the standard queuing notification text.
-    ///
-    /// Single source of truth for the "⏳ 正在排队..." message used when a
-    /// session is busy and a message has been enqueued. Keeps the text
-    /// generation in the Gateway layer so callers (including
-    /// [`slash_permission::enqueue_pending_slash`]) do not hard-code it.
-    fn queuing_notification_text() -> &'static str {
-        "⏳ 正在排队..."
-    }
-
     /// Send a queuing notification when a message is enqueued (session busy).
     async fn send_queuing_notification(&self, peer_id: &str, channel: &str, text: &str) {
         if let Err(e) = self.send_outbound_simplified(peer_id, channel, text).await {
