@@ -100,7 +100,7 @@ async fn test_busy_message_returns_queued() {
 
     let handler = handler_with_sm(Arc::clone(&sm)).await;
     let result = handler.handle_message(&sid, "hello".to_string()).await;
-    assert!(matches!(result, HandleResult::MessageQueued));
+    assert!(matches!(result, HandleResult::MessageQueued(_)));
 
     // Verify message was actually enqueued
     if let Some(pending) = sm.pop_pending_message(&sid).await {
@@ -165,7 +165,7 @@ async fn test_pending_consumed_after_llm_done() {
 
     // Second message while busy → enqueued
     let result = handler.handle_message(&sid, "second".to_string()).await;
-    assert!(matches!(result, HandleResult::MessageQueued));
+    assert!(matches!(result, HandleResult::MessageQueued(_)));
 
     // Wait for first LLM call to finish and drain pending
     tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;

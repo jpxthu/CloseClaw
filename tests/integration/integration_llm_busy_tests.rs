@@ -199,7 +199,7 @@ async fn test_busy_message_returns_queued() {
     cs.write().await.set_llm_state(LlmState::Requesting);
 
     let result = handler.handle_message(&sid, "hello".to_string()).await;
-    assert!(matches!(result, HandleResult::MessageQueued));
+    assert!(matches!(result, HandleResult::MessageQueued(_)));
 
     // Verify the message was actually enqueued
     let pending = sm.pop_pending_message(&sid).await;
@@ -242,7 +242,7 @@ async fn test_fake_provider_call_count_while_busy() {
 
     // Immediately send second message — should be queued
     let result2 = handler.handle_message(&sid, "second".to_string()).await;
-    assert!(matches!(result2, HandleResult::MessageQueued));
+    assert!(matches!(result2, HandleResult::MessageQueued(_)));
 
     // FakeProvider should have received only 1 call so far
     assert_eq!(
@@ -303,9 +303,9 @@ async fn test_pending_fifo_after_delay() {
     let result1 = handler.handle_message(&sid, "first".to_string()).await;
     let result2 = handler.handle_message(&sid, "second".to_string()).await;
     let result3 = handler.handle_message(&sid, "third".to_string()).await;
-    assert!(matches!(result1, HandleResult::MessageQueued));
-    assert!(matches!(result2, HandleResult::MessageQueued));
-    assert!(matches!(result3, HandleResult::MessageQueued));
+    assert!(matches!(result1, HandleResult::MessageQueued(_)));
+    assert!(matches!(result2, HandleResult::MessageQueued(_)));
+    assert!(matches!(result3, HandleResult::MessageQueued(_)));
 
     // Verify FIFO order in the queue.
     let m1 = sm.pop_pending_message(&sid).await.unwrap();
