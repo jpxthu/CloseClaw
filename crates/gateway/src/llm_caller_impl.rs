@@ -216,6 +216,7 @@ mod tests {
                         total_tokens: Some(0),
                         cache_read_tokens: None,
                         cache_write_tokens: None,
+                        reasoning_tokens: None,
                     },
                     finish_reason: None,
                 })
@@ -395,6 +396,7 @@ mod tests {
                         total_tokens: Some(0),
                         cache_read_tokens: None,
                         cache_write_tokens: None,
+                        reasoning_tokens: None,
                     },
                     finish_reason: None,
                 })

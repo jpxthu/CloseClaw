@@ -340,7 +340,7 @@ async fn test_queuing_notification_non_streaming() {
         .await;
 
     assert!(
-        matches!(result, Some(HandleResult::MessageQueued)),
+        matches!(result, Some(HandleResult::MessageQueued(_))),
         "expected MessageQueued, got {result:?}"
     );
     assert_eq!(
@@ -477,7 +477,7 @@ async fn test_queuing_notification_failure_does_not_block() {
         .await;
 
     assert!(
-        matches!(result, Some(HandleResult::MessageQueued)),
+        matches!(result, Some(HandleResult::MessageQueued(_))),
         "expected MessageQueued even when notification fails, got {result:?}"
     );
     // send_outbound_simplified tries plugin.send() once, then falls back

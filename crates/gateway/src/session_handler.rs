@@ -62,15 +62,20 @@ impl MessageMetadata {
     }
 }
 
+/// Single source of truth for the queuing notification text.
+pub(crate) const QUEUING_NOTIFICATION_TEXT: &str = "⏳ 正在排队...";
+
 /// Outcome of handling an inbound message.
 #[derive(Debug)]
 pub enum HandleResult {
-    MessageQueued, // enqueued (session busy)
+    MessageQueued(String), // enqueued (session busy), carries notification text
     /// An LLM call has been spawned and will run asynchronously.
     LlmStarted,
     /// An approval command was processed (approve/deny).
     ApprovalProcessed,
     SlashHandled, // slash command dispatched
+    /// An error occurred during message handling, carries error description.
+    Error(String),
 }
 
 /// Gateway-layer LLM session handler with busy/pending state management.
@@ -252,7 +257,7 @@ impl SessionMessageHandler {
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued;
+            return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
         }
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).

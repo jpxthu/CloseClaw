@@ -97,9 +97,9 @@
   },
   {
     "path": "docs/design/common/shared-types.md",
-    "commit": "2acc6d7c07fce0d6b38ee9bb2e1b016a2f5432df",
-    "commit_time": "2026-08-21T10:22:42+08:00",
-    "confirmed_time": "2026-08-21T10:35:40.515651+08:00",
+    "commit": "5fc9ba29b05defcd2058a92e9ae175a82885c7f3",
+    "commit_time": "2026-08-24T09:38:11+08:00",
+    "confirmed_time": "2026-08-24T09:47:28.170050+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -121,9 +121,9 @@
   },
   {
     "path": "docs/design/daemon/README.md",
-    "commit": "6385d3fadff13db0424e7df546982c1dfbe5c685",
-    "commit_time": "2026-08-16T15:09:02+08:00",
-    "confirmed_time": "2026-08-16T15:23:37.442802+08:00",
+    "commit": "014a4db7f19fab35249c3a77f3c71aa744ddb9d8",
+    "commit_time": "2026-08-24T09:48:26+08:00",
+    "confirmed_time": "2026-08-24T10:02:42.395846+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -209,9 +209,9 @@
   },
   {
     "path": "docs/design/gateway/outbound-flow.md",
-    "commit": "c1c56b1634d668fbe661d4a64edc246b69f6b1b5",
-    "commit_time": "2026-08-22T09:52:23+08:00",
-    "confirmed_time": "2026-08-22T10:05:50.480677+08:00",
+    "commit": "3d458f27492f952c7730460ae04b5802f0320e56",
+    "commit_time": "2026-08-24T10:03:58+08:00",
+    "confirmed_time": "2026-08-24T10:24:52.929079+08:00",
     "comment": "",
     "blocked_reason": ""
   },

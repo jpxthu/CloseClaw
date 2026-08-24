@@ -329,7 +329,7 @@ fn test_should_wait_llm_started_with_session_key() {
 #[test]
 fn test_should_wait_message_queued_skips() {
     assert!(!should_wait_for_streaming(
-        Some(HandleResult::MessageQueued),
+        Some(HandleResult::MessageQueued("⏳ 正在排队...".to_string())),
         "session-abc"
     ));
 }
