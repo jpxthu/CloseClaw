@@ -105,7 +105,7 @@ pub(crate) fn check_line_pattern(line: &str, ansi: bool) -> Option<String> {
         return Some(if ansi {
             format!("{}{}{}", BOLD, rest, RESET)
         } else {
-            rest.to_string()
+            line.to_string()
         });
     }
     if line.trim() == "---" {
@@ -812,11 +812,7 @@ impl TerminalRenderer {
             return String::new();
         }
         let joined = lines.join("\n");
-        if self.ansi {
-            format!("{}{}{}\n", DIM, joined, RESET)
-        } else {
-            format!("{}\n", joined)
-        }
+        format!("{}\n", joined)
     }
 
     /// Wrap `text` with DIM/RESET when ANSI is enabled, otherwise plain.

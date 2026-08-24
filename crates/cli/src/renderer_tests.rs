@@ -650,11 +650,11 @@ fn test_heading_no_space_after_hash() {
     assert!(result.contains("#Title"));
 }
 
-/// Non-ANSI mode: h1/h3 strip '#' prefix, no ANSI codes.
+/// Non-ANSI mode: h1/h3 preserve '#' prefix, no ANSI codes.
 #[test]
 fn test_heading_no_ansi_h1_and_h3() {
     let renderer = TerminalRenderer::with_ansi(false);
-    let cases = [("# Title", "Title"), ("### Sub", "Sub")];
+    let cases = [("# Title", "# Title"), ("### Sub", "### Sub")];
     for (input, expected) in cases {
         let result = renderer.render_block(&ContentBlock::Text(input.into()));
         assert_eq!(result.trim(), expected);
@@ -704,8 +704,8 @@ fn test_check_line_pattern_heading_ansi_and_no_ansi() {
     assert!(r.contains(BOLD));
     assert!(r.contains("Title"));
 
-    assert_eq!(check_line_pattern("# Title", false).unwrap(), "Title");
-    assert_eq!(check_line_pattern("## Sub", false).unwrap(), "Sub");
+    assert_eq!(check_line_pattern("# Title", false).unwrap(), "# Title");
+    assert_eq!(check_line_pattern("## Sub", false).unwrap(), "## Sub");
 }
 
 /// check_line_pattern: plain text returns None.
