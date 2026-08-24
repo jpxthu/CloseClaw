@@ -420,3 +420,163 @@ fn test_pipeline_non_minimax_skips_both_plugins() {
     assert!(req.extra_body.get("thinking").is_none());
     assert!(req.extra_body.get("reasoning_split").is_none());
 }
+
+// ── State transition: multi-turn reasoning_split injection ────────────────
+
+/// First turn (no tool-result messages) must NOT inject reasoning_split.
+/// Second turn (has tool-result messages) must inject reasoning_split.
+/// This verifies the state-dependent behavior of the plugin pipeline.
+#[test]
+fn test_m2_multiturn_first_turn_no_reasoning_split_second_turn_injects() {
+    let plugin = MiniMaxM2Plugin;
+
+    // Turn 1: tools defined but no tool-result messages yet
+    let mut req_turn1 = make_request_with_tools(ReasoningLevel::High, false);
+    req_turn1.model = "MiniMax-M2.7".into();
+    plugin.before_request(&mut req_turn1);
+    assert!(
+        req_turn1.extra_body.get("reasoning_split").is_none(),
+        "first turn (no tool results) should NOT inject reasoning_split"
+    );
+
+    // Turn 2: tools defined AND tool-result messages present
+    let mut req_turn2 = make_request_with_tools(ReasoningLevel::High, true);
+    req_turn2.model = "MiniMax-M2.7".into();
+    plugin.before_request(&mut req_turn2);
+    assert_eq!(
+        req_turn2.extra_body.get("reasoning_split"),
+        Some(&Value::Bool(true)),
+        "second turn (has tool results) should inject reasoning_split"
+    );
+}
+
+/// M3 plugin: same multi-turn state transition for reasoning_split.
+/// First turn without tool results -> no reasoning_split;
+/// second turn with tool results -> reasoning_split injected.
+#[test]
+fn test_m3_multiturn_first_turn_no_reasoning_split_second_turn_injects() {
+    let plugin = MiniMaxM3Plugin;
+
+    // Turn 1: tools defined but no tool-result messages
+    let mut req_turn1 = make_m3_request_with_tools(ReasoningLevel::High, false);
+    plugin.before_request(&mut req_turn1);
+    assert!(
+        req_turn1.extra_body.get("reasoning_split").is_none(),
+        "M3 first turn (no tool results) should NOT inject reasoning_split"
+    );
+    // Thinking should still be injected regardless
+    assert_eq!(
+        req_turn1.extra_body.get("thinking"),
+        Some(&json!({"type": "enabled"})),
+        "M3 should inject thinking even without tool results"
+    );
+
+    // Turn 2: tools defined AND tool-result messages present
+    let mut req_turn2 = make_m3_request_with_tools(ReasoningLevel::High, true);
+    plugin.before_request(&mut req_turn2);
+    assert_eq!(
+        req_turn2.extra_body.get("reasoning_split"),
+        Some(&Value::Bool(true)),
+        "M3 second turn (has tool results) should inject reasoning_split"
+    );
+    assert_eq!(
+        req_turn2.extra_body.get("thinking"),
+        Some(&json!({"type": "enabled"})),
+        "M3 should inject thinking in multi-turn as well"
+    );
+}
+
+// ── Regression: existing plugin behavior unchanged ──────────────────────
+
+/// GLM plugin applies_to returns true for any model (default behavior).
+/// Verify this is not broken by the per-model binding mechanism.
+#[test]
+fn test_glm_plugin_applies_to_any_model() {
+    use crate::glm::plugin::GlmPlugin;
+
+    let plugin = GlmPlugin;
+    assert!(plugin.applies_to("MiniMax-M2.7"));
+    assert!(plugin.applies_to("gpt-4"));
+    assert!(plugin.applies_to("glm-model"));
+    assert!(plugin.applies_to(""));
+}
+
+/// DeepSeek plugin applies_to returns true for any model (default behavior).
+/// Verify this is not broken by the per-model binding mechanism.
+#[test]
+fn test_deepseek_plugin_applies_to_any_model() {
+    use crate::deepseek::plugin::DeepSeekPlugin;
+
+    let plugin = DeepSeekPlugin;
+    assert!(plugin.applies_to("MiniMax-M2.7"));
+    assert!(plugin.applies_to("gpt-4"));
+    assert!(plugin.applies_to("deepseek-reasoner"));
+    assert!(plugin.applies_to(""));
+}
+
+/// Pipeline with GLM plugin: hooks are invoked for any model (default applies_to=true).
+#[test]
+fn test_pipeline_glm_plugin_runs_for_any_model() {
+    use crate::glm::plugin::GlmPlugin;
+    use crate::plugin::PluginPipeline;
+    use crate::types::InternalRequest;
+    use closeclaw_session::persistence::ReasoningLevel;
+
+    let pipeline = PluginPipeline::new().add(Box::new(GlmPlugin));
+
+    // GLM plugin should inject thinking for any model
+    let mut req = InternalRequest {
+        model: "any-model".into(),
+        messages: vec![],
+        temperature: 0.0,
+        max_tokens: Some(256),
+        stream: false,
+        extra_body: Default::default(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        tools: None,
+        session_id: None,
+        reasoning_level: ReasoningLevel::High,
+        turn_count: None,
+    };
+    pipeline.before_request(&mut req, "any-model");
+    assert_eq!(
+        req.extra_body.get("thinking"),
+        Some(&json!({"type": "enabled"})),
+        "GLM plugin should inject thinking for any model"
+    );
+}
+
+/// Pipeline with DeepSeek plugin: hooks are invoked for any model (default applies_to=true).
+#[test]
+fn test_pipeline_deepseek_plugin_runs_for_any_model() {
+    use crate::deepseek::plugin::DeepSeekPlugin;
+    use crate::plugin::PluginPipeline;
+    use crate::types::InternalRequest;
+    use closeclaw_session::persistence::ReasoningLevel;
+
+    let pipeline = PluginPipeline::new().add(Box::new(DeepSeekPlugin));
+
+    let mut req = InternalRequest {
+        model: "any-model".into(),
+        messages: vec![],
+        temperature: 0.0,
+        max_tokens: Some(256),
+        stream: false,
+        extra_body: Default::default(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        tools: None,
+        session_id: None,
+        reasoning_level: ReasoningLevel::High,
+        turn_count: None,
+    };
+    pipeline.before_request(&mut req, "any-model");
+    assert_eq!(
+        req.extra_body.get("reasoning_effort"),
+        Some(&Value::String("high".into())),
+        "DeepSeek plugin should inject reasoning_effort for any model"
+    );
+}
