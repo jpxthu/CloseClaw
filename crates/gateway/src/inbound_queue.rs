@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use super::inbound_wal::{InboundWal, InboundWalEntry};
 use super::Gateway;
@@ -32,16 +32,14 @@ pub struct InboundRequest {
     pub trace_id: String,
 }
 
-/// An inbound request paired with a oneshot ack sender.
+/// An inbound request queued for consumer processing.
 ///
-/// The consumer sends `()` through the oneshot after dequeuing the
-/// request, allowing the producer (webhook handler) to ack the HTTP
-/// response only after the message leaves the channel buffer.
+/// Messages are processed as soon as they are dequeued by the consumer.
+/// There is no separate ack channel — a successful enqueue (`Ok(())`)
+/// already means the message has been persisted and will be processed.
 pub(crate) struct QueuedInbound {
     /// The inbound request to enqueue.
     pub(crate) request: InboundRequest,
-    /// Oneshot sender — consumer signals after dequeue.
-    pub(crate) ack_tx: oneshot::Sender<()>,
 }
 
 /// Handle to the inbound queue producer side.
@@ -201,8 +199,6 @@ pub(crate) fn start_inbound_consumer(
         tracing::info!(capacity, "inbound queue consumer started");
         while let Some(queued) = rx.recv().await {
             let req = queued.request;
-            // Signal ack to producer — message has left the channel buffer.
-            let _ = queued.ack_tx.send(());
             {
                 let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
                 super::debug_log_emitter::emit_debug_event(
@@ -298,6 +294,26 @@ fn emit_inbound_parsed_log(
     );
 }
 
+/// Emit a `gateway.arrived` debug event for successful enqueue.
+///
+/// Recorded when `try_send` succeeds, completing the queue lifecycle
+/// trace: arrived → dequeued → processed.
+fn emit_arrived_log(gateway: &Gateway, req: &InboundRequest) {
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    super::debug_log_emitter::emit_debug_event(
+        guard.as_ref(),
+        &req.trace_id,
+        None,
+        closeclaw_debug_log::LogLevel::Debug,
+        "gateway",
+        "gateway.arrived",
+        serde_json::json!({
+            "platform": req.platform,
+            "peer_id": req.peer_id,
+        }),
+    );
+}
+
 /// Emit a debug event for queue-full rejections.
 fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
@@ -362,12 +378,15 @@ pub(crate) async fn enqueue_inbound(
 
     append_wal_if_configured(gateway, &request);
 
-    // Create oneshot channel for dequeue ack.
-    let (ack_tx, _ack_rx) = oneshot::channel::<()>();
-    let queued = QueuedInbound { request, ack_tx };
+    let queued = QueuedInbound {
+        request: request.clone(),
+    };
 
     match tx.try_send(queued) {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            emit_arrived_log(gateway, &request);
+            Ok(())
+        }
         Err(e) => {
             let req = match e {
                 tokio::sync::mpsc::error::TrySendError::Full(q)
@@ -518,7 +537,6 @@ mod tests {
     fn inbound_queue_handle_try_send_ok() {
         let (tx, _rx) = mpsc::channel::<QueuedInbound>(2);
         let handle = InboundQueueHandle::new(tx);
-        let (ack_tx, _ack_rx) = oneshot::channel();
         let queued = QueuedInbound {
             request: InboundRequest {
                 platform: "feishu".into(),
@@ -526,7 +544,6 @@ mod tests {
                 peer_id: "p1".into(),
                 trace_id: "tr-1".into(),
             },
-            ack_tx,
         };
         assert!(handle.try_send(queued).is_ok());
     }
@@ -535,7 +552,6 @@ mod tests {
     fn inbound_queue_handle_try_send_full() {
         let (tx, _rx) = mpsc::channel::<QueuedInbound>(1);
         let handle = InboundQueueHandle::new(tx);
-        let (ack_tx1, _ack_rx1) = oneshot::channel();
         let queued1 = QueuedInbound {
             request: InboundRequest {
                 platform: "feishu".into(),
@@ -543,9 +559,7 @@ mod tests {
                 peer_id: "p1".into(),
                 trace_id: "tr-1".into(),
             },
-            ack_tx: ack_tx1,
         };
-        let (ack_tx2, _ack_rx2) = oneshot::channel();
         let queued2 = QueuedInbound {
             request: InboundRequest {
                 platform: "feishu".into(),
@@ -553,7 +567,6 @@ mod tests {
                 peer_id: "p2".into(),
                 trace_id: "tr-2".into(),
             },
-            ack_tx: ack_tx2,
         };
         assert!(handle.try_send(queued1).is_ok());
         let err = handle.try_send(queued2);
@@ -568,19 +581,16 @@ mod tests {
         assert_eq!(handle.capacity(), 32);
     }
 
-    /// Verify that enqueue does not block waiting for consumer dequeue.
+    /// Verify that enqueue returns Ok immediately without blocking.
     ///
     /// Fills the channel to capacity, then enqueues one more message.
-    /// The first message is not consumed, so if enqueue blocked on ack_rx
-    /// it would time out. Instead, try_send should return Err immediately
-    /// because the channel is full.
+    /// try_send should return Err immediately because the channel is full.
     #[test]
     fn enqueue_does_not_block_without_consumer() {
         let (tx, rx) = mpsc::channel::<QueuedInbound>(1);
         let handle = InboundQueueHandle::new(tx);
 
         // Fill the single slot.
-        let (ack_tx1, _ack_rx1) = oneshot::channel();
         handle
             .try_send(QueuedInbound {
                 request: InboundRequest {
@@ -589,13 +599,10 @@ mod tests {
                     peer_id: "p1".into(),
                     trace_id: "tr-fill".into(),
                 },
-                ack_tx: ack_tx1,
             })
             .unwrap();
 
-        // Channel is full. try_send must fail immediately — no consumer,
-        // no ack_rx.await blocking.
-        let (ack_tx2, _ack_rx2) = oneshot::channel();
+        // Channel is full. try_send must fail immediately.
         let err = handle.try_send(QueuedInbound {
             request: InboundRequest {
                 platform: "feishu".into(),
@@ -603,7 +610,6 @@ mod tests {
                 peer_id: "p2".into(),
                 trace_id: "tr-overflow".into(),
             },
-            ack_tx: ack_tx2,
         });
         assert!(err.is_err());
 

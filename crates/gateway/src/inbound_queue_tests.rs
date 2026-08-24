@@ -740,6 +740,7 @@ async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
         rate_limit_per_minute: 0,
         max_message_size: 0,
         inbound_queue_capacity: 1,
+        inbound_wal_dir: None,
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
