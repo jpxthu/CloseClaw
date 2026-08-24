@@ -739,9 +739,10 @@ impl Gateway {
                 .await;
             // NOTE: No decrement_busy here — the handler's spawned task
             // (finish_llm) is responsible for decrementing on async paths.
-            if matches!(result, HandleResult::MessageQueued(_)) && !peer_id.is_empty() {
-                self.send_queuing_notification(&session_id, peer_id, channel)
-                    .await;
+            if let HandleResult::MessageQueued(ref text) = result {
+                if !peer_id.is_empty() {
+                    self.send_queuing_notification(peer_id, channel, text).await;
+                }
             }
             return Some(result);
         }
@@ -749,21 +750,19 @@ impl Gateway {
         let result = handler.handle_message(&session_id, content).await;
         // NOTE: No decrement_busy here — the handler's spawned task
         // (finish_llm) is responsible for decrementing on async paths.
-        if matches!(result, HandleResult::MessageQueued(_)) && !peer_id.is_empty() {
-            self.send_queuing_notification(&session_id, peer_id, channel)
-                .await;
+        if let HandleResult::MessageQueued(ref text) = result {
+            if !peer_id.is_empty() {
+                self.send_queuing_notification(peer_id, channel, text).await;
+            }
         }
         Some(result)
     }
 
-    /// Send "⏳ 正在排队..." when a message is enqueued (session busy).
-    async fn send_queuing_notification(&self, session_id: &str, peer_id: &str, channel: &str) {
-        if let Err(e) = self
-            .send_outbound_simplified(peer_id, channel, "⏳ 正在排队...")
-            .await
-        {
+    /// Send a queuing notification when a message is enqueued (session busy).
+    async fn send_queuing_notification(&self, peer_id: &str, channel: &str, text: &str) {
+        if let Err(e) = self.send_outbound_simplified(peer_id, channel, text).await {
             tracing::warn!(
-                session_id = %session_id,
+                peer_id = %peer_id,
                 error = %e,
                 "failed to send queuing notification"
             );
