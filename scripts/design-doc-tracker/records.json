@@ -251,9 +251,9 @@
     "path": "docs/design/llm/README.md",
     "commit": "2fedf847b6ba3da0cb89615cc3612817d4a02102",
     "commit_time": "2026-07-07T01:23:34+08:00",
-    "confirmed_time": "2026-07-07T01:39:19.253097+08:00",
+    "confirmed_time": "2026-08-25T06:02:13.801803+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "F2b 三轮对比主脑与分身无法达成一致：核心差异（文档定义响应解析属 Protocol 层、代码实际在 Provider.send 内完成，ChatProtocol::parse_response 为死代码）双方一致判 must_fix；但 providers/glm.md 数据流缺失响应路径一项，分身坚持 doc_problem（子文档设计目标不清晰），主脑判为代码偏离文档（README 已明确职责归属、子文档仅沉默）应正常开发对齐。达不成一致无法进入 Planning。"
   },
   {
     "path": "docs/design/llm/cache-adapter.md",
