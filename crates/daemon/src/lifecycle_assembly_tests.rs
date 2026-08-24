@@ -4,54 +4,16 @@
 //! ChatProtocol, Interpreter, and Plugin combination per the design doc
 //! (`docs/design/llm/README.md`).
 //!
-//! The tests mirror the match block in `lifecycle.rs` — they call the same
-//! constructor paths (`AnthropicProtocol::new()`, `OpenAiProtocol::new()`,
-//! `InterpreterRegistry::new(vec![(…, "provider/*")])`,
-//! `PluginPipeline::new().add(…)`) so any sign-change in a constructor
-//! will surface here as a compile or test failure.
+//! All tests call the shared [`crate::lifecycle::assemble_llm_components`]
+//! function, ensuring they exercise the real production path rather than
+//! a duplicated replica.
 
-use closeclaw_llm::interpreter::InterpreterRegistry;
-use closeclaw_llm::plugin::PluginPipeline;
-use closeclaw_llm::protocol::{AnthropicProtocol, ChatProtocol, OpenAiProtocol};
-use closeclaw_llm::types::InternalRequest;
+use crate::lifecycle::assemble_llm_components;
+use closeclaw_common::InternalMessage;
+use closeclaw_llm::types::{InternalRequest, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
-
-/// Replicate the per-provider assembly from `lifecycle.rs` for test isolation.
-/// Returns `(protocol, interpreter_registry, plugin_pipeline)`.
-fn assemble_for_provider(
-    provider_id: &str,
-) -> (Box<dyn ChatProtocol>, InterpreterRegistry, PluginPipeline) {
-    match provider_id {
-        "minimax" => (
-            Box::new(AnthropicProtocol::new()),
-            InterpreterRegistry::new(vec![(
-                Box::new(closeclaw_llm::MinimaxInterpreter),
-                "minimax/*",
-            )]),
-            PluginPipeline::new().add(Box::new(closeclaw_llm::MiniMaxPlugin)),
-        ),
-        "deepseek" => (
-            Box::new(AnthropicProtocol::new()),
-            InterpreterRegistry::new(vec![(
-                Box::new(closeclaw_llm::DeepSeekInterpreter),
-                "deepseek/*",
-            )]),
-            PluginPipeline::new().add(Box::new(closeclaw_llm::DeepSeekPlugin)),
-        ),
-        "glm" => (
-            Box::new(OpenAiProtocol::new()),
-            InterpreterRegistry::new(vec![(Box::new(closeclaw_llm::GlmInterpreter), "glm/*")]),
-            PluginPipeline::new().add(Box::new(closeclaw_llm::GlmPlugin)),
-        ),
-        _ => (
-            Box::new(OpenAiProtocol::new()),
-            InterpreterRegistry::default(),
-            PluginPipeline::new(),
-        ),
-    }
-}
 
 /// Build a minimal `InternalRequest` for plugin testing.
 fn make_request() -> InternalRequest {
@@ -76,7 +38,7 @@ fn make_request() -> InternalRequest {
 
 #[test]
 fn test_minimax_uses_anthropic_protocol() {
-    let (protocol, _, _) = assemble_for_provider("minimax");
+    let (protocol, _, _) = assemble_llm_components("minimax");
     assert_eq!(
         protocol.protocol_id().as_str(),
         "anthropic",
@@ -86,8 +48,7 @@ fn test_minimax_uses_anthropic_protocol() {
 
 #[test]
 fn test_minimax_interpreter_resolves_for_all_models() {
-    let (_, registry, _) = assemble_for_provider("minimax");
-    // Any minimax model should resolve to MinimaxInterpreter
+    let (_, registry, _) = assemble_llm_components("minimax");
     let interp = registry.resolve("minimax", "MiniMax-M3");
     assert_eq!(
         interp.name(),
@@ -104,13 +65,12 @@ fn test_minimax_interpreter_resolves_for_all_models() {
 
 #[test]
 fn test_minimax_plugin_injects_reasoning_split_on_multiturn_tool() {
-    let (_, _, pipeline) = assemble_for_provider("minimax");
+    let (_, _, pipeline) = assemble_llm_components("minimax");
     assert_eq!(pipeline.len(), 1, "minimax pipeline should have 1 plugin");
 
-    // Multi-turn tool call: tools + messages with tool_call_id
     let mut req = make_request();
     req.tools = Some(vec![]);
-    req.messages.push(closeclaw_common::InternalMessage {
+    req.messages.push(InternalMessage {
         role: "tool".to_string(),
         content: "result".to_string(),
         tool_call_id: Some("tc_1".to_string()),
@@ -127,9 +87,8 @@ fn test_minimax_plugin_injects_reasoning_split_on_multiturn_tool() {
 
 #[test]
 fn test_minimax_plugin_no_reasoning_split_without_tool_result() {
-    let (_, _, pipeline) = assemble_for_provider("minimax");
+    let (_, _, pipeline) = assemble_llm_components("minimax");
 
-    // Tools present but no tool result messages — should NOT inject
     let mut req = make_request();
     req.tools = Some(vec![]);
     pipeline.before_request(&mut req);
@@ -144,7 +103,7 @@ fn test_minimax_plugin_no_reasoning_split_without_tool_result() {
 
 #[test]
 fn test_deepseek_uses_anthropic_protocol() {
-    let (protocol, _, _) = assemble_for_provider("deepseek");
+    let (protocol, _, _) = assemble_llm_components("deepseek");
     assert_eq!(
         protocol.protocol_id().as_str(),
         "anthropic",
@@ -154,7 +113,7 @@ fn test_deepseek_uses_anthropic_protocol() {
 
 #[test]
 fn test_deepseek_interpreter_resolves_for_all_models() {
-    let (_, registry, _) = assemble_for_provider("deepseek");
+    let (_, registry, _) = assemble_llm_components("deepseek");
     let interp = registry.resolve("deepseek", "deepseek-reasoner");
     assert_eq!(
         interp.name(),
@@ -171,12 +130,12 @@ fn test_deepseek_interpreter_resolves_for_all_models() {
 
 #[test]
 fn test_deepseek_interpreter_signature_forwarding() {
-    use closeclaw_llm::types::{InternalResponse, RawContentBlock, RawUsage};
+    use closeclaw_llm::types::{RawContentBlock, RawUsage};
 
-    let (_, registry, _) = assemble_for_provider("deepseek");
+    let (_, registry, _) = assemble_llm_components("deepseek");
     let interp = registry.resolve("deepseek", "deepseek-reasoner");
 
-    let response = InternalResponse {
+    let response = closeclaw_llm::types::InternalResponse {
         content_blocks: vec![
             RawContentBlock::Text("answer".to_string()),
             RawContentBlock::Thinking {
@@ -196,10 +155,8 @@ fn test_deepseek_interpreter_signature_forwarding() {
     };
 
     let unified = interp.interpret_response(response);
-    // Should have Text + Thinking blocks
     assert_eq!(unified.content_blocks.len(), 2, "should produce 2 blocks");
 
-    // Thinking block should carry the signature
     match &unified.content_blocks[1] {
         closeclaw_llm::types::ContentBlock::Thinking { signature, .. } => {
             assert_eq!(
@@ -213,8 +170,8 @@ fn test_deepseek_interpreter_signature_forwarding() {
 }
 
 #[test]
-fn test_deepseek_plugin_injects_reasoning_effort() {
-    let (_, _, pipeline) = assemble_for_provider("deepseek");
+fn test_deepseek_plugin_injects_high_effort() {
+    let (_, _, pipeline) = assemble_llm_components("deepseek");
     assert_eq!(pipeline.len(), 1, "deepseek pipeline should have 1 plugin");
 
     let mut req = make_request();
@@ -233,10 +190,9 @@ fn test_deepseek_plugin_injects_reasoning_effort() {
 }
 
 #[test]
-fn test_deepseek_plugin_effort_levels() {
-    let (_, _, pipeline) = assemble_for_provider("deepseek");
+fn test_deepseek_plugin_injects_low_effort() {
+    let (_, _, pipeline) = assemble_llm_components("deepseek");
 
-    // Low
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Low;
     pipeline.before_request(&mut req);
@@ -244,8 +200,12 @@ fn test_deepseek_plugin_effort_levels() {
         req.extra_body.get("reasoning_effort").unwrap(),
         &serde_json::Value::String("low".to_string())
     );
+}
 
-    // Medium → "base"
+#[test]
+fn test_deepseek_plugin_injects_medium_effort_as_base() {
+    let (_, _, pipeline) = assemble_llm_components("deepseek");
+
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Medium;
     pipeline.before_request(&mut req);
@@ -253,8 +213,12 @@ fn test_deepseek_plugin_effort_levels() {
         req.extra_body.get("reasoning_effort").unwrap(),
         &serde_json::Value::String("base".to_string())
     );
+}
 
-    // Max → downgraded to High → "high"
+#[test]
+fn test_deepseek_plugin_max_downgrades_to_high() {
+    let (_, _, pipeline) = assemble_llm_components("deepseek");
+
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Max;
     pipeline.before_request(&mut req);
@@ -273,7 +237,7 @@ fn test_deepseek_plugin_effort_levels() {
 
 #[test]
 fn test_glm_uses_openai_protocol() {
-    let (protocol, _, _) = assemble_for_provider("glm");
+    let (protocol, _, _) = assemble_llm_components("glm");
     assert_eq!(
         protocol.protocol_id().as_str(),
         "openai",
@@ -283,7 +247,7 @@ fn test_glm_uses_openai_protocol() {
 
 #[test]
 fn test_glm_interpreter_resolves_for_all_models() {
-    let (_, registry, _) = assemble_for_provider("glm");
+    let (_, registry, _) = assemble_llm_components("glm");
     let interp = registry.resolve("glm", "glm-4");
     assert_eq!(interp.name(), "glm", "glm/* glob should match glm-4");
 }
@@ -292,10 +256,9 @@ fn test_glm_interpreter_resolves_for_all_models() {
 fn test_glm_interpreter_reasoning_to_text() {
     use closeclaw_llm::types::{InternalResponse, RawContentBlock, RawUsage};
 
-    let (_, registry, _) = assemble_for_provider("glm");
+    let (_, registry, _) = assemble_llm_components("glm");
     let interp = registry.resolve("glm", "glm-4");
 
-    // Empty text + reasoning_content → should become Text block
     let response = InternalResponse {
         content_blocks: vec![RawContentBlock::Thinking {
             thinking: "glm reasoning".to_string(),
@@ -324,7 +287,7 @@ fn test_glm_interpreter_reasoning_to_text() {
 
 #[test]
 fn test_glm_plugin_injects_thinking_type() {
-    let (_, _, pipeline) = assemble_for_provider("glm");
+    let (_, _, pipeline) = assemble_llm_components("glm");
     assert_eq!(pipeline.len(), 1, "glm pipeline should have 1 plugin");
 
     let mut req = make_request();
@@ -338,7 +301,7 @@ fn test_glm_plugin_injects_thinking_type() {
 
 #[test]
 fn test_glm_plugin_disabled_for_low() {
-    let (_, _, pipeline) = assemble_for_provider("glm");
+    let (_, _, pipeline) = assemble_llm_components("glm");
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Low;
@@ -350,7 +313,7 @@ fn test_glm_plugin_disabled_for_low() {
 
 #[test]
 fn test_glm_plugin_max_downgrades_to_high() {
-    let (_, _, pipeline) = assemble_for_provider("glm");
+    let (_, _, pipeline) = assemble_llm_components("glm");
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Max;
@@ -367,7 +330,7 @@ fn test_glm_plugin_max_downgrades_to_high() {
 
 #[test]
 fn test_mimo_uses_openai_protocol() {
-    let (protocol, _, _) = assemble_for_provider("mimo");
+    let (protocol, _, _) = assemble_llm_components("mimo");
     assert_eq!(
         protocol.protocol_id().as_str(),
         "openai",
@@ -377,7 +340,7 @@ fn test_mimo_uses_openai_protocol() {
 
 #[test]
 fn test_mimo_interpreter_is_default() {
-    let (_, registry, _) = assemble_for_provider("mimo");
+    let (_, registry, _) = assemble_llm_components("mimo");
     let interp = registry.resolve("mimo", "mimo-v2");
     assert_eq!(
         interp.name(),
@@ -388,7 +351,7 @@ fn test_mimo_interpreter_is_default() {
 
 #[test]
 fn test_mimo_pipeline_is_empty() {
-    let (_, _, pipeline) = assemble_for_provider("mimo");
+    let (_, _, pipeline) = assemble_llm_components("mimo");
     assert!(
         pipeline.is_empty(),
         "mimo pipeline should be empty (no plugins)"
@@ -397,7 +360,7 @@ fn test_mimo_pipeline_is_empty() {
 
 #[test]
 fn test_mimo_empty_pipeline_does_not_modify_request() {
-    let (_, _, pipeline) = assemble_for_provider("mimo");
+    let (_, _, pipeline) = assemble_llm_components("mimo");
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::High;
     pipeline.before_request(&mut req);
@@ -411,7 +374,7 @@ fn test_mimo_empty_pipeline_does_not_modify_request() {
 
 #[test]
 fn test_unknown_provider_uses_openai_protocol() {
-    let (protocol, _, _) = assemble_for_provider("some-random-provider");
+    let (protocol, _, _) = assemble_llm_components("some-random-provider");
     assert_eq!(
         protocol.protocol_id().as_str(),
         "openai",
@@ -421,7 +384,7 @@ fn test_unknown_provider_uses_openai_protocol() {
 
 #[test]
 fn test_unknown_provider_interpreter_is_default() {
-    let (_, registry, _) = assemble_for_provider("some-random-provider");
+    let (_, registry, _) = assemble_llm_components("some-random-provider");
     let interp = registry.resolve("some-random-provider", "any-model");
     assert_eq!(
         interp.name(),
@@ -432,7 +395,7 @@ fn test_unknown_provider_interpreter_is_default() {
 
 #[test]
 fn test_unknown_provider_pipeline_is_empty() {
-    let (_, _, pipeline) = assemble_for_provider("some-random-provider");
+    let (_, _, pipeline) = assemble_llm_components("some-random-provider");
     assert!(
         pipeline.is_empty(),
         "unknown provider pipeline should be empty"
@@ -441,13 +404,12 @@ fn test_unknown_provider_pipeline_is_empty() {
 
 #[test]
 fn test_unknown_provider_default_branch_does_not_panic() {
-    // The default branch must not panic for any provider_id string
-    let (_, _, pipeline) = assemble_for_provider("not-even-real");
+    let (_, _, pipeline) = assemble_llm_components("not-even-real");
     let mut req = make_request();
     pipeline.before_request(&mut req);
-    pipeline.after_response(&mut closeclaw_llm::types::UnifiedResponse {
+    pipeline.after_response(&mut UnifiedResponse {
         content_blocks: vec![],
-        usage: closeclaw_llm::types::UnifiedUsage {
+        usage: UnifiedUsage {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: None,
@@ -466,25 +428,22 @@ fn test_unknown_provider_default_branch_does_not_panic() {
 fn test_all_known_providers_assemble_without_panic() {
     let known_providers = ["minimax", "deepseek", "glm", "mimo"];
     for provider_id in &known_providers {
-        let (protocol, registry, pipeline) = assemble_for_provider(provider_id);
+        let (protocol, registry, pipeline) = assemble_llm_components(provider_id);
 
-        // Verify protocol produces a valid request
         let mut req = make_request();
         req.model = format!("{}-test-model", provider_id);
         let _ = protocol.build_request(&req);
 
-        // Verify interpreter resolves without panic
         let interp = registry.resolve(provider_id, "any-model");
         let _ = interp.name();
 
-        // Verify pipeline hooks don't panic
         pipeline.before_request(&mut req);
     }
 }
 
 #[test]
 fn test_unknown_provider_assembles_without_panic() {
-    let (protocol, registry, pipeline) = assemble_for_provider("completely-unknown");
+    let (protocol, registry, pipeline) = assemble_llm_components("completely-unknown");
 
     let mut req = make_request();
     req.model = "unknown-model".to_string();
@@ -500,7 +459,7 @@ fn test_unknown_provider_assembles_without_panic() {
 
 #[test]
 fn test_interpreter_isolation_minimax_does_not_match_deepseek() {
-    let (_, minimax_reg, _) = assemble_for_provider("minimax");
+    let (_, minimax_reg, _) = assemble_llm_components("minimax");
     let interp = minimax_reg.resolve("deepseek", "deepseek-reasoner");
     assert_ne!(
         interp.name(),
@@ -516,7 +475,7 @@ fn test_interpreter_isolation_minimax_does_not_match_deepseek() {
 
 #[test]
 fn test_interpreter_isolation_deepseek_does_not_match_glm() {
-    let (_, deepseek_reg, _) = assemble_for_provider("deepseek");
+    let (_, deepseek_reg, _) = assemble_llm_components("deepseek");
     let interp = deepseek_reg.resolve("glm", "glm-4");
     assert_ne!(
         interp.name(),
@@ -528,7 +487,7 @@ fn test_interpreter_isolation_deepseek_does_not_match_glm() {
 
 #[test]
 fn test_interpreter_isolation_glm_does_not_match_mimo() {
-    let (_, glm_reg, _) = assemble_for_provider("glm");
+    let (_, glm_reg, _) = assemble_llm_components("glm");
     let interp = glm_reg.resolve("mimo", "mimo-v2");
     assert_ne!(
         interp.name(),
