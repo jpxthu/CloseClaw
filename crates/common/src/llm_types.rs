@@ -109,7 +109,7 @@ pub struct InternalRequest {
     /// When present, the cache adapter marks each tool's schema as cacheable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolDefinition>>,
-    /// Session identifier used for provider-level cache keys (e.g., Kimi prompt_cache_key).
+    /// Session identifier used for provider-level cache keys.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     /// Reasoning depth level for the request.

@@ -4,6 +4,11 @@
 //! provides a [`CacheAdapter`] trait and implementations for each provider's
 //! caching strategy. The adapter runs *before* the Plugin Pipeline, acting as
 //! an independent pre-processing step on the request hot path.
+//!
+//! Provider mapping (see `docs/design/llm/cache-adapter.md`):
+//! - Anthropic: explicit `cache_control` on static system blocks
+//! - MiniMax: Anthropic-compatible, reuses `AnthropicCacheAdapter`
+//! - All others (OpenAI, DeepSeek, Kimi, …): no-op passthrough
 
 use std::sync::Arc;
 
@@ -12,8 +17,7 @@ use crate::types::{InternalRequest, SystemBlock};
 /// Adapter trait for provider-specific prompt caching strategies.
 ///
 /// Implementations transform an [`InternalRequest`] in place, injecting
-/// provider-specific cache parameters (e.g., Anthropic `cache_control`,
-/// Kimi `prompt_cache_key`).
+/// provider-specific cache parameters (e.g., Anthropic `cache_control`).
 pub trait CacheAdapter: Send + Sync {
     /// Returns the adapter name (for logging / diagnostics).
     fn name(&self) -> &str;
@@ -98,32 +102,10 @@ impl CacheAdapter for AnthropicCacheAdapter {
     }
 }
 
-/// Kimi cache adapter — injects `prompt_cache_key` into `extra_body`.
-///
-/// Uses the request's `session_id` as the cache key so that the Kimi
-/// service-side automatic prefix cache can associate requests from the
-/// same session.
-pub struct KimiCacheAdapter;
-
-impl CacheAdapter for KimiCacheAdapter {
-    fn name(&self) -> &str {
-        "kimi"
-    }
-
-    fn apply(&self, request: &mut InternalRequest) {
-        if let Some(ref session_id) = request.session_id {
-            request.extra_body.insert(
-                "prompt_cache_key".to_owned(),
-                serde_json::Value::String(session_id.clone()),
-            );
-        }
-    }
-}
-
 /// Create a [`CacheAdapter`] instance for the given provider.
 ///
 /// Returns the provider-specific adapter when one exists
-/// (Anthropic, Kimi), or [`NoopCacheAdapter`] for providers
+/// (Anthropic, MiniMax), or [`NoopCacheAdapter`] for providers
 /// that rely on server-side automatic prefix caching.
 pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
     match provider_id {
@@ -134,7 +116,7 @@ pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
         // AnthropicCacheAdapter strategy — caching is chosen by provider API
         // capability, not protocol format (see cache-adapter.md).
         "minimax" => Arc::new(AnthropicCacheAdapter),
-        "kimi" => Arc::new(KimiCacheAdapter),
+
         _ => Arc::new(NoopCacheAdapter),
     }
 }
@@ -226,30 +208,6 @@ mod tests {
     }
 
     #[test]
-    fn kimi_adapter_injects_cache_key() {
-        let mut req = make_request();
-        req.session_id = Some("sess-123".to_owned());
-        KimiCacheAdapter.apply(&mut req);
-
-        assert_eq!(
-            req.extra_body.get("prompt_cache_key").unwrap(),
-            &serde_json::Value::String("sess-123".to_owned())
-        );
-    }
-
-    #[test]
-    fn kimi_adapter_no_session_id_no_inject() {
-        let mut req = make_request();
-        KimiCacheAdapter.apply(&mut req);
-        assert!(req.extra_body.is_empty());
-    }
-
-    #[test]
-    fn kimi_adapter_name() {
-        assert_eq!(KimiCacheAdapter.name(), "kimi");
-    }
-
-    #[test]
     fn anthropic_adapter_marks_tools_as_cacheable() {
         use crate::types::ToolDefinition;
 
@@ -329,14 +287,14 @@ mod tests {
     }
 
     #[test]
-    fn for_provider_kimi_returns_kimi_adapter() {
+    fn for_provider_kimi_returns_noop() {
         let adapter = for_provider("kimi");
-        assert_eq!(adapter.name(), "kimi");
+        assert_eq!(adapter.name(), "noop");
     }
 
     #[test]
     fn for_provider_unknown_returns_noop() {
-        for provider_id in ["openai", "deepseek", "mimo", ""] {
+        for provider_id in ["openai", "deepseek", "mimo", "kimi", ""] {
             let adapter = for_provider(provider_id);
             assert_eq!(
                 adapter.name(),
@@ -367,5 +325,94 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].text, "Static section");
         assert!(blocks[0].cache, "static block should have cache: true");
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.2: Noop pass-through boundary tests
+    // ------------------------------------------------------------------
+
+    /// Verify that NoopCacheAdapter preserves existing `extra_body`
+    /// contents when a Kimi-like request carries `session_id` and
+    /// non-empty `extra_body`. The adapter must neither inject
+    /// `prompt_cache_key` nor clear/modify the map — it is a strict
+    /// passthrough (see docs/design/llm/cache-adapter.md § 其他供应商).
+    #[test]
+    fn noop_preserves_extra_body_with_session_id() {
+        let mut req = make_request();
+        req.session_id = Some("sess-kimi-123".to_owned());
+        req.extra_body
+            .insert("temperature".to_owned(), serde_json::json!(0.7));
+        req.extra_body
+            .insert("top_p".to_owned(), serde_json::json!(0.9));
+
+        let adapter = NoopCacheAdapter;
+        adapter.apply(&mut req);
+
+        // extra_body must be unchanged
+        assert_eq!(req.extra_body.len(), 2);
+        assert_eq!(req.extra_body["temperature"], serde_json::json!(0.7));
+        assert_eq!(req.extra_body["top_p"], serde_json::json!(0.9));
+        // No prompt_cache_key injected
+        assert!(!req.extra_body.contains_key("prompt_cache_key"));
+        // session_id is untouched (adapter does not read it)
+        assert_eq!(req.session_id.as_deref(), Some("sess-kimi-123"));
+    }
+
+    /// Verify that NoopCacheAdapter clears nothing and adds nothing
+    /// when session_id is None — an empty extra_body stays empty.
+    #[test]
+    fn noop_empty_request_unchanged() {
+        let mut req = make_request();
+        req.session_id = None;
+
+        let adapter = NoopCacheAdapter;
+        adapter.apply(&mut req);
+
+        assert!(req.extra_body.is_empty());
+        assert!(req.session_id.is_none());
+        assert!(req.system_blocks.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.2: Factory exhaustive mapping tests
+    // ------------------------------------------------------------------
+
+    /// Exhaustive mapping: every provider listed as "noop" in the
+    /// design doc (docs/design/llm/cache-adapter.md § 其他供应商)
+    /// must return NoopCacheAdapter. This covers the full set of
+    /// known providers plus the empty-string edge case.
+    #[test]
+    fn for_provider_noop_providers_exhaustive() {
+        for provider_id in [
+            "openai",
+            "deepseek",
+            "mimo",
+            "kimi",
+            "glm",
+            "volcengine",
+            "",
+        ] {
+            let adapter = for_provider(provider_id);
+            assert_eq!(
+                adapter.name(),
+                "noop",
+                "expected noop for provider_id: {provider_id:?}"
+            );
+        }
+    }
+
+    /// Exhaustive mapping: providers that use explicit prefix caching
+    /// (docs/design/llm/cache-adapter.md § Anthropic 适配 + § MiniMax)
+    /// must return AnthropicCacheAdapter.
+    #[test]
+    fn for_provider_anthropic_providers_exhaustive() {
+        for provider_id in ["anthropic", "minimax"] {
+            let adapter = for_provider(provider_id);
+            assert_eq!(
+                adapter.name(),
+                "anthropic",
+                "expected anthropic for provider_id: {provider_id:?}"
+            );
+        }
     }
 }

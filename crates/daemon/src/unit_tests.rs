@@ -514,27 +514,40 @@ async fn test_init_llm_registry_env_override_providers() {
     assert!(listed.contains(&"minimax".to_string()));
 }
 
-/// Verify that `for_provider` maps anthropic to AnthropicCacheAdapter
-/// and minimax to AnthropicCacheAdapter (MiniMax Anthropic-compatible API supports
-/// explicit prefix caching via cache_control on static system blocks).
+/// Verify that `for_provider` maps providers exactly as described in
+/// docs/design/llm/cache-adapter.md:
+/// - Anthropic / MiniMax → AnthropicCacheAdapter (explicit prefix caching)
+/// - All others (OpenAI, DeepSeek, Kimi, MiMo, GLM, Volcengine) → noop
+///   (server-side automatic prefix caching, no explicit cache params)
 #[test]
 fn test_cache_adapter_mapping_matches_design_doc() {
-    // Anthropic → explicit prefix caching
-    let anthropic_adapter = closeclaw_llm::cache_adapter::for_provider("anthropic");
-    assert_eq!(anthropic_adapter.name(), "anthropic");
+    // --- Anthropic strategy: explicit prefix caching ---
+    for provider_id in ["anthropic", "minimax"] {
+        let adapter = closeclaw_llm::cache_adapter::for_provider(provider_id);
+        assert_eq!(
+            adapter.name(),
+            "anthropic",
+            "expected anthropic strategy for {provider_id:?}"
+        );
+    }
 
-    // MiniMax → AnthropicCacheAdapter (MiniMax Anthropic-compatible API supports
-    // explicit prefix caching via cache_control on static system blocks)
-    let minimax_adapter = closeclaw_llm::cache_adapter::for_provider("minimax");
-    assert_eq!(minimax_adapter.name(), "anthropic");
-
-    // OpenAI → no explicit cache params (noop)
-    let openai_adapter = closeclaw_llm::cache_adapter::for_provider("openai");
-    assert_eq!(openai_adapter.name(), "noop");
-
-    // Kimi → prompt_cache_key
-    let kimi_adapter = closeclaw_llm::cache_adapter::for_provider("kimi");
-    assert_eq!(kimi_adapter.name(), "kimi");
+    // --- Noop passthrough: no explicit cache params ---
+    for provider_id in [
+        "openai",
+        "deepseek",
+        "mimo",
+        "kimi",
+        "glm",
+        "volcengine",
+        "",
+    ] {
+        let adapter = closeclaw_llm::cache_adapter::for_provider(provider_id);
+        assert_eq!(
+            adapter.name(),
+            "noop",
+            "expected noop passthrough for {provider_id:?}"
+        );
+    }
 }
 
 /// Verify that the full LLM chain assembly produces correct chain
