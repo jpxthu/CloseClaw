@@ -22,7 +22,6 @@ use closeclaw_common::im_plugin::{
 };
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
 use closeclaw_common::streaming::DefaultStreamingRenderer;
-use closeclaw_gateway::types::InboundChainInput;
 use closeclaw_gateway::{Gateway, HandleResult};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::OwnedWriteHalf;
@@ -233,22 +232,22 @@ async fn setup_rpc_channel(context: &ChatContext) -> (mpsc::Receiver<RenderedOut
     (rx, conn_id)
 }
 
-/// Build an [`InboundChainInput`] from the chat message content.
-fn build_inbound_input(content: String) -> InboundChainInput {
+/// Build a [`NormalizedMessage`] from the chat message content.
+fn build_inbound_input(content: String) -> NormalizedMessage {
     let now_ms = chrono::Utc::now().timestamp_millis();
-    InboundChainInput {
+    NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: closeclaw_platform::current_uid(),
         peer_id: "cli".to_string(),
         content,
-        message_id: format!("chat-{}", now_ms),
-        timestamp_ms: now_ms,
-        account_id: Some("owner".to_string()),
-        thread_id: None,
+        timestamp: now_ms,
         message_type: MessageType::Text,
         media_refs: vec![],
-        chat_name: None,
-        trace_id: Some(format!("chat-{}", now_ms)),
+        thread_id: None,
+        account_id: "owner".to_string(),
+        chat_name: String::new(),
+        trace_id: format!("chat-{}", now_ms),
+        message_id: format!("chat-{}", now_ms),
     }
 }
 
@@ -256,12 +255,14 @@ fn build_inbound_input(content: String) -> InboundChainInput {
 async fn process_gateway_response(
     rx: mpsc::Receiver<RenderedOutput>,
     conn_id: u64,
-    agent_id: String,
+    // NOTE: agent_id is no longer used here; kept for API compatibility
+    _agent_id: String,
     content: String,
     context: &ChatContext,
 ) -> Vec<ChatResponse> {
     let input = build_inbound_input(content);
-
+    let sender_id = input.sender_id.clone();
+    let platform = input.platform.clone();
     // Run the inbound processor chain
     // (RawLog → SessionRouter → ContentNormalizer).
     let processed = context.gateway.process_inbound_chain(&input).await;
@@ -270,7 +271,7 @@ async fn process_gateway_response(
     // command.
     let gw = Arc::clone(&context.gateway);
     let handle = tokio::spawn(CHAT_CONN_ID.scope(conn_id, async move {
-        gw.handle_inbound_message(processed, Some(&agent_id), "terminal")
+        gw.handle_inbound_message(processed, Some(&sender_id), &platform)
             .await
     }));
 
@@ -342,26 +343,26 @@ async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<C
     let sender_id = closeclaw_platform::current_uid();
     let now_ms = chrono::Utc::now().timestamp_millis();
 
-    let input = InboundChainInput {
+    let input = NormalizedMessage {
         platform: "terminal".to_string(),
-        sender_id,
+        sender_id: sender_id.clone(),
         peer_id: "cli".to_string(),
         content: "/stop".to_string(),
-        message_id: format!("stop-{}", now_ms),
-        timestamp_ms: now_ms,
-        account_id: Some("owner".to_string()),
-        thread_id: None,
+        timestamp: now_ms,
         message_type: MessageType::Text,
         media_refs: vec![],
-        chat_name: None,
-        trace_id: None,
+        thread_id: None,
+        account_id: "owner".to_string(),
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: format!("stop-{}", now_ms),
     };
 
     let processed = context.gateway.process_inbound_chain(&input).await;
 
     match context
         .gateway
-        .handle_inbound_message(processed, Some(&agent_id), "terminal")
+        .handle_inbound_message(processed, Some(&sender_id), "terminal")
         .await
     {
         Some(_) => vec![ChatResponse::Done],

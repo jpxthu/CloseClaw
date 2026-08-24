@@ -146,6 +146,20 @@ pub struct NormalizedMessage {
     /// Tenant/account identifier for multi-tenant session isolation.
     #[serde(default)]
     pub account_id: String,
+
+    /// Chat/group name (e.g. Feishu group title), or empty.
+    /// Populated by the adapter from platform-specific metadata.
+    #[serde(default)]
+    pub chat_name: String,
+
+    /// Trace ID for distributed tracing, or empty.
+    /// Generated at webhook arrival for debug-log correlation.
+    #[serde(default)]
+    pub trace_id: String,
+
+    /// Platform-specific message identifier, or empty.
+    #[serde(default)]
+    pub message_id: String,
 }
 
 // ---------------------------------------------------------------------------
