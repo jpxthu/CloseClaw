@@ -1,9 +1,13 @@
 //! Step 1.5 — Unit tests for InboundChainInput field propagation.
 //!
-//! Verifies that fields added in Step 1.1 (thread_id, message_type,
-//! media_refs) survive the InboundChainInput →
+//! Verifies that fields added in Step 1.1 (thread_id, media_refs)
+//! survive the InboundChainInput →
 //! process_inbound_chain → ProcessedMessage pipeline and are accessible
 //! in Gateway metadata.
+//!
+//! Note: `message_type` is injected by the Processor Chain (SessionRouter),
+//! not by Gateway's `build_extra_metadata`. These tests use the no-registry
+//! fallback path, so `message_type` is NOT expected in metadata.
 
 use crate::{GatewayConfig, InboundChainInput, SessionManager};
 use closeclaw_common::im_plugin::{MediaRef, MessageType};
@@ -154,10 +158,11 @@ async fn test_all_fields_propagated_no_registry() {
     let thread = result.metadata.get("thread_id").map(|s| s.as_str());
     assert_eq!(thread, Some("ot_thread_abc"));
 
-    // message_type serialized as JSON string.
-    let mt = result.metadata.get("message_type").map(|s| s.as_str());
-    let deserialized: MessageType = serde_json::from_str(mt.unwrap()).unwrap();
-    assert_eq!(deserialized, MessageType::Text);
+    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
+    assert!(
+        !result.metadata.contains_key("message_type"),
+        "message_type should not be in extra metadata — injected by Processor Chain"
+    );
 
     // media_refs serialized as JSON array.
     let mr = result.metadata.get("media_refs").map(|s| s.as_str());
@@ -219,17 +224,15 @@ async fn test_defaults_thread_id_none() {
 }
 
 #[tokio::test]
-async fn test_defaults_message_type_text() {
+async fn test_defaults_message_type_not_in_extra_metadata() {
     let gw = make_gw();
     let input = default_chain_input();
 
     let result = gw.process_inbound_chain(&input).await;
-    let mt = result.metadata.get("message_type").unwrap();
-    let deserialized: MessageType = serde_json::from_str(mt).unwrap();
-    assert_eq!(
-        deserialized,
-        MessageType::Text,
-        "default message_type should be Text"
+    // message_type is injected by Processor Chain (SessionRouter), not Gateway.
+    assert!(
+        !result.metadata.contains_key("message_type"),
+        "message_type should not be in extra metadata — injected by Processor Chain"
     );
 }
 
@@ -256,10 +259,11 @@ async fn test_image_message_type_propagated() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    // message_type deserializes to Image.
-    let mt = result.metadata.get("message_type").unwrap();
-    let deserialized: MessageType = serde_json::from_str(mt).unwrap();
-    assert_eq!(deserialized, MessageType::Image);
+    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
+    assert!(
+        !result.metadata.contains_key("message_type"),
+        "message_type should not be in extra metadata — injected by Processor Chain"
+    );
 
     // media_refs non-empty.
     let mr = result.metadata.get("media_refs").unwrap();
@@ -285,9 +289,11 @@ async fn test_file_message_type_propagated() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    let mt = result.metadata.get("message_type").unwrap();
-    let deserialized: MessageType = serde_json::from_str(mt).unwrap();
-    assert_eq!(deserialized, MessageType::File);
+    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
+    assert!(
+        !result.metadata.contains_key("message_type"),
+        "message_type should not be in extra metadata — injected by Processor Chain"
+    );
 
     let mr = result.metadata.get("media_refs").unwrap();
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
@@ -308,9 +314,11 @@ async fn test_audio_message_type_propagated() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    let mt = result.metadata.get("message_type").unwrap();
-    let deserialized: MessageType = serde_json::from_str(mt).unwrap();
-    assert_eq!(deserialized, MessageType::Audio);
+    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
+    assert!(
+        !result.metadata.contains_key("message_type"),
+        "message_type should not be in extra metadata — injected by Processor Chain"
+    );
 
     let mr = result.metadata.get("media_refs").unwrap();
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();

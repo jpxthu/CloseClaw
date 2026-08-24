@@ -219,17 +219,16 @@ impl Gateway {
 
 /// Build extra metadata map from inbound chain input fields.
 ///
-/// Propagates `thread_id`, `message_type`, and `media_refs`
+/// Propagates `thread_id` and `media_refs`
 /// so they are available downstream in the Gateway.
+///
+/// Note: `message_type` is injected by the Processor Chain (SessionRouter),
+/// not by the Gateway — see design doc `data-flow.md`.
 fn build_extra_metadata(input: &InboundChainInput) -> HashMap<String, String> {
     let mut meta = HashMap::new();
     if let Some(ref thread_id) = input.thread_id {
         meta.insert("thread_id".to_string(), thread_id.clone());
     }
-    meta.insert(
-        "message_type".to_string(),
-        serde_json::to_string(&input.message_type).unwrap_or_else(|_| "text".to_string()),
-    );
     meta.insert(
         "media_refs".to_string(),
         serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
