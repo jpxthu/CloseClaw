@@ -437,9 +437,7 @@ mod tests {
 
     /// Verify DSL hints are wrapped in ANSI dim when ansi=true.
     #[test]
-    fn test_plugin_render_dsl_ansi_dim() {
-        use crate::renderer::DIM;
-        use crate::renderer::RESET;
+    fn test_plugin_render_dsl_ansi_no_style() {
         let plugin = TerminalPlugin::with_ansi(true);
         let blocks = vec![];
         let dsl = DslParseResult {
@@ -454,8 +452,7 @@ mod tests {
         };
         let output = plugin.render(&blocks, Some(&dsl));
         let text = output.payload.as_str().unwrap();
-        assert!(text.contains(DIM));
-        assert!(text.contains(RESET));
+        assert!(!text.contains("\x1b["));
         assert!(text.contains("[Button: Go (action: start)]"));
     }
 

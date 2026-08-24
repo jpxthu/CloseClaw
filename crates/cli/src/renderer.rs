@@ -105,21 +105,22 @@ pub(crate) fn check_line_pattern(line: &str, ansi: bool) -> Option<String> {
         return Some(if ansi {
             format!("{}{}{}", BOLD, rest, RESET)
         } else {
-            rest.to_string()
+            line.to_string()
         });
     }
     if line.trim() == "---" {
         return Some(if ansi {
             format!("{}───{}", DIM, RESET)
         } else {
-            "───".to_string()
+            "---".to_string()
         });
     }
-    if let Some(rest) = line.strip_prefix("> ") {
+    if line.strip_prefix("> ").is_some() {
         return Some(if ansi {
+            let rest = &line[2..];
             format!("{}│ {}{}", DIM, rest, RESET)
         } else {
-            format!("│ {}", rest)
+            line.to_string()
         });
     }
     None
@@ -318,25 +319,13 @@ fn extract_link(chars: &[char], start: usize) -> (usize, Option<(String, String)
 const ANSI_KEYWORD: &str = "\x1b[35m";
 const ANSI_COMMENT: &str = "\x1b[90m";
 
-/// Check if the language has syntax highlighting support.
-fn is_supported_language(language: &str) -> bool {
-    matches!(
-        language,
-        "rust" | "python" | "javascript" | "typescript" | "go" | "c" | "cpp" | "java"
-    )
-}
-
 /// Render a fenced code block with language annotation, line numbers,
 /// and optional syntax highlighting.
 fn render_code_block_ansi(language: &str, code: &str, ansi: bool) -> String {
     let lines: Vec<&str> = code.lines().collect();
     let line_width = format!("{}", lines.len()).len();
     let mut out = String::new();
-    let unsupported = !language.is_empty() && !is_supported_language(language);
-
-    if unsupported {
-        out.push_str("```\n");
-    }
+    out.push_str("```\n");
 
     if ansi && !language.is_empty() {
         out.push_str(&format!("{} {} {}\n", DIM, language, RESET));
@@ -355,9 +344,7 @@ fn render_code_block_ansi(language: &str, code: &str, ansi: bool) -> String {
         out.push('\n');
     }
 
-    if unsupported {
-        out.push_str("```\n");
-    }
+    out.push_str("```\n");
 
     out
 }
@@ -598,7 +585,7 @@ fn render_markdown_ansi(content: &str, ansi: bool) -> String {
                 if ansi {
                     out.push_str(&format!("{}───{}\n\n", DIM, RESET));
                 } else {
-                    out.push_str("───\n\n");
+                    out.push_str("---\n\n");
                 }
             }
             ContentSegment::CodeBlock { language, code } => {
@@ -811,11 +798,7 @@ impl TerminalRenderer {
             return String::new();
         }
         let joined = lines.join("\n");
-        if self.ansi {
-            format!("{}{}{}\n", DIM, joined, RESET)
-        } else {
-            format!("{}\n", joined)
-        }
+        format!("{}\n", joined)
     }
 
     /// Wrap `text` with DIM/RESET when ANSI is enabled, otherwise plain.
