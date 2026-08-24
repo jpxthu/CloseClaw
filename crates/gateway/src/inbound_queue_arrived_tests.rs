@@ -66,6 +66,7 @@ async fn test_arrived_event_emitted_on_successful_enqueue() {
         rate_limit_per_minute: 0,
         max_message_size: 0,
         inbound_queue_capacity: 4,
+        inbound_wal_dir: None,
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
@@ -143,6 +144,7 @@ async fn test_queue_full_no_arrived_event() {
         rate_limit_per_minute: 0,
         max_message_size: 0,
         inbound_queue_capacity: 1,
+        inbound_wal_dir: None,
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
@@ -198,6 +200,7 @@ async fn test_queue_dequeued_event_still_emitted() {
         rate_limit_per_minute: 0,
         max_message_size: 0,
         inbound_queue_capacity: 4,
+        inbound_wal_dir: None,
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(

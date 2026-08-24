@@ -61,6 +61,7 @@ pub fn make_gateway() -> Arc<Gateway> {
         rate_limit_per_minute: 0,
         max_message_size: 0,
         inbound_queue_capacity: 4,
+        inbound_wal_dir: None,
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(

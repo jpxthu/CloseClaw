@@ -124,6 +124,7 @@ fn make_config() -> GatewayConfig {
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         inbound_queue_capacity: 1,
+        inbound_wal_dir: None,
         ..Default::default()
     }
 }

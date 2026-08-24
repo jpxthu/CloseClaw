@@ -55,9 +55,10 @@ pub struct GatewayConfig {
     #[serde(default = "default_inbound_queue_capacity")]
     pub inbound_queue_capacity: usize,
     /// Directory for inbound WAL persistence.
-    /// When `None` (default), WAL persistence is disabled and the queue
-    /// behaves as an in-memory buffer only.
-    #[serde(default)]
+    /// Defaults to `~/.closeclaw/inbound_wal` (aligns with design doc:
+    /// messages are persisted on enqueue by default).
+    /// Setting to `None` explicitly disables WAL persistence.
+    #[serde(default = "default_inbound_wal_dir")]
     pub inbound_wal_dir: Option<std::path::PathBuf>,
     /// Bot → Agent binding map.
     /// Key is the bot identifier (peer_id), value is the agent_id to route to.
@@ -71,6 +72,14 @@ pub(crate) fn default_inbound_queue_capacity() -> usize {
     256
 }
 
+/// Default inbound WAL directory: `~/.closeclaw/inbound_wal`.
+///
+/// Aligns with the production daemon convention
+/// (`config_dir = ~/.closeclaw`, WAL subdirectory `inbound_wal`).
+pub(crate) fn default_inbound_wal_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".closeclaw").join("inbound_wal"))
+}
+
 #[allow(clippy::derivable_impls)]
 impl Default for GatewayConfig {
     fn default() -> Self {
@@ -80,7 +89,7 @@ impl Default for GatewayConfig {
             max_message_size: 0,
             raw_log_dir: None,
             inbound_queue_capacity: default_inbound_queue_capacity(),
-            inbound_wal_dir: None,
+            inbound_wal_dir: default_inbound_wal_dir(),
             bot_agent_bindings: HashMap::new(),
         }
     }
