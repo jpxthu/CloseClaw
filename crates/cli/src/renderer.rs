@@ -659,11 +659,12 @@ impl TerminalRenderer {
         }
     }
 
-    /// Truncate `content` to terminal display width and append `... (truncated)` if needed.
+    /// Truncate a single line to terminal display width and append
+    /// `... (truncated)` if needed.
     ///
     /// Uses terminal column width (not character count) so CJK/fullwidth
     /// characters, which occupy 2 columns, are accounted for correctly.
-    fn truncate_to_width(&self, content: &str) -> String {
+    fn truncate_line_to_width(&self, content: &str) -> String {
         let max_width = get_terminal_width();
         let mut width_so_far = 0;
         let mut end = 0;
@@ -678,9 +679,27 @@ impl TerminalRenderer {
         content.to_string()
     }
 
+    /// Truncate each line of `content` to terminal display width,
+    /// appending `... (truncated)` to any line that exceeds the limit.
+    ///
+    /// Preserves a trailing newline when the input has one.
+    fn truncate_lines_to_width(&self, content: &str) -> String {
+        let had_trailing_newline = content.ends_with('\n');
+        let result: String = content
+            .lines()
+            .map(|line| self.truncate_line_to_width(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if had_trailing_newline {
+            format!("{}\n", result)
+        } else {
+            result
+        }
+    }
+
     /// Render a Thinking block with boundary markers.
     fn render_thinking(&self, text: &str) -> String {
-        let truncated = self.truncate_to_width(text);
+        let truncated = self.truncate_lines_to_width(text);
         if self.ansi {
             format!(
                 "{}[Thinking]{}\n  {}{}{}[end of thinking]{}\n",
@@ -693,7 +712,7 @@ impl TerminalRenderer {
 
     /// Render a ToolUse block: `⚙ tool_name(input)`.
     fn render_tool_use(&self, name: &str, input: &str) -> String {
-        let truncated = self.truncate_to_width(input);
+        let truncated = self.truncate_lines_to_width(input);
         if self.ansi {
             format!(
                 "{}⚙ {}{}{}{}({}{}){}{}\n",
@@ -730,7 +749,7 @@ impl TerminalRenderer {
 
         let mut out = String::new();
         for line in &lines {
-            out.push_str(&self.truncate_to_width(line));
+            out.push_str(&self.truncate_line_to_width(line));
             out.push('\n');
         }
         if truncated_marker {
@@ -813,7 +832,7 @@ impl TerminalRenderer {
     pub(crate) fn render_block(&self, block: &ContentBlock) -> String {
         match block {
             ContentBlock::Text(text) => {
-                self.truncate_to_width(&render_markdown_ansi(text, self.ansi))
+                self.truncate_lines_to_width(&render_markdown_ansi(text, self.ansi))
             }
             ContentBlock::Thinking { thinking: text, .. } => self.render_thinking(text),
             ContentBlock::ToolUse { name, input, .. } => self.render_tool_use(name, input),

@@ -174,15 +174,19 @@ fn test_truncated_content_preserves_prefix() {
 }
 
 /// Verify truncated output appends the truncation marker at the end.
+/// Note: `truncate_lines_to_width` preserves trailing newlines from
+/// `render_markdown_ansi`, so the marker is followed by `\n`.
 #[test]
 fn test_truncated_content_ends_with_marker() {
     let renderer = TerminalRenderer::with_ansi(false);
     let content: String = "字".repeat(41); // 82 columns
     let result = renderer.render_block(&ContentBlock::Text(content));
     let stripped = strip_ansi(&result);
+    let trimmed = stripped.trim_end_matches('\n');
     assert!(
-        stripped.ends_with("... (truncated)"),
-        "truncated output should end with marker"
+        trimmed.ends_with("... (truncated)"),
+        "truncated output should end with marker, got: {:?}",
+        stripped
     );
 }
 
