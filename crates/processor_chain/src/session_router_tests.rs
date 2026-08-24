@@ -621,3 +621,68 @@ async fn test_no_warn_log_when_both_present() {
         *captured
     );
 }
+
+// -----------------------------------------------------------------------
+// message_type injection tests
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_message_type_injected_into_metadata() {
+    use closeclaw_common::im_plugin::MessageType;
+
+    let router = make_router();
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_chat".to_string(),
+        content: "hello".to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: MessageType::Text,
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+        ..Default::default()
+    };
+    let ctx = make_ctx(msg);
+    let result = router.process(&ctx).await.unwrap().unwrap();
+    let mt = result
+        .metadata
+        .get("message_type")
+        .map(|s| s.as_str())
+        .unwrap();
+    // serde_json serializes MessageType::Text as the quoted string "text"
+    assert_eq!(
+        mt, "\"text\"",
+        "message_type metadata should be serialized MessageType"
+    );
+}
+
+#[tokio::test]
+async fn test_message_type_image_injected() {
+    use closeclaw_common::im_plugin::MessageType;
+
+    let router = make_router();
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_chat".to_string(),
+        content: String::new(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: MessageType::Image,
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+        ..Default::default()
+    };
+    let ctx = make_ctx(msg);
+    let result = router.process(&ctx).await.unwrap().unwrap();
+    let mt = result
+        .metadata
+        .get("message_type")
+        .map(|s| s.as_str())
+        .unwrap();
+    assert_eq!(
+        mt, "\"image\"",
+        "message_type metadata should be serialized MessageType::Image"
+    );
+}
