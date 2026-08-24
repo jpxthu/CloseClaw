@@ -26,6 +26,9 @@ pub(crate) const ITALIC: &str = "\x1b[3m";
 /// ANSI reset all styles
 pub(crate) const RESET: &str = "\x1b[0m";
 
+/// Maximum number of lines for ToolResult before truncation.
+const TOOL_RESULT_MAX_LINES: usize = 20;
+
 // ---------------------------------------------------------------------------
 // ANSI helpers
 // ---------------------------------------------------------------------------
@@ -701,13 +704,43 @@ impl TerminalRenderer {
         }
     }
 
-    /// Render a ToolResult block, truncating at terminal width.
+    /// Render a ToolResult block.
+    ///
+    /// Content is rendered through markdown ANSI (code blocks, bold, etc.)
+    /// following Text-block rules.  If the rendered output exceeds
+    /// [`TOOL_RESULT_MAX_LINES`] lines, it is truncated and a
+    /// `... (truncated)` marker is appended.  Each line is then
+    /// width-truncated to fit the terminal.
     fn render_tool_result(&self, content: &str) -> String {
-        let display = self.truncate_to_width(content);
+        if content.is_empty() {
+            return if self.ansi {
+                format!("{}{}{}\n", DIM, content, RESET)
+            } else {
+                format!("{}\n", content)
+            };
+        }
+
+        let rendered = render_markdown_ansi(content, self.ansi);
+        let mut lines: Vec<&str> = rendered.lines().collect();
+        let mut truncated_marker = false;
+        if lines.len() > TOOL_RESULT_MAX_LINES {
+            lines.truncate(TOOL_RESULT_MAX_LINES);
+            truncated_marker = true;
+        }
+
+        let mut out = String::new();
+        for line in &lines {
+            out.push_str(&self.truncate_to_width(line));
+            out.push('\n');
+        }
+        if truncated_marker {
+            out.push_str("... (truncated)\n");
+        }
+
         if self.ansi {
-            format!("{}{}{}\n", DIM, display, RESET)
+            format!("{}{}{}", DIM, out, RESET)
         } else {
-            format!("{}\n", display)
+            out
         }
     }
 
