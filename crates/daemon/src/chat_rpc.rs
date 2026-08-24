@@ -255,6 +255,7 @@ fn build_inbound_input(content: String) -> NormalizedMessage {
 async fn process_gateway_response(
     rx: mpsc::Receiver<RenderedOutput>,
     conn_id: u64,
+    // NOTE: agent_id is no longer used here; kept for API compatibility
     _agent_id: String,
     content: String,
     context: &ChatContext,
