@@ -424,6 +424,8 @@ fn test_get_terminal_width_returns_positive() {
 
 // ── Truncation tests (Step 1.2) ───────────────────────────────────────────
 
+// ── Truncation tests (Step 1.2) ───────────────────────────────────────────
+
 /// render_thinking truncation — short content passes through unchanged.
 #[test]
 fn test_render_thinking_short_no_truncation() {
