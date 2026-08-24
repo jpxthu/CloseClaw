@@ -97,9 +97,9 @@
   },
   {
     "path": "docs/design/common/shared-types.md",
-    "commit": "2acc6d7c07fce0d6b38ee9bb2e1b016a2f5432df",
-    "commit_time": "2026-08-21T10:22:42+08:00",
-    "confirmed_time": "2026-08-21T10:35:40.515651+08:00",
+    "commit": "5fc9ba29b05defcd2058a92e9ae175a82885c7f3",
+    "commit_time": "2026-08-24T09:38:11+08:00",
+    "confirmed_time": "2026-08-24T09:47:28.170050+08:00",
     "comment": "",
     "blocked_reason": ""
   },
