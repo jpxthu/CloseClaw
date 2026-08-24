@@ -409,15 +409,7 @@ impl Gateway {
             peer_id: entry.peer_id,
             trace_id: entry.trace_id,
         };
-        // ack_tx is a oneshot placeholder — WAL-replayed entries are not
-        // awaited for acknowledgment; the receiver is dropped immediately
-        // after try_send below.  This satisfies the QueuedInbound contract
-        // without adding unnecessary back-pressure during replay.
-        let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel::<()>();
-        let queued = inbound_queue::QueuedInbound {
-            request: req,
-            ack_tx,
-        };
+        let queued = inbound_queue::QueuedInbound { request: req };
         let trace_id = queued.request.trace_id.clone();
         let platform = queued.request.platform.clone();
         let peer_id = queued.request.peer_id.clone();
@@ -425,7 +417,6 @@ impl Gateway {
             tracing::warn!(trace_id = %trace_id, "WAL replay: queue full — dropping");
             return Err(());
         }
-        drop(_ack_rx);
         self.emit_replayed_event(&trace_id, &platform, &peer_id);
         Ok(())
     }

@@ -4,7 +4,6 @@ use crate::session_manager::SessionManager;
 use crate::{Gateway, GatewayConfig, InboundRequest};
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
-use tokio::sync::oneshot;
 
 use super::inbound_queue::QueuedInbound;
 
@@ -50,11 +49,10 @@ pub fn make_request(content: &str) -> InboundRequest {
     }
 }
 
-/// Wrap an `InboundRequest` in a [`QueuedInbound`] with a dummy ack sender.
-/// For tests that only care about the request payload, not the ack signal.
+/// Wrap an `InboundRequest` in a [`QueuedInbound`].
+/// For tests that only care about the request payload.
 pub fn queued(request: InboundRequest) -> QueuedInbound {
-    let (ack_tx, _) = oneshot::channel();
-    QueuedInbound { request, ack_tx }
+    QueuedInbound { request }
 }
 
 pub fn make_gateway() -> Arc<Gateway> {

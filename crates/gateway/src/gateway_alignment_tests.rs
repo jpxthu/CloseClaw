@@ -205,7 +205,6 @@ async fn test_queue_full_rejection_emits_debug_event() {
     let gw = Arc::new(gw);
     let handle = gw.start_inbound_queue();
     // Fill the queue (capacity=1).
-    let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel();
     handle
         .try_send(QueuedInbound {
             request: InboundRequest {
@@ -214,7 +213,6 @@ async fn test_queue_full_rejection_emits_debug_event() {
                 peer_id: "p_fill".to_string(),
                 trace_id: "trace-fill".to_string(),
             },
-            ack_tx,
         })
         .expect("first send should succeed");
 
