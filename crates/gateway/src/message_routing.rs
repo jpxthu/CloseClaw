@@ -4,7 +4,8 @@
 
 use super::Gateway;
 use crate::debug_log_emitter;
-use crate::types::{GatewayError, InboundChainInput, Message};
+use crate::types::{GatewayError, Message};
+use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_debug_log::LogLevel;
@@ -173,33 +174,21 @@ impl Gateway {
         Err(GatewayError::NoRoutingKey)
     }
 
-    /// Runs the inbound processor chain on a [`NormalizedMessage`] built from `input`.
+    /// Runs the inbound processor chain on the given [`NormalizedMessage`].
     /// Falls back to raw content on registry absence or processor error.
-    pub async fn process_inbound_chain(&self, input: &InboundChainInput) -> ProcessedMessage {
-        let extra_meta = build_extra_metadata(input);
+    pub async fn process_inbound_chain(&self, normalized: &NormalizedMessage) -> ProcessedMessage {
+        let extra_meta = build_extra_metadata(normalized);
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
             return ProcessedMessage {
                 content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
-                    input.content.to_string(),
+                    normalized.content.to_string(),
                 )],
                 metadata: extra_meta,
             };
         };
 
-        let normalized = closeclaw_common::im_plugin::NormalizedMessage {
-            platform: input.platform.to_string(),
-            sender_id: input.sender_id.to_string(),
-            peer_id: input.peer_id.to_string(),
-            content: input.content.to_string(),
-            timestamp: input.timestamp_ms,
-            message_type: input.message_type.clone(),
-            media_refs: input.media_refs.clone(),
-            thread_id: input.thread_id.clone(),
-            account_id: input.account_id.clone().unwrap_or_default(),
-        };
-
-        match registry.process_inbound(normalized).await {
+        match registry.process_inbound(normalized.clone()).await {
             Ok(mut processed) => {
                 processed.metadata.extend(extra_meta);
                 processed
@@ -208,7 +197,7 @@ impl Gateway {
                 tracing::warn!(?e, "processor chain failed, falling back to raw content");
                 ProcessedMessage {
                     content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
-                        input.content.to_string(),
+                        normalized.content.to_string(),
                     )],
                     metadata: extra_meta,
                 }
@@ -217,30 +206,30 @@ impl Gateway {
     }
 }
 
-/// Build extra metadata map from inbound chain input fields.
+/// Build extra metadata map from [`NormalizedMessage`] fields.
 ///
-/// Propagates `thread_id` and `media_refs`
-/// so they are available downstream in the Gateway.
+/// Propagates `thread_id`, `media_refs`, `account_id`, `chat_name`, and
+/// `trace_id` so they are available downstream in the Gateway.
 ///
 /// Note: `message_type` is injected by the Processor Chain (SessionRouter),
 /// not by the Gateway — see design doc `data-flow.md`.
-fn build_extra_metadata(input: &InboundChainInput) -> HashMap<String, String> {
+fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, String> {
     let mut meta = HashMap::new();
-    if let Some(ref thread_id) = input.thread_id {
+    if let Some(ref thread_id) = normalized.thread_id {
         meta.insert("thread_id".to_string(), thread_id.clone());
     }
     meta.insert(
         "media_refs".to_string(),
-        serde_json::to_string(&input.media_refs).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::to_string(&normalized.media_refs).unwrap_or_else(|_| "[]".to_string()),
     );
-    if let Some(ref account_id) = input.account_id {
-        meta.insert("account_id".to_string(), account_id.clone());
+    if !normalized.account_id.is_empty() {
+        meta.insert("account_id".to_string(), normalized.account_id.clone());
     }
-    if let Some(ref chat_name) = input.chat_name {
-        meta.insert("chat_name".to_string(), chat_name.clone());
+    if !normalized.chat_name.is_empty() {
+        meta.insert("chat_name".to_string(), normalized.chat_name.clone());
     }
-    if let Some(ref trace_id) = input.trace_id {
-        meta.insert("trace_id".to_string(), trace_id.clone());
+    if !normalized.trace_id.is_empty() {
+        meta.insert("trace_id".to_string(), normalized.trace_id.clone());
     }
     meta
 }

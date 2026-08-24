@@ -87,6 +87,9 @@ impl MessageProcessor for SessionRouter {
                 media_refs: Vec::new(),
                 thread_id: None,
                 account_id: String::new(),
+                chat_name: String::new(),
+                trace_id: String::new(),
+                message_id: String::new(),
             }
         });
 

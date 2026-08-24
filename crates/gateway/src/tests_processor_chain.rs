@@ -3,9 +3,10 @@
 //! These tests live in a separate file so that src/gateway/tests.rs stays
 //! under the 500-line limit.
 
-use crate::{GatewayConfig, InboundChainInput, Message, SessionManager};
+use crate::{GatewayConfig, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
+use closeclaw_common::im_plugin::NormalizedMessage;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -409,19 +410,19 @@ impl MessageProcessor for SuppressTestProcessor {
 async fn test_process_inbound_chain_no_registry() {
     let (gw, _sm) = make_gw(make_config());
     let result = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "cli".into(),
             content: "hello world".into(),
-            message_id: "msg-1".into(),
-            timestamp_ms: 0,
-            account_id: None,
+            timestamp: 0,
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
     assert_eq!(result.text_content(), Some("hello world"));
@@ -449,19 +450,19 @@ async fn test_process_inbound_chain_with_normalizer() {
     // Input with ANSI escape sequences and invisible control characters.
     let raw_input = "\x1b[31mhello\x1b[0m\x01world";
     let result = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "cli".into(),
             content: raw_input.into(),
-            message_id: "msg-1".into(),
-            timestamp_ms: 0,
-            account_id: None,
+            timestamp: 0,
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
     // ANSI stripped, control char stripped, plain text remains.
@@ -484,19 +485,19 @@ async fn test_process_inbound_chain_with_session_router() {
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
     let result = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "peer1".into(),
             content: "hi".into(),
-            message_id: "msg-1".into(),
-            timestamp_ms: 0,
-            account_id: None,
+            timestamp: 0,
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
     assert_eq!(result.text_content(), Some("hi"));
@@ -529,19 +530,19 @@ async fn test_process_inbound_chain_uses_system_time() {
 
     let before_ms = chrono::Utc::now().timestamp_millis();
     let result = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "peer1".into(),
             content: "hi".into(),
-            message_id: "msg-ts".into(),
-            timestamp_ms: 1_700_000_000_123, // past timestamp — should NOT be used
-            account_id: None,
+            timestamp: 1_700_000_000_123, // past timestamp — should NOT be used
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
     let after_ms = chrono::Utc::now().timestamp_millis();
@@ -585,6 +586,9 @@ async fn test_content_normalizer_does_not_strip_platform_residue() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: String::new(),
         account_id: String::new(),
         ..Default::default()
     };
@@ -639,19 +643,19 @@ async fn test_process_inbound_chain_processor_error() {
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
     let result = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "cli".into(),
             content: "original".into(),
-            message_id: "msg-1".into(),
-            timestamp_ms: 0,
-            account_id: None,
+            timestamp: 0,
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
     // Fallback to original content.
@@ -676,19 +680,19 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
 
     let raw_input = "\x1b[32mhello\x1b[0m\x01world\x1b[1;34m!";
     let result = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "peer1".into(),
             content: raw_input.into(),
-            message_id: "msg-e2e-1".into(),
-            timestamp_ms: 0,
-            account_id: None,
+            timestamp: 0,
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
 
@@ -720,19 +724,19 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
 
     let raw_input = "\x1b[33mwhat is the weather\x1b[0m";
     let processed = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "cli".into(),
             content: raw_input.into(),
-            message_id: "msg-e2e-2".into(),
-            timestamp_ms: 0,
-            account_id: None,
+            timestamp: 0,
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
 
@@ -761,19 +765,19 @@ async fn test_e2e_suppress_flag_propagates_through_chain() {
     let gw = make_gw_with_registry(registry);
 
     let result = gw
-        .process_inbound_chain(&InboundChainInput {
+        .process_inbound_chain(&NormalizedMessage {
             platform: "terminal".into(),
             sender_id: "user1".into(),
             peer_id: "cli".into(),
             content: "hello".into(),
-            message_id: "msg-e2e-4".into(),
-            timestamp_ms: 0,
-            account_id: None,
+            timestamp: 0,
+            account_id: String::new(),
             thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
-            chat_name: None,
-            trace_id: None,
         })
         .await;
     assert!(

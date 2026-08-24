@@ -1,7 +1,7 @@
-//! Step 1.5 — Unit tests for InboundChainInput field propagation.
+//! Step 1.5 — Unit tests for NormalizedMessage field propagation.
 //!
 //! Verifies that fields added in Step 1.1 (thread_id, media_refs)
-//! survive the InboundChainInput →
+//! survive the NormalizedMessage →
 //! process_inbound_chain → ProcessedMessage pipeline and are accessible
 //! in Gateway metadata.
 //!
@@ -9,8 +9,8 @@
 //! not by Gateway's `build_extra_metadata`. These tests use the no-registry
 //! fallback path, so `message_type` is NOT expected in metadata.
 
-use crate::{GatewayConfig, InboundChainInput, SessionManager};
-use closeclaw_common::im_plugin::{MediaRef, MessageType};
+use crate::{GatewayConfig, SessionManager};
+use closeclaw_common::im_plugin::{MediaRef, MessageType, NormalizedMessage};
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
@@ -36,105 +36,105 @@ fn make_gw() -> crate::Gateway {
     crate::Gateway::new(config, sm)
 }
 
-/// Build a fully-populated InboundChainInput for the normal-path test.
-fn full_chain_input() -> InboundChainInput {
-    InboundChainInput {
+/// Build a fully-populated NormalizedMessage for the normal-path test.
+fn full_chain_input() -> NormalizedMessage {
+    NormalizedMessage {
         platform: "feishu".into(),
         sender_id: "ou_sender1".into(),
         peer_id: "oc_chat1".into(),
         content: "hello world".into(),
-        message_id: "msg_001".into(),
-        timestamp_ms: 1_700_000_000_000,
-        account_id: Some("acct_foo".into()),
-        thread_id: Some("ot_thread_abc".into()),
+        timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: vec![MediaRef {
             key: "img_key_1".into(),
             url: "https://example.com/img1.png".into(),
         }],
-        chat_name: None,
-        trace_id: None,
+        thread_id: Some("ot_thread_abc".into()),
+        account_id: "acct_foo".into(),
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: "msg_001".into(),
     }
 }
 
-/// Build an InboundChainInput with all optional fields at defaults.
-fn default_chain_input() -> InboundChainInput {
-    InboundChainInput {
+/// Build a NormalizedMessage with all optional fields at defaults.
+fn default_chain_input() -> NormalizedMessage {
+    NormalizedMessage {
         platform: "feishu".into(),
         sender_id: "ou_sender1".into(),
         peer_id: "oc_chat1".into(),
         content: "hello".into(),
-        message_id: "msg_002".into(),
-        timestamp_ms: 1_700_000_000_000,
-        account_id: Some("acct_foo".into()),
-        thread_id: None,
+        timestamp: 1_700_000_000_000,
         message_type: MessageType::Text,
         media_refs: Vec::new(),
-        chat_name: None,
-        trace_id: None,
+        thread_id: None,
+        account_id: "acct_foo".into(),
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: "msg_002".into(),
     }
 }
 
-/// Build an InboundChainInput for a non-text (image) message.
-fn image_chain_input() -> InboundChainInput {
-    InboundChainInput {
+/// Build a NormalizedMessage for a non-text (image) message.
+fn image_chain_input() -> NormalizedMessage {
+    NormalizedMessage {
         platform: "feishu".into(),
         sender_id: "ou_sender1".into(),
         peer_id: "oc_chat1".into(),
         content: String::new(),
-        message_id: "msg_003".into(),
-        timestamp_ms: 1_700_000_000_000,
-        account_id: Some("acct_foo".into()),
-        thread_id: Some("ot_thread_img".into()),
+        timestamp: 1_700_000_000_000,
         message_type: MessageType::Image,
         media_refs: vec![MediaRef {
             key: "img_k_99".into(),
             url: "https://example.com/img99.png".into(),
         }],
-        chat_name: None,
-        trace_id: None,
+        thread_id: Some("ot_thread_img".into()),
+        account_id: "acct_foo".into(),
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: "msg_003".into(),
     }
 }
 
-/// Build an InboundChainInput for a file message.
-fn file_chain_input() -> InboundChainInput {
-    InboundChainInput {
+/// Build a NormalizedMessage for a file message.
+fn file_chain_input() -> NormalizedMessage {
+    NormalizedMessage {
         platform: "feishu".into(),
         sender_id: "ou_sender1".into(),
         peer_id: "oc_chat1".into(),
         content: "check this file".into(),
-        message_id: "msg_004".into(),
-        timestamp_ms: 1_700_000_000_000,
-        account_id: Some("acct_foo".into()),
-        thread_id: None,
+        timestamp: 1_700_000_000_000,
         message_type: MessageType::File,
         media_refs: vec![MediaRef {
             key: "file_k_10".into(),
             url: "https://example.com/file10.pdf".into(),
         }],
-        chat_name: None,
-        trace_id: None,
+        thread_id: None,
+        account_id: "acct_foo".into(),
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: "msg_004".into(),
     }
 }
 
-/// Build an InboundChainInput for an audio message.
-fn audio_chain_input() -> InboundChainInput {
-    InboundChainInput {
+/// Build a NormalizedMessage for an audio message.
+fn audio_chain_input() -> NormalizedMessage {
+    NormalizedMessage {
         platform: "feishu".into(),
         sender_id: "ou_sender1".into(),
         peer_id: "oc_chat1".into(),
         content: String::new(),
-        message_id: "msg_005".into(),
-        timestamp_ms: 1_700_000_000_000,
-        account_id: Some("acct_foo".into()),
-        thread_id: Some("ot_audio_thread".into()),
+        timestamp: 1_700_000_000_000,
         message_type: MessageType::Audio,
         media_refs: vec![MediaRef {
             key: "audio_k_5".into(),
             url: "https://example.com/voice.m4a".into(),
         }],
-        chat_name: None,
-        trace_id: None,
+        thread_id: Some("ot_audio_thread".into()),
+        account_id: "acct_foo".into(),
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: "msg_005".into(),
     }
 }
 
@@ -142,7 +142,7 @@ fn audio_chain_input() -> InboundChainInput {
 // 1. Normal path: all fields propagated
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Construct InboundChainInput with all fields populated and verify
+/// Construct NormalizedMessage with all fields populated and verify
 /// that process_inbound_chain places them into ProcessedMessage.metadata.
 #[tokio::test]
 async fn test_all_fields_propagated_no_registry() {

@@ -123,24 +123,13 @@ async fn handle_normalized_message(
     let sender_id = normalized.sender_id.clone();
     // Retrieve platform-specific metadata from the adapter (e.g. chat_name).
     let adapter_meta = plugin.last_parsed_metadata();
-    let chat_name = adapter_meta.get("chat_name").cloned();
-    let input = super::InboundChainInput {
-        platform: normalized.platform.clone(),
-        sender_id: normalized.sender_id.clone(),
-        peer_id: normalized.peer_id.clone(),
-        content: normalized.content.clone(),
-        message_id: String::new(),
-        timestamp_ms: normalized.timestamp,
-        account_id: Some(normalized.account_id.clone()),
-        thread_id: normalized.thread_id.clone(),
-        message_type: normalized.message_type.clone(),
-        media_refs: normalized.media_refs.clone(),
-        chat_name,
-        trace_id: Some(req.trace_id.clone()),
-    };
-    let processed = gateway.process_inbound_chain(&input).await;
+    let chat_name = adapter_meta.get("chat_name").cloned().unwrap_or_default();
+    let mut msg = normalized;
+    msg.chat_name = chat_name;
+    msg.trace_id = req.trace_id.clone();
+    let processed = gateway.process_inbound_chain(&msg).await;
     gateway
-        .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
+        .handle_inbound_message(processed, Some(&sender_id), &msg.platform)
         .await;
 }
 
@@ -432,24 +421,13 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
             let sender_id = normalized.sender_id.clone();
             // Retrieve platform-specific metadata from the adapter (e.g. chat_name).
             let adapter_meta = plugin.last_parsed_metadata();
-            let chat_name = adapter_meta.get("chat_name").cloned();
-            let input = super::InboundChainInput {
-                platform: normalized.platform.clone(),
-                sender_id: normalized.sender_id.clone(),
-                peer_id: normalized.peer_id.clone(),
-                content: normalized.content.clone(),
-                message_id: String::new(),
-                timestamp_ms: normalized.timestamp,
-                account_id: Some(normalized.account_id.clone()),
-                thread_id: normalized.thread_id.clone(),
-                message_type: normalized.message_type.clone(),
-                media_refs: normalized.media_refs.clone(),
-                chat_name,
-                trace_id: Some(request.trace_id.clone()),
-            };
-            let processed = gateway.process_inbound_chain(&input).await;
+            let chat_name = adapter_meta.get("chat_name").cloned().unwrap_or_default();
+            let mut msg = normalized;
+            msg.chat_name = chat_name;
+            msg.trace_id = request.trace_id.clone();
+            let processed = gateway.process_inbound_chain(&msg).await;
             gateway
-                .handle_inbound_message(processed, Some(&sender_id), &normalized.platform)
+                .handle_inbound_message(processed, Some(&sender_id), &msg.platform)
                 .await;
             return;
         }
