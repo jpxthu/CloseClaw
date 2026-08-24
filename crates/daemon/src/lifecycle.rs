@@ -9,7 +9,51 @@ use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
-// --- Lifecycle: start, run ---
+/// Assemble protocol, interpreter, and plugin per provider (design doc).
+/// Shared by production wiring and `lifecycle_assembly_tests`.
+pub(crate) fn assemble_llm_components(
+    provider_id: &str,
+) -> (
+    Arc<dyn closeclaw_llm::protocol::ChatProtocol>,
+    closeclaw_llm::InterpreterRegistry,
+    closeclaw_llm::PluginPipeline,
+) {
+    use closeclaw_llm::plugin::PluginPipeline;
+    use closeclaw_llm::protocol::{AnthropicProtocol, ChatProtocol, OpenAiProtocol};
+    match provider_id {
+        "minimax" => (
+            Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
+            closeclaw_llm::InterpreterRegistry::new(vec![(
+                Box::new(closeclaw_llm::MinimaxInterpreter),
+                "minimax/*",
+            )]),
+            PluginPipeline::new().add(Box::new(closeclaw_llm::MiniMaxPlugin)),
+        ),
+        "deepseek" => (
+            Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
+            closeclaw_llm::InterpreterRegistry::new(vec![(
+                Box::new(closeclaw_llm::DeepSeekInterpreter),
+                "deepseek/*",
+            )]),
+            PluginPipeline::new().add(Box::new(closeclaw_llm::DeepSeekPlugin)),
+        ),
+        "glm" => (
+            Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
+            closeclaw_llm::InterpreterRegistry::new(vec![(
+                Box::new(closeclaw_llm::GlmInterpreter),
+                "glm/*",
+            )]),
+            PluginPipeline::new().add(Box::new(closeclaw_llm::GlmPlugin)),
+        ),
+        // mimo + all others: OpenAI protocol, DefaultInterpreter, empty pipeline
+        _ => (
+            Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
+            closeclaw_llm::InterpreterRegistry::default(),
+            PluginPipeline::new(),
+        ),
+    }
+}
+
 impl Daemon {
     /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
@@ -106,20 +150,23 @@ impl Daemon {
         )
         .await?;
 
-        // ── LLM call chain assembly ──────────────────────────────────────
-        // Wire up CacheAdapter → UnifiedChatClient → FallbackChain → LLMCaller
-        // and inject into SessionManager + Gateway. This must happen after
-        // Phase 5 when the session_manager and gateway are available.
+        // LLM call chain assembly: CacheAdapter → UnifiedChatClient → FallbackChain
+        // → LLMCaller. Must happen after Phase 5.
         let provider_ids = llm_registry.list().await;
         let mut chain_entries: Vec<closeclaw_llm::unified_fallback::ChainEntry> = Vec::new();
         for provider_id in &provider_ids {
             if let Some(provider) = llm_registry.get(provider_id).await {
                 let cache_adapter = closeclaw_llm::cache_adapter::for_provider(provider_id);
+
+                // Per-provider assembly: protocol / interpreter / plugin (design doc llm/README.md)
+                let (protocol, interpreter_registry, plugin_pipeline) =
+                    assemble_llm_components(provider_id.as_str());
+
                 let client = closeclaw_llm::UnifiedChatClient::new(
                     provider,
-                    Arc::new(closeclaw_llm::protocol::OpenAiProtocol::new()),
-                    closeclaw_llm::InterpreterRegistry::default(),
-                    closeclaw_llm::PluginPipeline::new(),
+                    protocol,
+                    interpreter_registry,
+                    plugin_pipeline,
                     cache_adapter,
                 );
                 chain_entries.push(closeclaw_llm::unified_fallback::ChainEntry {
