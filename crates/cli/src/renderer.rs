@@ -112,7 +112,7 @@ pub(crate) fn check_line_pattern(line: &str, ansi: bool) -> Option<String> {
         return Some(if ansi {
             format!("{}───{}", DIM, RESET)
         } else {
-            "───".to_string()
+            "---".to_string()
         });
     }
     if line.strip_prefix("> ").is_some() {
@@ -599,7 +599,7 @@ fn render_markdown_ansi(content: &str, ansi: bool) -> String {
                 if ansi {
                     out.push_str(&format!("{}───{}\n\n", DIM, RESET));
                 } else {
-                    out.push_str("───\n\n");
+                    out.push_str("---\n\n");
                 }
             }
             ContentSegment::CodeBlock { language, code } => {
