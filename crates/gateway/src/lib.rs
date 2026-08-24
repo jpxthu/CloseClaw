@@ -73,6 +73,8 @@ pub mod slash_permission_handlers;
 #[cfg(test)]
 mod slash_permission_tests;
 #[cfg(test)]
+mod step1_4_e2e_tests;
+#[cfg(test)]
 mod step1_5c_tests;
 #[cfg(test)]
 mod streaming_pipeline_tests;
