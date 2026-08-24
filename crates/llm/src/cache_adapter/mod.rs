@@ -326,4 +326,93 @@ mod tests {
         assert_eq!(blocks[0].text, "Static section");
         assert!(blocks[0].cache, "static block should have cache: true");
     }
+
+    // ------------------------------------------------------------------
+    // Step 1.2: Noop pass-through boundary tests
+    // ------------------------------------------------------------------
+
+    /// Verify that NoopCacheAdapter preserves existing `extra_body`
+    /// contents when a Kimi-like request carries `session_id` and
+    /// non-empty `extra_body`. The adapter must neither inject
+    /// `prompt_cache_key` nor clear/modify the map — it is a strict
+    /// passthrough (see docs/design/llm/cache-adapter.md § 其他供应商).
+    #[test]
+    fn noop_preserves_extra_body_with_session_id() {
+        let mut req = make_request();
+        req.session_id = Some("sess-kimi-123".to_owned());
+        req.extra_body
+            .insert("temperature".to_owned(), serde_json::json!(0.7));
+        req.extra_body
+            .insert("top_p".to_owned(), serde_json::json!(0.9));
+
+        let adapter = NoopCacheAdapter;
+        adapter.apply(&mut req);
+
+        // extra_body must be unchanged
+        assert_eq!(req.extra_body.len(), 2);
+        assert_eq!(req.extra_body["temperature"], serde_json::json!(0.7));
+        assert_eq!(req.extra_body["top_p"], serde_json::json!(0.9));
+        // No prompt_cache_key injected
+        assert!(!req.extra_body.contains_key("prompt_cache_key"));
+        // session_id is untouched (adapter does not read it)
+        assert_eq!(req.session_id.as_deref(), Some("sess-kimi-123"));
+    }
+
+    /// Verify that NoopCacheAdapter clears nothing and adds nothing
+    /// when session_id is None — an empty extra_body stays empty.
+    #[test]
+    fn noop_empty_request_unchanged() {
+        let mut req = make_request();
+        req.session_id = None;
+
+        let adapter = NoopCacheAdapter;
+        adapter.apply(&mut req);
+
+        assert!(req.extra_body.is_empty());
+        assert!(req.session_id.is_none());
+        assert!(req.system_blocks.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.2: Factory exhaustive mapping tests
+    // ------------------------------------------------------------------
+
+    /// Exhaustive mapping: every provider listed as "noop" in the
+    /// design doc (docs/design/llm/cache-adapter.md § 其他供应商)
+    /// must return NoopCacheAdapter. This covers the full set of
+    /// known providers plus the empty-string edge case.
+    #[test]
+    fn for_provider_noop_providers_exhaustive() {
+        for provider_id in [
+            "openai",
+            "deepseek",
+            "mimo",
+            "kimi",
+            "glm",
+            "volcengine",
+            "",
+        ] {
+            let adapter = for_provider(provider_id);
+            assert_eq!(
+                adapter.name(),
+                "noop",
+                "expected noop for provider_id: {provider_id:?}"
+            );
+        }
+    }
+
+    /// Exhaustive mapping: providers that use explicit prefix caching
+    /// (docs/design/llm/cache-adapter.md § Anthropic 适配 + § MiniMax)
+    /// must return AnthropicCacheAdapter.
+    #[test]
+    fn for_provider_anthropic_providers_exhaustive() {
+        for provider_id in ["anthropic", "minimax"] {
+            let adapter = for_provider(provider_id);
+            assert_eq!(
+                adapter.name(),
+                "anthropic",
+                "expected anthropic for provider_id: {provider_id:?}"
+            );
+        }
+    }
 }
