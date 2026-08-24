@@ -282,9 +282,11 @@ fn test_render_markdown_heading() {
 
 #[test]
 fn test_render_markdown_blockquote() {
+    // Pure text mode: blockquote prefix `> ` is preserved as-is (design doc §Text 块)
     let renderer = TerminalRenderer::with_ansi(false);
     let result = renderer.render_markdown("> quote");
-    assert!(result.contains("│ quote"));
+    assert!(result.contains("> quote"));
+    assert!(!result.contains("│ quote"));
 }
 
 #[test]

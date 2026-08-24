@@ -115,11 +115,12 @@ pub(crate) fn check_line_pattern(line: &str, ansi: bool) -> Option<String> {
             "───".to_string()
         });
     }
-    if let Some(rest) = line.strip_prefix("> ") {
+    if line.strip_prefix("> ").is_some() {
         return Some(if ansi {
+            let rest = &line[2..];
             format!("{}│ {}{}", DIM, rest, RESET)
         } else {
-            format!("│ {}", rest)
+            line.to_string()
         });
     }
     None
