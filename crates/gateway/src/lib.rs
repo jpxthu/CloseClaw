@@ -739,7 +739,7 @@ impl Gateway {
                 .await;
             // NOTE: No decrement_busy here — the handler's spawned task
             // (finish_llm) is responsible for decrementing on async paths.
-            if matches!(result, HandleResult::MessageQueued) && !peer_id.is_empty() {
+            if matches!(result, HandleResult::MessageQueued(_)) && !peer_id.is_empty() {
                 self.send_queuing_notification(&session_id, peer_id, channel)
                     .await;
             }
@@ -749,7 +749,7 @@ impl Gateway {
         let result = handler.handle_message(&session_id, content).await;
         // NOTE: No decrement_busy here — the handler's spawned task
         // (finish_llm) is responsible for decrementing on async paths.
-        if matches!(result, HandleResult::MessageQueued) && !peer_id.is_empty() {
+        if matches!(result, HandleResult::MessageQueued(_)) && !peer_id.is_empty() {
             self.send_queuing_notification(&session_id, peer_id, channel)
                 .await;
         }

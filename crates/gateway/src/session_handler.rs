@@ -65,7 +65,7 @@ impl MessageMetadata {
 /// Outcome of handling an inbound message.
 #[derive(Debug)]
 pub enum HandleResult {
-    MessageQueued, // enqueued (session busy)
+    MessageQueued(String), // enqueued (session busy), carries notification text
     /// An LLM call has been spawned and will run asynchronously.
     LlmStarted,
     /// An approval command was processed (approve/deny).
@@ -252,7 +252,7 @@ impl SessionMessageHandler {
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued;
+            return HandleResult::MessageQueued("⏳ 正在排队...".to_string());
         }
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).

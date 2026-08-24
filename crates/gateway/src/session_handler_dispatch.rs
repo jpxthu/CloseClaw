@@ -381,7 +381,7 @@ impl SessionMessageHandler {
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued;
+            return HandleResult::MessageQueued("⏳ 正在排队...".to_string());
         }
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).
@@ -449,7 +449,7 @@ impl SessionMessageHandler {
             Some(cs) => cs,
             None => {
                 tracing::error!(session_id = %session_id, "session not found");
-                return HandleResult::MessageQueued;
+                return HandleResult::MessageQueued("⏳ 正在排队...".to_string());
             }
         };
         if cs.read().await.llm_caller().is_none() {
@@ -457,7 +457,7 @@ impl SessionMessageHandler {
                 session_id = %session_id,
                 "no LLM caller configured for session"
             );
-            return HandleResult::MessageQueued;
+            return HandleResult::MessageQueued("⏳ 正在排队...".to_string());
         }
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();
