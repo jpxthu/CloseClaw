@@ -319,25 +319,13 @@ fn extract_link(chars: &[char], start: usize) -> (usize, Option<(String, String)
 const ANSI_KEYWORD: &str = "\x1b[35m";
 const ANSI_COMMENT: &str = "\x1b[90m";
 
-/// Check if the language has syntax highlighting support.
-fn is_supported_language(language: &str) -> bool {
-    matches!(
-        language,
-        "rust" | "python" | "javascript" | "typescript" | "go" | "c" | "cpp" | "java"
-    )
-}
-
 /// Render a fenced code block with language annotation, line numbers,
 /// and optional syntax highlighting.
 fn render_code_block_ansi(language: &str, code: &str, ansi: bool) -> String {
     let lines: Vec<&str> = code.lines().collect();
     let line_width = format!("{}", lines.len()).len();
     let mut out = String::new();
-    let unsupported = !language.is_empty() && !is_supported_language(language);
-
-    if unsupported {
-        out.push_str("```\n");
-    }
+    out.push_str("```\n");
 
     if ansi && !language.is_empty() {
         out.push_str(&format!("{} {} {}\n", DIM, language, RESET));
@@ -356,9 +344,7 @@ fn render_code_block_ansi(language: &str, code: &str, ansi: bool) -> String {
         out.push('\n');
     }
 
-    if unsupported {
-        out.push_str("```\n");
-    }
+    out.push_str("```\n");
 
     out
 }
