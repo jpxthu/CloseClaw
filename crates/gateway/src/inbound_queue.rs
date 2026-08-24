@@ -120,7 +120,6 @@ async fn handle_normalized_message(
         tracing::debug!(peer_id = %req.peer_id, "dropping empty text message");
         return;
     }
-    let sender_id = normalized.sender_id.clone();
     // Retrieve platform-specific metadata from the adapter (e.g. chat_name).
     let adapter_meta = plugin.last_parsed_metadata();
     let chat_name = adapter_meta.get("chat_name").cloned().unwrap_or_default();
@@ -129,7 +128,7 @@ async fn handle_normalized_message(
     msg.trace_id = req.trace_id.clone();
     let processed = gateway.process_inbound_chain(&msg).await;
     gateway
-        .handle_inbound_message(processed, Some(&sender_id), &msg.platform)
+        .handle_inbound_message(processed, Some(&msg.sender_id), &msg.platform)
         .await;
 }
 
@@ -418,7 +417,6 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
                 );
                 return;
             }
-            let sender_id = normalized.sender_id.clone();
             // Retrieve platform-specific metadata from the adapter (e.g. chat_name).
             let adapter_meta = plugin.last_parsed_metadata();
             let chat_name = adapter_meta.get("chat_name").cloned().unwrap_or_default();
@@ -427,7 +425,7 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
             msg.trace_id = request.trace_id.clone();
             let processed = gateway.process_inbound_chain(&msg).await;
             gateway
-                .handle_inbound_message(processed, Some(&sender_id), &msg.platform)
+                .handle_inbound_message(processed, Some(&msg.sender_id), &msg.platform)
                 .await;
             return;
         }
