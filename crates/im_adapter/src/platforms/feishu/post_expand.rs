@@ -10,7 +10,7 @@ use super::text_style::apply_text_style;
 ///
 /// - `title` becomes the first line (if present).
 /// - Each sub-array in `content` becomes one line; elements are concatenated.
-/// - Supported tags: `text`, `a`, `at`, unknown tags use `text` if available.
+/// - Supported tags: `text`, `a`, `at`, `code_block`, `code`/`inline_code`, unknown tags use `text` if available.
 pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
     let mut lines: Vec<String> = Vec::new();
 
@@ -50,6 +50,7 @@ pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
 /// - `media` → `[视频]`
 /// - `file` → `[文件]`
 /// - `emoji` → `[emoji_type]` placeholder
+/// - `code_block`, `inline_code` → fenced / inline code
 /// - unknown tags → text if available, otherwise `[未知消息]`
 pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
     let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
@@ -94,6 +95,18 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
         }
         "media" => "[视频]".to_string(),
         "file" => "[文件]".to_string(),
+        "code_block" => {
+            let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            if text.is_empty() {
+                "```\n```".to_string()
+            } else {
+                format!("```\n{}\n```", text)
+            }
+        }
+        "code" | "inline_code" => {
+            let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            format!("`{}`", text)
+        }
         _ => {
             let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
             if text.is_empty() {

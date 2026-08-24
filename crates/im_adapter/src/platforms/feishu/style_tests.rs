@@ -219,3 +219,81 @@ fn test_render_selectors_no_action_param_omits_action_name() {
     let sel = &json["actions"][0];
     assert!(sel.get("action_name").is_none());
 }
+
+// ================================================================
+// code_block / inline_code expansion
+// ================================================================
+
+#[test]
+fn test_code_block_expands_to_fenced_block() {
+    let elem = serde_json::json!({"tag": "code_block", "text": "fn main() {}"});
+    assert_eq!(expand_element(&elem), "```\nfn main() {}\n```");
+}
+
+#[test]
+fn test_code_block_multiline() {
+    let elem = serde_json::json!({"tag": "code_block", "text": "line1\nline2\nline3"});
+    assert_eq!(expand_element(&elem), "```\nline1\nline2\nline3\n```");
+}
+
+#[test]
+fn test_code_block_empty_text() {
+    let elem = serde_json::json!({"tag": "code_block", "text": ""});
+    assert_eq!(expand_element(&elem), "```\n```");
+}
+
+#[test]
+fn test_code_block_missing_text() {
+    let elem = serde_json::json!({"tag": "code_block"});
+    assert_eq!(expand_element(&elem), "```\n```");
+}
+
+#[test]
+fn test_inline_code_expands_to_backticks() {
+    let elem = serde_json::json!({"tag": "code", "text": "x + 1"});
+    assert_eq!(expand_element(&elem), "`x + 1`");
+}
+
+#[test]
+fn test_inline_code_tag_alias() {
+    let elem = serde_json::json!({"tag": "inline_code", "text": "hello"});
+    assert_eq!(expand_element(&elem), "`hello`");
+}
+
+#[test]
+fn test_inline_code_empty_text() {
+    let elem = serde_json::json!({"tag": "code", "text": ""});
+    assert_eq!(expand_element(&elem), "``");
+}
+
+#[test]
+fn test_inline_code_missing_text() {
+    let elem = serde_json::json!({"tag": "inline_code"});
+    assert_eq!(expand_element(&elem), "``");
+}
+
+#[test]
+fn test_code_block_mixed_with_text_elements() {
+    let post = serde_json::json!({
+        "content": [[
+            {"tag": "text", "text": "before "},
+            {"tag": "code_block", "text": "let x = 1;"},
+            {"tag": "text", "text": " after"}
+        ]]
+    });
+    let result = expand_post_content(&post);
+    assert_eq!(result, "before ```\nlet x = 1;\n``` after");
+}
+
+#[test]
+fn test_inline_code_mixed_with_text_elements() {
+    let post = serde_json::json!({
+        "content": [[
+            {"tag": "text", "text": "use "},
+            {"tag": "code", "text": "println!"},
+            {"tag": "text", "text": " to print"}
+        ]]
+    });
+    let result = expand_post_content(&post);
+    assert_eq!(result, "use `println!` to print");
+}
