@@ -34,7 +34,7 @@ fn make_request() -> InternalRequest {
     }
 }
 
-// ── 1. Minimax: AnthropicProtocol + MinimaxInterpreter + MiniMaxPlugin ──────
+// ── 1. Minimax: AnthropicProtocol + MinimaxInterpreter + MiniMaxM3/M2 plugins ──
 
 #[test]
 fn test_minimax_uses_anthropic_protocol() {
@@ -66,9 +66,14 @@ fn test_minimax_interpreter_resolves_for_all_models() {
 #[test]
 fn test_minimax_plugin_injects_reasoning_split_on_multiturn_tool() {
     let (_, _, pipeline) = assemble_llm_components("minimax");
-    assert_eq!(pipeline.len(), 1, "minimax pipeline should have 1 plugin");
+    assert_eq!(
+        pipeline.len(),
+        2,
+        "minimax pipeline should have 2 plugins (M3 + M2)"
+    );
 
     let mut req = make_request();
+    req.model = "minimax-model".to_string();
     req.tools = Some(vec![]);
     req.messages.push(InternalMessage {
         role: "tool".to_string(),
@@ -81,7 +86,7 @@ fn test_minimax_plugin_injects_reasoning_split_on_multiturn_tool() {
     let reasoning_split = req.extra_body.get("reasoning_split");
     assert!(
         reasoning_split.is_some(),
-        "MiniMaxPlugin should inject reasoning_split for multi-turn tool calls"
+        "MiniMaxM2Plugin should inject reasoning_split for multi-turn tool calls"
     );
     assert_eq!(reasoning_split.unwrap(), &serde_json::Value::Bool(true));
 }
@@ -91,13 +96,14 @@ fn test_minimax_plugin_no_reasoning_split_without_tool_result() {
     let (_, _, pipeline) = assemble_llm_components("minimax");
 
     let mut req = make_request();
+    req.model = "minimax-model".to_string();
     req.tools = Some(vec![]);
     let model = req.model.clone();
     pipeline.before_request(&mut req, &model);
 
     assert!(
         req.extra_body.get("reasoning_split").is_none(),
-        "MiniMaxPlugin should NOT inject reasoning_split without tool results"
+        "MiniMaxM2Plugin should NOT inject reasoning_split without tool results"
     );
 }
 

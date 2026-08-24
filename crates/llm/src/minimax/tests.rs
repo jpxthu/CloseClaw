@@ -701,8 +701,8 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
         "NoopCacheAdapter should NOT set system_blocks"
     );
 
-    // 2. Apply MiniMaxPlugin
-    let plugin = MiniMaxPlugin;
+    // 2. Apply MiniMaxM2Plugin (model is MiniMax-M2.7, not M3)
+    let plugin = MiniMaxM2Plugin;
     plugin.before_request(&mut request);
     assert_eq!(
         request.extra_body.get("reasoning_split"),
