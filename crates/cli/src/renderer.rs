@@ -792,12 +792,20 @@ impl TerminalRenderer {
     }
 
     /// Render content blocks and DSL results into a `RenderedOutput`.
+    ///
+    /// **Newline convention:** all `render_*` block-rendering methods
+    /// (`render_thinking`, `render_tool_use`, `render_tool_result`, etc.)
+    /// **must** end with a trailing `\n`. The inter-block blank-line
+    /// separation logic in this method relies on that trailing newline —
+    /// a blank line is formed by appending an extra `\n` between the
+    /// preceding block's trailing newline and the next block.
     pub fn render(
         &self,
         content_blocks: &[ContentBlock],
         dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
         let mut output_text = String::new();
+        let mut has_any_block = false;
 
         // DSL preprocessing before ContentBlock traversal (design doc requirement)
         if let Some(dsl) = dsl_result {
@@ -809,8 +817,15 @@ impl TerminalRenderer {
 
         for block in content_blocks {
             let rendered = self.render_block(block);
+            if has_any_block {
+                // Data flow step 4: blank line between adjacent content blocks
+                output_text.push('\n');
+            } else if !output_text.is_empty() {
+                // Data flow step 5: blank line between DSL hints and body
+                output_text.push('\n');
+            }
             output_text.push_str(&rendered);
-            output_text.push('\n');
+            has_any_block = true;
         }
 
         let text = if self.ansi {
