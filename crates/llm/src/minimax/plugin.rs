@@ -57,12 +57,11 @@ impl ModelPlugin for MiniMaxM3Plugin {
     fn before_request(&self, request: &mut InternalRequest) {
         // M3 requires explicit `thinking` parameter to produce thinking blocks.
         // High/Max → enabled, Low/Medium → disabled (binary toggle per design doc).
-        // Max is equivalent to High; downgrade before matching.
+        // Max is equivalent to High; downgrade Max→High and map explicitly.
         downgrade_max_to_high_m3(request);
         let thinking_type = match request.reasoning_level {
-            ReasoningLevel::High => "enabled",
+            ReasoningLevel::High | ReasoningLevel::Max => "enabled",
             ReasoningLevel::Off | ReasoningLevel::Low | ReasoningLevel::Medium => "disabled",
-            ReasoningLevel::Max => unreachable!("Max should have been downgraded to High"),
         };
         request
             .extra_body
@@ -98,8 +97,8 @@ impl ModelPlugin for MiniMaxM2Plugin {
     fn applies_to(&self, model: &str) -> bool {
         // Matches MiniMax models that are NOT M3-family.
         // Case-insensitive: "minimax-*" and "MiniMax-*" both match.
-        model.to_lowercase().starts_with("minimax")
-            && !model.to_lowercase().starts_with("minimax-m3")
+        let lower = model.to_lowercase();
+        lower.starts_with("minimax") && !lower.starts_with("minimax-m3")
     }
 
     fn before_request(&self, request: &mut InternalRequest) {
