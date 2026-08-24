@@ -966,6 +966,8 @@ mod dreaming_scheduler_tests;
 #[cfg(test)]
 mod lifecycle_abort_tests;
 #[cfg(test)]
+mod lifecycle_assembly_tests;
+#[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod session_config_provider_tests;
