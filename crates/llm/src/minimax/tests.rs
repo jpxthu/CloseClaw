@@ -660,9 +660,9 @@ fn test_parse_chat_response_multiple_text_blocks() {
 async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
     let mut server = mockito::Server::new_async().await;
 
-    // 1. Apply CacheAdapter
+    // 1. Apply CacheAdapter — MiniMax reuses AnthropicCacheAdapter (see minimax.md "缓存机制")
     let adapter = cache_for_provider("minimax");
-    assert_eq!(adapter.name(), "noop");
+    assert_eq!(adapter.name(), "anthropic");
     let mut request = InternalRequest {
         model: "MiniMax-M2.7".into(),
         messages: vec![
@@ -695,14 +695,19 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
         turn_count: None,
     };
     adapter.apply(&mut request);
-    // NoopCacheAdapter does not modify system_blocks
+    // AnthropicCacheAdapter splits system_static into cacheable blocks
+    let blocks = request
+        .system_blocks
+        .as_ref()
+        .expect("AnthropicCacheAdapter should set system_blocks");
+    assert!(!blocks.is_empty());
     assert!(
-        request.system_blocks.is_none(),
-        "NoopCacheAdapter should NOT set system_blocks"
+        blocks.iter().all(|b| b.cache),
+        "all static system blocks should be marked cacheable"
     );
 
-    // 2. Apply MiniMaxPlugin
-    let plugin = MiniMaxPlugin;
+    // 2. Apply MiniMaxM2Plugin (model is MiniMax-M2.7, not M3)
+    let plugin = MiniMaxM2Plugin;
     plugin.before_request(&mut request);
     assert_eq!(
         request.extra_body.get("reasoning_split"),
@@ -720,10 +725,17 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
         body.get("reasoning_split").unwrap(),
         &serde_json::json!(true)
     );
-    // NoopCacheAdapter does not inject system_blocks, so body should have no system field
+    // AnthropicCacheAdapter injects system_blocks into body as 'system' array
+    let system_arr = body
+        .get("system")
+        .and_then(|v| v.as_array())
+        .expect("body should contain 'system' array from AnthropicCacheAdapter");
+    assert!(!system_arr.is_empty());
     assert!(
-        body.get("system").is_none(),
-        "NoopCacheAdapter should not inject system blocks"
+        system_arr
+            .iter()
+            .all(|blk| blk.get("cache_control").is_some()),
+        "each system block should carry cache_control"
     );
     // last message should have cache_control
     let messages = body.get("messages").unwrap().as_array().unwrap();

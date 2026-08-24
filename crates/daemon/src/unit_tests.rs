@@ -515,16 +515,18 @@ async fn test_init_llm_registry_env_override_providers() {
 }
 
 /// Verify that `for_provider` maps anthropic to AnthropicCacheAdapter
-/// and minimax to NoopCacheAdapter, matching the design doc.
+/// and minimax to AnthropicCacheAdapter (MiniMax Anthropic-compatible API supports
+/// explicit prefix caching via cache_control on static system blocks).
 #[test]
 fn test_cache_adapter_mapping_matches_design_doc() {
     // Anthropic → explicit prefix caching
     let anthropic_adapter = closeclaw_llm::cache_adapter::for_provider("anthropic");
     assert_eq!(anthropic_adapter.name(), "anthropic");
 
-    // MiniMax → no explicit cache params (noop)
+    // MiniMax → AnthropicCacheAdapter (MiniMax Anthropic-compatible API supports
+    // explicit prefix caching via cache_control on static system blocks)
     let minimax_adapter = closeclaw_llm::cache_adapter::for_provider("minimax");
-    assert_eq!(minimax_adapter.name(), "noop");
+    assert_eq!(minimax_adapter.name(), "anthropic");
 
     // OpenAI → no explicit cache params (noop)
     let openai_adapter = closeclaw_llm::cache_adapter::for_provider("openai");
@@ -612,8 +614,8 @@ fn test_llm_chain_assembly_correct_adapters() {
 
     let debug_2 = format!("{:?}", chain[2].client);
     assert!(
-        debug_2.contains("noop"),
-        "minimax client should use noop adapter, got: {debug_2}"
+        debug_2.contains("anthropic"),
+        "minimax client should use anthropic adapter, got: {debug_2}"
     );
 }
 
