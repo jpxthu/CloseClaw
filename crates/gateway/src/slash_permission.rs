@@ -85,10 +85,8 @@ impl Gateway {
                 "failed to enqueue pending slash command"
             );
         }
-        if let Err(e) = self
-            .send_outbound_simplified(peer_id, channel, "⏳ 正在排队...")
-            .await
-        {
+        let text = Self::queuing_notification_text();
+        if let Err(e) = self.send_outbound_simplified(peer_id, channel, text).await {
             tracing::warn!(
                 session_id,
                 error = %e,
