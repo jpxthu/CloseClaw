@@ -523,7 +523,18 @@ fn contains_inline(s: &str) -> bool {
         || s.contains('_')
         || s.contains('`')
         || (s.contains('[') && s.contains("]("))
+        || s.contains("~~")
+        || s.contains("<u>")
         || has_list_or_quote(s)
+        || has_divider(s)
+}
+
+/// Returns true when any line is a markdown horizontal rule (`---` or `***`).
+fn has_divider(s: &str) -> bool {
+    s.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == "---" || trimmed == "***"
+    })
 }
 
 /// Returns true when any line starts with a list marker (`- `, `* `, `1. `)
@@ -686,6 +697,24 @@ mod tests {
     fn has_list_or_quote_leading_whitespace() {
         assert!(should_use_card("  - indented item", false));
         assert!(should_use_card("  > indented quote", false));
+    }
+
+    #[test]
+    fn should_use_card_strikethrough_underline_divider() {
+        // strikethrough triggers card
+        assert!(should_use_card("~~struck~~", false));
+        // underline triggers card
+        assert!(should_use_card("<u>underlined</u>", false));
+        // single-line --- divider triggers card
+        assert!(should_use_card("---", false));
+        // single-line *** divider triggers card
+        assert!(should_use_card("***", false));
+        // multiline with --- surrounded by text triggers card
+        assert!(should_use_card("before\n---\nafter", false));
+        // plain text without markers returns false
+        assert!(!should_use_card("struck through", false));
+        // expression with == and < but no ~~ or <u> substring returns false
+        assert!(!should_use_card("2 == 2 && 3 < 4", false));
     }
 
     // ================================================================
