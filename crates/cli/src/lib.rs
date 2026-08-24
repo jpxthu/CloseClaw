@@ -19,4 +19,6 @@ mod renderer_link_tests;
 #[cfg(test)]
 mod renderer_tests;
 #[cfg(test)]
+mod renderer_tool_result_tests;
+#[cfg(test)]
 mod terminal_tests;
