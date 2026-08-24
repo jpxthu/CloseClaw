@@ -217,11 +217,11 @@
   },
   {
     "path": "docs/design/im_adapter/README.md",
-    "commit": "e817ca619f1ab5628a4fe170e197611c7028402c",
-    "commit_time": "2026-08-22T15:50:43+08:00",
-    "confirmed_time": "2026-08-25T01:30:26.858300+08:00",
+    "commit": "852e031364c1e954f34c06cab9c5f40797db7c26",
+    "commit_time": "2026-08-25T02:01:34+08:00",
+    "confirmed_time": "2026-08-25T02:05:35.435097+08:00",
     "comment": "",
-    "blocked_reason": "README.md 目录树标注 tools/mod.rs 为「工具注册入口」，与同文档「对外工具」章节及 tool-registrar.md 描述的 ToolRegistrar 注册机制（crate 级 tool_registrar.rs）矛盾：同一文档体系对注册逻辑位置给出两种指引，代码无法同时对齐。需 Owner 裁定注册职责归属后修订文档。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/code-render.md",
@@ -233,9 +233,9 @@
   },
   {
     "path": "docs/design/im_adapter/platforms/feishu.md",
-    "commit": "77249d2ca55791a19b46c8c5ef51da7cd1ee27cc",
-    "commit_time": "2026-08-22T16:06:13+08:00",
-    "confirmed_time": "2026-08-22T16:17:55.087623+08:00",
+    "commit": "852e031364c1e954f34c06cab9c5f40797db7c26",
+    "commit_time": "2026-08-25T02:01:34+08:00",
+    "confirmed_time": "2026-08-25T02:16:41.405534+08:00",
     "comment": "",
     "blocked_reason": ""
   },
