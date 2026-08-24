@@ -96,6 +96,15 @@ fn make_e2e_config(wal_dir: &std::path::Path) -> GatewayConfig {
     }
 }
 
+fn make_no_wal_config() -> GatewayConfig {
+    GatewayConfig {
+        name: "test-no-wal".to_owned(),
+        inbound_queue_capacity: 4,
+        inbound_wal_dir: None,
+        ..Default::default()
+    }
+}
+
 // ===========================================================================
 // Test 1: Full WAL lifecycle — enqueue → process → delete → reopen clean
 // ===========================================================================
@@ -246,14 +255,7 @@ fn test_e2e_explicit_null_disables_wal() {
 #[tokio::test]
 async fn test_e2e_arrived_then_dequeued_lifecycle() {
     let debug_tmp = TempDir::new().expect("TempDir::new failed");
-    let config = GatewayConfig {
-        name: "test-e2e-lifecycle".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        inbound_queue_capacity: 4,
-        inbound_wal_dir: None, // WAL not needed for log lifecycle test
-        ..Default::default()
-    };
+    let config = make_no_wal_config();
     let sm = Arc::new(SessionManager::new(
         &config,
         None,
@@ -261,32 +263,22 @@ async fn test_e2e_arrived_then_dequeued_lifecycle() {
         ReasoningLevel::default(),
     ));
     let gw = Arc::new(Gateway::new(config, sm));
-    let debug_log = make_debug_log(&debug_tmp).await;
-    gw.set_debug_log(debug_log).await;
+    gw.set_debug_log(make_debug_log(&debug_tmp).await).await;
     gw.register_plugin(Arc::new(E2ePlugin) as Arc<dyn IMPlugin>)
         .await;
     let _handle = gw.start_inbound_queue();
-
     let trace_id = "e2e-lifecycle-001";
     let mut req = make_request("lifecycle-log");
     req.trace_id = trace_id.to_string();
-
     let result = gw.enqueue_inbound(req).await;
     assert!(result.is_ok(), "enqueue should succeed");
-
     // Wait for consumer to dequeue and process.
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
     let events = read_events_with_timeout(debug_tmp.path()).await;
-
-    // Filter events for our trace_id.
     let arrived = filter_events_by_type_and_trace(&events, "gateway.arrived", trace_id);
     let dequeued = filter_events_by_type_and_trace(&events, "queue.dequeued", trace_id);
-
     assert_eq!(arrived.len(), 1, "exactly one arrived event expected");
     assert_eq!(dequeued.len(), 1, "exactly one dequeued event expected");
-
-    // Verify arrived timestamp <= dequeued timestamp.
     let arrived_ts = arrived[0].timestamp;
     let dequeued_ts = dequeued[0].timestamp;
     assert!(
