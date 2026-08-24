@@ -293,7 +293,8 @@ fn test_render_markdown_blockquote() {
 fn test_render_markdown_hr() {
     let renderer = TerminalRenderer::with_ansi(false);
     let result = renderer.render_markdown("---");
-    assert!(result.contains("───"));
+    assert!(result.contains("---"));
+    assert!(!result.contains("───"));
 }
 
 #[test]
