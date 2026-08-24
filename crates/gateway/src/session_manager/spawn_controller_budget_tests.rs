@@ -45,6 +45,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::User,
     }
 }
@@ -977,7 +978,6 @@ async fn test_kill_child_cascades_to_grandchild() {
     mgr.kill_child(parent_id, child_id)
         .await
         .expect("kill_child should succeed");
-
     // Child should be removed
     assert!(!mgr.has_session(child_id).await);
     assert!(mgr.get_conversation_session(child_id).await.is_none());

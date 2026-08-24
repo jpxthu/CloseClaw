@@ -361,6 +361,13 @@ impl SessionManager {
     /// 4. If restoration succeeds → return restored session
     /// 5. Otherwise → create and register a new session
     ///
+    /// **Caller responsibility**: `message.to` is passed as the `agent_id`
+    /// parameter to [`resolve`](Self::resolve). Callers with access to
+    /// `bot_agent_bindings` (e.g. Gateway) must call
+    /// [`Gateway::resolve_agent_id`] before constructing the `Message` so
+    /// that `message.to` carries the resolved agent_id per the design doc:
+    /// "Gateway 根据配置定义的机器人→Agent 绑定确定对应的 Agent".
+    ///
     /// Returns the session_id string on success.
     pub async fn find_or_create(
         &self,
@@ -392,7 +399,7 @@ impl SessionManager {
         let session_key =
             self.compute_session_key_local(channel, message, account_id, message.timestamp);
         let session_id = self
-            .resolve(&session_key, channel, message, account_id)
+            .resolve(&session_key, channel, message, account_id, &message.to)
             .await?;
         Ok(session_id)
     }
@@ -873,6 +880,8 @@ mod rebuild_spawn_tree_tests;
 mod recovery_injection_tests;
 #[cfg(test)]
 mod register_tools_tests;
+#[cfg(test)]
+mod resolve_agent_id_tests;
 #[cfg(test)]
 mod resolve_archived_recovery_tests;
 #[cfg(test)]

@@ -83,9 +83,12 @@ impl super::Gateway {
         let message =
             Self::build_resolve_message(processed, channel, &self.config.bot_agent_bindings);
         let account_id = processed.metadata.get("account_id").map(|s| s.as_str());
+        // Pass agent_id explicitly per design doc: Gateway resolves agent_id
+        // from bot→Agent bindings and passes it as an independent parameter.
+        let agent_id = message.to.as_str();
 
         self.session_manager
-            .resolve(session_key, channel, &message, account_id)
+            .resolve(session_key, channel, &message, account_id, agent_id)
             .await
             .ok()
     }

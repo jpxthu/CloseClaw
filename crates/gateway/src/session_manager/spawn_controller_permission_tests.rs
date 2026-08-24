@@ -82,6 +82,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::User,
     }
 }
@@ -441,6 +442,7 @@ mod tests {
                         memory: MemoryConfig::default(),
                         hooks: vec![],
                         parallel_tool_calls: true,
+                        memory_configured: false,
                         source: ConfigSource::User,
                     },
                     effective_max_spawn_depth: 1,

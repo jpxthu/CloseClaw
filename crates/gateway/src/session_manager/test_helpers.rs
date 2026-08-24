@@ -76,6 +76,7 @@ pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::Merged,
     }
 }
