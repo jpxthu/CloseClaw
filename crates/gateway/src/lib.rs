@@ -18,6 +18,8 @@ pub mod inbound_queue;
 #[cfg(test)]
 mod inbound_queue_ack_tests;
 #[cfg(test)]
+mod inbound_queue_arrived_tests;
+#[cfg(test)]
 mod inbound_queue_test_utils;
 #[cfg(test)]
 mod inbound_queue_tests;

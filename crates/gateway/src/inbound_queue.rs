@@ -294,6 +294,26 @@ fn emit_inbound_parsed_log(
     );
 }
 
+/// Emit a `gateway.arrived` debug event for successful enqueue.
+///
+/// Recorded when `try_send` succeeds, completing the queue lifecycle
+/// trace: arrived → dequeued → processed.
+fn emit_arrived_log(gateway: &Gateway, req: &InboundRequest) {
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    super::debug_log_emitter::emit_debug_event(
+        guard.as_ref(),
+        &req.trace_id,
+        None,
+        closeclaw_debug_log::LogLevel::Debug,
+        "gateway",
+        "gateway.arrived",
+        serde_json::json!({
+            "platform": req.platform,
+            "peer_id": req.peer_id,
+        }),
+    );
+}
+
 /// Emit a debug event for queue-full rejections.
 fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
@@ -358,10 +378,15 @@ pub(crate) async fn enqueue_inbound(
 
     append_wal_if_configured(gateway, &request);
 
-    let queued = QueuedInbound { request };
+    let queued = QueuedInbound {
+        request: request.clone(),
+    };
 
     match tx.try_send(queued) {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            emit_arrived_log(gateway, &request);
+            Ok(())
+        }
         Err(e) => {
             let req = match e {
                 tokio::sync::mpsc::error::TrySendError::Full(q)
