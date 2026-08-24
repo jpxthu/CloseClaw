@@ -87,6 +87,9 @@ impl MessageProcessor for SessionRouter {
                 media_refs: Vec::new(),
                 thread_id: None,
                 account_id: String::new(),
+                chat_name: String::new(),
+                trace_id: String::new(),
+                message_id: String::new(),
             }
         });
 
@@ -129,6 +132,10 @@ impl MessageProcessor for SessionRouter {
         if !session_key.is_empty() {
             metadata.insert("session_key".to_string(), session_key);
         }
+        metadata.insert(
+            "message_type".to_string(),
+            serde_json::to_string(&msg.message_type).unwrap_or_default(),
+        );
         metadata.insert("platform".to_string(), platform);
         metadata.insert("sender_id".to_string(), sender_id);
         metadata.insert("peer_id".to_string(), peer_id);

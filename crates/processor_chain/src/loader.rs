@@ -23,12 +23,37 @@ use super::session_router::SessionRouter;
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProcessorChainConfig {
     /// Ordered list of inbound processor configurations.
-    #[serde(default)]
+    #[serde(default = "default_inbound_chain")]
     pub inbound: Vec<ProcessorConfig>,
 
     /// Ordered list of outbound processor configurations.
     #[serde(default)]
     pub outbound: Vec<ProcessorConfig>,
+}
+
+/// Returns the default inbound processor chain.
+///
+/// The design doc specifies a fixed three-step pipeline:
+/// `RawLog → SessionRouter → ContentNormalizer`.
+fn default_inbound_chain() -> Vec<ProcessorConfig> {
+    vec![
+        ProcessorConfig::RawLog {
+            enabled: true,
+            dir: default_log_dir(),
+            retention_days: default_retention_days(),
+        },
+        ProcessorConfig::SessionRouter,
+        ProcessorConfig::ContentNormalizer,
+    ]
+}
+
+impl Default for ProcessorChainConfig {
+    fn default() -> Self {
+        Self {
+            inbound: default_inbound_chain(),
+            outbound: vec![],
+        }
+    }
 }
 
 /// Configuration for a single processor.
@@ -157,6 +182,14 @@ mod tests {
         };
         let registry = ProcessorChainLoader::load(&config).unwrap();
         assert_eq!(registry.inbound_len(), 0);
+        assert_eq!(registry.outbound_len(), 0);
+    }
+
+    #[test]
+    fn test_default_config_has_three_inbound_processors() {
+        let config = ProcessorChainConfig::default();
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.inbound_len(), 3);
         assert_eq!(registry.outbound_len(), 0);
     }
 

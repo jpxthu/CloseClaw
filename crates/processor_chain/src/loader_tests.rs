@@ -48,3 +48,39 @@ fn test_load_session_router_alone() {
         "single SessionRouter should result in inbound_len == 1"
     );
 }
+
+#[test]
+fn test_default_config_serde_roundtrip() {
+    // Deserialize a config without `inbound` field — serde default should
+    // kick in and produce the three-step chain.
+    let json = r#"{"outbound": []}"#;
+    let config: ProcessorChainConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        config.inbound.len(),
+        3,
+        "default inbound should have 3 processors"
+    );
+    // Verify order: RawLog → SessionRouter → ContentNormalizer.
+    assert!(matches!(config.inbound[0], ProcessorConfig::RawLog { .. }));
+    assert!(matches!(config.inbound[1], ProcessorConfig::SessionRouter));
+    assert!(matches!(
+        config.inbound[2],
+        ProcessorConfig::ContentNormalizer
+    ));
+}
+
+#[test]
+fn test_default_config_loads_three_processors() {
+    let config = ProcessorChainConfig::default();
+    let registry = ProcessorChainLoader::load(&config).unwrap();
+    assert_eq!(
+        registry.inbound_len(),
+        3,
+        "default config should load 3 inbound processors"
+    );
+    assert_eq!(
+        registry.outbound_len(),
+        0,
+        "default config should have 0 outbound processors"
+    );
+}

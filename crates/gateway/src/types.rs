@@ -1,6 +1,5 @@
 //! Shared data types for the gateway crate.
 
-use closeclaw_common::im_plugin::{MediaRef, MessageType};
 use closeclaw_llm::types::ContentBlock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -96,28 +95,6 @@ pub struct Session {
     pub created_at: i64,
     /// Nesting depth. 0 for root sessions, parent.depth + 1 for child sessions.
     pub depth: u32,
-}
-
-/// Groups inbound message fields into a single struct.
-#[derive(Debug, Clone)]
-pub struct InboundChainInput {
-    pub platform: String,
-    pub sender_id: String,
-    pub peer_id: String,
-    pub content: String,
-    pub message_id: String,
-    pub timestamp_ms: i64,
-    pub account_id: Option<String>,
-    /// Thread/topic ID for threaded replies (optional).
-    pub thread_id: Option<String>,
-    /// Message type (text, image, file, audio).
-    pub message_type: MessageType,
-    /// Media attachment references.
-    pub media_refs: Vec<MediaRef>,
-    /// Chat/group name (e.g. Feishu group title), or None.
-    pub chat_name: Option<String>,
-    /// Trace ID for distributed tracing, or None.
-    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
