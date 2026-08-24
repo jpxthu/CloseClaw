@@ -134,7 +134,7 @@ impl UnifiedChatClient {
         let model = request.model.clone();
         let provider_id = self.provider.id();
         self.cache_adapter.apply(&mut request);
-        self.plugin_pipeline.before_request(&mut request);
+        self.plugin_pipeline.before_request(&mut request, &model);
         let interpreter = self.interpreter_registry.resolve(provider_id, &model);
         let body = self
             .protocol
@@ -146,7 +146,7 @@ impl UnifiedChatClient {
             .await
             .map_err(ClientError::Provider)?;
         let mut response = interpreter.interpret_response(internal_response);
-        self.plugin_pipeline.after_response(&mut response);
+        self.plugin_pipeline.after_response(&mut response, &model);
         Ok(response)
     }
 
@@ -176,7 +176,7 @@ impl UnifiedChatClient {
         let model = request.model.clone();
         let provider_id = self.provider.id();
         self.cache_adapter.apply(&mut request);
-        self.plugin_pipeline.before_request(&mut request);
+        self.plugin_pipeline.before_request(&mut request, &model);
         request.stream = true;
         let body = self
             .protocol
@@ -254,7 +254,7 @@ fn process_event_stream(
                 Some(e) => e,
                 None => continue,
             };
-            let final_event = match pipeline.on_stream_event(&normalised) {
+            let final_event = match pipeline.on_stream_event(&normalised, &model) {
                 Some(e) => e,
                 None => continue,
             };

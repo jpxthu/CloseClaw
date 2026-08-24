@@ -128,6 +128,12 @@ impl CacheAdapter for KimiCacheAdapter {
 pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
     match provider_id {
         "anthropic" => Arc::new(AnthropicCacheAdapter),
+        // MiniMax uses an Anthropic-compatible interface that supports explicit
+        // prefix caching via `cache_control` on static system blocks (see
+        // docs/design/llm/providers/minimax.md "缓存机制"). Reuse the
+        // AnthropicCacheAdapter strategy — caching is chosen by provider API
+        // capability, not protocol format (see cache-adapter.md).
+        "minimax" => Arc::new(AnthropicCacheAdapter),
         "kimi" => Arc::new(KimiCacheAdapter),
         _ => Arc::new(NoopCacheAdapter),
     }
@@ -341,9 +347,9 @@ mod tests {
     }
 
     #[test]
-    fn for_provider_minimax_returns_noop_adapter() {
+    fn for_provider_minimax_returns_anthropic_adapter() {
         let adapter = for_provider("minimax");
-        assert_eq!(adapter.name(), "noop");
+        assert_eq!(adapter.name(), "anthropic");
     }
 
     #[test]

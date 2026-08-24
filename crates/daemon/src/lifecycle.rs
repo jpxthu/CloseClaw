@@ -27,7 +27,9 @@ pub(crate) fn assemble_llm_components(
                 Box::new(closeclaw_llm::MinimaxInterpreter),
                 "minimax/*",
             )]),
-            PluginPipeline::new().add(Box::new(closeclaw_llm::MiniMaxPlugin)),
+            PluginPipeline::new()
+                .add(Box::new(closeclaw_llm::MiniMaxM3Plugin))
+                .add(Box::new(closeclaw_llm::MiniMaxM2Plugin)),
         ),
         "deepseek" => (
             Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
@@ -62,7 +64,6 @@ impl Daemon {
             Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
         Self::start_with_engine(config_dir, permission_engine, audit_logger).await
     }
-
     /// Start the daemon with a custom permission engine (useful for testing).
     pub async fn start_with_engine(
         config_dir: &str,

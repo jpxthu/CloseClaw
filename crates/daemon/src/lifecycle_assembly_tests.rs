@@ -34,7 +34,7 @@ fn make_request() -> InternalRequest {
     }
 }
 
-// ── 1. Minimax: AnthropicProtocol + MinimaxInterpreter + MiniMaxPlugin ──────
+// ── 1. Minimax: AnthropicProtocol + MinimaxInterpreter + MiniMaxM3/M2 plugins ──
 
 #[test]
 fn test_minimax_uses_anthropic_protocol() {
@@ -66,21 +66,27 @@ fn test_minimax_interpreter_resolves_for_all_models() {
 #[test]
 fn test_minimax_plugin_injects_reasoning_split_on_multiturn_tool() {
     let (_, _, pipeline) = assemble_llm_components("minimax");
-    assert_eq!(pipeline.len(), 1, "minimax pipeline should have 1 plugin");
+    assert_eq!(
+        pipeline.len(),
+        2,
+        "minimax pipeline should have 2 plugins (M3 + M2)"
+    );
 
     let mut req = make_request();
+    req.model = "minimax-model".to_string();
     req.tools = Some(vec![]);
     req.messages.push(InternalMessage {
         role: "tool".to_string(),
         content: "result".to_string(),
         tool_call_id: Some("tc_1".to_string()),
     });
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
 
     let reasoning_split = req.extra_body.get("reasoning_split");
     assert!(
         reasoning_split.is_some(),
-        "MiniMaxPlugin should inject reasoning_split for multi-turn tool calls"
+        "MiniMaxM2Plugin should inject reasoning_split for multi-turn tool calls"
     );
     assert_eq!(reasoning_split.unwrap(), &serde_json::Value::Bool(true));
 }
@@ -90,12 +96,14 @@ fn test_minimax_plugin_no_reasoning_split_without_tool_result() {
     let (_, _, pipeline) = assemble_llm_components("minimax");
 
     let mut req = make_request();
+    req.model = "minimax-model".to_string();
     req.tools = Some(vec![]);
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
 
     assert!(
         req.extra_body.get("reasoning_split").is_none(),
-        "MiniMaxPlugin should NOT inject reasoning_split without tool results"
+        "MiniMaxM2Plugin should NOT inject reasoning_split without tool results"
     );
 }
 
@@ -176,7 +184,8 @@ fn test_deepseek_plugin_injects_high_effort() {
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::High;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
 
     let effort = req.extra_body.get("reasoning_effort");
     assert!(
@@ -195,7 +204,8 @@ fn test_deepseek_plugin_injects_low_effort() {
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Low;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
     assert_eq!(
         req.extra_body.get("reasoning_effort").unwrap(),
         &serde_json::Value::String("low".to_string())
@@ -208,7 +218,8 @@ fn test_deepseek_plugin_injects_medium_effort_as_base() {
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Medium;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
     assert_eq!(
         req.extra_body.get("reasoning_effort").unwrap(),
         &serde_json::Value::String("base".to_string())
@@ -221,7 +232,8 @@ fn test_deepseek_plugin_max_downgrades_to_high() {
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Max;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
     assert_eq!(
         req.extra_body.get("reasoning_effort").unwrap(),
         &serde_json::Value::String("high".to_string())
@@ -292,7 +304,8 @@ fn test_glm_plugin_injects_thinking_type() {
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Medium;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
 
     let thinking = req.extra_body.get("thinking");
     assert!(thinking.is_some(), "GlmPlugin should inject thinking type");
@@ -305,7 +318,8 @@ fn test_glm_plugin_disabled_for_low() {
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Low;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
 
     let thinking = req.extra_body.get("thinking").unwrap();
     assert_eq!(thinking, &serde_json::json!({"type": "disabled"}));
@@ -317,7 +331,8 @@ fn test_glm_plugin_max_downgrades_to_high() {
 
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::Max;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
 
     assert_eq!(req.reasoning_level, ReasoningLevel::High);
     assert_eq!(
@@ -363,7 +378,8 @@ fn test_mimo_empty_pipeline_does_not_modify_request() {
     let (_, _, pipeline) = assemble_llm_components("mimo");
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::High;
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
     assert!(
         req.extra_body.is_empty(),
         "empty pipeline should not inject anything"
@@ -406,20 +422,24 @@ fn test_unknown_provider_pipeline_is_empty() {
 fn test_unknown_provider_default_branch_does_not_panic() {
     let (_, _, pipeline) = assemble_llm_components("not-even-real");
     let mut req = make_request();
-    pipeline.before_request(&mut req);
-    pipeline.after_response(&mut UnifiedResponse {
-        content_blocks: vec![],
-        usage: UnifiedUsage {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: None,
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
+    pipeline.after_response(
+        &mut UnifiedResponse {
+            content_blocks: vec![],
+            usage: UnifiedUsage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: None,
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            },
+            finish_reason: None,
+            retry_attempts: 0,
         },
-        finish_reason: None,
-        retry_attempts: 0,
-    });
+        &model,
+    );
 }
 
 // ── 6. Smoke: all known providers iterate without panic ─────────────────────
@@ -437,7 +457,8 @@ fn test_all_known_providers_assemble_without_panic() {
         let interp = registry.resolve(provider_id, "any-model");
         let _ = interp.name();
 
-        pipeline.before_request(&mut req);
+        let model = req.model.clone();
+        pipeline.before_request(&mut req, &model);
     }
 }
 
@@ -452,7 +473,8 @@ fn test_unknown_provider_assembles_without_panic() {
     let interp = registry.resolve("completely-unknown", "unknown-model");
     let _ = interp.name();
 
-    pipeline.before_request(&mut req);
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
 }
 
 // ── 7. Cross-provider isolation: interpreters don't cross-match ────────────
