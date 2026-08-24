@@ -74,6 +74,8 @@ pub enum HandleResult {
     /// An approval command was processed (approve/deny).
     ApprovalProcessed,
     SlashHandled, // slash command dispatched
+    /// An error occurred during message handling, carries error description.
+    Error(String),
 }
 
 /// Gateway-layer LLM session handler with busy/pending state management.

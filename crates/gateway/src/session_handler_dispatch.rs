@@ -451,7 +451,8 @@ impl SessionMessageHandler {
             Some(cs) => cs,
             None => {
                 tracing::error!(session_id = %session_id, "session not found");
-                return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
+                self.set_busy(&session_id, false).await;
+                return HandleResult::Error("session not found".to_string());
             }
         };
         if cs.read().await.llm_caller().is_none() {
@@ -459,7 +460,8 @@ impl SessionMessageHandler {
                 session_id = %session_id,
                 "no LLM caller configured for session"
             );
-            return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
+            self.set_busy(&session_id, false).await;
+            return HandleResult::Error("no LLM caller configured".to_string());
         }
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();

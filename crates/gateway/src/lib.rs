@@ -739,34 +739,43 @@ impl Gateway {
                 .await;
             // NOTE: No decrement_busy here — the handler's spawned task
             // (finish_llm) is responsible for decrementing on async paths.
-            if let HandleResult::MessageQueued(ref text) = result {
-                if !peer_id.is_empty() {
-                    self.send_queuing_notification(peer_id, channel, text).await;
-                }
-            }
+            self.maybe_send_notification(&result, peer_id, channel)
+                .await;
             return Some(result);
         }
 
         let result = handler.handle_message(&session_id, content).await;
         // NOTE: No decrement_busy here — the handler's spawned task
         // (finish_llm) is responsible for decrementing on async paths.
-        if let HandleResult::MessageQueued(ref text) = result {
-            if !peer_id.is_empty() {
-                self.send_queuing_notification(peer_id, channel, text).await;
-            }
-        }
+        self.maybe_send_notification(&result, peer_id, channel)
+            .await;
         Some(result)
     }
 
-    /// Send a queuing notification when a message is enqueued (session busy).
-    async fn send_queuing_notification(&self, peer_id: &str, channel: &str, text: &str) {
+    /// Send a notification to the user when the result carries a message
+    /// (e.g. queuing, error).
+    async fn send_notification(&self, peer_id: &str, channel: &str, text: &str) {
         if let Err(e) = self.send_outbound_simplified(peer_id, channel, text).await {
             tracing::warn!(
                 peer_id = %peer_id,
                 error = %e,
-                "failed to send queuing notification"
+                "failed to send notification"
             );
         }
+    }
+
+    /// If `result` carries a user-facing message (`MessageQueued` or `Error`),
+    /// send it as a notification.  No-op for other variants or empty peer_id.
+    async fn maybe_send_notification(&self, result: &HandleResult, peer_id: &str, channel: &str) {
+        if peer_id.is_empty() {
+            return;
+        }
+        let text = match result {
+            HandleResult::MessageQueued(t) => t,
+            HandleResult::Error(t) => t,
+            _ => return,
+        };
+        self.send_notification(peer_id, channel, text).await;
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).
