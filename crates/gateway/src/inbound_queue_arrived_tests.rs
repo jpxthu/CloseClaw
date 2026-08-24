@@ -8,54 +8,14 @@ use std::sync::Arc;
 
 use crate::session_manager::SessionManager;
 use crate::{Gateway, GatewayConfig};
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+use closeclaw_debug_log::LogLevel;
 use closeclaw_session::persistence::ReasoningLevel;
 use tempfile::TempDir;
 
-use super::inbound_queue_test_utils::{make_gateway, make_request, queued};
-
-/// Create a DebugLog writing to a temp directory.
-async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 1,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.expect("DebugLog::new failed")
-}
-
-/// Read all LogEvent entries from JSONL files in `dir`.
-async fn read_events(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let mut events = Vec::new();
-    let mut entries = tokio::fs::read_dir(dir).await.unwrap();
-    while let Some(entry) = entries.next_entry().await.unwrap() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            let content = tokio::fs::read_to_string(&path).await.unwrap();
-            for line in content.lines() {
-                if !line.trim().is_empty() {
-                    if let Ok(event) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
-                        events.push(event);
-                    }
-                }
-            }
-        }
-    }
-    events
-}
-
-/// Poll `read_events` until events appear, up to 2s.
-async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        let events = read_events(dir).await;
-        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
-            return events;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-}
+use super::inbound_queue_test_utils::{
+    filter_events_by_type, make_debug_log, make_gateway, make_request, queued,
+    read_events_with_timeout,
+};
 
 /// Successful enqueue emits exactly one `gateway.arrived` event.
 #[tokio::test]
@@ -91,17 +51,14 @@ async fn test_arrived_event_emitted_on_successful_enqueue() {
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
-    let arrived: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == "gateway.arrived" && e.source_module == "gateway")
-        .collect();
+    let arrived = filter_events_by_type(&events, "gateway.arrived");
     assert_eq!(
         arrived.len(),
         1,
         "expected exactly one gateway.arrived event, got {}",
         arrived.len()
     );
-    let evt = &arrived[0];
+    let evt = arrived[0];
     assert_eq!(evt.trace_id, trace_id);
     assert_eq!(evt.payload["platform"].as_str().unwrap(), "feishu");
     assert_eq!(evt.payload["peer_id"].as_str().unwrap(), "p1");
@@ -170,20 +127,14 @@ async fn test_queue_full_no_arrived_event() {
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
-    let arrived: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == "gateway.arrived")
-        .collect();
+    let arrived = filter_events_by_type(&events, "gateway.arrived");
     assert_eq!(
         arrived.len(),
         0,
         "no gateway.arrived event expected on queue-full path"
     );
     // Verify queue.rejected IS emitted (regression check).
-    let rejected: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == "queue.rejected")
-        .collect();
+    let rejected = filter_events_by_type(&events, "queue.rejected");
     assert_eq!(
         rejected.len(),
         1,

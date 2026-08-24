@@ -16,11 +16,14 @@ use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::{ContentBlock, NormalizedMessage};
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+
 use closeclaw_session::persistence::ReasoningLevel;
 use tempfile::TempDir;
 
-use super::inbound_queue_test_utils::make_request;
+use super::inbound_queue_test_utils::{
+    filter_events_by_type_and_trace, make_debug_log, make_request, read_events_with_timeout,
+    wait_wal_empty,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -93,48 +96,6 @@ fn make_e2e_config(wal_dir: &std::path::Path) -> GatewayConfig {
     }
 }
 
-async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 1,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.expect("DebugLog::new failed")
-}
-
-async fn read_events(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let mut events = Vec::new();
-    if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                    for line in content.lines() {
-                        if !line.trim().is_empty() {
-                            if let Ok(event) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
-                                events.push(event);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    events
-}
-
-async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    loop {
-        let events = read_events(dir).await;
-        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
-            return events;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-}
-
 // ===========================================================================
 // Test 1: Full WAL lifecycle — enqueue → process → delete → reopen clean
 // ===========================================================================
@@ -172,20 +133,7 @@ async fn test_e2e_wal_lifecycle_enqueue_process_delete_reopen() {
     assert!(result.is_ok(), "enqueue should succeed");
 
     // Wait for consumer to process and delete WAL entry.
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let wal = super::inbound_wal::InboundWal::open(wal_dir).unwrap();
-        let remaining = wal.load_all().unwrap();
-        if remaining.is_empty() {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "WAL should be empty after processing, got {} entries",
-            remaining.len()
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
+    wait_wal_empty(wal_dir).await;
 
     // ── Phase 2: Gateway B — reopen and verify clean ────────────────
     let config_b = make_e2e_config(wal_dir);
@@ -247,20 +195,7 @@ async fn test_e2e_reopen_replays_pending_entries() {
     let _handle = gw.start_inbound_queue();
 
     // Consumer should process the replayed message and clean WAL.
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let wal_check = super::inbound_wal::InboundWal::open(wal_dir).unwrap();
-        let remaining = wal_check.load_all().unwrap();
-        if remaining.is_empty() {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "WAL should be empty after replay + processing, got {} entries",
-            remaining.len()
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
+    wait_wal_empty(wal_dir).await;
 }
 
 // ===========================================================================
@@ -345,14 +280,8 @@ async fn test_e2e_arrived_then_dequeued_lifecycle() {
     let events = read_events_with_timeout(debug_tmp.path()).await;
 
     // Filter events for our trace_id.
-    let arrived: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == "gateway.arrived" && e.trace_id == trace_id)
-        .collect();
-    let dequeued: Vec<_> = events
-        .iter()
-        .filter(|e| e.event_type == "queue.dequeued" && e.trace_id == trace_id)
-        .collect();
+    let arrived = filter_events_by_type_and_trace(&events, "gateway.arrived", trace_id);
+    let dequeued = filter_events_by_type_and_trace(&events, "queue.dequeued", trace_id);
 
     assert_eq!(arrived.len(), 1, "exactly one arrived event expected");
     assert_eq!(dequeued.len(), 1, "exactly one dequeued event expected");
