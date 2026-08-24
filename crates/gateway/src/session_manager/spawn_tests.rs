@@ -33,6 +33,7 @@ pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> Reso
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::Merged,
     }
 }
@@ -452,6 +453,7 @@ async fn test_create_child_session_allowed_tools_override() {
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::Merged,
     };
 

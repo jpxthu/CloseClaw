@@ -32,6 +32,7 @@ fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::Merged,
     }
 }

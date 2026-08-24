@@ -90,6 +90,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::User,
     }
 }
@@ -989,7 +990,6 @@ async fn test_run_child_survives_without_explicit_kill() {
     // Verify child is alive
     assert!(mgr.has_session(child_id).await);
     assert_eq!(mgr.count_active_children(parent_id).await, 1);
-
     // Explicit kill removes it
     mgr.kill_child(parent_id, child_id)
         .await

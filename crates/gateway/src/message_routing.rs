@@ -95,9 +95,12 @@ impl Gateway {
         session_key: &str,
         account_id: Option<&str>,
     ) -> Result<(), GatewayError> {
+        // Design doc: Gateway resolves agent_id from bot→Agent bindings
+        // before passing it to SessionManager.
+        let agent_id = Self::resolve_agent_id(&self.config.bot_agent_bindings, &message.to);
         let session_id = self
             .session_manager
-            .resolve(session_key, channel, message, account_id)
+            .resolve(session_key, channel, message, account_id, &agent_id)
             .await
             .map_err(|e| GatewayError::AdapterError(e.to_string()))?;
 

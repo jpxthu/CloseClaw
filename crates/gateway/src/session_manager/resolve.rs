@@ -32,10 +32,11 @@ impl SessionManager {
         channel: &str,
         message: &Message,
         account_id: Option<&str>,
+        agent_id: &str,
     ) -> Result<String, ProcessError> {
         // Acquire per-agent lock to serialize resolve for the same agent_id.
         // Different agent_ids run in parallel; the same agent_id is serialized.
-        let agent_id = message.to.clone();
+        let agent_id = agent_id.to_string();
         let agent_lock = {
             let mut locks = self.agent_locks.write().await;
             locks
