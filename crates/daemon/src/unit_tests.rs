@@ -532,9 +532,9 @@ fn test_cache_adapter_mapping_matches_design_doc() {
     let openai_adapter = closeclaw_llm::cache_adapter::for_provider("openai");
     assert_eq!(openai_adapter.name(), "noop");
 
-    // Kimi → prompt_cache_key
+    // Kimi → no explicit cache params (noop, passthrough)
     let kimi_adapter = closeclaw_llm::cache_adapter::for_provider("kimi");
-    assert_eq!(kimi_adapter.name(), "kimi");
+    assert_eq!(kimi_adapter.name(), "noop");
 }
 
 /// Verify that the full LLM chain assembly produces correct chain

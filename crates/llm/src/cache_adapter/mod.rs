@@ -4,6 +4,11 @@
 //! provides a [`CacheAdapter`] trait and implementations for each provider's
 //! caching strategy. The adapter runs *before* the Plugin Pipeline, acting as
 //! an independent pre-processing step on the request hot path.
+//!
+//! Provider mapping (see `docs/design/llm/cache-adapter.md`):
+//! - Anthropic: explicit `cache_control` on static system blocks
+//! - MiniMax: Anthropic-compatible, reuses `AnthropicCacheAdapter`
+//! - All others (OpenAI, DeepSeek, Kimi, …): no-op passthrough
 
 use std::sync::Arc;
 
@@ -12,8 +17,7 @@ use crate::types::{InternalRequest, SystemBlock};
 /// Adapter trait for provider-specific prompt caching strategies.
 ///
 /// Implementations transform an [`InternalRequest`] in place, injecting
-/// provider-specific cache parameters (e.g., Anthropic `cache_control`,
-/// Kimi `prompt_cache_key`).
+/// provider-specific cache parameters (e.g., Anthropic `cache_control`).
 pub trait CacheAdapter: Send + Sync {
     /// Returns the adapter name (for logging / diagnostics).
     fn name(&self) -> &str;
@@ -98,32 +102,10 @@ impl CacheAdapter for AnthropicCacheAdapter {
     }
 }
 
-/// Kimi cache adapter — injects `prompt_cache_key` into `extra_body`.
-///
-/// Uses the request's `session_id` as the cache key so that the Kimi
-/// service-side automatic prefix cache can associate requests from the
-/// same session.
-pub struct KimiCacheAdapter;
-
-impl CacheAdapter for KimiCacheAdapter {
-    fn name(&self) -> &str {
-        "kimi"
-    }
-
-    fn apply(&self, request: &mut InternalRequest) {
-        if let Some(ref session_id) = request.session_id {
-            request.extra_body.insert(
-                "prompt_cache_key".to_owned(),
-                serde_json::Value::String(session_id.clone()),
-            );
-        }
-    }
-}
-
 /// Create a [`CacheAdapter`] instance for the given provider.
 ///
 /// Returns the provider-specific adapter when one exists
-/// (Anthropic, Kimi), or [`NoopCacheAdapter`] for providers
+/// (Anthropic, MiniMax), or [`NoopCacheAdapter`] for providers
 /// that rely on server-side automatic prefix caching.
 pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
     match provider_id {
@@ -134,7 +116,7 @@ pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
         // AnthropicCacheAdapter strategy — caching is chosen by provider API
         // capability, not protocol format (see cache-adapter.md).
         "minimax" => Arc::new(AnthropicCacheAdapter),
-        "kimi" => Arc::new(KimiCacheAdapter),
+
         _ => Arc::new(NoopCacheAdapter),
     }
 }
@@ -226,30 +208,6 @@ mod tests {
     }
 
     #[test]
-    fn kimi_adapter_injects_cache_key() {
-        let mut req = make_request();
-        req.session_id = Some("sess-123".to_owned());
-        KimiCacheAdapter.apply(&mut req);
-
-        assert_eq!(
-            req.extra_body.get("prompt_cache_key").unwrap(),
-            &serde_json::Value::String("sess-123".to_owned())
-        );
-    }
-
-    #[test]
-    fn kimi_adapter_no_session_id_no_inject() {
-        let mut req = make_request();
-        KimiCacheAdapter.apply(&mut req);
-        assert!(req.extra_body.is_empty());
-    }
-
-    #[test]
-    fn kimi_adapter_name() {
-        assert_eq!(KimiCacheAdapter.name(), "kimi");
-    }
-
-    #[test]
     fn anthropic_adapter_marks_tools_as_cacheable() {
         use crate::types::ToolDefinition;
 
@@ -329,14 +287,14 @@ mod tests {
     }
 
     #[test]
-    fn for_provider_kimi_returns_kimi_adapter() {
+    fn for_provider_kimi_returns_noop() {
         let adapter = for_provider("kimi");
-        assert_eq!(adapter.name(), "kimi");
+        assert_eq!(adapter.name(), "noop");
     }
 
     #[test]
     fn for_provider_unknown_returns_noop() {
-        for provider_id in ["openai", "deepseek", "mimo", ""] {
+        for provider_id in ["openai", "deepseek", "mimo", "kimi", ""] {
             let adapter = for_provider(provider_id);
             assert_eq!(
                 adapter.name(),
