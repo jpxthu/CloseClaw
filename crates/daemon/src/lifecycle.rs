@@ -115,11 +115,53 @@ impl Daemon {
         for provider_id in &provider_ids {
             if let Some(provider) = llm_registry.get(provider_id).await {
                 let cache_adapter = closeclaw_llm::cache_adapter::for_provider(provider_id);
+
+                // Per-provider assembly: protocol / interpreter / plugin (design doc llm/README.md)
+                let (protocol, interpreter_registry, plugin_pipeline) = match provider_id.as_str() {
+                    "minimax" => (
+                        Arc::new(closeclaw_llm::protocol::AnthropicProtocol::new())
+                            as Arc<dyn closeclaw_llm::protocol::ChatProtocol>,
+                        closeclaw_llm::InterpreterRegistry::new(vec![(
+                            Box::new(closeclaw_llm::MinimaxInterpreter),
+                            "minimax/*",
+                        )]),
+                        closeclaw_llm::PluginPipeline::new()
+                            .add(Box::new(closeclaw_llm::MiniMaxPlugin)),
+                    ),
+                    "deepseek" => (
+                        Arc::new(closeclaw_llm::protocol::AnthropicProtocol::new())
+                            as Arc<dyn closeclaw_llm::protocol::ChatProtocol>,
+                        closeclaw_llm::InterpreterRegistry::new(vec![(
+                            Box::new(closeclaw_llm::DeepSeekInterpreter),
+                            "deepseek/*",
+                        )]),
+                        closeclaw_llm::PluginPipeline::new()
+                            .add(Box::new(closeclaw_llm::DeepSeekPlugin)),
+                    ),
+                    "glm" => (
+                        Arc::new(closeclaw_llm::protocol::OpenAiProtocol::new())
+                            as Arc<dyn closeclaw_llm::protocol::ChatProtocol>,
+                        closeclaw_llm::InterpreterRegistry::new(vec![(
+                            Box::new(closeclaw_llm::GlmInterpreter),
+                            "glm/*",
+                        )]),
+                        closeclaw_llm::PluginPipeline::new()
+                            .add(Box::new(closeclaw_llm::GlmPlugin)),
+                    ),
+                    // mimo + all others: OpenAI protocol, DefaultInterpreter, empty pipeline
+                    _ => (
+                        Arc::new(closeclaw_llm::protocol::OpenAiProtocol::new())
+                            as Arc<dyn closeclaw_llm::protocol::ChatProtocol>,
+                        closeclaw_llm::InterpreterRegistry::default(),
+                        closeclaw_llm::PluginPipeline::new(),
+                    ),
+                };
+
                 let client = closeclaw_llm::UnifiedChatClient::new(
                     provider,
-                    Arc::new(closeclaw_llm::protocol::OpenAiProtocol::new()),
-                    closeclaw_llm::InterpreterRegistry::default(),
-                    closeclaw_llm::PluginPipeline::new(),
+                    protocol,
+                    interpreter_registry,
+                    plugin_pipeline,
                     cache_adapter,
                 );
                 chain_entries.push(closeclaw_llm::unified_fallback::ChainEntry {

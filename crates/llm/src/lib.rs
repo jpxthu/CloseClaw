@@ -54,12 +54,13 @@ pub mod fake;
 pub use fake::FakeProvider;
 
 pub use anthropic::AnthropicProvider;
+pub use deepseek::DeepSeekPlugin;
 pub use deepseek::DeepSeekProvider;
-pub use glm::GlmPlugin;
-pub use glm::GlmProvider;
+pub use glm::{GlmPlugin, GlmProvider};
 pub use http_client::{HttpClient, ReqwestHttpClient};
 pub use knowledge::{ModelRecommendParams, ProviderModelKnowledge, ReasoningLevels};
 pub use mimo::MimoProvider;
+pub use minimax::MiniMaxPlugin;
 pub use minimax::MiniMaxProvider;
 pub use model_cache::{CacheEntry, ModelCache};
 pub use model_discovery::ModelDiscovery;
@@ -73,7 +74,10 @@ pub use stub::StubProvider;
 
 pub use client::UnifiedChatClient;
 pub use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
-pub use interpreter::{DefaultInterpreter, InterpreterRegistry, ModelInterpreter};
+pub use interpreter::{
+    DeepSeekInterpreter, DefaultInterpreter, GlmInterpreter, InterpreterRegistry,
+    MinimaxInterpreter, ModelInterpreter,
+};
 pub use plugin::PluginPipeline;
 pub use sink_updater::SinkUpdater;
 pub use streaming::{StreamDone, StreamingSink};
