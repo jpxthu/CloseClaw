@@ -98,7 +98,7 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 1. LLM 输出 ContentBlock[]。
 2. Processor Chain 出站（DslParser）。
 3. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)。
-4. IMPlugin 渲染：渲染接口接收 ContentBlock[] 与 DSL 解析结果（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
+4. IMPlugin 渲染：渲染接口接收 ContentBlock[] 与 DSL 解析结果（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
 5. 中间件插入点：Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件。
 6. IMPlugin 发送：发送接口将渲染结果按 peer_id、thread_id 投递到平台。← 日志：平台 API 发送（平台、目标、耗时）
 ```

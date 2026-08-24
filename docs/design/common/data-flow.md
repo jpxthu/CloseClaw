@@ -63,7 +63,7 @@ IM Adapter 发送
 
 - **[ContentBlock](shared-types.md#contentblock)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），仅 Text 变体参与 DSL 解析，其余 6 种变体由 DslParser 透传。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。批量交付形态。
 - **[StreamEvent](shared-types.md#streamevent)**：ContentBlock 的流式形态——5 种增量事件（BlockStart/BlockDelta/BlockEnd/MessageEnd/Error）。LLM 模块归一化产出 → Session 转发 → Processor Chain 增量阶段逐事件处理 → IM Adapter 流式渲染器增量消费。流式交付形态。
-- **[DslParseResult / DslInstruction](shared-types.md#dslparseresult)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser、终于 Renderer 渲染。
+- **[DslParseResult / DslInstruction](shared-types.md#dslparseresult--dslinstruction)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser、终于 Renderer 渲染。
 - **[ProcessedMessage](shared-types.md#processedmessage)**（出站形态）：Processor Chain 出站产出 → Gateway 出站日志 → IM Adapter 渲染。content_blocks 为经 DslParser 处理后的 ContentBlock[]，metadata 含 dsl_result（DslParseResult 的序列化值）。
 - **[SlashResult](shared-types.md#slashresult)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。Exec 变体在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
 
