@@ -523,7 +523,18 @@ fn contains_inline(s: &str) -> bool {
         || s.contains('_')
         || s.contains('`')
         || (s.contains('[') && s.contains("]("))
+        || s.contains("~~")
+        || s.contains("<u>")
         || has_list_or_quote(s)
+        || has_divider(s)
+}
+
+/// Returns true when any line is a markdown horizontal rule (`---` or `***`).
+fn has_divider(s: &str) -> bool {
+    s.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == "---" || trimmed == "***"
+    })
 }
 
 /// Returns true when any line starts with a list marker (`- `, `* `, `1. `)
