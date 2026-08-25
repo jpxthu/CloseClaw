@@ -9,8 +9,8 @@ use super::model_cache::ModelCache;
 use super::model_info::{DiscoveryResult, DiscoverySource, ModelInfo};
 use super::{ErrorKind, ProviderModelKnowledge};
 
-/// Maximum number of fetch retries for transient errors.
-const FETCH_MAX_RETRIES: u32 = 4;
+/// Maximum number of total fetch attempts (including the initial try) for transient errors.
+const FETCH_MAX_ATTEMPTS: u32 = 4;
 /// Per-attempt API timeout.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -54,7 +54,7 @@ impl ModelDiscovery {
         }
 
         // Layer 2: API fetch with retry
-        for attempt in 1..=FETCH_MAX_RETRIES {
+        for attempt in 1..=FETCH_MAX_ATTEMPTS {
             let result = tokio::time::timeout(FETCH_TIMEOUT, fetch(credential)).await;
 
             match result {
@@ -87,7 +87,7 @@ impl ModelDiscovery {
                         // Auth / Billing / InvalidRequest → immediate fallback
                         break;
                     }
-                    if attempt < FETCH_MAX_RETRIES {
+                    if attempt < FETCH_MAX_ATTEMPTS {
                         let delay = super::retry::backoff_delay(
                             attempt,
                             Duration::from_secs(1),
@@ -99,7 +99,7 @@ impl ModelDiscovery {
                 }
                 Err(_) => {
                     // Timeout → transient, retry
-                    if attempt < FETCH_MAX_RETRIES {
+                    if attempt < FETCH_MAX_ATTEMPTS {
                         let delay = super::retry::backoff_delay(
                             attempt,
                             Duration::from_secs(1),
