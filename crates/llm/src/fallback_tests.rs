@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Tests for LLM fallback chain client.
 
 use crate::fallback::{FallbackClient, ModelEntry};

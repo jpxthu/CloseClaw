@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Unit tests for Gateway debug log emission (Step 1.6 + 1.8 + 1.3).
 //!
 //! Covers:
