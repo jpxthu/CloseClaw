@@ -221,6 +221,34 @@ mod tests {
     }
 
     #[test]
+    fn test_from_str_deepseek_reasoning_levels() {
+        let model = ModelInfo::from_str("deepseek/deepseek-v4-flash").unwrap();
+        assert!(matches!(
+            model.reasoning_levels,
+            ReasoningLevels::Levels {
+                off: true,
+                base: true,
+                reasoner: true
+            }
+        ));
+    }
+
+    #[test]
+    fn test_from_str_glm_toggle_reasoning_levels() {
+        let model = ModelInfo::from_str("glm/glm-5.1").unwrap();
+        assert!(matches!(
+            model.reasoning_levels,
+            ReasoningLevels::Toggle { on: true }
+        ));
+    }
+
+    #[test]
+    fn test_from_str_unknown_model_reasoning_levels_none() {
+        let model = ModelInfo::from_str("unknown/model").unwrap();
+        assert_eq!(model.reasoning_levels, ReasoningLevels::None);
+    }
+
+    #[test]
     fn test_from_str_bad_format() {
         let err = ModelInfo::from_str("no-slash-at-all").unwrap_err();
         assert!(err.to_string().contains("invalid ModelInfo format"));
