@@ -943,19 +943,6 @@ fn test_parse_openai_provider_raw_json_response() {
     assert_eq!(resp.finish_reason, Some("stop".to_string()));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Step 1.5: FETCH_MAX_ATTEMPTS constant usage verification
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Verify that `FETCH_MAX_ATTEMPTS` is the correct constant name and value.
-/// This verifies the rename from FETCH_MAX_RETRIES to FETCH_MAX_ATTEMPTS
-/// and that the value remains 4 (4 total attempts = 3 retries).
-#[test]
-fn test_fetch_max_attempts_constant_value() {
-    let val = crate::model_discovery::model_discovery_tests_only_fetch_max_attempts();
-    assert_eq!(val, 4);
-}
-
 #[tokio::test]
 async fn test_sse_stream_usage_only_in_dedicated_chunk() {
     // Usage arrives in a separate final chunk (no choices) before [DONE]
@@ -992,5 +979,21 @@ fn test_parse_response_empty_choices() {
     let resp = proto.parse_response(body).unwrap();
     assert_eq!(resp.content_blocks.len(), 1);
     assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert!(resp.finish_reason.is_none());
+}
+
+// ── Step 1.8: OpenAI business error body detection ─────────────────────
+
+/// OpenAI error body (no choices array) → empty Text block (graceful).
+#[test]
+fn test_parse_response_openai_error_body() {
+    let proto = OpenAiProtocol::new();
+    let body =
+        serde_json::json!({"error":{"message":"Invalid API key","type":"invalid_request_error"}});
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert_eq!(resp.usage.prompt_tokens, 0);
+    assert_eq!(resp.usage.completion_tokens, 0);
     assert!(resp.finish_reason.is_none());
 }

@@ -627,4 +627,15 @@ mod tests {
         );
         assert_eq!(result.source, DiscoverySource::Api);
     }
+
+    // ── Step 1.8: FETCH_MAX_ATTEMPTS constant verification (moved from openai_tests.rs) ──
+
+    /// Verify that `FETCH_MAX_ATTEMPTS` is the correct constant name and value.
+    /// This verifies the rename from FETCH_MAX_RETRIES to FETCH_MAX_ATTEMPTS
+    /// and that the value remains 4 (4 total attempts = 3 retries).
+    #[test]
+    fn test_fetch_max_attempts_constant_value() {
+        let val = super::model_discovery_tests_only_fetch_max_attempts();
+        assert_eq!(val, 4);
+    }
 }
