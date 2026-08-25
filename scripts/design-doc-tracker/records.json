@@ -1,9 +1,9 @@
 [
   {
     "path": "docs/design/agent/README.md",
-    "commit": "c87948b9138b616d8ddb45b52f7e456c9f25daf4",
-    "commit_time": "2026-08-19T16:03:47+08:00",
-    "confirmed_time": "2026-08-19T16:19:25.268912+08:00",
+    "commit": "ca8afb893d8e5a13b84b5c21b04e6304094d16cf",
+    "commit_time": "2026-08-25T19:24:28+08:00",
+    "confirmed_time": "2026-08-25T19:42:40.716417+08:00",
     "comment": "",
     "blocked_reason": ""
   },
