@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Unit tests for per-agent compact configuration (Step 1.4).
 //!
 //! Verifies that `SessionMessageHandler` correctly propagates the

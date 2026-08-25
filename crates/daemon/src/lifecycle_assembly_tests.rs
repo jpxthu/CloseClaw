@@ -354,13 +354,13 @@ fn test_mimo_uses_openai_protocol() {
 }
 
 #[test]
-fn test_mimo_interpreter_is_default() {
+fn test_mimo_interpreter_is_mimo() {
     let (_, registry, _) = assemble_llm_components("mimo");
     let interp = registry.resolve("mimo", "mimo-v2");
     assert_eq!(
         interp.name(),
-        "default",
-        "mimo should resolve to DefaultInterpreter"
+        "mimo",
+        "mimo should resolve to MimoInterpreter"
     );
 }
 

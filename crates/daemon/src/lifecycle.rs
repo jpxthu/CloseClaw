@@ -9,52 +9,7 @@ use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
-/// Assemble protocol, interpreter, and plugin per provider (design doc).
-/// Shared by production wiring and `lifecycle_assembly_tests`.
-pub(crate) fn assemble_llm_components(
-    provider_id: &str,
-) -> (
-    Arc<dyn closeclaw_llm::protocol::ChatProtocol>,
-    closeclaw_llm::InterpreterRegistry,
-    closeclaw_llm::PluginPipeline,
-) {
-    use closeclaw_llm::plugin::PluginPipeline;
-    use closeclaw_llm::protocol::{AnthropicProtocol, ChatProtocol, OpenAiProtocol};
-    match provider_id {
-        "minimax" => (
-            Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
-            closeclaw_llm::InterpreterRegistry::new(vec![(
-                Box::new(closeclaw_llm::MinimaxInterpreter),
-                "minimax/*",
-            )]),
-            PluginPipeline::new()
-                .add(Box::new(closeclaw_llm::MiniMaxM3Plugin))
-                .add(Box::new(closeclaw_llm::MiniMaxM2Plugin)),
-        ),
-        "deepseek" => (
-            Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
-            closeclaw_llm::InterpreterRegistry::new(vec![(
-                Box::new(closeclaw_llm::DeepSeekInterpreter),
-                "deepseek/*",
-            )]),
-            PluginPipeline::new().add(Box::new(closeclaw_llm::DeepSeekPlugin)),
-        ),
-        "glm" => (
-            Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
-            closeclaw_llm::InterpreterRegistry::new(vec![(
-                Box::new(closeclaw_llm::GlmInterpreter),
-                "glm/*",
-            )]),
-            PluginPipeline::new().add(Box::new(closeclaw_llm::GlmPlugin)),
-        ),
-        // mimo + all others: OpenAI protocol, DefaultInterpreter, empty pipeline
-        _ => (
-            Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
-            closeclaw_llm::InterpreterRegistry::default(),
-            PluginPipeline::new(),
-        ),
-    }
-}
+pub(crate) use crate::llm_components::assemble_llm_components;
 
 impl Daemon {
     /// Start the daemon with the given config directory.
@@ -199,6 +154,7 @@ impl Daemon {
                 model: String::new(),
             },
         );
+        #[allow(deprecated)]
         let fallback_client_for_compact =
             Arc::new(closeclaw_llm::fallback::FallbackClient::from_strings(
                 Arc::clone(&llm_registry),

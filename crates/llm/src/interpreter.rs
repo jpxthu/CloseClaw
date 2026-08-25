@@ -160,6 +160,101 @@ impl Default for InterpreterRegistry {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Shared helper: OpenAI-compatible response interpretation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Shared `interpret_response` logic for OpenAI-compatible providers.
+///
+/// Collects text, thinking, tool-use, and tool-result blocks from the raw
+/// response, then applies the standard merging rule:
+///
+/// * If text is **empty** and thinking is non-empty → thinking is merged into a
+///   single `ContentBlock::Text` (no `Thinking` block emitted).
+/// * Otherwise → text and thinking are emitted as separate `Text` / `Thinking`
+///   blocks.
+///
+/// When `preserve_signature` is `true`, the last non-`None` signature from
+/// thinking blocks is forwarded into the `Thinking` block (used by DeepSeek and
+/// MiniMax). When `false`, signature is always `None` (used by MiMo and GLM).
+///
+/// When `clear_cache_tokens` is `true`, `cache_read_tokens` and
+/// `cache_write_tokens` are set to `None` in the output (used by GLM, DeepSeek,
+/// and MiMo — providers that don't support cache tokens).
+fn interpret_openai_compatible(
+    response: InternalResponse,
+    preserve_signature: bool,
+    clear_cache_tokens: bool,
+) -> UnifiedResponse {
+    let mut text_parts: Vec<String> = vec![];
+    let mut thinking_parts: Vec<String> = vec![];
+    let mut last_signature: Option<String> = None;
+
+    for block in response.content_blocks {
+        match block {
+            RawContentBlock::Text(s) => text_parts.push(s),
+            RawContentBlock::Thinking {
+                thinking: s,
+                signature,
+            } => {
+                thinking_parts.push(s);
+                if preserve_signature && signature.is_some() {
+                    last_signature = signature;
+                }
+            }
+            RawContentBlock::ToolUse { id, name, input } => {
+                text_parts.push(format!("id:{id} name:{name} input:{input}"))
+            }
+            RawContentBlock::ToolResult {
+                tool_call_id,
+                content,
+            } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
+        }
+    }
+
+    let mut content_blocks: Vec<ContentBlock> = vec![];
+    let text_empty = text_parts.iter().all(|s| s.is_empty());
+    if text_empty && !thinking_parts.is_empty() {
+        content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
+    } else {
+        if !text_parts.iter().all(|s| s.is_empty()) {
+            content_blocks.push(ContentBlock::Text(text_parts.join("")));
+        }
+        if !thinking_parts.is_empty() {
+            content_blocks.push(ContentBlock::Thinking {
+                thinking: thinking_parts.join(""),
+                signature: if preserve_signature {
+                    last_signature
+                } else {
+                    None
+                },
+            });
+        }
+    }
+
+    UnifiedResponse {
+        content_blocks,
+        usage: UnifiedUsage {
+            prompt_tokens: response.usage.prompt_tokens,
+            completion_tokens: response.usage.completion_tokens,
+            total_tokens: response.usage.total_tokens,
+            reasoning_tokens: response.usage.reasoning_tokens,
+            cache_read_tokens: if clear_cache_tokens {
+                None
+            } else {
+                response.usage.cache_read_tokens
+            },
+            cache_write_tokens: if clear_cache_tokens {
+                None
+            } else {
+                response.usage.cache_write_tokens
+            },
+        },
+        finish_reason: response.finish_reason,
+        retry_attempts: 0,
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MinimaxInterpreter
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -179,58 +274,7 @@ impl ModelInterpreter for MinimaxInterpreter {
     }
 
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
-        let mut text_parts: Vec<String> = vec![];
-        let mut thinking_parts: Vec<String> = vec![];
-        let mut last_signature: Option<String> = None;
-        for block in response.content_blocks {
-            match block {
-                RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking {
-                    thinking: s,
-                    signature,
-                } => {
-                    thinking_parts.push(s);
-                    if signature.is_some() {
-                        last_signature = signature;
-                    }
-                }
-                RawContentBlock::ToolUse { id, name, input } => {
-                    text_parts.push(format!("id:{id} name:{name} input:{input}"))
-                }
-                RawContentBlock::ToolResult {
-                    tool_call_id,
-                    content,
-                } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
-            }
-        }
-        let mut content_blocks: Vec<ContentBlock> = vec![];
-        let text_empty = text_parts.iter().all(|s| s.is_empty());
-        if text_empty && !thinking_parts.is_empty() {
-            content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
-        } else {
-            if !text_parts.iter().all(|s| s.is_empty()) {
-                content_blocks.push(ContentBlock::Text(text_parts.join("")));
-            }
-            if !thinking_parts.is_empty() {
-                content_blocks.push(ContentBlock::Thinking {
-                    thinking: thinking_parts.join(""),
-                    signature: last_signature,
-                });
-            }
-        }
-        UnifiedResponse {
-            content_blocks,
-            usage: UnifiedUsage {
-                prompt_tokens: response.usage.prompt_tokens,
-                completion_tokens: response.usage.completion_tokens,
-                total_tokens: response.usage.total_tokens,
-                reasoning_tokens: response.usage.reasoning_tokens,
-                cache_read_tokens: response.usage.cache_read_tokens,
-                cache_write_tokens: response.usage.cache_write_tokens,
-            },
-            finish_reason: response.finish_reason,
-            retry_attempts: 0,
-        }
+        interpret_openai_compatible(response, true, false)
     }
 
     fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent> {
@@ -257,49 +301,7 @@ impl ModelInterpreter for GlmInterpreter {
     }
 
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
-        let mut text_parts: Vec<String> = vec![];
-        let mut thinking_parts: Vec<String> = vec![];
-        for block in response.content_blocks {
-            match block {
-                RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking { thinking: s, .. } => thinking_parts.push(s),
-                RawContentBlock::ToolUse { id, name, input } => {
-                    text_parts.push(format!("id:{id} name:{name} input:{input}"))
-                }
-                RawContentBlock::ToolResult {
-                    tool_call_id,
-                    content,
-                } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
-            }
-        }
-        let mut content_blocks: Vec<ContentBlock> = vec![];
-        let text_empty = text_parts.iter().all(|s| s.is_empty());
-        if text_empty && !thinking_parts.is_empty() {
-            content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
-        } else {
-            if !text_parts.iter().all(|s| s.is_empty()) {
-                content_blocks.push(ContentBlock::Text(text_parts.join("")));
-            }
-            if !thinking_parts.is_empty() {
-                content_blocks.push(ContentBlock::Thinking {
-                    thinking: thinking_parts.join(""),
-                    signature: None,
-                });
-            }
-        }
-        UnifiedResponse {
-            content_blocks,
-            usage: UnifiedUsage {
-                prompt_tokens: response.usage.prompt_tokens,
-                completion_tokens: response.usage.completion_tokens,
-                total_tokens: response.usage.total_tokens,
-                reasoning_tokens: response.usage.reasoning_tokens,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
-            finish_reason: response.finish_reason,
-            retry_attempts: 0,
-        }
+        interpret_openai_compatible(response, false, true)
     }
 
     fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent> {
@@ -330,58 +332,36 @@ impl ModelInterpreter for DeepSeekInterpreter {
     }
 
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
-        let mut text_parts: Vec<String> = vec![];
-        let mut thinking_parts: Vec<String> = vec![];
-        let mut last_signature: Option<String> = None;
-        for block in response.content_blocks {
-            match block {
-                RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking {
-                    thinking: s,
-                    signature,
-                } => {
-                    thinking_parts.push(s);
-                    if signature.is_some() {
-                        last_signature = signature;
-                    }
-                }
-                RawContentBlock::ToolUse { id, name, input } => {
-                    text_parts.push(format!("id:{id} name:{name} input:{input}"))
-                }
-                RawContentBlock::ToolResult {
-                    tool_call_id,
-                    content,
-                } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
-            }
-        }
-        let mut content_blocks: Vec<ContentBlock> = vec![];
-        let text_empty = text_parts.iter().all(|s| s.is_empty());
-        if text_empty && !thinking_parts.is_empty() {
-            content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
-        } else {
-            if !text_parts.iter().all(|s| s.is_empty()) {
-                content_blocks.push(ContentBlock::Text(text_parts.join("")));
-            }
-            if !thinking_parts.is_empty() {
-                content_blocks.push(ContentBlock::Thinking {
-                    thinking: thinking_parts.join(""),
-                    signature: last_signature,
-                });
-            }
-        }
-        UnifiedResponse {
-            content_blocks,
-            usage: UnifiedUsage {
-                prompt_tokens: response.usage.prompt_tokens,
-                completion_tokens: response.usage.completion_tokens,
-                total_tokens: response.usage.total_tokens,
-                reasoning_tokens: response.usage.reasoning_tokens,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
-            finish_reason: response.finish_reason,
-            retry_attempts: 0,
-        }
+        interpret_openai_compatible(response, true, true)
+    }
+
+    fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent> {
+        Some(event)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MimoInterpreter
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Interpreter for MiMo provider.
+///
+/// MiMo uses an OpenAI-compatible wire format with `reasoning_content`
+/// support. When the text content is empty, the `reasoning_content` is mapped
+/// to a [`ContentBlock::Text`] block. When both text and reasoning content are
+/// present, they are emitted as separate [`ContentBlock::Text`] and
+/// [`ContentBlock::Thinking`] blocks respectively. Signature is always `None`
+/// (MiMo characteristic — no signature field in the wire format).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MimoInterpreter;
+
+impl ModelInterpreter for MimoInterpreter {
+    fn name(&self) -> &str {
+        "mimo"
+    }
+
+    fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
+        interpret_openai_compatible(response, false, true)
     }
 
     fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent> {

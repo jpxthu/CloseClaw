@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Unit tests for Step 1.1–1.4 design doc alignment changes.
 //!
 //! Covers:
@@ -399,6 +401,7 @@ async fn test_gateway_delegates_llm_to_session_layer() {
         ReasoningLevel::default(),
     ));
     let registry = Arc::new(closeclaw_llm::LLMRegistry::new());
+    #[allow(deprecated)]
     let fallback = Arc::new(closeclaw_llm::fallback::FallbackClient::from_strings(
         registry,
         vec![],

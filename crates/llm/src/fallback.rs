@@ -25,6 +25,11 @@ use tokio::time::sleep;
 /// Default LLM call timeout (30s per attempt)
 const DEFAULT_CALL_TIMEOUT_SECS: u64 = 30;
 
+#[deprecated(
+    since = "0.1.0",
+    note = "Use UnifiedFallbackClient instead. FallbackClient bypasses the five-layer architecture."
+)]
+#[allow(deprecated)]
 /// LLM fallback client that wraps a provider with retry + fallback chain
 pub struct FallbackClient {
     registry: Arc<crate::LLMRegistry>,
@@ -44,6 +49,7 @@ pub struct ModelEntry {
 
 // --- Constructors ---
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// Create a new FallbackClient with the given registry and fallback chain.
     pub fn new(registry: Arc<crate::LLMRegistry>, fallback_chain: Vec<ModelEntry>) -> Self {
@@ -139,6 +145,7 @@ impl FallbackClient {
 
 // --- Request/response conversion helpers ---
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// Convert a [`ChatRequest`] into an [`InternalRequest`].
     fn chat_request_to_internal(request: &ChatRequest) -> InternalRequest {
@@ -229,6 +236,7 @@ impl FallbackClient {
 
 // --- Chat with fallback ---
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// Make a chat request with automatic retry and fallback.
     ///
@@ -304,6 +312,7 @@ impl FallbackClient {
 
 // --- Unified chat with fallback ---
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// Walk the fallback chain using chat_unified() until one model succeeds.
     async fn try_fallback_chain_unified(
@@ -360,6 +369,7 @@ impl FallbackClient {
 
 // --- Streaming chat with fallback ---
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// Send a streaming chat request through the fallback chain.
     ///
@@ -393,6 +403,7 @@ impl FallbackClient {
     }
 }
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// Try streaming with a single provider entry.
     ///
@@ -492,6 +503,7 @@ impl FallbackClient {
 
 // --- Degraded streaming fallback ---
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// All streaming entries failed — degrade to non-streaming.
     ///
@@ -544,6 +556,7 @@ impl FallbackClient {
 
 // --- Retry logic ---
 
+#[allow(deprecated)]
 impl FallbackClient {
     /// Call with retry (exponential backoff) for transient errors.
     ///

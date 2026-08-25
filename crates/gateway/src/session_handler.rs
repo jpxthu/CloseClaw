@@ -12,6 +12,7 @@
 use super::Gateway;
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
+#[allow(deprecated)]
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::ProviderModelKnowledge;
@@ -81,6 +82,7 @@ pub enum HandleResult {
 /// Gateway-layer LLM session handler with busy/pending state management.
 pub struct SessionMessageHandler {
     pub(super) session_manager: Arc<SessionManager>,
+    #[allow(deprecated)]
     pub(super) fallback_client: Arc<FallbackClient>,
     pub(super) output_tx: OutputTx,
     pub(super) compaction_service: Arc<tokio::sync::Mutex<CompactionService>>,
@@ -135,6 +137,7 @@ pub struct SessionMessageHandler {
 // ── Construction ──
 impl SessionMessageHandler {
     /// Create a new handler with an output channel for streaming responses.
+    #[allow(deprecated)]
     pub fn new(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,
@@ -160,6 +163,7 @@ impl SessionMessageHandler {
         }
     }
     /// Create a new handler without an output channel (used in tests).
+    #[allow(deprecated)]
     pub fn new_no_output(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<FallbackClient>,

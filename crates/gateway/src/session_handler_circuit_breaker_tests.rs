@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Circuit breaker notification tests (Step 1.3 — plan Step 1.1).
 //!
 //! Verifies that when the compaction circuit breaker trips, an assistant
