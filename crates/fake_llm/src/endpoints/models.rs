@@ -4,28 +4,24 @@
 //! `models` field, that list is returned instead of the default placeholder.
 //! Error injection and delay injection are handled by the delivery layer.
 
-use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, Json};
 
 use crate::delivery::{self, DeliveryResult, ModelsDeliveryDecision};
 use crate::scenario::{ModelsDecision, ScenarioState};
 
+use super::endpoint_error::EndpointError;
+
 /// Handler for GET `/v1/models`.
 ///
 /// Delegates to the scenario engine for deterministic model lists and
 /// routes through the delivery layer for error injection and delay injection.
-pub async fn handler(
-    State(state): State<ScenarioState>,
-) -> Result<Response, (StatusCode, HeaderMap, String)> {
+pub async fn handler(State(state): State<ScenarioState>) -> Result<Response, EndpointError> {
     let outcome = {
-        let mut engine = state.engine.lock().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                HeaderMap::new(),
-                e.to_string(),
-            )
-        })?;
+        let mut engine = state
+            .engine
+            .lock()
+            .map_err(|e| EndpointError::internal(e.to_string()))?;
         engine.decide_for_models()
     };
 
@@ -57,20 +53,9 @@ pub async fn handler(
             status,
             message,
             retry_after,
-        } => {
-            let code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            let mut headers = HeaderMap::new();
-            if let Some(secs) = retry_after {
-                if let Ok(val) = secs.to_string().parse() {
-                    headers.insert(axum::http::header::RETRY_AFTER, val);
-                }
-            }
-            Err((code, headers, message))
-        }
-        _ => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            HeaderMap::new(),
-            "unexpected delivery result for models endpoint".to_string(),
+        } => Err(EndpointError::http(status, retry_after, message)),
+        _ => Err(EndpointError::internal(
+            "unexpected delivery result for models endpoint",
         )),
     }
 }

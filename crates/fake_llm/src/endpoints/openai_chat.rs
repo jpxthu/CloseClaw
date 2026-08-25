@@ -4,7 +4,6 @@
 //! extracts protocol-agnostic `RequestFeatures`, delegates to the scenario
 //! engine, and returns the appropriate response via the delivery layer.
 
-use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::Sse;
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, Json};
@@ -12,6 +11,8 @@ use axum::{extract::State, Json};
 use crate::delivery::{self, DeliveryConfig, DeliveryResult, Protocol, StreamInterrupt};
 use crate::protocol::openai::{extract_request_features, ChatCompletionRequest};
 use crate::scenario::{DecisionOutcome, ScenarioState};
+
+use super::endpoint_error::EndpointError;
 
 use delivery::{SseEventStream, DEFAULT_SEGMENT_GRANULARITY};
 
@@ -23,26 +24,19 @@ use delivery::{SseEventStream, DEFAULT_SEGMENT_GRANULARITY};
 pub async fn handler(
     State(state): State<ScenarioState>,
     Json(req): Json<ChatCompletionRequest>,
-) -> Result<Response, (StatusCode, HeaderMap, String)> {
+) -> Result<Response, EndpointError> {
     let features = extract_request_features(&req);
 
     let outcome = {
-        let mut engine = state.engine.lock().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                HeaderMap::new(),
-                e.to_string(),
-            )
-        })?;
+        let mut engine = state
+            .engine
+            .lock()
+            .map_err(|e| EndpointError::internal(e.to_string()))?;
         engine.decide(&features)
     };
 
     match outcome {
-        DecisionOutcome::Error(e) => {
-            let status =
-                StatusCode::from_u16(e.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            Err((status, HeaderMap::new(), e.message))
-        }
+        DecisionOutcome::Error(e) => Err(EndpointError::http(e.status, None, e.message)),
         DecisionOutcome::Decision(decision) => {
             let stream_interrupt = decision
                 .stream_interrupt_after
@@ -81,17 +75,7 @@ pub async fn handler(
                     status,
                     message,
                     retry_after,
-                } => {
-                    let code =
-                        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-                    let mut headers = HeaderMap::new();
-                    if let Some(secs) = retry_after {
-                        if let Ok(val) = secs.to_string().parse() {
-                            headers.insert(axum::http::header::RETRY_AFTER, val);
-                        }
-                    }
-                    Err((code, headers, message))
-                }
+                } => Err(EndpointError::http(status, retry_after, message)),
             }
         }
     }
