@@ -6,5 +6,6 @@
 //! - Delegating to the scenario engine (future) and returning a response
 
 pub mod anthropic_messages;
+pub mod endpoint_error;
 pub mod models;
 pub mod openai_chat;
