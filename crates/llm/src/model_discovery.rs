@@ -68,6 +68,7 @@ impl ModelDiscovery {
                             // Knowledge base is the authoritative source for
                             // capability parameters — always override API values.
                             model.reasoning = params.reasoning;
+                            model.reasoning_levels = params.reasoning_levels;
                             model.context_window = params.context_window;
                             model.max_tokens = params.max_tokens;
                             model.default_temperature = Some(params.default_temperature);

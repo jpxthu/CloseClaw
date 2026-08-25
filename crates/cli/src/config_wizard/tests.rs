@@ -1,5 +1,20 @@
 //! Tests for the config wizard
 use super::*;
+use closeclaw_llm::ReasoningLevels;
+
+#[cfg(test)]
+fn test_model(id: &str) -> ModelInfo {
+    ModelInfo {
+        id: id.to_string(),
+        name: id.to_string(),
+        context_window: 1000,
+        max_tokens: 1000,
+        default_temperature: None,
+        reasoning: false,
+        reasoning_levels: ReasoningLevels::None,
+        input_types: vec![],
+    }
+}
 
 #[cfg(test)]
 mod parse_model_selection_tests {
@@ -98,7 +113,6 @@ mod wizard_context_tests {
 mod provider_config_protocol_tests {
     use closeclaw_config::providers::models::{ModelDefinition, ProviderConfig};
 
-    /// Test: ProviderConfig serializes with protocol field present
     #[test]
     fn test_provider_config_serializes_with_protocol() {
         let config = ProviderConfig {
@@ -121,7 +135,6 @@ mod provider_config_protocol_tests {
         );
     }
 
-    /// Test: ProviderConfig serializes with protocol field as null when None
     #[test]
     fn test_provider_config_serializes_with_protocol_null() {
         let config = ProviderConfig {
@@ -186,7 +199,6 @@ mod write_wizard_config_tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// Helper: write initial ModelsConfigData to models.json
     fn write_initial_config(
         tmp: &TempDir,
         providers: std::collections::HashMap<String, ProviderConfig>,
@@ -204,7 +216,6 @@ mod write_wizard_config_tests {
         .unwrap();
     }
 
-    /// Helper: create a WizardOutput
     fn make_wizard_output(
         provider_id: &str,
         credential: &str,
@@ -217,7 +228,6 @@ mod write_wizard_config_tests {
         }
     }
 
-    /// Helper: create a simple ModelInfo
     fn make_model(id: &str, name: &str, context_window: u32, max_tokens: u32) -> ModelInfo {
         ModelInfo {
             id: id.to_string(),
@@ -226,11 +236,11 @@ mod write_wizard_config_tests {
             max_tokens,
             default_temperature: None,
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }
     }
 
-    /// Helper: create a simple ModelDefinition
     fn make_model_def(id: &str, name: &str, enabled: bool) -> ModelDefinition {
         ModelDefinition {
             id: id.to_string(),
@@ -239,7 +249,6 @@ mod write_wizard_config_tests {
         }
     }
 
-    /// Helper: read and parse models.json
     fn read_parsed_config(tmp: &TempDir) -> ModelsConfigData {
         let models_path = tmp.path().join("models.json");
         let content = std::fs::read_to_string(&models_path).unwrap();
@@ -260,6 +269,7 @@ mod write_wizard_config_tests {
                 max_tokens: 1000,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -304,6 +314,7 @@ mod write_wizard_config_tests {
                 max_tokens: 1000,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -337,6 +348,7 @@ mod write_wizard_config_tests {
                 max_tokens: 1000,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -413,6 +425,7 @@ mod write_wizard_config_tests {
                 max_tokens: 1000,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -429,6 +442,7 @@ mod write_wizard_config_tests {
                 max_tokens: 2000,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -541,6 +555,7 @@ mod write_wizard_config_tests {
                 max_tokens: 1000,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -589,8 +604,6 @@ mod ensure_master_agent_tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// Helper: create isolated config_dir and agents_dir inside a TempDir.
-    /// Returns (config_dir, agents_dir).
     fn isolated_dirs(tmp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
         let config_dir = tmp.path().join("config");
         let agents_dir = tmp.path().join("agents");
@@ -599,7 +612,6 @@ mod ensure_master_agent_tests {
         (config_dir, agents_dir)
     }
 
-    /// Helper: assert master agent config.json has expected defaults.
     fn assert_master_config(config_path: &std::path::Path) {
         assert!(config_path.exists(), "master config.json should exist");
         let content = std::fs::read_to_string(config_path).unwrap();
@@ -620,7 +632,6 @@ mod ensure_master_agent_tests {
         assert!(config.disallowed_tools.is_empty());
     }
 
-    /// Helper: assert agents.json contains exactly the given agent IDs.
     fn assert_agents_json(agents_json_path: &std::path::Path, expected: &[&str]) {
         assert!(agents_json_path.exists(), "agents.json should exist");
         let content = std::fs::read_to_string(agents_json_path).unwrap();
@@ -804,31 +815,18 @@ mod provider_info_tests {
 #[cfg(test)]
 mod compute_default_selection_tests {
     use super::compute_default_selection;
-    use closeclaw_llm::model_info::ModelInfo;
     use std::collections::HashSet;
-
-    fn make_model(id: &str) -> ModelInfo {
-        ModelInfo {
-            id: id.to_string(),
-            name: id.to_string(),
-            context_window: 1000,
-            max_tokens: 1000,
-            default_temperature: None,
-            reasoning: false,
-            input_types: vec![],
-        }
-    }
 
     #[test]
     fn test_no_configured_models_returns_empty() {
-        let models = vec![make_model("a"), make_model("b"), make_model("c")];
+        let models = vec![test_model("a"), test_model("b"), test_model("c")];
         let configured = HashSet::new();
         assert_eq!(compute_default_selection(&models, &configured), "");
     }
 
     #[test]
     fn test_single_configured_model() {
-        let models = vec![make_model("a"), make_model("b"), make_model("c")];
+        let models = vec![test_model("a"), test_model("b"), test_model("c")];
         let mut configured = HashSet::new();
         configured.insert("b".to_string());
         assert_eq!(compute_default_selection(&models, &configured), "2");
@@ -837,10 +835,10 @@ mod compute_default_selection_tests {
     #[test]
     fn test_multiple_configured_models_sorted() {
         let models = vec![
-            make_model("a"),
-            make_model("b"),
-            make_model("c"),
-            make_model("d"),
+            test_model("a"),
+            test_model("b"),
+            test_model("c"),
+            test_model("d"),
         ];
         let mut configured = HashSet::new();
         configured.insert("d".to_string());
@@ -850,7 +848,7 @@ mod compute_default_selection_tests {
 
     #[test]
     fn test_all_models_configured() {
-        let models = vec![make_model("a"), make_model("b"), make_model("c")];
+        let models = vec![test_model("a"), test_model("b"), test_model("c")];
         let configured: HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
         assert_eq!(compute_default_selection(&models, &configured), "1,2,3");
     }
@@ -865,7 +863,7 @@ mod compute_default_selection_tests {
 
     #[test]
     fn test_configured_ids_not_in_models_ignored() {
-        let models = vec![make_model("a"), make_model("b")];
+        let models = vec![test_model("a"), test_model("b")];
         let mut configured = HashSet::new();
         configured.insert("x".to_string());
         configured.insert("y".to_string());
@@ -892,6 +890,7 @@ mod write_wizard_config_api_key_clearing_tests {
                 max_tokens: 4_096,
                 default_temperature: Some(0.7),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -952,6 +951,7 @@ mod write_wizard_config_api_key_clearing_tests {
                 max_tokens: 8_192,
                 default_temperature: None,
                 reasoning: true,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
