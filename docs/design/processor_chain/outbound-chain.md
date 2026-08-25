@@ -30,7 +30,7 @@ Processor 链（出站，按 priority 升序执行）
 ProcessedMessage { content_blocks, metadata }
   ↓
 Gateway 选择目标平台 IM 插件
-  → 接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）+ DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)）
+  → 接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）+ DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)）
   → 按块类型选择渲染策略
   → 输出平台原生格式并发送
 
@@ -82,7 +82,7 @@ Verbosity 过滤等级定义见 [slash 模块 verbose 指令](../slash/verbose.m
 - **Gateway** — 编排 Processor Chain 调度，将 ContentBlock[] 传入链
 - **Session** — LLM 对话产出的 ContentBlock[]，经 Gateway 传递进入链，属数据流上游依赖
 - **SlashDispatcher** — 斜杠指令回复的 ContentBlock[]
-- **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费 ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)），渲染为平台格式并发送）
+- **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费 ContentBlock[] + DslParseResult（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)），渲染为平台格式并发送）
 - **链内**：
   - VerbosityFilter — 按 Session Verbosity 等级逐块过滤内容，优先于 DSL 解析
   - DslParser — 解析 DSL 指令，为渲染提供交互数据

@@ -171,3 +171,7 @@ LLM 需了解延迟工具详情
 |------|------|
 | Processor Chain | 工具不参与消息出站处理 |
 | Renderer | 工具不参与平台渲染 |
+
+### 共享类型 / 核心 trait
+
+- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费：ToolSession、AgentToolsConfigQuery）

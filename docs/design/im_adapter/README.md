@@ -98,7 +98,7 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 1. LLM 输出 ContentBlock[]。
 2. Processor Chain 出站（DslParser）。
 3. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)。
-4. IMPlugin 渲染：渲染接口接收 ContentBlock[] 与 DSL 解析结果（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
+4. IMPlugin 渲染：渲染接口接收 ContentBlock[] 与 DSL 解析结果（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
 5. 中间件插入点：Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件。
 6. IMPlugin 发送：发送接口将渲染结果按 peer_id、thread_id 投递到平台。← 日志：平台 API 发送（平台、目标、耗时）
 ```
@@ -111,4 +111,5 @@ peer_id 和 thread_id 来源于入站时 IM Adapter 填入 NormalizedMessage 的
 
 - **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）、Config（accounts.json：入站解析时查询身份映射表，将 sender_id 转为 account_id）
 - **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）、debug_log（入站解析、出站渲染、平台发送各环节记录调试日志）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、IMPlugin、StreamingRenderer；消费：IdentityResolver）
 - **无关**：Session（IMPlugin 不直接参与 session 生命周期管理；peer_id/thread_id 经 Session 上下文存储后由 Gateway 在出站时取出传入）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）

@@ -137,7 +137,9 @@ docs/design/common/
 
 **common 的边界尤其严格**：common crate 中定义的 pub trait 和 pub struct 必须已在 `docs/design/common/` 的设计文档中唯一定义。反之亦然——已在 common 设计文档中定义的类型和 trait，代码中必须位于 common crate（或其子 crate）。
 
-若代码中 common crate 存在未在设计文档中定义的类型或 trait：→ 代码放错了，应移至对应领域模块的 crate，不是文档缺了。
+若代码中 common crate 存在未在设计文档中定义的类型或 trait：先按「common 文档内容准入标准」判定归属——
+- 满足准入条件（被 2+ 模块消费的共享类型 / 被 2+ 模块实现或消费的 DI trait）：属文档缺口，应补进 common 文档，代码留在 common crate；
+- 不满足准入条件（仅被单一模块定义和消费的类型/trait）：代码放错了，应移至对应领域模块的 crate。
 
 ## 红线
 

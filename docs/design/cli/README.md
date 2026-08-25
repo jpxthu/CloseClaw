@@ -66,4 +66,5 @@ CLI 支持 Linux、macOS 及 Windows（经 WSL2，行为等同 Linux）。OS 差
 
 - **上游**：操作系统终端（stdin / 命令参数）、用户、Gateway（Chat 层出站方向通过 IMPlugin trait 调用 TerminalPlugin 发送渲染结果）
 - **下游**：Gateway（Chat 层产 NormalizedMessage 入站路由，消费 ContentBlock[] 出站）、daemon（run/stop 启停；agent/skill 命令经管理 RPC 查询与操作 daemon 状态）、Config 模块（config 命令写配置）、Permission 模块（rule 命令只读查看权限规则）、LLM 模块（config setup 向导调用模型发现）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：IMPlugin）
 - **无关**：IM Adapter 各平台实现（terminal 渠道与飞书/Discord 平级，实现位于 cli/ 模块，无相互调用）
