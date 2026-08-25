@@ -1,43 +1,68 @@
 //! Interactive chat REPL via the terminal channel.
 //!
-//! Connects to the daemon's chat RPC server over a Unix domain socket
-//! and routes user input through the daemon's full inbound/outbound
-//! message pipeline via RPC.
+//! Creates an in-process Gateway instance with a registered TerminalPlugin.
+//! User input flows through the inbound processor chain, is routed by the
+//! Gateway, and outbound responses are rendered back to stdout.
+//!
+//! Startup verifies daemon reachability via the admin socket — the daemon
+//! must already be running (started with `closeclaw run`).
 
 pub mod rpc;
 
 use std::io::{self, Write};
+use std::sync::Arc;
 
-use crate::chat::rpc::client::{chat_socket_path, ChatRpcClient};
-use crate::chat::rpc::ChatResponse;
-use crate::terminal::TerminalAdapter;
+use closeclaw_gateway::{Gateway, GatewayConfig, HandleResult, SessionManager};
+use closeclaw_session::persistence::ReasoningLevel;
+
+use crate::admin::rpc::client::{admin_socket_path, AdminClient};
+use crate::terminal::{TerminalAdapter, TerminalPlugin};
 
 /// Why the REPL loop exited.
 enum ExitReason {
     /// User typed quit or exit.
     Quit,
-    /// unrecoverable error occurred.
+    /// An unrecoverable error occurred.
     Error(anyhow::Error),
 }
 
 /// Run the interactive chat REPL.
 ///
-/// 1. Connect to daemon via chat RPC socket.
-/// 2. Loop: read user input → send via RPC → print rendered response.
+/// 1. Verify the daemon is reachable (admin socket ping).
+/// 2. Create an in-process Gateway + TerminalPlugin.
+/// 3. Loop: read user input → process through Gateway → render output.
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     let config_dir = dirs::home_dir()
         .map(|h| h.join(".closeclaw"))
         .unwrap_or_else(|| std::path::PathBuf::from(".closeclaw"));
-    let socket_path = chat_socket_path(&config_dir);
-    let client = ChatRpcClient::new(&socket_path);
 
-    // Check daemon is reachable.
-    if !client.ping().await {
+    // ── Step 0: daemon reachability check ──────────────────────────
+    let admin_sock = admin_socket_path(&config_dir);
+    let admin = AdminClient::new(admin_sock.to_string_lossy().to_string());
+    if !admin.ping().await {
         anyhow::bail!(
-            "daemon is not running or chat socket not found at {}",
-            socket_path.display()
+            "daemon is not running or admin socket not found at {}\n\
+             Start the daemon first: closeclaw run",
+            admin_sock.display()
         );
     }
+
+    // ── Gateway + TerminalPlugin setup ─────────────────────────────
+    let gateway_config = GatewayConfig {
+        name: "cli-chat".to_string(),
+        ..Default::default()
+    };
+    let session_manager = Arc::new(SessionManager::new(
+        &gateway_config,
+        None,
+        Some(config_dir.clone()),
+        ReasoningLevel::default(),
+    ));
+    let gateway = Arc::new(Gateway::new(gateway_config, Arc::clone(&session_manager)));
+    gateway.set_self_ref(Arc::clone(&gateway));
+
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
+    gateway.register_plugin(plugin).await;
 
     println!("CloseClaw Chat — agent: {}", agent_id);
     println!(
@@ -45,25 +70,17 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
          Type 'quit' or 'exit' to stop.\n"
     );
 
-    match repl_loop(&client, agent_id).await {
+    match repl_loop(&gateway, agent_id).await {
         ExitReason::Quit => Ok(()),
         ExitReason::Error(e) => Err(e),
     }
 }
 
-/// Action to take after handling an RPC response chunk.
-enum ChunkAction {
-    /// Continue reading more chunks.
-    Continue,
-    /// Break out of the streaming inner loop (e.g., Done received).
-    Break,
-}
-
-/// Run the read-eval-print loop over RPC.
+/// Run the read-eval-print loop through the Gateway.
 ///
-/// Returns [`ExitReason::Quit`] when the user exits normally, or
-/// [`ExitReason::Error`] on I/O failure.
-async fn repl_loop(client: &ChatRpcClient, agent_id: &str) -> ExitReason {
+/// Each user input is processed through the inbound processor chain,
+/// routed by the Gateway, and the response is rendered to stdout.
+async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str) -> ExitReason {
     let adapter = TerminalAdapter::new();
 
     loop {
@@ -80,76 +97,42 @@ async fn repl_loop(client: &ChatRpcClient, agent_id: &str) -> ExitReason {
 
         let content = message.content.trim().to_string();
 
-        // Handle quit/exit locally before sending to daemon.
+        // Handle quit/exit locally before routing through Gateway.
         let lower = content.to_ascii_lowercase();
         if lower == "quit" || lower == "exit" {
             println!("Goodbye!");
             return ExitReason::Quit;
         }
 
-        // Send message via RPC.
-        let mut stream = match client.send_message(agent_id, &content).await {
-            Ok(s) => s,
-            Err(e) => {
-                return ExitReason::Error(anyhow::anyhow!("RPC send failed: {}", e));
-            }
-        };
+        // Process through Gateway inbound chain.
+        let processed = gateway.process_inbound_chain(&message).await;
 
-        // Read streaming response chunks.
-        loop {
-            match stream.next().await {
-                Ok(Some(response)) => match handle_rpc_response_chunk(response) {
-                    ChunkAction::Continue => {}
-                    ChunkAction::Break => break,
-                },
-                Ok(None) => break,
-                Err(e) => {
-                    return ExitReason::Error(anyhow::anyhow!("RPC receive failed: {}", e));
-                }
+        // Route through Gateway.
+        let result = gateway
+            .handle_inbound_message(processed, Some(&message.sender_id), "terminal")
+            .await;
+
+        match result {
+            Some(HandleResult::LlmStarted) => {
+                // Streaming output is rendered by the TerminalPlugin
+                // through the Gateway's outbound pipeline. Wait briefly
+                // for the streaming task to start.
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Some(HandleResult::SlashHandled) => {}
+            Some(HandleResult::MessageQueued(text)) => {
+                println!("{}", text);
+            }
+            Some(HandleResult::Error(msg)) => {
+                eprintln!("Error: {}", msg);
+            }
+            Some(HandleResult::ApprovalProcessed) => {}
+            None => {
+                eprintln!("(message not processed — no session handler)");
             }
         }
 
         println!();
-    }
-}
-
-/// Handle a single RPC response chunk.
-///
-/// Returns an action indicating whether to continue reading or break the
-/// streaming loop.
-fn handle_rpc_response_chunk(response: ChatResponse) -> ChunkAction {
-    match response {
-        ChatResponse::ContentChunk { text } => {
-            print!("{}", text);
-            let _ = io::stdout().flush();
-            ChunkAction::Continue
-        }
-        ChatResponse::ThinkingChunk { text } => {
-            if !text.is_empty() {
-                eprint!("[Thinking] ");
-                eprint!("{}", text);
-                eprintln!("[end of thinking]");
-            }
-            ChunkAction::Continue
-        }
-        ChatResponse::ToolUseChunk { name, input } => {
-            eprintln!("(tool use: {} — {})", name, input);
-            ChunkAction::Continue
-        }
-        ChatResponse::ToolResultChunk { name, output } => {
-            eprintln!("(tool result: {} — {})", name, output);
-            ChunkAction::Continue
-        }
-        ChatResponse::SessionStarted { session_key } => {
-            eprintln!("[session: {}]", session_key);
-            ChunkAction::Continue
-        }
-        ChatResponse::Error { message } => {
-            eprintln!("Error: {}", message);
-            ChunkAction::Continue
-        }
-        ChatResponse::Done => ChunkAction::Break,
-        ChatResponse::Pong => ChunkAction::Continue,
     }
 }
 

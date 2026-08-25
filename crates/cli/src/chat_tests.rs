@@ -2,7 +2,7 @@
 //!
 //! Verifies quit/exit detection, stop routing, inbound processor chain
 //! behavior, NormalizedMessage field mapping, streaming wait conditions,
-//! build_gateway removal, and RPC integration via mock server.
+//! Gateway architecture verification, and RPC client integration via mock server.
 
 use closeclaw_common::NormalizedMessage;
 use closeclaw_gateway::{GatewayConfig, SessionManager};
@@ -367,48 +367,34 @@ fn test_should_wait_llm_started_empty_session_key() {
     ));
 }
 
-// ── build_gateway removal verification ──────────────────────────────────────
+// ── Gateway architecture verification ──────────────────────────────────────
 
-/// Verify that `build_gateway` function no longer exists in the chat module.
+/// Verify the chat module creates a Gateway instance and registers TerminalPlugin.
 ///
-/// This test ensures the CLI no longer self-constructs a Gateway. If someone
-/// accidentally reintroduces `build_gateway`, this test will fail at compile
-/// time (the function reference won't resolve) or at runtime (the function
-/// won't exist).
+/// This test ensures the CLI uses the Gateway-based architecture (Step 1.2)
+/// rather than the old RPC client pattern.
 #[test]
-fn test_build_gateway_removed() {
-    // Verify that the chat module source no longer references build_gateway.
+fn test_chat_module_uses_gateway_not_rpc() {
     let module_source = include_str!("chat/mod.rs");
     assert!(
-        !module_source.contains("build_gateway"),
-        "chat/mod.rs still references build_gateway — it should have been removed"
+        module_source.contains("Gateway::new"),
+        "chat/mod.rs should construct Gateway directly"
     );
-    // Verify run_chat still exists (the new RPC-based implementation)
+    assert!(
+        module_source.contains("SessionManager::new"),
+        "chat/mod.rs should construct SessionManager"
+    );
+    assert!(
+        module_source.contains("TerminalPlugin"),
+        "chat/mod.rs should register TerminalPlugin"
+    );
+    assert!(
+        module_source.contains("admin"),
+        "chat/mod.rs should check daemon reachability via admin socket"
+    );
     assert!(
         module_source.contains("async fn run_chat"),
         "chat/mod.rs should still have run_chat function"
-    );
-}
-
-/// Verify the chat module source uses RPC client, not self-built Gateway.
-#[test]
-fn test_chat_module_uses_rpc_not_gateway() {
-    let module_source = include_str!("chat/mod.rs");
-    assert!(
-        module_source.contains("ChatRpcClient"),
-        "chat/mod.rs should use ChatRpcClient"
-    );
-    assert!(
-        !module_source.contains("Gateway::new"),
-        "chat/mod.rs should not construct Gateway directly"
-    );
-    assert!(
-        !module_source.contains("SessionManager::new"),
-        "chat/mod.rs should not construct SessionManager directly"
-    );
-    assert!(
-        !module_source.contains("ProcessorRegistry"),
-        "chat/mod.rs should not reference ProcessorRegistry"
     );
 }
 
