@@ -87,6 +87,10 @@ Session 创建 / 恢复 / Compaction
 - **PromptFragmentProvider**（定义见 [common/core-traits](../common/core-traits.md#promptfragmentprovider)）：System Prompt Builder 通过此 trait 获取各来源的片段。各 Provider 实现分别调用 Bootstrap Loader、ToolRegistry、SkillRegistry 和 MEMORY.md。
 - **Cache Adapter**：接收已切分的静态区和动态区字段，对静态层注入缓存控制参数。详见 [llm/cache-adapter](../llm/cache-adapter.md)。
 
+### 共享类型 / 核心 trait
+
+- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder）
+
 ### 无关
 
 - **LLM Provider**：构建流程本身不调用 provider，构建完成后通过 ConversationSession 传递。

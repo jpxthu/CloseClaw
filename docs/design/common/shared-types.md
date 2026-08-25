@@ -26,6 +26,8 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 | `media_refs` | list(MediaRef) | 图片/文件/音频的引用列表，每个元素为 MediaRef 结构（含 `key` 资源标识和 `url` 访问地址）。由 Adapter 负责下载到本地临时路径 |
 | `timestamp` | int | 消息发送时间（毫秒级 Unix 时间戳） |
 
+**机器人身份（app_id）**：机器人自身标识（app_id）不属于 NormalizedMessage 字段。IM Adapter 在入站解析时单独提取 app_id，不经归一化结构传递，直接交给 Gateway 用于 Agent 路由（选择处理该机器人消息的 Agent）。
+
 **引用/回复消息处理**：IM Adapter 在解析被引用的消息时，将其内容渲染为 markdown blockquote（`> 引用内容`），截断至 500 字符（超出追加 `...`），拼接在 `content` 字段之前。不传递独立的引用消息字段——LLM 在对话文本中直接看到 blockquote。
 
 **消息过滤规则**：text 类型空 content 消息在解析阶段丢弃，不产生 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。当前多模态未支持，所有非文本消息由 Gateway 构造错误回复并经简化出站路径发送（跳过 VerbosityFilter 和 DslParser，直接打包 ProcessedMessage 后出站）。
@@ -46,6 +48,8 @@ NormalizedMessage 中引用的子结构：
 |------|------|------|
 | `key` | string | 资源标识，平台内的唯一 key |
 | `url` | string | 资源访问地址，Adapter 据此下载到本地临时路径 |
+
+`key` 与出站 [ContentBlock](#contentblock) 非文本变体的 `name` 均表示资源标识，语义等价——命名差异源于入站（MediaRef）与出站（ContentBlock）两套独立结构。
 
 ### ContentBlock
 
@@ -84,7 +88,7 @@ Image/Audio/File 三个变体结构相同，字段定义：
 - **输出格式决策**：各平台 Renderer 按内容特征选择输出格式（纯文本 vs 富格式），完整规则见 [RenderedOutput §输出格式决策](#renderedoutput)
 - **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)
 
-DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中，供下游 Renderer 消费。DslInstruction 是单条 DSL 指令的结构化表示。
+DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中。批量模式下供下游 Renderer 消费（渲染为平台交互元素）；流式模式下仅用于日志记录和出站历史写入，不产生渲染输出。DslInstruction 是单条 DSL 指令的结构化表示。
 
 DSL 指令是消息中的交互元素（按钮、选择器等），每条为一行，格式为 `::type[key1:value1;key2:value2;...]`。例如 `::button[label:确认;action:confirm;value:1]` 和 `::selector[label:选颜色;options:红,蓝;action:pick]`。DslParser 遍历 ContentBlock::Text 逐行扫描，匹配 DSL 格式的行解析为 DslInstruction，从 Text 块中移除 DSL 行后与其他 ContentBlock 一并传递。DslParser 仅处理 Text 变体，其余变体透传。
 
@@ -159,6 +163,14 @@ SlashResult 共 10 种变体：
 **边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。
 
 **SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于模式切换、会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `session_id` | string | 斜杠指令所在的会话 ID |
+| `channel` | string | 渠道标识（如 `"feishu"`、`"terminal"`） |
+| `session_manager` | SessionLookup | 会话状态查询接口（见 [core-traits SessionLookup](core-traits.md#sessionlookup)） |
+| `reply_tx` | 回复通道 | ReplyAction 通道，SlashResult 执行时回发回复内容 |
+| `executor` | SlashEffectExecutor | 斜杠指令副作用执行接口（见 [core-traits SlashEffectExecutor](core-traits.md#slasheffectexecutor)） |
 
 **与 ContentBlock[] 的关系**：SlashResult 各变体在执行中通过 SideEffectContext 的回复通道产出 ContentBlock[]，进入出站 Processor Chain——与 LLM 的 UnifiedResponse 走同一条出站处理路径（VerbosityFilter → DslParser → OutboundRawLog → IM Adapter 渲染发送）。
 
@@ -290,7 +302,7 @@ Renderer 消费 DslParseResult：
   └── 其他指令类型 → Renderer 按平台能力处理或忽略
 ```
 
-DslParseResult 的生命周期始于 DslParser 解析、终于 Renderer 渲染。中间经 OutboundRawLog（Processor Chain 出站日志）和 [ProcessedMessage](#processedmessage) 传递。DslParseResult 本身不被 Verbosity 过滤影响——DslParser 仅处理已通过过滤的 ContentBlock[]，因此 DslParseResult 中只包含可见块中的 DSL 指令。
+DslParseResult 的生命周期始于 DslParser 解析、终于 Renderer 渲染（批量模式）或出站历史写入（流式模式，仅日志不渲染）。中间经 OutboundRawLog（Processor Chain 出站日志）和 [ProcessedMessage](#processedmessage) 传递。DslParseResult 本身不被 Verbosity 过滤影响——DslParser 仅处理已通过过滤的 ContentBlock[]，因此 DslParseResult 中只包含可见块中的 DSL 指令。
 
 ### ProcessedMessage
 

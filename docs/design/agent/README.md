@@ -130,4 +130,6 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 ### 共享类型
 
 Agent 模块产出的配置数据由 Config 模块加载为 `ResolvedAgentConfig`，被 Session/Permission 等多个模块消费。共享类型定义见 [agent-config.md](agent-config.md) §配置字段。
+
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：AgentSkillsQuery、AgentToolsConfigQuery）
 </tool_result>

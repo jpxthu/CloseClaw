@@ -93,6 +93,7 @@ Renderer 接收 ContentBlock[] 和 DSL 解析结果，按块类型选择渲染�
 
 - **上游**：Gateway（调度链执行）、Session（LLM 对话产出的 ContentBlock[]，属出站数据流上游）、IM Adapter（入站方向：产出 NormalizedMessage 供链消费）
 - **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费链输出并渲染为平台格式，发送渲染后的消息）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ProcessorChain）
 - **无关**：入站与出站 Processor Chain 互为独立链路，互不干扰
 - **间接相关**：Slash Command 模块（斜杠指令经入站链做 session_key 计算 + 内容清洗后由 Gateway 路由到 SlashDispatcher；SlashDispatcher 的输出经出站链 DSL 解析 + 日志后由 Renderer 回复。数据流双向穿越 Processor 链，但非直接调用依赖）
 

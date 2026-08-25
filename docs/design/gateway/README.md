@@ -162,13 +162,15 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 - [ProcessedMessage](../common/shared-types.md#processedmessage)：Processor Chain 产出，Gateway 消费
 - [ContentBlock](../common/shared-types.md#contentblock)：LLM 响应 / SlashResult 变体产出，Processor Chain 出站消费
 - [SlashResult](../common/shared-types.md#slashresult)：SlashDispatcher 产出，Gateway 消费
-- [DslParseResult](../common/shared-types.md#dslparseresult)：DslParser 产出，IM Adapter 消费（渲染）和 Gateway 消费（出站历史记录写入）
+- [DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)：DslParser 产出，IM Adapter 消费（渲染）和 Gateway 消费（出站历史记录写入）
 - SideEffectContext：Gateway 构造的执行上下文，封装 Session 引用和回复通道。定义见 [common SlashResult](../common/shared-types.md#slashresult)。Gateway 构造后触发 [SlashResult](../common/shared-types.md#slashresult) 执行，各变体通过上下文完成副作用
 - RenderedOutput：IM Adapter 渲染产出，Gateway 中间件消费（只读不修改），最终由 IM Adapter 发送接口投递
+
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ShutdownSignal；消费：IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor）
 
 ### 无关
 
 - **Bootstrap**（无调用关系）：Gateway 不参与 Bootstrap 加载
-- **System Prompt**（无调用关系）：Gateway 不参与 system prompt 构建或注入
+- **System Prompt**（仅注入不构建）：Gateway 不构建 system prompt 内容，但 SessionManager 持有 SystemPromptBuilder / DynamicPromptBuilder 并注入 session（DI 接线，见 [common core-traits](../common/core-traits.md)）
 - **LLM Provider**（无调用关系）：Gateway 不直接调用 LLM
 - **Tools**（无调用关系）：Gateway 不注册工具、不执行工具调用

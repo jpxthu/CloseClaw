@@ -105,3 +105,5 @@ dreaming 产出 MEMORY.md（可执行的行为规则）和 Dream Diary（可选�
 - **共享类型**：
   - `memory_injection` 槽位：session 与 memory 的跨模块写入契约，定义在 [session-injection](../session/session-injection.md)（session 所有，memory 写入、session 消费）
   - sessions 表 `mined` / `mined_at` 字段：session 表的挖掘标记字段，memory-miner 写入
+
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider；消费：LlmCaller）
