@@ -410,7 +410,7 @@ async fn test_ok_backward_compat_cache_none() {
     assert_eq!(usage.total_tokens, Some(20));
 
     let provider = FakeProvider::builder().then_ok("hello", "model").build();
-    let resp = provider
+    let _resp = provider
         .send(make_request(), serde_json::Value::Null)
         .await
         .unwrap();

@@ -309,29 +309,41 @@ impl FakeProvider {
                 });
             }
             let usage = scenario.raw_usage();
-            // Convert content blocks to a simple JSON representation
-            let content_json: Vec<serde_json::Value> = content_blocks
+            // Concatenate Text blocks into a plain string to match
+            // OpenAI wire format (content is a string, not an array).
+            let content_string: String = content_blocks
                 .iter()
-                .map(|block| match block {
-                    RawContentBlock::Text(s) => serde_json::json!({"type": "text", "text": s}),
-                    RawContentBlock::Thinking { thinking, signature } => {
-                        let mut v = serde_json::json!({"type": "thinking", "thinking": thinking});
-                        if let Some(sig) = signature {
-                            v["signature"] = serde_json::json!(sig);
+                .filter_map(|block| match block {
+                    RawContentBlock::Text(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .concat();
+            // Collect ToolUse blocks into the tool_calls field.
+            let tool_calls: Vec<serde_json::Value> = content_blocks
+                .iter()
+                .filter_map(|block| match block {
+                    RawContentBlock::ToolUse { id, name, input } => Some(serde_json::json!({
+                        "id": id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": input
                         }
-                        v
-                    }
-                    RawContentBlock::ToolUse { id, name, input } => {
-                        serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": input})
-                    }
+                    })),
+                    _ => None,
                 })
                 .collect();
+            let mut message = serde_json::json!({
+                "role": "assistant",
+                "content": content_string
+            });
+            if !tool_calls.is_empty() {
+                message["tool_calls"] = serde_json::json!(tool_calls);
+            }
             return Ok(serde_json::json!({
                 "choices": [{
-                    "message": {
-                        "role": "assistant",
-                        "content": content_json
-                    },
+                    "message": message,
                     "finish_reason": null
                 }],
                 "usage": {
