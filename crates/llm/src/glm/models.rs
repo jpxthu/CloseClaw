@@ -79,7 +79,7 @@ impl GlmProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         let api_resp: GlmModelsResponse = response.json().await.map_err(ProviderError::Reqwest)?;
@@ -98,6 +98,6 @@ impl ModelLister for GlmProvider {
     ) -> std::result::Result<Vec<ModelInfo>, crate::LLMError> {
         self.fetch_model_list_impl(bearer_token)
             .await
-            .map_err(|e| crate::LLMError::ApiError(e.to_string()))
+            .map_err(|e| crate::LLMError::from(&e))
     }
 }

@@ -134,16 +134,6 @@ impl VolcEngineProvider {
             supported_protocols: vec![ProtocolId::new("openai")],
         }
     }
-
-    fn map_http_error(status: reqwest::StatusCode, body: &str) -> LLMError {
-        match status.as_u16() {
-            401 | 403 => LLMError::AuthFailed(body.to_string()),
-            404 => LLMError::ModelNotFound(body.to_string()),
-            422 => LLMError::InvalidRequest(body.to_string()),
-            429 => LLMError::RateLimitExceeded,
-            _ => LLMError::ApiError(format!("unexpected status {}: {}", status, body)),
-        }
-    }
 }
 
 // ── Provider trait implementation ─────────────────────────────────────────────
@@ -194,10 +184,7 @@ impl Provider for VolcEngineProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(ProviderError::Legacy(format!(
-                "VolcEngine API error {}: {}",
-                status, body
-            )));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         let vol_resp: VolcEngineResponse = response.json().await.map_err(ProviderError::Reqwest)?;
@@ -262,11 +249,9 @@ impl Provider for VolcEngineProvider {
 
         if !response.status().is_success() {
             let status = response.status();
+            let retry_after = crate::provider::parse_retry_after(response.headers());
             let body = response.text().await.unwrap_or_default();
-            return Err(ProviderError::Legacy(format!(
-                "VolcEngine API error {}: {}",
-                status, body
-            )));
+            return Err(crate::provider::map_http_error(status, body, retry_after));
         }
 
         let (tx, rx) = mpsc::channel(64);
@@ -343,7 +328,9 @@ impl ModelLister for VolcEngineProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_http_error(status, &body));
+            return Err(LLMError::from(&crate::provider::map_http_error(
+                status, body, None,
+            )));
         }
 
         let api_resp: VolcEngineModelsResponse = response.json().await.map_err(|e| {

@@ -155,7 +155,7 @@ async fn test_provider_send_auth_failure_mock() {
     let err = Provider::send(&provider, req, body).await.unwrap_err();
 
     m.assert_async().await;
-    assert!(matches!(err, ProviderError::Legacy(_)));
+    assert!(matches!(err, ProviderError::Http { .. }));
 }
 
 #[tokio::test]
@@ -175,7 +175,7 @@ async fn test_provider_send_rate_limit_mock() {
     let err = Provider::send(&provider, req, body).await.unwrap_err();
 
     m.assert_async().await;
-    assert!(matches!(err, ProviderError::Legacy(_)));
+    assert!(matches!(err, ProviderError::Http { .. }));
 }
 
 #[tokio::test]
@@ -397,7 +397,7 @@ async fn test_provider_send_streaming_auth_failure_mock() {
         .unwrap_err();
 
     m.assert_async().await;
-    assert!(matches!(err, ProviderError::Legacy(_)));
+    assert!(matches!(err, ProviderError::Http { .. }));
 }
 
 #[tokio::test]
@@ -419,7 +419,7 @@ async fn test_provider_send_streaming_rate_limit_mock() {
         .unwrap_err();
 
     m.assert_async().await;
-    assert!(matches!(err, ProviderError::Legacy(_)));
+    assert!(matches!(err, ProviderError::Http { .. }));
 }
 
 // --- fetch_model_list knowledge base filling tests ---
