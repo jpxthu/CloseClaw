@@ -25,7 +25,7 @@ fn make_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)

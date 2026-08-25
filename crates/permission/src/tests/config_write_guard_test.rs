@@ -158,7 +158,7 @@ fn test_check_message_action() {
         .default_message(Effect::Allow)
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)

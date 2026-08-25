@@ -21,11 +21,7 @@ fn test_user_defaults_all_deny() {
         Effect::Deny,
         "user_defaults.file_write should be Deny"
     );
-    assert_eq!(
-        ud.command,
-        Effect::Deny,
-        "user_defaults.command should be Deny"
-    );
+    assert_eq!(ud.exec, Effect::Deny, "user_defaults.exec should be Deny");
     assert_eq!(
         ud.network,
         Effect::Deny,
@@ -69,7 +65,7 @@ fn test_user_defaults_differs_from_engine_default() {
     // All other fields are identical
     assert_eq!(engine_default.file_read, user_default.file_read);
     assert_eq!(engine_default.file_write, user_default.file_write);
-    assert_eq!(engine_default.command, user_default.command);
+    assert_eq!(engine_default.exec, user_default.exec);
     assert_eq!(engine_default.network, user_default.network);
     assert_eq!(engine_default.inter_agent, user_default.inter_agent);
     assert_eq!(engine_default.config, user_default.config);
@@ -87,7 +83,7 @@ fn test_build_permission_engine_user_defaults_are_all_deny() {
 
     assert_eq!(ud.file_read, Effect::Deny);
     assert_eq!(ud.file_write, Effect::Deny);
-    assert_eq!(ud.command, Effect::Deny);
+    assert_eq!(ud.exec, Effect::Deny);
     assert_eq!(ud.network, Effect::Deny);
     assert_eq!(ud.inter_agent, Effect::Deny);
     assert_eq!(ud.config, Effect::Deny);
