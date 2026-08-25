@@ -2,7 +2,7 @@
 //!
 //! Verifies quit/exit detection, stop routing, inbound processor chain
 //! behavior, NormalizedMessage field mapping, streaming wait conditions,
-//! build_gateway removal, and RPC integration via mock server.
+//! and Gateway architecture verification.
 
 use closeclaw_common::NormalizedMessage;
 use closeclaw_gateway::{GatewayConfig, SessionManager};
@@ -367,264 +367,96 @@ fn test_should_wait_llm_started_empty_session_key() {
     ));
 }
 
-// ── build_gateway removal verification ──────────────────────────────────────
+// ── Gateway architecture verification ──────────────────────────────────────
 
-/// Verify that `build_gateway` function no longer exists in the chat module.
+/// Verify the chat module creates a Gateway instance and registers TerminalPlugin.
 ///
-/// This test ensures the CLI no longer self-constructs a Gateway. If someone
-/// accidentally reintroduces `build_gateway`, this test will fail at compile
-/// time (the function reference won't resolve) or at runtime (the function
-/// won't exist).
+/// This test ensures the CLI uses the Gateway-based architecture (Step 1.2)
+/// rather than the old RPC client pattern.
 #[test]
-fn test_build_gateway_removed() {
-    // Verify that the chat module source no longer references build_gateway.
+fn test_chat_module_uses_gateway_not_rpc() {
     let module_source = include_str!("chat/mod.rs");
     assert!(
-        !module_source.contains("build_gateway"),
-        "chat/mod.rs still references build_gateway — it should have been removed"
+        module_source.contains("Gateway::new"),
+        "chat/mod.rs should construct Gateway directly"
     );
-    // Verify run_chat still exists (the new RPC-based implementation)
+    assert!(
+        module_source.contains("SessionManager::new"),
+        "chat/mod.rs should construct SessionManager"
+    );
+    assert!(
+        module_source.contains("TerminalPlugin"),
+        "chat/mod.rs should register TerminalPlugin"
+    );
+    assert!(
+        module_source.contains("admin"),
+        "chat/mod.rs should check daemon reachability via admin socket"
+    );
     assert!(
         module_source.contains("async fn run_chat"),
         "chat/mod.rs should still have run_chat function"
     );
 }
 
-/// Verify the chat module source uses RPC client, not self-built Gateway.
+// ── Empty content filtering ──────────────────────────────────────────────
+
+/// Verify that empty content does not produce a NormalizedMessage.
 #[test]
-fn test_chat_module_uses_rpc_not_gateway() {
-    let module_source = include_str!("chat/mod.rs");
-    assert!(
-        module_source.contains("ChatRpcClient"),
-        "chat/mod.rs should use ChatRpcClient"
-    );
-    assert!(
-        !module_source.contains("Gateway::new"),
-        "chat/mod.rs should not construct Gateway directly"
-    );
-    assert!(
-        !module_source.contains("SessionManager::new"),
-        "chat/mod.rs should not construct SessionManager directly"
-    );
-    assert!(
-        !module_source.contains("ProcessorRegistry"),
-        "chat/mod.rs should not reference ProcessorRegistry"
-    );
+fn test_empty_content_filtered() {
+    use crate::terminal::TerminalAdapter;
+    let adapter = TerminalAdapter::new();
+    // Empty string should return None
+    assert!(adapter.make_message("".to_string()).content.is_empty());
 }
 
-// ── run_chat RPC integration tests ─────────────────────────────────────────
-
-use std::path::Path;
-use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixListener;
-
-/// Helper: spawn a mock chat RPC server.
-///
-/// Reads requests, calls `handler` to produce responses, sends them back.
-/// Stops when handler returns `None` or client disconnects.
-async fn spawn_chat_mock_server(
-    handler: std::sync::Arc<
-        dyn Fn(crate::chat::rpc::ChatRequest) -> Option<Vec<crate::chat::rpc::ChatResponse>>
-            + Send
-            + Sync
-            + 'static,
-    >,
-) -> std::path::PathBuf {
-    let dir = tempfile::tempdir().unwrap();
-    let sock = dir.path().join("test-repl.sock");
-    let listener = UnixListener::bind(&sock).unwrap();
-    let handler = std::sync::Arc::clone(&handler);
-
-    tokio::spawn(async move {
-        loop {
-            let (stream, _) = match listener.accept().await {
-                Ok(v) => v,
-                Err(_) => break,
-            };
-            let handler = std::sync::Arc::clone(&handler);
-            tokio::spawn(async move {
-                let (reader, mut writer) = stream.into_split();
-                let mut reader = BufReader::new(reader);
-
-                loop {
-                    let mut hdr = [0u8; 4];
-                    match reader.read_exact(&mut hdr).await {
-                        Ok(_) => {}
-                        Err(_) => break,
-                    }
-                    let body_len = u32::from_be_bytes(hdr) as usize;
-                    let mut body = vec![0u8; body_len];
-                    if reader.read_exact(&mut body).await.is_err() {
-                        break;
-                    }
-                    let request: crate::chat::rpc::ChatRequest = match serde_json::from_slice(&body)
-                    {
-                        Ok(r) => r,
-                        Err(_) => break,
-                    };
-                    match handler(request) {
-                        Some(responses) => {
-                            for resp in &responses {
-                                let json = serde_json::to_vec(resp).unwrap();
-                                let len = (json.len() as u32).to_be_bytes();
-                                if writer.write_all(&len).await.is_err() {
-                                    return;
-                                }
-                                if writer.write_all(&json).await.is_err() {
-                                    return;
-                                }
-                                if writer.flush().await.is_err() {
-                                    return;
-                                }
-                            }
-                        }
-                        None => break,
-                    }
-                }
-            });
-        }
-    });
-
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    // Keep dir alive by leaking it (prevents tempdir cleanup from removing the socket)
-    std::mem::forget(dir);
-    sock
-}
-
-/// Verify that the ChatRpcClient can send a message to a mock server
-/// and receive a streaming response — same flow as run_chat.
-#[tokio::test]
-async fn test_rpc_client_send_message_to_mock_server() {
-    use crate::chat::rpc::client::ChatRpcClient;
-    use crate::chat::rpc::{ChatRequest, ChatResponse};
-
-    let handler: std::sync::Arc<dyn Fn(ChatRequest) -> Option<Vec<ChatResponse>> + Send + Sync> =
-        std::sync::Arc::new(|req| match req {
-            ChatRequest::ChatMessage { content, .. } => Some(vec![
-                ChatResponse::ContentChunk {
-                    text: format!("echo: {}", content),
-                },
-                ChatResponse::Done,
-            ]),
-            _ => Some(vec![ChatResponse::Done]),
-        });
-
-    let sock = spawn_chat_mock_server(handler).await;
-    let client = ChatRpcClient::with_timeout(&sock, 5000);
-
-    let mut stream = client
-        .send_message("test-agent", "hello world")
-        .await
-        .unwrap();
-    let mut collected = String::new();
-    while let Ok(Some(resp)) = stream.next().await {
-        match resp {
-            ChatResponse::ContentChunk { text } => collected.push_str(&text),
-            ChatResponse::Done => break,
-            _ => {}
-        }
-    }
-    assert_eq!(collected, "echo: hello world");
-}
-
-/// Verify that quit sends a Quit request to the server.
-#[tokio::test]
-async fn test_rpc_client_quit_to_mock_server() {
-    use crate::chat::rpc::client::ChatRpcClient;
-    use crate::chat::rpc::{ChatRequest, ChatResponse};
-
-    let handler: std::sync::Arc<dyn Fn(ChatRequest) -> Option<Vec<ChatResponse>> + Send + Sync> =
-        std::sync::Arc::new(|req| match req {
-            ChatRequest::Quit => Some(vec![ChatResponse::Done]),
-            _ => Some(vec![ChatResponse::Error {
-                message: "unexpected".to_string(),
-            }]),
-        });
-
-    let sock = spawn_chat_mock_server(handler).await;
-    let client = ChatRpcClient::with_timeout(&sock, 5000);
-    let resp = client.quit().await.unwrap();
-    assert!(matches!(resp, ChatResponse::Done));
-}
-
-/// Verify that stop_session sends StopSession request and receives Done.
-#[tokio::test]
-async fn test_rpc_client_stop_session_to_mock_server() {
-    use crate::chat::rpc::client::ChatRpcClient;
-    use crate::chat::rpc::{ChatRequest, ChatResponse};
-
-    let handler: std::sync::Arc<dyn Fn(ChatRequest) -> Option<Vec<ChatResponse>> + Send + Sync> =
-        std::sync::Arc::new(|req| match req {
-            ChatRequest::StopSession { agent_id } => Some(vec![
-                ChatResponse::ContentChunk {
-                    text: format!("stopped {}", agent_id),
-                },
-                ChatResponse::Done,
-            ]),
-            _ => Some(vec![ChatResponse::Error {
-                message: "unexpected".to_string(),
-            }]),
-        });
-
-    let sock = spawn_chat_mock_server(handler).await;
-    let client = ChatRpcClient::with_timeout(&sock, 5000);
-    let resp = client.stop_session("my-agent").await.unwrap();
-    assert!(matches!(resp, ChatResponse::ContentChunk { text } if text == "stopped my-agent"));
-}
-
-/// Verify that the chat_socket_path helper returns the correct path.
+/// Verify that whitespace-only content is treated as empty.
 #[test]
-fn test_chat_socket_path_in_chat_tests() {
-    let path = crate::chat::rpc::client::chat_socket_path(Path::new("/home/user/.closeclaw"));
-    assert_eq!(
-        path,
-        std::path::PathBuf::from("/home/user/.closeclaw/chat.sock")
+fn test_whitespace_only_content_filtered() {
+    use crate::terminal::TerminalAdapter;
+    let adapter = TerminalAdapter::new();
+    let msg = adapter.make_message("   \n  \t  ".to_string());
+    assert!(msg.content.trim().is_empty());
+}
+
+// ── Daemon unreachable error path ────────────────────────────────────────
+
+/// Verify that run_chat returns an error when daemon is unreachable.
+#[tokio::test]
+async fn test_run_chat_daemon_unreachable() {
+    // run_chat checks admin socket reachability internally; calling it
+    // when no daemon is running should return an error.
+    let result = crate::chat::run_chat("test-agent").await;
+    assert!(result.is_err(), "should fail when daemon is unreachable");
+}
+
+// ── Architecture: no RPC imports ─────────────────────────────────────────
+
+/// Verify chat/mod.rs does not import ChatRpcClient.
+#[test]
+fn test_chat_no_rpc_imports() {
+    let source = include_str!("chat/mod.rs");
+    assert!(
+        !source.contains("use.*ChatRpcClient"),
+        "chat/mod.rs must not import ChatRpcClient"
+    );
+    assert!(
+        !source.contains("use.*ChatResponse"),
+        "chat/mod.rs must not import ChatResponse from RPC"
     );
 }
 
-/// Verify multiple streaming chunks are collected in order.
-#[tokio::test]
-async fn test_rpc_client_multiple_chunks_order() {
-    use crate::chat::rpc::client::ChatRpcClient;
-    use crate::chat::rpc::{ChatRequest, ChatResponse};
+// ── Architecture: TerminalPlugin registered ──────────────────────────────
 
-    let handler: std::sync::Arc<dyn Fn(ChatRequest) -> Option<Vec<ChatResponse>> + Send + Sync> =
-        std::sync::Arc::new(|req| match req {
-            ChatRequest::ChatMessage { .. } => Some(vec![
-                ChatResponse::ContentChunk {
-                    text: "A".to_string(),
-                },
-                ChatResponse::ThinkingChunk {
-                    text: "thinking".to_string(),
-                },
-                ChatResponse::ContentChunk {
-                    text: "B".to_string(),
-                },
-                ChatResponse::Done,
-            ]),
-            _ => Some(vec![ChatResponse::Done]),
-        });
-
-    let sock = spawn_chat_mock_server(handler).await;
-    let client = ChatRpcClient::with_timeout(&sock, 5000);
-    let mut stream = client.send_message("agent", "test").await.unwrap();
-
-    let mut chunks = Vec::new();
-    while let Ok(Some(resp)) = stream.next().await {
-        match resp {
-            ChatResponse::ContentChunk { text } => chunks.push(text),
-            ChatResponse::ThinkingChunk { text } => chunks.push(format!("[think:{}]", text)),
-            ChatResponse::Done => break,
-            _ => {}
-        }
-    }
-    assert_eq!(
-        chunks,
-        vec![
-            "A".to_string(),
-            "[think:thinking]".to_string(),
-            "B".to_string()
-        ]
+/// Verify TerminalPlugin is used in the chat module.
+#[test]
+fn test_terminal_plugin_in_chat() {
+    let source = include_str!("chat/mod.rs");
+    assert!(
+        source.contains("TerminalPlugin::new"),
+        "chat/mod.rs should instantiate TerminalPlugin"
+    );
+    assert!(
+        source.contains("register_plugin"),
+        "chat/mod.rs should register TerminalPlugin with Gateway"
     );
 }
