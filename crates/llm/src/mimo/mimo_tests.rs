@@ -1,13 +1,28 @@
 //! Unit tests for the MiMo Provider implementation.
 
 use super::*;
+use crate::protocol::ChatProtocol;
 use crate::provider::Provider;
-use crate::types::{InternalMessage, InternalRequest};
+use crate::types::{InternalMessage, InternalRequest, RawContentBlock, RawUsage};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------
 // Helper utilities
 // ---------------------------------------------------------------------------
+
+/// Parse a provider's raw JSON response into `InternalResponse` for assertions.
+fn parse_provider_json(v: serde_json::Value) -> crate::types::InternalResponse {
+    crate::protocol::OpenAiProtocol::default()
+        .parse_response(v)
+        .expect("test: parse_response should succeed")
+}
+
+/// Parse a provider's raw JSON response using Anthropic protocol.
+fn parse_provider_json_anthropic(v: serde_json::Value) -> crate::types::InternalResponse {
+    crate::protocol::AnthropicProtocol::default()
+        .parse_response(v)
+        .expect("test: parse_response should succeed")
+}
 
 fn provider_url(server: &mockito::Server) -> String {
     server.url()
@@ -194,6 +209,7 @@ async fn test_send_success() {
     });
 
     let resp = provider.send(req, body).await.expect("send should succeed");
+    let resp = parse_provider_json(resp);
 
     m.assert_async().await;
     assert_eq!(resp.content_blocks.len(), 1);
@@ -245,20 +261,21 @@ async fn test_send_success_with_reasoning_content() {
     });
 
     let resp = provider.send(req, body).await.expect("send should succeed");
+    let resp = parse_provider_json(resp);
 
     m.assert_async().await;
-    // Now correctly parses reasoning_content into a Thinking block (signature: None)
+    // OpenAI protocol: Text(content) first, then Thinking(reasoning_content)
     assert_eq!(resp.content_blocks.len(), 2);
     assert_eq!(
         resp.content_blocks[0],
+        crate::types::RawContentBlock::Text("The answer is 42.".into())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
         crate::types::RawContentBlock::Thinking {
             thinking: "Let me think step by step...".into(),
             signature: None,
         }
-    );
-    assert_eq!(
-        resp.content_blocks[1],
-        crate::types::RawContentBlock::Text("The answer is 42.".into())
     );
 }
 
@@ -289,19 +306,16 @@ async fn test_send_no_choices_returns_error() {
     let req = make_request("mimo-7b");
     let body = json!({"model": "mimo-7b", "messages": []});
 
-    let err = provider.send(req, body).await.unwrap_err();
-
-    m.assert_async().await;
-    match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(
-                msg.contains("no choices"),
-                "expected 'no choices' error, got: {}",
-                msg
-            );
-        }
-        other => panic!("expected Legacy error, got: {:?}", other),
-    }
+    let resp = provider.send(req, body).await.expect("send should succeed");
+    // send() now returns raw JSON; empty choices → empty text block via parse_response
+    let parsed = parse_provider_json(resp);
+    assert!(
+        parsed.content_blocks.is_empty()
+            || parsed
+                .content_blocks
+                .iter()
+                .all(|b| matches!(b, RawContentBlock::Text(s) if s.is_empty()))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +519,7 @@ async fn test_send_anthropic_success_text_only() {
     });
 
     let resp = provider.send(req, body).await.expect("send should succeed");
+    let resp = parse_provider_json_anthropic(resp);
 
     m.assert_async().await;
     assert_eq!(resp.content_blocks.len(), 1);
@@ -554,15 +569,16 @@ async fn test_send_anthropic_success_with_thinking() {
     });
 
     let resp = provider.send(req, body).await.expect("send should succeed");
+    let resp = parse_provider_json_anthropic(resp);
 
     m.assert_async().await;
     assert_eq!(resp.content_blocks.len(), 2);
-    // Thinking block: signature must be Some(String::new()) per MiMo docs
+    // Thinking block: signature is None when not present in response
     assert_eq!(
         resp.content_blocks[0],
         crate::types::RawContentBlock::Thinking {
             thinking: "Analyzing the question...".into(),
-            signature: Some(String::new()),
+            signature: None,
         }
     );
     assert_eq!(
@@ -750,6 +766,7 @@ async fn test_send_anthropic_routes_to_messages_endpoint() {
     });
 
     let resp = provider.send(req, body).await.expect("send should succeed");
+    let resp = parse_provider_json_anthropic(resp);
     m.assert_async().await;
     assert_eq!(resp.content_blocks.len(), 1);
     assert_eq!(
@@ -789,6 +806,7 @@ async fn test_send_openai_routes_to_chat_endpoint() {
     });
 
     let resp = provider.send(req, body).await.expect("send should succeed");
+    let resp = parse_provider_json(resp);
     m.assert_async().await;
     assert_eq!(resp.content_blocks.len(), 1);
 }

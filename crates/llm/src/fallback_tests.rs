@@ -4,7 +4,7 @@
 
 use crate::fallback::{FallbackClient, ModelEntry};
 use crate::provider::Provider;
-use crate::types::{InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage};
+use crate::types::{ProtocolId, RawSseChunk};
 use crate::{ChatRequest, LLMError};
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,24 +36,23 @@ async fn test_fallback_client_requires_registry() {
 
 // --- Mock provider for fallback chain tests ---
 
-/// Convert a chat-style response/error pair into the internal response type
-/// that the Provider trait expects.
-fn chat_to_internal(
+/// Convert a chat-style response/error pair into raw JSON
+/// that the Provider trait expects (Protocol layer parses it).
+fn chat_to_raw_json(
     response: Result<crate::ChatResponse, LLMError>,
-) -> crate::provider::Result<InternalResponse> {
+) -> crate::provider::Result<serde_json::Value> {
     match response {
-        Ok(resp) => Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(resp.content)],
-            usage: RawUsage {
-                prompt_tokens: resp.usage.prompt_tokens,
-                completion_tokens: resp.usage.completion_tokens,
-                total_tokens: Some(resp.usage.total_tokens),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        }),
+        Ok(resp) => Ok(serde_json::json!({
+            "choices": [{
+                "message": { "role": "assistant", "content": resp.content },
+                "finish_reason": null
+            }],
+            "usage": {
+                "prompt_tokens": resp.usage.prompt_tokens,
+                "completion_tokens": resp.usage.completion_tokens,
+                "total_tokens": resp.usage.total_tokens
+            }
+        })),
         Err(e) => Err(crate::provider::ProviderError::Legacy(format!("{e}"))),
     }
 }
@@ -117,8 +116,8 @@ impl Provider for MockProvider {
         &self,
         _request: crate::types::InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
-        chat_to_internal((self.response_fn)())
+    ) -> crate::provider::Result<serde_json::Value> {
+        chat_to_raw_json((self.response_fn)())
     }
 
     async fn send_streaming(
@@ -417,19 +416,14 @@ impl Provider for StreamingProvider {
         &self,
         _request: crate::types::InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
-        Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(self.fallback_text.clone())],
-            usage: RawUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: Some(0),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        })
+    ) -> crate::provider::Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "choices": [{
+                "message": { "role": "assistant", "content": self.fallback_text },
+                "finish_reason": null
+            }],
+            "usage": { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 }
+        }))
     }
 
     async fn send_streaming(
@@ -484,19 +478,14 @@ impl Provider for HangingStreamingProvider {
         &self,
         _request: crate::types::InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
-        Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(self.fallback_text.clone())],
-            usage: RawUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: Some(0),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        })
+    ) -> crate::provider::Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "choices": [{
+                "message": { "role": "assistant", "content": self.fallback_text },
+                "finish_reason": null
+            }],
+            "usage": { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 }
+        }))
     }
 
     async fn send_streaming(
@@ -539,7 +528,7 @@ impl Provider for AlwaysFailProvider {
         &self,
         _request: crate::types::InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
+    ) -> crate::provider::Result<serde_json::Value> {
         Err(crate::provider::ProviderError::Legacy(
             "always fails".to_string(),
         ))
@@ -829,7 +818,7 @@ impl Provider for HttpErrorProvider {
         &self,
         _: crate::types::InternalRequest,
         _: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
+    ) -> crate::provider::Result<serde_json::Value> {
         Err(crate::provider::ProviderError::Http {
             status_code: self.status,
             body: self.body.clone(),

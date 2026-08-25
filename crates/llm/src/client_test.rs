@@ -65,19 +65,18 @@ impl Provider for StubProvider {
         &self,
         _request: InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
-        Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text("hello from stub".into())],
-            usage: RawUsage {
-                prompt_tokens: 1,
-                completion_tokens: 2,
-                total_tokens: Some(3),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: Some("stop".into()),
-        })
+    ) -> crate::provider::Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "choices": [{
+                "message": { "role": "assistant", "content": "hello from stub" },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 2,
+                "total_tokens": 3
+            }
+        }))
     }
 
     async fn send_streaming(
@@ -127,21 +126,26 @@ impl ChatProtocol for StubProtocol {
     ) -> crate::protocol::Result<serde_json::Value> {
         Ok(serde_json::json!({}))
     }
-    fn parse_response(
-        &self,
-        _body: serde_json::Value,
-    ) -> crate::protocol::Result<InternalResponse> {
+    fn parse_response(&self, body: serde_json::Value) -> crate::protocol::Result<InternalResponse> {
+        // Parse OpenAI-style JSON response for testing
+        let content = body["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let usage = &body["usage"];
         Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text("from protocol".into())],
+            content_blocks: vec![RawContentBlock::Text(content)],
             usage: RawUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: None,
+                prompt_tokens: usage["prompt_tokens"].as_u64().unwrap_or(0) as u32,
+                completion_tokens: usage["completion_tokens"].as_u64().unwrap_or(0) as u32,
+                total_tokens: usage["total_tokens"].as_u64().map(|v| v as u32),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
                 reasoning_tokens: None,
             },
-            finish_reason: None,
+            finish_reason: body["choices"][0]["finish_reason"]
+                .as_str()
+                .map(String::from),
         })
     }
     fn decorate_headers(
@@ -366,19 +370,8 @@ impl Provider for HeadersProvider {
         &self,
         _request: InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
-        Ok(InternalResponse {
-            content_blocks: vec![],
-            usage: RawUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: Some(0),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        })
+    ) -> crate::provider::Result<serde_json::Value> {
+        Ok(serde_json::json!({"choices": [], "usage": {}}))
     }
     async fn send_streaming(
         &self,

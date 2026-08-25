@@ -1,5 +1,6 @@
 use super::*;
-use crate::types::InternalMessage;
+use crate::protocol::ChatProtocol;
+use crate::types::{InternalMessage, InternalResponse, RawContentBlock};
 use mockito::Server;
 
 fn provider_url(server: &Server) -> String {
@@ -54,7 +55,7 @@ fn assert_first_text(resp: &InternalResponse, expected: &str) {
 /// Helper: set up mockito server, mock POST, create provider, call send.
 // TODO(v2): Remove #[allow(dead_code)] once v2 fixture-based tests call this helper.
 #[allow(dead_code)]
-async fn send_with_mock(model: &str, fixture: &str) -> InternalResponse {
+async fn send_with_mock(model: &str, fixture: &str) -> serde_json::Value {
     let mut server = Server::new_async().await;
     let m = server
         .mock("POST", "/chat/completions")

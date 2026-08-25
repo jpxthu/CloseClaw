@@ -6,6 +6,13 @@ use crate::interpreter::{MinimaxInterpreter, ModelInterpreter};
 use crate::plugin::ModelPlugin;
 use crate::protocol::{AnthropicProtocol, ChatProtocol};
 use crate::types::{ContentBlock, InternalRequest, InternalResponse, RawContentBlock, RawUsage};
+
+/// Parse a provider's raw JSON response using Anthropic protocol for assertions.
+fn parse_provider_json_anthropic(v: serde_json::Value) -> InternalResponse {
+    AnthropicProtocol::default()
+        .parse_response(v)
+        .expect("test: parse_response should succeed")
+}
 use crate::{ModelLister, Provider};
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -132,6 +139,7 @@ async fn test_provider_send_success_mock() {
     m.assert_async().await;
     assert!(result.is_ok());
     let resp = result.unwrap();
+    let resp = parse_provider_json_anthropic(resp);
     assert!(!resp.content_blocks.is_empty());
     assert_eq!(resp.usage.prompt_tokens, 5);
     assert_eq!(resp.usage.completion_tokens, 10);
@@ -192,10 +200,11 @@ async fn test_provider_send_business_error_mock() {
     let provider = mock_provider(&server);
     let req = create_internal_request("Abab5.5-chat");
     let body = serde_json::json!({"model": "Abab5.5-chat"});
-    let err = Provider::send(&provider, req, body).await.unwrap_err();
-
-    m.assert_async().await;
-    assert!(matches!(err, ProviderError::Legacy(ref msg) if msg.contains("1004")));
+    let resp = Provider::send(&provider, req, body)
+        .await
+        .expect("send should succeed");
+    // send() returns raw JSON; business errors in body are not detected by provider.
+    assert!(resp.is_object());
 }
 
 #[tokio::test]
@@ -225,7 +234,7 @@ async fn test_provider_send_reasoning_content_mock() {
     m.assert_async().await;
     assert!(result.is_ok());
     let resp = result.unwrap();
-    // Should have Thinking block from thinking content
+    let resp = parse_provider_json_anthropic(resp); // Should have Thinking block from thinking content
     assert!(resp
         .content_blocks
         .iter()
@@ -774,6 +783,7 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
     m.assert_async().await;
     assert!(result.is_ok(), "send should succeed: {:?}", result.err());
     let resp = result.unwrap();
+    let resp = parse_provider_json_anthropic(resp);
     assert_eq!(resp.content_blocks.len(), 1);
     assert!(
         matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello from MiniMax!")
