@@ -17,7 +17,7 @@ Owner 在 workspace 目录下通过一系列配置文件（统称 bootstrap 文�
 - System Prompt 各组成部分按固定顺序组装。配置不变时多次组装结果逐字节相同，最大限度利用 KV Cache。具体组装顺序和格式由设计文档定义
 - 边界说明：心跳工作流配置也位于 workspace 目录下，但**不属于 System Prompt 注入范围**——心跳由独立的定时任务按需触发读取，不进入日常会话的 System Prompt
 
-> **交叉引用**：bootstrap 文件的加载模式（Full/Minimal）和所在目录路径，由 [agent §F1](agent.md)（配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。会话创建/恢复/上下文压缩完成时的重建触发，见 [session §F2](session.md)（Agent 角色与能力配置）。压缩行为本身见 [session §F3](session.md)（长对话压缩）。
+> **交叉引用**：bootstrap 文件的加载模式（Full/Minimal）和所在目录路径，由 [agent §F1](agent.md)（配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。会话创建/恢复/上下文压缩完成时的重建触发，见 [session §F2](session.md)（恢复时的 System Prompt 重建）。压缩行为本身见 [session §F3](session.md)（长对话压缩）。
 
 ### F2. 工具清单注入
 
@@ -52,7 +52,7 @@ Owner 可以在对话中通过指令管理 System Prompt 末尾的动态指令�
 
 - 清除动态指令时，触发全部缓存失效并重建，确保下次 System Prompt 为干净状态
 
-> **交叉引用**：动态指令的追加、查看、清除命令入口，见 [slash §F6](slash.md)（`/system` 指令）。持久化由 [session §F2](session.md)（Agent 角色与能力配置）管理。本节仅定义 System Prompt 内容层的专属行为。
+> **交叉引用**：动态指令的追加、查看、清除命令入口，见 [slash §F6](slash.md)（`/system` 指令）。持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）管理。本节仅定义 System Prompt 内容层的专属行为。
 
 ### F6. 内容缓存与自动刷新
 
@@ -69,7 +69,7 @@ System Prompt 的组装触发时机是固定的，组装之间内容不变，利
 - 组装之间不响应数据源变更——文件修改、工具或技能注册中心变更均在下次组装时反映
 - 组装结果写入 ConversationSession 运行时字段，每次 API 调用直接取出，不重复构建
 
-> **交叉引用**：重建触发的外部事件来源——新会话创建见 [session §F1](session.md)（对话持久化与恢复），归档恢复见 [session §F2](session.md)（Agent 角色与能力配置），上下文压缩行为见 [session §F3](session.md)。`Owner 清空会话指令` 的事件来源见 [slash §F3](slash.md)（`/new` 指令），`Owner 清除动态指令` 见 [slash §F6](slash.md)（`/system clear`）。
+> **交叉引用**：重建触发的外部事件来源——新会话创建见 [session §F1](session.md)（对话持久化与恢复），归档恢复见 [session §F2](session.md)（恢复时的 System Prompt 重建），上下文压缩行为见 [session §F3](session.md)。`Owner 清空会话指令` 的事件来源见 [slash §F3](slash.md)（`/new` 指令），`Owner 清除动态指令` 见 [slash §F6](slash.md)（`/system clear`）。
 
 ### F7. API 前缀缓存利用
 

@@ -28,7 +28,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同 IM 平台的消
 - 在命中 Agent 后，Session 查找、创建与归档恢复由 Session 模块负责（含向 User 展示的提示语），Gateway 不参与查找与创建，命中 Session 后进入 LLM 对话流程
 
 > **交叉引用**：会话查找、创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复）。
-- Session 活跃状态判定与消息排队行为由 Session 模块管理，详见 [session §F10](session.md)（消息排队）
+> **交叉引用**：Session 活跃状态判定与消息排队行为详见 [session §F10](session.md)（消息排队）。
 - Session 查找异常或创建失败时，系统向 User 回复错误提示
 
 ### F5. 斜杠指令拦截与分派
@@ -51,6 +51,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同 IM 平台的消
 - 高并发入站消息按到达顺序排队处理
 - 队列满时拒绝新消息，立即向 User 回复“服务繁忙，请稍后重试”
 - 系统重启后，未完成处理的消息不应丢失，被拒绝的消息由对应平台自动重发
+- 网关重启执行期间，入站新消息全部暂存，重启完成后按原到达顺序补投（暂存与补投的触发时机详见 [daemon §F6](daemon.md)（配置触发的网关重启））
 
 ### F7. 出站消息统一处理
 
@@ -77,12 +78,12 @@ Gateway 在以下环节记录调试日志，用于排查问题：
 
 ## 关联设计文档
 
-- [✓] gateway/README.md
-- [✓] gateway/inbound-flow.md
-- [✓] gateway/outbound-flow.md
+- [gateway/README.md](../design/gateway/README.md)
+- [gateway/inbound-flow.md](../design/gateway/inbound-flow.md)
+- [gateway/outbound-flow.md](../design/gateway/outbound-flow.md)
 
 ## 非功能需求
 
-- 入站消息队列满时，拒绝响应“服务繁忙，请稍后重试”必须在 2 秒内送达 User
-- User 发送文本消息后应在 1 秒内收到系统响应或排队提示。Owner 审批等异步操作完成后送达的结果，不适用上述 1 秒响应约束
+- 入站消息队列满时，立即向 User 送达拒绝响应“服务繁忙，请稍后重试”，不让 User 误以为消息丢失
+- User 发送文本消息后能立即感知系统已受理——及时收到系统响应或排队提示，不处于无反馈的等待状态。Owner 审批等异步操作完成后送达的结果，不适用此约束
 - 系统重启后，重启前发送但未完成处理的消息不应丢失

@@ -62,7 +62,7 @@ User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更�
 
 条件激活的注入条目与技能清单保持相同格式。仅注入清单条目（不含正文），正文在调用时按需加载（详见 F7）。激活标记的生命周期跟随当前 session，session 结束时清空。
 
-> **交叉引用**：路径匹配检测和激活标记维护由 session 层完成，详见 [session §F2](session.md)（Agent 角色与能力配置）。上下文压缩完成后 System Prompt 重新组装时，技能清单包含当前 session 已激活的条件技能，详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：路径匹配检测和激活标记维护由 session 层完成，详见 [session §F2](session.md)（恢复时的 System Prompt 重建）。上下文压缩完成后 System Prompt 重新组装时，技能清单包含当前 session 已激活的条件技能，详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 ### F7. 技能调用
 
