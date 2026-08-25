@@ -370,6 +370,144 @@ fn test_parse_response_mixed_blocks() {
         other => panic!("Expected ToolResult at index 3, got {:?}", other),
     }
 }
+// ── Step 1.5: Provider raw JSON → Protocol parse_response integration ─────
+
+/// Verify that the raw JSON format returned by `AnthropicProvider::send`
+/// can be correctly parsed by `AnthropicProtocol::parse_response`.
+/// This proves the Provider → Protocol handoff works end-to-end.
+#[test]
+fn test_parse_anthropic_provider_raw_json_response() {
+    let proto = AnthropicProtocol::new();
+
+    // Simulate the raw JSON that AnthropicProvider::send returns
+    let raw_json = serde_json::json!({
+        "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+        "type": "message",
+        "role": "assistant",
+        "content": [{
+            "type": "text",
+            "text": "Hello! How can I help you?"
+        }],
+        "model": "claude-3-opus-20240229",
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 15
+        }
+    });
+
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello! How can I help you?")
+    );
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 15);
+    assert_eq!(resp.finish_reason, Some("end_turn".to_string()));
+}
+
+/// Verify that Anthropic response with thinking block is correctly parsed.
+#[test]
+fn test_parse_anthropic_provider_with_thinking() {
+    let proto = AnthropicProtocol::new();
+    let raw_json = serde_json::json!({
+        "content": [
+            {"type": "thinking", "thinking": "Let me consider..."},
+            {"type": "text", "text": "The answer is 42."}
+        ],
+        "usage": {"input_tokens": 20, "output_tokens": 25},
+        "stop_reason": "end_turn"
+    });
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Thinking { thinking, .. } if thinking == "Let me consider...")
+    );
+    assert!(
+        matches!(&resp.content_blocks[1], RawContentBlock::Text(s) if s == "The answer is 42.")
+    );
+}
+
+/// Verify that Anthropic response with thinking block + signature is correctly parsed.
+#[test]
+fn test_parse_anthropic_provider_thinking_with_signature() {
+    let proto = AnthropicProtocol::new();
+    let raw_json = serde_json::json!({
+        "content": [
+            {"type": "thinking", "thinking": "reasoning...", "signature": "sig_xyz"},
+            {"type": "text", "text": "Done."}
+        ],
+        "usage": {"input_tokens": 10, "output_tokens": 8},
+        "stop_reason": "end_turn"
+    });
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Thinking { thinking, signature: Some(sig) }
+        if thinking == "reasoning..." && sig == "sig_xyz")
+    );
+}
+
+/// Verify that Anthropic response with tool_use block is correctly parsed.
+#[test]
+fn test_parse_anthropic_provider_with_tool_use() {
+    let proto = AnthropicProtocol::new();
+    let raw_json = serde_json::json!({
+        "content": [{
+            "type": "tool_use",
+            "id": "toolu_01ABC",
+            "name": "get_weather",
+            "input": {"city": "Shanghai"}
+        }],
+        "usage": {"input_tokens": 15, "output_tokens": 10},
+        "stop_reason": "tool_use"
+    });
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    match &resp.content_blocks[0] {
+        RawContentBlock::ToolUse { id, name, input } => {
+            assert_eq!(id, "toolu_01ABC");
+            assert_eq!(name, "get_weather");
+            let parsed: serde_json::Value = serde_json::from_str(input).unwrap();
+            assert_eq!(parsed.get("city").unwrap(), "Shanghai");
+        }
+        other => panic!("expected ToolUse, got {:?}", other),
+    }
+}
+
+/// Verify that Anthropic response with cache usage is correctly parsed.
+#[test]
+fn test_parse_anthropic_provider_with_cache_usage() {
+    let proto = AnthropicProtocol::new();
+    let raw_json = serde_json::json!({
+        "content": [{"type": "text", "text": "hi"}],
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_read_input_tokens": 80,
+            "cache_creation_input_tokens": 20
+        },
+        "stop_reason": "end_turn"
+    });
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert_eq!(resp.usage.cache_read_tokens, Some(80));
+    assert_eq!(resp.usage.cache_write_tokens, Some(20));
+}
+
+/// Verify that Anthropic response with empty content is handled gracefully.
+#[test]
+fn test_parse_anthropic_provider_empty_content() {
+    let proto = AnthropicProtocol::new();
+    let raw_json = serde_json::json!({
+        "content": [],
+        "usage": {"input_tokens": 5, "output_tokens": 0},
+        "stop_reason": "end_turn"
+    });
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert!(resp.content_blocks.is_empty());
+    assert_eq!(resp.usage.prompt_tokens, 5);
+}
+
 // ── cache usage parsing tests ─────────────────────────────────────────────
 #[test]
 fn test_parse_usage_cache_fields() {

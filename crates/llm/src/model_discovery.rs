@@ -14,6 +14,12 @@ const FETCH_MAX_ATTEMPTS: u32 = 4;
 /// Per-attempt API timeout.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Expose `FETCH_MAX_ATTEMPTS` for unit tests within the crate.
+#[cfg(test)]
+pub(crate) fn model_discovery_tests_only_fetch_max_attempts() -> u32 {
+    FETCH_MAX_ATTEMPTS
+}
+
 /// Model discovery service combining local cache, API fetch, and knowledge base.
 pub struct ModelDiscovery {
     pub(crate) cache: ModelCache,

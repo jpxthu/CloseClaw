@@ -902,6 +902,60 @@ async fn test_sse_stream_tool_calls_with_usage() {
     assert!(stream.next().await.is_none());
 }
 
+// ── Step 1.5: Provider raw JSON → Protocol parse_response integration ─────
+
+/// Verify that the raw JSON format returned by `OpenAIProvider::send`
+/// can be correctly parsed by `OpenAiProtocol::parse_response`.
+/// This proves the Provider → Protocol handoff works end-to-end.
+#[test]
+fn test_parse_openai_provider_raw_json_response() {
+    let proto = OpenAiProtocol::new();
+
+    // Simulate the raw JSON that OpenAIProvider::send returns
+    let raw_json = serde_json::json!({
+        "id": "chatcmpl-test-123",
+        "object": "chat.completion",
+        "created": 1694268190,
+        "model": "gpt-4",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Hello! How can I help you today?"
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 8,
+            "total_tokens": 18
+        }
+    });
+
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello! How can I help you today?")
+    );
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 8);
+    assert_eq!(resp.usage.total_tokens, Some(18));
+    assert_eq!(resp.finish_reason, Some("stop".to_string()));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.5: FETCH_MAX_ATTEMPTS constant usage verification
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Verify that `FETCH_MAX_ATTEMPTS` is the correct constant name and value.
+/// This verifies the rename from FETCH_MAX_RETRIES to FETCH_MAX_ATTEMPTS
+/// and that the value remains 4 (4 total attempts = 3 retries).
+#[test]
+fn test_fetch_max_attempts_constant_value() {
+    let val = crate::model_discovery::model_discovery_tests_only_fetch_max_attempts();
+    assert_eq!(val, 4);
+}
+
 #[tokio::test]
 async fn test_sse_stream_usage_only_in_dedicated_chunk() {
     // Usage arrives in a separate final chunk (no choices) before [DONE]

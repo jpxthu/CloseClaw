@@ -518,3 +518,58 @@ fn test_default_header_pairs_empty_headers() {
     let pairs = client.default_header_pairs();
     assert!(pairs.is_empty(), "empty headers should return empty Vec");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.5: Non-streaming pipeline — Protocol::parse_response integration
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Verify that `chat()` invokes `Protocol::parse_response` and returns
+/// the parsed content blocks. Uses a real `OpenAiProtocol` with a stub
+/// provider to prove the full `send → parse_response → interpret_response`
+/// chain works end-to-end.
+#[tokio::test]
+async fn test_chat_non_streaming_uses_protocol_parse_response() {
+    use crate::protocol::OpenAiProtocol;
+
+    let client = UnifiedChatClient::with_noop_cache_adapter(
+        Arc::new(StubProvider::new()),
+        Arc::new(OpenAiProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+    );
+
+    let response = client.chat(make_request()).await.unwrap();
+
+    // StubProvider::send returns raw JSON:
+    // {"choices":[{"message":{"role":"assistant","content":"hello from stub"},...}],...}
+    // OpenAiProtocol::parse_response should parse this into a Text block.
+    assert_eq!(response.content_blocks.len(), 1);
+    assert!(
+        matches!(&response.content_blocks[0], ContentBlock::Text(s) if s == "hello from stub"),
+        "Protocol::parse_response should have parsed the raw JSON into a Text block"
+    );
+}
+
+/// Verify that `Provider::send` returns valid JSON and `Protocol::parse_response`
+/// correctly parses it — using `StubProtocol` with `StubProvider`.
+#[tokio::test]
+async fn test_provider_send_json_parsed_by_protocol() {
+    let client = UnifiedChatClient::with_noop_cache_adapter(
+        Arc::new(StubProvider::new()),
+        Arc::new(StubProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+    );
+
+    let response = client.chat(make_request()).await.unwrap();
+    // StubProtocol::parse_response extracts "choices[0].message.content"
+    assert_eq!(response.content_blocks.len(), 1);
+    assert!(
+        matches!(&response.content_blocks[0], ContentBlock::Text(s) if s == "hello from stub"),
+        "StubProtocol should parse the raw JSON from StubProvider"
+    );
+    // Verify usage is parsed correctly
+    assert_eq!(response.usage.prompt_tokens, 1);
+    assert_eq!(response.usage.completion_tokens, 2);
+    assert_eq!(response.usage.total_tokens, Some(3));
+}
