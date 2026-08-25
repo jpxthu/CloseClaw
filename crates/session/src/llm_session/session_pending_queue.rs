@@ -171,7 +171,7 @@ impl UnifiedMessageQueue {
     /// while preserving original FIFO ordering within the same
     /// priority level.
     pub fn drain_all_items(&mut self) -> Vec<QueueItem> {
-        self.entries.drain(..).collect()
+        std::mem::take(&mut self.entries)
     }
 
     /// Returns `true` if the queue contains no entries.

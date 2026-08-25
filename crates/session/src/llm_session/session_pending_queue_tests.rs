@@ -397,3 +397,89 @@ fn test_unified_queue_drain_leaves_empty() {
     assert!(q.is_empty());
     assert_eq!(q.len(), 0);
 }
+
+// ── 16. drain_all_items: returns QueueItems with preserved seq ─────────────
+
+/// `drain_all_items` returns `QueueItem` (entry + seq) preserving
+/// original insertion seq, and leaves the queue empty.
+#[test]
+fn test_drain_all_items_returns_items_with_seq() {
+    let mut q = UnifiedMessageQueue::default();
+
+    q.push(make_announce("a1", NotificationPriority::Later));
+    q.push(make_announce("a2", NotificationPriority::Now));
+    q.push(make_user_msg("u1"));
+
+    let items = q.drain_all_items();
+    assert_eq!(items.len(), 3);
+    assert!(q.is_empty());
+    assert_eq!(q.len(), 0);
+
+    // Items returned in priority order; seq values are 0, 1, 2
+    // matching original insertion order.
+    let seqs_and_ids: Vec<(u64, &str)> = items
+        .iter()
+        .map(|item| {
+            let id = match &item.entry {
+                QueueEntry::Announce(ev) => ev.child_agent_id.as_str(),
+                QueueEntry::UserMessage(pm) => pm.message_id.as_str(),
+                _ => "other",
+            };
+            (item.seq, id)
+        })
+        .collect();
+
+    // a2 (Now, seq=1) first, then a1 (Later, seq=0), then u1 (Later user, seq=2)
+    assert_eq!(seqs_and_ids, vec![(1, "a2"), (0, "a1"), (2, "u1")]);
+}
+
+// ── 17. drain_all_items + push_preserving_seq: FIFO order intact ───────────
+
+/// Drain non-matching entries via `drain_all_items`, re-insert the
+/// rest with `push_preserving_seq`. The resulting drain order must
+/// match what we would get by draining the original queue.
+#[test]
+fn test_drain_all_items_preserves_fifo_on_reinsert() {
+    let mut q = UnifiedMessageQueue::default();
+
+    // Three Later-announces: a (seq=0), b (seq=1), c (seq=2)
+    q.push(make_announce("a", NotificationPriority::Later));
+    q.push(make_announce("b", NotificationPriority::Later));
+    q.push(make_announce("c", NotificationPriority::Later));
+
+    // Simulate drain_announce_queue: keep only non-announces
+    let items = q.drain_all_items();
+    for item in items {
+        match item.entry {
+            QueueEntry::Announce(_) => { /* dropped */ }
+            _ => q.push_preserving_seq(item.entry, item.seq),
+        }
+    }
+    // All were announces, so queue should be empty.
+    assert!(q.is_empty());
+
+    // Now push new mixed entries and verify seq continuity.
+    q.push(make_user_msg("u1")); // seq=0 (next_seq was not reset)
+    q.push(make_announce("d", NotificationPriority::Later)); // seq=1
+    q.push(make_user_msg("u2")); // seq=2
+
+    let all = q.drain_all();
+    let labels = entry_labels(&all);
+
+    // Non-user first (d), then users in FIFO (u1, u2)
+    assert_eq!(
+        labels,
+        vec!["announce:d", "user:u1", "user:u2"],
+        "After drain_all_items, next_seq continuity must hold"
+    );
+}
+
+// ── 18. drain_all_items on empty queue ────────────────────────────────────
+
+#[test]
+fn test_drain_all_items_empty_queue() {
+    let mut q = UnifiedMessageQueue::default();
+    let items = q.drain_all_items();
+    assert!(items.is_empty());
+    assert!(q.is_empty());
+}
