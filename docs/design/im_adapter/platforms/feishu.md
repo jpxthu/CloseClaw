@@ -15,7 +15,8 @@
 **Webhook 解析**：解析飞书 webhook 事件 payload，提取发送者 ID、会话 ID、消息正文等字段，产出 NormalizedMessage。
 
 - text 类型消息：提取 `content.text` 字段作为消息正文。飞书已将正文中的表情符号以占位符文本形式（如 `[OK]`、`[赞]`）写入 `content.text`，Adapter 原样透传，不做额外转换
-- post 类型消息：展开 title 和 content blocks 为文本，保留标题、段落、有序/无序列表（含多级嵌套）、文本样式（粗体/删除线/下划线及组合）、@提及（渲染为 `@用户名`）、引用块、内嵌媒体占位符 `[图片]`。表情（emoji 元素）展开为占位符文本（如 `[OK]`、`[赞]`）。代码块（无 fixture，设计推导）展开为 markdown 代码块，行内代码展开为 `行内代码`；超链接、邮箱、电话（无 fixture）暂不解析、不保留
+- sticker（表情）类型消息：独立表情消息，提取表情标识渲染为文本占位符（如 `[OK]`）作为消息正文
+- post 类型消息：展开 title 和 content blocks 为文本，保留标题、段落、有序/无序列表（含多级嵌套）、文本样式（粗体/斜体/删除线/下划线及组合）、@提及（渲染为 `@用户名`）、引用块、内嵌媒体占位符 `[图片]`。表情（emoji 元素）展开为占位符文本（如 `[OK]`、`[赞]`）。代码块（无 fixture，设计推导）展开为 markdown 代码块，行内代码展开为 `行内代码`；超链接、邮箱、电话（无 fixture）暂不解析、不保留
 - 话题消息：从话题消息事件中提取话题标识（话题 ID、父消息 ID、根消息 ID），按「话题 ID > 根消息 ID > 父消息 ID」优先级合并为一个话题 ID。该值不参与 session 路由，仅用于出站时定向回复到原话题
 - 非文本消息（图片、文件、语音等）：产出 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），交由下游 Gateway 统一处理。图片/文件/语音的语义理解暂未设计
 - 账号映射：以发送者平台 ID 为键查询账户绑定表获取 CloseClaw 本地账号标识，参与 session 路由。一个账户可绑定多个平台的发送者 ID
@@ -24,8 +25,8 @@
 **事件区分**：Adapter 解析阶段须区分消息事件与交互事件——消息事件转为 NormalizedMessage，交互事件不经过 NormalizedMessage 入站通路：
 
 - `card-action-trigger`（卡片按钮/选择器点击）：属于工具调用的回执，走 tool_result 通道注入对话，并记录日志（平台、动作）（见 [common 共享类型](../../common/shared-types.md) 的卡片交互事件建模边界）
-- `reaction.created`（表情回应）：感知用户对消息的表情回应并记录日志（平台、消息、表情），作为 Agent 可观测的交互信号
-- `bot.added`（机器人加入群聊）：识别机器人入群事件并记录日志；该群聊会话由后续消息到达时按群聊粒度路由创建
+- `reaction.created`（表情回应）：感知用户对消息的表情回应并记录日志（平台、消息、表情）。该事件不进入消息通路，也不注入对话——系统感知并记录，作为交互行为的可观测信号，消费方为调试日志
+- `bot.added`（机器人加入群聊）：识别机器人入群事件并记录日志；群聊会话为惰性创建——由该群首条消息到达时按群聊粒度路由创建，bot.added 不主动建会话
 
 **凭证管理**：飞书凭证（token 等）由飞书插件自行管理与刷新，不跨模块传递，不进入任何日志（日志脱敏遵循 [debug_log 框架](../../debug_log/README.md)）。
 
@@ -93,7 +94,7 @@ DSL 指令（button / selector）由 Processor Chain 的 DslParser 解析后传�
 ### 入站路径
 
 1. 飞书 webhook 事件到达 Adapter
-2. Adapter 解析飞书事件，产出 [NormalizedMessage](../../common/shared-types.md#normalizedmessage)（平台标识、发送者、会话对端、账号映射、正文、消息类型等全部字段）
+2. Adapter 解析飞书事件，产出 [NormalizedMessage](../../common/shared-types.md#normalizedmessage)（平台标识、发送者、会话对端、账号映射、正文、消息类型等全部字段）——仅消息事件走此通路，交互事件的处理见「事件区分」
 3. NormalizedMessage 进入 Processor Chain 入站处理
 
 ### 出站路径
@@ -108,7 +109,7 @@ DSL 指令（button / selector）由 Processor Chain 的 DslParser 解析后传�
 
 ### 对外工具
 
-飞书插件通过 IM Adapter 模块的工具注册入口注册以下工具分组到 ToolRegistry：
+飞书插件通过 IM Adapter 的模块级工具注册入口（见 [README 对外工具](../README.md#对外工具)）注册以下工具分组到 ToolRegistry：
 
 - **feishu_im**：飞书 IM 消息操作（发送、撤回、编辑、表情回应等）
 - **feishu_calendar**：飞书日历管理

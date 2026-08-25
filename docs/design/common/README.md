@@ -10,7 +10,7 @@ common 不是业务模块——它不含可执行逻辑，只定义数据结构�
 
 ```
 common/
-├── shared-types.md        ← 跨模块传递的纯数据结构的完整定义（NormalizedMessage、ContentBlock、ProcessedMessage、SlashResult、FragmentContext、PromptFragment、DslParseResult/DslInstruction、RenderedOutput、VerbosityLevel、PlanState）
+├── shared-types.md        ← 跨模块传递的纯数据结构的完整定义（NormalizedMessage、ContentBlock、ProcessedMessage、SlashResult、FragmentContext、PromptFragment、DslParseResult/DslInstruction、RenderedOutput、StreamEvent、VerbosityLevel、PlanState）
 ├── core-traits.md         ← 核心 trait 的接口定义（跨模块 DI trait 全集，按领域分组）
 ├── data-flow.md           ← 共享类型在全系统中的流动路径总览
 ```
@@ -24,7 +24,7 @@ common 本身不参与运行时数据流。它定义的数据结构在业务模�
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：所有业务模块（通过引用 common 中定义的类型和 trait 进行交互）
 - **无关**：无（common 与所有模块都有关联，不存在无关关系）
-- **子文件**：[shared-types](shared-types.md)（NormalizedMessage、ContentBlock、DslParseResult / DslInstruction、ProcessedMessage、SlashResult、FragmentContext、PromptFragment、RenderedOutput、VerbosityLevel、PlanState）、[core-traits](core-traits.md)（跨模块 DI trait 全集，按领域分组）、[data-flow](data-flow.md)（共享类型全系统流动路径总览）
+- **子文件**：[shared-types](shared-types.md)（NormalizedMessage、ContentBlock、DslParseResult / DslInstruction、ProcessedMessage、SlashResult、FragmentContext、PromptFragment、RenderedOutput、StreamEvent、VerbosityLevel、PlanState）、[core-traits](core-traits.md)（跨模块 DI trait 全集，按领域分组）、[data-flow](data-flow.md)（共享类型全系统流动路径总览）
 
 ### 代码映射
 
