@@ -110,13 +110,14 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
 #[allow(dead_code)]
 fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
     let dimensions = [
-        "command",
+        "exec",
         "file_read",
         "file_write",
         "network",
         "spawn",
         "tool_call",
         "config_write",
+        "message",
     ];
     let mut permissions = HashMap::with_capacity(dimensions.len());
     for &dim in &dimensions {
@@ -178,13 +179,14 @@ async fn test_validate_permission_denied_child_fully_denied() {
         &make_perms(
             "parent",
             &[
-                "command",
+                "exec",
                 "file_read",
                 "file_write",
                 "network",
                 "spawn",
                 "tool_call",
                 "config_write",
+                "message",
             ],
         ),
     );
@@ -258,13 +260,14 @@ async fn test_validate_permission_denied_parent_denies_all() {
         &make_perms(
             "child",
             &[
-                "command",
+                "exec",
                 "file_read",
                 "file_write",
                 "network",
                 "spawn",
                 "tool_call",
                 "config_write",
+                "message",
             ],
         ),
     );

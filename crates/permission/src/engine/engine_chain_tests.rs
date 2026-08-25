@@ -16,7 +16,7 @@ fn make_engine_with_defaults() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_tool_call(Effect::Allow)
@@ -50,7 +50,7 @@ fn make_all_allowed(agent_id: &str) -> AgentPermissions {
     make_perms(
         agent_id,
         &[
-            ("command", true),
+            ("exec", true),
             ("file_read", true),
             ("file_write", true),
             ("network", true),
@@ -87,7 +87,7 @@ async fn test_chain_intersection_file_write_denied_by_parent() {
         make_perms(
             "parent",
             &[
-                ("command", true),
+                ("exec", true),
                 ("file_read", true),
                 ("file_write", false),
                 ("network", true),
@@ -131,7 +131,7 @@ async fn test_chain_intersection_file_read_allowed_when_only_write_denied() {
         make_perms(
             "parent",
             &[
-                ("command", true),
+                ("exec", true),
                 ("file_read", true),
                 ("file_write", false),
                 ("network", true),
@@ -174,11 +174,7 @@ async fn test_single_parent_denies_file_write() {
         "parent".to_string(),
         make_perms(
             "parent",
-            &[
-                ("command", true),
-                ("file_read", true),
-                ("file_write", false),
-            ],
+            &[("exec", true), ("file_read", true), ("file_write", false)],
         ),
     );
     perms.insert("child".to_string(), make_all_allowed("child"));
@@ -260,7 +256,7 @@ async fn test_deny_subject_propagation_through_chain() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_tool_call(Effect::Allow)
@@ -312,7 +308,7 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_tool_call(Effect::Allow)
@@ -429,7 +425,7 @@ async fn test_chain_intersection_exec_denied() {
     let mut perms = HashMap::new();
     perms.insert(
         "parent".to_string(),
-        make_perms("parent", &[("command", false)]),
+        make_perms("parent", &[("exec", false)]),
     );
     perms.insert("child".to_string(), make_all_allowed("child"));
 
@@ -608,7 +604,7 @@ async fn test_chain_intersection_slash_command_not_blocked() {
     let mut perms = HashMap::new();
     perms.insert(
         "parent".to_string(),
-        make_perms("parent", &[("command", false)]),
+        make_perms("parent", &[("exec", false)]),
     );
     perms.insert("child".to_string(), make_all_allowed("child"));
 
@@ -685,7 +681,7 @@ async fn test_three_level_chain_intersection() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_tool_call(Effect::Allow)

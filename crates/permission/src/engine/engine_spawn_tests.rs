@@ -16,7 +16,7 @@ fn make_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -27,7 +27,7 @@ fn make_engine() -> PermissionEngine {
 
 fn make_allowed_perms(agent_id: &str) -> AgentPermissions {
     let dims = [
-        "command",
+        "exec",
         "file_read",
         "file_write",
         "network",
@@ -139,7 +139,7 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
     // User denies exec but allows everything else
     let mut user_perms_map = HashMap::new();
     for dim in &[
-        "command",
+        "exec",
         "file_read",
         "file_write",
         "network",
@@ -150,7 +150,7 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
         user_perms_map.insert(
             dim.to_string(),
             closeclaw_config::agents::ActionPermission {
-                allowed: *dim != "command",
+                allowed: *dim != "exec",
                 limits: closeclaw_config::agents::PermissionLimits::default(),
             },
         );
@@ -377,16 +377,16 @@ async fn test_three_level_chain_effective_permissions() {
         "root".to_string(),
         make_perms(
             "root",
-            &[("command", true), ("file_write", true), ("network", false)],
+            &[("exec", true), ("file_write", true), ("network", false)],
         ),
     );
     perms.insert(
         "agent-a".to_string(),
-        make_perms("agent-a", &[("command", true), ("file_write", false)]),
+        make_perms("agent-a", &[("exec", true), ("file_write", false)]),
     );
     perms.insert(
         "agent-b".to_string(),
-        make_perms("agent-b", &[("command", true)]),
+        make_perms("agent-b", &[("exec", true)]),
     );
 
     let result = collect_chain_effective_permissions(
@@ -402,7 +402,7 @@ async fn test_three_level_chain_effective_permissions() {
     // Root intersects with A: exec=T∩T→T, file_write=T∩F→F,
     // network=F∩absent→F
     assert!(
-        effective.permissions["command"].allowed,
+        effective.permissions["exec"].allowed,
         "exec should be allowed"
     );
     assert!(
@@ -430,7 +430,7 @@ async fn test_single_level_spawn_no_extra_restrictions() {
         make_perms(
             "parent",
             &[
-                ("command", true),
+                ("exec", true),
                 ("file_read", true),
                 ("file_write", true),
                 ("network", true),
@@ -453,7 +453,7 @@ async fn test_single_level_spawn_no_extra_restrictions() {
 
     // No ancestors above parent -> parent's own perms returned
     for dim in &[
-        "command",
+        "exec",
         "file_read",
         "file_write",
         "network",
@@ -485,7 +485,7 @@ async fn test_chain_with_fully_denied_level() {
         "root".to_string(),
         make_perms(
             "root",
-            &[("command", true), ("file_write", true), ("network", true)],
+            &[("exec", true), ("file_write", true), ("network", true)],
         ),
     );
     // A is fully denied
@@ -520,7 +520,7 @@ fn test_chain_deny_root_to_b_propagation() {
     let rules = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_config(Effect::Allow)
@@ -568,7 +568,7 @@ fn test_chain_deny_accumulates_across_levels() {
     let rules = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_config(Effect::Allow)
@@ -617,7 +617,7 @@ fn test_chain_deny_glob_match() {
     let rules = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_config(Effect::Allow)
@@ -679,7 +679,7 @@ fn test_chain_deny_multiple_ancestors() {
     let rules = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_config(Effect::Allow)

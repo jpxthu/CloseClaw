@@ -49,7 +49,7 @@ impl RuleSet {
 pub struct Defaults {
     pub file_read: Effect,
     pub file_write: Effect,
-    pub command: Effect,
+    pub exec: Effect,
     pub network: Effect,
     pub inter_agent: Effect,
     pub config: Effect,
@@ -64,7 +64,7 @@ impl Defaults {
         Self {
             file_read: Effect::Deny,
             file_write: Effect::Deny,
-            command: Effect::Deny,
+            exec: Effect::Deny,
             network: Effect::Deny,
             inter_agent: Effect::Deny,
             config: Effect::Deny,
@@ -79,7 +79,7 @@ impl Default for Defaults {
         Self {
             file_read: Effect::Deny,
             file_write: Effect::Deny,
-            command: Effect::Deny,
+            exec: Effect::Deny,
             network: Effect::Deny,
             inter_agent: Effect::Deny,
             config: Effect::Deny,
@@ -119,11 +119,13 @@ impl<'de> serde::Deserialize<'de> for Defaults {
             },
         };
 
-        let command = map
-            .get("command")
-            .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
-            .transpose()?
-            .unwrap_or(Effect::Deny);
+        let exec_effect = match map.get("exec") {
+            Some(v) => serde_json::from_value(v.clone()).map_err(serde::de::Error::custom)?,
+            None => match map.get("command") {
+                Some(v) => serde_json::from_value(v.clone()).map_err(serde::de::Error::custom)?,
+                None => Effect::Deny,
+            },
+        };
         let network = map
             .get("network")
             .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
@@ -153,7 +155,7 @@ impl<'de> serde::Deserialize<'de> for Defaults {
         Ok(Defaults {
             file_read: read_effect,
             file_write: write_effect,
-            command,
+            exec: exec_effect,
             network,
             inter_agent,
             config,
@@ -582,7 +584,7 @@ impl PermissionRequestBody {
                 "write" => Some("file_write"),
                 _ => None,
             },
-            PermissionRequestBody::CommandExec { .. } => Some("command"),
+            PermissionRequestBody::CommandExec { .. } => Some("exec"),
             PermissionRequestBody::NetOp { .. } => Some("network"),
             PermissionRequestBody::InterAgentMsg { .. } => Some("spawn"),
             PermissionRequestBody::ToolCall { .. } => Some("tool_call"),
