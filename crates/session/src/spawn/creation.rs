@@ -334,7 +334,7 @@ async fn resolve_child_workspace(
     workspace: Option<&str>,
     parent_session_id: &str,
 ) -> Result<PathBuf, String> {
-    if let Some(ws) = workspace {
+    if let Some(ws) = workspace.filter(|s| !s.trim().is_empty()) {
         return Ok(PathBuf::from(ws));
     }
     if let Some(ref ws) = config.workspace {

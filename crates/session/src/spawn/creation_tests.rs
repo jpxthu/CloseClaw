@@ -756,25 +756,68 @@ async fn test_level3_dedicated_uses_sender_id() {
 
 // ── Edge cases for workspace fallback chain ────────────────────────────
 
-/// Empty string workspace is treated as Level 1 (explicit), same as a
-/// non-empty string. `PathBuf::from("")` is valid and returned as-is.
+/// Empty string workspace falls back to Level 3 (dedicated workspace).
 #[tokio::test]
-async fn test_empty_string_workspace_treated_as_explicit() {
+async fn test_empty_string_workspace_falls_back() {
     let ctx = MockCreationContext::new();
     let config = make_config("child-agent");
     let params = ChildSessionCreationParams {
         workspace: Some(""),
         ..default_params()
     };
-
     let result = create_child_conversation_session(&ctx, &config, &params)
         .await
         .expect("should succeed");
+    let expected = ctx
+        .config_dir()
+        .join("workspaces")
+        .join("child-agent")
+        .join("test-user");
+    assert_eq!(
+        result.workspace_path, expected,
+        "empty string workspace must fall back to Level 3"
+    );
+}
 
+/// Whitespace-only workspace also falls back to Level 3.
+#[tokio::test]
+async fn test_whitespace_only_workspace_falls_back() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        workspace: Some("   "),
+        ..default_params()
+    };
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+    let expected = ctx
+        .config_dir()
+        .join("workspaces")
+        .join("child-agent")
+        .join("test-user");
+    assert_eq!(
+        result.workspace_path, expected,
+        "whitespace-only workspace must fall back to Level 3"
+    );
+}
+
+/// Trimmed non-empty workspace is treated as Level 1 explicit.
+#[tokio::test]
+async fn test_trimmed_nonempty_workspace_treated_as_explicit() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        workspace: Some("  /explicit/path  "),
+        ..default_params()
+    };
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
     assert_eq!(
         result.workspace_path,
-        std::path::PathBuf::from(""),
-        "empty string workspace should be returned as-is (Level 1 explicit)"
+        std::path::PathBuf::from("  /explicit/path  "),
+        "non-empty workspace with whitespace should be returned as-is"
     );
 }
 
