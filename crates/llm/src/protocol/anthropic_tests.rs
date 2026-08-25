@@ -913,3 +913,63 @@ fn test_messages_cache_control_no_content() {
     let messages = body.get("messages").unwrap().as_array().unwrap();
     assert!(messages.is_empty());
 }
+
+// ── Step 1.7: Protocol error detection tests ─────────────────────────────
+// These tests verify that the protocol layer gracefully handles error
+// responses that were previously caught at the Provider layer.
+
+/// Empty content array → returns empty content blocks (graceful degradation).
+#[test]
+fn test_parse_response_empty_content_blocks() {
+    let proto = AnthropicProtocol::new();
+    let body = serde_json::json!({
+        "content": [],
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 0
+        },
+        "stop_reason": null
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert!(resp.content_blocks.is_empty());
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 0);
+    assert!(resp.finish_reason.is_none());
+}
+
+/// Missing content field entirely → returns empty content blocks.
+#[test]
+fn test_parse_response_missing_content_field() {
+    let proto = AnthropicProtocol::new();
+    let body = serde_json::json!({
+        "usage": {
+            "input_tokens": 5,
+            "output_tokens": 0
+        },
+        "stop_reason": "end_turn"
+    });
+    let resp = proto.parse_response(body).unwrap();
+    assert!(resp.content_blocks.is_empty());
+    assert_eq!(resp.usage.prompt_tokens, 5);
+}
+
+/// Business error body (e.g. Anthropic error format) → returns empty content blocks.
+/// Anthropic errors have {"type": "error", "error": {"type": "...", "message": "..."}}
+/// format without a content field.
+#[test]
+fn test_parse_response_anthropic_error_body() {
+    let proto = AnthropicProtocol::new();
+    let body = serde_json::json!({
+        "type": "error",
+        "error": {
+            "type": "authentication_error",
+            "message": "Invalid API key"
+        }
+    });
+    let resp = proto.parse_response(body).unwrap();
+    // No content field → empty content blocks; error is at transport level
+    assert!(resp.content_blocks.is_empty());
+    assert_eq!(resp.usage.prompt_tokens, 0);
+    assert_eq!(resp.usage.completion_tokens, 0);
+    assert!(resp.finish_reason.is_none());
+}

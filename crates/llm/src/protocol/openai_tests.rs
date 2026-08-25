@@ -981,3 +981,16 @@ async fn test_sse_stream_usage_only_in_dedicated_chunk() {
     }
     assert!(found);
 }
+
+// ── Step 1.7: Protocol error detection tests ─────────────────────────────
+
+/// Empty choices array → returns empty content blocks (graceful degradation).
+#[test]
+fn test_parse_response_empty_choices() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({ "choices": [], "usage": { "prompt_tokens": 10, "completion_tokens": 0, "total_tokens": 10 } });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert!(resp.finish_reason.is_none());
+}

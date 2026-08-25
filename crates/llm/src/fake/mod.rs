@@ -319,6 +319,15 @@ impl FakeProvider {
                 })
                 .collect::<Vec<_>>()
                 .concat();
+            // Map Thinking blocks to reasoning_content for OpenAI wire format.
+            let reasoning_content: String = content_blocks
+                .iter()
+                .filter_map(|block| match block {
+                    RawContentBlock::Thinking { thinking, .. } => Some(thinking.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .concat();
             // Collect ToolUse blocks into the tool_calls field.
             let tool_calls: Vec<serde_json::Value> = content_blocks
                 .iter()
@@ -338,6 +347,9 @@ impl FakeProvider {
                 "role": "assistant",
                 "content": content_string
             });
+            if !reasoning_content.is_empty() {
+                message["reasoning_content"] = serde_json::json!(reasoning_content);
+            }
             if !tool_calls.is_empty() {
                 message["tool_calls"] = serde_json::json!(tool_calls);
             }
