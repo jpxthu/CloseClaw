@@ -227,6 +227,7 @@ mod tests {
             max_tokens: 1024,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: crate::ReasoningLevels::None,
             input_types: vec![],
         }];
 

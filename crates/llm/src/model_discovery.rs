@@ -129,6 +129,7 @@ impl ModelDiscovery {
                     max_tokens: params.max_tokens,
                     default_temperature: Some(params.default_temperature),
                     reasoning: params.reasoning,
+                    reasoning_levels: params.reasoning_levels,
                     input_types: params.input_types,
                 }
             })
@@ -151,7 +152,7 @@ mod tests {
     use super::*;
     use crate::model_cache::{CacheEntry, CacheKey};
     use crate::model_info::InputType;
-    use crate::LLMError;
+    use crate::{LLMError, ReasoningLevels};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -174,6 +175,7 @@ mod tests {
             max_tokens: 1024,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }]
     }
@@ -214,6 +216,7 @@ mod tests {
             max_tokens: 1024,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }]
     }
@@ -283,6 +286,7 @@ mod tests {
                 max_tokens: 0,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -338,6 +342,7 @@ mod tests {
             max_tokens: 512,
             default_temperature: Some(0.3),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }];
 
@@ -383,6 +388,7 @@ mod tests {
                 max_tokens: 1024,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
             ModelInfo {
@@ -392,6 +398,7 @@ mod tests {
                 max_tokens: 4096,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
         ];
@@ -422,6 +429,7 @@ mod tests {
                 max_tokens: 1024,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
             ModelInfo {
@@ -431,6 +439,7 @@ mod tests {
                 max_tokens: 2048,
                 default_temperature: Some(0.7),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
         ];
@@ -462,6 +471,7 @@ mod tests {
                 max_tokens: 1024,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
             ModelInfo {
@@ -471,6 +481,7 @@ mod tests {
                 max_tokens: 4096,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
         ];
@@ -520,6 +531,7 @@ mod tests {
             max_tokens: 2048,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }];
 

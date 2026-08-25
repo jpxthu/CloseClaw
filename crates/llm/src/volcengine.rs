@@ -375,6 +375,7 @@ impl ModelLister for VolcEngineProvider {
                     // VolcEngine does not expose a reasoning flag directly;
                     // we conservatively set reasoning=false here.
                     reasoning: false,
+                    reasoning_levels: crate::ReasoningLevels::None,
                     input_types,
                 }
             })

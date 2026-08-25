@@ -333,6 +333,7 @@ impl ModelLister for DeepSeekProvider {
                     max_tokens: m.max_output_tokens.unwrap_or(8_192),
                     default_temperature: None,
                     reasoning: false,
+                    reasoning_levels: crate::ReasoningLevels::None,
                     input_types,
                 }
             })
