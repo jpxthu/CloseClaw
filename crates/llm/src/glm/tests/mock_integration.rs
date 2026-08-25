@@ -138,9 +138,9 @@ async fn test_glm_http_500_error_mock() {
         .unwrap_err();
     m.assert_async().await;
     match err {
-        ProviderError::Legacy(msg) => {
-            assert!(msg.contains("500"), "should contain 500");
+        ProviderError::Http { status_code, .. } => {
+            assert_eq!(status_code, 500, "should be 500");
         }
-        other => panic!("Expected Legacy, got: {:?}", other),
+        other => panic!("Expected Http, got: {:?}", other),
     }
 }

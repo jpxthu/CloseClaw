@@ -222,9 +222,9 @@ async fn test_fetch_model_list_http_auth_failure_mock() {
 
     m.assert_async().await;
     match err {
-        LLMError::ApiError(msg) => {
+        LLMError::AuthFailed(msg) => {
             assert!(msg.contains("401"), "should contain 401");
         }
-        other => panic!("Expected ApiError, got: {:?}", other),
+        other => panic!("Expected AuthFailed, got: {:?}", other),
     }
 }

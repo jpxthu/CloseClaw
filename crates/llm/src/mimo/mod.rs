@@ -96,11 +96,6 @@ impl MimoProvider {
     fn messages_url(&self) -> String {
         format!("{}/messages", self.base_url)
     }
-
-    /// Map HTTP status code to the appropriate provider error.
-    fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
-        ProviderError::Legacy(format!("MiMo API error {}: {}", status, body))
-    }
 }
 
 // ── SSE buffer processing helpers ─────────────────────────────────────────
@@ -376,7 +371,7 @@ impl Provider for MimoProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         if is_anthropic {
@@ -411,8 +406,9 @@ impl Provider for MimoProvider {
 
         if !response.status().is_success() {
             let status = response.status();
+            let retry_after = crate::provider::parse_retry_after(response.headers());
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, retry_after));
         }
 
         let (tx, rx) = mpsc::channel(64);

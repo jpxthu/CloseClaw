@@ -76,10 +76,6 @@ impl AnthropicProvider {
         format!("{}/v1/messages", self.base_url)
     }
 
-    fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
-        ProviderError::Legacy(format!("Anthropic API error {}: {}", status, body))
-    }
-
     fn build_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -217,7 +213,7 @@ impl Provider for AnthropicProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         let anthropic_resp: AnthropicResponse =
@@ -248,8 +244,9 @@ impl Provider for AnthropicProvider {
 
         if !response.status().is_success() {
             let status = response.status();
+            let retry_after = crate::provider::parse_retry_after(response.headers());
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, retry_after));
         }
 
         let (tx, rx) = mpsc::channel(64);
@@ -500,9 +497,9 @@ mod tests {
         mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => assert!(msg.contains("401")),
+            ProviderError::Http { status_code, .. } => assert_eq!(status_code, 401),
             other => {
-                panic!("Expected Legacy error for 401, got: {:?}", other)
+                panic!("Expected Http error for 401, got: {:?}", other)
             }
         }
     }
@@ -525,9 +522,9 @@ mod tests {
         mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => assert!(msg.contains("429")),
+            ProviderError::Http { status_code, .. } => assert_eq!(status_code, 429),
             other => {
-                panic!("Expected Legacy error for 429, got: {:?}", other)
+                panic!("Expected Http error for 429, got: {:?}", other)
             }
         }
     }
@@ -550,9 +547,9 @@ mod tests {
         mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => assert!(msg.contains("500")),
+            ProviderError::Http { status_code, .. } => assert_eq!(status_code, 500),
             other => {
-                panic!("Expected Legacy error for 500, got: {:?}", other)
+                panic!("Expected Http error for 500, got: {:?}", other)
             }
         }
     }
@@ -650,8 +647,8 @@ mod tests {
         mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => assert!(msg.contains("401")),
-            other => panic!("Expected Legacy error for 401, got: {:?}", other),
+            ProviderError::Http { status_code, .. } => assert_eq!(status_code, 401),
+            other => panic!("Expected Http error for 401, got: {:?}", other),
         }
     }
 
@@ -825,9 +822,9 @@ mod tests {
         mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => assert!(msg.contains("500")),
+            ProviderError::Http { status_code, .. } => assert_eq!(status_code, 500),
             other => {
-                panic!("Expected Legacy error for 500, got: {:?}", other)
+                panic!("Expected Http error for 500, got: {:?}", other)
             }
         }
     }

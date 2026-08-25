@@ -783,3 +783,210 @@ async fn test_streaming_degraded_non_streaming_also_fails() {
     };
     assert!(msg.contains("exhausted"));
 }
+
+// Structured error propagation tests (Step 1.4)
+struct HttpErrorProvider {
+    name: String,
+    status: u16,
+    body: String,
+    retry_after: Option<u64>,
+}
+
+impl HttpErrorProvider {
+    fn new(name: &str, status: u16, body: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            status,
+            body: body.to_string(),
+            retry_after: None,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Provider for HttpErrorProvider {
+    fn id(&self) -> &str {
+        &self.name
+    }
+    fn base_url(&self) -> &str {
+        ""
+    }
+    fn api_key(&self) -> &str {
+        ""
+    }
+    fn supported_protocols(&self) -> &[ProtocolId] {
+        &[]
+    }
+    fn http_client(&self) -> &reqwest::Client {
+        mock_provider_client()
+    }
+    fn default_headers(&self) -> &reqwest::header::HeaderMap {
+        mock_provider_headers()
+    }
+    async fn send(
+        &self,
+        _: crate::types::InternalRequest,
+        _: serde_json::Value,
+    ) -> crate::provider::Result<InternalResponse> {
+        Err(crate::provider::ProviderError::Http {
+            status_code: self.status,
+            body: self.body.clone(),
+            retry_after: self.retry_after,
+        })
+    }
+    async fn send_streaming(
+        &self,
+        _: crate::types::InternalRequest,
+        _: serde_json::Value,
+    ) -> crate::provider::Result<crate::provider::SseStream> {
+        Err(crate::provider::ProviderError::Http {
+            status_code: self.status,
+            body: self.body.clone(),
+            retry_after: self.retry_after,
+        })
+    }
+}
+
+fn structured_internal_request(model: &str) -> crate::types::InternalRequest {
+    crate::types::InternalRequest {
+        model: model.to_string(),
+        messages: vec![],
+        temperature: 0.0,
+        max_tokens: None,
+        stream: false,
+        extra_body: serde_json::Map::new(),
+        system_static: None,
+        system_dynamic: None,
+        system_blocks: None,
+        tools: None,
+        session_id: None,
+        reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
+        turn_count: None,
+    }
+}
+
+fn http_error_client(name: &str, status: u16, body: &str) -> crate::client::UnifiedChatClient {
+    use crate::cache_adapter::NoopCacheAdapter;
+    use crate::client::UnifiedChatClient;
+    use crate::interpreter::InterpreterRegistry;
+    use crate::plugin::PluginPipeline;
+    use crate::protocol::OpenAiProtocol;
+    use std::sync::Arc;
+    let provider = Arc::new(HttpErrorProvider::new(name, status, body));
+    UnifiedChatClient::new(
+        provider,
+        Arc::new(OpenAiProtocol::default()),
+        InterpreterRegistry::new(vec![]),
+        PluginPipeline::new(),
+        Arc::new(NoopCacheAdapter),
+    )
+}
+
+/// Parameterized: all status code → LLMError variant/kind mappings.
+#[tokio::test]
+async fn test_structured_error_status_code_mapping() {
+    // (status, body, expected_variant, expected_kind)
+    let cases: [(u16, &str, &str, crate::ErrorKind); 7] = [
+        (
+            429,
+            "rate limited",
+            "RateLimitExceeded",
+            crate::ErrorKind::Transient,
+        ),
+        (401, "invalid key", "AuthFailed", crate::ErrorKind::Auth),
+        (403, "forbidden", "AuthFailed", crate::ErrorKind::Auth),
+        (
+            404,
+            "not found",
+            "ModelNotFound",
+            crate::ErrorKind::InvalidRequest,
+        ),
+        (
+            422,
+            "bad params",
+            "InvalidRequest",
+            crate::ErrorKind::InvalidRequest,
+        ),
+        (500, "server error", "ApiError", crate::ErrorKind::Transient),
+        (418, "teapot", "ApiError", crate::ErrorKind::Unknown),
+    ];
+    for (status, body, expected_variant, expected_kind) in cases {
+        let client = http_error_client("prov", status, body);
+        let req = structured_internal_request("m1");
+        let err = client.chat(req).await.unwrap_err();
+        match &err {
+            crate::client::ClientError::Provider(crate::provider::ProviderError::Http {
+                status_code,
+                ..
+            }) => assert_eq!(*status_code, status),
+            other => panic!("[{status}] expected ProviderError::Http, got {other:?}"),
+        }
+        let llm_err: LLMError = LLMError::from(err);
+        assert_eq!(llm_err.kind(), expected_kind, "[{status}] kind mismatch");
+        let name = match &llm_err {
+            LLMError::AuthFailed(_) => "AuthFailed",
+            LLMError::RateLimitExceeded => "RateLimitExceeded",
+            LLMError::ModelNotFound(_) => "ModelNotFound",
+            LLMError::InvalidRequest(_) => "InvalidRequest",
+            LLMError::ApiError(_) => "ApiError",
+            _ => "other",
+        };
+        assert_eq!(name, expected_variant, "[{status}] variant mismatch");
+    }
+}
+
+#[tokio::test]
+async fn test_structured_error_empty_body() {
+    let client = http_error_client("prov", 429, "");
+    let req = structured_internal_request("m1");
+    let err = client.chat(req).await.unwrap_err();
+    let llm_err: LLMError = LLMError::from(err);
+    assert!(matches!(llm_err, LLMError::RateLimitExceeded));
+    assert_eq!(llm_err.kind(), crate::ErrorKind::Transient);
+}
+
+#[tokio::test]
+async fn test_structured_429_triggers_fallback_to_second_provider() {
+    let registry = Arc::new(crate::LLMRegistry::new());
+    let fail = Arc::new(HttpErrorProvider::new("rate-limited", 429, "slow down"));
+    registry
+        .register(fail.id().to_string(), fail as Arc<dyn Provider>)
+        .await;
+    registry
+        .register(
+            "ok-prov".to_string(),
+            mock_provider_as_dyn("ok-prov", Ok(ok_response())),
+        )
+        .await;
+    let client = FallbackClient::new(
+        registry,
+        vec![
+            ModelEntry {
+                provider: "rate-limited".to_string(),
+                model: "m1".to_string(),
+            },
+            ModelEntry {
+                provider: "ok-prov".to_string(),
+                model: "m2".to_string(),
+            },
+        ],
+    );
+    let req = ChatRequest {
+        model: "m1".to_string(),
+        messages: vec![],
+        temperature: 0.0,
+        max_tokens: None,
+    };
+    let result = client.chat_unified(req).await;
+    assert!(result.is_ok(), "should succeed via second provider");
+    let resp = result.unwrap();
+    let content: String = resp
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            closeclaw_common::processor::ContentBlock::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(content, "hello");
+}

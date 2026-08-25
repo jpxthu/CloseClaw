@@ -101,7 +101,7 @@ impl Provider for GlmProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         let api_resp: GlmResponse = response.json().await.map_err(ProviderError::Reqwest)?;
@@ -126,8 +126,9 @@ impl Provider for GlmProvider {
 
         if !response.status().is_success() {
             let status = response.status();
+            let retry_after = crate::provider::parse_retry_after(response.headers());
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, retry_after));
         }
 
         let (tx, rx) = mpsc::channel(64);

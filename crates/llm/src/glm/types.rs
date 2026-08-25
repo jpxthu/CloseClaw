@@ -155,11 +155,6 @@ pub struct GlmUsageDetail {
 // ── Error mapping & content extraction ─────────────────────────────────────
 
 impl GlmProvider {
-    /// Map GLM HTTP status error to ProviderError.
-    pub(crate) fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
-        ProviderError::Legacy(format!("GLM API error {}: {}", status, body))
-    }
-
     /// Map GLM error code to ProviderError.
     ///
     /// All GLM error codes map to `ProviderError::Legacy`

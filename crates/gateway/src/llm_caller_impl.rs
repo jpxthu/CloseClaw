@@ -49,7 +49,7 @@ impl LlmCaller for FallbackLlmCaller {
             .0
             .chat_streaming(request)
             .await
-            .map_err(|e| LLMError::ApiError(e.to_string()))?;
+            .map_err(LLMError::from)?;
         let mapped = raw_stream.map(|r: Result<StreamEvent, ProtocolError>| {
             r.map_err(|e| LLMError::ApiError(e.to_string()))
         });

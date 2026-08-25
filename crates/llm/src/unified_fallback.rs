@@ -23,7 +23,7 @@ use std::sync::Arc;
 impl From<ClientError> for LLMError {
     fn from(e: ClientError) -> Self {
         match e {
-            ClientError::Provider(e) => LLMError::ApiError(e.to_string()),
+            ClientError::Provider(e) => LLMError::from(&e),
             ClientError::Protocol(e) => LLMError::ApiError(e.to_string()),
         }
     }

@@ -224,14 +224,14 @@ async fn test_send_error_401_auth() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(
-                msg.contains("401"),
-                "expected 401 in error message, got: {}",
-                msg
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(
+                status_code, 401,
+                "expected 401 status code, got: {}",
+                status_code
             );
         }
-        other => panic!("expected Legacy error for 401, got: {:?}", other),
+        other => panic!("expected Http error for 401, got: {:?}", other),
     }
 }
 
@@ -255,14 +255,14 @@ async fn test_send_error_429_rate_limit() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(
-                msg.contains("429"),
-                "expected 429 in error message, got: {}",
-                msg
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(
+                status_code, 429,
+                "expected 429 status code, got: {}",
+                status_code
             );
         }
-        other => panic!("expected Legacy error for 429, got: {:?}", other),
+        other => panic!("expected Http error for 429, got: {:?}", other),
     }
 }
 
@@ -286,14 +286,14 @@ async fn test_send_error_404_not_found() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(
-                msg.contains("404"),
-                "expected 404 in error message, got: {}",
-                msg
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(
+                status_code, 404,
+                "expected 404 status code, got: {}",
+                status_code
             );
         }
-        other => panic!("expected Legacy error for 404, got: {:?}", other),
+        other => panic!("expected Http error for 404, got: {:?}", other),
     }
 }
 
@@ -433,10 +433,10 @@ async fn test_send_streaming_error_401() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(msg.contains("401"));
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(status_code, 401);
         }
-        other => panic!("expected Legacy error for 401, got: {:?}", other),
+        other => panic!("expected Http error for 401, got: {:?}", other),
     }
 }
 
@@ -770,14 +770,14 @@ async fn test_fetch_balance_error() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(
-                msg.contains("401"),
-                "expected 401 in error message, got: {}",
-                msg
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(
+                status_code, 401,
+                "expected 401 status code, got: {}",
+                status_code
             );
         }
-        other => panic!("expected Legacy error for 401, got: {:?}", other),
+        other => panic!("expected Http error for 401, got: {:?}", other),
     }
 }
 

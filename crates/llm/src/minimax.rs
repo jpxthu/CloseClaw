@@ -115,13 +115,6 @@ impl MiniMaxProvider {
         }
     }
 
-    // ── Error mapping (Provider) ────────────────────────────────────────
-
-    /// Map HTTP status error to ProviderError.
-    pub(crate) fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
-        ProviderError::Legacy(format!("MiniMax API error {}: {}", status, body))
-    }
-
     /// Map MiniMax internal base_resp status_code to ProviderError.
     pub(crate) fn map_base_resp_error(status_code: i32, status_msg: &str) -> ProviderError {
         ProviderError::Legacy(format!(
@@ -239,7 +232,7 @@ impl Provider for MiniMaxProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         let api_resp: MiniMaxResponse = response.json().await.map_err(ProviderError::Reqwest)?;
@@ -296,9 +289,8 @@ impl ModelLister for MiniMaxProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(LLMError::ApiError(format!(
-                "MiniMax API error {}: {}",
-                status, body
+            return Err(LLMError::from(&crate::provider::map_http_error(
+                status, body, None,
             )));
         }
 
