@@ -27,6 +27,7 @@ use closeclaw_workflow::engine::WorkflowEngine;
 /// 5. Inject workflow context into system_appends
 /// 6. Push Step 0 goal message as pending
 /// 7. Return confirmation
+#[derive(Clone)]
 pub struct WorkflowSlashHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
     agent_workspace: Option<PathBuf>,
@@ -107,6 +108,10 @@ impl SlashHandler for WorkflowSlashHandler {
             "工作流 \"{name}\" 已启动。正在执行 Step 0: {}",
             workflow.steps[0].name,
         ))
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }
 

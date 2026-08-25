@@ -18,6 +18,7 @@ use closeclaw_common::slash_router::SlashResult;
 ///
 /// Permission commands are intercepted by the Gateway before reaching this
 /// handler. The handler returns a Reply with usage information as a fallback.
+#[derive(Clone)]
 pub struct PermissionSlashHandler;
 
 impl PermissionSlashHandler {
@@ -77,6 +78,10 @@ impl SlashHandler for PermissionSlashHandler {
 
     fn requires_permission(&self) -> bool {
         false
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {

@@ -13,6 +13,7 @@ use closeclaw_common::slash_router::SlashResult;
 // Mock handlers
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 struct EchoHandler;
 
 #[async_trait::async_trait]
@@ -25,11 +26,16 @@ impl SlashHandler for EchoHandler {
         "Echo back the arguments"
     }
 
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
+
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Reply(args.to_owned())
     }
 }
 
+#[derive(Clone)]
 struct HelpHandler;
 
 #[async_trait::async_trait]
@@ -42,11 +48,16 @@ impl SlashHandler for HelpHandler {
         "Print this help message"
     }
 
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
+
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Reply("help text".to_owned())
     }
 }
 
+#[derive(Clone)]
 struct RiskyHandler;
 
 #[async_trait::async_trait]
@@ -57,6 +68,10 @@ impl SlashHandler for RiskyHandler {
 
     fn description(&self) -> &str {
         "Execute a shell command"
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -218,6 +233,7 @@ async fn test_dispatch_not_a_slash_command() {
 async fn test_dispatch_sets_command_in_context() {
     // The dispatcher sets `ctx.command` to the matched command name.
     // We verify this by using a custom handler that reads it.
+    #[derive(Clone)]
     struct CmdCaptureHandler;
     #[async_trait::async_trait]
     impl SlashHandler for CmdCaptureHandler {
@@ -226,6 +242,9 @@ async fn test_dispatch_sets_command_in_context() {
         }
         fn description(&self) -> &str {
             "capture"
+        }
+        fn clone_box(&self) -> Box<dyn SlashHandler> {
+            Box::new(self.clone())
         }
         async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
             SlashResult::Reply(ctx.command.clone())

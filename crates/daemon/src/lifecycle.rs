@@ -939,12 +939,9 @@ impl Daemon {
         if let Some(config_dir) = gateway.get_config_dir().await {
             slash_registry.register(Arc::new(UserSlashHandler::new(config_dir)));
         }
-        let slash_dispatcher = Arc::new(crate::bridge::SlashDispatcherWrapper(
-            SlashDispatcher::from_shared(slash_registry),
-        ));
-        gateway
-            .set_slash_dispatcher(slash_dispatcher as Arc<dyn closeclaw_common::SlashRouter>)
-            .await;
+        let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry))
+            as Arc<dyn closeclaw_common::SlashRouter>;
+        gateway.set_slash_dispatcher(slash_dispatcher).await;
         // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
         // dispatch_slash 在 Branch 2 时能取到 engine。
         gateway

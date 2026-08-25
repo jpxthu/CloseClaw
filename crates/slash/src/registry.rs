@@ -48,7 +48,19 @@ impl HandlerRegistry {
     }
 
     /// Look up a handler by command name (without the leading `/`).
-    pub fn get(&self, command: &str) -> Option<Arc<dyn SlashHandler>> {
+    ///
+    /// Returns a cloned `Box<dyn SlashHandler>` via the trait's `clone_box`
+    /// method, enabling the `SlashRouter` trait's `get_handler` signature.
+    pub fn get(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
+        self.handlers
+            .read()
+            .expect("registry lock poisoned")
+            .get(command)
+            .map(|h| h.clone_box())
+    }
+
+    /// Look up a handler by command name, returning an Arc.
+    pub fn get_arc(&self, command: &str) -> Option<Arc<dyn SlashHandler>> {
         self.handlers
             .read()
             .expect("registry lock poisoned")
@@ -56,8 +68,21 @@ impl HandlerRegistry {
             .cloned()
     }
 
-    /// Iterate over (command, handler) pairs.
-    pub fn iter(&self) -> Vec<(String, Arc<dyn SlashHandler>)> {
+    /// Iterate over (command, handler) pairs, returning boxed clones.
+    pub fn iter(&self) -> Vec<(String, Box<dyn SlashHandler>)> {
+        self.handlers
+            .read()
+            .expect("registry lock poisoned")
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone_box()))
+            .collect()
+    }
+
+    /// Iterate over (command, handler) pairs, returning Arc clones.
+    ///
+    /// This avoids the Arc→Box heap allocation that [`iter`] requires,
+    /// making it the preferred path for callers that only need `Arc`.
+    pub fn iter_arc(&self) -> Vec<(String, Arc<dyn SlashHandler>)> {
         self.handlers
             .read()
             .expect("registry lock poisoned")
@@ -85,6 +110,7 @@ mod tests {
     use async_trait::async_trait;
     use closeclaw_common::slash_router::SlashResult;
 
+    #[derive(Clone)]
     struct MockHandler {
         desc: String,
     }
@@ -99,6 +125,9 @@ mod tests {
         }
         fn immediate(&self, _cmd: &str) -> bool {
             false
+        }
+        fn clone_box(&self) -> Box<dyn SlashHandler> {
+            Box::new(self.clone())
         }
         async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
             SlashResult::Reply(format!("handled by {}", self.desc))

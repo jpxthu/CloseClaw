@@ -18,6 +18,7 @@ use closeclaw_common::VerbosityLevel;
 /// `SessionManager::force_new_for_channel`, which creates a fresh
 /// `ConversationSession` and updates the channel→session mapping.
 /// The old session is preserved in the sessions map for recovery.
+#[derive(Clone)]
 pub struct NewSessionHandler;
 
 #[async_trait::async_trait]
@@ -34,6 +35,10 @@ impl SlashHandler for NewSessionHandler {
         false
     }
 
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
+
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::NewSession
     }
@@ -45,6 +50,7 @@ impl SlashHandler for NewSessionHandler {
 ///
 /// The Gateway routes `SlashResult::Stop` by cancelling the active LLM turn,
 /// cascading to child handles, and clearing the pending message queue.
+#[derive(Clone)]
 pub struct StopHandler;
 
 #[async_trait::async_trait]
@@ -59,6 +65,10 @@ impl SlashHandler for StopHandler {
 
     fn immediate(&self, _cmd: &str) -> bool {
         true
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -77,6 +87,7 @@ impl SlashHandler for StopHandler {
 /// - No arguments: reply with the current verbosity level.
 /// - With an argument (`full`, `normal`, `off`): update the session's verbosity
 ///   level via `SlashResult::SetVerbosity`.
+#[derive(Clone)]
 pub struct VerboseHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -112,6 +123,10 @@ impl SlashHandler for VerboseHandler {
         true
     }
 
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
+
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
         let arg = args.trim();
 
@@ -143,6 +158,7 @@ impl SlashHandler for VerboseHandler {
 ///
 /// Reads various fields from the [`ConversationSession`] and formats them
 /// into a human-readable status report.
+#[derive(Clone)]
 pub struct StatusHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -228,5 +244,9 @@ impl SlashHandler for StatusHandler {
         }
 
         SlashResult::Reply(lines.join("\n"))
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }
