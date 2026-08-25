@@ -4,53 +4,17 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
-use serde::Deserialize;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
 
 use crate::provider::{Provider, ProviderError, Result, SseStream};
-use crate::types::{
-    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
-};
+use crate::types::{InternalRequest, ProtocolId, RawSseChunk};
 
 pub struct AnthropicProvider {
     api_key: String,
     base_url: String,
     client: Client,
     supported_protocols: Vec<ProtocolId>,
-}
-
-// ── Raw Anthropic API response types ─────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-struct AnthropicResponse {
-    content: Vec<AnthropicContentBlock>,
-    usage: AnthropicUsage,
-    stop_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum AnthropicContentBlock {
-    Text {
-        text: String,
-    },
-    Thinking {
-        thinking: String,
-        #[serde(default)]
-        signature: Option<String>,
-    },
-    ToolUse {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-struct AnthropicUsage {
-    input_tokens: u32,
-    output_tokens: u32,
 }
 
 impl AnthropicProvider {
@@ -89,41 +53,9 @@ impl AnthropicProvider {
     }
 }
 
-// ── Response / SSE parsing helpers ──────────────────────────────────────────
+// ── SSE parsing helpers ─────────────────────────────────────────────────────
 
 impl AnthropicProvider {
-    fn parse_content_blocks(blocks: Vec<AnthropicContentBlock>) -> Vec<RawContentBlock> {
-        blocks
-            .into_iter()
-            .map(|block| match block {
-                AnthropicContentBlock::Text { text } => RawContentBlock::Text(text),
-                AnthropicContentBlock::Thinking {
-                    thinking,
-                    signature,
-                } => RawContentBlock::Thinking {
-                    thinking,
-                    signature,
-                },
-                AnthropicContentBlock::ToolUse { id, name, input } => RawContentBlock::ToolUse {
-                    id,
-                    name,
-                    input: input.to_string(),
-                },
-            })
-            .collect()
-    }
-
-    fn parse_usage(usage: AnthropicUsage) -> RawUsage {
-        RawUsage {
-            prompt_tokens: usage.input_tokens,
-            completion_tokens: usage.output_tokens,
-            total_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-            reasoning_tokens: None,
-        }
-    }
-
     fn parse_sse_block(block: &str) -> (String, String) {
         let mut event_type = String::new();
         let mut data = String::new();
@@ -198,7 +130,7 @@ impl Provider for AnthropicProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> Result<InternalResponse> {
+    ) -> Result<serde_json::Value> {
         let url = self.messages_url();
         let headers = self.build_headers();
 
@@ -216,14 +148,10 @@ impl Provider for AnthropicProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        let anthropic_resp: AnthropicResponse =
-            response.json().await.map_err(ProviderError::Reqwest)?;
-
-        Ok(InternalResponse {
-            content_blocks: Self::parse_content_blocks(anthropic_resp.content),
-            usage: Self::parse_usage(anthropic_resp.usage),
-            finish_reason: anthropic_resp.stop_reason,
-        })
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(
@@ -398,15 +326,14 @@ mod tests {
             .unwrap();
         mock.assert_async().await;
 
-        assert_eq!(response.content_blocks.len(), 1);
-        match &response.content_blocks[0] {
-            RawContentBlock::Text(s) => assert_eq!(s, "Hello there!"),
-            other => panic!("Expected Text block, got: {:?}", other),
-        }
-        assert_eq!(response.usage.prompt_tokens, 10);
-        assert_eq!(response.usage.completion_tokens, 5);
-        assert_eq!(response.usage.total_tokens, None);
-        assert_eq!(response.finish_reason.as_deref(), Some("end_turn"));
+        // Verify raw JSON response structure
+        let content = response["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"].as_str().unwrap(), "text");
+        assert_eq!(content[0]["text"].as_str().unwrap(), "Hello there!");
+        assert_eq!(response["usage"]["input_tokens"].as_u64().unwrap(), 10);
+        assert_eq!(response["usage"]["output_tokens"].as_u64().unwrap(), 5);
+        assert_eq!(response["stop_reason"].as_str().unwrap(), "end_turn");
     }
 
     // ── send() with thinking block ───────────────────────────────────────────
@@ -431,23 +358,15 @@ mod tests {
             .unwrap();
         mock.assert_async().await;
 
-        assert_eq!(response.content_blocks.len(), 2);
-        match &response.content_blocks[0] {
-            RawContentBlock::Thinking {
-                thinking,
-                signature,
-            } => {
-                assert_eq!(thinking, "Let me think...");
-                assert!(signature.is_none());
-            }
-            other => panic!("Expected Thinking block, got: {:?}", other),
-        }
-        match &response.content_blocks[1] {
-            RawContentBlock::Text(s) => assert_eq!(s, "The answer is 42."),
-            other => panic!("Expected Text block, got: {:?}", other),
-        }
-        assert_eq!(response.usage.prompt_tokens, 20);
-        assert_eq!(response.usage.completion_tokens, 15);
+        let content = response["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"].as_str().unwrap(), "thinking");
+        assert_eq!(content[0]["thinking"].as_str().unwrap(), "Let me think...");
+        assert!(content[0].get("signature").is_none());
+        assert_eq!(content[1]["type"].as_str().unwrap(), "text");
+        assert_eq!(content[1]["text"].as_str().unwrap(), "The answer is 42.");
+        assert_eq!(response["usage"]["input_tokens"].as_u64().unwrap(), 20);
+        assert_eq!(response["usage"]["output_tokens"].as_u64().unwrap(), 15);
     }
 
     // ── send() empty content ─────────────────────────────────────────────────
@@ -473,10 +392,11 @@ mod tests {
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
 
-        assert!(response.content_blocks.is_empty());
-        assert_eq!(response.usage.prompt_tokens, 5);
-        assert_eq!(response.usage.completion_tokens, 0);
-        assert_eq!(response.finish_reason.as_deref(), Some("end_turn"));
+        let content = response["content"].as_array().unwrap();
+        assert!(content.is_empty());
+        assert_eq!(response["usage"]["input_tokens"].as_u64().unwrap(), 5);
+        assert_eq!(response["usage"]["output_tokens"].as_u64().unwrap(), 0);
+        assert_eq!(response["stop_reason"].as_str().unwrap(), "end_turn");
     }
 
     // ── send() auth error ────────────────────────────────────────────────────
@@ -579,19 +499,11 @@ mod tests {
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
 
-        assert_eq!(response.content_blocks.len(), 1);
-        match &response.content_blocks[0] {
-            RawContentBlock::Thinking {
-                thinking,
-                signature,
-            } => {
-                assert_eq!(thinking, "reasoning...");
-                assert_eq!(signature.as_deref(), Some("sig123"));
-            }
-            other => {
-                panic!("Expected Thinking block, got: {:?}", other)
-            }
-        }
+        let content = response["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"].as_str().unwrap(), "thinking");
+        assert_eq!(content[0]["thinking"].as_str().unwrap(), "reasoning...");
+        assert_eq!(content[0]["signature"].as_str().unwrap(), "sig123");
     }
 
     // ── send_streaming() success tests ──────────────────────────────────────
@@ -754,19 +666,14 @@ mod tests {
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
 
-        assert_eq!(response.content_blocks.len(), 1);
-        match &response.content_blocks[0] {
-            RawContentBlock::Thinking {
-                thinking,
-                signature,
-            } => {
-                assert_eq!(thinking, "deep reasoning here");
-                assert!(signature.is_none());
-            }
-            other => {
-                panic!("Expected Thinking block, got: {:?}", other)
-            }
-        }
+        let content = response["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"].as_str().unwrap(), "thinking");
+        assert_eq!(
+            content[0]["thinking"].as_str().unwrap(),
+            "deep reasoning here"
+        );
+        assert!(content[0].get("signature").is_none());
     }
 
     // ── send() very long response ───────────────────────────────────────────
@@ -793,14 +700,10 @@ mod tests {
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
 
-        assert_eq!(response.content_blocks.len(), 1);
-        match &response.content_blocks[0] {
-            RawContentBlock::Text(s) => {
-                assert_eq!(s.len(), 100_000);
-            }
-            other => panic!("Expected Text block, got: {:?}", other),
-        }
-        assert_eq!(response.usage.completion_tokens, 50_000);
+        let content = response["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["text"].as_str().unwrap().len(), 100_000);
+        assert_eq!(response["usage"]["output_tokens"].as_u64().unwrap(), 50_000);
     }
 
     // ── send_streaming() server error ───────────────────────────────────────

@@ -11,9 +11,10 @@
 //! ```ignore
 //! PluginPipeline.before_request
 //!   → ChatProtocol.build_request
-//!     → Provider.send
-//!       → Interpreter.interpret_response
-//!         → PluginPipeline.after_response
+//!     → Provider.send (returns raw JSON)
+//!       → ChatProtocol.parse_response (JSON → InternalResponse)
+//!         → Interpreter.interpret_response
+//!           → PluginPipeline.after_response
 //! ```
 
 use std::sync::Arc;
@@ -126,9 +127,10 @@ impl UnifiedChatClient {
     /// # Pipeline steps (in order)
     /// 1. **PluginPipeline.before_request** — each plugin may mutate the request.
     /// 2. **ChatProtocol.build_request** — serialises the request to a JSON body.
-    /// 3. **Provider.send** — performs the HTTP request.
-    /// 4. **Interpreter.interpret_response** — normalises the internal response.
-    /// 5. **PluginPipeline.after_response** — each plugin may mutate the final
+    /// 3. **Provider.send** — performs the HTTP request, returns raw JSON.
+    /// 4. **ChatProtocol.parse_response** — parses the raw JSON into an internal response.
+    /// 5. **Interpreter.interpret_response** — normalises the internal response.
+    /// 6. **PluginPipeline.after_response** — each plugin may mutate the final
     ///    [`UnifiedResponse`] before it is returned.
     pub async fn chat(&self, mut request: InternalRequest) -> Result<UnifiedResponse> {
         let model = request.model.clone();
@@ -140,11 +142,15 @@ impl UnifiedChatClient {
             .protocol
             .build_request(&request)
             .map_err(ClientError::Protocol)?;
-        let internal_response = self
+        let raw_json = self
             .provider
             .send(request, body)
             .await
             .map_err(ClientError::Provider)?;
+        let internal_response = self
+            .protocol
+            .parse_response(raw_json)
+            .map_err(ClientError::Protocol)?;
         let mut response = interpreter.interpret_response(internal_response);
         self.plugin_pipeline.after_response(&mut response, &model);
         Ok(response)

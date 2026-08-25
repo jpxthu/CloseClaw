@@ -210,10 +210,14 @@ impl FallbackClient {
         let internal_req = Self::chat_request_to_internal(&request);
         let body = serde_json::to_value(&internal_req)
             .map_err(|e| LLMError::InvalidRequest(e.to_string()))?;
-        let internal_resp = provider
+        let raw_json = provider
             .send(internal_req, body)
             .await
             .map_err(|e| LLMError::from(&e))?;
+        let internal_resp = self
+            .protocol
+            .parse_response(raw_json)
+            .map_err(|e| LLMError::ApiError(e.to_string()))?;
         Ok(Self::internal_to_chat_response(internal_resp))
     }
 
@@ -226,10 +230,14 @@ impl FallbackClient {
         let internal_req = Self::chat_request_to_internal(&request);
         let body = serde_json::to_value(&internal_req)
             .map_err(|e| LLMError::InvalidRequest(e.to_string()))?;
-        let internal_resp = provider
+        let raw_json = provider
             .send(internal_req, body)
             .await
             .map_err(|e| LLMError::from(&e))?;
+        let internal_resp = self
+            .protocol
+            .parse_response(raw_json)
+            .map_err(|e| LLMError::ApiError(e.to_string()))?;
         Ok(crate::types::UnifiedResponse::from(internal_resp))
     }
 }

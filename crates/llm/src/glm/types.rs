@@ -9,12 +9,14 @@ use crate::types::{InternalResponse, RawContentBlock, RawUsage};
 /// genuine reasoning block. Values at or below this threshold are
 /// demoted to plain Text (per design doc: "极短的 reasoning_content
 /// 不视为推理块").
+#[allow(dead_code)]
 const MIN_REASONING_LENGTH: usize = 2;
 
 use super::GlmProvider;
 
 // ── Internal response types ──────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmResponse {
     #[serde(default)]
@@ -29,6 +31,7 @@ pub(crate) struct GlmResponse {
     pub(crate) error: Option<GlmErrorBody>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmChoice {
     pub(crate) message: GlmMessage,
@@ -76,6 +79,7 @@ pub(crate) struct GlmPromptTokensDetails {
     pub(crate) cached_tokens: Option<u32>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct GlmErrorBody {
     pub(crate) code: String,
@@ -159,6 +163,7 @@ impl GlmProvider {
     ///
     /// All GLM error codes map to `ProviderError::Legacy`
     /// with a descriptive message.
+    #[allow(dead_code)]
     pub(crate) fn map_glm_error(code: &str, message: &str) -> ProviderError {
         ProviderError::Legacy(format!("GLM API error {}: {}", code, message))
     }
@@ -187,6 +192,7 @@ impl GlmProvider {
 
 impl GlmProvider {
     /// Parse a GLM chat response into InternalResponse.
+    #[allow(dead_code)]
     pub(crate) fn parse_chat_response(api_resp: GlmResponse) -> Result<InternalResponse> {
         if let Some(ref err) = api_resp.error {
             return Err(Self::map_glm_error(&err.code, &err.message));

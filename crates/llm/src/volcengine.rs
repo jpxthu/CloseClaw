@@ -13,9 +13,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::provider::{Provider, ProviderError, SseStream};
-use crate::types::{
-    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
-};
+use crate::types::{InternalRequest, ProtocolId, RawSseChunk};
 use crate::{LLMError, ModelInfo, ModelLister};
 
 /// VolcEngine API endpoint
@@ -34,6 +32,7 @@ struct VolcEngineResponse {
     error: Option<VolcEngineErrorBody>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineChoice {
     message: VolcEngineMessage,
@@ -41,6 +40,7 @@ struct VolcEngineChoice {
     finish_reason: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineMessage {
     #[allow(dead_code)]
@@ -48,6 +48,7 @@ struct VolcEngineMessage {
     content: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 struct VolcEngineUsage {
     prompt_tokens: Option<u32>,
@@ -56,6 +57,7 @@ struct VolcEngineUsage {
 }
 
 /// VolcEngine error body (returned inside response JSON on business errors)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineErrorBody {
     code: Option<String>,
@@ -169,7 +171,7 @@ impl Provider for VolcEngineProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
+    ) -> crate::provider::Result<serde_json::Value> {
         let url = format!("{}/chat/completions", self.base_url);
 
         let response = self
@@ -187,48 +189,10 @@ impl Provider for VolcEngineProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        let vol_resp: VolcEngineResponse = response.json().await.map_err(ProviderError::Reqwest)?;
-
-        // Check for business-level error in response body
-        if let Some(ref err) = vol_resp.error {
-            let code = err.code.as_deref().unwrap_or("");
-            let msg = err.message.as_deref().unwrap_or("unknown error");
-            return Err(ProviderError::Legacy(format!(
-                "VolcEngine API error {}: {}",
-                code, msg
-            )));
-        }
-
-        let choice = vol_resp.choices.into_iter().next().ok_or_else(|| {
-            ProviderError::Legacy("no choices in VolcEngine response".to_string())
-        })?;
-
-        let mut content_blocks = Vec::new();
-
-        // content → Text block
-        if !choice.message.content.is_empty() {
-            content_blocks.push(RawContentBlock::Text(choice.message.content));
-        }
-
-        // Ensure at least one content block (fallback to empty text)
-        if content_blocks.is_empty() {
-            content_blocks.push(RawContentBlock::Text(String::new()));
-        }
-
-        let usage = vol_resp.usage.unwrap_or_default();
-
-        Ok(InternalResponse {
-            content_blocks,
-            usage: RawUsage {
-                prompt_tokens: usage.prompt_tokens.unwrap_or(0),
-                completion_tokens: usage.completion_tokens.unwrap_or(0),
-                total_tokens: usage.total_tokens,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: choice.finish_reason,
-        })
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(

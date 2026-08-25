@@ -26,6 +26,7 @@ const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/messages";
 // ---------------------------------------------------------------------------//
 
 /// MiniMax API response body (Anthropic protocol format)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct MiniMaxResponse {
     #[serde(default)]
@@ -41,6 +42,7 @@ pub(crate) struct MiniMaxResponse {
     base_resp: Option<MiniMaxBaseResp>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MiniMaxContentBlock {
     #[serde(rename = "type")]
@@ -69,6 +71,7 @@ struct MiniMaxUsage {
 }
 
 /// MiniMax base response (business error status)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MiniMaxBaseResp {
     status_code: i32,
@@ -116,6 +119,7 @@ impl MiniMaxProvider {
     }
 
     /// Map MiniMax internal base_resp status_code to ProviderError.
+    #[allow(dead_code)]
     pub(crate) fn map_base_resp_error(status_code: i32, status_msg: &str) -> ProviderError {
         ProviderError::Legacy(format!(
             "MiniMax business error {}: {}",
@@ -130,6 +134,7 @@ impl MiniMaxProvider {
     // ── Response parsing (Provider) ─────────────────────────────────────
 
     /// Parse a MiniMax Anthropic-format response into InternalResponse.
+    #[allow(dead_code)]
     pub(crate) fn parse_chat_response(api_resp: MiniMaxResponse) -> Result<InternalResponse> {
         // Check base_resp business errors
         if let Some(ref base_resp) = api_resp.base_resp {
@@ -218,7 +223,7 @@ impl Provider for MiniMaxProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> Result<InternalResponse> {
+    ) -> Result<serde_json::Value> {
         let response = self
             .client
             .post(&self.base_url)
@@ -235,9 +240,10 @@ impl Provider for MiniMaxProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        let api_resp: MiniMaxResponse = response.json().await.map_err(ProviderError::Reqwest)?;
-
-        Self::parse_chat_response(api_resp)
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(

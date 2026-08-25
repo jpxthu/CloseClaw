@@ -1,6 +1,7 @@
 //! Unit tests for the GLM provider.
 
 use super::*;
+use crate::types::RawContentBlock;
 use crate::LLMError;
 
 // ---------------------------------------------------------------------------//

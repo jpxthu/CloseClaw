@@ -54,6 +54,7 @@ struct DeepSeekMessage {
     reasoning_content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 struct DeepSeekUsage {
     prompt_tokens: Option<u32>,
@@ -62,6 +63,7 @@ struct DeepSeekUsage {
 }
 
 /// DeepSeek error body (returned inside response JSON on business errors)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct DeepSeekErrorBody {
     code: Option<String>,
@@ -186,7 +188,7 @@ impl Provider for DeepSeekProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
+    ) -> crate::provider::Result<serde_json::Value> {
         let is_anthropic = detect_is_anthropic(&body);
         let url = if is_anthropic {
             self.messages_url()
@@ -209,13 +211,10 @@ impl Provider for DeepSeekProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        if is_anthropic {
-            let resp_body: serde_json::Value =
-                response.json().await.map_err(ProviderError::Reqwest)?;
-            parse_anthropic_response(resp_body)
-        } else {
-            parse_openai_response(response).await
-        }
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(
@@ -376,6 +375,7 @@ fn detect_is_anthropic(body: &serde_json::Value) -> bool {
 
 // ── OpenAI response parsing ─────────────────────────────────────────────────
 
+#[allow(dead_code)]
 async fn parse_openai_response(
     response: reqwest::Response,
 ) -> crate::provider::Result<InternalResponse> {
@@ -434,6 +434,7 @@ async fn parse_openai_response(
 // ── Anthropic response parsing ──────────────────────────────────────────────
 
 /// Parse an Anthropic-format response body into `InternalResponse`.
+#[allow(dead_code)]
 fn parse_anthropic_response(body: serde_json::Value) -> crate::provider::Result<InternalResponse> {
     let content_blocks: Vec<RawContentBlock> = body
         .get("content")
@@ -455,6 +456,7 @@ fn parse_anthropic_response(body: serde_json::Value) -> crate::provider::Result<
 }
 
 /// Parse a single Anthropic content block.
+#[allow(dead_code)]
 fn parse_content_block(item: &serde_json::Value) -> Option<RawContentBlock> {
     let ty = item.get("type").and_then(|v| v.as_str())?;
     match ty {
@@ -464,12 +466,14 @@ fn parse_content_block(item: &serde_json::Value) -> Option<RawContentBlock> {
     }
 }
 
+#[allow(dead_code)]
 fn parse_text_block(item: &serde_json::Value) -> Option<RawContentBlock> {
     item.get("text")
         .and_then(|v| v.as_str())
         .map(|s| RawContentBlock::Text(s.to_string()))
 }
 
+#[allow(dead_code)]
 fn parse_thinking_block(item: &serde_json::Value) -> Option<RawContentBlock> {
     let thinking = item.get("thinking").and_then(|v| v.as_str()).unwrap_or("");
     let signature = item
@@ -483,6 +487,7 @@ fn parse_thinking_block(item: &serde_json::Value) -> Option<RawContentBlock> {
 }
 
 /// Parse usage from an Anthropic response body.
+#[allow(dead_code)]
 fn parse_anthropic_usage(body: &serde_json::Value) -> RawUsage {
     let u = body.get("usage");
     let input_tokens = u

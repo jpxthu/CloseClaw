@@ -8,9 +8,7 @@ use tokio::sync::mpsc;
 use async_trait::async_trait;
 
 use super::provider::{Provider, Result, SseStream};
-use super::types::{
-    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
-};
+use super::types::{InternalRequest, ProtocolId, RawSseChunk};
 
 /// A stub LLM provider that returns fixed responses.
 /// Always returns `id() == "stub"` so callers can detect test configurations.
@@ -71,29 +69,32 @@ impl Provider for StubProvider {
         &self,
         request: InternalRequest,
         _body: serde_json::Value,
-    ) -> Result<InternalResponse> {
+    ) -> Result<serde_json::Value> {
         // Log the request for test inspection
         eprintln!("[StubProvider] send called with model={}", request.model);
         eprintln!("[StubProvider] messages count={}", request.messages.len());
 
-        let prompt_tokens = request
+        let prompt_tokens: u32 = request
             .messages
             .iter()
             .map(|m| m.content.len() as u32 / 4)
             .sum();
+        let completion_tokens = self.response.len() as u32 / 4;
 
-        Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(self.response.clone())],
-            usage: RawUsage {
-                prompt_tokens,
-                completion_tokens: self.response.len() as u32 / 4,
-                total_tokens: Some(prompt_tokens + self.response.len() as u32 / 4),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        })
+        Ok(serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": self.response
+                },
+                "finish_reason": null
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens
+            }
+        }))
     }
 
     async fn send_streaming(
@@ -104,15 +105,20 @@ impl Provider for StubProvider {
         let response = self.send(request, body).await?;
         let (tx, rx) = mpsc::channel(32);
         tokio::spawn(async move {
-            for block in &response.content_blocks {
-                let chunk = match block {
-                    RawContentBlock::Text(s) => RawSseChunk {
-                        event_type: "message".into(),
-                        data: s.clone(),
-                    },
-                    _ => continue,
-                };
-                let _ = tx.send(chunk).await;
+            // Extract content from the JSON response
+            if let Some(choices) = response.get("choices").and_then(|c| c.as_array()) {
+                for choice in choices {
+                    if let Some(message) = choice.get("message") {
+                        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                            let _ = tx
+                                .send(RawSseChunk {
+                                    event_type: "message".into(),
+                                    data: content.to_string(),
+                                })
+                                .await;
+                        }
+                    }
+                }
             }
             // Send done event
             let done = serde_json::json!({"type": "message_end"});
@@ -171,12 +177,14 @@ mod tests {
             .send(request, serde_json::Value::Null)
             .await
             .unwrap();
-        assert_eq!(response.content_blocks.len(), 1);
-        match &response.content_blocks[0] {
-            RawContentBlock::Text(s) => assert_eq!(s, "stub response"),
-            other => panic!("Expected Text block, got: {:?}", other),
-        }
-        assert!(response.usage.total_tokens.unwrap() > 0);
+        // Verify raw JSON structure
+        let choices = response["choices"].as_array().unwrap();
+        assert_eq!(choices.len(), 1);
+        assert_eq!(
+            choices[0]["message"]["content"].as_str().unwrap(),
+            "stub response"
+        );
+        assert!(response["usage"]["total_tokens"].as_u64().unwrap() > 0);
     }
 
     #[tokio::test]
@@ -206,9 +214,11 @@ mod tests {
             .send(request, serde_json::Value::Null)
             .await
             .unwrap();
-        match &response.content_blocks[0] {
-            RawContentBlock::Text(s) => assert_eq!(s, "custom test response"),
-            other => panic!("Expected Text block, got: {:?}", other),
-        }
+        assert_eq!(
+            response["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap(),
+            "custom test response"
+        );
     }
 }

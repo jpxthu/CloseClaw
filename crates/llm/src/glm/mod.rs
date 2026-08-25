@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 use tokio::sync::mpsc;
 
 use crate::provider::{Provider, ProviderError, Result, SseStream};
-use crate::types::{InternalRequest, InternalResponse, ProtocolId};
+use crate::types::{InternalRequest, ProtocolId};
 
 mod models;
 pub mod plugin;
@@ -18,10 +18,11 @@ mod types;
 pub use plugin::GlmPlugin;
 
 #[allow(unused_imports)]
-pub(crate) use crate::types::{RawContentBlock, RawSseChunk, RawUsage};
+pub(crate) use crate::types::RawSseChunk;
 #[allow(unused_imports)]
 pub(crate) use crate::{ModelInfo, ModelLister};
 use streaming::run_sse_stream;
+#[allow(unused_imports)]
 pub(crate) use types::*;
 
 /// GLM API endpoint (chat completions)
@@ -88,7 +89,7 @@ impl Provider for GlmProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> Result<InternalResponse> {
+    ) -> Result<serde_json::Value> {
         let response = self
             .client
             .post(&self.base_url)
@@ -104,9 +105,10 @@ impl Provider for GlmProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        let api_resp: GlmResponse = response.json().await.map_err(ProviderError::Reqwest)?;
-
-        Self::parse_chat_response(api_resp)
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(

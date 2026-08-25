@@ -139,7 +139,7 @@ impl crate::provider::Provider for FailingProvider {
         &self,
         _request: crate::types::InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<crate::types::InternalResponse> {
+    ) -> crate::provider::Result<serde_json::Value> {
         Err(crate::provider::ProviderError::Legacy(self.msg.clone()))
     }
     async fn send_streaming(
@@ -292,20 +292,14 @@ impl crate::provider::Provider for StreamingFailProvider {
         &self,
         _request: crate::types::InternalRequest,
         _body: serde_json::Value,
-    ) -> crate::provider::Result<crate::types::InternalResponse> {
-        use crate::types::{RawContentBlock, RawUsage};
-        Ok(crate::types::InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(self.msg.clone())],
-            usage: RawUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: Some(0),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        })
+    ) -> crate::provider::Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "choices": [{
+                "message": { "role": "assistant", "content": self.msg },
+                "finish_reason": null
+            }],
+            "usage": { "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0 }
+        }))
     }
     async fn send_streaming(
         &self,

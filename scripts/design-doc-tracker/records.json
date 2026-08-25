@@ -249,11 +249,11 @@
   },
   {
     "path": "docs/design/llm/README.md",
-    "commit": "2fedf847b6ba3da0cb89615cc3612817d4a02102",
-    "commit_time": "2026-07-07T01:23:34+08:00",
-    "confirmed_time": "2026-08-25T09:53:22.191587+08:00",
+    "commit": "313f228e3ae7b67b8c505147ddded4b50f055b61",
+    "commit_time": "2026-08-25T11:41:19+08:00",
+    "confirmed_time": "2026-08-25T11:48:15.611013+08:00",
     "comment": "",
-    "blocked_reason": "F2b 深度对比发现 doc_problem：(1) 文档声明 Protocol 层在请求序列化时标记消息历史缓存，但代码仅标记最后一条消息；(2) Provider send() 的 JSON 解析职责在文档与代码间描述不一致。另有 must_fix：流式 Plugin→Interpreter 顺序与文档相反、VolcEngine 供应商文档缺失、CacheAdapter 文档遗漏 MiniMax 缓存适配。需文档澄清后方可开发。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/cache-adapter.md",
@@ -737,11 +737,11 @@
   },
   {
     "path": "docs/design/tools/background-tasks.md",
-    "commit": "6ce41401915b5b90e0008e0755d0f9dbcf4e1233",
-    "commit_time": "2026-07-30T23:26:34+08:00",
-    "confirmed_time": "2026-08-25T06:39:34.287039+08:00",
+    "commit": "313f228e3ae7b67b8c505147ddded4b50f055b61",
+    "commit_time": "2026-08-25T11:41:19+08:00",
+    "confirmed_time": "2026-08-25T11:48:15.745837+08:00",
     "comment": "",
-    "blocked_reason": "F2b 三轮对比正向/反向分身无法达成一致：Q1 输出清理时机双方一致判 must_fix（文档『任务完成后可被读取，随后由系统清理』+『输出文件标记可清理』，代码无标记机制且仅 Graceful 停止时 cleanup_finished 清理）；但 Q3 停止清理三阶段与 cleanup_finished 的关系定性分歧——正向判 doc_problem（三阶段未涵盖该步骤且同节『输出保留』与删除行为矛盾），反向判 must_fix（文档作为停止流程权威描述遗漏了有副作用的清理步骤）。3 轮复核未消除分歧，按流程进入 Blocked。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/tools/bash-security.md",

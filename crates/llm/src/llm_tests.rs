@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use crate::provider::Provider;
-use crate::types::{InternalMessage, InternalRequest, RawContentBlock};
+use crate::types::{InternalMessage, InternalRequest};
 use crate::{LLMRegistry, StubProvider};
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -45,15 +45,14 @@ async fn test_stub_provider_chat_returns_fixed_response() {
     let body = serde_json::to_value(&request).unwrap();
 
     let response = provider.send(request, body).await.unwrap();
-    assert_eq!(response.content_blocks.len(), 1);
-    match &response.content_blocks[0] {
-        RawContentBlock::Text(s) => {
-            assert_eq!(s, "stub response");
-        }
-        _ => panic!("Expected Text content block"),
-    }
-    assert!(response.usage.total_tokens.is_some());
-    assert!(response.usage.total_tokens.unwrap() > 0);
+    // Verify raw JSON structure
+    let choices = response["choices"].as_array().unwrap();
+    assert_eq!(choices.len(), 1);
+    assert_eq!(
+        choices[0]["message"]["content"].as_str().unwrap(),
+        "stub response"
+    );
+    assert!(response["usage"]["total_tokens"].as_u64().unwrap() > 0);
 }
 
 #[tokio::test]
@@ -81,13 +80,12 @@ async fn test_stub_provider_custom_response() {
     let body = serde_json::to_value(&request).unwrap();
 
     let response = provider.send(request, body).await.unwrap();
-    assert_eq!(response.content_blocks.len(), 1);
-    match &response.content_blocks[0] {
-        RawContentBlock::Text(s) => {
-            assert_eq!(s, "custom test response");
-        }
-        _ => panic!("Expected Text content block"),
-    }
+    assert_eq!(
+        response["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap(),
+        "custom test response"
+    );
 }
 
 #[tokio::test]
@@ -163,11 +161,8 @@ async fn test_stub_provider_through_registry_chat() {
     let response = agent_provider.send(internal_req, body).await;
     assert!(response.is_ok());
     let resp = response.unwrap();
-    assert_eq!(resp.content_blocks.len(), 1);
-    match &resp.content_blocks[0] {
-        crate::types::RawContentBlock::Text(s) => {
-            assert_eq!(s, "agent response from stub");
-        }
-        _ => panic!("Expected Text content block"),
-    }
+    assert_eq!(
+        resp["choices"][0]["message"]["content"].as_str().unwrap(),
+        "agent response from stub"
+    );
 }
