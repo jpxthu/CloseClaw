@@ -423,17 +423,6 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 |------|------|
 | 缓存断裂上报 | 记录 KV cache break 事件 |
 
-#### PlanStateNotifier
-
-**用途**：计划进度通知回调接口。session 模块实现，mode 模块（执行引擎）消费——步骤状态迁移成功或计划完成时通知，避免执行引擎 → session 跨层耦合。
-
-**接口契约**：
-
-| 要素 | 说明 |
-|------|------|
-| 进度通知 | 步骤状态迁移成功后回调进度摘要 |
-| 完成通知 | 计划进入 Completed 后回调（默认空，向后兼容） |
-
 #### IdentityResolver
 
 **用途**：平台身份解析接口。config 支持的 ConfigIdentityResolver 实现，im_adapter/gateway 消费——将 `(platform, sender_id)` 解析为本地 account_id。
@@ -485,20 +474,19 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
-  - **system_prompt**（实现 BootstrapFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 ToolsFragmentProvider 和 CoreToolsRegistrar，提供 ToolRegistry/ToolRegistryQuery 具体实现，收集 ToolRegistrar 实现者并编排调用；实现 KillHandle 的工具进程适配器；ToolContext 消费 ToolSession 注册 kill handle；消费 AgentToolsConfigQuery 查询 agent 工具白名单/黑名单）
-  - **session**（实现 SessionToolsRegistrar、PlanStateNotifier，桥接 SessionModeQuery；消费 PermissionChecker、ToolSession、KillHandle、SkillListingProvider；通过 StreamingSink 推送流式增量）
-  - **skills**（实现 SkillsToolsRegistrar 和 SkillsFragmentProvider；消费 AgentSkillsQuery 查询 agent 技能白名单）
-  - **agent**（实现 AgentSkillsQuery 和 AgentToolsConfigQuery，按 agent_id 提供技能/工具的按需查询）
-  - **memory**（实现 MemoryFragmentProvider；消费 LlmCaller 发起 LLM 请求）
-  - **im_adapter**（实现 ImAdapterToolsRegistrar；各平台插件实现 IMPlugin trait，Gateway 通过 Plugin Registry 消费；流式渲染组件实现 StreamingRenderer；消费 IdentityResolver 解析账户绑定）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ShutdownSignal；消费 IMPlugin trait 维护 Plugin Registry、SlashRouter 分派指令、ProcessorChain 处理消息、OutboundMiddleware 中间件链、ToolRegistryQuery 与 SkillRegistryQuery 查询工具/技能清单；SlashResult 执行消费 SlashResultExecutor）
-  - **cli**（TerminalPlugin 实现 IMPlugin trait，提供 terminal 渠道的插件实现，TerminalAdapter 为其入站解析子组件）
-  - **slash**（实现 SlashRouter/SlashHandler；handler 消费 SlashSessionQuery 查询会话状态）
-  - **permission**（提供 PermissionEngine/ApprovalFlow 引擎，经 daemon 的 adapter 包装实现 PermissionEvaluator/ApprovalSubmission；消费 SessionLookup、SessionModeQuery）
-  - **processor_chain**（实现 ProcessorChain 的 ProcessorRegistry）
-  - **daemon**（组合根：实现 SkillRegistryQuery 的 SkillRegistryWrapper、SkillListingProvider 的 wrapper、PermissionEvaluator/ApprovalSubmission 的 adapter；消费 LlmCaller、MetricsEmitter）
-  - **config**（实现 IdentityResolver 的 ConfigIdentityResolver）
-  - **mode**（执行引擎消费 PlanStateNotifier 上报计划进度）
-  - **llm**（消费 ShutdownSignal 追踪 LLM 调用忙计数）
+  - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；System Prompt Builder 收集所有 Provider 并触发生成）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费 ToolSession、AgentToolsConfigQuery）
+  - **session**（实现 ToolRegistrar、SessionModeQuery；消费 PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink）
+  - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
+  - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery）
+  - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
+  - **im_adapter**（实现 ToolRegistrar、IMPlugin、StreamingRenderer；消费 IdentityResolver）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ShutdownSignal；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor）
+  - **cli**（实现 IMPlugin）
+  - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
+  - **permission**（消费 SessionLookup、SessionModeQuery）
+  - **processor_chain**（实现 ProcessorChain）
+  - **daemon**（实现 SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission；消费 LlmCaller、MetricsEmitter）
+  - **config**（实现 IdentityResolver）
+  - **llm**（消费 ShutdownSignal）
 - **无关**：无（common 的 trait 与各业务模块均存在实现或消费关系，不存在无关模块）

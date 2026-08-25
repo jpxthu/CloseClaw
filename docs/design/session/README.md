@@ -237,6 +237,10 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 - **IM Adapter（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度和 Processor Chain 处理后，由 IM Adapter 完成出站渲染和发送（含流式推送）。Session 不直接调用 IM Adapter，数据流经 Gateway 中介传递。
 - **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 Session 进行记忆搜索；写入 `memory_injection` 槽位（tool role 记忆摘要），由 Session 在消息组装时消费。
 
+### 共享类型 / 核心 trait
+
+- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery；消费：PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink）
+
 ### 无关
 
 - **Agent 进程生命周期**：Agent 无独立进程；执行状态由 Session 的 session-execution 机制管理。SessionStatus（Active / Migrating / Archived）描述持久化状态，与 agent 是否在运行无关。

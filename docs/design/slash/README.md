@@ -73,4 +73,5 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
   - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（Gateway 在收到 Handler 返回的 Exec [SlashResult](../common/shared-types.md#slashresult) 后、实际执行前调用 Permission 引擎）
 - **间接下游**（通过 Session 生效）：
   - LLM 模块 — `/reasoning` 写入的推理深度在下一次 LLM 调用时映射为各模型的原生参数（含不支持等级的自动降级）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SlashRouter、SlashHandler；消费：SlashSessionQuery、SessionLookup）
 - **间接相关**：Processor Chain（斜杠指令消息经入站 Processor Chain 处理后由 Gateway 路由到 SlashDispatcher；[SlashResult](../common/shared-types.md#slashresult) 各变体通过 SideEffectContext 的回复通道产出回复内容，由 Gateway 送入出站 Processor Chain 处理后经 IM 插件渲染发送）

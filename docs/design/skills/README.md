@@ -63,3 +63,4 @@ Agent 决策调用某个技能 → 通过 SkillTool 发起调用 → 从注册�
 - **下游**：System Prompt 模块（消费技能清单渲染结果，注入 SkillsSection）
 - **无关**：processor_chain（skill 不参与消息出站处理）、renderer（skill 不参与平台渲染）、权限引擎（Agent 运行时校验工具权限和管理技能白名单；skills 模块作为纯数据提供方，不反向查询权限状态）
 - **共享类型**：Skill 元数据结构（优先级层级、frontmatter 字段），定义于 [skill-definition.md](skill-definition.md)
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、ToolRegistrar；消费：AgentSkillsQuery）
