@@ -182,6 +182,7 @@ struct MimoMessage {
     reasoning_content: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MimoUsage {
     prompt_tokens: u32,
@@ -195,6 +196,7 @@ struct MimoUsage {
 ///
 /// Extracts `reasoning_content` from the message into a `Thinking` block
 /// (with `signature: None`, matching OpenAI convention).
+#[allow(dead_code)]
 pub(crate) async fn parse_openai_response(
     response: reqwest::Response,
 ) -> crate::provider::Result<InternalResponse> {
@@ -245,6 +247,7 @@ pub(crate) async fn parse_openai_response(
 ///
 /// Handles `content` array with `text` and `thinking` blocks.
 /// Thinking blocks always use `signature: Some(String::new())` per MiMo docs.
+#[allow(dead_code)]
 pub(crate) fn parse_anthropic_response(
     body: serde_json::Value,
 ) -> crate::provider::Result<InternalResponse> {
@@ -268,6 +271,7 @@ pub(crate) fn parse_anthropic_response(
 }
 
 /// Parse a single Anthropic content block from a JSON value.
+#[allow(dead_code)]
 pub(crate) fn parse_content_block(item: &serde_json::Value) -> Option<RawContentBlock> {
     let ty = item.get("type").and_then(|v| v.as_str())?;
     match ty {
@@ -290,6 +294,7 @@ pub(crate) fn parse_content_block(item: &serde_json::Value) -> Option<RawContent
 /// Parse usage from an Anthropic response body.
 ///
 /// Maps `input_tokens`, `output_tokens`, and `cache_read_input_tokens`.
+#[allow(dead_code)]
 pub(crate) fn parse_anthropic_usage(body: &serde_json::Value) -> RawUsage {
     let u = body.get("usage");
     let input_tokens = u
@@ -351,7 +356,7 @@ impl Provider for MimoProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> Result<InternalResponse> {
+    ) -> Result<serde_json::Value> {
         let is_anthropic = detect_is_anthropic(&body);
         let url = if is_anthropic {
             self.messages_url()
@@ -374,13 +379,10 @@ impl Provider for MimoProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        if is_anthropic {
-            let resp_body: serde_json::Value =
-                response.json().await.map_err(ProviderError::Reqwest)?;
-            parse_anthropic_response(resp_body)
-        } else {
-            parse_openai_response(response).await
-        }
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(

@@ -9,10 +9,16 @@ use super::model_cache::ModelCache;
 use super::model_info::{DiscoveryResult, DiscoverySource, ModelInfo};
 use super::{ErrorKind, ProviderModelKnowledge};
 
-/// Maximum number of fetch retries for transient errors.
-const FETCH_MAX_RETRIES: u32 = 4;
+/// Maximum number of total fetch attempts (including the initial try) for transient errors.
+const FETCH_MAX_ATTEMPTS: u32 = 4;
 /// Per-attempt API timeout.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Expose `FETCH_MAX_ATTEMPTS` for unit tests within the crate.
+#[cfg(test)]
+pub(crate) fn model_discovery_tests_only_fetch_max_attempts() -> u32 {
+    FETCH_MAX_ATTEMPTS
+}
 
 /// Model discovery service combining local cache, API fetch, and knowledge base.
 pub struct ModelDiscovery {
@@ -54,7 +60,7 @@ impl ModelDiscovery {
         }
 
         // Layer 2: API fetch with retry
-        for attempt in 1..=FETCH_MAX_RETRIES {
+        for attempt in 1..=FETCH_MAX_ATTEMPTS {
             let result = tokio::time::timeout(FETCH_TIMEOUT, fetch(credential)).await;
 
             match result {
@@ -87,7 +93,7 @@ impl ModelDiscovery {
                         // Auth / Billing / InvalidRequest → immediate fallback
                         break;
                     }
-                    if attempt < FETCH_MAX_RETRIES {
+                    if attempt < FETCH_MAX_ATTEMPTS {
                         let delay = super::retry::backoff_delay(
                             attempt,
                             Duration::from_secs(1),
@@ -99,7 +105,7 @@ impl ModelDiscovery {
                 }
                 Err(_) => {
                     // Timeout → transient, retry
-                    if attempt < FETCH_MAX_RETRIES {
+                    if attempt < FETCH_MAX_ATTEMPTS {
                         let delay = super::retry::backoff_delay(
                             attempt,
                             Duration::from_secs(1),
@@ -620,5 +626,16 @@ mod tests {
             "unknown models should be filtered out"
         );
         assert_eq!(result.source, DiscoverySource::Api);
+    }
+
+    // ── Step 1.8: FETCH_MAX_ATTEMPTS constant verification (moved from openai_tests.rs) ──
+
+    /// Verify that `FETCH_MAX_ATTEMPTS` is the correct constant name and value.
+    /// This verifies the rename from FETCH_MAX_RETRIES to FETCH_MAX_ATTEMPTS
+    /// and that the value remains 4 (4 total attempts = 3 retries).
+    #[test]
+    fn test_fetch_max_attempts_constant_value() {
+        let val = super::model_discovery_tests_only_fetch_max_attempts();
+        assert_eq!(val, 4);
     }
 }

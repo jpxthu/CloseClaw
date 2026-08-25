@@ -21,9 +21,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::mpsc;
 
 use super::provider::{Provider, ProviderError, SseStream};
-use super::types::{
-    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
-};
+use super::types::{InternalRequest, ProtocolId, RawContentBlock, RawSseChunk, RawUsage};
 use super::{ChatRequest, Message};
 use delivery::{
     apply_first_token_delay, apply_overall_delay, apply_per_segment_delay, generate_anthropic_sse,
@@ -267,7 +265,7 @@ impl FakeProvider {
     }
 
     /// Fallback response when scenarios are exhausted (non-streaming).
-    fn send_fallback_response(&self) -> InternalResponse {
+    fn send_fallback_response(&self) -> serde_json::Value {
         let fallback = self
             .inner
             .lock()
@@ -275,25 +273,27 @@ impl FakeProvider {
             .fallback
             .clone()
             .unwrap_or_default();
-        InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(fallback)],
-            usage: RawUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: Some(0),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        }
+        serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": fallback
+                },
+                "finish_reason": null
+            }],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+        })
     }
 
     /// Deliver a non-streaming Ok response with delay/error injection.
     async fn deliver_ok_response(
         &self,
         scenario: Scenario,
-    ) -> Result<InternalResponse, ProviderError> {
+    ) -> Result<serde_json::Value, ProviderError> {
         if let Scenario::Ok {
             ref content_blocks,
             ref delivery,
@@ -309,11 +309,61 @@ impl FakeProvider {
                 });
             }
             let usage = scenario.raw_usage();
-            return Ok(InternalResponse {
-                content_blocks: content_blocks.clone(),
-                usage,
-                finish_reason: None,
+            // Concatenate Text blocks into a plain string to match
+            // OpenAI wire format (content is a string, not an array).
+            let content_string: String = content_blocks
+                .iter()
+                .filter_map(|block| match block {
+                    RawContentBlock::Text(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .concat();
+            // Map Thinking blocks to reasoning_content for OpenAI wire format.
+            let reasoning_content: String = content_blocks
+                .iter()
+                .filter_map(|block| match block {
+                    RawContentBlock::Thinking { thinking, .. } => Some(thinking.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .concat();
+            // Collect ToolUse blocks into the tool_calls field.
+            let tool_calls: Vec<serde_json::Value> = content_blocks
+                .iter()
+                .filter_map(|block| match block {
+                    RawContentBlock::ToolUse { id, name, input } => Some(serde_json::json!({
+                        "id": id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": input
+                        }
+                    })),
+                    _ => None,
+                })
+                .collect();
+            let mut message = serde_json::json!({
+                "role": "assistant",
+                "content": content_string
             });
+            if !reasoning_content.is_empty() {
+                message["reasoning_content"] = serde_json::json!(reasoning_content);
+            }
+            if !tool_calls.is_empty() {
+                message["tool_calls"] = serde_json::json!(tool_calls);
+            }
+            return Ok(serde_json::json!({
+                "choices": [{
+                    "message": message,
+                    "finish_reason": null
+                }],
+                "usage": {
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "total_tokens": usage.total_tokens.unwrap_or(0)
+                }
+            }));
         }
         // Non-Ok variants handled by caller
         Err(ProviderError::Legacy(
@@ -491,7 +541,7 @@ impl Provider for FakeProvider {
         &self,
         request: InternalRequest,
         _body: serde_json::Value,
-    ) -> super::provider::Result<InternalResponse> {
+    ) -> super::provider::Result<serde_json::Value> {
         self.capture_internal(&request);
         match self.resolve_scenario().await? {
             None => Ok(self.send_fallback_response()),

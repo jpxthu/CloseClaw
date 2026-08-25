@@ -8,14 +8,11 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use reqwest::header::HeaderMap;
 use reqwest::Client;
-use serde::Deserialize;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
 
 use crate::provider::{Provider, ProviderError, Result, SseStream};
-use crate::types::{
-    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
-};
+use crate::types::{InternalRequest, ProtocolId, RawSseChunk};
 
 pub struct OpenAIProvider {
     api_key: String,
@@ -46,38 +43,6 @@ impl OpenAIProvider {
     fn chat_url(&self) -> String {
         format!("{}/chat/completions", self.base_url)
     }
-}
-
-// ── Raw OpenAI API response types (for deserialization) ──────────────────────
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct OpenAIResponse {
-    id: String,
-    model: String,
-    choices: Vec<OpenAIChoice>,
-    usage: OpenAIUsage,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct OpenAIChoice {
-    finish_reason: Option<String>,
-    message: OpenAIMessage,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct OpenAIMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAIUsage {
-    prompt_tokens: u32,
-    completion_tokens: u32,
-    total_tokens: u32,
 }
 
 // ── Provider trait implementation ─────────────────────────────────────────────
@@ -113,7 +78,7 @@ impl Provider for OpenAIProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> Result<InternalResponse> {
+    ) -> Result<serde_json::Value> {
         let url = self.chat_url();
 
         let response = self
@@ -131,25 +96,10 @@ impl Provider for OpenAIProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        let openai_resp: OpenAIResponse = response.json().await.map_err(ProviderError::Reqwest)?;
-
-        let choice =
-            openai_resp.choices.into_iter().next().ok_or_else(|| {
-                ProviderError::Legacy("no choices in OpenAI response".to_string())
-            })?;
-
-        Ok(InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(choice.message.content)],
-            usage: RawUsage {
-                prompt_tokens: openai_resp.usage.prompt_tokens,
-                completion_tokens: openai_resp.usage.completion_tokens,
-                total_tokens: Some(openai_resp.usage.total_tokens),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: choice.finish_reason,
-        })
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(
@@ -240,6 +190,9 @@ mod tests {
     use crate::types::InternalMessage;
     use closeclaw_session::persistence::ReasoningLevel;
     use mockito::Server;
+
+    // Re-export for test use
+    use crate::provider::Provider;
 
     // ── Provider accessor tests ───────────────────────────────────────────────
 
@@ -332,15 +285,19 @@ mod tests {
             .unwrap();
         mock.assert_async().await;
 
-        assert_eq!(response.content_blocks.len(), 1);
-        match &response.content_blocks[0] {
-            RawContentBlock::Text(s) => assert_eq!(s, "Hello there!"),
-            other => panic!("Expected Text block, got: {:?}", other),
-        }
-        assert_eq!(response.usage.prompt_tokens, 10);
-        assert_eq!(response.usage.completion_tokens, 5);
-        assert_eq!(response.usage.total_tokens, Some(15));
-        assert_eq!(response.finish_reason.as_deref(), Some("stop"));
+        // Verify raw JSON response structure
+        assert_eq!(response["id"].as_str().unwrap(), "chatcmpl-test");
+        assert_eq!(response["model"].as_str().unwrap(), "gpt-4");
+        let choices = response["choices"].as_array().unwrap();
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0]["finish_reason"].as_str().unwrap(), "stop");
+        assert_eq!(
+            choices[0]["message"]["content"].as_str().unwrap(),
+            "Hello there!"
+        );
+        assert_eq!(response["usage"]["prompt_tokens"].as_u64().unwrap(), 10);
+        assert_eq!(response["usage"]["completion_tokens"].as_u64().unwrap(), 5);
+        assert_eq!(response["usage"]["total_tokens"].as_u64().unwrap(), 15);
     }
 
     // ── send() auth error test ───────────────────────────────────────────────

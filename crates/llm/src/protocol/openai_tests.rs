@@ -902,6 +902,47 @@ async fn test_sse_stream_tool_calls_with_usage() {
     assert!(stream.next().await.is_none());
 }
 
+// ── Step 1.5: Provider raw JSON → Protocol parse_response integration ─────
+
+/// Verify that the raw JSON format returned by `OpenAIProvider::send`
+/// can be correctly parsed by `OpenAiProtocol::parse_response`.
+/// This proves the Provider → Protocol handoff works end-to-end.
+#[test]
+fn test_parse_openai_provider_raw_json_response() {
+    let proto = OpenAiProtocol::new();
+
+    // Simulate the raw JSON that OpenAIProvider::send returns
+    let raw_json = serde_json::json!({
+        "id": "chatcmpl-test-123",
+        "object": "chat.completion",
+        "created": 1694268190,
+        "model": "gpt-4",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Hello! How can I help you today?"
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 8,
+            "total_tokens": 18
+        }
+    });
+
+    let resp = proto.parse_response(raw_json).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(
+        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello! How can I help you today?")
+    );
+    assert_eq!(resp.usage.prompt_tokens, 10);
+    assert_eq!(resp.usage.completion_tokens, 8);
+    assert_eq!(resp.usage.total_tokens, Some(18));
+    assert_eq!(resp.finish_reason, Some("stop".to_string()));
+}
+
 #[tokio::test]
 async fn test_sse_stream_usage_only_in_dedicated_chunk() {
     // Usage arrives in a separate final chunk (no choices) before [DONE]
@@ -926,4 +967,33 @@ async fn test_sse_stream_usage_only_in_dedicated_chunk() {
         }
     }
     assert!(found);
+}
+
+// ── Step 1.7: Protocol error detection tests ─────────────────────────────
+
+/// Empty choices array → returns empty content blocks (graceful degradation).
+#[test]
+fn test_parse_response_empty_choices() {
+    let proto = OpenAiProtocol::new();
+    let body = serde_json::json!({ "choices": [], "usage": { "prompt_tokens": 10, "completion_tokens": 0, "total_tokens": 10 } });
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert!(resp.finish_reason.is_none());
+}
+
+// ── Step 1.8: OpenAI business error body detection ─────────────────────
+
+/// OpenAI error body (no choices array) → empty Text block (graceful).
+#[test]
+fn test_parse_response_openai_error_body() {
+    let proto = OpenAiProtocol::new();
+    let body =
+        serde_json::json!({"error":{"message":"Invalid API key","type":"invalid_request_error"}});
+    let resp = proto.parse_response(body).unwrap();
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert!(matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.is_empty()));
+    assert_eq!(resp.usage.prompt_tokens, 0);
+    assert_eq!(resp.usage.completion_tokens, 0);
+    assert!(resp.finish_reason.is_none());
 }
