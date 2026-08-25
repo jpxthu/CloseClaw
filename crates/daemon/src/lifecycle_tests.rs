@@ -2,6 +2,7 @@
 
 use super::*;
 use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_config::ConfigSection;
 use closeclaw_permission::{Defaults, Effect};
 use tempfile::TempDir;
 
@@ -460,5 +461,158 @@ async fn test_phase3_clean_task_exits_within_10s() {
         elapsed < std::time::Duration::from_secs(1),
         "clean task should exit well before 10s, took {:?}",
         elapsed
+    );
+}
+
+// ── Step 1.2: PermissionEngine layer-2 timing tests ───────────────────────
+
+/// Verify that PermissionEngine can be built AFTER ConfigManager loads
+/// (layer 2 timing). Creates a ConfigManager, then builds PermissionEngine
+/// — confirming the sequence produces a functional engine.
+#[test]
+fn test_permission_engine_built_after_config_manager_loads() {
+    let dir = TempDir::new().unwrap();
+    crate::test_helpers::write_mandatory_configs(dir.path()).unwrap();
+    // Simulate Phase 1: load ConfigManager
+    let config_manager = closeclaw_config::ConfigManager::new(dir.path().to_path_buf())
+        .expect("ConfigManager::new should succeed");
+    config_manager
+        .load()
+        .expect("ConfigManager::load should succeed");
+    // Simulate Phase 2: build PermissionEngine (what init_phase_2_registries does)
+    let permission_engine = Daemon::build_permission_engine(dir.path().to_str().unwrap(), None);
+    // PermissionEngine must be functional after ConfigManager is ready
+    let guard = permission_engine.blocking_read();
+    assert_eq!(guard.rules().user_defaults.message, Effect::Deny);
+    // ConfigManager must also be functional
+    assert!(config_manager.section(ConfigSection::System).is_some());
+}
+
+/// Verify that the init sequence (Phase 1 → Phase 2) produces a
+/// PermissionEngine whose defaults are independent of config content.
+/// PermissionEngine loads templates from disk but defaults come from code,
+/// so the sequence is valid even with minimal config files.
+#[test]
+fn test_init_sequence_phase1_then_phase2_permission_engine() {
+    let dir = TempDir::new().unwrap();
+    crate::test_helpers::write_mandatory_configs(dir.path()).unwrap();
+    // Phase 1: ConfigManager loads mandatory sections
+    let config_manager = closeclaw_config::ConfigManager::new(dir.path().to_path_buf())
+        .expect("ConfigManager::new should succeed");
+    config_manager
+        .load()
+        .expect("ConfigManager::load should succeed");
+    // ConfigManager is ready — verify it loaded
+    assert!(config_manager.section(ConfigSection::Models).is_some());
+    // Phase 2: PermissionEngine is built (depends on ConfigManager per
+    // design doc layer 2, but only reads config_dir for templates)
+    let pe = Daemon::build_permission_engine(dir.path().to_str().unwrap(), None);
+    let guard = pe.blocking_read();
+    // Engine defaults: all deny for user, message=Allow for engine default
+    assert_eq!(guard.rules().user_defaults.file_read, Effect::Deny);
+    assert_eq!(guard.rules().defaults.message, Effect::Allow);
+}
+
+/// Verify PermissionEngine is in layer 2 (Registries phase) of the
+/// dependency-driven startup order, confirming it builds after
+/// ConfigManager (layer 1) and before ApprovalFlow/Gateway (layers 3+).
+#[test]
+fn test_permission_engine_layer_2_timing_in_dependency_graph() {
+    use crate::startup::{all_component_entries, topo_sort_layers, ComponentId, Service};
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    // Layer 1 (index 0) = Foundation: ConfigManager, Storage
+    let layer1_ids: Vec<ComponentId> = layers[0].clone();
+    assert!(
+        layer1_ids.contains(&ComponentId::Foundation(
+            crate::startup::Foundation::ConfigManager
+        )),
+        "ConfigManager must be in layer 1 (Foundation)"
+    );
+    // Layer 2 (index 1) = Registries: must contain PermissionEngine
+    let layer2_ids: Vec<ComponentId> = layers[1].clone();
+    assert!(
+        layer2_ids.contains(&ComponentId::Service(Service::PermissionEngine)),
+        "PermissionEngine must be in layer 2 (Registries), got: {:?}",
+        layers[1].iter().map(|c| c.name()).collect::<Vec<_>>()
+    );
+    // PermissionEngine must NOT be in layer 1
+    assert!(
+        !layer1_ids.contains(&ComponentId::Service(Service::PermissionEngine)),
+        "PermissionEngine must NOT be in layer 1 (Foundation)"
+    );
+    // PermissionEngine must NOT be in layer 3+ (Wiring, Gateway, etc.)
+    for (i, layer) in layers.iter().enumerate().skip(2) {
+        assert!(
+            !layer.contains(&ComponentId::Service(Service::PermissionEngine)),
+            "PermissionEngine must NOT be in layer {} (index {})",
+            i + 1,
+            i
+        );
+    }
+}
+
+// ── Step 1.2: Phase 2 return value completeness tests ─────────────────────
+
+/// Verify that PermissionEngine appears in the Registries phase of
+/// validate_phase_components, confirming it is part of the expected
+/// phase 2 component set.
+#[test]
+fn test_permission_engine_in_registries_phase_of_validate() {
+    use crate::startup::{all_component_entries, topo_sort_layers, ComponentId, Service};
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    let phases = crate::Daemon::validate_phase_components(&layers)
+        .expect("validate_phase_components should succeed");
+    // Registries phase (index 1) must contain PermissionEngine
+    assert!(
+        phases[1].contains(&ComponentId::Service(Service::PermissionEngine)),
+        "Registries phase must contain PermissionEngine, got: {:?}",
+        phases[1].iter().map(|c| c.name()).collect::<Vec<_>>()
+    );
+}
+
+/// Verify that the topo sort layer 2 matches the Registries phase
+/// expected set from validate_phase_components. This confirms the
+/// dependency graph and the phase definitions agree on PermissionEngine's
+/// placement.
+#[test]
+fn test_permission_engine_topo_sort_matches_validate_phase() {
+    use crate::startup::{all_component_entries, topo_sort_layers};
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    let phases = crate::Daemon::validate_phase_components(&layers)
+        .expect("validate_phase_components should succeed");
+    // Sort both for comparison
+    let mut topo_layer2 = layers[1].clone();
+    topo_layer2.sort_by_key(|id| id.name().to_string());
+    let mut phase_registries = phases[1].clone();
+    phase_registries.sort_by_key(|id| id.name().to_string());
+    assert_eq!(
+        topo_layer2, phase_registries,
+        "Topo sort layer 2 must match Registries phase — PermissionEngine must be in both"
+    );
+}
+
+/// Verify the full 6-layer topo sort includes all expected components,
+/// with PermissionEngine specifically in layer 2. This is a regression
+/// guard: if PermissionEngine moves to a different layer, this test fails.
+#[test]
+fn test_full_topo_sort_permission_engine_layer_2_regression() {
+    use crate::startup::{all_component_entries, topo_sort_layers, ComponentId, Service};
+    let entries = all_component_entries();
+    let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
+    assert_eq!(layers.len(), 6, "expected exactly 6 layers");
+    // PermissionEngine must be in layer 2 (index 1)
+    assert!(
+        layers[1].contains(&ComponentId::Service(Service::PermissionEngine)),
+        "PermissionEngine must be in layer 2 (Registries phase)"
+    );
+    // Count: layer 2 must have exactly 7 components
+    assert_eq!(
+        layers[1].len(),
+        7,
+        "layer 2 (Registries) must have exactly 7 components, got {}",
+        layers[1].len()
     );
 }

@@ -15,14 +15,15 @@ impl Daemon {
     /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
         let audit_logger = Self::create_audit_logger(config_dir);
-        let permission_engine =
-            Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
-        Self::start_with_engine(config_dir, permission_engine, audit_logger).await
+        Self::start_with_engine(config_dir, audit_logger).await
     }
-    /// Start the daemon with a custom permission engine (useful for testing).
+    /// Start the daemon with an optional audit logger.
+    ///
+    /// The `audit_logger` is injected into the [`PermissionEngine`] built
+    /// during phase-2 initialization. If `None`, the engine runs without
+    /// audit logging.
     pub async fn start_with_engine(
         config_dir: &str,
-        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
         audit_logger: Option<Arc<dyn AuditLogger>>,
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
@@ -39,7 +40,8 @@ impl Daemon {
             session_config_provider,
             llm_registry,
             skill_rescan_handle,
-        ) = Self::init_phase_2_registries(config_dir, &config_manager).await?;
+            permission_engine,
+        ) = Self::init_phase_2_registries(config_dir, &config_manager, &audit_logger).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
                 config_dir,
