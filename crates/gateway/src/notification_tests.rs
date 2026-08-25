@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Unit tests for Step 1.1–1.2 notification logic in `handle_inbound_message`.
 //!
 //! Test dimensions:

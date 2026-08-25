@@ -22,12 +22,41 @@ use crate::im_plugin::NormalizedMessage;
 ///
 /// This is the shared definition used across workspace crates.
 /// The LLM crate re-exports this type for backward compatibility.
+///
+/// # Type classification
+///
+/// ## Core types (produced by the LLM module response path)
+///
+/// The LLM module's ModelInterpreter normalizes all protocol-native fields
+/// into exactly four core content block types:
+///
+/// - **`Text`** — plain text output from the model.
+/// - **`Thinking`** — reasoning/chain-of-thought trace (e.g. `reasoning_content`
+///   from OpenAI-compatible providers, or inline thinking blocks from Anthropic).
+/// - **`ToolUse`** — a tool invocation request (function call).
+/// - **`ToolResult`** — the result returned by a tool after execution.
+///
+/// ## Extended types (not produced by the LLM module)
+///
+/// These variants are consumed by downstream rendering and adaptation layers
+/// (`im_adapter`, `processor_chain`) but are **not** produced by the LLM
+/// module's response path. They exist in this shared enum because the
+/// rendering pipeline operates on the same `ContentBlock` type:
+///
+/// - **`Image`** — image resource reference (name + URL).
+/// - **`Audio`** — audio resource reference (name + URL).
+/// - **`File`** — file resource reference (name + URL).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "content", rename_all = "snake_case")]
 pub enum ContentBlock {
     /// Text content block with a string payload.
+    ///
+    /// **Core type.** Produced by the LLM module when the model outputs text.
     Text(String),
     /// Thinking content block with a reasoning trace and optional signature.
+    ///
+    /// **Core type.** Produced by the LLM module when the model outputs
+    /// reasoning/thinking content (e.g. `reasoning_content` field).
     Thinking {
         /// The thinking/reasoning content.
         thinking: String,
@@ -35,6 +64,9 @@ pub enum ContentBlock {
         signature: Option<String>,
     },
     /// Tool use invocation block.
+    ///
+    /// **Core type.** Produced by the LLM module when the model requests a
+    /// tool/function call.
     ToolUse {
         /// Tool call identifier.
         id: String,
@@ -44,6 +76,9 @@ pub enum ContentBlock {
         input: String,
     },
     /// Tool result block.
+    ///
+    /// **Core type.** Produced by the LLM module when a tool execution result
+    /// is included in the response.
     ToolResult {
         /// The tool call ID this result corresponds to.
         tool_call_id: String,
@@ -51,6 +86,9 @@ pub enum ContentBlock {
         content: String,
     },
     /// Image reference block with a resource identifier and access URL.
+    ///
+    /// **Extended type.** Not produced by the LLM module. Used by
+    /// `im_adapter` / `processor_chain` for media rendering.
     Image {
         /// Resource identifier (e.g. file name or key).
         name: String,
@@ -58,6 +96,9 @@ pub enum ContentBlock {
         url: String,
     },
     /// Audio reference block with a resource identifier and access URL.
+    ///
+    /// **Extended type.** Not produced by the LLM module. Used by
+    /// `im_adapter` / `processor_chain` for media rendering.
     Audio {
         /// Resource identifier (e.g. file name or key).
         name: String,
@@ -65,6 +106,9 @@ pub enum ContentBlock {
         url: String,
     },
     /// File reference block with a resource identifier and access URL.
+    ///
+    /// **Extended type.** Not produced by the LLM module. Used by
+    /// `im_adapter` / `processor_chain` for media rendering.
     File {
         /// Resource identifier (e.g. file name or key).
         name: String,

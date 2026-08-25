@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Step 1.3: Unit tests for agent_id explicit passing and queuing notification.
 //!
 //! Test dimensions:

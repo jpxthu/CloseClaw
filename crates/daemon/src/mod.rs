@@ -74,6 +74,7 @@ pub(crate) fn load_env_file(path: &std::path::Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+mod llm_components;
 mod llm_init;
 #[cfg(test)]
 pub mod test_helpers;

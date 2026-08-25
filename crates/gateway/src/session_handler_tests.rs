@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use super::*;
 use crate::session_handler::apply_compact_result;
 use crate::session_handler::ActiveSearcherLlmCaller;

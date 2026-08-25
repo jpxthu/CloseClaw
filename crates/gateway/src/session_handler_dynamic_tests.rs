@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use super::session_handler::MessageMetadata;
 use super::*;
 use crate::session_handler::ActiveSearcherLlmCaller;

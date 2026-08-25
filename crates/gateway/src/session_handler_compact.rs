@@ -9,6 +9,7 @@ use super::session_handler::SessionMessageHandler;
 use crate::session_manager::compact::{load_compact_inputs, PreloadedCompactInputs};
 use crate::OutputTx;
 use closeclaw_common::RunningStats;
+#[allow(deprecated)]
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::Message as ChatMessage;
@@ -185,6 +186,7 @@ pub(crate) fn find_context_window_for_model(
 }
 
 /// Build a [`ChatFn`] that forwards messages directly to the LLM client.
+#[allow(deprecated)]
 pub(crate) fn build_chat_fn(fc: Arc<FallbackClient>) -> closeclaw_session::compaction::ChatFn {
     Arc::new(move |model, messages| {
         let fc = Arc::clone(&fc);
