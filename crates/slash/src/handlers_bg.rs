@@ -11,6 +11,7 @@ use closeclaw_common::SlashSessionQuery;
 ///
 /// Calls [`SessionManager::trigger_manual_background`] to signal the session
 /// that the current command should be backgrounded.
+#[derive(Clone)]
 pub struct BackgroundHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -46,5 +47,9 @@ impl SlashHandler for BackgroundHandler {
             Ok(false) => SlashResult::Reply("当前没有需要后台化的命令。".to_owned()),
             Err(e) => SlashResult::Reply(format!("后台化失败：{e}")),
         }
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }

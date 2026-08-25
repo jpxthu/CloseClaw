@@ -15,6 +15,7 @@ use closeclaw_session::plan_file;
 ///   time (most recent first).
 /// - `/plans <name>`: show the full content of the matching plan.
 ///   Uses the three-tier resolution strategy (exact → prefix → fuzzy).
+#[derive(Clone)]
 pub struct PlanBrowseHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -54,6 +55,10 @@ impl SlashHandler for PlanBrowseHandler {
         } else {
             self.view_plan(&workdir, name)
         }
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }
 

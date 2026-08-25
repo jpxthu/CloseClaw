@@ -14,6 +14,7 @@ use closeclaw_tools::build_git_status_for;
 // ── CompactHandler ──────────────────────────────────────────────────────────
 
 /// `/compact` — manually trigger context compaction.
+#[derive(Clone)]
 pub struct CompactHandler;
 
 #[async_trait::async_trait]
@@ -28,6 +29,10 @@ impl SlashHandler for CompactHandler {
 
     fn immediate(&self, _cmd: &str) -> bool {
         false
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -45,6 +50,7 @@ impl SlashHandler for CompactHandler {
 // ── ClearHandler ────────────────────────────────────────────────────────────
 
 /// `/clear` — clear the system prompt static-layer cache and trigger rebuild.
+#[derive(Clone)]
 pub struct ClearHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -70,6 +76,10 @@ impl SlashHandler for ClearHandler {
         true
     }
 
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
+
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         self.session_manager.invalidate_static_cache().await;
         self.session_manager
@@ -82,6 +92,7 @@ impl SlashHandler for ClearHandler {
 // ── HelpHandler ─────────────────────────────────────────────────────────────
 
 /// `/help` — list all registered slash commands.
+#[derive(Clone)]
 pub struct HelpHandler {
     registry: Arc<HandlerRegistry>,
 }
@@ -105,6 +116,10 @@ impl SlashHandler for HelpHandler {
 
     fn immediate(&self, _cmd: &str) -> bool {
         true
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
@@ -133,6 +148,7 @@ impl SlashHandler for HelpHandler {
 ///
 /// The `off` variant disables reasoning (some providers fall back to the
 /// minimum level when true disabling is unsupported).
+#[derive(Clone)]
 pub struct ReasoningHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -168,6 +184,10 @@ impl SlashHandler for ReasoningHandler {
 
     fn immediate(&self, _cmd: &str) -> bool {
         true
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
@@ -211,6 +231,7 @@ impl SlashHandler for ReasoningHandler {
 /// `SlashResult::Exec { command }`. The Gateway's permission routing is
 /// responsible for evaluating the request via the permission engine before
 /// execution.
+#[derive(Clone)]
 pub struct ExecHandler;
 
 #[async_trait::async_trait]
@@ -231,6 +252,10 @@ impl SlashHandler for ExecHandler {
         true
     }
 
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
+
     async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Exec {
             command: args.to_owned(),
@@ -246,6 +271,7 @@ impl SlashHandler for ExecHandler {
 /// - `/system add <content>` or `/system + <content>`: append an instruction.
 /// - `/system list` or `/system` (no args): list current appended instructions.
 /// - `/system clear`: clear all appended instructions.
+#[derive(Clone)]
 pub struct SystemHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -322,6 +348,10 @@ impl SlashHandler for SystemHandler {
             other => SlashResult::Reply(format!("未知子指令：{other}。支持 add / list / clear。")),
         }
     }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
 }
 
 // ── WorkdirHandler ──────────────────────────────────────────────────────────
@@ -349,6 +379,7 @@ impl SlashHandler for SystemHandler {
 /// require permission.
 const READ_ONLY_GIT_SUBCOMMANDS: &[&str] = &["status", "log", "diff", "branch", "show"];
 
+#[derive(Clone)]
 pub struct WorkdirHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -447,5 +478,9 @@ impl SlashHandler for WorkdirHandler {
                 "未知子指令：{other}。WorkdirHandler 支持 cd / pwd / git。"
             )),
         }
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }
