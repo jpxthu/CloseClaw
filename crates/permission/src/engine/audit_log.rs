@@ -194,7 +194,7 @@ pub fn build_audit_log(
             ("file".to_string(), format!("{} {}", op, path))
         }
         PermissionRequestBody::CommandExec { cmd, args, .. } => {
-            ("command".to_string(), format!("{} {}", cmd, args.join(" ")))
+            ("exec".to_string(), format!("{} {}", cmd, args.join(" ")))
         }
         PermissionRequestBody::NetOp { host, port, .. } => {
             ("network".to_string(), format!("{}:{}", host, port))

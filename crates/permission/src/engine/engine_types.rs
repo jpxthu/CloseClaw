@@ -120,7 +120,7 @@ impl<'de> serde::Deserialize<'de> for Defaults {
         };
 
         let command = map
-            .get("command")
+            .get("exec")
             .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
             .transpose()?
             .unwrap_or(Effect::Deny);
@@ -582,7 +582,7 @@ impl PermissionRequestBody {
                 "write" => Some("file_write"),
                 _ => None,
             },
-            PermissionRequestBody::CommandExec { .. } => Some("command"),
+            PermissionRequestBody::CommandExec { .. } => Some("exec"),
             PermissionRequestBody::NetOp { .. } => Some("network"),
             PermissionRequestBody::InterAgentMsg { .. } => Some("spawn"),
             PermissionRequestBody::ToolCall { .. } => Some("tool_call"),

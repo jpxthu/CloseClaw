@@ -99,7 +99,7 @@ impl super::engine_eval::PermissionEngine {
     pub fn evaluate_user_permissions(&self, user_id: &str, agent_id: &str) -> AgentPermissions {
         let dimensions = [
             (
-                "command",
+                "exec",
                 PermissionRequestBody::CommandExec {
                     agent: agent_id.to_string(),
                     cmd: String::new(),

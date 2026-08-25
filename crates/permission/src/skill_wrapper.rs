@@ -199,7 +199,7 @@ fn build_body_for_action(
             path: resource.to_string(),
             op: "write".to_string(),
         },
-        "command" => PermissionRequestBody::CommandExec {
+        "exec" => PermissionRequestBody::CommandExec {
             agent: agent_id.to_string(),
             cmd: resource.to_string(),
             args: details

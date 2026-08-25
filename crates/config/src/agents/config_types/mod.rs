@@ -807,7 +807,7 @@ impl AgentPermissions {
     ///   both Some → min.
     pub fn intersect(&self, parent: &AgentPermissions) -> Self {
         let dimensions = [
-            "command",
+            "exec",
             "file_read",
             "file_write",
             "network",
@@ -871,7 +871,7 @@ impl AgentPermissions {
     /// Returns true if all eight permission dimensions are denied or absent.
     pub fn is_fully_denied(&self) -> bool {
         ![
-            "command",
+            "exec",
             "file_read",
             "file_write",
             "network",
