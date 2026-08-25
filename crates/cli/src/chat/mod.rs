@@ -1,43 +1,204 @@
 //! Interactive chat REPL via the terminal channel.
 //!
-//! Connects to the daemon's chat RPC server over a Unix domain socket
-//! and routes user input through the daemon's full inbound/outbound
-//! message pipeline via RPC.
+//! Creates an in-process Gateway instance with a registered TerminalPlugin.
+//! User input flows through the inbound processor chain, is routed by the
+//! Gateway, and outbound responses are rendered back to stdout.
+//!
+//! Startup verifies daemon reachability via the admin socket — the daemon
+//! must already be running (started with `closeclaw run`).
 
 pub mod rpc;
 
+use std::collections::HashMap;
 use std::io::{self, Write};
+use std::sync::Arc;
 
-use crate::chat::rpc::client::{chat_socket_path, ChatRpcClient};
-use crate::chat::rpc::ChatResponse;
-use crate::terminal::TerminalAdapter;
+use closeclaw_gateway::{
+    Gateway, GatewayConfig, HandleResult, SessionManager, SessionMessageHandler,
+};
+use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_slash::dispatcher::SlashDispatcher;
+use closeclaw_slash::handlers::CompactHandler;
+use closeclaw_slash::handlers_session::{StopHandler, VerboseHandler};
+use closeclaw_slash::registry::HandlerRegistry;
+
+use crate::admin::rpc::client::{admin_socket_path, AdminClient};
+use crate::llm_init;
+use crate::terminal::{TerminalAdapter, TerminalPlugin};
+
+/// Timeout for waiting for streaming LLM output.
+const STREAMING_TIMEOUT_SECS: u64 = 120;
+
+/// Wrapper converting [`SlashDispatcher`] to [`SlashRouter`] trait object.
+struct SlashDispatcherWrapper(SlashDispatcher);
+
+#[async_trait::async_trait]
+impl closeclaw_common::SlashRouter for SlashDispatcherWrapper {
+    async fn dispatch(
+        &self,
+        content: &str,
+        ctx: &closeclaw_common::slash_router::SlashContext,
+    ) -> Option<closeclaw_common::slash_router::SlashResult> {
+        Some(self.0.dispatch(content, ctx).await)
+    }
+
+    fn is_immediate(&self, command: &str) -> bool {
+        self.0.is_immediate(command)
+    }
+
+    fn get_handler(
+        &self,
+        command: &str,
+    ) -> Option<Box<dyn closeclaw_common::slash_router::SlashHandler>> {
+        self.0.get_handler(command).map(|h| {
+            Box::new(SlashHandlerBox { inner: h })
+                as Box<dyn closeclaw_common::slash_router::SlashHandler>
+        })
+    }
+}
+
+/// Thin wrapper converting `Arc<dyn SlashHandler>` to `Box<dyn SlashHandler>`.
+struct SlashHandlerBox {
+    inner: Arc<dyn closeclaw_common::slash_router::SlashHandler>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::slash_router::SlashHandler for SlashHandlerBox {
+    fn commands(&self) -> &[&str] {
+        self.inner.commands()
+    }
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+    fn immediate(&self, cmd: &str) -> bool {
+        self.inner.immediate(cmd)
+    }
+    fn requires_permission(&self) -> bool {
+        self.inner.requires_permission()
+    }
+    async fn handle(
+        &self,
+        args: &str,
+        ctx: &closeclaw_common::slash_router::SlashContext,
+    ) -> closeclaw_common::slash_router::SlashResult {
+        self.inner.handle(args, ctx).await
+    }
+}
 
 /// Why the REPL loop exited.
 enum ExitReason {
     /// User typed quit or exit.
     Quit,
-    /// unrecoverable error occurred.
+    /// An unrecoverable error occurred.
     Error(anyhow::Error),
 }
 
 /// Run the interactive chat REPL.
 ///
-/// 1. Connect to daemon via chat RPC socket.
-/// 2. Loop: read user input → send via RPC → print rendered response.
+/// 1. Verify the daemon is reachable (admin socket ping).
+/// 2. Create an in-process Gateway + TerminalPlugin.
+/// 3. Initialize LLM call chain for Session/LLM integration.
+/// 4. Loop: read user input → process through Gateway → render output.
+async fn build_gateway(
+    config_dir: &std::path::Path,
+    agent_id: &str,
+    llm_registry: &Arc<closeclaw_llm::LLMRegistry>,
+    fallback_client: &Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
+) -> anyhow::Result<(
+    Arc<Gateway>,
+    tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+)> {
+    let mut bindings = HashMap::new();
+    bindings.insert("cli".to_string(), agent_id.to_string());
+
+    let gateway_config = GatewayConfig {
+        name: "cli-chat".to_string(),
+        bot_agent_bindings: bindings,
+        ..Default::default()
+    };
+    let session_manager = Arc::new(SessionManager::new(
+        &gateway_config,
+        None,
+        Some(config_dir.to_path_buf()),
+        ReasoningLevel::default(),
+    ));
+
+    // Set LLM caller on SessionManager for ConversationSession creation.
+    let llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
+        Arc::clone(fallback_client),
+    ));
+    session_manager
+        .set_llm_caller(llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
+        .await;
+
+    let gateway = Arc::new(Gateway::new(gateway_config, Arc::clone(&session_manager)));
+    gateway.set_self_ref(Arc::clone(&gateway));
+
+    // ── SessionMessageHandler setup ────────────────────────────────
+    let (output_tx, output_rx) =
+        tokio::sync::mpsc::channel::<(String, Vec<closeclaw_common::ContentBlock>)>(64);
+
+    let active_searcher_llm_caller = Arc::new(
+        closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
+            client: Arc::clone(fallback_client),
+            model: String::new(),
+        },
+    );
+
+    // FallbackClient::from_strings is deprecated but no alternative exists for CLI single-session use.
+    #[allow(deprecated)]
+    let fallback_client_for_compact = Arc::new(
+        closeclaw_llm::fallback::FallbackClient::from_strings(Arc::clone(llm_registry), vec![]),
+    );
+
+    let session_handler = Arc::new(SessionMessageHandler::new(
+        Arc::clone(&session_manager),
+        fallback_client_for_compact,
+        output_tx,
+        active_searcher_llm_caller,
+        closeclaw_common::CompactConfig::default(),
+    ));
+    gateway.set_session_handler(session_handler);
+
+    // ── Slash command dispatcher setup ──────────────────────────────
+    let slash_registry = Arc::new(HandlerRegistry::new());
+    slash_registry.register(Arc::new(CompactHandler));
+    slash_registry.register(Arc::new(StopHandler));
+    let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
+    slash_registry.register(Arc::new(VerboseHandler::new(sm_query)));
+    let slash_dispatcher = SlashDispatcherWrapper(SlashDispatcher::from_shared(slash_registry));
+    gateway
+        .set_slash_dispatcher(Arc::new(slash_dispatcher) as Arc<dyn closeclaw_common::SlashRouter>)
+        .await;
+
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
+    gateway.register_plugin(plugin).await;
+
+    Ok((gateway, output_rx))
+}
+
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     let config_dir = dirs::home_dir()
         .map(|h| h.join(".closeclaw"))
         .unwrap_or_else(|| std::path::PathBuf::from(".closeclaw"));
-    let socket_path = chat_socket_path(&config_dir);
-    let client = ChatRpcClient::new(&socket_path);
 
-    // Check daemon is reachable.
-    if !client.ping().await {
+    // ── Step 0: daemon reachability check ──────────────────────────
+    let admin_sock = admin_socket_path(&config_dir);
+    let admin = AdminClient::new(admin_sock.to_string_lossy().to_string());
+    if !admin.ping().await {
         anyhow::bail!(
-            "daemon is not running or chat socket not found at {}",
-            socket_path.display()
+            "daemon is not running or admin socket not found at {}\n\
+             Start the daemon first: closeclaw run",
+            admin_sock.display()
         );
     }
+
+    // ── LLM initialization ────────────────────────────────────────
+    let llm_registry = llm_init::init_llm_registry(&config_dir).await;
+    let fallback_client = llm_init::create_fallback_client(&llm_registry).await;
+
+    let (gateway, mut output_rx) =
+        build_gateway(&config_dir, agent_id, &llm_registry, &fallback_client).await?;
 
     println!("CloseClaw Chat — agent: {}", agent_id);
     println!(
@@ -45,25 +206,55 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
          Type 'quit' or 'exit' to stop.\n"
     );
 
-    match repl_loop(&client, agent_id).await {
+    match repl_loop(&gateway, &mut output_rx).await {
         ExitReason::Quit => Ok(()),
         ExitReason::Error(e) => Err(e),
     }
 }
 
-/// Action to take after handling an RPC response chunk.
-enum ChunkAction {
-    /// Continue reading more chunks.
-    Continue,
-    /// Break out of the streaming inner loop (e.g., Done received).
-    Break,
+/// Run the read-eval-print loop through the Gateway.
+///
+/// Each user input is processed through the inbound processor chain,
+/// routed by the Gateway, and the response is rendered to stdout.
+/// When streaming output arrives via the output channel, it's written
+/// to stdout immediately.
+async fn route_message(
+    gateway: &Arc<Gateway>,
+    message: &closeclaw_common::NormalizedMessage,
+    output_rx: &mut tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+) {
+    // Process through Gateway inbound chain.
+    let processed = gateway.process_inbound_chain(message).await;
+
+    // Route through Gateway.
+    let result = gateway
+        .handle_inbound_message(processed, Some(&message.sender_id), "terminal")
+        .await;
+
+    match result {
+        Some(HandleResult::LlmStarted) => {
+            wait_for_streaming_completion(output_rx).await;
+        }
+        Some(HandleResult::SlashHandled) => {}
+        Some(HandleResult::MessageQueued(text)) => {
+            println!("{}", text);
+        }
+        Some(HandleResult::Error(msg)) => {
+            eprintln!("Error: {}", msg);
+        }
+        Some(HandleResult::ApprovalProcessed) => {}
+        None => {
+            eprintln!("(message not processed — no session handler)");
+        }
+    }
+
+    println!();
 }
 
-/// Run the read-eval-print loop over RPC.
-///
-/// Returns [`ExitReason::Quit`] when the user exits normally, or
-/// [`ExitReason::Error`] on I/O failure.
-async fn repl_loop(client: &ChatRpcClient, agent_id: &str) -> ExitReason {
+async fn repl_loop(
+    gateway: &Arc<Gateway>,
+    output_rx: &mut tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+) -> ExitReason {
     let adapter = TerminalAdapter::new();
 
     loop {
@@ -80,76 +271,42 @@ async fn repl_loop(client: &ChatRpcClient, agent_id: &str) -> ExitReason {
 
         let content = message.content.trim().to_string();
 
-        // Handle quit/exit locally before sending to daemon.
+        // Handle quit/exit locally before routing through Gateway.
         let lower = content.to_ascii_lowercase();
         if lower == "quit" || lower == "exit" {
             println!("Goodbye!");
             return ExitReason::Quit;
         }
 
-        // Send message via RPC.
-        let mut stream = match client.send_message(agent_id, &content).await {
-            Ok(s) => s,
-            Err(e) => {
-                return ExitReason::Error(anyhow::anyhow!("RPC send failed: {}", e));
-            }
-        };
-
-        // Read streaming response chunks.
-        loop {
-            match stream.next().await {
-                Ok(Some(response)) => match handle_rpc_response_chunk(response) {
-                    ChunkAction::Continue => {}
-                    ChunkAction::Break => break,
-                },
-                Ok(None) => break,
-                Err(e) => {
-                    return ExitReason::Error(anyhow::anyhow!("RPC receive failed: {}", e));
-                }
-            }
-        }
-
-        println!();
+        route_message(gateway, &message, output_rx).await;
     }
 }
 
-/// Handle a single RPC response chunk.
+/// Wait for streaming LLM output to complete.
 ///
-/// Returns an action indicating whether to continue reading or break the
-/// streaming loop.
-fn handle_rpc_response_chunk(response: ChatResponse) -> ChunkAction {
-    match response {
-        ChatResponse::ContentChunk { text } => {
-            print!("{}", text);
-            let _ = io::stdout().flush();
-            ChunkAction::Continue
+/// The SessionMessageHandler sends the final result on the output channel
+/// when the streaming task finishes. This function waits for that signal.
+async fn wait_for_streaming_completion(
+    output_rx: &mut tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+) {
+    // The output channel is closed when the streaming task completes.
+    // We wait for either a message (final result) or channel close.
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(STREAMING_TIMEOUT_SECS), // 2 minute timeout for long LLM responses
+        output_rx.recv(),
+    )
+    .await
+    {
+        Ok(Some((_text, _content_blocks))) => {
+            // Streaming complete — the TerminalPlugin has already written
+            // the output to stdout via the Gateway's outbound pipeline.
         }
-        ChatResponse::ThinkingChunk { text } => {
-            if !text.is_empty() {
-                eprint!("[Thinking] ");
-                eprint!("{}", text);
-                eprintln!("[end of thinking]");
-            }
-            ChunkAction::Continue
+        Ok(None) => {
+            // Channel closed — streaming task completed.
         }
-        ChatResponse::ToolUseChunk { name, input } => {
-            eprintln!("(tool use: {} — {})", name, input);
-            ChunkAction::Continue
+        Err(_) => {
+            eprintln!("\n(timeout waiting for LLM response)");
         }
-        ChatResponse::ToolResultChunk { name, output } => {
-            eprintln!("(tool result: {} — {})", name, output);
-            ChunkAction::Continue
-        }
-        ChatResponse::SessionStarted { session_key } => {
-            eprintln!("[session: {}]", session_key);
-            ChunkAction::Continue
-        }
-        ChatResponse::Error { message } => {
-            eprintln!("Error: {}", message);
-            ChunkAction::Continue
-        }
-        ChatResponse::Done => ChunkAction::Break,
-        ChatResponse::Pong => ChunkAction::Continue,
     }
 }
 
