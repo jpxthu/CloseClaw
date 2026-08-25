@@ -19,6 +19,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Mock handler ────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub(crate) struct MockHandler {
     pub(crate) cmds: Vec<&'static str>,
     pub(crate) desc: &'static str,
@@ -36,6 +37,9 @@ impl SlashHandler for MockHandler {
     }
     fn immediate(&self, _cmd: &str) -> bool {
         self.imm
+    }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Reply(self.reply_text.clone())

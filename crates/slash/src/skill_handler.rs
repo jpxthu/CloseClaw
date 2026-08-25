@@ -19,6 +19,7 @@ use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 /// at registration time via [`HandlerRegistry::register_named`]. This
 /// allows the handler to dynamically claim any skill name that appears
 /// in the disk or builtin registries.
+#[derive(Clone)]
 pub struct SkillSlashHandler {
     disk_registry: Arc<DiskSkillRegistry>,
     builtin_registry: Arc<BuiltinSkillRegistry>,
@@ -107,6 +108,10 @@ impl SlashHandler for SkillSlashHandler {
 
         // 3. Not found
         SlashResult::Reply(format!("未知技能: {skill_name}"))
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }
 

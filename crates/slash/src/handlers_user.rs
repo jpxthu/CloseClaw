@@ -19,6 +19,7 @@ use closeclaw_common::slash_router::SlashResult;
 /// Note: `/user approve` and `/user reject` are now intercepted by the
 /// Gateway before reaching this handler. The handler remains as a fallback
 /// for `/user list` and for documentation purposes.
+#[derive(Clone)]
 pub struct UserSlashHandler {
     /// Config directory for reading `users.json`.
     config_dir: PathBuf,
@@ -105,5 +106,9 @@ impl SlashHandler for UserSlashHandler {
             "reject" => unreachable!("/user reject is intercepted by Gateway"),
             other => SlashResult::Reply(format!("未知子命令：{other}\n\n{}", Self::usage())),
         }
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }

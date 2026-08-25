@@ -132,6 +132,12 @@ pub trait SlashHandler: Send + Sync {
 
     /// Execute the command with the given arguments and context.
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult;
+
+    /// Clone this handler into a boxed trait object.
+    ///
+    /// Required for the registry to return `Box<dyn SlashHandler>` from
+    /// lookups while storing handlers as `Arc` internally.
+    fn clone_box(&self) -> Box<dyn SlashHandler>;
 }
 
 /// Trait for dispatching slash commands to handlers.

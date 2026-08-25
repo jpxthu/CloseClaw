@@ -29,62 +29,6 @@ use crate::terminal::{TerminalAdapter, TerminalPlugin};
 /// Timeout for waiting for streaming LLM output.
 const STREAMING_TIMEOUT_SECS: u64 = 120;
 
-/// Wrapper converting [`SlashDispatcher`] to [`SlashRouter`] trait object.
-struct SlashDispatcherWrapper(SlashDispatcher);
-
-#[async_trait::async_trait]
-impl closeclaw_common::SlashRouter for SlashDispatcherWrapper {
-    async fn dispatch(
-        &self,
-        content: &str,
-        ctx: &closeclaw_common::slash_router::SlashContext,
-    ) -> Option<closeclaw_common::slash_router::SlashResult> {
-        Some(self.0.dispatch(content, ctx).await)
-    }
-
-    fn is_immediate(&self, command: &str) -> bool {
-        self.0.is_immediate(command)
-    }
-
-    fn get_handler(
-        &self,
-        command: &str,
-    ) -> Option<Box<dyn closeclaw_common::slash_router::SlashHandler>> {
-        self.0.get_handler(command).map(|h| {
-            Box::new(SlashHandlerBox { inner: h })
-                as Box<dyn closeclaw_common::slash_router::SlashHandler>
-        })
-    }
-}
-
-/// Thin wrapper converting `Arc<dyn SlashHandler>` to `Box<dyn SlashHandler>`.
-struct SlashHandlerBox {
-    inner: Arc<dyn closeclaw_common::slash_router::SlashHandler>,
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::slash_router::SlashHandler for SlashHandlerBox {
-    fn commands(&self) -> &[&str] {
-        self.inner.commands()
-    }
-    fn description(&self) -> &str {
-        self.inner.description()
-    }
-    fn immediate(&self, cmd: &str) -> bool {
-        self.inner.immediate(cmd)
-    }
-    fn requires_permission(&self) -> bool {
-        self.inner.requires_permission()
-    }
-    async fn handle(
-        &self,
-        args: &str,
-        ctx: &closeclaw_common::slash_router::SlashContext,
-    ) -> closeclaw_common::slash_router::SlashResult {
-        self.inner.handle(args, ctx).await
-    }
-}
-
 /// Why the REPL loop exited.
 enum ExitReason {
     /// User typed quit or exit.
@@ -166,10 +110,9 @@ async fn build_gateway(
     slash_registry.register(Arc::new(StopHandler));
     let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
     slash_registry.register(Arc::new(VerboseHandler::new(sm_query)));
-    let slash_dispatcher = SlashDispatcherWrapper(SlashDispatcher::from_shared(slash_registry));
-    gateway
-        .set_slash_dispatcher(Arc::new(slash_dispatcher) as Arc<dyn closeclaw_common::SlashRouter>)
-        .await;
+    let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry))
+        as Arc<dyn closeclaw_common::SlashRouter>;
+    gateway.set_slash_dispatcher(slash_dispatcher).await;
 
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
     gateway.register_plugin(plugin).await;

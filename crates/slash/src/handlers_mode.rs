@@ -22,6 +22,7 @@ use tracing;
 ///   returns `SlashResult::SetMode` with the plan file path.
 /// - Without arguments (or `--path` without title): enters Plan Mode
 ///   without creating a plan file.
+#[derive(Clone)]
 pub struct PlanModeHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -101,6 +102,10 @@ impl SlashHandler for PlanModeHandler {
             initial_input: has_title.then(|| title.to_owned()),
             reply_message: Some("已切换到 Plan 模式".to_owned()),
         }
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }
 
@@ -188,6 +193,7 @@ pub(crate) fn parse_execute_args(args: &str) -> (Option<String>, Option<String>)
 /// `/auto` does not accept any arguments.
 /// - If already in Auto Mode: replies with a notification.
 /// - If in Plan Mode: injects `ExitPlan` transition before switching.
+#[derive(Clone)]
 pub struct AutoModeHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -230,6 +236,10 @@ impl SlashHandler for AutoModeHandler {
             reply_message: Some("已切换到 Auto 模式".to_owned()),
         }
     }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
 }
 
 // ── ExecuteHandler ────────────────────────────────────────────────────────
@@ -242,6 +252,7 @@ impl SlashHandler for AutoModeHandler {
 ///   to Auto Mode; with no arguments, enters Auto Mode directly.
 /// - If additional instructions are provided after the plan name, they
 ///   are injected as the initial user message via `initial_input`.
+#[derive(Clone)]
 pub struct ExecuteHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -370,6 +381,10 @@ impl SlashHandler for ExecuteHandler {
         )
         .await
     }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
 }
 
 // ── PauseHandler ─────────────────────────────────────────────────────────
@@ -377,6 +392,7 @@ impl SlashHandler for ExecuteHandler {
 /// `/pause` — pause an actively executing plan.
 ///
 /// Switches the session from Auto Mode back to Plan Mode.
+#[derive(Clone)]
 pub struct PauseHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
 }
@@ -434,6 +450,10 @@ impl SlashHandler for PauseHandler {
             reply_message: Some("已切换到 Plan 模式".to_owned()),
         }
     }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
+    }
 }
 
 // ── ModeHandler ──────────────────────────────────────────────────────────
@@ -443,6 +463,7 @@ impl SlashHandler for PauseHandler {
 /// - No arguments: reads the current `SessionMode` and replies.
 /// - With an argument (`normal`, `plan`, `auto`): returns
 ///   `SlashResult::SetMode` to trigger the mode switch.
+#[derive(Clone)]
 pub struct ModeHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
     plan_handler: Option<Arc<PlanModeHandler>>,
@@ -532,5 +553,9 @@ impl SlashHandler for ModeHandler {
             initial_input: None,
             reply_message: Some("已切换到 Normal 模式".to_owned()),
         }
+    }
+
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(self.clone())
     }
 }
