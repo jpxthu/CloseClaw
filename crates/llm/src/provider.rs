@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 
 use closeclaw_common::llm_error::LLMError;
 
-use crate::types::{InternalRequest, InternalResponse, ProtocolId, RawSseChunk};
+use crate::types::{InternalRequest, ProtocolId, RawSseChunk};
 
 /// Errors that can occur during provider-level HTTP operations.
 #[derive(Debug, thiserror::Error)]
@@ -162,12 +162,18 @@ pub trait Provider: Send + Sync {
 
     // ── Behaviour: HTTP send ─────────────────────────────────────────────────
 
-    /// Sends a structured request to the provider and returns the parsed response.
+    /// Sends a request to the provider and returns the raw JSON response.
     ///
     /// The caller is responsible for calling
     /// [`ChatProtocol::build_request`][crate::ChatProtocol::build_request]
     /// first to convert the [`InternalRequest`][crate::InternalRequest] into a
     /// `serde_json::Value` that is suitable for the provider's HTTP endpoint.
+    ///
+    /// The [`Protocol`][crate::ChatProtocol] layer is responsible for parsing
+    /// the raw JSON into a structured [`InternalResponse`][crate::InternalResponse].
+    /// This method intentionally returns `serde_json::Value` to enforce the
+    /// separation of concerns: Provider handles HTTP I/O only; Protocol handles
+    /// response parsing.
     ///
     /// # Errors
     ///
@@ -177,7 +183,7 @@ pub trait Provider: Send + Sync {
         &self,
         request: InternalRequest,
         body: serde_json::Value,
-    ) -> Result<InternalResponse>;
+    ) -> Result<serde_json::Value>;
 
     /// Sends a streaming request and returns an SSE event stream.
     ///
