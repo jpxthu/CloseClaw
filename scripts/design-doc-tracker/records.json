@@ -91,9 +91,9 @@
     "path": "docs/design/common/data-flow.md",
     "commit": "7c82606ad4c05207907151a367daae84d0d1341a",
     "commit_time": "2026-08-24T09:25:20+08:00",
-    "confirmed_time": "2026-08-24T09:36:59.553185+08:00",
+    "confirmed_time": "2026-08-26T03:42:25.445286+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "F2b 深度对比发现文档内部矛盾: shared-types.md 声明自身为 common crate 共享类型的权威清单（未收录的 pub 类型应移出 common），但 ContentDelta（pub enum，9 变体，被 StreamEvent::BlockDelta 依赖、llm/session/gateway/cli/im_adapter 5+ crate 消费的事实共享类型）未被收录——按声明推论应移出 common 但架构上不可行，构成权威清单声明与实际收录范围的内部矛盾。F2b 经 3 轮确认（round1/round2 报告不一致，round3 双方一致判定 doc_problem）。"
   },
   {
     "path": "docs/design/common/shared-types.md",
