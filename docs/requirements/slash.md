@@ -79,14 +79,14 @@ Owner 和 User 可以变更和查看当前会话的工作目录，以及执行 G
 **指令**：
 - `/cd <路径>`：变更工作目录，切换前校验路径是否存在，不存在时提示错误；成功后回复路径及 Git 分支信息
 - `/pwd`：查看当前工作目录
-- `/git <args>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（列出分支））无需权限审批直接执行，写操作需经权限审批
+- `/git <args>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（列出分支））无需权限审批直接执行，写操作必须经权限审批方可执行，不可绕过
 
 > **交叉引用**：工作目录的定义（字段、默认值、变更后的状态展示、Git 命令输出）见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：Git 写操作的权限审批见 [permission §F3](permission.md)（权限决策模型）。
 
 ### F8. 命令执行
 
-Owner 可以执行任意 Shell 命令，执行前经权限审批（Owner 默认放行）。User 默认无权限（可由 Owner 通过权限规则授权）。
+Owner 可以执行任意 Shell 命令，执行前必须经权限审批方可执行，不可绕过（Owner 默认放行）。User 默认无权限（可由 Owner 通过权限规则授权）。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
@@ -95,7 +95,7 @@ Owner 可以执行任意 Shell 命令，执行前经权限审批（Owner 默认�
 
 ### F9. 帮助
 
-Owner 和 User 可以查看所有当前可用的斜杠指令及其说明。新增指令自动出现在帮助中。
+Owner 和 User 可以查看所有当前可用的斜杠指令及其说明。帮助内容从当前指令集自动生成，系统升级引入的新指令自动出现在帮助中，无需单独维护帮助文案。
 
 **指令**：
 - `/help`：查看帮助（Immediate）
@@ -160,6 +160,5 @@ Slash 模块在以下环节记录调试日志：
 ## 非功能需求
 
 - Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟：/stop、/status、/mode（无参数查询形态）、/reasoning、/verbose、/help
-- `/exec` 和 `/git` 写操作必须经过权限审批方可执行，不可绕过
 
 > **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
