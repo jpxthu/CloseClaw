@@ -621,7 +621,8 @@ async fn test_two_step_precondition_failure_skips_permission() {
 }
 
 /// Test: When `validate_spawn` passes but `check_spawn_permission` denies,
-/// the tool returns PermissionDenied (approval flow submitted if applicable).
+/// the tool returns PermissionDenied directly — no approval flow is
+/// submitted (design doc §Spawn 控制流程: Deny → return error).
 #[tokio::test]
 async fn test_two_step_permission_denied_returns_error() {
     let validator = TrackingSpawnValidator::with_permission_error(
@@ -658,6 +659,40 @@ async fn test_two_step_permission_denied_returns_error() {
     assert!(
         !log.create_child_called.load(Ordering::SeqCst),
         "create_child_session should NOT be called when permission denied"
+    );
+}
+
+/// Test: Permission denied returns the exact reason string from SpawnError,
+/// ensuring error propagation fidelity.
+#[tokio::test]
+async fn test_permission_denied_error_message_propagated() {
+    let reason_text = "agent 'secret-agent' is not in the parent allowlist";
+    let validator = TrackingSpawnValidator::with_permission_error(
+        crate::spawn_validation::SpawnError::PermissionDenied {
+            agent_id: "secret-agent".to_string(),
+            reason: reason_text.to_string(),
+        },
+    );
+    let log = validator.log();
+    let sm = Arc::new(RecordingSessionManager {
+        log: Arc::clone(&log),
+    });
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
+
+    let ctx = make_tool_context("parent-session");
+    let args = make_spawn_args("test task");
+
+    let err = tool.call(args, &ctx).await.expect_err("should fail");
+    match err {
+        closeclaw_common::tool_trait::ToolCallError::PermissionDenied(msg) => {
+            assert_eq!(msg, reason_text, "error reason must be propagated verbatim");
+        }
+        other => panic!("expected PermissionDenied, got: {:?}", other),
+    }
+
+    assert!(
+        !log.create_child_called.load(Ordering::SeqCst),
+        "create_child_session must NOT be called when permission denied"
     );
 }
 
