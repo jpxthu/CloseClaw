@@ -186,7 +186,7 @@ impl Provider for DeepSeekProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> crate::provider::Result<InternalResponse> {
+    ) -> crate::provider::Result<serde_json::Value> {
         let is_anthropic = detect_is_anthropic(&body);
         let url = if is_anthropic {
             self.messages_url()
@@ -209,13 +209,10 @@ impl Provider for DeepSeekProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        if is_anthropic {
-            let resp_body: serde_json::Value =
-                response.json().await.map_err(ProviderError::Reqwest)?;
-            parse_anthropic_response(resp_body)
-        } else {
-            parse_openai_response(response).await
-        }
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(

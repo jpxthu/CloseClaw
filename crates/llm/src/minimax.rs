@@ -218,7 +218,7 @@ impl Provider for MiniMaxProvider {
         &self,
         _request: InternalRequest,
         body: serde_json::Value,
-    ) -> Result<InternalResponse> {
+    ) -> Result<serde_json::Value> {
         let response = self
             .client
             .post(&self.base_url)
@@ -235,9 +235,10 @@ impl Provider for MiniMaxProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        let api_resp: MiniMaxResponse = response.json().await.map_err(ProviderError::Reqwest)?;
-
-        Self::parse_chat_response(api_resp)
+        response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(ProviderError::Reqwest)
     }
 
     async fn send_streaming(

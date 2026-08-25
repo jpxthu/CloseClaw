@@ -21,9 +21,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::mpsc;
 
 use super::provider::{Provider, ProviderError, SseStream};
-use super::types::{
-    InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,
-};
+use super::types::{InternalRequest, ProtocolId, RawContentBlock, RawSseChunk, RawUsage};
 use super::{ChatRequest, Message};
 use delivery::{
     apply_first_token_delay, apply_overall_delay, apply_per_segment_delay, generate_anthropic_sse,
@@ -267,7 +265,7 @@ impl FakeProvider {
     }
 
     /// Fallback response when scenarios are exhausted (non-streaming).
-    fn send_fallback_response(&self) -> InternalResponse {
+    fn send_fallback_response(&self) -> serde_json::Value {
         let fallback = self
             .inner
             .lock()
@@ -275,25 +273,27 @@ impl FakeProvider {
             .fallback
             .clone()
             .unwrap_or_default();
-        InternalResponse {
-            content_blocks: vec![RawContentBlock::Text(fallback)],
-            usage: RawUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: Some(0),
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-                reasoning_tokens: None,
-            },
-            finish_reason: None,
-        }
+        serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": fallback
+                },
+                "finish_reason": null
+            }],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+        })
     }
 
     /// Deliver a non-streaming Ok response with delay/error injection.
     async fn deliver_ok_response(
         &self,
         scenario: Scenario,
-    ) -> Result<InternalResponse, ProviderError> {
+    ) -> Result<serde_json::Value, ProviderError> {
         if let Scenario::Ok {
             ref content_blocks,
             ref delivery,
@@ -309,11 +309,37 @@ impl FakeProvider {
                 });
             }
             let usage = scenario.raw_usage();
-            return Ok(InternalResponse {
-                content_blocks: content_blocks.clone(),
-                usage,
-                finish_reason: None,
-            });
+            // Convert content blocks to a simple JSON representation
+            let content_json: Vec<serde_json::Value> = content_blocks
+                .iter()
+                .map(|block| match block {
+                    RawContentBlock::Text(s) => serde_json::json!({"type": "text", "text": s}),
+                    RawContentBlock::Thinking { thinking, signature } => {
+                        let mut v = serde_json::json!({"type": "thinking", "thinking": thinking});
+                        if let Some(sig) = signature {
+                            v["signature"] = serde_json::json!(sig);
+                        }
+                        v
+                    }
+                    RawContentBlock::ToolUse { id, name, input } => {
+                        serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": input})
+                    }
+                })
+                .collect();
+            return Ok(serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": content_json
+                    },
+                    "finish_reason": null
+                }],
+                "usage": {
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "total_tokens": usage.total_tokens.unwrap_or(0)
+                }
+            }));
         }
         // Non-Ok variants handled by caller
         Err(ProviderError::Legacy(
@@ -491,7 +517,7 @@ impl Provider for FakeProvider {
         &self,
         request: InternalRequest,
         _body: serde_json::Value,
-    ) -> super::provider::Result<InternalResponse> {
+    ) -> super::provider::Result<serde_json::Value> {
         self.capture_internal(&request);
         match self.resolve_scenario().await? {
             None => Ok(self.send_fallback_response()),
