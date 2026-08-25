@@ -170,10 +170,12 @@ impl Daemon {
         Ok((config_manager, storage, data_dir))
     }
 
-    /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry, LLMRegistry.
+    /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry, LLMRegistry,
+    /// PermissionEngine.
     async fn init_phase_2_registries(
         config_dir: &str,
         config_manager: &ConfigManager,
+        audit_logger: &Option<Arc<dyn closeclaw_permission::AuditLogger>>,
     ) -> anyhow::Result<(
         Arc<closeclaw_agent::registry::AgentRegistry>,
         Arc<RwLock<Option<DiskSkillRegistry>>>,
@@ -183,9 +185,12 @@ impl Daemon {
         Arc<dyn SessionConfigProvider>,
         Arc<closeclaw_llm::LLMRegistry>,
         SkillRescanHandle,
+        Arc<tokio::sync::RwLock<PermissionEngine>>,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
+        let permission_engine =
+            Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
         let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
         let (skill_registry, skill_watcher, skill_rescan_handle) =
@@ -218,6 +223,7 @@ impl Daemon {
             session_config_provider,
             llm_registry,
             skill_rescan_handle,
+            permission_engine,
         ))
     }
 
