@@ -128,10 +128,13 @@ struct DispatchCtx<'a> {
 impl Gateway {
     /// Send an outbound message (agent response) via the registered IM plugin.
     ///
-    /// Flow: resolve chat_id + plugin → resolve VerbosityLevel → run processor
-    /// chain (DslParser → OutboundRawLog) → render → dispatch by msg_type → persist
-    /// checkpoint. VerbosityFilter runs in the incremental streaming phase via
-    /// the Processor Chain, not in the batch outbound path.
+    /// Flow: resolve chat_id + plugin → resolve VerbosityLevel → run full batch
+    /// outbound chain (VerbosityFilter → DslParser → OutboundRawLog) → render →
+    /// dispatch by msg_type → persist checkpoint.
+    ///
+    /// Streaming mode also runs VerbosityFilter — during the incremental phase
+    /// at block boundaries — and skips it in the finish phase (see
+    /// [`finish_streaming_pipeline`]).
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -165,7 +168,7 @@ impl Gateway {
             VerbosityLevel::default()
         };
 
-        // 3. Processor chain (DslParser → OutboundRawLog).
+        // 3. Full batch outbound chain (VerbosityFilter → DslParser → OutboundRawLog).
         let processed = self
             .process_or_bypass(
                 raw_output,
