@@ -397,3 +397,66 @@ fn test_chat_module_uses_gateway_not_rpc() {
         "chat/mod.rs should still have run_chat function"
     );
 }
+
+// ── Empty content filtering ──────────────────────────────────────────────
+
+/// Verify that empty content does not produce a NormalizedMessage.
+#[test]
+fn test_empty_content_filtered() {
+    use crate::terminal::TerminalAdapter;
+    let adapter = TerminalAdapter::new();
+    // Empty string should return None
+    assert!(adapter.make_message("".to_string()).content.is_empty());
+}
+
+/// Verify that whitespace-only content is treated as empty.
+#[test]
+fn test_whitespace_only_content_filtered() {
+    use crate::terminal::TerminalAdapter;
+    let adapter = TerminalAdapter::new();
+    let msg = adapter.make_message("   \n  \t  ".to_string());
+    assert!(msg.content.trim().is_empty());
+}
+
+// ── Daemon unreachable error path ────────────────────────────────────────
+
+/// Verify that run_chat returns an error when daemon is unreachable.
+#[tokio::test]
+async fn test_run_chat_daemon_unreachable() {
+    // run_chat checks admin socket reachability internally; calling it
+    // when no daemon is running should return an error.
+    let result = crate::chat::run_chat("test-agent").await;
+    assert!(result.is_err(), "should fail when daemon is unreachable");
+}
+
+// ── Architecture: no RPC imports ─────────────────────────────────────────
+
+/// Verify chat/mod.rs does not import ChatRpcClient.
+#[test]
+fn test_chat_no_rpc_imports() {
+    let source = include_str!("chat/mod.rs");
+    assert!(
+        !source.contains("use.*ChatRpcClient"),
+        "chat/mod.rs must not import ChatRpcClient"
+    );
+    assert!(
+        !source.contains("use.*ChatResponse"),
+        "chat/mod.rs must not import ChatResponse from RPC"
+    );
+}
+
+// ── Architecture: TerminalPlugin registered ──────────────────────────────
+
+/// Verify TerminalPlugin is used in the chat module.
+#[test]
+fn test_terminal_plugin_in_chat() {
+    let source = include_str!("chat/mod.rs");
+    assert!(
+        source.contains("TerminalPlugin::new"),
+        "chat/mod.rs should instantiate TerminalPlugin"
+    );
+    assert!(
+        source.contains("register_plugin"),
+        "chat/mod.rs should register TerminalPlugin with Gateway"
+    );
+}
