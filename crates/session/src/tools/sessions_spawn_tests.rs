@@ -124,55 +124,11 @@ impl closeclaw_agent::AgentConfigLookup for MockAgentConfigLookup {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mock ApprovalSubmission
-// ---------------------------------------------------------------------------
-
-fn mock_approval_flow() -> closeclaw_common::permission_types::SharedApprovalSubmission {
-    use closeclaw_common::permission_types::ApprovalSubmission;
-    struct AutoApproveApproval;
-    impl ApprovalSubmission for AutoApproveApproval {
-        fn submit_inter_agent_denial(
-            &self,
-            _caller: &closeclaw_common::permission_types::CallerInfo,
-            _from: &str,
-            _to: &str,
-            _risk_level: closeclaw_common::permission_types::RiskLevel,
-            _session_id: &str,
-            _is_sub_agent: bool,
-        ) -> Option<String> {
-            Some("mock-approval-id".to_string())
-        }
-    }
-    Arc::new(tokio::sync::Mutex::new(AutoApproveApproval))
-}
-
-/// Approval flow that always denies (returns None → PermissionDenied propagates).
-fn mock_deny_approval_flow() -> closeclaw_common::permission_types::SharedApprovalSubmission {
-    use closeclaw_common::permission_types::ApprovalSubmission;
-    struct DenyApproval;
-    impl ApprovalSubmission for DenyApproval {
-        fn submit_inter_agent_denial(
-            &self,
-            _caller: &closeclaw_common::permission_types::CallerInfo,
-            _from: &str,
-            _to: &str,
-            _risk_level: closeclaw_common::permission_types::RiskLevel,
-            _session_id: &str,
-            _is_sub_agent: bool,
-        ) -> Option<String> {
-            None
-        }
-    }
-    Arc::new(tokio::sync::Mutex::new(DenyApproval))
-}
-
 fn make_tool() -> SessionsSpawnTool {
     SessionsSpawnTool::new(
         Arc::new(MockSpawnValidator),
         Arc::new(MockSessionManager),
         Arc::new(MockAgentConfigLookup),
-        mock_approval_flow(),
     )
 }
 
@@ -513,6 +469,7 @@ impl crate::spawn_validation::SpawnValidator for TrackingSpawnValidator {
                 memory: closeclaw_config::agents::MemoryConfig::default(),
                 hooks: vec![],
                 parallel_tool_calls: true,
+                memory_configured: false,
                 source: closeclaw_config::agents::ConfigSource::User,
             },
             effective_max_spawn_depth: 1,
@@ -634,12 +591,7 @@ async fn test_two_step_precondition_failure_skips_permission() {
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(
-        Arc::new(validator),
-        sm,
-        Arc::new(MockAgentConfigLookup),
-        mock_approval_flow(),
-    );
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
@@ -669,7 +621,8 @@ async fn test_two_step_precondition_failure_skips_permission() {
 }
 
 /// Test: When `validate_spawn` passes but `check_spawn_permission` denies,
-/// the tool returns PermissionDenied (approval flow submitted if applicable).
+/// the tool returns PermissionDenied directly — no approval flow is
+/// submitted (design doc §Spawn 控制流程: Deny → return error).
 #[tokio::test]
 async fn test_two_step_permission_denied_returns_error() {
     let validator = TrackingSpawnValidator::with_permission_error(
@@ -682,13 +635,7 @@ async fn test_two_step_permission_denied_returns_error() {
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    // Use a non-approving flow so PermissionDenied propagates.
-    let tool = SessionsSpawnTool::new(
-        Arc::new(validator),
-        sm,
-        Arc::new(MockAgentConfigLookup),
-        mock_deny_approval_flow(),
-    );
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
@@ -715,6 +662,40 @@ async fn test_two_step_permission_denied_returns_error() {
     );
 }
 
+/// Test: Permission denied returns the exact reason string from SpawnError,
+/// ensuring error propagation fidelity.
+#[tokio::test]
+async fn test_permission_denied_error_message_propagated() {
+    let reason_text = "agent 'secret-agent' is not in the parent allowlist";
+    let validator = TrackingSpawnValidator::with_permission_error(
+        crate::spawn_validation::SpawnError::PermissionDenied {
+            agent_id: "secret-agent".to_string(),
+            reason: reason_text.to_string(),
+        },
+    );
+    let log = validator.log();
+    let sm = Arc::new(RecordingSessionManager {
+        log: Arc::clone(&log),
+    });
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
+
+    let ctx = make_tool_context("parent-session");
+    let args = make_spawn_args("test task");
+
+    let err = tool.call(args, &ctx).await.expect_err("should fail");
+    match err {
+        closeclaw_common::tool_trait::ToolCallError::PermissionDenied(msg) => {
+            assert_eq!(msg, reason_text, "error reason must be propagated verbatim");
+        }
+        other => panic!("expected PermissionDenied, got: {:?}", other),
+    }
+
+    assert!(
+        !log.create_child_called.load(Ordering::SeqCst),
+        "create_child_session must NOT be called when permission denied"
+    );
+}
+
 /// Test: When both `validate_spawn` and `check_spawn_permission` pass,
 /// the child session is created.
 #[tokio::test]
@@ -724,12 +705,7 @@ async fn test_two_step_both_pass_creates_child() {
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(
-        Arc::new(validator),
-        sm,
-        Arc::new(MockAgentConfigLookup),
-        mock_approval_flow(),
-    );
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");

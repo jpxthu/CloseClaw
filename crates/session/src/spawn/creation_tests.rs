@@ -30,9 +30,9 @@ struct MockCreationContext {
     config_dir: std::path::PathBuf,
     /// Optional agent config override for `get_agent_config`.
     agent_config: Option<ResolvedAgentConfig>,
-    /// Optional override for `parent_workspace`: None = use parent session,
-    /// Some(None) = return None (force Level 4 fallback).
-    parent_workspace_override: Option<Option<std::path::PathBuf>>,
+    /// Optional override for `sender_id`: None = use default "test-user",
+    /// Some(None) = return None.
+    sender_id_override: Option<Option<String>>,
 }
 
 impl MockCreationContext {
@@ -48,7 +48,7 @@ impl MockCreationContext {
             parent_session: Arc::new(RwLock::new(cs)),
             config_dir,
             agent_config: None,
-            parent_workspace_override: None,
+            sender_id_override: None,
         }
     }
 
@@ -59,10 +59,10 @@ impl MockCreationContext {
         ctx
     }
 
-    /// Create with `parent_workspace` returning None (force Level 4 fallback).
-    fn with_no_parent_workspace() -> Self {
+    /// Create with `sender_id` returning None (force "default" user_id).
+    fn with_no_sender_id() -> Self {
         let mut ctx = Self::new();
-        ctx.parent_workspace_override = Some(None);
+        ctx.sender_id_override = Some(None);
         ctx
     }
 }
@@ -115,16 +115,9 @@ impl SpawnCreationContext for MockCreationContext {
     }
 
     async fn sender_id(&self, _session_id: &str) -> Option<String> {
-        Some("test-user".to_string())
-    }
-
-    async fn parent_workspace(&self, _parent_session_id: &str) -> Option<std::path::PathBuf> {
-        match &self.parent_workspace_override {
+        match &self.sender_id_override {
             Some(override_val) => override_val.clone(),
-            None => {
-                let guard = self.parent_session.read().await;
-                Some(guard.workdir().to_path_buf())
-            }
+            None => Some("test-user".to_string()),
         }
     }
 
@@ -150,6 +143,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         memory: Default::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: closeclaw_config::agents::ConfigSource::User,
     }
 }
@@ -639,30 +633,10 @@ async fn test_no_prompt_template_unchanged_behavior() {
 // ── Workspace fallback chain tests ──────────────────────────────────────
 
 /// Level 3 fallback: when no explicit workspace or config.workspace,
-/// the parent session workspace is used.
+/// the dedicated workspace directory is used.
 #[tokio::test]
-async fn test_level3_parent_workspace_fallback() {
+async fn test_level3_dedicated_workspace_fallback() {
     let ctx = MockCreationContext::new();
-    let config = make_config("child-agent");
-    let params = default_params();
-
-    let result = create_child_conversation_session(&ctx, &config, &params)
-        .await
-        .expect("should succeed");
-
-    // MockCreationContext::parent_workspace returns the parent session's workdir
-    let parent_ws = ctx.parent_workspace("parent-session").await.unwrap();
-    assert_eq!(
-        result.workspace_path, parent_ws,
-        "Level 3 fallback must use parent session workspace"
-    );
-}
-
-/// Level 4 fallback: when parent_workspace returns None and parent session
-/// exists, the dedicated workspace directory is used.
-#[tokio::test]
-async fn test_level4_dedicated_workspace_fallback() {
-    let ctx = MockCreationContext::with_no_parent_workspace();
     let config = make_config("child-agent");
     let params = default_params();
 
@@ -677,14 +651,14 @@ async fn test_level4_dedicated_workspace_fallback() {
         .join("test-user");
     assert_eq!(
         result.workspace_path, expected,
-        "Level 4 fallback must produce config_dir/workspaces/child-agent/test-user/"
+        "Level 3 fallback must produce config_dir/workspaces/child-agent/test-user/"
     );
 }
 
-/// Level 4 fallback path is compatible with `is_workspace_path()` authorization.
+/// Level 3 fallback path is compatible with `is_workspace_path()` authorization.
 #[tokio::test]
-async fn test_level4_dedicated_path_matches_workspace_authorization() {
-    let ctx = MockCreationContext::with_no_parent_workspace();
+async fn test_level3_dedicated_path_matches_workspace_authorization() {
+    let ctx = MockCreationContext::new();
     let config = make_config("my-agent");
     let params = ChildSessionCreationParams {
         task: "workspace auth test",
@@ -757,10 +731,10 @@ async fn test_config_workspace_overrides_fallback() {
     );
 }
 
-/// Level 4 fallback uses user_id from `sender_id()`.
+/// Level 3 fallback uses user_id from `sender_id()`.
 #[tokio::test]
-async fn test_level4_dedicated_uses_sender_id() {
-    let ctx = MockCreationContext::with_no_parent_workspace();
+async fn test_level3_dedicated_uses_sender_id() {
+    let ctx = MockCreationContext::new();
     let config = make_config("test-agent");
     let params = default_params();
 
@@ -776,7 +750,142 @@ async fn test_level4_dedicated_uses_sender_id() {
         .join("test-user");
     assert_eq!(
         result.workspace_path, expected,
-        "Level 4 fallback must include sender_id as the user_id component"
+        "Level 3 fallback must include sender_id as the user_id component"
+    );
+}
+
+// ── Edge cases for workspace fallback chain ────────────────────────────
+
+/// Empty string workspace falls back to Level 3 (dedicated workspace).
+#[tokio::test]
+async fn test_empty_string_workspace_falls_back() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        workspace: Some(""),
+        ..default_params()
+    };
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+    let expected = ctx
+        .config_dir()
+        .join("workspaces")
+        .join("child-agent")
+        .join("test-user");
+    assert_eq!(
+        result.workspace_path, expected,
+        "empty string workspace must fall back to Level 3"
+    );
+}
+
+/// Whitespace-only workspace also falls back to Level 3.
+#[tokio::test]
+async fn test_whitespace_only_workspace_falls_back() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        workspace: Some("   "),
+        ..default_params()
+    };
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+    let expected = ctx
+        .config_dir()
+        .join("workspaces")
+        .join("child-agent")
+        .join("test-user");
+    assert_eq!(
+        result.workspace_path, expected,
+        "whitespace-only workspace must fall back to Level 3"
+    );
+}
+
+/// Trimmed non-empty workspace is treated as Level 1 explicit.
+#[tokio::test]
+async fn test_trimmed_nonempty_workspace_treated_as_explicit() {
+    let ctx = MockCreationContext::new();
+    let config = make_config("child-agent");
+    let params = ChildSessionCreationParams {
+        workspace: Some("  /explicit/path  "),
+        ..default_params()
+    };
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+    assert_eq!(
+        result.workspace_path,
+        std::path::PathBuf::from("  /explicit/path  "),
+        "non-empty workspace with whitespace should be returned as-is"
+    );
+}
+
+/// When `sender_id()` returns None, Level 3 fallback uses "default"
+/// as the user_id component.
+#[tokio::test]
+async fn test_level3_sender_id_none_uses_default() {
+    // Use a context where sender_id returns None.
+    let ctx = MockCreationContext::with_no_sender_id();
+    let config = make_config("child-agent");
+    let params = default_params();
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+
+    let expected = ctx
+        .config_dir()
+        .join("workspaces")
+        .join("child-agent")
+        .join("default");
+    assert_eq!(
+        result.workspace_path, expected,
+        "Level 3 fallback must use 'default' when sender_id is None"
+    );
+}
+
+/// Verify the 3-level fallback chain in priority order:
+/// explicit > config.workspace > dedicated directory.
+/// When both explicit and config.workspace are set, explicit wins.
+#[tokio::test]
+async fn test_fallback_chain_explicit_beats_config() {
+    let ctx = MockCreationContext::new();
+    let mut config = make_config("child-agent");
+    config.workspace = Some(std::path::PathBuf::from("/config/ws"));
+    let params = ChildSessionCreationParams {
+        workspace: Some("/explicit/ws"),
+        ..default_params()
+    };
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+
+    assert_eq!(
+        result.workspace_path,
+        std::path::PathBuf::from("/explicit/ws"),
+        "explicit workspace must take priority over config.workspace"
+    );
+}
+
+/// When config.workspace is Some and no explicit workspace is provided,
+/// config.workspace wins over the Level 3 dedicated directory.
+#[tokio::test]
+async fn test_fallback_chain_config_beats_dedicated() {
+    let ctx = MockCreationContext::new();
+    let mut config = make_config("child-agent");
+    config.workspace = Some(std::path::PathBuf::from("/config/ws"));
+    let params = default_params();
+
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
+
+    assert_eq!(
+        result.workspace_path,
+        std::path::PathBuf::from("/config/ws"),
+        "config.workspace must win over Level 3 dedicated directory"
     );
 }
 
