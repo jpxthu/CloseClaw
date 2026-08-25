@@ -9,7 +9,7 @@
 
 ### 插件体系
 
-IM Adapter 模块不包含业务逻辑，由三层组成：
+IM Adapter 模块不包含业务逻辑，由三类组件组成：
 
 - **插件接口层**：IMPlugin trait 是统一插件契约，完整接口定义见 [common/core-traits](../common/core-traits.md#implugin)。每个消息平台实现此 trait，提供入站解析、渲染、发送、生命周期四组方法。terminal 平台的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
 - **通用渲染能力**：代码块语法高亮和流式增量渲染是跨平台通用机制，以 IM Adapter 内的通用组件形式提供。各平台插件组合持有对应组件并在渲染时委托调用，按需覆盖平台差异化部分。
@@ -18,7 +18,7 @@ IM Adapter 模块不包含业务逻辑，由三层组成：
 模块运行时注册表由 Gateway 维护：
 
 - **Plugin Registry**：platform → IMPlugin 的映射。Gateway 通过 platform 字段选择插件。
-- **插件注册机制**：分两阶段。① **编译期发现**——构建时自动扫描 `platforms/` 目录，为每个平台生成模块声明，新增平台无需改动 Gateway 等核心代码、重启即自动生效。② **运行时注册**——系统启动时遍历已发现的平台插件，读取配置中该平台的启用状态，仅对已启用平台执行注册，写入 Gateway 维护的 Plugin Registry。不在 `platforms/` 下的插件（如 CLI 模块的 terminal）通过显式注册加入 Plugin Registry。各已启用平台的初始化相互独立——单个插件初始化失败仅记录日志并跳过该平台，不影响其他已启用平台的正常加载与运行。新平台默认禁用，需在配置中显式添加并启用方可使用。
+- **插件注册机制**：分两阶段。**编译期发现**——构建时自动扫描 `platforms/` 目录，为每个平台生成模块声明，新增平台无需改动 Gateway 等核心代码、重启即自动生效。**运行时注册**——系统启动时遍历已发现的平台插件，读取配置中该平台的启用状态，仅对已启用平台执行注册，写入 Gateway 维护的 Plugin Registry。不在 `platforms/` 下的插件（如 CLI 模块的 terminal）通过显式注册加入 Plugin Registry。各已启用平台的初始化相互独立——单个插件初始化失败仅记录日志并跳过该平台，不影响其他已启用平台的正常加载与运行。新平台默认禁用，需在配置中显式添加并启用方可使用。
 
 平台插件为自包含模块，内部结构统一：
 
@@ -30,8 +30,8 @@ platforms/<平台名>/
 │                  — token 管理与刷新
 ├── renderer.rs    — ContentBlock[] + DSL → 平台原生格式
 
-└── tools/         — 平台工具注册
-    ├── mod.rs     — 工具注册入口
+└── tools/         — 平台工具实现（注册职责在模块级，见「对外工具」）
+    ├── mod.rs     — 工具实现模块声明
     └── ...        — 各工具分组文件
 ```
 
@@ -39,7 +39,9 @@ platforms/<平台名>/
 
 ### 对外工具
 
-IM Adapter 模块通过 [ToolRegistrar](../tools/tool-registrar.md) trait 向 ToolRegistry 注册平台插件工具。飞书平台注册的工具分组见 [飞书插件](platforms/feishu.md)，各工具分组详细参数见 [tools 模块文档](../tools/README.md)。全部飞书工具默认延迟加载。
+IM Adapter 模块通过 [ToolRegistrar](../tools/tool-registrar.md) trait 向 ToolRegistry 注册平台插件工具。注册入口是**模块级唯一注册入口**——模块以单一 Registrar 加入 Tools 模块的全局编排（[四个标准 Registrar](../tools/tool-registrar.md#四个标准-registrar) 之一），与 tools/session/skills 模块对称。平台插件目录（`platforms/<平台>/tools/`）只承载工具实现，不承担注册职责。
+
+新增平台工具的约定：在对应平台 `tools/` 目录实现工具，并在模块级 Registrar 的注册清单中声明该工具分组。飞书平台注册的工具分组见 [飞书插件](platforms/feishu.md)，各工具分组详细参数见 [tools 模块文档](../tools/README.md)。
 
 ```
 im_adapter/
@@ -58,7 +60,7 @@ IMPlugin trait 的完整接口契约定义见 [common/core-traits](../common/cor
 
 NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异。完整字段定义及身份映射规则见 [common 共享类型](../common/shared-types.md)。
 
-IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段——各平台插件将原生格式转为统一结构，Processor Chain 和 Gateway 下游消费时不感知平台差异。
+IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段——各平台插件将原生格式转为统一结构，Processor Chain 和 Gateway 下游消费时不感知平台差异。归一化以 NormalizedMessage 字段集为完整边界：各平台特有的元数据（API 字段名、租户标识等）不进入归一化结构，在插件内消化。
 
 **引用/回复消息的处理**：若 IM 平台支持消息引用/回复功能，Adapter 在解析时取出被引用消息的文本内容，截断至 500 字符（超出追加 `...`），渲染为 markdown blockquote 格式（`> 引用内容`），拼接在 `content` 字段之前。不传递独立的引用消息字段。
 
@@ -79,7 +81,7 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 - 含 Thinking/ToolUse/ToolResult 块 → 富格式消息
 - 含 Image/Audio/File 块 → 富格式消息
 
-例外：terminal 渠道无富格式消息形态，恒输出 text 消息——富内容在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）。
+例外：terminal 渠道无富格式消息形态，恒输出 text 消息——富内容在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）；流式模式下 DSL 交互指令不产生渲染输出（仅日志记录与出站历史写入），交互指令仅在批量模式渲染（见[流式渲染](streaming-render.md)）。
 
 ## 数据流
 
@@ -87,7 +89,7 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 
 ```
 1. IM 平台 webhook 到达。
-2. IMPlugin 入站：平台格式解析 → NormalizedMessage { platform, sender_id, peer_id, content, ... }。← 日志：入站解析（平台、消息类型、解析耗时）
+2. IMPlugin 入站：平台格式解析 → NormalizedMessage { platform, sender_id, account_id, peer_id, content, ... }（account_id 经 Config 身份映射得到，见「模块关系-上游」）。← 日志：入站解析（平台、消息类型、解析耗时）
 3. Processor Chain 入站依次执行 RawLog → SessionRouter → ContentNormalizer。
 4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage) → Gateway 路由决策。
 ```
@@ -96,10 +98,10 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 
 ```
 1. LLM 输出 ContentBlock[]。
-2. Processor Chain 出站（DslParser）。
+2. Processor Chain 出站依次执行（Verbosity 过滤 → DSL 解析 → 出站日志，见 [Processor Chain 出站链路](../processor_chain/README.md)）。
 3. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)。
 4. IMPlugin 渲染：渲染接口接收 ContentBlock[] 与 DSL 解析结果（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
-5. 中间件插入点：Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件。
+5. 中间件插入点：Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件（流式模式下在增量阶段开始前执行一次 pre-flight 检查，非逐片插入，见[流式渲染](streaming-render.md)）。
 6. IMPlugin 发送：发送接口将渲染结果按 peer_id、thread_id 投递到平台。← 日志：平台 API 发送（平台、目标、耗时）
 ```
 
