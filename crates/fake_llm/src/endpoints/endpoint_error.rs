@@ -9,28 +9,34 @@ use axum::response::{IntoResponse, Response};
 
 /// Error returned by endpoint handlers.
 ///
-/// Wraps HTTP status, optional response headers, and an error message body.
-/// Implements [`IntoResponse`] to produce the same response as the original
-/// `(StatusCode, HeaderMap, String)` tuple.
+/// Wraps HTTP status, optional `Retry-After` delay, and an error message body.
+/// Implements [`IntoResponse`] to produce an HTTP response with the correct
+/// status code, body, and `Retry-After` header when applicable.
 #[derive(Debug)]
 pub struct EndpointError {
     pub status: StatusCode,
-    pub headers: HeaderMap,
+    pub retry_after: Option<u64>,
     pub message: String,
 }
 
 impl IntoResponse for EndpointError {
     fn into_response(self) -> Response {
-        (self.status, self.headers, self.message).into_response()
+        let mut headers = HeaderMap::new();
+        if let Some(secs) = self.retry_after {
+            if let Ok(val) = HeaderValue::try_from(secs.to_string()) {
+                headers.insert(axum::http::header::RETRY_AFTER, val);
+            }
+        }
+        (self.status, headers, self.message).into_response()
     }
 }
 
 impl EndpointError {
-    /// Internal server error (500) with an empty header map.
+    /// Internal server error (500) with no `Retry-After` header.
     pub fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
-            headers: HeaderMap::new(),
+            retry_after: None,
             message: message.into(),
         }
     }
@@ -41,15 +47,9 @@ impl EndpointError {
     /// code fall back to 500 Internal Server Error.
     pub fn http(status: u16, retry_after: Option<u64>, message: impl Into<String>) -> Self {
         let code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let mut headers = HeaderMap::new();
-        if let Some(secs) = retry_after {
-            if let Ok(val) = HeaderValue::try_from(secs.to_string()) {
-                headers.insert(axum::http::header::RETRY_AFTER, val);
-            }
-        }
         Self {
             status: code,
-            headers,
+            retry_after,
             message: message.into(),
         }
     }
@@ -117,5 +117,70 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(body.as_ref(), b"forbidden");
+    }
+
+    #[tokio::test]
+    async fn http_retry_after_zero_still_present() {
+        let err = EndpointError::http(429, Some(0), "too fast");
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::from_u16(429).unwrap());
+        let retry = resp
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .expect("Retry-After header should be present even when value is 0");
+        assert_eq!(retry, "0");
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"too fast");
+    }
+
+    #[tokio::test]
+    async fn http_retry_after_max_u64_valid() {
+        let err = EndpointError::http(503, Some(u64::MAX), "overloaded");
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::from_u16(503).unwrap());
+        let expected = u64::MAX.to_string();
+        let retry = resp
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .expect("Retry-After header should be present for u64::MAX");
+        assert_eq!(retry, expected.as_str());
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"overloaded");
+    }
+
+    #[tokio::test]
+    async fn http_invalid_status_preserves_retry_after() {
+        let err = EndpointError::http(9999, Some(42), "bad but retryable");
+        let resp = err.into_response();
+        assert_eq!(
+            resp.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid status 9999 should fall back to 500"
+        );
+        let retry = resp
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .expect("Retry-After header should survive invalid status fallback");
+        assert_eq!(retry, "42");
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"bad but retryable");
+    }
+
+    #[test]
+    fn endpoint_error_debug_format() {
+        let err = EndpointError::internal("test");
+        let dbg = format!("{err:?}");
+        assert!(dbg.contains("EndpointError"));
+        assert!(dbg.contains("500"));
+        assert!(dbg.contains("test"));
     }
 }
