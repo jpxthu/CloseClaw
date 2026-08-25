@@ -134,8 +134,8 @@ async fn test_init_phase_2_returns_provider_with_config() {
     }"#;
     let cm = make_config_manager(tmp.path(), Some(session_json));
 
-    let (_, _, _, _, _, provider, _, _) =
-        crate::Daemon::init_phase_2_registries(tmp.path().to_str().unwrap(), &cm)
+    let (_, _, _, _, _, provider, _, _, _) =
+        crate::Daemon::init_phase_2_registries(tmp.path().to_str().unwrap(), &cm, &None)
             .await
             .unwrap();
 
@@ -174,8 +174,8 @@ async fn test_init_phase_2_provider_all_methods_work() {
     }"#;
     let cm = make_config_manager(tmp.path(), Some(session_json));
 
-    let (_, _, _, _, _, provider, _, _) =
-        crate::Daemon::init_phase_2_registries(tmp.path().to_str().unwrap(), &cm)
+    let (_, _, _, _, _, provider, _, _, _) =
+        crate::Daemon::init_phase_2_registries(tmp.path().to_str().unwrap(), &cm, &None)
             .await
             .unwrap();
 
@@ -201,8 +201,8 @@ async fn test_init_phase_2_fallback_defaults_without_session_config() {
     // No session_config.json → provider falls back to /dev/null defaults.
     let cm = make_config_manager(tmp.path(), None);
 
-    let (_, _, _, _, _, provider, _, _) =
-        crate::Daemon::init_phase_2_registries(tmp.path().to_str().unwrap(), &cm)
+    let (_, _, _, _, _, provider, _, _, _) =
+        crate::Daemon::init_phase_2_registries(tmp.path().to_str().unwrap(), &cm, &None)
             .await
             .unwrap();
 
