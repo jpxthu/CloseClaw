@@ -114,6 +114,26 @@ fn test_defaults_json_with_message_deny() {
     assert_eq!(defaults.message, super::Effect::Deny);
 }
 
+/// Backward compatibility: old JSON using `"command"` field (now `"exec"`)
+/// should deserialize correctly via the custom Deserialize impl.
+#[test]
+fn test_defaults_backward_compat_command_field() {
+    let json = r#"{"command":"deny","file_read":"allow","file_write":"allow","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny","message":"deny"}"#;
+    let defaults: super::Defaults = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        defaults.exec,
+        super::Effect::Deny,
+        "old 'command' field should map to exec"
+    );
+    assert_eq!(defaults.file_read, super::Effect::Allow);
+    assert_eq!(defaults.file_write, super::Effect::Allow);
+    assert_eq!(defaults.network, super::Effect::Deny);
+    assert_eq!(defaults.inter_agent, super::Effect::Deny);
+    assert_eq!(defaults.config, super::Effect::Deny);
+    assert_eq!(defaults.tool_call, super::Effect::Deny);
+    assert_eq!(defaults.message, super::Effect::Deny);
+}
+
 #[test]
 fn test_dimension_name_message_send() {
     use super::MessageDirection;

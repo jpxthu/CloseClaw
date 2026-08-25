@@ -72,7 +72,7 @@ fn make_permissive_ruleset() -> RuleSet {
                 .unwrap(),
         )
         .default_file_read(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_config(Effect::Allow)

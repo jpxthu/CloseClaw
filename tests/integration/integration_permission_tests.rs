@@ -115,7 +115,7 @@ fn make_test_ruleset() -> RuleSet {
                 .unwrap(),
         )
         .default_file_read(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -229,7 +229,7 @@ async fn test_permission_user_and_agent_dual_key_matching() {
                 .unwrap(),
         )
         .default_file_read(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -424,7 +424,7 @@ async fn test_permission_engine_template_resolution() {
                 .unwrap(),
         )
         .default_file_read(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)

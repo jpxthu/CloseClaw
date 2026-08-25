@@ -52,7 +52,7 @@ fn allow_all_engine() -> PermissionEngine {
     let permissive = Defaults {
         file_read: Effect::Allow,
         file_write: Effect::Allow,
-        command: Effect::Allow,
+        exec: Effect::Allow,
         network: Effect::Allow,
         inter_agent: Effect::Allow,
         config: Effect::Allow,
