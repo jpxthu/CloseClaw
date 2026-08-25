@@ -190,7 +190,8 @@ fn test_defaults_tool_call_is_deny() {
 
 #[test]
 fn test_defaults_json_missing_tool_call() {
-    let json = r#"{"file":"allow","command":"deny","network":"deny","inter_agent":"deny","config":"deny"}"#;
+    let json =
+        r#"{"file":"allow","exec":"deny","network":"deny","inter_agent":"deny","config":"deny"}"#;
     let defaults: Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(defaults.tool_call, Effect::Deny);
 }
@@ -198,7 +199,7 @@ fn test_defaults_json_missing_tool_call() {
 #[test]
 fn test_defaults_json_missing_message_defaults_to_allow() {
     // Old config without `message` field should default to Allow
-    let json = r#"{"file":"deny","command":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny"}"#;
+    let json = r#"{"file":"deny","exec":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny"}"#;
     let defaults: Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(defaults.message, Effect::Allow);
 }
@@ -223,7 +224,7 @@ fn test_file_read_and_file_write_independent_defaults() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -255,7 +256,7 @@ fn test_file_read_deny_file_write_allow_independent() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -287,7 +288,7 @@ fn test_file_read_write_default_response_dispatches_correctly() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -337,7 +338,7 @@ fn test_file_read_write_default_response_dispatches_correctly() {
 #[test]
 fn test_old_config_file_field_sets_both_read_and_write() {
     // Old config with single 'file' field should set both file_read and file_write.
-    let json = r#"{"file": "allow", "command": "deny", "network": "deny"}"#;
+    let json = r#"{"file": "allow", "exec": "deny", "network": "deny"}"#;
     let defaults: Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(
         defaults.file_read,

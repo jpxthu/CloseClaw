@@ -194,7 +194,7 @@ pub fn build_audit_log(
             ("file".to_string(), format!("{} {}", op, path))
         }
         PermissionRequestBody::CommandExec { cmd, args, .. } => {
-            ("command".to_string(), format!("{} {}", cmd, args.join(" ")))
+            ("exec".to_string(), format!("{} {}", cmd, args.join(" ")))
         }
         PermissionRequestBody::NetOp { host, port, .. } => {
             ("network".to_string(), format!("{}:{}", host, port))
@@ -313,7 +313,7 @@ mod tests {
             RiskLevel::High,
             Some(SessionMode::Auto),
         );
-        assert_eq!(log.tool_name, "command");
+        assert_eq!(log.tool_name, "exec");
         assert_eq!(log.operation, "rm -rf /tmp");
         assert_eq!(log.disposition, AuditDisposition::Rejected);
         assert_eq!(log.session_mode, Some(SessionMode::Auto));

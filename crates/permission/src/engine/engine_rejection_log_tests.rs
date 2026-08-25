@@ -53,7 +53,7 @@ fn deny_all_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
         .default_file_write(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -125,7 +125,7 @@ fn test_rejection_logged_on_command_deny_auto_mode() {
 
     let log = &entries[0];
     assert_eq!(log.agent_id, "agent-2");
-    assert_eq!(log.tool_name, "command");
+    assert_eq!(log.tool_name, "exec");
     assert_eq!(log.operation, "rm -rf /tmp/foo");
     assert!(!log.reason.is_empty());
 }
@@ -208,7 +208,7 @@ fn test_multiple_denials_log_each_auto_mode() {
     let entries = logger.entries();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries[0].tool_name, "file");
-    assert_eq!(entries[1].tool_name, "command");
+    assert_eq!(entries[1].tool_name, "exec");
     assert_eq!(entries[2].tool_name, "config_write");
 }
 
@@ -347,7 +347,7 @@ fn test_allowed_request_does_not_log() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_network(Effect::Allow)
         .default_inter_agent(Effect::Allow)
         .default_config(Effect::Allow)

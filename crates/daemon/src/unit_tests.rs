@@ -142,7 +142,7 @@ fn test_build_permission_engine_empty_dir() {
     let expected = closeclaw_permission::Defaults::user_defaults();
     assert_eq!(ud.file_read, expected.file_read);
     assert_eq!(ud.file_write, expected.file_write);
-    assert_eq!(ud.command, expected.command);
+    assert_eq!(ud.exec, expected.exec);
     assert_eq!(ud.network, expected.network);
     assert_eq!(ud.inter_agent, expected.inter_agent);
     assert_eq!(ud.config, expected.config);

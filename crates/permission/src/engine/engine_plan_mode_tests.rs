@@ -39,7 +39,7 @@ fn make_permissive_engine(query: Arc<dyn SessionModeQuery>) -> PermissionEngine 
     let permissive = super::engine_types::Defaults {
         file_read: Effect::Allow,
         file_write: Effect::Allow,
-        command: Effect::Allow,
+        exec: Effect::Allow,
         network: Effect::Allow,
         inter_agent: Effect::Allow,
         config: Effect::Allow,
@@ -554,7 +554,7 @@ fn test_no_query_file_write_allowed() {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Allow)
         .default_file_write(Effect::Allow)
-        .default_command(Effect::Allow)
+        .default_exec(Effect::Allow)
         .default_config(Effect::Allow)
         .build()
         .unwrap();

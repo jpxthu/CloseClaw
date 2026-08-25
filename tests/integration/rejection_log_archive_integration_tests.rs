@@ -77,7 +77,7 @@ impl RejectionLogger for InMemoryLogger {
 fn deny_all_engine() -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -90,7 +90,7 @@ fn deny_all_engine() -> PermissionEngine {
 fn deny_all_engine_with_logger(logger: Arc<dyn RejectionLogger>) -> PermissionEngine {
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)
@@ -161,7 +161,7 @@ fn test_rejection_log_e2e_command_entry() {
 
     let entry = &logger.entries()[0];
     assert_eq!(entry.agent_id, "agent-2");
-    assert_eq!(entry.tool_name, "command");
+    assert_eq!(entry.tool_name, "exec");
     assert_eq!(entry.operation, "rm -rf /tmp/foo");
 }
 
@@ -260,7 +260,7 @@ fn test_rejection_log_e2e_multiple_denials() {
     assert_eq!(entries[0].agent_id, "a");
     assert_eq!(entries[0].tool_name, "file");
     assert_eq!(entries[1].agent_id, "b");
-    assert_eq!(entries[1].tool_name, "command");
+    assert_eq!(entries[1].tool_name, "exec");
     assert_eq!(entries[2].agent_id, "c");
     assert_eq!(entries[2].tool_name, "config_write");
 }
@@ -329,7 +329,7 @@ fn test_rejection_log_e2e_plan_mode_denial_logged() {
         Arc::new(MockModeQuery::new().with_mode("plan-agent", SessionMode::Plan));
     let ruleset = RuleSetBuilder::new()
         .default_file_read(Effect::Deny)
-        .default_command(Effect::Deny)
+        .default_exec(Effect::Deny)
         .default_network(Effect::Deny)
         .default_inter_agent(Effect::Deny)
         .default_config(Effect::Deny)

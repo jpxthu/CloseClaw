@@ -13,20 +13,6 @@ fn write_config(dir: &Path, id: &str, name: &str) {
     std::fs::write(agent_dir.join("config.json"), json).unwrap();
 }
 
-/// Write a minimal `permissions.json` for the given agent ID.
-fn write_permissions(dir: &Path, id: &str, marker: &str) {
-    let agent_dir = dir.join(id);
-    std::fs::create_dir_all(&agent_dir).unwrap();
-    // Embed `marker` inside the agent_id so we can assert which file won.
-    let json = format!(
-        r#"{{ "agent_id": "{}",
-"permissions": {{ "command": {{ "allowed": true,
-"limits": {{}} }} }} }}"#,
-        marker
-    );
-    std::fs::write(agent_dir.join("permissions.json"), json).unwrap();
-}
-
 #[test]
 fn test_empty_registry_produces_no_entries() {
     let user = TempDir::new().unwrap();
@@ -38,7 +24,6 @@ fn test_empty_registry_produces_no_entries() {
 
     assert!(provider.agent_ids().is_empty());
     assert!(provider.entries().is_empty());
-    assert!(provider.permissions().is_empty());
 }
 
 #[test]
@@ -120,53 +105,6 @@ fn test_ignores_dirs_outside_registry() {
 
     assert_eq!(provider.agent_ids(), vec![&"registered".to_string()]);
     assert!(provider.get("unregistered").is_none());
-}
-
-#[test]
-fn test_permissions_project_wins_over_user() {
-    let user = TempDir::new().unwrap();
-    let project = TempDir::new().unwrap();
-    write_config(user.path(), "delta", "Delta");
-    write_config(project.path(), "delta", "Delta");
-    write_permissions(user.path(), "delta", "user-marker");
-    write_permissions(project.path(), "delta", "project-marker");
-
-    let provider = AgentDirectoryProvider::new(
-        vec!["delta".to_string()],
-        user.path().to_path_buf(),
-        Some(project.path().to_path_buf()),
-        None,
-    )
-    .unwrap();
-
-    let perms = provider
-        .permissions()
-        .get("delta")
-        .expect("delta permissions should be loaded");
-    // Project permissions win → agent_id carries the project marker.
-    assert_eq!(perms.agent_id, "project-marker");
-}
-
-#[test]
-fn test_permissions_user_fallback_when_no_project_file() {
-    let user = TempDir::new().unwrap();
-    write_config(user.path(), "epsilon", "Epsilon");
-    write_permissions(user.path(), "epsilon", "user-marker");
-
-    let provider = AgentDirectoryProvider::new(
-        vec!["epsilon".to_string()],
-        user.path().to_path_buf(),
-        Some(PathBuf::from("/nonexistent/project/agents")),
-        None,
-    )
-    .unwrap();
-
-    let perms = provider
-        .permissions()
-        .get("epsilon")
-        .expect("epsilon permissions should be loaded from user");
-    assert_eq!(perms.agent_id, "user-marker");
-    assert!(perms.is_allowed("command"));
 }
 
 #[test]
@@ -277,23 +215,6 @@ fn test_merge_falls_back_to_user_field_when_project_empty() {
     // Project-level default skills=["*"] overrides user-level skills.
     assert_eq!(entry.skills, vec!["*".to_string()]);
     assert_eq!(entry.source, ConfigSource::Merged);
-}
-
-#[test]
-fn test_no_permissions_file_is_fine() {
-    let user = TempDir::new().unwrap();
-    write_config(user.path(), "kappa", "Kappa");
-
-    let provider = AgentDirectoryProvider::new(
-        vec!["kappa".to_string()],
-        user.path().to_path_buf(),
-        None,
-        None,
-    )
-    .unwrap();
-
-    assert!(provider.get("kappa").is_some());
-    assert!(provider.permissions().get("kappa").is_none());
 }
 
 #[test]

@@ -22,7 +22,7 @@ fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<Permissio
             tool_call: Effect::Deny,
             file_read: Effect::Deny,
             file_write: Effect::Deny,
-            command: Effect::Deny,
+            exec: Effect::Deny,
             ..Default::default()
         })
         .build()
@@ -108,7 +108,7 @@ fn make_deps_with_message_deny(rules: Vec<Rule>) -> PermDeps {
             tool_call: Effect::Deny,
             file_read: Effect::Deny,
             file_write: Effect::Deny,
-            command: Effect::Deny,
+            exec: Effect::Deny,
             message: Effect::Deny,
             ..Default::default()
         })

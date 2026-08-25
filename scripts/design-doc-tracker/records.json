@@ -249,9 +249,9 @@
   },
   {
     "path": "docs/design/llm/README.md",
-    "commit": "313f228e3ae7b67b8c505147ddded4b50f055b61",
-    "commit_time": "2026-08-25T11:41:19+08:00",
-    "confirmed_time": "2026-08-25T11:48:15.611013+08:00",
+    "commit": "75ede2751f35fed3f177b1fe2b820d0ec85dae94",
+    "commit_time": "2026-08-25T09:55:36+08:00",
+    "confirmed_time": "2026-08-25T09:59:13.691031+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -737,9 +737,9 @@
   },
   {
     "path": "docs/design/tools/background-tasks.md",
-    "commit": "313f228e3ae7b67b8c505147ddded4b50f055b61",
-    "commit_time": "2026-08-25T11:41:19+08:00",
-    "confirmed_time": "2026-08-25T11:48:15.745837+08:00",
+    "commit": "75ede2751f35fed3f177b1fe2b820d0ec85dae94",
+    "commit_time": "2026-08-25T09:55:36+08:00",
+    "confirmed_time": "2026-08-25T09:59:13.826017+08:00",
     "comment": "",
     "blocked_reason": ""
   },

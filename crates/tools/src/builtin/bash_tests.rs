@@ -629,7 +629,7 @@ fn make_perm_engine(rules: Vec<R>) -> Arc<tokio::sync::RwLock<PermissionEngine>>
         .rules(rules)
         .defaults(Defaults {
             tool_call: Effect::Deny,
-            command: Effect::Deny,
+            exec: Effect::Deny,
             ..Default::default()
         })
         .build()

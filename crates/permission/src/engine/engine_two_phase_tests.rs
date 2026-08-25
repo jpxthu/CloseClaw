@@ -15,7 +15,7 @@ fn make_ruleset(default_file: Effect, rules: Vec<Rule>) -> PermissionEngine {
         defaults: super::engine_types::Defaults {
             file_read: default_file,
             file_write: default_file,
-            command: default_file,
+            exec: default_file,
             network: default_file,
             inter_agent: default_file,
             config: default_file,
@@ -559,7 +559,7 @@ fn test_user_defaults_returns_all_deny() {
     let ud = super::engine_types::Defaults::user_defaults();
     assert_eq!(ud.file_read, Effect::Deny);
     assert_eq!(ud.file_write, Effect::Deny);
-    assert_eq!(ud.command, Effect::Deny);
+    assert_eq!(ud.exec, Effect::Deny);
     assert_eq!(ud.network, Effect::Deny);
     assert_eq!(ud.inter_agent, Effect::Deny);
     assert_eq!(ud.config, Effect::Deny);
@@ -608,7 +608,7 @@ fn test_ruleset_deserialize_without_user_defaults() {
     let ruleset: super::engine_types::RuleSet = serde_json::from_str(json).unwrap();
     assert_eq!(ruleset.user_defaults.file_read, Effect::Deny);
     assert_eq!(ruleset.user_defaults.file_write, Effect::Deny);
-    assert_eq!(ruleset.user_defaults.command, Effect::Deny);
+    assert_eq!(ruleset.user_defaults.exec, Effect::Deny);
     assert_eq!(ruleset.user_defaults.network, Effect::Deny);
     assert_eq!(ruleset.user_defaults.inter_agent, Effect::Deny);
     assert_eq!(ruleset.user_defaults.config, Effect::Deny);

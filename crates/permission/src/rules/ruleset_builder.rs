@@ -72,9 +72,9 @@ impl RuleSetBuilder {
         self
     }
 
-    /// Set a specific default effect for command operations.
-    pub fn default_command(mut self, effect: Effect) -> Self {
-        self.defaults.command = effect;
+    /// Set a specific default effect for exec operations.
+    pub fn default_exec(mut self, effect: Effect) -> Self {
+        self.defaults.exec = effect;
         self
     }
 

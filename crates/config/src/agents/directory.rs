@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use tracing::warn;
 
-use crate::agents::config_types::{AgentConfig, AgentPermissions, MemoryConfig};
+use crate::agents::config_types::{AgentConfig, MemoryConfig};
 use crate::agents::resolved::{ConfigSource, ResolvedAgentConfig};
 use crate::ConfigError;
 
@@ -25,7 +25,6 @@ pub struct AgentDirectoryProvider {
     /// when merging per-agent memory configs.
     global_memory: Option<MemoryConfig>,
     entries: HashMap<String, ResolvedAgentConfig>,
-    permissions: HashMap<String, AgentPermissions>,
 }
 
 impl AgentDirectoryProvider {
@@ -47,7 +46,6 @@ impl AgentDirectoryProvider {
             project_agents_dir,
             global_memory,
             entries: HashMap::new(),
-            permissions: HashMap::new(),
         };
         provider.reload()?;
         Ok(provider)
@@ -56,17 +54,12 @@ impl AgentDirectoryProvider {
     /// Reload all agent configs from disk.
     pub fn reload(&mut self) -> Result<(), ConfigError> {
         self.entries.clear();
-        self.permissions.clear();
 
         for id in &self.registry {
-            let entry = self.load_agent_entry(id)?;
-            let Some((resolved, perms)) = entry else {
-                continue;
-            };
-            if let Some(p) = perms {
-                self.permissions.insert(id.clone(), p);
+            let resolved = self.load_agent_entry(id)?;
+            if let Some(resolved) = resolved {
+                self.entries.insert(id.clone(), resolved);
             }
-            self.entries.insert(id.clone(), resolved);
         }
 
         Ok(())
@@ -74,10 +67,7 @@ impl AgentDirectoryProvider {
 
     /// Load and merge configs for a single agent, returning `None` to
     /// signal "skip this agent" (no config.json found at either level).
-    fn load_agent_entry(
-        &self,
-        id: &str,
-    ) -> Result<Option<(ResolvedAgentConfig, Option<AgentPermissions>)>, ConfigError> {
+    fn load_agent_entry(&self, id: &str) -> Result<Option<ResolvedAgentConfig>, ConfigError> {
         let user_config_path = self.user_agents_dir.join(id).join("config.json");
         let project_config_path = self
             .project_agents_dir
@@ -108,8 +98,7 @@ impl AgentDirectoryProvider {
             }
         };
 
-        let perms = self.load_permissions_for_agent(id);
-        Ok(Some((resolved, perms)))
+        Ok(Some(resolved))
     }
 
     /// Load agent config.json from both user and project levels,
@@ -143,19 +132,6 @@ impl AgentDirectoryProvider {
         }
     }
 
-    /// Load permissions for a single agent (project > user priority).
-    fn load_permissions_for_agent(&self, id: &str) -> Option<AgentPermissions> {
-        let user_perm_path = self.user_agents_dir.join(id).join("permissions.json");
-        let project_perm_path = self
-            .project_agents_dir
-            .as_ref()
-            .map(|d| d.join(id).join("permissions.json"));
-        project_perm_path
-            .as_ref()
-            .and_then(|p| Self::load_permissions(p))
-            .or_else(|| Self::load_permissions(&user_perm_path))
-    }
-
     fn load_agent_config(path: &std::path::Path) -> Result<Option<AgentConfig>, String> {
         if !path.exists() {
             return Ok(None);
@@ -185,14 +161,6 @@ impl AgentDirectoryProvider {
         }
     }
 
-    fn load_permissions(path: &std::path::Path) -> Option<AgentPermissions> {
-        if !path.exists() {
-            return None;
-        }
-        let content = std::fs::read_to_string(path).ok()?;
-        serde_json::from_str(&content).ok()
-    }
-
     /// Get a resolved agent config by ID.
     pub fn get(&self, id: &str) -> Option<&ResolvedAgentConfig> {
         self.entries.get(id)
@@ -201,11 +169,6 @@ impl AgentDirectoryProvider {
     /// Get all resolved entries.
     pub fn entries(&self) -> &HashMap<String, ResolvedAgentConfig> {
         &self.entries
-    }
-
-    /// Get all loaded permissions.
-    pub fn permissions(&self) -> &HashMap<String, AgentPermissions> {
-        &self.permissions
     }
 
     /// List all registered agent IDs that have configs.

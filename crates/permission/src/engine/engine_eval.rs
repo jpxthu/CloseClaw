@@ -812,11 +812,11 @@ impl PermissionEngine {
                 "write" => defaults.file_write,
                 _ => defaults.file_read,
             },
-            PermissionRequestBody::CommandExec { .. } => defaults.command,
+            PermissionRequestBody::CommandExec { .. } => defaults.exec,
             PermissionRequestBody::NetOp { .. } => defaults.network,
             PermissionRequestBody::InterAgentMsg { .. } => defaults.inter_agent,
             PermissionRequestBody::ConfigWrite { .. } => defaults.config,
-            PermissionRequestBody::SlashCommand { .. } => defaults.command,
+            PermissionRequestBody::SlashCommand { .. } => defaults.exec,
             PermissionRequestBody::ToolCall { .. } => defaults.tool_call,
             PermissionRequestBody::MessageSend { .. } => defaults.message,
         };
