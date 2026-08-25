@@ -85,7 +85,6 @@ impl ToolRegistrar for SessionToolsRegistrar {
                 self.spawn_validator.clone(),
                 self.session_manager.clone(),
                 self.agent_config_lookup.clone(),
-                self.approval_flow.clone(),
             ),
             r
         );

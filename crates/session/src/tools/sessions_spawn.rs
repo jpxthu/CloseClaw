@@ -3,7 +3,6 @@
 use super::prompt_template::PromptTemplate;
 use super::SessionManagerOps;
 use crate::spawn_validation::SpawnValidator;
-use closeclaw_common::permission_types::{CallerInfo, RiskLevel};
 use closeclaw_common::tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
 };
@@ -18,7 +17,6 @@ pub struct SessionsSpawnTool {
     spawn_validator: Arc<dyn SpawnValidator>,
     session_manager: Arc<dyn SessionManagerOps>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
-    approval_flow: closeclaw_common::permission_types::SharedApprovalSubmission,
 }
 
 /// Parsed arguments for a `sessions_spawn` tool call.
@@ -45,13 +43,11 @@ impl SessionsSpawnTool {
         spawn_validator: Arc<dyn SpawnValidator>,
         session_manager: Arc<dyn SessionManagerOps>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
-        approval_flow: closeclaw_common::permission_types::SharedApprovalSubmission,
     ) -> Self {
         Self {
             spawn_validator,
             session_manager,
             agent_config_lookup,
-            approval_flow,
         }
     }
 
@@ -336,37 +332,7 @@ impl Tool for SessionsSpawnTool {
             .await
         {
             Ok(()) => {}
-            Err(crate::spawn_validation::SpawnError::PermissionDenied { agent_id, reason }) => {
-                let session_id = ctx.session_id.as_deref().unwrap_or("");
-                let is_sub_agent = self
-                    .session_manager
-                    .get_session_depth(session_id)
-                    .await
-                    .is_some_and(|depth| depth > 0);
-                let caller = CallerInfo {
-                    user_id: String::new(),
-                    agent: ctx.agent_id.clone(),
-                    is_sub_agent,
-                };
-                let flow = self.approval_flow.lock().await;
-                if let Some(request_id) = flow.submit_inter_agent_denial(
-                    &caller,
-                    &ctx.agent_id,
-                    &agent_id,
-                    RiskLevel::Medium,
-                    session_id,
-                    is_sub_agent,
-                ) {
-                    return Ok(ToolResult {
-                        data: json!({
-                            "status": "approval_pending",
-                            "request_id": request_id,
-                            "message": "Operation pending owner approval",
-                        }),
-                        new_messages: vec![],
-                        context_modifier: None,
-                    });
-                }
+            Err(crate::spawn_validation::SpawnError::PermissionDenied { reason, .. }) => {
                 return Err(ToolCallError::PermissionDenied(reason));
             }
             Err(other) => {

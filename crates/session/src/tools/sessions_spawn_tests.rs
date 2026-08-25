@@ -124,55 +124,11 @@ impl closeclaw_agent::AgentConfigLookup for MockAgentConfigLookup {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mock ApprovalSubmission
-// ---------------------------------------------------------------------------
-
-fn mock_approval_flow() -> closeclaw_common::permission_types::SharedApprovalSubmission {
-    use closeclaw_common::permission_types::ApprovalSubmission;
-    struct AutoApproveApproval;
-    impl ApprovalSubmission for AutoApproveApproval {
-        fn submit_inter_agent_denial(
-            &self,
-            _caller: &closeclaw_common::permission_types::CallerInfo,
-            _from: &str,
-            _to: &str,
-            _risk_level: closeclaw_common::permission_types::RiskLevel,
-            _session_id: &str,
-            _is_sub_agent: bool,
-        ) -> Option<String> {
-            Some("mock-approval-id".to_string())
-        }
-    }
-    Arc::new(tokio::sync::Mutex::new(AutoApproveApproval))
-}
-
-/// Approval flow that always denies (returns None → PermissionDenied propagates).
-fn mock_deny_approval_flow() -> closeclaw_common::permission_types::SharedApprovalSubmission {
-    use closeclaw_common::permission_types::ApprovalSubmission;
-    struct DenyApproval;
-    impl ApprovalSubmission for DenyApproval {
-        fn submit_inter_agent_denial(
-            &self,
-            _caller: &closeclaw_common::permission_types::CallerInfo,
-            _from: &str,
-            _to: &str,
-            _risk_level: closeclaw_common::permission_types::RiskLevel,
-            _session_id: &str,
-            _is_sub_agent: bool,
-        ) -> Option<String> {
-            None
-        }
-    }
-    Arc::new(tokio::sync::Mutex::new(DenyApproval))
-}
-
 fn make_tool() -> SessionsSpawnTool {
     SessionsSpawnTool::new(
         Arc::new(MockSpawnValidator),
         Arc::new(MockSessionManager),
         Arc::new(MockAgentConfigLookup),
-        mock_approval_flow(),
     )
 }
 
@@ -635,12 +591,7 @@ async fn test_two_step_precondition_failure_skips_permission() {
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(
-        Arc::new(validator),
-        sm,
-        Arc::new(MockAgentConfigLookup),
-        mock_approval_flow(),
-    );
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
@@ -683,13 +634,7 @@ async fn test_two_step_permission_denied_returns_error() {
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    // Use a non-approving flow so PermissionDenied propagates.
-    let tool = SessionsSpawnTool::new(
-        Arc::new(validator),
-        sm,
-        Arc::new(MockAgentConfigLookup),
-        mock_deny_approval_flow(),
-    );
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
@@ -725,12 +670,7 @@ async fn test_two_step_both_pass_creates_child() {
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(
-        Arc::new(validator),
-        sm,
-        Arc::new(MockAgentConfigLookup),
-        mock_approval_flow(),
-    );
+    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
