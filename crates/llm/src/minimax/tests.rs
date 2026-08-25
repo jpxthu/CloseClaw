@@ -189,7 +189,7 @@ async fn test_provider_send_rate_limit_mock() {
 #[tokio::test]
 async fn test_provider_send_business_error_mock() {
     let mut server = mockito::Server::new_async().await;
-    let m = server
+    let _m = server
         .mock("POST", "/")
         .with_status(200)
         .with_header("Content-Type", "application/json")

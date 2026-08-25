@@ -3,7 +3,7 @@
 use super::*;
 use crate::protocol::ChatProtocol;
 use crate::provider::Provider;
-use crate::types::{InternalMessage, InternalRequest, RawContentBlock, RawUsage};
+use crate::types::{InternalMessage, InternalRequest, RawContentBlock};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------
@@ -294,7 +294,7 @@ async fn test_send_no_choices_returns_error() {
         }
     });
 
-    let m = server
+    let _m = server
         .mock("POST", "/chat/completions")
         .with_status(200)
         .with_header("content-type", "application/json")

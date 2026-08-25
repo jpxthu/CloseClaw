@@ -32,6 +32,7 @@ struct VolcEngineResponse {
     error: Option<VolcEngineErrorBody>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineChoice {
     message: VolcEngineMessage,
@@ -39,6 +40,7 @@ struct VolcEngineChoice {
     finish_reason: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineMessage {
     #[allow(dead_code)]
@@ -46,6 +48,7 @@ struct VolcEngineMessage {
     content: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 struct VolcEngineUsage {
     prompt_tokens: Option<u32>,
@@ -54,6 +57,7 @@ struct VolcEngineUsage {
 }
 
 /// VolcEngine error body (returned inside response JSON on business errors)
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct VolcEngineErrorBody {
     code: Option<String>,

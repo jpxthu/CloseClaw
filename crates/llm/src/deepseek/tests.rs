@@ -188,7 +188,7 @@ async fn test_send_success_no_choices_error() {
         "usage": null
     });
 
-    let m = server
+    let _m = server
         .mock("POST", "/chat/completions")
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -327,7 +327,7 @@ async fn test_send_business_error_in_body() {
         }
     });
 
-    let m = server
+    let _m = server
         .mock("POST", "/chat/completions")
         .with_status(200)
         .with_header("content-type", "application/json")

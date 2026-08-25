@@ -1,5 +1,4 @@
 use super::*;
-use crate::protocol::ChatProtocol;
 use crate::types::{InternalMessage, InternalResponse, RawContentBlock};
 use mockito::Server;
 
