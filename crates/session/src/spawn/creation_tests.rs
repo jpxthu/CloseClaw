@@ -30,9 +30,6 @@ struct MockCreationContext {
     config_dir: std::path::PathBuf,
     /// Optional agent config override for `get_agent_config`.
     agent_config: Option<ResolvedAgentConfig>,
-    /// Optional override for `parent_workspace`: None = use parent session,
-    /// Some(None) = return None (force Level 4 fallback).
-    parent_workspace_override: Option<Option<std::path::PathBuf>>,
     /// Optional override for `sender_id`: None = use default "test-user",
     /// Some(None) = return None.
     sender_id_override: Option<Option<String>>,
@@ -51,7 +48,6 @@ impl MockCreationContext {
             parent_session: Arc::new(RwLock::new(cs)),
             config_dir,
             agent_config: None,
-            parent_workspace_override: None,
             sender_id_override: None,
         }
     }
@@ -63,16 +59,9 @@ impl MockCreationContext {
         ctx
     }
 
-    /// Create with `parent_workspace` returning None (force Level 4 fallback).
-    fn with_no_parent_workspace() -> Self {
-        let mut ctx = Self::new();
-        ctx.parent_workspace_override = Some(None);
-        ctx
-    }
-
     /// Create with `sender_id` returning None (force "default" user_id).
     fn with_no_sender_id() -> Self {
-        let mut ctx = Self::with_no_parent_workspace();
+        let mut ctx = Self::new();
         ctx.sender_id_override = Some(None);
         ctx
     }
@@ -129,16 +118,6 @@ impl SpawnCreationContext for MockCreationContext {
         match &self.sender_id_override {
             Some(override_val) => override_val.clone(),
             None => Some("test-user".to_string()),
-        }
-    }
-
-    async fn parent_workspace(&self, _parent_session_id: &str) -> Option<std::path::PathBuf> {
-        match &self.parent_workspace_override {
-            Some(override_val) => override_val.clone(),
-            None => {
-                let guard = self.parent_session.read().await;
-                Some(guard.workdir().to_path_buf())
-            }
         }
     }
 
@@ -657,7 +636,7 @@ async fn test_no_prompt_template_unchanged_behavior() {
 /// the dedicated workspace directory is used.
 #[tokio::test]
 async fn test_level3_dedicated_workspace_fallback() {
-    let ctx = MockCreationContext::with_no_parent_workspace();
+    let ctx = MockCreationContext::new();
     let config = make_config("child-agent");
     let params = default_params();
 
@@ -679,7 +658,7 @@ async fn test_level3_dedicated_workspace_fallback() {
 /// Level 3 fallback path is compatible with `is_workspace_path()` authorization.
 #[tokio::test]
 async fn test_level3_dedicated_path_matches_workspace_authorization() {
-    let ctx = MockCreationContext::with_no_parent_workspace();
+    let ctx = MockCreationContext::new();
     let config = make_config("my-agent");
     let params = ChildSessionCreationParams {
         task: "workspace auth test",
@@ -755,7 +734,7 @@ async fn test_config_workspace_overrides_fallback() {
 /// Level 3 fallback uses user_id from `sender_id()`.
 #[tokio::test]
 async fn test_level3_dedicated_uses_sender_id() {
-    let ctx = MockCreationContext::with_no_parent_workspace();
+    let ctx = MockCreationContext::new();
     let config = make_config("test-agent");
     let params = default_params();
 
@@ -851,7 +830,7 @@ async fn test_fallback_chain_explicit_beats_config() {
 /// config.workspace wins over the Level 3 dedicated directory.
 #[tokio::test]
 async fn test_fallback_chain_config_beats_dedicated() {
-    let ctx = MockCreationContext::with_no_parent_workspace();
+    let ctx = MockCreationContext::new();
     let mut config = make_config("child-agent");
     config.workspace = Some(std::path::PathBuf::from("/config/ws"));
     let params = default_params();

@@ -135,12 +135,6 @@ impl SpawnCreationContext for SessionManager {
     async fn sender_id(&self, session_id: &str) -> Option<String> {
         self.get_sender_id(session_id).await
     }
-
-    async fn parent_workspace(&self, parent_session_id: &str) -> Option<std::path::PathBuf> {
-        let parent_cs = self.get_conversation_session(parent_session_id).await?;
-        let guard = parent_cs.read().await;
-        Some(guard.workdir().to_path_buf())
-    }
 }
 
 // ── GatewayPermissionChecker ────────────────────────────────────────────
