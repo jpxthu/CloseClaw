@@ -4,6 +4,7 @@
 //! using mockito to mock HTTP responses.
 
 use closeclaw_llm::minimax::MiniMaxProvider;
+use closeclaw_llm::protocol::{AnthropicProtocol, ChatProtocol};
 use closeclaw_llm::provider::{Provider, ProviderError};
 use closeclaw_llm::types::{InternalMessage, InternalRequest, RawContentBlock};
 use mockito::Server;
@@ -62,10 +63,12 @@ async fn test_provider_send_success_mock() {
         .await;
 
     let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
-    let resp = provider
+    let raw = provider
         .send(internal_request("Abab5.5-chat"), chat_body("Abab5.5-chat"))
         .await
         .unwrap();
+
+    let resp = AnthropicProtocol::default().parse_response(raw).unwrap();
 
     m.assert_async().await;
     assert!(!resp.content_blocks.is_empty());
@@ -95,10 +98,12 @@ async fn test_provider_send_reasoning_content_mock() {
         .await;
 
     let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
-    let resp = provider
+    let raw = provider
         .send(internal_request("Abab5.5-chat"), chat_body("Abab5.5-chat"))
         .await
         .unwrap();
+
+    let resp = AnthropicProtocol::default().parse_response(raw).unwrap();
 
     m.assert_async().await;
     assert!(resp.content_blocks.iter().any(|b| {
