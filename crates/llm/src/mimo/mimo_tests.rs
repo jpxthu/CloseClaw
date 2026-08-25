@@ -328,10 +328,10 @@ async fn test_send_error_401() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(msg.contains("401"), "expected 401 in error, got: {}", msg);
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(status_code, 401, "expected 401, got: {}", status_code);
         }
-        other => panic!("expected Legacy error for 401, got: {:?}", other),
+        other => panic!("expected Http error for 401, got: {:?}", other),
     }
 }
 
@@ -355,10 +355,10 @@ async fn test_send_error_429() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(msg.contains("429"), "expected 429 in error, got: {}", msg);
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(status_code, 429, "expected 429, got: {}", status_code);
         }
-        other => panic!("expected Legacy error for 429, got: {:?}", other),
+        other => panic!("expected Http error for 429, got: {:?}", other),
     }
 }
 
@@ -382,10 +382,10 @@ async fn test_send_error_500() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(msg.contains("500"), "expected 500 in error, got: {}", msg);
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(status_code, 500, "expected 500, got: {}", status_code);
         }
-        other => panic!("expected Legacy error for 500, got: {:?}", other),
+        other => panic!("expected Http error for 500, got: {:?}", other),
     }
 }
 
@@ -458,10 +458,10 @@ async fn test_send_streaming_error_401() {
 
     m.assert_async().await;
     match err {
-        crate::provider::ProviderError::Legacy(msg) => {
-            assert!(msg.contains("401"));
+        crate::provider::ProviderError::Http { status_code, .. } => {
+            assert_eq!(status_code, 401);
         }
-        other => panic!("expected Legacy error for 401, got: {:?}", other),
+        other => panic!("expected Http error for 401, got: {:?}", other),
     }
 }
 

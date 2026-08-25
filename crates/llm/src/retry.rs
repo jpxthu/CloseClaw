@@ -129,6 +129,14 @@ impl CooldownManager {
         drop(cooldowns);
         self.save().await;
     }
+
+    /// Retrieve the cooldown entry for a (provider, model) pair, if any.
+    #[cfg(test)]
+    pub async fn get_cooldown(&self, provider: &str, model: &str) -> Option<CooldownEntry> {
+        let key = Self::key(provider, model);
+        let cooldowns = self.cooldowns.read().await;
+        cooldowns.get(&key).cloned()
+    }
 }
 
 impl CooldownManager {
@@ -306,5 +314,84 @@ mod tests {
             LLMError::NetworkError("timeout".into()).kind(),
             ErrorKind::Transient
         );
+    }
+
+    // ── Cooldown reason tracking ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_cooldown_reason_transient() {
+        let manager = CooldownManager::new();
+        manager
+            .record_failure("minimax", "m1", ErrorKind::Transient)
+            .await;
+        let entry = manager.get_cooldown("minimax", "m1").await;
+        assert!(entry.is_some(), "cooldown entry should exist");
+        let entry = entry.unwrap();
+        assert_eq!(entry.reason, "transient");
+        assert_eq!(entry.attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn test_cooldown_reason_auth() {
+        let manager = CooldownManager::new();
+        manager
+            .record_failure("openai", "gpt-4", ErrorKind::Auth)
+            .await;
+        let entry = manager.get_cooldown("openai", "gpt-4").await;
+        assert!(entry.is_some());
+        let entry = entry.unwrap();
+        assert_eq!(entry.reason, "auth");
+        assert_eq!(entry.attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn test_cooldown_reason_billing() {
+        let manager = CooldownManager::new();
+        manager
+            .record_failure("minimax", "m1", ErrorKind::Billing)
+            .await;
+        let entry = manager.get_cooldown("minimax", "m1").await;
+        assert!(entry.is_some());
+        let entry = entry.unwrap();
+        assert_eq!(entry.reason, "billing");
+    }
+
+    #[tokio::test]
+    async fn test_cooldown_reason_unknown() {
+        let manager = CooldownManager::new();
+        manager
+            .record_failure("deepseek", "ds-chat", ErrorKind::Unknown)
+            .await;
+        let entry = manager.get_cooldown("deepseek", "ds-chat").await;
+        assert!(entry.is_some());
+        let entry = entry.unwrap();
+        assert_eq!(entry.reason, "unknown");
+    }
+
+    #[tokio::test]
+    async fn test_cooldown_no_cooldown_for_invalid_request_reason() {
+        let manager = CooldownManager::new();
+        manager
+            .record_failure("openai", "gpt-4", ErrorKind::InvalidRequest)
+            .await;
+        // InvalidRequest does not set cooldown (is_in_cooldown returns false)
+        assert!(!manager.is_in_cooldown("openai", "gpt-4").await);
+    }
+
+    #[tokio::test]
+    async fn test_cooldown_consecutive_failures_increment_attempts() {
+        let manager = CooldownManager::new();
+        manager
+            .record_failure("minimax", "m1", ErrorKind::Transient)
+            .await;
+        manager
+            .record_failure("minimax", "m1", ErrorKind::Transient)
+            .await;
+        manager
+            .record_failure("minimax", "m1", ErrorKind::Transient)
+            .await;
+        let entry = manager.get_cooldown("minimax", "m1").await.unwrap();
+        assert_eq!(entry.attempts, 3);
+        assert_eq!(entry.reason, "transient");
     }
 }

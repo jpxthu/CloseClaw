@@ -46,11 +46,6 @@ impl OpenAIProvider {
     fn chat_url(&self) -> String {
         format!("{}/chat/completions", self.base_url)
     }
-
-    /// Map HTTP status code to the appropriate provider error.
-    fn map_status_error(status: reqwest::StatusCode, body: String) -> ProviderError {
-        ProviderError::Legacy(format!("OpenAI API error {}: {}", status, body))
-    }
 }
 
 // ── Raw OpenAI API response types (for deserialization) ──────────────────────
@@ -133,7 +128,7 @@ impl Provider for OpenAIProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         let openai_resp: OpenAIResponse = response.json().await.map_err(ProviderError::Reqwest)?;
@@ -175,8 +170,9 @@ impl Provider for OpenAIProvider {
 
         if !response.status().is_success() {
             let status = response.status();
+            let retry_after = crate::provider::parse_retry_after(response.headers());
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, retry_after));
         }
 
         let (tx, rx) = mpsc::channel(64);
@@ -380,8 +376,8 @@ mod tests {
         mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => assert!(msg.contains("401")),
-            other => panic!("Expected Legacy error for 401, got: {:?}", other),
+            ProviderError::Http { status_code, .. } => assert_eq!(status_code, 401),
+            other => panic!("Expected Http error for 401, got: {:?}", other),
         }
     }
 
@@ -418,8 +414,8 @@ mod tests {
         mock.assert_async().await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ProviderError::Legacy(msg) => assert!(msg.contains("429")),
-            other => panic!("Expected Legacy error for 429, got: {:?}", other),
+            ProviderError::Http { status_code, .. } => assert_eq!(status_code, 429),
+            other => panic!("Expected Http error for 429, got: {:?}", other),
         }
     }
 

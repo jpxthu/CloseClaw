@@ -31,7 +31,7 @@ impl GlmProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_error(status, body));
+            return Err(crate::provider::map_http_error(status, body, None));
         }
 
         let quota: GlmQuotaResponse = response.json().await.map_err(ProviderError::Reqwest)?;

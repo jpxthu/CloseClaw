@@ -206,7 +206,7 @@ impl FallbackClient {
         let internal_resp = provider
             .send(internal_req, body)
             .await
-            .map_err(|e| LLMError::ApiError(e.to_string()))?;
+            .map_err(|e| LLMError::from(&e))?;
         Ok(Self::internal_to_chat_response(internal_resp))
     }
 
@@ -222,7 +222,7 @@ impl FallbackClient {
         let internal_resp = provider
             .send(internal_req, body)
             .await
-            .map_err(|e| LLMError::ApiError(e.to_string()))?;
+            .map_err(|e| LLMError::from(&e))?;
         Ok(crate::types::UnifiedResponse::from(internal_resp))
     }
 }
