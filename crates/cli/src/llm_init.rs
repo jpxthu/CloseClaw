@@ -18,7 +18,6 @@ use closeclaw_llm::protocol::{AnthropicProtocol, ChatProtocol, OpenAiProtocol};
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use closeclaw_llm::LLMRegistry;
-use tracing::info;
 
 /// Assemble protocol, interpreter, and plugin per provider.
 ///
@@ -75,6 +74,18 @@ fn assemble_llm_components(
     }
 }
 
+async fn try_register(
+    registry: &LLMRegistry,
+    creds: &crate::llm_init::CredentialsProvider,
+    id: &str,
+    make: impl FnOnce(String) -> Arc<dyn closeclaw_llm::provider::Provider>,
+) {
+    if let Some(key) = creds.get_api_key(id) {
+        registry.register(id.to_string(), make(key)).await;
+        tracing::info!("{} provider registered", id);
+    }
+}
+
 /// Initialize the LLM registry by loading credentials from config directory.
 pub async fn init_llm_registry(config_dir: &Path) -> Arc<LLMRegistry> {
     let registry = Arc::new(LLMRegistry::new());
@@ -93,37 +104,22 @@ pub async fn init_llm_registry(config_dir: &Path) -> Arc<LLMRegistry> {
         }
     };
 
-    // Register OpenAI provider
-    if let Some(api_key) = creds_provider.get_api_key("openai") {
-        let provider: Arc<dyn closeclaw_llm::provider::Provider> =
-            Arc::new(OpenAIProvider::new(api_key));
-        registry.register("openai".to_string(), provider).await;
-        info!("OpenAI provider registered");
-    }
-
-    // Register Anthropic provider
-    if let Some(api_key) = creds_provider.get_api_key("anthropic") {
-        let provider: Arc<dyn closeclaw_llm::provider::Provider> =
-            Arc::new(AnthropicProvider::new(api_key));
-        registry.register("anthropic".to_string(), provider).await;
-        info!("Anthropic provider registered");
-    }
-
-    // Register MiniMax provider
-    if let Some(api_key) = creds_provider.get_api_key("minimax") {
-        let provider: Arc<dyn closeclaw_llm::provider::Provider> =
-            Arc::new(MiniMaxProvider::new(api_key));
-        registry.register("minimax".to_string(), provider).await;
-        info!("MiniMax provider registered");
-    }
-
-    // Register MiMo provider
-    if let Some(api_key) = creds_provider.get_api_key("mimo") {
-        let provider: Arc<dyn closeclaw_llm::provider::Provider> =
-            Arc::new(MimoProvider::new(api_key));
-        registry.register("mimo".to_string(), provider).await;
-        info!("MiMo provider registered");
-    }
+    try_register(&registry, &creds_provider, "openai", |k| {
+        Arc::new(OpenAIProvider::new(k)) as Arc<dyn closeclaw_llm::provider::Provider>
+    })
+    .await;
+    try_register(&registry, &creds_provider, "anthropic", |k| {
+        Arc::new(AnthropicProvider::new(k)) as Arc<dyn closeclaw_llm::provider::Provider>
+    })
+    .await;
+    try_register(&registry, &creds_provider, "minimax", |k| {
+        Arc::new(MiniMaxProvider::new(k)) as Arc<dyn closeclaw_llm::provider::Provider>
+    })
+    .await;
+    try_register(&registry, &creds_provider, "mimo", |k| {
+        Arc::new(MimoProvider::new(k)) as Arc<dyn closeclaw_llm::provider::Provider>
+    })
+    .await;
 
     registry
 }
