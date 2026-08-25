@@ -251,9 +251,9 @@
     "path": "docs/design/llm/README.md",
     "commit": "2fedf847b6ba3da0cb89615cc3612817d4a02102",
     "commit_time": "2026-07-07T01:23:34+08:00",
-    "confirmed_time": "2026-08-25T06:02:13.801803+08:00",
+    "confirmed_time": "2026-08-25T09:53:22.191587+08:00",
     "comment": "",
-    "blocked_reason": "F2b 三轮对比主脑与分身无法达成一致：核心差异（文档定义响应解析属 Protocol 层、代码实际在 Provider.send 内完成，ChatProtocol::parse_response 为死代码）双方一致判 must_fix；但 providers/glm.md 数据流缺失响应路径一项，分身坚持 doc_problem（子文档设计目标不清晰），主脑判为代码偏离文档（README 已明确职责归属、子文档仅沉默）应正常开发对齐。达不成一致无法进入 Planning。"
+    "blocked_reason": "F2b 深度对比发现 doc_problem：(1) 文档声明 Protocol 层在请求序列化时标记消息历史缓存，但代码仅标记最后一条消息；(2) Provider send() 的 JSON 解析职责在文档与代码间描述不一致。另有 must_fix：流式 Plugin→Interpreter 顺序与文档相反、VolcEngine 供应商文档缺失、CacheAdapter 文档遗漏 MiniMax 缓存适配。需文档澄清后方可开发。"
   },
   {
     "path": "docs/design/llm/cache-adapter.md",
