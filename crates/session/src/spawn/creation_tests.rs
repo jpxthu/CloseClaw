@@ -150,6 +150,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         memory: Default::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: closeclaw_config::agents::ConfigSource::User,
     }
 }
@@ -639,29 +640,9 @@ async fn test_no_prompt_template_unchanged_behavior() {
 // ── Workspace fallback chain tests ──────────────────────────────────────
 
 /// Level 3 fallback: when no explicit workspace or config.workspace,
-/// the parent session workspace is used.
+/// the dedicated workspace directory is used.
 #[tokio::test]
-async fn test_level3_parent_workspace_fallback() {
-    let ctx = MockCreationContext::new();
-    let config = make_config("child-agent");
-    let params = default_params();
-
-    let result = create_child_conversation_session(&ctx, &config, &params)
-        .await
-        .expect("should succeed");
-
-    // MockCreationContext::parent_workspace returns the parent session's workdir
-    let parent_ws = ctx.parent_workspace("parent-session").await.unwrap();
-    assert_eq!(
-        result.workspace_path, parent_ws,
-        "Level 3 fallback must use parent session workspace"
-    );
-}
-
-/// Level 4 fallback: when parent_workspace returns None and parent session
-/// exists, the dedicated workspace directory is used.
-#[tokio::test]
-async fn test_level4_dedicated_workspace_fallback() {
+async fn test_level3_dedicated_workspace_fallback() {
     let ctx = MockCreationContext::with_no_parent_workspace();
     let config = make_config("child-agent");
     let params = default_params();
@@ -677,13 +658,13 @@ async fn test_level4_dedicated_workspace_fallback() {
         .join("test-user");
     assert_eq!(
         result.workspace_path, expected,
-        "Level 4 fallback must produce config_dir/workspaces/child-agent/test-user/"
+        "Level 3 fallback must produce config_dir/workspaces/child-agent/test-user/"
     );
 }
 
-/// Level 4 fallback path is compatible with `is_workspace_path()` authorization.
+/// Level 3 fallback path is compatible with `is_workspace_path()` authorization.
 #[tokio::test]
-async fn test_level4_dedicated_path_matches_workspace_authorization() {
+async fn test_level3_dedicated_path_matches_workspace_authorization() {
     let ctx = MockCreationContext::with_no_parent_workspace();
     let config = make_config("my-agent");
     let params = ChildSessionCreationParams {
@@ -757,9 +738,9 @@ async fn test_config_workspace_overrides_fallback() {
     );
 }
 
-/// Level 4 fallback uses user_id from `sender_id()`.
+/// Level 3 fallback uses user_id from `sender_id()`.
 #[tokio::test]
-async fn test_level4_dedicated_uses_sender_id() {
+async fn test_level3_dedicated_uses_sender_id() {
     let ctx = MockCreationContext::with_no_parent_workspace();
     let config = make_config("test-agent");
     let params = default_params();
@@ -776,7 +757,7 @@ async fn test_level4_dedicated_uses_sender_id() {
         .join("test-user");
     assert_eq!(
         result.workspace_path, expected,
-        "Level 4 fallback must include sender_id as the user_id component"
+        "Level 3 fallback must include sender_id as the user_id component"
     );
 }
 

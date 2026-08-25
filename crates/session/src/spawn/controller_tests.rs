@@ -89,6 +89,7 @@ fn make_agent_config(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfi
         memory: Default::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::User,
     }
 }

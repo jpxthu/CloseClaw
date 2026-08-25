@@ -513,6 +513,7 @@ impl crate::spawn_validation::SpawnValidator for TrackingSpawnValidator {
                 memory: closeclaw_config::agents::MemoryConfig::default(),
                 hooks: vec![],
                 parallel_tool_calls: true,
+                memory_configured: false,
                 source: closeclaw_config::agents::ConfigSource::User,
             },
             effective_max_spawn_depth: 1,
