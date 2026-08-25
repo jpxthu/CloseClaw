@@ -7,6 +7,8 @@
 //! Startup verifies daemon reachability via the admin socket — the daemon
 //! must already be running (started with `closeclaw run`).
 
+pub mod rpc;
+
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
