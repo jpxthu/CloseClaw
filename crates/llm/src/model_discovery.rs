@@ -68,6 +68,7 @@ impl ModelDiscovery {
                             // Knowledge base is the authoritative source for
                             // capability parameters — always override API values.
                             model.reasoning = params.reasoning;
+                            model.reasoning_levels = params.reasoning_levels;
                             model.context_window = params.context_window;
                             model.max_tokens = params.max_tokens;
                             model.default_temperature = Some(params.default_temperature);
@@ -129,6 +130,7 @@ impl ModelDiscovery {
                     max_tokens: params.max_tokens,
                     default_temperature: Some(params.default_temperature),
                     reasoning: params.reasoning,
+                    reasoning_levels: params.reasoning_levels,
                     input_types: params.input_types,
                 }
             })
@@ -151,7 +153,7 @@ mod tests {
     use super::*;
     use crate::model_cache::{CacheEntry, CacheKey};
     use crate::model_info::InputType;
-    use crate::LLMError;
+    use crate::{LLMError, ReasoningLevels};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -174,6 +176,7 @@ mod tests {
             max_tokens: 1024,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }]
     }
@@ -214,6 +217,7 @@ mod tests {
             max_tokens: 1024,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }]
     }
@@ -283,6 +287,7 @@ mod tests {
                 max_tokens: 0,
                 default_temperature: None,
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             }],
         };
@@ -316,6 +321,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_knowledge_fallback_reasoning_levels_filled() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ModelCache::with_path(dir.path().join("cache.json"));
+        let discovery = ModelDiscovery {
+            cache,
+            knowledge: ProviderModelKnowledge::new(),
+        };
+
+        let result = discovery.knowledge_fallback("deepseek");
+        let flash = result
+            .models()
+            .iter()
+            .find(|m| m.id == "deepseek-v4-flash")
+            .expect("deepseek-v4-flash should exist");
+        assert!(matches!(
+            flash.reasoning_levels,
+            ReasoningLevels::Levels {
+                off: true,
+                base: true,
+                reasoner: true
+            }
+        ));
+
+        let result_glm = discovery.knowledge_fallback("glm");
+        let glm51 = result_glm
+            .models()
+            .iter()
+            .find(|m| m.id == "glm-5.1")
+            .expect("glm-5.1 should exist");
+        assert!(matches!(
+            glm51.reasoning_levels,
+            ReasoningLevels::Toggle { on: true }
+        ));
+    }
+
     // ── Knowledge base filling tests (Step 1.3) ──────────────────────
 
     fn make_test_discovery(dir: &tempfile::TempDir) -> ModelDiscovery {
@@ -338,6 +379,7 @@ mod tests {
             max_tokens: 512,
             default_temperature: Some(0.3),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }];
 
@@ -367,6 +409,42 @@ mod tests {
             vec![InputType::Text],
             "knowledge base overrides API input_types"
         );
+        assert!(
+            matches!(m.reasoning_levels, ReasoningLevels::Toggle { on: true }),
+            "knowledge base overrides API reasoning_levels"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_discover_success_path_reasoning_levels_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let discovery = make_test_discovery(&dir);
+
+        // API returns a model with ReasoningLevels::None
+        let api_models = vec![ModelInfo {
+            id: "MiniMax-M2.7".into(),
+            name: "MiniMax M2.7".into(),
+            context_window: 4096,
+            max_tokens: 1024,
+            default_temperature: Some(0.5),
+            reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
+            input_types: vec![],
+        }];
+
+        let result = discovery
+            .discover("minimax", "key", |_| {
+                let value = api_models.clone();
+                async move { Ok(value) }
+            })
+            .await;
+
+        let m = &result.models()[0];
+        // Knowledge base is authoritative — overrides API reasoning_levels
+        assert!(
+            matches!(m.reasoning_levels, ReasoningLevels::Toggle { on: true }),
+            "knowledge base should override API reasoning_levels to Toggle{{on: true}}"
+        );
     }
 
     #[tokio::test]
@@ -383,6 +461,7 @@ mod tests {
                 max_tokens: 1024,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
             ModelInfo {
@@ -392,6 +471,7 @@ mod tests {
                 max_tokens: 4096,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
         ];
@@ -422,6 +502,7 @@ mod tests {
                 max_tokens: 1024,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
             ModelInfo {
@@ -431,6 +512,7 @@ mod tests {
                 max_tokens: 2048,
                 default_temperature: Some(0.7),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
         ];
@@ -462,6 +544,7 @@ mod tests {
                 max_tokens: 1024,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
             ModelInfo {
@@ -471,6 +554,7 @@ mod tests {
                 max_tokens: 4096,
                 default_temperature: Some(0.5),
                 reasoning: false,
+                reasoning_levels: ReasoningLevels::None,
                 input_types: vec![],
             },
         ];
@@ -520,6 +604,7 @@ mod tests {
             max_tokens: 2048,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![],
         }];
 

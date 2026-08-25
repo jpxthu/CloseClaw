@@ -307,23 +307,31 @@ impl ModelLister for MiniMaxProvider {
             .filter_map(|m| {
                 let model_id = m["id"].as_str()?.to_string();
                 let params = kb.find("minimax", &model_id);
-                let (context_window, max_tokens, default_temperature, reasoning, input_types) =
-                    match params {
-                        Some(p) => (
-                            p.context_window,
-                            p.max_tokens,
-                            Some(p.default_temperature),
-                            p.reasoning,
-                            p.input_types,
-                        ),
-                        None => (
-                            32_768,
-                            8_192,
-                            Some(0.7),
-                            false,
-                            vec![crate::InputType::Text],
-                        ),
-                    };
+                let (
+                    context_window,
+                    max_tokens,
+                    default_temperature,
+                    reasoning,
+                    reasoning_levels,
+                    input_types,
+                ) = match params {
+                    Some(p) => (
+                        p.context_window,
+                        p.max_tokens,
+                        Some(p.default_temperature),
+                        p.reasoning,
+                        p.reasoning_levels,
+                        p.input_types,
+                    ),
+                    None => (
+                        32_768,
+                        8_192,
+                        Some(0.7),
+                        false,
+                        crate::ReasoningLevels::None,
+                        vec![crate::InputType::Text],
+                    ),
+                };
                 Some(ModelInfo {
                     id: model_id.clone(),
                     name: format!("MiniMax {}", model_id.trim_start_matches("MiniMax-")),
@@ -331,6 +339,7 @@ impl ModelLister for MiniMaxProvider {
                     max_tokens,
                     default_temperature,
                     reasoning,
+                    reasoning_levels,
                     input_types,
                 })
             })

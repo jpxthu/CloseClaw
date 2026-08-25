@@ -21,6 +21,7 @@ fn test_models() -> Vec<ModelInfo> {
         max_tokens: 1024,
         default_temperature: Some(0.7),
         reasoning: false,
+        reasoning_levels: super::ReasoningLevels::None,
         input_types: vec![],
     }]
 }
@@ -82,6 +83,7 @@ async fn test_discover_success_path_knowledge_overrides_default_temperature() {
         max_tokens: 131_072,
         default_temperature: None,
         reasoning: false,
+        reasoning_levels: super::ReasoningLevels::None,
         input_types: vec![],
     }];
 
@@ -113,6 +115,7 @@ async fn test_discover_success_path_knowledge_overrides_input_types() {
         max_tokens: 131_072,
         default_temperature: Some(0.8),
         reasoning: false,
+        reasoning_levels: super::ReasoningLevels::None,
         input_types: vec![],
     }];
 

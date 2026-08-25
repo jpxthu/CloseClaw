@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use super::knowledge::ProviderModelKnowledge;
+use super::knowledge::{ProviderModelKnowledge, ReasoningLevels};
 
 /// Indicates where the model list came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +64,8 @@ pub struct ModelInfo {
     pub default_temperature: Option<f32>,
     /// Whether the model supports structured reasoning / tool use.
     pub reasoning: bool,
+    /// Supported reasoning level scheme.
+    pub reasoning_levels: ReasoningLevels,
     /// List of input modalities supported by this model.
     pub input_types: Vec<InputType>,
 }
@@ -80,16 +82,30 @@ impl ModelInfo {
         let kb = ProviderModelKnowledge::new();
         let params = kb.find(provider, model_id);
 
-        let (context_window, max_tokens, default_temperature, reasoning, input_types) = match params
-        {
+        let (
+            context_window,
+            max_tokens,
+            default_temperature,
+            reasoning,
+            reasoning_levels,
+            input_types,
+        ) = match params {
             Some(p) => (
                 p.context_window,
                 p.max_tokens,
                 Some(p.default_temperature),
                 p.reasoning,
+                p.reasoning_levels,
                 p.input_types.clone(),
             ),
-            None => (32_768, 4_096, None, false, vec![InputType::Text]),
+            None => (
+                32_768,
+                4_096,
+                None,
+                false,
+                ReasoningLevels::None,
+                vec![InputType::Text],
+            ),
         };
 
         Ok(Self {
@@ -99,6 +115,7 @@ impl ModelInfo {
             max_tokens,
             default_temperature,
             reasoning,
+            reasoning_levels,
             input_types,
         })
     }
@@ -173,6 +190,7 @@ mod tests {
             max_tokens: 8_192,
             default_temperature: Some(0.7),
             reasoning: false,
+            reasoning_levels: ReasoningLevels::None,
             input_types: vec![InputType::Text],
         };
         let json = serde_json::to_string(&model).unwrap();
@@ -200,6 +218,34 @@ mod tests {
         assert_eq!(model.max_tokens, 4_096);
         assert_eq!(model.default_temperature, None);
         assert_eq!(model.input_types, vec![InputType::Text]);
+    }
+
+    #[test]
+    fn test_from_str_deepseek_reasoning_levels() {
+        let model = ModelInfo::from_str("deepseek/deepseek-v4-flash").unwrap();
+        assert!(matches!(
+            model.reasoning_levels,
+            ReasoningLevels::Levels {
+                off: true,
+                base: true,
+                reasoner: true
+            }
+        ));
+    }
+
+    #[test]
+    fn test_from_str_glm_toggle_reasoning_levels() {
+        let model = ModelInfo::from_str("glm/glm-5.1").unwrap();
+        assert!(matches!(
+            model.reasoning_levels,
+            ReasoningLevels::Toggle { on: true }
+        ));
+    }
+
+    #[test]
+    fn test_from_str_unknown_model_reasoning_levels_none() {
+        let model = ModelInfo::from_str("unknown/model").unwrap();
+        assert_eq!(model.reasoning_levels, ReasoningLevels::None);
     }
 
     #[test]
