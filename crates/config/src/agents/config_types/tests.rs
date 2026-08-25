@@ -2,7 +2,7 @@ use super::*;
 
 fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
     let dimensions = [
-        "command",
+        "exec",
         "file_read",
         "file_write",
         "network",
@@ -130,10 +130,10 @@ fn test_hook_config_default_enabled() {
 
 #[test]
 fn intersect_both_allow_preserves() {
-    let child = make_perms("child", &["command", "file_read"]);
-    let parent = make_perms("parent", &["command", "file_read"]);
+    let child = make_perms("child", &["exec", "file_read"]);
+    let parent = make_perms("parent", &["exec", "file_read"]);
     let result = child.intersect(&parent);
-    assert!(result.permissions["command"].allowed);
+    assert!(result.permissions["exec"].allowed);
     assert!(result.permissions["file_read"].allowed);
 }
 
@@ -142,7 +142,7 @@ fn intersect_limits_commands_set_intersection() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -156,7 +156,7 @@ fn intersect_limits_commands_set_intersection() {
     let parent = AgentPermissions {
         agent_id: "parent".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -168,7 +168,7 @@ fn intersect_limits_commands_set_intersection() {
         inherited_from: None,
     };
     let result = child.intersect(&parent);
-    assert_eq!(result.permissions["command"].limits.commands, vec!["git"]);
+    assert_eq!(result.permissions["exec"].limits.commands, vec!["git"]);
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn intersect_limits_timeout_min() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -227,7 +227,7 @@ fn intersect_limits_timeout_min() {
     let parent = AgentPermissions {
         agent_id: "parent".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -239,10 +239,7 @@ fn intersect_limits_timeout_min() {
         inherited_from: None,
     };
     let result = child.intersect(&parent);
-    assert_eq!(
-        result.permissions["command"].limits.timeout_ms,
-        Some(30_000)
-    );
+    assert_eq!(result.permissions["exec"].limits.timeout_ms, Some(30_000));
 }
 
 // --- intersect: error path ---
@@ -250,18 +247,18 @@ fn intersect_limits_timeout_min() {
 #[test]
 fn intersect_child_deny_overrides() {
     let child = make_perms("child", &["file_read"]); // exec denied
-    let parent = make_perms("parent", &["command", "file_read"]);
+    let parent = make_perms("parent", &["exec", "file_read"]);
     let result = child.intersect(&parent);
-    assert!(!result.permissions["command"].allowed);
+    assert!(!result.permissions["exec"].allowed);
     assert!(result.permissions["file_read"].allowed);
 }
 
 #[test]
 fn intersect_parent_deny_overrides() {
-    let child = make_perms("child", &["command", "file_read"]);
-    let parent = make_perms("parent", &["command"]); // file_read denied
+    let child = make_perms("child", &["exec", "file_read"]);
+    let parent = make_perms("parent", &["exec"]); // file_read denied
     let result = child.intersect(&parent);
-    assert!(result.permissions["command"].allowed);
+    assert!(result.permissions["exec"].allowed);
     assert!(!result.permissions["file_read"].allowed);
 }
 
@@ -272,17 +269,17 @@ fn intersect_absent_dimension_is_deny() {
         permissions: HashMap::new(),
         inherited_from: None,
     };
-    let parent = make_perms("parent", &["command"]);
+    let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
-    assert!(!result.permissions["command"].allowed);
+    assert!(!result.permissions["exec"].allowed);
 }
 
 #[test]
 fn intersect_deny_gets_default_limits() {
     let child = make_perms("child", &[]); // all denied
-    let parent = make_perms("parent", &["command"]);
+    let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
-    let exec = &result.permissions["command"].limits;
+    let exec = &result.permissions["exec"].limits;
     assert!(exec.commands.is_empty());
     assert!(exec.paths.is_empty());
     assert_eq!(exec.timeout_ms, None);
@@ -295,7 +292,7 @@ fn intersect_limits_timeout_none_vs_none() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -309,7 +306,7 @@ fn intersect_limits_timeout_none_vs_none() {
     let parent = AgentPermissions {
         agent_id: "parent".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -321,7 +318,7 @@ fn intersect_limits_timeout_none_vs_none() {
         inherited_from: None,
     };
     let result = child.intersect(&parent);
-    assert_eq!(result.permissions["command"].limits.timeout_ms, None);
+    assert_eq!(result.permissions["exec"].limits.timeout_ms, None);
 }
 
 #[test]
@@ -329,7 +326,7 @@ fn intersect_limits_timeout_none_vs_some() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -343,7 +340,7 @@ fn intersect_limits_timeout_none_vs_some() {
     let parent = AgentPermissions {
         agent_id: "parent".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits {
@@ -355,7 +352,7 @@ fn intersect_limits_timeout_none_vs_some() {
         inherited_from: None,
     };
     let result = child.intersect(&parent);
-    assert_eq!(result.permissions["command"].limits.timeout_ms, Some(5_000));
+    assert_eq!(result.permissions["exec"].limits.timeout_ms, Some(5_000));
 }
 
 #[test]
@@ -398,7 +395,7 @@ fn is_fully_denied_all_explicit_deny() {
 
 #[test]
 fn is_fully_denied_one_allow() {
-    let perms = make_perms("a", &["command"]);
+    let perms = make_perms("a", &["exec"]);
     assert!(!perms.is_fully_denied());
 }
 
@@ -406,8 +403,8 @@ fn is_fully_denied_one_allow() {
 
 #[test]
 fn intersect_result_has_correct_ids() {
-    let child = make_perms("child", &["command"]);
-    let parent = make_perms("parent", &["command"]);
+    let child = make_perms("child", &["exec"]);
+    let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
     assert_eq!(result.agent_id, "child");
     assert_eq!(result.inherited_from, Some("parent".into()));
@@ -417,12 +414,12 @@ fn intersect_result_has_correct_ids() {
 
 #[test]
 fn intersect_all_eight_dimensions_checked() {
-    let child = make_perms("child", &["command"]);
-    let parent = make_perms("parent", &["command"]);
+    let child = make_perms("child", &["exec"]);
+    let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
     assert_eq!(result.permissions.len(), 8);
     for dim in [
-        "command",
+        "exec",
         "file_read",
         "file_write",
         "network",
@@ -442,28 +439,28 @@ fn intersect_all_eight_dimensions_checked() {
 
 #[test]
 fn intersect_parent_deny_child_allow_message_is_deny() {
-    let child = make_perms("child", &["command", "file_read", "message"]);
-    let parent = make_perms("parent", &["command", "file_read"]); // message absent = deny
+    let child = make_perms("child", &["exec", "file_read", "message"]);
+    let parent = make_perms("parent", &["exec", "file_read"]); // message absent = deny
     let result = child.intersect(&parent);
     assert!(!result.permissions["message"].allowed);
 }
 
 #[test]
 fn intersect_both_allow_message_is_allow() {
-    let child = make_perms("child", &["command", "message"]);
-    let parent = make_perms("parent", &["command", "message"]);
+    let child = make_perms("child", &["exec", "message"]);
+    let parent = make_perms("parent", &["exec", "message"]);
     let result = child.intersect(&parent);
     assert!(result.permissions["message"].allowed);
 }
 
 #[test]
 fn intersect_child_allow_parent_absent_message_is_deny() {
-    let child = make_perms("child", &["command", "message"]);
+    let child = make_perms("child", &["exec", "message"]);
     // parent has no message dimension → absent treated as deny
     let parent = AgentPermissions {
         agent_id: "parent".to_string(),
         permissions: HashMap::from([(
-            "command".to_string(),
+            "exec".to_string(),
             ActionPermission {
                 allowed: true,
                 limits: PermissionLimits::default(),

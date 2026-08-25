@@ -313,7 +313,7 @@ mod tests {
             RiskLevel::High,
             Some(SessionMode::Auto),
         );
-        assert_eq!(log.tool_name, "command");
+        assert_eq!(log.tool_name, "exec");
         assert_eq!(log.operation, "rm -rf /tmp");
         assert_eq!(log.disposition, AuditDisposition::Rejected);
         assert_eq!(log.session_mode, Some(SessionMode::Auto));

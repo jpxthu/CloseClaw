@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn test_build_request_body_command() {
         let body = build_request_body(
-            "command",
+            "exec",
             "ls",
             &serde_json::json!({"args": ["-la", "/tmp"]}),
             "agent-1",
@@ -528,7 +528,7 @@ mod tests {
 
     #[test]
     fn test_build_denial_body_command() {
-        let body = build_denial_body("command", "rm -rf /", "dangerous");
+        let body = build_denial_body("exec", "rm -rf /", "dangerous");
         match body {
             PermissionRequestBody::CommandExec { cmd, .. } => {
                 assert_eq!(cmd, "rm -rf /");

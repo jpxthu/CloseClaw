@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 /// The 8 permission dimensions defined in the design doc.
 const ALL_DIMENSIONS: &[&str] = &[
-    "command",
+    "exec",
     "file_read",
     "file_write",
     "network",
@@ -76,7 +76,7 @@ fn test_dimension_name_matches_evaluate_dimensions() {
 
     let cases: Vec<(&str, PermissionRequestBody)> = vec![
         (
-            "command",
+            "exec",
             PermissionRequestBody::CommandExec {
                 agent: agent.to_string(),
                 cmd: String::new(),
@@ -295,7 +295,7 @@ fn test_per_dimension_default_values() {
     let perms = engine.evaluate_user_permissions("user-1", "agent-1");
 
     let expected_defaults: HashMap<&str, bool> = [
-        ("command", false),
+        ("exec", false),
         ("file_read", false),
         ("file_write", false),
         ("network", false),

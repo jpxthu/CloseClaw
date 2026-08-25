@@ -164,7 +164,7 @@ mod tests {
             RiskLevel::High,
             Some(SessionMode::Plan),
         );
-        assert_eq!(log.tool_name, "command");
+        assert_eq!(log.tool_name, "exec");
         assert_eq!(log.operation, "rm -rf /tmp");
         assert_eq!(log.session_mode, Some(SessionMode::Plan));
     }

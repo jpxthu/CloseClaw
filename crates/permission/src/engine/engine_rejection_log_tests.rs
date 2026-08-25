@@ -125,7 +125,7 @@ fn test_rejection_logged_on_command_deny_auto_mode() {
 
     let log = &entries[0];
     assert_eq!(log.agent_id, "agent-2");
-    assert_eq!(log.tool_name, "command");
+    assert_eq!(log.tool_name, "exec");
     assert_eq!(log.operation, "rm -rf /tmp/foo");
     assert!(!log.reason.is_empty());
 }
@@ -208,7 +208,7 @@ fn test_multiple_denials_log_each_auto_mode() {
     let entries = logger.entries();
     assert_eq!(entries.len(), 3);
     assert_eq!(entries[0].tool_name, "file");
-    assert_eq!(entries[1].tool_name, "command");
+    assert_eq!(entries[1].tool_name, "exec");
     assert_eq!(entries[2].tool_name, "config_write");
 }
 

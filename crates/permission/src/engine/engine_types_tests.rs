@@ -42,7 +42,7 @@ fn test_dimension_name_command_exec() {
         cmd: "ls".to_string(),
         args: vec![],
     };
-    assert_eq!(body.dimension_name(), Some("command"));
+    assert_eq!(body.dimension_name(), Some("exec"));
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn test_dimension_name_all_variants_unique() {
         names
     );
     for expected in &[
-        "command",
+        "exec",
         "config_write",
         "file_read",
         "file_write",
