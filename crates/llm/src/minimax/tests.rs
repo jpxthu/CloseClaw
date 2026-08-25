@@ -89,24 +89,6 @@ fn create_internal_request(model: &str) -> InternalRequest {
     }
 }
 
-fn make_minimax_response(
-    content: Vec<serde_json::Value>,
-    usage: Option<serde_json::Value>,
-    stop_reason: Option<&str>,
-) -> MiniMaxResponse {
-    MiniMaxResponse {
-        content: if content.is_empty() {
-            None
-        } else {
-            Some(serde_json::from_value(serde_json::Value::Array(content)).unwrap())
-        },
-        usage: usage.and_then(|u| serde_json::from_value(u).ok()),
-        model: "MiniMax-M2.7".to_string(),
-        stop_reason: stop_reason.map(|s| s.to_string()),
-        base_resp: None,
-    }
-}
-
 #[tokio::test]
 async fn test_provider_send_success_mock() {
     let mut server = mockito::Server::new_async().await;
@@ -189,7 +171,7 @@ async fn test_provider_send_rate_limit_mock() {
 #[tokio::test]
 async fn test_provider_send_business_error_mock() {
     let mut server = mockito::Server::new_async().await;
-    let _m = server
+    let m = server
         .mock("POST", "/")
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -200,11 +182,14 @@ async fn test_provider_send_business_error_mock() {
     let provider = mock_provider(&server);
     let req = create_internal_request("Abab5.5-chat");
     let body = serde_json::json!({"model": "Abab5.5-chat"});
-    let resp = Provider::send(&provider, req, body)
-        .await
-        .expect("send should succeed");
-    // send() returns raw JSON; business errors in body are not detected by provider.
-    assert!(resp.is_object());
+    let err = Provider::send(&provider, req, body).await.unwrap_err();
+    m.assert_async().await;
+    match err {
+        ProviderError::Legacy(msg) => {
+            assert!(msg.contains("1004"), "should contain 1004");
+        }
+        other => panic!("Expected Legacy, got: {:?}", other),
+    }
 }
 
 #[tokio::test]
@@ -511,155 +496,6 @@ async fn test_fetch_model_list_unknown_model_uses_fallback() {
     assert!(!model.reasoning);
 }
 
-// ===========================================================================
-// parse_chat_response unit tests (Anthropic protocol format)
-// ===========================================================================
-
-#[test]
-fn test_parse_chat_response_text_only() {
-    let resp = make_minimax_response(
-        vec![serde_json::json!({"type": "text", "text": "Hello world"})],
-        Some(serde_json::json!({"input_tokens": 10, "output_tokens": 5})),
-        Some("end_turn"),
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "Hello world"));
-    assert_eq!(result.usage.prompt_tokens, 10);
-    assert_eq!(result.usage.completion_tokens, 5);
-    assert_eq!(result.finish_reason.as_deref(), Some("end_turn"));
-}
-
-#[test]
-fn test_parse_chat_response_thinking_and_text() {
-    let resp = make_minimax_response(
-        vec![
-            serde_json::json!({"type": "thinking", "thinking": "reasoning...", "signature": "sig_123"}),
-            serde_json::json!({"type": "text", "text": "Final answer"}),
-        ],
-        Some(serde_json::json!({"input_tokens": 20, "output_tokens": 15})),
-        Some("end_turn"),
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    assert_eq!(result.content_blocks.len(), 2);
-    assert!(matches!(
-        &result.content_blocks[0],
-        RawContentBlock::Thinking { thinking, signature }
-            if thinking == "reasoning..." && signature.as_deref() == Some("sig_123")
-    ));
-    assert!(matches!(&result.content_blocks[1], RawContentBlock::Text(s) if s == "Final answer"));
-}
-
-#[test]
-fn test_parse_chat_response_empty_content() {
-    let resp = make_minimax_response(
-        vec![],
-        Some(serde_json::json!({"input_tokens": 5, "output_tokens": 0})),
-        Some("end_turn"),
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    assert!(result.content_blocks.is_empty());
-    assert_eq!(result.usage.prompt_tokens, 5);
-    assert_eq!(result.usage.completion_tokens, 0);
-}
-
-#[test]
-fn test_parse_chat_response_cache_usage_fields() {
-    let resp = make_minimax_response(
-        vec![serde_json::json!({"type": "text", "text": "cached"})],
-        Some(serde_json::json!({
-            "input_tokens": 100,
-            "output_tokens": 50,
-            "cache_read_input_tokens": 80,
-            "cache_creation_input_tokens": 20
-        })),
-        Some("end_turn"),
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    assert_eq!(result.usage.prompt_tokens, 100);
-    assert_eq!(result.usage.completion_tokens, 50);
-    assert_eq!(result.usage.cache_read_tokens, Some(80));
-    assert_eq!(result.usage.cache_write_tokens, Some(20));
-}
-
-#[test]
-fn test_parse_chat_response_no_usage() {
-    let resp = make_minimax_response(
-        vec![serde_json::json!({"type": "text", "text": "hi"})],
-        None,
-        Some("end_turn"),
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    assert_eq!(result.usage.prompt_tokens, 0);
-    assert_eq!(result.usage.completion_tokens, 0);
-}
-
-#[test]
-fn test_parse_chat_response_empty_thinking_is_skipped() {
-    let resp = make_minimax_response(
-        vec![
-            serde_json::json!({"type": "thinking", "thinking": ""}),
-            serde_json::json!({"type": "text", "text": "response"}),
-        ],
-        None,
-        None,
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    // Empty thinking block should be skipped
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "response"));
-}
-
-#[test]
-fn test_parse_chat_response_unknown_block_type_is_skipped() {
-    let resp = make_minimax_response(
-        vec![
-            serde_json::json!({"type": "unknown_type", "text": "ignored"}),
-            serde_json::json!({"type": "text", "text": "kept"}),
-        ],
-        None,
-        None,
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "kept"));
-}
-
-#[test]
-fn test_parse_chat_response_business_error() {
-    let resp = MiniMaxResponse {
-        content: None,
-        usage: None,
-        model: "MiniMax-M2.7".to_string(),
-        stop_reason: None,
-        base_resp: Some(MiniMaxBaseResp {
-            status_code: 1004,
-            status_msg: "token invalid".to_string(),
-        }),
-    };
-    let err = MiniMaxProvider::parse_chat_response(resp).unwrap_err();
-    assert!(matches!(err, ProviderError::Legacy(ref msg) if msg.contains("1004")));
-}
-
-#[test]
-fn test_parse_chat_response_multiple_text_blocks() {
-    let resp = make_minimax_response(
-        vec![
-            serde_json::json!({"type": "text", "text": "Part 1"}),
-            serde_json::json!({"type": "text", "text": "Part 2"}),
-            serde_json::json!({"type": "text", "text": "Part 3"}),
-        ],
-        None,
-        None,
-    );
-    let result = MiniMaxProvider::parse_chat_response(resp).unwrap();
-    assert_eq!(result.content_blocks.len(), 3);
-    assert!(matches!(&result.content_blocks[0], RawContentBlock::Text(s) if s == "Part 1"));
-    assert!(matches!(&result.content_blocks[1], RawContentBlock::Text(s) if s == "Part 2"));
-    assert!(matches!(&result.content_blocks[2], RawContentBlock::Text(s) if s == "Part 3"));
-}
-
-// ===========================================================================
 // Integration test: full call chain with mock HTTP
 // ===========================================================================
 

@@ -2,12 +2,12 @@
 //! MiniMax Chat Completions API.
 
 use crate::provider::{Provider, ProviderError, Result, SseStream};
-use crate::types::{InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawUsage};
+use crate::types::{InternalRequest, ProtocolId};
 use crate::{LLMError, ModelInfo, ModelLister};
 use async_trait::async_trait;
 use reqwest::header::HeaderMap;
 use reqwest::Client;
-use serde::Deserialize;
+
 use std::sync::OnceLock;
 
 #[path = "minimax_stream.rs"]
@@ -20,63 +20,6 @@ pub use plugin::{MiniMaxM2Plugin, MiniMaxM3Plugin};
 // ---------------------------------------------------------------------------//
 
 const MINIMAX_API_URL: &str = "https://api.minimax.chat/v1/messages";
-
-// ---------------------------------------------------------------------------//
-// Request / Response types                                                    //
-// ---------------------------------------------------------------------------//
-
-/// MiniMax API response body (Anthropic protocol format)
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-pub(crate) struct MiniMaxResponse {
-    #[serde(default)]
-    content: Option<Vec<MiniMaxContentBlock>>,
-    #[serde(default)]
-    usage: Option<MiniMaxUsage>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    model: String,
-    #[serde(default)]
-    stop_reason: Option<String>,
-    #[serde(default)]
-    base_resp: Option<MiniMaxBaseResp>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct MiniMaxContentBlock {
-    #[serde(rename = "type")]
-    block_type: String,
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(default)]
-    thinking: Option<String>,
-    #[serde(default)]
-    signature: Option<String>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize, Default)]
-struct MiniMaxUsage {
-    #[serde(default, rename = "input_tokens")]
-    prompt_tokens: u32,
-    #[serde(default, rename = "output_tokens")]
-    completion_tokens: u32,
-    #[serde(default)]
-    total_tokens: Option<u32>,
-    #[serde(default, rename = "cache_read_input_tokens")]
-    cache_read_tokens: Option<u32>,
-    #[serde(default, rename = "cache_creation_input_tokens")]
-    cache_write_tokens: Option<u32>,
-}
-
-/// MiniMax base response (business error status)
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct MiniMaxBaseResp {
-    status_code: i32,
-    status_msg: String,
-}
 
 // ---------------------------------------------------------------------------//
 // Provider struct                                                             //
@@ -119,72 +62,11 @@ impl MiniMaxProvider {
     }
 
     /// Map MiniMax internal base_resp status_code to ProviderError.
-    #[allow(dead_code)]
     pub(crate) fn map_base_resp_error(status_code: i32, status_msg: &str) -> ProviderError {
         ProviderError::Legacy(format!(
             "MiniMax business error {}: {}",
             status_code, status_msg
         ))
-    }
-
-    // ── Content extraction ──────────────────────────────────────────────
-
-    // (removed — Anthropic content blocks are parsed directly)
-
-    // ── Response parsing (Provider) ─────────────────────────────────────
-
-    /// Parse a MiniMax Anthropic-format response into InternalResponse.
-    #[allow(dead_code)]
-    pub(crate) fn parse_chat_response(api_resp: MiniMaxResponse) -> Result<InternalResponse> {
-        // Check base_resp business errors
-        if let Some(ref base_resp) = api_resp.base_resp {
-            if base_resp.status_code != 0 {
-                return Err(Self::map_base_resp_error(
-                    base_resp.status_code,
-                    &base_resp.status_msg,
-                ));
-            }
-        }
-
-        let mut content_blocks = Vec::new();
-        if let Some(ref blocks) = api_resp.content {
-            for block in blocks {
-                match block.block_type.as_str() {
-                    "text" => {
-                        if let Some(ref text) = block.text {
-                            if !text.is_empty() {
-                                content_blocks.push(RawContentBlock::Text(text.clone()));
-                            }
-                        }
-                    }
-                    "thinking" => {
-                        let thinking = block.thinking.as_deref().unwrap_or("");
-                        let signature = block.signature.clone();
-                        if !thinking.is_empty() {
-                            content_blocks.push(RawContentBlock::Thinking {
-                                thinking: thinking.to_string(),
-                                signature,
-                            });
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        let usage = api_resp.usage.as_ref();
-        Ok(InternalResponse {
-            content_blocks,
-            usage: RawUsage {
-                prompt_tokens: usage.map(|u| u.prompt_tokens).unwrap_or(0),
-                completion_tokens: usage.map(|u| u.completion_tokens).unwrap_or(0),
-                total_tokens: usage.and_then(|u| u.total_tokens),
-                cache_read_tokens: usage.and_then(|u| u.cache_read_tokens),
-                cache_write_tokens: usage.and_then(|u| u.cache_write_tokens),
-                reasoning_tokens: None,
-            },
-            finish_reason: api_resp.stop_reason,
-        })
     }
 }
 
@@ -240,10 +122,25 @@ impl Provider for MiniMaxProvider {
             return Err(crate::provider::map_http_error(status, body, None));
         }
 
-        response
-            .json::<serde_json::Value>()
-            .await
-            .map_err(ProviderError::Reqwest)
+        let value: serde_json::Value = response.json().await.map_err(ProviderError::Reqwest)?;
+
+        // Check MiniMax business errors (base_resp.status_code != 0)
+        if let Some(base_resp) = value.get("base_resp") {
+            if let Some(code) = base_resp.get("status_code") {
+                if code.as_i64().unwrap_or(0) != 0 {
+                    let msg = base_resp
+                        .get("status_msg")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("unknown");
+                    return Err(Self::map_base_resp_error(
+                        code.as_i64().unwrap_or(0) as i32,
+                        msg,
+                    ));
+                }
+            }
+        }
+
+        Ok(value)
     }
 
     async fn send_streaming(
