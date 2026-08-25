@@ -9,14 +9,78 @@
 
 pub mod rpc;
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
 
-use closeclaw_gateway::{Gateway, GatewayConfig, HandleResult, SessionManager};
+use closeclaw_gateway::{
+    Gateway, GatewayConfig, HandleResult, SessionManager, SessionMessageHandler,
+};
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_slash::dispatcher::SlashDispatcher;
+use closeclaw_slash::handlers::CompactHandler;
+use closeclaw_slash::handlers_session::{StopHandler, VerboseHandler};
+use closeclaw_slash::registry::HandlerRegistry;
 
 use crate::admin::rpc::client::{admin_socket_path, AdminClient};
+use crate::llm_init;
 use crate::terminal::{TerminalAdapter, TerminalPlugin};
+
+/// Wrapper converting [`SlashDispatcher`] to [`SlashRouter`] trait object.
+struct SlashDispatcherWrapper(SlashDispatcher);
+
+#[async_trait::async_trait]
+impl closeclaw_common::SlashRouter for SlashDispatcherWrapper {
+    async fn dispatch(
+        &self,
+        content: &str,
+        ctx: &closeclaw_common::slash_router::SlashContext,
+    ) -> Option<closeclaw_common::slash_router::SlashResult> {
+        Some(self.0.dispatch(content, ctx).await)
+    }
+
+    fn is_immediate(&self, command: &str) -> bool {
+        self.0.is_immediate(command)
+    }
+
+    fn get_handler(
+        &self,
+        command: &str,
+    ) -> Option<Box<dyn closeclaw_common::slash_router::SlashHandler>> {
+        self.0.get_handler(command).map(|h| {
+            Box::new(SlashHandlerBox { inner: h })
+                as Box<dyn closeclaw_common::slash_router::SlashHandler>
+        })
+    }
+}
+
+/// Thin wrapper converting `Arc<dyn SlashHandler>` to `Box<dyn SlashHandler>`.
+struct SlashHandlerBox {
+    inner: Arc<dyn closeclaw_common::slash_router::SlashHandler>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::slash_router::SlashHandler for SlashHandlerBox {
+    fn commands(&self) -> &[&str] {
+        self.inner.commands()
+    }
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+    fn immediate(&self, cmd: &str) -> bool {
+        self.inner.immediate(cmd)
+    }
+    fn requires_permission(&self) -> bool {
+        self.inner.requires_permission()
+    }
+    async fn handle(
+        &self,
+        args: &str,
+        ctx: &closeclaw_common::slash_router::SlashContext,
+    ) -> closeclaw_common::slash_router::SlashResult {
+        self.inner.handle(args, ctx).await
+    }
+}
 
 /// Why the REPL loop exited.
 enum ExitReason {
@@ -30,7 +94,8 @@ enum ExitReason {
 ///
 /// 1. Verify the daemon is reachable (admin socket ping).
 /// 2. Create an in-process Gateway + TerminalPlugin.
-/// 3. Loop: read user input → process through Gateway → render output.
+/// 3. Initialize LLM call chain for Session/LLM integration.
+/// 4. Loop: read user input → process through Gateway → render output.
 pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     let config_dir = dirs::home_dir()
         .map(|h| h.join(".closeclaw"))
@@ -47,9 +112,17 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
         );
     }
 
+    // ── LLM initialization ────────────────────────────────────────
+    let llm_registry = llm_init::init_llm_registry(&config_dir).await;
+    let fallback_client = llm_init::create_fallback_client(&llm_registry).await;
+
     // ── Gateway + TerminalPlugin setup ─────────────────────────────
+    let mut bindings = HashMap::new();
+    bindings.insert("cli".to_string(), agent_id.to_string());
+
     let gateway_config = GatewayConfig {
         name: "cli-chat".to_string(),
+        bot_agent_bindings: bindings,
         ..Default::default()
     };
     let session_manager = Arc::new(SessionManager::new(
@@ -58,8 +131,53 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
         Some(config_dir.clone()),
         ReasoningLevel::default(),
     ));
+
+    // Set LLM caller on SessionManager for ConversationSession creation.
+    let llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
+        Arc::clone(&fallback_client),
+    ));
+    session_manager
+        .set_llm_caller(llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
+        .await;
+
     let gateway = Arc::new(Gateway::new(gateway_config, Arc::clone(&session_manager)));
     gateway.set_self_ref(Arc::clone(&gateway));
+
+    // ── SessionMessageHandler setup ────────────────────────────────
+    let (output_tx, mut output_rx) =
+        tokio::sync::mpsc::channel::<(String, Vec<closeclaw_common::ContentBlock>)>(64);
+
+    let active_searcher_llm_caller = Arc::new(
+        closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
+            client: Arc::clone(&fallback_client),
+            model: String::new(),
+        },
+    );
+
+    #[allow(deprecated)]
+    let fallback_client_for_compact = Arc::new(
+        closeclaw_llm::fallback::FallbackClient::from_strings(Arc::clone(&llm_registry), vec![]),
+    );
+
+    let session_handler = Arc::new(SessionMessageHandler::new(
+        Arc::clone(&session_manager),
+        fallback_client_for_compact,
+        output_tx,
+        active_searcher_llm_caller,
+        closeclaw_common::CompactConfig::default(),
+    ));
+    gateway.set_session_handler(session_handler);
+
+    // ── Slash command dispatcher setup ──────────────────────────────
+    let slash_registry = Arc::new(HandlerRegistry::new());
+    slash_registry.register(Arc::new(CompactHandler));
+    slash_registry.register(Arc::new(StopHandler));
+    let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
+    slash_registry.register(Arc::new(VerboseHandler::new(sm_query)));
+    let slash_dispatcher = SlashDispatcherWrapper(SlashDispatcher::from_shared(slash_registry));
+    gateway
+        .set_slash_dispatcher(Arc::new(slash_dispatcher) as Arc<dyn closeclaw_common::SlashRouter>)
+        .await;
 
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
     gateway.register_plugin(plugin).await;
@@ -70,7 +188,7 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
          Type 'quit' or 'exit' to stop.\n"
     );
 
-    match repl_loop(&gateway, agent_id).await {
+    match repl_loop(&gateway, agent_id, &mut output_rx).await {
         ExitReason::Quit => Ok(()),
         ExitReason::Error(e) => Err(e),
     }
@@ -80,7 +198,13 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
 ///
 /// Each user input is processed through the inbound processor chain,
 /// routed by the Gateway, and the response is rendered to stdout.
-async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str) -> ExitReason {
+/// When streaming output arrives via the output channel, it's written
+/// to stdout immediately.
+async fn repl_loop(
+    gateway: &Arc<Gateway>,
+    _agent_id: &str,
+    output_rx: &mut tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+) -> ExitReason {
     let adapter = TerminalAdapter::new();
 
     loop {
@@ -115,9 +239,10 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str) -> ExitReason {
         match result {
             Some(HandleResult::LlmStarted) => {
                 // Streaming output is rendered by the TerminalPlugin
-                // through the Gateway's outbound pipeline. Wait briefly
-                // for the streaming task to start.
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                // through the Gateway's outbound pipeline. Wait for
+                // the streaming task to complete by listening on the
+                // output channel.
+                wait_for_streaming_completion(output_rx).await;
             }
             Some(HandleResult::SlashHandled) => {}
             Some(HandleResult::MessageQueued(text)) => {
@@ -133,6 +258,34 @@ async fn repl_loop(gateway: &Arc<Gateway>, _agent_id: &str) -> ExitReason {
         }
 
         println!();
+    }
+}
+
+/// Wait for streaming LLM output to complete.
+///
+/// The SessionMessageHandler sends the final result on the output channel
+/// when the streaming task finishes. This function waits for that signal.
+async fn wait_for_streaming_completion(
+    output_rx: &mut tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+) {
+    // The output channel is closed when the streaming task completes.
+    // We wait for either a message (final result) or channel close.
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(120), // 2 minute timeout for long LLM responses
+        output_rx.recv(),
+    )
+    .await
+    {
+        Ok(Some((_text, _content_blocks))) => {
+            // Streaming complete — the TerminalPlugin has already written
+            // the output to stdout via the Gateway's outbound pipeline.
+        }
+        Ok(None) => {
+            // Channel closed — streaming task completed.
+        }
+        Err(_) => {
+            eprintln!("\n(timeout waiting for LLM response)");
+        }
     }
 }
 
