@@ -79,10 +79,17 @@ impl PlanBrowseHandler {
         let mut lines = Vec::with_capacity(summaries.len() + 1);
         lines.push(format!("找到 {} 个 plan：", summaries.len()));
         for s in &summaries {
-            lines.push(format!(
-                "  {} — {} ({}/{})",
-                s.stem, s.title, s.completed, s.total,
-            ));
+            let mut line = format!(
+                "  {} — {} {}/{} 完成",
+                s.stem, s.title, s.completed, s.total
+            );
+            if s.failed > 0 {
+                line.push_str(&format!(" {} 失败", s.failed));
+            }
+            if s.skipped > 0 {
+                line.push_str(&format!(" {} 已跳过", s.skipped));
+            }
+            lines.push(line);
         }
         SlashResult::Reply(lines.join("\n"))
     }
