@@ -107,7 +107,7 @@ fn test_auto_mode_injects_instruction() {
     assert!(rendered.contains("Auto"));
 }
 
-/// Plan mode with explicit Standard path renders "Standard Path".
+/// Plan mode with explicit Standard path renders Standard path phases.
 #[test]
 fn test_plan_mode_explicit_standard_path() {
     let meta = make_meta("u", "ch", 0);
@@ -120,11 +120,12 @@ fn test_plan_mode_explicit_standard_path() {
         .find(|s| s.name() == "mode_instruction")
         .unwrap()
         .render();
-    assert!(rendered.contains("Standard Path"));
-    assert!(!rendered.contains("Interview Path"));
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 4: Final Plan"));
+    assert!(!rendered.contains("pair-planning"));
 }
 
-/// Plan mode with explicit Interview path renders "Interview Path".
+/// Plan mode with explicit Interview path renders Interview path content.
 #[test]
 fn test_plan_mode_explicit_interview_path() {
     let meta = make_meta("u", "ch", 0);
@@ -137,8 +138,9 @@ fn test_plan_mode_explicit_interview_path() {
         .find(|s| s.name() == "mode_instruction")
         .unwrap()
         .render();
-    assert!(rendered.contains("Interview Path"));
-    assert!(!rendered.contains("Standard Path"));
+    assert!(rendered.contains("pair-planning"));
+    assert!(rendered.contains("The Loop"));
+    assert!(!rendered.contains("Phase 1: Initial Understanding"));
 }
 
 /// Plan mode auto-analysis with a clear bug-fix input selects Standard Path.
@@ -156,8 +158,9 @@ fn test_plan_mode_auto_analysis_clear_input() {
         .find(|s| s.name() == "mode_instruction")
         .unwrap()
         .render();
-    assert!(rendered.contains("Standard Path"));
-    assert!(!rendered.contains("Interview Path"));
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 4: Final Plan"));
+    assert!(!rendered.contains("pair-planning"));
 }
 
 /// Plan mode auto-analysis with an ambiguous input selects Interview Path.
@@ -173,8 +176,9 @@ fn test_plan_mode_auto_analysis_ambiguous_input() {
         .find(|s| s.name() == "mode_instruction")
         .unwrap()
         .render();
-    assert!(rendered.contains("Interview Path"));
-    assert!(!rendered.contains("Standard Path"));
+    assert!(rendered.contains("pair-planning"));
+    assert!(rendered.contains("The Loop"));
+    assert!(!rendered.contains("Phase 1: Initial Understanding"));
 }
 
 // ── ChannelContext chat_name tests ────────────────────────────────────────────
