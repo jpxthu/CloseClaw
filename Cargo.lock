@@ -794,6 +794,7 @@ dependencies = [
  "anyhow",
  "libc",
  "tempfile",
+ "terminal_size",
  "tokio",
  "tracing",
 ]

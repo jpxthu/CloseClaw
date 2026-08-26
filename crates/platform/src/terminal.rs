@@ -70,6 +70,40 @@ pub fn read_line_raw() -> anyhow::Result<String> {
     Ok(line.trim_end_matches('\n').to_string())
 }
 
+/// Information about the current terminal.
+///
+/// Detected once via [`detect()`]; consumers use the fields
+/// to decide rendering strategy.
+pub struct TerminalInfo {
+    /// Whether the terminal supports ANSI escape sequences.
+    pub ansi: bool,
+    /// Usable column width. Falls back to 80 when the OS call fails.
+    pub width: usize,
+}
+
+/// Resolve an optional terminal column count to a concrete width.
+///
+/// Returns the column value from `cols` when `Some`, or the
+/// default width (80) when `None`.  Extracted as a pure function
+/// for testability.
+pub fn resolve_terminal_width(cols: Option<u16>) -> usize {
+    cols.unwrap_or(80) as usize
+}
+
+/// Detect terminal capabilities and width in a single call.
+///
+/// Reuses [`supports_ansi()`] for the ANSI flag and queries the
+/// OS for the current terminal size.  When the size cannot be
+/// determined (e.g. non-TTY / piped output), the width falls back
+/// to 80 columns.
+pub fn detect() -> TerminalInfo {
+    let size = terminal_size::terminal_size().map(|(w, _)| w.0);
+    TerminalInfo {
+        ansi: supports_ansi(),
+        width: resolve_terminal_width(size),
+    }
+}
+
 /// Write raw bytes to stdout.
 ///
 /// Flushes stdout after writing to ensure output is immediately
