@@ -74,6 +74,7 @@ pub fn read_line_raw() -> anyhow::Result<String> {
 ///
 /// Detected once via [`detect()`]; consumers use the fields
 /// to decide rendering strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalInfo {
     /// Whether the terminal supports ANSI escape sequences.
     pub ansi: bool,
@@ -90,6 +91,21 @@ pub fn resolve_terminal_width(cols: Option<u16>) -> usize {
     cols.unwrap_or(80) as usize
 }
 
+/// Detect terminal capabilities and width, given a column-count source.
+///
+/// `size_fn` must return `Some(cols)` when the terminal size is
+/// available, or `None` when it cannot be determined (non-TTY / pipe).
+/// The width falls back to 80 columns in the `None` case.
+///
+/// This inner function exists so tests can inject synthetic values
+/// instead of depending on the running environment.
+pub(crate) fn detect_with_size(size_fn: impl FnOnce() -> Option<u16>) -> TerminalInfo {
+    TerminalInfo {
+        ansi: supports_ansi(),
+        width: resolve_terminal_width(size_fn()),
+    }
+}
+
 /// Detect terminal capabilities and width in a single call.
 ///
 /// Reuses [`supports_ansi()`] for the ANSI flag and queries the
@@ -97,11 +113,7 @@ pub fn resolve_terminal_width(cols: Option<u16>) -> usize {
 /// determined (e.g. non-TTY / piped output), the width falls back
 /// to 80 columns.
 pub fn detect() -> TerminalInfo {
-    let size = terminal_size::terminal_size().map(|(w, _)| w.0);
-    TerminalInfo {
-        ansi: supports_ansi(),
-        width: resolve_terminal_width(size),
-    }
+    detect_with_size(|| terminal_size::terminal_size().map(|(w, _)| w.0))
 }
 
 /// Write raw bytes to stdout.

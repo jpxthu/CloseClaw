@@ -13,33 +13,65 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 
-/// Computes the root CloseClaw path under the given home directory.
-///
-/// Does **not** create the directory — pure path computation only.
-/// Used by [`root_dir`] and indirectly available for testing.
+// ── Path computation (platform-specific env var, suffix) ──────────
+
+/// Returns the env var name used to locate the user's base directory.
 #[cfg(unix)]
-pub(crate) fn root_dir_path(home: &str) -> PathBuf {
-    PathBuf::from(home).join(".closeclaw")
+fn home_env_var_name() -> &'static str {
+    "HOME"
 }
 
 #[cfg(not(unix))]
-pub(crate) fn root_dir_path(appdata: &str) -> PathBuf {
-    PathBuf::from(appdata).join("closeclaw")
+fn home_env_var_name() -> &'static str {
+    "APPDATA"
+}
+
+/// The platform-specific directory name under the user's home.
+#[cfg(unix)]
+const DIR_NAME: &str = ".closeclaw";
+
+#[cfg(not(unix))]
+const DIR_NAME: &str = "closeclaw";
+
+/// Computes the root CloseClaw path under the given home directory.
+///
+/// Does **not** create the directory — pure path computation only.
+pub(crate) fn root_dir_path(home: &str) -> PathBuf {
+    PathBuf::from(home).join(DIR_NAME)
 }
 
 /// Computes the config path under the given home directory.
 ///
 /// Does **not** create the directory — pure path computation only.
-/// Used by [`config_dir`] and indirectly available for testing.
-#[cfg(unix)]
 pub(crate) fn config_dir_path(home: &str) -> PathBuf {
-    PathBuf::from(home).join(".closeclaw").join("config")
+    PathBuf::from(home).join(DIR_NAME).join("config")
 }
 
-#[cfg(not(unix))]
-pub(crate) fn config_dir_path(appdata: &str) -> PathBuf {
-    PathBuf::from(appdata).join("closeclaw").join("config")
+// ── Inner (injectable) resolution helpers ─────────────────────────
+
+/// Returns the root directory under `home`, creating it on disk.
+///
+/// Shared by [`root_dir`]; exists separately so tests can inject a
+/// synthetic `home` value without touching environment variables.
+pub(crate) fn root_dir_inner(home: &str) -> anyhow::Result<PathBuf> {
+    let path = root_dir_path(home);
+    std::fs::create_dir_all(&path)
+        .with_context(|| format!("failed to create root dir at {}", path.display()))?;
+    Ok(path)
 }
+
+/// Returns the config directory under `home`, creating it on disk.
+///
+/// Shared by [`config_dir`]; exists separately so tests can inject a
+/// synthetic `home` value without touching environment variables.
+pub(crate) fn config_dir_inner(home: &str) -> anyhow::Result<PathBuf> {
+    let path = config_dir_path(home);
+    std::fs::create_dir_all(&path)
+        .with_context(|| format!("failed to create config dir at {}", path.display()))?;
+    Ok(path)
+}
+
+// ── Public API ────────────────────────────────────────────────────
 
 /// Returns the **root** CloseClaw directory for the current platform,
 /// creating it (and any parent directories) if it does not yet exist.
@@ -59,24 +91,9 @@ pub(crate) fn config_dir_path(appdata: &str) -> PathBuf {
 /// or if the directory cannot be created (e.g. a parent path is a file
 /// instead of a directory).
 pub fn root_dir() -> anyhow::Result<PathBuf> {
-    #[cfg(unix)]
-    {
-        let home = std::env::var("HOME")
-            .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
-        let path = root_dir_path(&home);
-        std::fs::create_dir_all(&path)
-            .with_context(|| format!("failed to create root dir at {}", path.display()))?;
-        Ok(path)
-    }
-    #[cfg(not(unix))]
-    {
-        let appdata = std::env::var("APPDATA")
-            .map_err(|_| anyhow::anyhow!("APPDATA environment variable not set"))?;
-        let path = root_dir_path(&appdata);
-        std::fs::create_dir_all(&path)
-            .with_context(|| format!("failed to create root dir at {}", path.display()))?;
-        Ok(path)
-    }
+    let home = std::env::var(home_env_var_name())
+        .map_err(|_| anyhow::anyhow!("{} environment variable not set", home_env_var_name()))?;
+    root_dir_inner(&home)
 }
 
 /// Returns the **config** directory for the current platform,
@@ -97,22 +114,7 @@ pub fn root_dir() -> anyhow::Result<PathBuf> {
 /// or if the directory cannot be created (e.g. a parent path is a file
 /// instead of a directory).
 pub fn config_dir() -> anyhow::Result<PathBuf> {
-    #[cfg(unix)]
-    {
-        let home = std::env::var("HOME")
-            .map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
-        let path = config_dir_path(&home);
-        std::fs::create_dir_all(&path)
-            .with_context(|| format!("failed to create config dir at {}", path.display()))?;
-        Ok(path)
-    }
-    #[cfg(not(unix))]
-    {
-        let appdata = std::env::var("APPDATA")
-            .map_err(|_| anyhow::anyhow!("APPDATA environment variable not set"))?;
-        let path = config_dir_path(&appdata);
-        std::fs::create_dir_all(&path)
-            .with_context(|| format!("failed to create config dir at {}", path.display()))?;
-        Ok(path)
-    }
+    let home = std::env::var(home_env_var_name())
+        .map_err(|_| anyhow::anyhow!("{} environment variable not set", home_env_var_name()))?;
+    config_dir_inner(&home)
 }

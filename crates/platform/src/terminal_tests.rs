@@ -1,4 +1,60 @@
-use crate::terminal::{current_uid, detect, is_terminal, resolve_terminal_width, supports_ansi};
+use crate::terminal::{
+    current_uid, detect, detect_with_size, is_terminal, resolve_terminal_width, supports_ansi,
+    TerminalInfo,
+};
+
+// ── TerminalInfo derive trait tests ───────────────────────────────
+
+#[test]
+fn test_terminal_info_debug() {
+    let info = TerminalInfo {
+        ansi: true,
+        width: 120,
+    };
+    let dbg = format!("{:?}", info);
+    assert!(dbg.contains("ansi"), "Debug output must include field name");
+    assert!(dbg.contains("120"), "Debug output must include width value");
+}
+
+#[test]
+fn test_terminal_info_clone() {
+    let info = TerminalInfo {
+        ansi: false,
+        width: 80,
+    };
+    let cloned = info.clone();
+    assert_eq!(info, cloned);
+}
+
+#[test]
+fn test_terminal_info_copy() {
+    let info = TerminalInfo {
+        ansi: true,
+        width: 200,
+    };
+    let copied = info; // Copy, not move
+    assert_eq!(info, copied);
+    // Original is still usable (Copy trait).
+    assert_eq!(info.width, 200);
+}
+
+#[test]
+fn test_terminal_info_eq_and_ne() {
+    let a = TerminalInfo {
+        ansi: true,
+        width: 100,
+    };
+    let b = TerminalInfo {
+        ansi: true,
+        width: 100,
+    };
+    let c = TerminalInfo {
+        ansi: false,
+        width: 100,
+    };
+    assert_eq!(a, b);
+    assert_ne!(a, c);
+}
 
 // ── resolve_terminal_width tests ─────────────────────────────────
 
@@ -19,7 +75,38 @@ fn test_resolve_terminal_width_zero_returns_zero() {
     assert_eq!(resolve_terminal_width(Some(0)), 0);
 }
 
-// ── detect() tests ──────────────────────────────────────────────
+// ── detect_with_size: injectable tests ───────────────────────────
+
+#[test]
+fn test_detect_with_size_some_returns_width() {
+    let info = detect_with_size(|| Some(120));
+    assert_eq!(info.width, 120, "Some(120) should yield width 120");
+}
+
+#[test]
+fn test_detect_with_size_none_returns_80() {
+    let info = detect_with_size(|| None);
+    assert_eq!(info.width, 80, "None should fall back to 80");
+}
+
+#[test]
+fn test_detect_with_size_ansi_matches_supports_ansi() {
+    let info = detect_with_size(|| Some(80));
+    assert_eq!(
+        info.ansi,
+        supports_ansi(),
+        "detect_with_size ANSI must equal supports_ansi()"
+    );
+}
+
+#[test]
+fn test_detect_with_size_is_deterministic() {
+    let a = detect_with_size(|| Some(150));
+    let b = detect_with_size(|| Some(150));
+    assert_eq!(a, b, "same input must produce equal TerminalInfo");
+}
+
+// ── detect(): public API tests (environment-dependent) ───────────
 
 #[test]
 fn test_detect_ansi_matches_supports_ansi() {
@@ -37,19 +124,6 @@ fn test_detect_deterministic() {
     let b = detect();
     assert_eq!(a.ansi, b.ansi, "detect() ANSI flag must be deterministic");
     assert_eq!(a.width, b.width, "detect() width must be deterministic");
-}
-
-#[test]
-fn test_detect_width_fallback_in_non_tty() {
-    // When stdin is not a TTY (piped/subagent), detect() should
-    // return a sensible width.  The actual value depends on the
-    // environment; in a non-TTY it should be the fallback (80).
-    // In a TTY the width is the real terminal width (>0).
-    let info = detect();
-    if !is_terminal() {
-        assert_eq!(info.width, 80, "non-TTY width must fall back to 80");
-    }
-    // TTY or not, width must be non-negative (usize is always >= 0).
 }
 
 // ── existing tests (preserved) ──────────────────────────────────
