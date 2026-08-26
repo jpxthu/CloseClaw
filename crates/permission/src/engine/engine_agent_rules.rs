@@ -60,6 +60,9 @@ pub(crate) struct AgentRuleStore {
     /// When this differs from the current engine version, all entries
     /// must be invalidated (global rules changed, merge results stale).
     last_global_version: String,
+    /// Test-only counter: number of disk loads performed.
+    #[cfg(test)]
+    load_count: std::sync::atomic::AtomicUsize,
 }
 
 impl AgentRuleStore {
@@ -69,6 +72,8 @@ impl AgentRuleStore {
             data_root,
             cache: HashMap::new(),
             last_global_version: String::new(),
+            #[cfg(test)]
+            load_count: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -120,6 +125,9 @@ impl AgentRuleStore {
         };
 
         if needs_reload {
+            #[cfg(test)]
+            self.load_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let entry = load_agent_entry(&path, global_rules, global_version);
             self.cache.insert(agent_id.to_string(), entry);
         }
@@ -144,6 +152,11 @@ impl AgentRuleStore {
     /// The next `get_or_load` call will re-read from disk.
     pub fn invalidate(&mut self, agent_id: &str) {
         self.cache.remove(agent_id);
+    }
+
+    #[cfg(test)]
+    pub fn load_count(&self) -> usize {
+        self.load_count.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Invalidate all cached entries.

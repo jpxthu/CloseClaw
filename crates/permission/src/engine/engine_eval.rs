@@ -104,13 +104,17 @@ pub struct PermissionEngine {
 // --- Construction & index management ---
 
 impl PermissionEngine {
-    /// Create a new PermissionEngine from a RuleSet.
+    /// Internal constructor shared by `new` and `new_with_default_data_root`.
     ///
-    /// Agent rules are lazily loaded from `{data_root}/agents/{id}/permissions.json`
-    /// on the first `evaluate()` call for each agent.
-    pub fn new(mut rules: RuleSet, data_root: PathBuf) -> Self {
+    /// When `enable_agent_rules` is false, `agent_rules` is set to `None`,
+    /// disabling lazy loading entirely (used by snapshot/test paths).
+    fn new_inner(mut rules: RuleSet, data_root: PathBuf, enable_agent_rules: bool) -> Self {
         rules.compute_version();
-        let agent_store = AgentRuleStore::new(data_root.clone());
+        let agent_rules = if enable_agent_rules {
+            Some(RwLock::new(AgentRuleStore::new(data_root.clone())))
+        } else {
+            None
+        };
         let mut engine = Self {
             rules: rules.clone(),
             agent_rule_index: HashMap::new(),
@@ -121,17 +125,27 @@ impl PermissionEngine {
             rejection_logger: None,
             audit_logger: None,
             approval_callback: None,
-            agent_rules: Some(RwLock::new(agent_store)),
+            agent_rules,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
     }
 
+    /// Create a new PermissionEngine from a RuleSet.
+    ///
+    /// Agent rules are lazily loaded from `{data_root}/agents/{id}/permissions.json`
+    /// on the first `evaluate()` call for each agent.
+    pub fn new(rules: RuleSet, data_root: PathBuf) -> Self {
+        Self::new_inner(rules, data_root, true)
+    }
+
     /// Create a new PermissionEngine with a default data root (for tests).
     ///
-    /// Agent rules are disabled — `evaluate()` will not attempt lazy loading.
+    /// Agent rules lazy loading is disabled — `evaluate()` will not attempt
+    /// to read agent permission files from disk. This ensures deterministic
+    /// behavior in test/snapshot evaluation paths (no /tmp file reads).
     pub fn new_with_default_data_root(rules: RuleSet) -> Self {
-        Self::new(rules, PathBuf::from("/tmp/closeclaw_test"))
+        Self::new_inner(rules, PathBuf::from("/tmp/closeclaw_test"), false)
     }
 
     /// Rebuild the lookup indices from a given ruleset (sync helper).
@@ -229,6 +243,16 @@ impl PermissionEngine {
                 .invalidate(agent_id);
             debug!(agent_id = %agent_id, "agent rule cache invalidated");
         }
+    }
+
+    /// Test-only: return the number of disk loads performed by the agent
+    /// rule store. Used to verify cache hit behavior.
+    #[cfg(test)]
+    pub fn agent_rules_load_count(&self) -> usize {
+        self.agent_rules
+            .as_ref()
+            .map(|s| s.read().expect("agent_rules lock poisoned").load_count())
+            .unwrap_or(0)
     }
 
     /// Submit an auto-mode dangerous operation to the approval flow.
@@ -332,12 +356,15 @@ impl PermissionEngine {
 
         // Merge agent-specific rules with global rules when the store is
         // available. Falls back to global-only evaluation otherwise.
+        //
+        // The entire get → evaluate → put sequence runs under a single
+        // RwLock write guard to avoid double-lock overhead and eliminate
+        // the TOCTOU window between get and put.
         if let Some(ref store) = self.agent_rules {
+            let mut store_guard = store.write().expect("agent_rules lock poisoned");
             let global_version = &self.rules.rule_version;
-            let (merged, agent_rule_count) = store
-                .write()
-                .expect("agent_rules lock poisoned")
-                .get_or_load(&agent_id, &self.rules, global_version);
+            let (merged, agent_rule_count) =
+                store_guard.get_or_load(&agent_id, &self.rules, global_version);
 
             if agent_rule_count == 0 {
                 // No agent-specific rules → evaluate with global rules only
@@ -368,11 +395,7 @@ impl PermissionEngine {
             );
 
             // Return merged result to cache for next call.
-            store.write().expect("agent_rules lock poisoned").put(
-                &agent_id,
-                merged,
-                agent_rule_count,
-            );
+            store_guard.put(&agent_id, merged, agent_rule_count);
 
             return result;
         }

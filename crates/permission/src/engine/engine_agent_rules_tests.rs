@@ -558,7 +558,8 @@ fn test_multiple_agents_isolated_caches() {
 #[test]
 fn test_high_frequency_evaluate_cache_hit() {
     // Multiple evaluates for the same agent should use the cached entry
-    // (no repeated file I/O when mtime is unchanged).
+    // (no repeated file I/O when mtime is unchanged). The load counter
+    // confirms exactly one disk load occurs regardless of eval count.
     let tmp = TempDir::new().unwrap();
     write_agent_rules(
         &tmp,
@@ -569,11 +570,16 @@ fn test_high_frequency_evaluate_cache_hit() {
     let ruleset = deny_all_global_rules();
     let engine = PermissionEngine::new(ruleset, tmp.path().to_path_buf());
 
-    // First evaluate → loads from disk.
+    // First evaluate → loads from disk (load_count = 1).
     let resp1 = engine.evaluate(file_read_request("freq-agent", "/data/file.txt"), None);
     assert!(matches!(resp1, PermissionResponse::Allowed { .. }));
+    assert_eq!(
+        engine.agent_rules_load_count(),
+        1,
+        "first evaluate should trigger exactly one disk load"
+    );
 
-    // Subsequent evaluates should all succeed with the same result.
+    // Subsequent evaluates should all succeed with cache hits (no additional loads).
     for i in 0..10 {
         let resp = engine.evaluate(
             file_read_request("freq-agent", &format!("/data/file-{}.txt", i)),
@@ -586,6 +592,11 @@ fn test_high_frequency_evaluate_cache_hit() {
             resp
         );
     }
+    assert_eq!(
+        engine.agent_rules_load_count(),
+        1,
+        "after 10 cache-hit evaluates, load count should still be 1"
+    );
 }
 
 #[test]
