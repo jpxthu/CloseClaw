@@ -420,20 +420,6 @@ async fn create_session_with_plan_mode(sm: &SessionManager) -> String {
     sid
 }
 
-async fn save_plan_state(sm: &SessionManager, session_id: &str, plan_file_path: &str) {
-    use closeclaw_common::{PlanPhase, PlanState};
-
-    sm.set_plan_state(
-        session_id,
-        PlanState {
-            phase: PlanPhase::FinalPlan,
-            plan_file_path: plan_file_path.to_string(),
-            ..PlanState::new()
-        },
-    )
-    .await;
-}
-
 #[test]
 fn test_execute_handler_commands_and_description() {
     let sm = make_session_manager();
@@ -471,7 +457,7 @@ async fn test_execute_handler_no_session() {
 }
 
 #[tokio::test]
-async fn test_execute_non_plan_modes_enters_auto() {
+async fn test_execute_non_plan_modes_empty_args_returns_usage_hint() {
     let sm = make_session_manager_with_storage();
     // From Normal mode
     let sid = create_test_session(&sm).await;
@@ -479,34 +465,26 @@ async fn test_execute_non_plan_modes_enters_auto() {
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            reply_message,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_none());
-            assert_eq!(reply_message.as_deref(), Some("开始执行"));
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("请指定要执行的 plan 名称"),
+                "should contain usage hint, got: {text}"
+            );
         }
-        other => panic!("expected SetMode from Normal, got {other:?}"),
+        other => panic!("expected Reply with usage hint from Normal, got {other:?}"),
     }
     // From Auto mode
     let sid = create_session_with_auto_mode(&sm).await;
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            reply_message,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_none());
-            assert_eq!(reply_message.as_deref(), Some("开始执行"));
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("请指定要执行的 plan 名称"),
+                "should contain usage hint, got: {text}"
+            );
         }
-        other => panic!("expected SetMode from Auto, got {other:?}"),
+        other => panic!("expected Reply with usage hint from Auto, got {other:?}"),
     }
 }
 
@@ -514,31 +492,29 @@ async fn test_execute_non_plan_modes_enters_auto() {
 async fn test_execute_handler_no_plan_state() {
     let sm = make_session_manager_with_storage();
     let sid = create_session_with_plan_mode(&sm).await;
+    // Create a plans dir with a plan file so name resolution works
+    let tmp = tempfile::tempdir().unwrap();
+    let plans_dir = tmp.path().join("plans");
+    std::fs::create_dir_all(&plans_dir).unwrap();
+    std::fs::write(plans_dir.join("my-plan.md"), "# Plan\n").unwrap();
+    sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
+
     let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
-    ctx.session_id = sid.clone();
-    // No plan state
-    match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert!(text.contains("没有活跃的 plan"), "got: {text}");
+    ctx.session_id = sid;
+    // With valid plan name → resolves and enters auto mode
+    match h.handle("my-plan", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+            reply_message,
+            ..
+        } => {
+            assert_eq!(mode, "auto");
+            assert!(plan_file_path.is_some());
+            assert_eq!(reply_message.as_deref(), Some("开始执行"));
         }
-        other => panic!("expected Reply, got {other:?}"),
-    }
-    // Plan state with empty file path
-    sm.set_plan_state(
-        &sid,
-        closeclaw_common::PlanState {
-            phase: closeclaw_common::PlanPhase::FinalPlan,
-            plan_file_path: String::new(),
-            ..closeclaw_common::PlanState::new()
-        },
-    )
-    .await;
-    match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert!(text.contains("没有关联的 plan 文件"), "got: {text}");
-        }
-        other => panic!("expected Reply, got {other:?}"),
+        other => panic!("expected SetMode, got {other:?}"),
     }
 }
 
@@ -547,7 +523,9 @@ async fn test_execute_handler_plan_confirmed() {
     use std::fs;
 
     let tmp = tempfile::tempdir().unwrap();
-    let plan_file = tmp.path().join("test-plan.md");
+    let plans_dir = tmp.path().join("plans");
+    fs::create_dir_all(&plans_dir).unwrap();
+    let plan_file = plans_dir.join("test-plan.md");
     fs::write(
         &plan_file,
         "# Test Plan\n\n| 字段 | 值 |\n| 状态 | confirmed |\n",
@@ -556,12 +534,12 @@ async fn test_execute_handler_plan_confirmed() {
 
     let sm = make_session_manager_with_storage();
     let sid = create_session_with_plan_mode(&sm).await;
-    save_plan_state(&sm, &sid, plan_file.to_str().unwrap()).await;
+    sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
 
     let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
-    match h.handle("", &ctx).await {
+    match h.handle("test-plan", &ctx).await {
         SlashResult::SetMode {
             mode,
             plan_file_path,
@@ -570,10 +548,11 @@ async fn test_execute_handler_plan_confirmed() {
         } => {
             assert_eq!(mode, "auto", "should switch to auto mode");
             assert!(plan_file_path.is_some(), "should have plan_file_path");
-            assert_eq!(
-                plan_file_path.unwrap(),
-                plan_file,
-                "plan_file_path should match"
+            let path = plan_file_path.unwrap();
+            assert!(
+                path.to_string_lossy().ends_with("plans/test-plan.md"),
+                "plan_file_path should end with plans/test-plan.md, got: {:?}",
+                path
             );
             assert_eq!(reply_message.as_deref(), Some("开始执行"));
         }
@@ -870,34 +849,33 @@ use crate::handlers_mode::parse_execute_args;
 
 #[test]
 fn test_parse_execute_args_all_cases() {
-    // Empty / whitespace-only → no name, no instruction
-    let (n, i) = parse_execute_args("");
-    assert!(n.is_none() && i.is_none());
+    // Empty / whitespace-only → empty name, no instruction
+    let (n, _i) = parse_execute_args("");
+    assert_eq!(n, "");
     let (n, i) = parse_execute_args("   ");
-    assert!(n.is_none() && i.is_none());
-    // Name only
-    let (n, i) = parse_execute_args("foo");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "");
     assert!(i.is_none());
+    let (n, _i) = parse_execute_args("foo");
+    assert_eq!(n, "foo");
     // Name + instruction
     let (n, i) = parse_execute_args("foo bar baz");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "foo");
     assert_eq!(i.as_deref(), Some("bar baz"));
     // Extra whitespace trimmed around name
     let (n, i) = parse_execute_args("  foo  bar baz  ");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "foo");
     assert_eq!(i.as_deref(), Some("bar baz"));
     // Whitespace-only instruction → None
     let (n, i) = parse_execute_args("foo   ");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "foo");
     assert!(i.is_none());
     // Name with .md suffix works
     let (n, i) = parse_execute_args("plan.md instruction");
-    assert_eq!(n.as_deref(), Some("plan.md"));
+    assert_eq!(n, "plan.md");
     assert_eq!(i.as_deref(), Some("instruction"));
     // Chinese name + instruction
     let (n, i) = parse_execute_args("修复登录 请优先处理");
-    assert_eq!(n.as_deref(), Some("修复登录"));
+    assert_eq!(n, "修复登录");
     assert_eq!(i.as_deref(), Some("请优先处理"));
 }
 
