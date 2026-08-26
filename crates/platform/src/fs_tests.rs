@@ -1,4 +1,6 @@
-use crate::fs::{check_executable, check_readable, check_writable, expand_home, normalize_path};
+use crate::fs::{
+    check_executable, check_readable, check_writable, expand_home, normalize_path, set_executable,
+};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -56,46 +58,40 @@ fn test_expand_home_tilde_no_slash() {
     assert_eq!(result, PathBuf::from("~"));
 }
 
+/// Absolute path (no tilde prefix) should pass through unchanged.
 #[test]
-fn test_expand_home_unknown_var() {
-    let result = expand_home(Path::new("%UNKNOWN_VAR%/foo"));
-    assert_eq!(result, PathBuf::from("%UNKNOWN_VAR%/foo"));
+fn test_expand_home_absolute_path() {
+    let result = expand_home(Path::new("/usr/local/bin"));
+    assert_eq!(result, PathBuf::from("/usr/local/bin"));
+}
+
+/// `~` with trailing slash but no further path — expand to home dir.
+#[test]
+fn test_expand_home_tilde_slash_only() {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/test".to_string());
+    let result = expand_home(Path::new("~/"));
+    assert_eq!(result, PathBuf::from(home));
+}
+
+/// Relative path without tilde should pass through unchanged.
+#[test]
+fn test_expand_home_relative_path() {
+    let result = expand_home(Path::new("relative/path"));
+    assert_eq!(result, PathBuf::from("relative/path"));
+}
+
+/// Tilde in the middle of a path (not at start) should pass through.
+#[test]
+fn test_expand_home_tilde_not_at_start() {
+    let result = expand_home(Path::new("foo/~bar"));
+    assert_eq!(result, PathBuf::from("foo/~bar"));
 }
 
 #[test]
-fn test_expand_home_empty_var_name() {
-    let result = expand_home(Path::new("%%/foo"));
-    assert_eq!(result, PathBuf::from("%%/foo"));
-}
-
-#[test]
-fn test_expand_home_appdata() {
-    // If APPDATA is set (Windows), verify expansion works
-    // On Linux it won't be set, so just verify fallback
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let result = expand_home(Path::new("%APPDATA%/foo"));
-        assert_eq!(result, PathBuf::from(appdata).join("foo"));
-    } else {
-        let result = expand_home(Path::new("%APPDATA%/foo"));
-        assert_eq!(result, PathBuf::from("%APPDATA%/foo"));
-    }
-}
-
-#[test]
-fn test_expand_home_localappdata() {
-    if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
-        let result = expand_home(Path::new("%LOCALAPPDATA%/foo"));
-        assert_eq!(result, PathBuf::from(localappdata).join("foo"));
-    } else {
-        let result = expand_home(Path::new("%LOCALAPPDATA%/foo"));
-        assert_eq!(result, PathBuf::from("%LOCALAPPDATA%/foo"));
-    }
-}
-
-#[test]
-fn test_expand_home_literal_percent_no_var() {
-    let result = expand_home(Path::new("%NOVAR%/x"));
-    assert_eq!(result, PathBuf::from("%NOVAR%/x"));
+fn test_expand_home_percent_var_passthrough() {
+    // %VAR% syntax is not expanded; paths are returned unchanged.
+    let result = expand_home(Path::new("%APPDATA%/foo"));
+    assert_eq!(result, PathBuf::from("%APPDATA%/foo"));
 }
 
 #[test]
@@ -132,8 +128,36 @@ fn test_check_writable_nonexistent_file() {
 fn test_check_executable_directory() {
     // Directories typically have the execute bit set on Unix
     let dir = tempfile::tempdir().unwrap();
-    #[cfg(unix)]
     assert!(check_executable(dir.path()));
-    #[cfg(not(unix))]
-    assert!(check_executable(dir.path()));
+}
+
+/// Relative path without tilde should not be modified by normalize_path.
+#[test]
+fn test_normalize_path_relative() {
+    let path = Path::new("relative/path/to/file");
+    let normalized = normalize_path(path);
+    assert_eq!(normalized, PathBuf::from("relative/path/to/file"));
+}
+
+/// Home dir (~) is not expanded by normalize_path — only backslashes.
+#[test]
+fn test_normalize_path_home_dir_not_expanded() {
+    let path = Path::new(r"~\.closeclaw\config");
+    let normalized = normalize_path(path);
+    assert_eq!(normalized, PathBuf::from("~/.closeclaw/config"));
+}
+
+#[test]
+fn test_set_executable_toggle() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("script.sh");
+    std::fs::write(&file, b"#!/bin/sh\necho hi").unwrap();
+
+    // Remove execute bit
+    set_executable(&file, false).unwrap();
+    assert!(!check_executable(&file));
+
+    // Set execute bit
+    set_executable(&file, true).unwrap();
+    assert!(check_executable(&file));
 }

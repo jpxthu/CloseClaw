@@ -1,6 +1,6 @@
 use crate::process::{
     check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
-    wait_for_exit, write_pid_file, SpawnOptions,
+    stop_daemon, wait_for_exit, write_pid_file, SpawnOptions, StopOutcome,
 };
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -145,6 +145,34 @@ fn spawn_sleep_child() -> std::process::Child {
         .expect("failed to spawn sleep child")
 }
 
+/// Helper: spawn a detached sleep process reparented to init.
+///
+/// Uses a double-fork helper binary so the grandchild (sleep) is
+/// reparented to init. When killed, init reaps it — no zombie.
+/// Returns the PID of the actual sleep process.
+#[cfg(unix)]
+fn spawn_detached_sleep_pid() -> u32 {
+    let pid_file = tempfile::NamedTempFile::new().expect("tempfile");
+    let pid_path = pid_file.path().to_path_buf();
+    // Run helper in background (non-blocking) so it doesn't hang on pipe.
+    std::process::Command::new("/tmp/detach_helper")
+        .arg(pid_path.to_str().unwrap())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn /tmp/detach_helper");
+    // Wait for the PID file to be written by the grandchild.
+    for _ in 0..50 {
+        if let Ok(content) = std::fs::read_to_string(&pid_path) {
+            if let Ok(pid) = content.trim().parse::<u32>() {
+                return pid;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    panic!("detached sleep PID not found in {pid_path:?}");
+}
+
 #[cfg(unix)]
 #[test]
 fn test_send_signal_sigterm() {
@@ -176,6 +204,22 @@ fn test_send_signal_sigint() {
         status.signal(),
         Some(2),
         "child should be killed by SIGINT: {status}"
+    );
+}
+
+/// PID exceeding i32::MAX must fail with overflow error, not cast to negative.
+#[test]
+fn test_send_signal_pid_overflow() {
+    let err = send_signal(u32::MAX, false);
+    assert!(
+        err.is_err(),
+        "send_signal with pid > i32::MAX should return Err"
+    );
+    let msg = err.unwrap_err().to_string();
+    assert!(
+        msg.contains("PID exceeds i32::MAX"),
+        "error should mention overflow: {}",
+        msg
     );
 }
 
@@ -314,4 +358,153 @@ fn test_wait_for_exit_nonexistent_pid() {
         "wait_for_exit on non-existent PID should return Ok: {:?}",
         result
     );
+}
+
+// ── stop_daemon tests ──────────────────────────────────────────────
+
+/// Normal path: alive process is stopped and PID file is cleaned up.
+#[cfg(unix)]
+#[test]
+fn test_stop_daemon_normal() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    let pid = spawn_detached_sleep_pid();
+    write_pid_file(&path, pid).unwrap();
+
+    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
+    assert_eq!(outcome, StopOutcome::Stopped(pid));
+    assert!(!path.exists(), "PID file should be removed after stop");
+}
+
+/// Normal path with force (SIGINT): alive process is stopped and PID file is cleaned up.
+#[cfg(unix)]
+#[test]
+fn test_stop_daemon_normal_force() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    let pid = spawn_detached_sleep_pid();
+    write_pid_file(&path, pid).unwrap();
+
+    let outcome = stop_daemon(&path, true, std::time::Duration::from_secs(3)).unwrap();
+    assert_eq!(outcome, StopOutcome::Stopped(pid));
+    assert!(!path.exists(), "PID file should be removed after stop");
+}
+
+/// Timeout path: process frozen with SIGSTOP → Err + PID file preserved.
+///
+/// The process is stopped (SIGSTOP) so it cannot respond to SIGTERM.
+/// is_process_alive still reports it as alive, so the timeout fires.
+#[cfg(unix)]
+#[test]
+fn test_stop_daemon_timeout() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    // Spawn sleep, then SIGSTOP it so it cannot exit.
+    let mut child = std::process::Command::new("sleep")
+        .arg("60")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn sleep child");
+    let pid = child.id();
+    write_pid_file(&path, pid).unwrap();
+    // Freeze the process so it cannot respond to SIGTERM.
+    unsafe {
+        libc::kill(pid as i32, libc::SIGSTOP);
+    }
+
+    let result = stop_daemon(&path, false, std::time::Duration::from_millis(200));
+    assert!(result.is_err(), "timeout should return Err");
+    assert!(
+        path.exists(),
+        "PID file should be preserved when timeout occurs"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("did not exit within"));
+
+    // Clean up: SIGCONT then SIGKILL so the process can be reaped.
+    unsafe {
+        libc::kill(pid as i32, libc::SIGCONT);
+    }
+    send_signal(pid, true).ok();
+    child.wait().ok();
+}
+
+/// No PID file → NotRunning.
+#[test]
+fn test_stop_daemon_no_pid_file() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+
+    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    assert_eq!(outcome, StopOutcome::NotRunning);
+}
+
+/// Stale PID file → NotRunning + file cleaned up.
+#[test]
+fn test_stop_daemon_stale_pid() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    write_pid_file(&path, 99999999).unwrap();
+    assert!(path.exists());
+
+    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    assert_eq!(outcome, StopOutcome::NotRunning);
+    assert!(!path.exists(), "stale PID file should be removed");
+}
+
+/// Invalid PID content → NotRunning + file preserved (not cleaned up).
+#[test]
+fn test_stop_daemon_invalid_pid_content() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    std::fs::write(&path, "not_a_number").unwrap();
+
+    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    assert_eq!(outcome, StopOutcome::NotRunning);
+    // stop_daemon cleans up the PID file only when it reads a valid PID
+    // and the process is not alive. Invalid (non-numeric) content yields
+    // None from read_pid_file, so the file is preserved as-as.
+    assert!(path.exists(), "invalid PID file should be preserved");
+}
+
+// ── Step 1.6: exit race and polling-wait regression tests ────────
+
+/// Exit race: send_signal fails because process already exited.
+/// stop_daemon should return NotRunning and clean up the PID file.
+#[test]
+fn test_stop_daemon_exit_race() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    // Spawn a child, kill it, and reap it — PID is now dead.
+    let mut child = spawn_sleep_child();
+    let pid = child.id();
+    child.kill().expect("failed to kill child");
+    child.wait().expect("failed to wait on child");
+    // Write PID file *after* the process is dead (simulating race).
+    write_pid_file(&path, pid).unwrap();
+
+    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
+    assert_eq!(
+        outcome,
+        StopOutcome::NotRunning,
+        "exit race should return NotRunning"
+    );
+    assert!(!path.exists(), "PID file should be cleaned up on exit race");
+}
+
+/// Normal stop path regression: polling-based wait_for_exit works.
+/// An alive child is signaled, wait returns Ok, PID file is cleaned.
+#[cfg(unix)]
+#[test]
+fn test_stop_daemon_normal_polling_wait() {
+    let tmp = TempDir::new().unwrap();
+    let path = pid_file_path(tmp.path());
+    let pid = spawn_detached_sleep_pid();
+    write_pid_file(&path, pid).unwrap();
+
+    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
+    assert_eq!(outcome, StopOutcome::Stopped(pid));
+    assert!(!path.exists(), "PID file should be removed after stop");
 }

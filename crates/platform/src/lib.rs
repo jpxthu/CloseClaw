@@ -15,7 +15,8 @@ pub use fs::{
 };
 pub use process::{
     check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
-    wait_for_exit, wait_for_shutdown_signal, write_pid_file, SpawnOptions,
+    stop_daemon, wait_for_exit, wait_for_shutdown_signal, write_pid_file, SpawnOptions,
+    StopOutcome,
 };
 pub use terminal::{
     current_uid, detect, is_terminal, read_line_raw, resolve_terminal_width, supports_ansi,

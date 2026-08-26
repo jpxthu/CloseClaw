@@ -1,9 +1,11 @@
 //! Process lifecycle management.
 //!
 //! Provides PID file read/write and signal-based process termination.
-//! Unix uses SIGTERM/SIGINT; Windows uses process termination API.
+//! Uses SIGTERM/SIGINT on Unix.
 
 use std::path::{Path, PathBuf};
+
+use anyhow::Context;
 
 /// Options for spawning a daemon process.
 ///
@@ -15,8 +17,8 @@ pub struct SpawnOptions {
     pub working_dir: Option<PathBuf>,
     /// Optional environment variables as key-value pairs.
     pub env_vars: Vec<(String, String)>,
-    /// If `true`, stdin/stdout/stderr are redirected to `/dev/null`
-    /// (Unix) or `NUL` (Windows). Defaults to `true`.
+    /// If `true`, stdin/stdout/stderr are redirected to `/dev/null`.
+    /// Defaults to `true`.
     pub detach_stdio: bool,
 }
 
@@ -34,43 +36,25 @@ use tracing::info;
 
 /// Checks whether a process with the given PID is alive.
 ///
-/// On Unix, uses `kill(pid, 0)` to probe. An `EPERM` error is treated
+/// Uses `kill(pid, 0)` to probe. An `EPERM` error is treated
 /// as "alive" (process exists but belongs to a different user).
-///
-/// On Windows, queries `tasklist` and checks for the PID in the output.
 pub fn is_process_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        // PIDs exceeding i32::MAX cannot exist on Unix (kernel pid_max is
-        // typically 4194304). Casting to i32 would wrap to a negative value,
-        // making kill(-1, 0) send to all processes — a false positive.
-        let pid_i32 = match i32::try_from(pid) {
-            Ok(p) => p,
-            Err(_) => return false,
-        };
-        // SAFETY: kill with signal 0 is a standard POSIX existence check.
-        // No signal is delivered; the kernel merely validates the PID.
-        let ret = unsafe { libc::kill(pid_i32, 0) };
-        if ret == 0 {
-            return true;
-        }
-        // EPERM means the process exists but we lack permission to signal it.
-        let err = std::io::Error::last_os_error();
-        err.raw_os_error() == Some(libc::EPERM)
+    // PIDs exceeding i32::MAX cannot exist on Unix (kernel pid_max is
+    // typically 4194304). Casting to i32 would wrap to a negative value,
+    // making kill(-1, 0) send to all processes — a false positive.
+    let pid_i32 = match i32::try_from(pid) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    // SAFETY: kill with signal 0 is a standard POSIX existence check.
+    // No signal is delivered; the kernel merely validates the PID.
+    let ret = unsafe { libc::kill(pid_i32, 0) };
+    if ret == 0 {
+        return true;
     }
-    #[cfg(not(unix))]
-    {
-        let output = match std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output()
-        {
-            Ok(o) => o,
-            Err(_) => return false,
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // tasklist /NH outputs a line with the PID if found, empty otherwise.
-        stdout.contains(&pid.to_string())
-    }
+    // EPERM means the process exists but we lack permission to signal it.
+    let err = std::io::Error::last_os_error();
+    err.raw_os_error() == Some(libc::EPERM)
 }
 
 /// Checks a PID file for a stale or live daemon process.
@@ -95,10 +79,7 @@ pub fn check_stale_pid(pid_file: &Path) -> anyhow::Result<Option<u32>> {
     }
 }
 
-/// Returns the platform-specific PID file path.
-///
-/// On Unix: `{config_dir}/daemon.pid`
-/// On Windows: `{config_dir}\daemon.pid`
+/// Returns the PID file path: `{config_dir}/daemon.pid`.
 pub fn pid_file_path(config_dir: &Path) -> PathBuf {
     config_dir.join("daemon.pid")
 }
@@ -115,6 +96,67 @@ pub fn write_pid_file(path: &Path, pid: u32) -> anyhow::Result<()> {
 pub fn read_pid_file(path: &Path) -> Option<u32> {
     let content = std::fs::read_to_string(path).ok()?;
     content.trim().parse::<u32>().ok()
+}
+
+// ── stop_daemon ───────────────────────────────────────────────────
+
+/// Result of a [`stop_daemon`] operation.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StopOutcome {
+    /// Daemon was stopped. Contains the PID that was terminated.
+    Stopped(u32),
+    /// Daemon was not running (PID file missing or stale; file cleaned up).
+    NotRunning,
+}
+
+/// Deletes the PID file, ignoring "not found" errors.
+fn cleanup_pid_file(pid_file: &Path) {
+    let _ = std::fs::remove_file(pid_file);
+}
+
+/// Complete daemon stop sequence: read PID → signal → wait → cleanup.
+///
+/// Reads the daemon PID from `pid_file`, sends a termination signal,
+/// waits for the process to exit within `timeout`, and removes the
+/// PID file on success. If the PID file is missing or stale, returns
+/// [`StopOutcome::NotRunning`] after cleaning up.
+///
+/// If the signal cannot be sent because the process has already exited
+/// (ESRCH), the PID file is cleaned up and [`StopOutcome::NotRunning`]
+/// is returned — no PID file is ever left behind.
+///
+/// "Zombie process" risk is borne by the daemon's real parent (init);
+/// this module uses polling (`is_process_alive`) to confirm exit.
+///
+/// # Errors
+///
+/// Returns `Err` if the signal cannot be sent (for reasons other than
+/// ESRCH) or the process does not exit within `timeout`.
+pub fn stop_daemon(
+    pid_file: &Path,
+    force: bool,
+    timeout: std::time::Duration,
+) -> anyhow::Result<StopOutcome> {
+    let pid = match read_pid_file(pid_file) {
+        Some(pid) => pid,
+        None => return Ok(StopOutcome::NotRunning),
+    };
+    if !is_process_alive(pid) {
+        cleanup_pid_file(pid_file);
+        return Ok(StopOutcome::NotRunning);
+    }
+    if let Err(e) = send_signal(pid, force) {
+        // Exit race: process may have exited between is_process_alive
+        // and send_signal. Check again; if gone, clean up and return.
+        if !is_process_alive(pid) {
+            cleanup_pid_file(pid_file);
+            return Ok(StopOutcome::NotRunning);
+        }
+        return Err(e);
+    }
+    wait_for_exit(pid, timeout)?;
+    cleanup_pid_file(pid_file);
+    Ok(StopOutcome::Stopped(pid))
 }
 
 /// Waits for a process to exit, polling at 100ms intervals.
@@ -153,35 +195,18 @@ pub fn wait_for_exit(pid: u32, timeout: std::time::Duration) -> anyhow::Result<(
 
 /// Sends a termination signal to the process identified by `pid`.
 ///
-/// On Unix, sends SIGTERM by default or SIGINT when `force` is true.
-/// On Windows, uses `taskkill` without `/F` by default or with `/F`
-/// when `force` is true.
+/// Sends SIGTERM by default or SIGINT when `force` is true.
 pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    {
-        let signal = if force { libc::SIGINT } else { libc::SIGTERM };
-        // SAFETY: kill with a valid signal is a standard POSIX operation.
-        // The process ID is validated by the OS kernel.
-        let ret = unsafe { libc::kill(pid as i32, signal) };
-        if ret != 0 {
-            anyhow::bail!(
-                "Failed to send signal to process {pid}: {}",
-                std::io::Error::last_os_error()
-            );
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let mut args = vec!["/PID".to_string(), pid.to_string()];
-        if force {
-            args.push("/F".to_string());
-        }
-        let status = std::process::Command::new("taskkill")
-            .args(&args)
-            .status()?;
-        if !status.success() {
-            anyhow::bail!("Failed to terminate process {pid}");
-        }
+    let signal = if force { libc::SIGINT } else { libc::SIGTERM };
+    let pid_i32 = i32::try_from(pid).context("PID exceeds i32::MAX")?;
+    // SAFETY: kill with a valid signal is a standard POSIX operation.
+    // pid_i32 is validated by i32::try_from above.
+    let ret = unsafe { libc::kill(pid_i32, signal) };
+    if ret != 0 {
+        anyhow::bail!(
+            "Failed to send signal to process {pid}: {}",
+            std::io::Error::last_os_error()
+        );
     }
     Ok(())
 }
@@ -239,29 +264,20 @@ pub fn spawn_daemon(
     Ok(child)
 }
 
-/// Blocks until a platform-appropriate shutdown signal is received.
+/// Blocks until a shutdown signal is received.
 ///
-/// On Unix, listens for both SIGINT (Ctrl+C) and SIGTERM.
-/// On non-Unix platforms, listens for Ctrl+C only.
+/// Listens for both SIGINT (Ctrl+C) and SIGTERM.
 pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigint = signal(SignalKind::interrupt())?;
-        let mut sigterm = signal(SignalKind::terminate())?;
-        tokio::select! {
-            _ = sigint.recv() => {
-                info!("Received Ctrl+C, initiating shutdown...");
-            }
-            _ = sigterm.recv() => {
-                info!("Received SIGTERM, initiating graceful shutdown...");
-            }
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    tokio::select! {
+        _ = sigint.recv() => {
+            info!("Received Ctrl+C, initiating shutdown...");
         }
-    }
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c().await?;
-        info!("Received Ctrl+C, initiating shutdown...");
+        _ = sigterm.recv() => {
+            info!("Received SIGTERM, initiating graceful shutdown...");
+        }
     }
     Ok(())
 }
