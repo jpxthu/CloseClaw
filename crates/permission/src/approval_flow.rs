@@ -720,6 +720,10 @@ type PendingInfo = (
 impl ApprovalFlow {
     /// Re-evaluate with snapshotted rules to check if the snapshot
     /// rules already allow the operation (owner decision not needed).
+    ///
+    /// Uses `evaluate_with_rules` (not `evaluate`) to skip agent lazy
+    /// loading — the snapshot already contains the relevant rules at
+    /// approval time, ensuring deterministic re-evaluation.
     fn reevaluate_with_snapshotted_rules(
         &self,
         request_id: &str,
@@ -732,7 +736,7 @@ impl ApprovalFlow {
             caller: caller.clone(),
             request: request.clone(),
         };
-        let re_result = temp_engine.evaluate(perm_request, None);
+        let re_result = temp_engine.evaluate_with_rules(perm_request, None, snapshotted_rules);
         match re_result {
             PermissionResponse::Allowed { .. } => {
                 tracing::info!(
