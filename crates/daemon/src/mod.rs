@@ -422,62 +422,27 @@ impl Daemon {
         Arc<tokio::sync::Mutex<ApprovalFlow>>,
         Arc<BuiltinSkillRegistry>,
     ) {
-        // Build the whitelist-updated callback: reads agent permissions.json,
-        // constructs a RuleSet, and reloads the permission engine.
+        // Build the whitelist-updated callback: invalidate the agent's cached
+        // rules so the next evaluate() lazily re-reads from disk.
         //
-        // The approval flow is created after this callback, so we use a
-        // OnceLock to defer the reference. The callback updates both the
-        // permission engine and the approval flow snapshot on hot-reload.
+        // Previously this callback used reload_rules() to replace the entire
+        // global rule set, which caused multi-agent interference (multiple
+        // agents overwriting each other's rules). Now we only invalidate the
+        // specific agent's cache — the engine's AgentRuleStore handles the
+        // per-agent lazy loading and mtime-based cache invalidation.
         let pe_clone = Arc::clone(permission_engine);
-        let cfg_dir = std::path::PathBuf::from(config_dir);
-        let af_ref = Arc::new(std::sync::OnceLock::<Arc<tokio::sync::Mutex<ApprovalFlow>>>::new());
-        let af_ref_clone = Arc::clone(&af_ref);
         let whitelist_cb: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent_id: &str| {
-            let path = cfg_dir
-                .join("agents")
-                .join(agent_id)
-                .join("permissions.json");
-            match std::fs::read_to_string(&path) {
-                Ok(json) => {
-                    match serde_json::from_str::<closeclaw_permission::RuleSet>(&json) {
-                        Ok(ruleset) => {
-                            // Best-effort: try_write avoids blocking the approval flow.
-                            if let Ok(mut guard) = pe_clone.try_write() {
-                                guard.reload_rules(ruleset.clone());
-                                tracing::info!(
-                                    agent = %agent_id,
-                                    "whitelist rules reloaded after approval"
-                                );
-                            } else {
-                                tracing::warn!(
-                                    agent = %agent_id,
-                                    "permission engine write lock contended, skipping hot-reload"
-                                );
-                            }
-                            // Sync approval flow snapshot so subsequent snapshots
-                            // reflect the updated rules.
-                            if let Some(af) = af_ref_clone.get() {
-                                if let Ok(mut af_guard) = af.try_lock() {
-                                    af_guard.update_rules(ruleset);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                agent = %agent_id,
-                                error = %e,
-                                "failed to parse whitelist rules from permissions.json"
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        agent = %agent_id,
-                        error = %e,
-                        "failed to read permissions.json for whitelist reload"
-                    );
-                }
+            if let Ok(guard) = pe_clone.try_write() {
+                guard.invalidate_agent_rules(agent_id);
+                tracing::info!(
+                    agent = %agent_id,
+                    "agent rule cache invalidated after whitelist approval"
+                );
+            } else {
+                tracing::warn!(
+                    agent = %agent_id,
+                    "permission engine write lock contended, skipping cache invalidation"
+                );
             }
         });
 
@@ -568,9 +533,6 @@ impl Daemon {
         }
         af.set_create_child_session_fn(create_child_fn);
         let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
-        // Wire the approval flow into the whitelist callback so hot-reload
-        // updates the snapshot too (see OnceLock in the callback above).
-        let _ = af_ref.set(Arc::clone(&approval_flow));
 
         // Sync approval flow snapshot with actual loaded rules.
         // Without this, the approval flow holds `RuleSet::default()` and

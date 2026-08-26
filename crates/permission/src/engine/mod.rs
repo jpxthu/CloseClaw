@@ -3,6 +3,7 @@
 //! Runs as a separate OS process, evaluates access rules for agents.
 
 pub mod audit_log;
+pub mod engine_agent_rules;
 pub mod engine_chain;
 pub mod engine_check;
 pub mod engine_eval;
@@ -68,6 +69,9 @@ mod engine_matching_tests;
 
 #[cfg(test)]
 pub(crate) mod engine_test_providers;
+
+#[cfg(test)]
+mod engine_agent_rules_tests;
 
 #[cfg(test)]
 mod engine_eval_user_permissions_tests;

@@ -1,6 +1,7 @@
 //! Permission Engine - Evaluation logic.
 
 use super::audit_log::{build_audit_log, AuditDisposition, AuditLogger};
+use super::engine_agent_rules::AgentRuleStore;
 use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
 use super::engine_risk::{assess_risk_level, RiskLevel};
@@ -14,8 +15,8 @@ use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tracing::info;
+use std::sync::{Arc, RwLock};
+use tracing::{debug, info, trace};
 // NOTE: Cache fields (agent_permissions, user_effective_permissions) removed per
 // design doc: "权限评估每次新鲜计算，不缓存评估结果"
 
@@ -92,14 +93,28 @@ pub struct PermissionEngine {
     /// in Auto Mode are routed through this callback instead of being
     /// directly denied.
     approval_callback: Option<ApprovalCallback>,
+    /// Lazy-loading store for per-agent permission rules.
+    /// When set, `evaluate()` fetches agent-specific rules on first access
+    /// and merges them with the global rules before evaluation.
+    /// Uses `RwLock` for interior mutability (cache update on `&self` call,
+    /// needed because `PermissionEngine` is wrapped in `tokio::sync::RwLock`).
+    agent_rules: Option<RwLock<AgentRuleStore>>,
 }
 
 // --- Construction & index management ---
 
 impl PermissionEngine {
-    /// Create a new PermissionEngine from a RuleSet
-    pub fn new(mut rules: RuleSet, data_root: PathBuf) -> Self {
+    /// Internal constructor shared by `new` and `new_with_default_data_root`.
+    ///
+    /// When `enable_agent_rules` is false, `agent_rules` is set to `None`,
+    /// disabling lazy loading entirely (used by snapshot/test paths).
+    fn new_inner(mut rules: RuleSet, data_root: PathBuf, enable_agent_rules: bool) -> Self {
         rules.compute_version();
+        let agent_rules = if enable_agent_rules {
+            Some(RwLock::new(AgentRuleStore::new(data_root.clone())))
+        } else {
+            None
+        };
         let mut engine = Self {
             rules: rules.clone(),
             agent_rule_index: HashMap::new(),
@@ -110,14 +125,27 @@ impl PermissionEngine {
             rejection_logger: None,
             audit_logger: None,
             approval_callback: None,
+            agent_rules,
         };
         engine.rebuild_indices_with_rules(&rules);
         engine
     }
 
-    /// Create a new PermissionEngine with a default data root (for tests)
+    /// Create a new PermissionEngine from a RuleSet.
+    ///
+    /// Agent rules are lazily loaded from `{data_root}/agents/{id}/permissions.json`
+    /// on the first `evaluate()` call for each agent.
+    pub fn new(rules: RuleSet, data_root: PathBuf) -> Self {
+        Self::new_inner(rules, data_root, true)
+    }
+
+    /// Create a new PermissionEngine with a default data root (for tests).
+    ///
+    /// Agent rules lazy loading is disabled — `evaluate()` will not attempt
+    /// to read agent permission files from disk. This ensures deterministic
+    /// behavior in test/snapshot evaluation paths (no /tmp file reads).
     pub fn new_with_default_data_root(rules: RuleSet) -> Self {
-        Self::new(rules, PathBuf::from("/tmp/closeclaw_test"))
+        Self::new_inner(rules, PathBuf::from("/tmp/closeclaw_test"), false)
     }
 
     /// Rebuild the lookup indices from a given ruleset (sync helper).
@@ -127,11 +155,22 @@ impl PermissionEngine {
         self.user_agent_rule_index = user_agent_index;
     }
 
-    /// Reload rules from a new RuleSet
+    /// Reload rules from a new RuleSet.
+    ///
+    /// Invalidates all cached agent rule entries so that subsequent
+    /// `evaluate()` calls re-merge agent rules with the updated global rules.
     pub fn reload_rules(&mut self, mut rules: RuleSet) {
         rules.compute_version();
         self.rebuild_indices_with_rules(&rules);
         self.rules = rules;
+        // Invalidate all cached agent entries — global rules changed,
+        // so cached merge results are stale.
+        if let Some(ref store) = self.agent_rules {
+            store
+                .write()
+                .expect("agent_rules lock poisoned")
+                .invalidate_all();
+        }
     }
 
     /// Get a reference to the current ruleset.
@@ -189,6 +228,31 @@ impl PermissionEngine {
     pub fn with_approval_callback(mut self, callback: ApprovalCallback) -> Self {
         self.approval_callback = Some(callback);
         self
+    }
+
+    /// Explicitly invalidate cached rules for a specific agent.
+    ///
+    /// Called after whitelist approval writes a new rule for the agent.
+    /// The next `evaluate()` call will re-read the agent's permissions
+    /// file from disk.
+    pub fn invalidate_agent_rules(&self, agent_id: &str) {
+        if let Some(ref store) = self.agent_rules {
+            store
+                .write()
+                .expect("agent_rules lock poisoned")
+                .invalidate(agent_id);
+            debug!(agent_id = %agent_id, "agent rule cache invalidated");
+        }
+    }
+
+    /// Test-only: return the number of disk loads performed by the agent
+    /// rule store. Used to verify cache hit behavior.
+    #[cfg(test)]
+    pub fn agent_rules_load_count(&self) -> usize {
+        self.agent_rules
+            .as_ref()
+            .map(|s| s.read().expect("agent_rules lock poisoned").load_count())
+            .unwrap_or(0)
     }
 
     /// Submit an auto-mode dangerous operation to the approval flow.
@@ -271,11 +335,72 @@ impl PermissionEngine {
 
 impl PermissionEngine {
     /// Evaluate a permission request using the engine's current rules.
+    ///
+    /// When agent rules are configured (via [`AgentRuleStore`]), the caller's
+    /// agent rules are lazily loaded and merged with the global rules before
+    /// evaluation. The merge produces a combined `RuleSet` + indices that
+    /// participate in the existing two-phase evaluation logic.
+    ///
+    /// Merge semantics:
+    /// - Agent rules are appended to the global rules
+    /// - Both sets of rules participate in candidate collection & matching
+    /// - Deny priority and default-full-Deny semantics are preserved
+    /// - Agent rule cache is keyed by `(agent_id, global_version)`;
+    ///   mtime changes or global rule reloads invalidate the cache
     pub fn evaluate(
         &self,
         request: PermissionRequest,
         extra_deny_subjects: Option<Vec<Subject>>,
     ) -> PermissionResponse {
+        let agent_id = request.caller().agent;
+
+        // Merge agent-specific rules with global rules when the store is
+        // available. Falls back to global-only evaluation otherwise.
+        //
+        // The entire get → evaluate → put sequence runs under a single
+        // RwLock write guard to avoid double-lock overhead and eliminate
+        // the TOCTOU window between get and put.
+        if let Some(ref store) = self.agent_rules {
+            let mut store_guard = store.write().expect("agent_rules lock poisoned");
+            let global_version = &self.rules.rule_version;
+            let (merged, agent_rule_count) =
+                store_guard.get_or_load(&agent_id, &self.rules, global_version);
+
+            if agent_rule_count == 0 {
+                // No agent-specific rules → evaluate with global rules only
+                trace!(agent_id = %agent_id, "no agent-specific rules, using global rules");
+                return self.evaluate_inner(
+                    request,
+                    extra_deny_subjects,
+                    &self.rules,
+                    &self.agent_rule_index,
+                    &self.user_agent_rule_index,
+                );
+            }
+
+            trace!(
+                agent_id = %agent_id,
+                agent_rule_count = agent_rule_count,
+                total_rule_count = merged.rules.rules.len(),
+                "merged agent rules for evaluation"
+            );
+
+            // Use the cached merged result directly — no clone, no index rebuild.
+            let result = self.evaluate_inner(
+                request,
+                extra_deny_subjects,
+                &merged.rules,
+                &merged.agent_rule_index,
+                &merged.user_agent_rule_index,
+            );
+
+            // Return merged result to cache for next call.
+            store_guard.put(&agent_id, merged, agent_rule_count);
+
+            return result;
+        }
+
+        // Fallback: no agent rules store configured
         self.evaluate_inner(
             request,
             extra_deny_subjects,
@@ -290,6 +415,12 @@ impl PermissionEngine {
     /// Builds temporary O(1) indices from the provided `rules` and delegates
     /// to the same evaluation logic as `evaluate()`. This allows re-evaluation
     /// against a snapshot of rules (e.g., for approval re-evaluation).
+    ///
+    /// NOTE: This method does NOT perform agent-specific rule lazy loading.
+    /// It evaluates against the provided `rules` directly. This is intentional
+    /// — approval re-evaluation uses the snapshot captured at approval time,
+    /// which already includes the relevant agent rules. Skipping agent
+    /// lazy-loading ensures deterministic, reproducible results.
     pub fn evaluate_with_rules(
         &self,
         request: PermissionRequest,
