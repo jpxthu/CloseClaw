@@ -15,6 +15,27 @@ fn test_config_dir_path_pure_computation() {
     assert_eq!(path, Path::new("/tmp/fakehome/.closeclaw/config"));
 }
 
+/// Empty home dir — path computation still appends .closeclaw suffix.
+#[test]
+fn test_root_dir_path_empty_home() {
+    let path = root_dir_path("");
+    assert_eq!(path, Path::new(".closeclaw"));
+}
+
+/// Empty home dir — config path computation still appends config suffix.
+#[test]
+fn test_config_dir_path_empty_home() {
+    let path = config_dir_path("");
+    assert_eq!(path, Path::new(".closeclaw/config"));
+}
+
+/// Home dir with trailing slash — path joining handles it.
+#[test]
+fn test_root_dir_path_trailing_slash() {
+    let path = root_dir_path("/home/user/");
+    assert_eq!(path, Path::new("/home/user/.closeclaw"));
+}
+
 // ── root_dir_inner: injectable tests ─────────────────────────────
 
 #[test]

@@ -10,9 +10,29 @@ pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
 
 pub async fn handle_stop_at(config_dir: &std::path::Path, force: bool, json: bool) -> Result<()> {
     let p = closeclaw_platform::process::pid_file_path(config_dir);
-    let pid = match closeclaw_platform::process::read_pid_file(&p) {
-        Some(pid) => pid,
-        None => {
+    // Self-kill guard: read PID before calling stop_daemon so we can bail
+    // early without side effects.
+    if let Some(pid) = closeclaw_platform::process::read_pid_file(&p) {
+        if pid == std::process::id() {
+            anyhow::bail!("Refusing to kill self.");
+        }
+    }
+    let outcome =
+        closeclaw_platform::process::stop_daemon(&p, force, std::time::Duration::from_secs(5))?;
+    let sig = if force { "KILL" } else { "TERM" };
+    match outcome {
+        closeclaw_platform::process::StopOutcome::Stopped(pid) => {
+            if json {
+                json_output(&StopOutput {
+                    pid: Some(pid),
+                    signal: sig.to_string(),
+                    stopped: true,
+                });
+            } else {
+                println!("Daemon (PID {}) stopped ({}).", pid, sig);
+            }
+        }
+        closeclaw_platform::process::StopOutcome::NotRunning => {
             let msg = format!("Daemon is not running (no PID file at {}).", p.display());
             if json {
                 json_output(&StopOutput {
@@ -23,24 +43,7 @@ pub async fn handle_stop_at(config_dir: &std::path::Path, force: bool, json: boo
             } else {
                 println!("{}", msg);
             }
-            return Ok(());
         }
-    };
-    if pid == std::process::id() {
-        anyhow::bail!("Refusing to kill self.");
     }
-    closeclaw_platform::process::send_signal(pid, force)?;
-    closeclaw_platform::process::wait_for_exit(pid, std::time::Duration::from_secs(5))?;
-    std::fs::remove_file(&p)?;
-    let sig = if force { "KILL" } else { "TERM" };
-    if json {
-        json_output(&StopOutput {
-            pid: Some(pid),
-            signal: sig.to_string(),
-            stopped: true,
-        });
-        return Ok(());
-    }
-    println!("Daemon (PID {}) stopped ({}).", pid, sig);
     Ok(())
 }
