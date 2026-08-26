@@ -321,9 +321,9 @@
   },
   {
     "path": "docs/design/memory/README.md",
-    "commit": "e68be673eaaaa4cda003a2d53de62ad813a4ab0a",
-    "commit_time": "2026-08-17T16:35:11+08:00",
-    "confirmed_time": "2026-08-17T16:54:32.763437+08:00",
+    "commit": "c3627debb2ded7cb46d801326951f4e4ae81cd46",
+    "commit_time": "2026-08-26T13:11:29+08:00",
+    "confirmed_time": "2026-08-26T13:35:43.250351+08:00",
     "comment": "",
     "blocked_reason": ""
   },
