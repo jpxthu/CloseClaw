@@ -138,21 +138,45 @@ async fn route_command_denial(
 
 /// Evaluate a permission request through the engine, optionally using
 /// chain evaluation when a session is present.
+///
+/// Returns the response together with the resolved `user_id` (if any)
+/// so that callers can pass it to the approval flow without duplicating
+/// the session lookup.
 async fn evaluate_permission(
     perm: &Arc<PermEngine>,
     session_manager: &Arc<SessionManager>,
     config_manager: &Arc<ConfigManager>,
     session_id: Option<&str>,
     request: PermissionRequest,
-) -> PermissionResponse {
+) -> (PermissionResponse, Option<String>) {
     let agent_perms = config_manager.agent_permissions();
     if let Some(sid) = session_id {
+        // Resolve the real user_id from the session checkpoint.
+        let user_id = session_manager.get_sender_id(sid).await;
+        // Upgrade Bare → WithCaller when user_id is available.
+        let upgraded = match user_id {
+            Some(ref uid) => {
+                let caller = Caller {
+                    user_id: uid.clone(),
+                    agent: request.agent_id().to_string(),
+                };
+                request.with_caller(caller)
+            }
+            None => request,
+        };
         let engine = perm.read().await;
-        engine
-            .evaluate_with_chain(request, session_manager.as_ref(), sid, agent_perms.as_ref())
-            .await
+        let response = engine
+            .evaluate_with_chain(
+                upgraded,
+                session_manager.as_ref(),
+                sid,
+                agent_perms.as_ref(),
+            )
+            .await;
+        (response, user_id)
     } else {
-        perm.read().await.evaluate(request, None)
+        let response = perm.read().await.evaluate(request, None);
+        (response, None)
     }
 }
 
@@ -200,7 +224,7 @@ pub(crate) async fn check_tool_permission(
         skill: skill.to_string(),
         method: method.to_string(),
     });
-    let response = evaluate_permission(
+    let (response, user_id) = evaluate_permission(
         perm,
         session_manager,
         config_manager,
@@ -212,7 +236,7 @@ pub(crate) async fn check_tool_permission(
         PR::Allowed { .. } => Ok(None),
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
-                user_id: String::new(),
+                user_id: user_id.unwrap_or_default(),
                 agent: ctx.agent_id.clone(),
             };
             let body = PermissionRequestBody::ToolCall {
@@ -252,7 +276,7 @@ pub(crate) async fn check_file_op_permission(
         path: path.to_string(),
         op: op.to_string(),
     });
-    let response = evaluate_permission(
+    let (response, user_id) = evaluate_permission(
         perm,
         session_manager,
         config_manager,
@@ -264,7 +288,7 @@ pub(crate) async fn check_file_op_permission(
         PR::Allowed { .. } => Ok(None),
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
-                user_id: String::new(),
+                user_id: user_id.unwrap_or_default(),
                 agent: ctx.agent_id.clone(),
             };
             let body = PermissionRequestBody::FileOp {
@@ -305,7 +329,7 @@ pub(crate) async fn check_message_permission(
         direction: direction.clone(),
         target: target.to_string(),
     });
-    let response = evaluate_permission(
+    let (response, user_id) = evaluate_permission(
         perm,
         session_manager,
         config_manager,
@@ -317,7 +341,7 @@ pub(crate) async fn check_message_permission(
         PR::Allowed { .. } => Ok(None),
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
-                user_id: String::new(),
+                user_id: user_id.unwrap_or_default(),
                 agent: ctx.agent_id.clone(),
             };
             let body = PermissionRequestBody::MessageSend {
@@ -354,7 +378,7 @@ pub(crate) async fn check_config_write_permission(
         agent: ctx.agent_id.clone(),
         config_file: config_file.to_string(),
     });
-    let response = evaluate_permission(
+    let (response, user_id) = evaluate_permission(
         perm,
         session_manager,
         config_manager,
@@ -366,7 +390,7 @@ pub(crate) async fn check_config_write_permission(
         PR::Allowed { .. } => Ok(None),
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
-                user_id: String::new(),
+                user_id: user_id.unwrap_or_default(),
                 agent: ctx.agent_id.clone(),
             };
             let body = PermissionRequestBody::ConfigWrite {
@@ -409,7 +433,7 @@ pub async fn check_network_permission(
         host: host.to_string(),
         port,
     });
-    let response = evaluate_permission(
+    let (response, user_id) = evaluate_permission(
         perm,
         session_manager,
         config_manager,
@@ -421,7 +445,7 @@ pub async fn check_network_permission(
         PR::Allowed { .. } => Ok(None),
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
-                user_id: String::new(),
+                user_id: user_id.unwrap_or_default(),
                 agent: ctx.agent_id.clone(),
             };
             let body = PermissionRequestBody::NetOp {
@@ -464,7 +488,7 @@ pub(crate) async fn check_command_permission(
         cmd: cmd.to_string(),
         args: args.to_vec(),
     });
-    let response = evaluate_permission(
+    let (response, user_id) = evaluate_permission(
         perm,
         session_manager,
         config_manager,
@@ -476,7 +500,7 @@ pub(crate) async fn check_command_permission(
         PR::Allowed { .. } => CommandPermissionResult::Permitted,
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
-                user_id: String::new(),
+                user_id: user_id.unwrap_or_default(),
                 agent: ctx.agent_id.clone(),
             };
             let body = PermissionRequestBody::CommandExec {

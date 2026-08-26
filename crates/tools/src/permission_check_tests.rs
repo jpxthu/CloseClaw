@@ -6,7 +6,9 @@ use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet};
+use closeclaw_permission::engine::engine_types::{
+    Action, Effect, MatchType, Rule, RuleSet, Subject,
+};
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_permission::Defaults;
 use std::sync::Arc;
@@ -79,6 +81,107 @@ fn make_af_deny() -> Arc<ApprovalMutex> {
         std::env::temp_dir(),
         RuleSet::default(),
     )))
+}
+
+// ---------------------------------------------------------------------------
+// Mock PersistenceService for checkpoint-based sender_id tests
+// ---------------------------------------------------------------------------
+
+use closeclaw_gateway::GatewayConfig;
+use closeclaw_session::persistence::{
+    PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
+};
+use std::sync::Mutex as StdMutex;
+
+struct MockPersist {
+    checkpoints: StdMutex<Vec<SessionCheckpoint>>,
+}
+
+impl MockPersist {
+    fn new() -> Self {
+        Self {
+            checkpoints: StdMutex::new(Vec::new()),
+        }
+    }
+    fn insert(&self, cp: SessionCheckpoint) {
+        self.checkpoints.lock().unwrap().push(cp);
+    }
+}
+
+#[async_trait::async_trait]
+impl PersistenceService for MockPersist {
+    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        self.checkpoints.lock().unwrap().push(cp.clone());
+        Ok(())
+    }
+    async fn load_checkpoint(
+        &self,
+        sid: &str,
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        Ok(self
+            .checkpoints
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|c| c.session_id == sid)
+            .cloned())
+    }
+    async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+        Ok(self
+            .checkpoints
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.session_id.clone())
+            .collect())
+    }
+}
+
+/// Build a SessionCheckpoint with the given sender_id.
+fn make_checkpoint(session_id: &str, sender_id: Option<String>) -> SessionCheckpoint {
+    let mut cp = SessionCheckpoint::new(session_id.to_string());
+    cp.sender_id = sender_id;
+    cp.agent_id = Some("test-agent".to_string());
+    cp
+}
+
+fn make_sm_with_persist() -> (Arc<SessionManager>, Arc<MockPersist>) {
+    let persist = Arc::new(MockPersist::new());
+    let sm = Arc::new(SessionManager::new(
+        &GatewayConfig {
+            name: "test".to_string(),
+            rate_limit_per_minute: 100,
+            max_message_size: 1024,
+            ..Default::default()
+        },
+        Some(persist.clone() as Arc<dyn closeclaw_session::persistence::PersistenceService>),
+        None,
+        ReasoningLevel::default(),
+    ));
+    (sm, persist)
+}
+
+fn make_deps_with_shared_sm(
+    rules: Vec<Rule>,
+    sm: Arc<SessionManager>,
+    flow: Arc<ApprovalMutex>,
+) -> PermDeps {
+    (make_engine_with_rules(rules), sm, make_cm(), flow)
+}
+
+fn make_ctx_with_session(agent: &str, session_id: &str) -> ToolContext {
+    ToolContext {
+        agent_id: agent.to_string(),
+        workdir: None,
+        session_id: Some(session_id.to_string()),
+        call_id: None,
+        session: None,
+        session_mode: None,
+        manual_background_signal: None,
+    }
 }
 
 fn make_deps(rules: Vec<Rule>) -> PermDeps {
@@ -762,4 +865,136 @@ fn test_is_config_file_in_workspace() {
 fn test_is_config_file_normal_file() {
     let cm = make_cm();
     assert!(!is_config_file(&cm, "/tmp/regular/file.txt"));
+}
+
+// Step 1.3: Real User ID in permission check functions
+
+/// Session with sender → real user_id → AgentOnly + UserAndAgent Allow → Allowed.
+#[tokio::test]
+async fn test_session_with_sender_uses_real_user_id() {
+    let (sm, persist) = make_sm_with_persist();
+    persist.insert(make_checkpoint("sess-1", Some("ou_alice".to_string())));
+    // Two-phase: AgentOnly Allow (agent phase) + UserAndAgent Allow (user phase)
+    let rules = vec![
+        Rule {
+            name: "agent-tool-allow".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "agent-a".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::ToolCall {
+                skill: "bash".to_string(),
+                methods: vec!["call".to_string()],
+            }],
+            template: None,
+            priority: 10,
+        },
+        Rule {
+            name: "alice-tool-allow".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "ou_alice".to_string(),
+                agent: "agent-a".to_string(),
+                user_match: MatchType::Exact,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::ToolCall {
+                skill: "bash".to_string(),
+                methods: vec!["call".to_string()],
+            }],
+            template: None,
+            priority: 5,
+        },
+    ];
+    let flow = make_af();
+    let deps = make_deps_with_shared_sm(rules, sm, flow);
+    let ctx = make_ctx_with_session("agent-a", "sess-1");
+    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    match &result {
+        Ok(None) => {} // expected: Allowed
+        other => panic!("expected Ok(None) (Allowed), got: {:?}", other),
+    }
+}
+
+/// Session without sender → Bare fallback → Agent dimension decides.
+#[tokio::test]
+async fn test_session_without_sender_falls_back_to_bare() {
+    let (sm, persist) = make_sm_with_persist();
+    // Insert checkpoint WITHOUT sender_id
+    persist.insert(make_checkpoint("sess-2", None));
+    let rules = vec![Rule {
+        name: "agent-tool-allow".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "agent-a".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![Action::ToolCall {
+            skill: "bash".to_string(),
+            methods: vec!["call".to_string()],
+        }],
+        template: None,
+        priority: 0,
+    }];
+    let flow = make_af();
+    let deps = make_deps_with_shared_sm(rules, sm, flow);
+    let ctx = make_ctx_with_session("agent-a", "sess-2");
+    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    // Agent dimension Allow → Allowed (user_id is empty, user phase skipped)
+    assert!(result.unwrap().is_none());
+}
+
+/// State transition: no rule → Deny → write UserAndAgent Allow rule → Allowed.
+#[tokio::test]
+async fn test_user_rule_takes_effect_after_write() {
+    let (sm, persist) = make_sm_with_persist();
+    persist.insert(make_checkpoint("sess-3", Some("ou_bob".to_string())));
+    // Phase 1: No rules → Deny (user_defaults = all Deny)
+    let empty_rules: Vec<Rule> = vec![];
+    let flow1 = make_af_deny();
+    let deps1 = make_deps_with_shared_sm(empty_rules, sm.clone(), flow1);
+    let ctx = make_ctx_with_session("agent-a", "sess-3");
+    let result1 = check_tool_permission(&deps1, &ctx, "bash", "call").await;
+    assert!(result1.is_err(), "Phase 1: no rules → Deny");
+    // Phase 2: Write AgentOnly + UserAndAgent Allow rules for bob → Allowed
+    let rules_with_allow = vec![
+        Rule {
+            name: "agent-tool-allow".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "agent-a".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::ToolCall {
+                skill: "bash".to_string(),
+                methods: vec!["call".to_string()],
+            }],
+            template: None,
+            priority: 10,
+        },
+        Rule {
+            name: "bob-tool-allow".to_string(),
+            subject: Subject::UserAndAgent {
+                user_id: "ou_bob".to_string(),
+                agent: "agent-a".to_string(),
+                user_match: MatchType::Exact,
+                agent_match: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::ToolCall {
+                skill: "bash".to_string(),
+                methods: vec!["call".to_string()],
+            }],
+            template: None,
+            priority: 5,
+        },
+    ];
+    let flow2 = make_af();
+    let deps2 = make_deps_with_shared_sm(rules_with_allow, sm, flow2);
+    let result2 = check_tool_permission(&deps2, &ctx, "bash", "call").await;
+    match &result2 {
+        Ok(None) => {}
+        other => panic!("Phase 2: expected Ok(None), got: {:?}", other),
+    }
 }

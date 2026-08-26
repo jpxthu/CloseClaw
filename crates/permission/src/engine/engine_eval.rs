@@ -573,7 +573,7 @@ impl PermissionEngine {
             rules,
             user_agent_rule_index,
         );
-        let (user_result, user_only_matched) =
+        let user_result =
             self.match_rules_with_info(&user_candidates, rules, &caller, request.body());
 
         // Step 1.4: ConfigWrite Allowed → forced Denied (user phase)
@@ -598,6 +598,7 @@ impl PermissionEngine {
         };
 
         // Step 3: Merge results (two-phase logic)
+        // Both Agent and User dimensions must Allow for the request to be permitted.
         let response = match (agent_result, user_result) {
             (Some(PermissionResponse::Denied { .. }), _) => PermissionResponse::Denied {
                 reason: "action denied by agent rule".to_string(),
@@ -621,14 +622,6 @@ impl PermissionEngine {
             // Agent allowed, no user rule → agent result wins
             // (when user_id is empty, user phase is effectively skipped)
             (Some(PermissionResponse::Allowed { .. }), None) if caller.user_id.is_empty() => {
-                PermissionResponse::Allowed {
-                    token: generate_token(),
-                    context_modifier: None,
-                }
-            }
-            // No agent rule, but UserOnly rule allowed → user-only allow is sufficient
-            // (UserAndAgent Allow without Agent Allow falls through to defaults → Denied)
-            (None, Some(PermissionResponse::Allowed { .. })) if user_only_matched => {
                 PermissionResponse::Allowed {
                     token: generate_token(),
                     context_modifier: None,
@@ -786,25 +779,22 @@ impl PermissionEngine {
         caller: &super::engine_types::Caller,
         request_body: &PermissionRequestBody,
     ) -> Option<PermissionResponse> {
-        let (result, _user_only) =
-            self.match_rules_with_info(candidates, rules, caller, request_body);
-        result
+        self.match_rules_with_info(candidates, rules, caller, request_body)
     }
 
-    /// Like [`match_rules`] but also returns whether the Allow came from a
-    /// UserOnly rule (needed for two-phase merge: UserOnly Allow alone is
-    /// sufficient, whereas UserAndAgent Allow requires Agent phase agreement).
+    /// Evaluate candidate rules against a request body.
+    ///
+    /// Returns the first matching Allow or Deny response (deny-precedence).
     pub(crate) fn match_rules_with_info(
         &self,
         candidates: &[usize],
         rules: &RuleSet,
         caller: &super::engine_types::Caller,
         request_body: &PermissionRequestBody,
-    ) -> (Option<PermissionResponse>, bool) {
+    ) -> Option<PermissionResponse> {
         let (expanded_rules, expanded_indices) = self.expand_templates_sync(candidates, rules);
 
         let mut matching_rule_name: Option<String> = None;
-        let mut user_only_matched = false;
         for &rule_idx in &expanded_indices {
             let rule = &expanded_rules[rule_idx];
 
@@ -816,9 +806,6 @@ impl PermissionEngine {
             }
 
             matching_rule_name = Some(rule.name.clone());
-            if rule.subject.is_user_only() {
-                user_only_matched = true;
-            }
 
             if rule.effect == Effect::Deny {
                 let reason = format!("action denied by rule '{}'", rule.name);
@@ -828,15 +815,12 @@ impl PermissionEngine {
                     rule = %rule.name,
                     "permission check completed"
                 );
-                return (
-                    Some(PermissionResponse::Denied {
-                        reason,
-                        rule: rule.name.clone(),
-                        risk_level: assess_risk_level(request_body),
-                        approval_request_id: None,
-                    }),
-                    user_only_matched,
-                );
+                return Some(PermissionResponse::Denied {
+                    reason,
+                    rule: rule.name.clone(),
+                    risk_level: assess_risk_level(request_body),
+                    approval_request_id: None,
+                });
             }
         }
 
@@ -847,15 +831,12 @@ impl PermissionEngine {
                 reason = "matched_rule",
                 "permission check completed"
             );
-            return (
-                Some(PermissionResponse::Allowed {
-                    token: generate_token(),
-                    context_modifier: None,
-                }),
-                user_only_matched,
-            );
+            return Some(PermissionResponse::Allowed {
+                token: generate_token(),
+                context_modifier: None,
+            });
         }
-        (None, false)
+        None
     }
 }
 
