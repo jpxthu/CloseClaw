@@ -123,9 +123,9 @@
     "path": "docs/design/daemon/README.md",
     "commit": "014a4db7f19fab35249c3a77f3c71aa744ddb9d8",
     "commit_time": "2026-08-24T09:48:26+08:00",
-    "confirmed_time": "2026-08-24T10:02:42.395846+08:00",
+    "confirmed_time": "2026-08-26T08:07:48.711741+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "shutdown.md Phase 3 后台任务停止列表存在文档内部矛盾：README.md 启动表正式定义 AnnounceSweeper 为层3后台任务（依赖 Storage + SessionConfigProvider），但 shutdown.md 的 Phase 3 明细列表及模块关系节均未包含其停止逻辑；且概述节「ArchiveSweeper、Config Hot Reload、DreamingScheduler 等」带等字与 Phase 3 穷举式口吻（验证所有后台任务线程已退出）口径不一；PlanArchiveTask/SkillWatcher 亦未记录。需 Owner 厘清后台任务完整清单后解除阻塞。"
   },
   {
     "path": "docs/design/daemon/shutdown.md",
