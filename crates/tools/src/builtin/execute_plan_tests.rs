@@ -1,14 +1,14 @@
 //! Tests for ExecutePlanTool.
 //!
-//! Covers: tool metadata, error paths (missing session_id, non-Plan Mode,
-//! missing plan state), and the happy path (returns approval_pending).
+//! Covers: tool metadata, error paths (missing session_id, missing plan
+//! info), and the approval_pending happy path.
 //!
 //! Note: Full happy-path testing (plan state + confirmed status → approval)
 //! requires a persistence backend to store plan_state, which is not available
 //! in unit tests. The error paths verify the tool's validation logic covers
 //! the dimensions specified in the plan.
 
-use crate::{Tool, ToolCallError, ToolContext};
+use crate::{Tool, ToolCallError, ToolContext, WorkdirContext};
 use closeclaw_common::SessionMode;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
@@ -16,6 +16,7 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tempfile::TempDir;
 use tokio::sync::Mutex as TokioMutex;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -24,6 +25,23 @@ fn make_ctx(session_id: Option<&str>) -> ToolContext {
     ToolContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
+        session_id: session_id.map(|s| s.to_string()),
+        call_id: None,
+        session: None,
+        session_mode: None,
+        manual_background_signal: None,
+    }
+}
+
+fn make_ctx_with_workdir(session_id: Option<&str>, workdir: &std::path::Path) -> ToolContext {
+    ToolContext {
+        agent_id: "test-agent".to_string(),
+        workdir: Some(WorkdirContext {
+            path: workdir.to_string_lossy().into_owned(),
+            has_git: false,
+            branch: None,
+            recent_changes: 0,
+        }),
         session_id: session_id.map(|s| s.to_string()),
         call_id: None,
         session: None,
@@ -57,7 +75,6 @@ async fn make_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
 
 /// Register a ConversationSession in the SessionManager.
 async fn register_session(sm: &SessionManager, session_id: &str, mode: SessionMode) {
-    use std::path::PathBuf;
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_owned(),
         "test-model".to_owned(),
@@ -76,6 +93,15 @@ fn make_tool(
     af: Arc<TokioMutex<ApprovalFlow>>,
 ) -> crate::builtin::execute_plan::ExecutePlanTool {
     crate::builtin::execute_plan::ExecutePlanTool::new(sm, af)
+}
+
+/// Create a temp workspace with a plan file so resolve_plan_by_name succeeds.
+fn setup_workspace_with_plan() -> (TempDir, String) {
+    let tmp = TempDir::new().unwrap();
+    let plans_dir = tmp.path().join("plans");
+    std::fs::create_dir_all(&plans_dir).unwrap();
+    std::fs::write(plans_dir.join("my-plan.md"), "# Plan\n\n- [ ] step1\n").unwrap();
+    (tmp, "my-plan".to_string())
 }
 
 // ── Tool metadata tests ─────────────────────────────────────────────────────
@@ -206,37 +232,16 @@ async fn test_call_without_session_id() {
 }
 
 #[tokio::test]
-async fn test_call_not_in_plan_mode() {
+async fn test_call_no_plan_info_returns_error() {
     let sm = make_session_manager();
-    register_session(&sm, "sess-auto", SessionMode::Auto).await;
+    register_session(&sm, "sess-normal", SessionMode::Normal).await;
 
     let af = make_approval_flow().await;
     let tool = make_tool(sm, af);
-    let ctx = make_ctx(Some("sess-auto"));
+    let ctx = make_ctx(Some("sess-normal"));
 
-    let result = tool.call(json!({}), &ctx).await;
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        ToolCallError::InvalidArgs(msg) => {
-            assert!(
-                msg.contains("Plan Mode"),
-                "error should mention Plan Mode: {msg}"
-            );
-        }
-        other => panic!("expected InvalidArgs, got: {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_call_plan_mode_no_plan_state() {
-    let sm = make_session_manager();
-    register_session(&sm, "sess-plan", SessionMode::Plan).await;
-
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
-    let ctx = make_ctx(Some("sess-plan"));
-
-    // No plan state (storage is None) → error
+    // No plan_name, no plan_file_path, no plan state → fallback
+    // load_plan_state fails → error
     let result = tool.call(json!({}), &ctx).await;
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -251,7 +256,7 @@ async fn test_call_plan_mode_no_plan_state() {
 }
 
 #[tokio::test]
-async fn test_call_plan_mode_with_plan_file_path_still_needs_plan_state() {
+async fn test_call_with_plan_file_path_bypasses_plan_state() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-file", SessionMode::Plan).await;
 
@@ -259,7 +264,8 @@ async fn test_call_plan_mode_with_plan_file_path_still_needs_plan_state() {
     let tool = make_tool(sm, af);
     let ctx = make_ctx(Some("sess-plan-file"));
 
-    // Even with explicit plan_file_path, plan_state is checked first
+    // plan_file_path provided → plan_state check is skipped,
+    // file does not exist → file-not-found error
     let result = tool
         .call(json!({"plan_file_path": "/some/path.md"}), &ctx)
         .await;
@@ -267,8 +273,8 @@ async fn test_call_plan_mode_with_plan_file_path_still_needs_plan_state() {
     match result.unwrap_err() {
         ToolCallError::InvalidArgs(msg) => {
             assert!(
-                msg.contains("活跃的 plan"),
-                "error should mention missing plan: {msg}"
+                msg.contains("plan 文件不存在"),
+                "error should mention file not found: {msg}"
             );
         }
         other => panic!("expected InvalidArgs, got: {other:?}"),
@@ -284,7 +290,7 @@ async fn test_call_with_step_selection_parses_correctly() {
     let tool = make_tool(sm, af);
     let ctx = make_ctx(Some("sess-plan-steps"));
 
-    // Step selection is parsed but plan state check fails first
+    // No plan_name/plan_file_path → fallback load_plan_state → error
     let result = tool.call(json!({"step_selection": [0, 1, 2]}), &ctx).await;
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -307,6 +313,7 @@ async fn test_call_with_new_session_flag() {
     let tool = make_tool(sm, af);
     let ctx = make_ctx(Some("sess-plan-newsess"));
 
+    // No plan_name/plan_file_path → fallback load_plan_state → error
     let result = tool.call(json!({"new_session": true}), &ctx).await;
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -323,7 +330,7 @@ async fn test_call_with_new_session_flag() {
 // ── Step 1.4: plan_name and additional_instruction argument tests ────────
 
 #[tokio::test]
-async fn test_call_with_plan_name_and_additional_instruction() {
+async fn test_call_plan_name_resolves_by_name_not_plan_state() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-name", SessionMode::Plan).await;
 
@@ -331,7 +338,8 @@ async fn test_call_with_plan_name_and_additional_instruction() {
     let tool = make_tool(sm, af);
     let ctx = make_ctx(Some("sess-plan-name"));
 
-    // plan_name + additional_instruction both provided, but no plan state → error
+    // plan_name provided → plan_state check skipped,
+    // plan file not found → "未找到名为" error
     let result = tool
         .call(
             json!({
@@ -345,8 +353,8 @@ async fn test_call_with_plan_name_and_additional_instruction() {
     match result.unwrap_err() {
         ToolCallError::InvalidArgs(msg) => {
             assert!(
-                msg.contains("活跃的 plan"),
-                "error should mention missing plan: {msg}"
+                msg.contains("未找到名为"),
+                "error should mention plan not found: {msg}"
             );
         }
         other => panic!("expected InvalidArgs, got: {other:?}"),
@@ -354,7 +362,7 @@ async fn test_call_with_plan_name_and_additional_instruction() {
 }
 
 #[tokio::test]
-async fn test_call_plan_name_and_instruction_with_missing_plan() {
+async fn test_call_plan_name_with_additional_instruction_not_found() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-missing", SessionMode::Plan).await;
 
@@ -362,7 +370,7 @@ async fn test_call_plan_name_and_instruction_with_missing_plan() {
     let tool = make_tool(sm, af);
     let ctx = make_ctx(Some("sess-plan-missing"));
 
-    // Both plan_name and additional_instruction provided but no plan state → error
+    // plan_name + additional_instruction provided but plan file not found
     let result = tool
         .call(
             json!({
@@ -376,8 +384,8 @@ async fn test_call_plan_name_and_instruction_with_missing_plan() {
     match result.unwrap_err() {
         ToolCallError::InvalidArgs(msg) => {
             assert!(
-                msg.contains("活跃的 plan"),
-                "error should mention missing plan: {msg}"
+                msg.contains("未找到名为 'my-plan'"),
+                "error should mention plan name: {msg}"
             );
         }
         other => panic!("expected InvalidArgs, got: {other:?}"),
@@ -393,7 +401,8 @@ async fn test_call_empty_additional_instruction_filtered() {
     let tool = make_tool(sm, af);
     let ctx = make_ctx(Some("sess-plan-empty-ai"));
 
-    // Empty additional_instruction should be treated as absent
+    // Empty additional_instruction treated as absent → no plan_name/plan_file_path
+    // → fallback load_plan_state → error
     let result = tool
         .call(
             json!({
@@ -403,7 +412,6 @@ async fn test_call_empty_additional_instruction_filtered() {
         )
         .await;
     assert!(result.is_err());
-    // Still fails because no plan state, but the empty instruction is filtered
     match result.unwrap_err() {
         ToolCallError::InvalidArgs(msg) => {
             assert!(msg.contains("活跃的 plan"), "got: {msg}");
@@ -421,7 +429,8 @@ async fn test_call_empty_plan_name_filtered() {
     let tool = make_tool(sm, af);
     let ctx = make_ctx(Some("sess-plan-empty-pn"));
 
-    // Empty plan_name should be filtered out
+    // Empty plan_name filtered → no plan_name/plan_file_path → fallback
+    // load_plan_state → error
     let result = tool
         .call(
             json!({
@@ -434,6 +443,69 @@ async fn test_call_empty_plan_name_filtered() {
     match result.unwrap_err() {
         ToolCallError::InvalidArgs(msg) => {
             assert!(msg.contains("活跃的 plan"), "got: {msg}");
+        }
+        other => panic!("expected InvalidArgs, got: {other:?}"),
+    }
+}
+
+// ── Step 1.2: Any-mode execution tests ──────────────────────────────────
+
+#[tokio::test]
+async fn test_call_normal_mode_with_plan_name() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-normal-plan", SessionMode::Normal).await;
+
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+
+    let (tmp, plan_name) = setup_workspace_with_plan();
+    let ctx = make_ctx_with_workdir(Some("sess-normal-plan"), tmp.path());
+
+    // Normal mode + plan_name + plan file exists → approval_pending
+    let result = tool.call(json!({"plan_name": &plan_name}), &ctx).await;
+    assert!(result.is_ok(), "should succeed with valid plan_name");
+    let tr = result.unwrap();
+    assert_eq!(tr.data["status"], "approval_pending");
+    assert!(tr.data.get("request_id").is_some());
+}
+
+#[tokio::test]
+async fn test_call_auto_mode_with_plan_name() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-auto-plan", SessionMode::Auto).await;
+
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+
+    let (tmp, plan_name) = setup_workspace_with_plan();
+    let ctx = make_ctx_with_workdir(Some("sess-auto-plan"), tmp.path());
+
+    // Auto mode + plan_name + plan file exists → approval_pending
+    let result = tool.call(json!({"plan_name": &plan_name}), &ctx).await;
+    assert!(result.is_ok(), "should succeed with valid plan_name");
+    let tr = result.unwrap();
+    assert_eq!(tr.data["status"], "approval_pending");
+    assert!(tr.data.get("request_id").is_some());
+}
+
+#[tokio::test]
+async fn test_call_plan_mode_no_plan_info_returns_error() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-plan", SessionMode::Plan).await;
+
+    let af = make_approval_flow().await;
+    let tool = make_tool(sm, af);
+    let ctx = make_ctx(Some("sess-plan"));
+
+    // Plan mode, no plan_name/plan_file_path, no plan state → error
+    let result = tool.call(json!({}), &ctx).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ToolCallError::InvalidArgs(msg) => {
+            assert!(
+                msg.contains("活跃的 plan"),
+                "error should mention missing plan: {msg}"
+            );
         }
         other => panic!("expected InvalidArgs, got: {other:?}"),
     }

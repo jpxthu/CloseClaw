@@ -558,6 +558,7 @@ fn make_agent_config(
         memory: MemoryConfig::default(),
         hooks: Vec::new(),
         parallel_tool_calls: true,
+        memory_configured: false,
         source: ConfigSource::User,
     }
 }
