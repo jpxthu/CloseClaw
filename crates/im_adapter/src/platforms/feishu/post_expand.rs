@@ -51,6 +51,7 @@ pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
 /// - `file` → `[文件]`
 /// - `emoji` → `[emoji_type]` placeholder
 /// - `code_block`, `inline_code` → fenced / inline code
+/// - `quote` → recursively expanded, rendered as markdown blockquote (`> ` prefix per line)
 /// - unknown tags → text if available, otherwise `[未知消息]`
 pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
     let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
@@ -114,6 +115,30 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
         "code" | "inline_code" => {
             let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
             format!("`{}`", text)
+        }
+        "quote" => {
+            let inner = if let Some(elements) = elem.get("elements") {
+                // Flat element array: expand each and join.
+                elements
+                    .as_array()
+                    .map(|arr| arr.iter().map(expand_element).collect::<Vec<_>>().join(""))
+                    .unwrap_or_default()
+            } else if let Some(content) = elem.get("content") {
+                // 2D content array: reuse expand_post_content for nested rows.
+                let wrapper = serde_json::json!({"content": content});
+                expand_post_content(&wrapper)
+            } else {
+                String::new()
+            };
+            if inner.is_empty() {
+                String::new()
+            } else {
+                inner
+                    .lines()
+                    .map(|line| format!("> {}", line))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
         }
         _ => {
             let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
