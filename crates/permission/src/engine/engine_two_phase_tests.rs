@@ -598,6 +598,154 @@ fn test_non_owner_no_rules_file_command_deny() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Step 1.3: UserOnly intersection boundary tests
+// ---------------------------------------------------------------------------
+
+/// UserOnly Allow + no Agent rules → Denied (default all Deny).
+/// Boundary: User phase Allow without Agent phase Allow is not sufficient.
+#[test]
+fn test_user_only_allow_no_agent_rules_denied() {
+    let rules = vec![Rule {
+        name: "user-only-read-allow".to_string(),
+        subject: Subject::UserOnly {
+            user_id: "alice".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![super::engine_types::Action::File {
+            operation: "read".to_string(),
+            paths: vec!["/data/**".to_string()],
+        }],
+        template: None,
+        priority: 10,
+    }];
+    let engine = make_ruleset(Effect::Deny, rules);
+    // User phase: UserOnly Allow → Some(Allowed)
+    // Agent phase: no match → None
+    // Intersection: (None, Some(Allowed)) → falls to defaults → user_defaults → Denied
+    let resp = engine.evaluate(file_request("any-agent", "/data/file.txt", "alice"), None);
+    assert!(
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "UserOnly Allow without Agent Allow should be Denied, got: {:?}",
+        resp
+    );
+}
+
+/// UserOnly Deny + AgentOnly Allow → Denied (any Deny → Deny).
+/// Cross verification: User phase Deny overrides Agent phase Allow.
+#[test]
+fn test_user_only_deny_agent_allow_denied() {
+    let rules = vec![
+        Rule {
+            name: "agent-read-allow".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 10,
+        },
+        Rule {
+            name: "user-read-deny".to_string(),
+            subject: Subject::UserOnly {
+                user_id: "alice".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Deny,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 5,
+        },
+    ];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "alice"), None);
+    assert!(
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "UserOnly Deny should override Agent Allow → Denied, got: {:?}",
+        resp
+    );
+}
+
+/// Owner (user_id = "owner") + UserOnly rule → exempt User dimension.
+/// Owner shortcut skips User phase; only Agent dimension matters.
+#[test]
+fn test_owner_user_only_rule_exempt_user_dimension() {
+    let rules = vec![
+        Rule {
+            name: "agent-read-allow".to_string(),
+            subject: Subject::AgentOnly {
+                agent: "test-agent".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Allow,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 10,
+        },
+        Rule {
+            name: "user-read-deny".to_string(),
+            subject: Subject::UserOnly {
+                user_id: "owner".to_string(),
+                match_type: MatchType::Exact,
+            },
+            effect: Effect::Deny,
+            actions: vec![super::engine_types::Action::File {
+                operation: "read".to_string(),
+                paths: vec!["/data/**".to_string()],
+            }],
+            template: None,
+            priority: 5,
+        },
+    ];
+    let engine = make_ruleset(Effect::Deny, rules);
+    // Owner: Agent Allow → Allowed (User phase skipped)
+    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "owner"), None);
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Owner with Agent Allow should be Allowed (User phase skipped), got: {:?}",
+        resp
+    );
+}
+
+/// Empty user_id + Agent Allow → Allowed (no user phase evaluation).
+/// Regression: empty user_id means User phase is skipped, Agent result wins.
+#[test]
+fn test_empty_user_id_agent_allow_allowed() {
+    let rules = vec![Rule {
+        name: "agent-read-allow".to_string(),
+        subject: Subject::AgentOnly {
+            agent: "test-agent".to_string(),
+            match_type: MatchType::Exact,
+        },
+        effect: Effect::Allow,
+        actions: vec![super::engine_types::Action::File {
+            operation: "read".to_string(),
+            paths: vec!["/data/**".to_string()],
+        }],
+        template: None,
+        priority: 10,
+    }];
+    let engine = make_ruleset(Effect::Deny, rules);
+    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", ""), None);
+    assert!(
+        matches!(resp, PermissionResponse::Allowed { .. }),
+        "Empty user_id + Agent Allow should be Allowed, got: {:?}",
+        resp
+    );
+}
+
 /// RuleSet deserialization without user_defaults field → auto-fills all Deny.
 #[test]
 fn test_ruleset_deserialize_without_user_defaults() {
