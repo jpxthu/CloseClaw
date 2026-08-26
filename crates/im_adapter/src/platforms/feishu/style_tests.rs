@@ -297,3 +297,78 @@ fn test_inline_code_mixed_with_text_elements() {
     let result = expand_post_content(&post);
     assert_eq!(result, "use `println!` to print");
 }
+
+// ================================================================
+// code_block with language marker
+// ================================================================
+
+#[test]
+fn test_code_block_with_language() {
+    let elem = serde_json::json!({
+        "tag": "code_block",
+        "text": "fn main() {}",
+        "language": "rust"
+    });
+    assert_eq!(expand_element(&elem), "```rust\nfn main() {}\n```");
+}
+
+#[test]
+fn test_code_block_empty_language() {
+    let elem = serde_json::json!({
+        "tag": "code_block",
+        "text": "fn main() {}",
+        "language": ""
+    });
+    assert_eq!(expand_element(&elem), "```\nfn main() {}\n```");
+}
+
+#[test]
+fn test_code_block_empty_text_with_language() {
+    let elem = serde_json::json!({
+        "tag": "code_block",
+        "text": "",
+        "language": "rust"
+    });
+    assert_eq!(expand_element(&elem), "```rust\n```");
+}
+
+// ================================================================
+// quote block expansion
+// ================================================================
+
+#[test]
+fn test_quote_basic() {
+    let elem = serde_json::json!({
+        "tag": "quote",
+        "elements": [{"tag": "text", "text": "hello world"}]
+    });
+    assert_eq!(expand_element(&elem), "> hello world");
+}
+
+#[test]
+fn test_quote_multiline() {
+    let elem = serde_json::json!({
+        "tag": "quote",
+        "content": [[{"tag": "text", "text": "line one"}], [{"tag": "text", "text": "line two"}]]
+    });
+    assert_eq!(expand_element(&elem), "> line one\n> line two");
+}
+
+#[test]
+fn test_quote_with_styles() {
+    let elem = serde_json::json!({
+        "tag": "quote",
+        "elements": [
+            {"tag": "text_run", "text": "bold", "style": {"bold": true}},
+            {"tag": "text", "text": " and "},
+            {"tag": "text_run", "text": "italic", "style": {"italic": true}}
+        ]
+    });
+    assert_eq!(expand_element(&elem), "> **bold** and _italic_");
+}
+
+#[test]
+fn test_quote_empty() {
+    let elem = serde_json::json!({"tag": "quote"});
+    assert_eq!(expand_element(&elem), "");
+}
