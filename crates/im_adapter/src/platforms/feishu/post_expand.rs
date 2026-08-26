@@ -101,14 +101,14 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
                 .get("language")
                 .and_then(|l| l.as_str())
                 .filter(|s| !s.is_empty());
-            let fence = match lang {
+            let opening = match lang {
                 Some(l) => format!("```{}", l),
                 None => "```".to_string(),
             };
             if text.is_empty() {
-                format!("{}\n{}", fence, fence)
+                format!("{}\n```", opening)
             } else {
-                format!("{}\n{}\n{}", fence, text, fence)
+                format!("{}\n{}\n```", opening, text)
             }
         }
         "code" | "inline_code" => {
