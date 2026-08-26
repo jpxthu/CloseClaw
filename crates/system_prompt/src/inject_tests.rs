@@ -181,6 +181,85 @@ fn test_plan_mode_auto_analysis_ambiguous_input() {
     assert!(!rendered.contains("Phase 1: Initial Understanding"));
 }
 
+// ── Path selection rules injection tests ───────────────────────────────────
+
+/// Plan Mode with no explicit path and no user input includes path selection rules.
+/// Agent should decide which path to follow based on the task description.
+#[test]
+fn test_plan_mode_no_explicit_path_includes_path_selection_rules() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_instruction")
+        .unwrap()
+        .render();
+    // Should contain path selection rules
+    assert!(
+        rendered.contains("Decide which planning path to follow"),
+        "Plan Mode with no explicit path should include path selection rules"
+    );
+    assert!(rendered.contains("Standard 4-phase workflow"));
+    assert!(rendered.contains("Interview (iterative) workflow"));
+    // Should also contain both paths (standard and interview)
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("pair-planning"));
+}
+
+/// Plan Mode with explicit Standard path does NOT include path selection rules.
+/// Only the standard path content should be injected.
+#[test]
+fn test_plan_mode_explicit_standard_path_no_path_selection_rules() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Standard),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_instruction")
+        .unwrap()
+        .render();
+    // Should NOT contain path selection rules
+    assert!(
+        !rendered.contains("Decide which planning path to follow"),
+        "Explicit Standard path should NOT include path selection rules"
+    );
+    // Should contain standard path content
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 4: Final Plan"));
+    // Should NOT contain interview content
+    assert!(!rendered.contains("pair-planning"));
+    assert!(!rendered.contains("The Loop"));
+}
+
+/// Plan Mode with explicit Interview path does NOT include path selection rules.
+/// Only the interview path content should be injected.
+#[test]
+fn test_plan_mode_explicit_interview_path_no_path_selection_rules() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        explicit_plan_path: Some(PlanPath::Interview),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    let rendered = sections
+        .iter()
+        .find(|s| s.name() == "mode_instruction")
+        .unwrap()
+        .render();
+    // Should NOT contain path selection rules
+    assert!(
+        !rendered.contains("Decide which planning path to follow"),
+        "Explicit Interview path should NOT include path selection rules"
+    );
+    // Should contain interview content
+    assert!(rendered.contains("pair-planning"));
+    assert!(rendered.contains("The Loop"));
+    // Should NOT contain standard path content
+    assert!(!rendered.contains("Phase 1: Initial Understanding"));
+    assert!(!rendered.contains("Phase 4: Final Plan"));
+}
+
 // ── ChannelContext chat_name tests ────────────────────────────────────────────
 
 /// ChannelContext must render the actual chat_name from metadata,
