@@ -225,7 +225,10 @@ async fn test_list_plans_single_plan() {
             assert!(text.contains("1 个 plan"), "got: {text}");
             assert!(text.contains("alpha"), "should show stem");
             assert!(text.contains("Alpha Feature"), "should show title");
-            assert!(text.contains("1/2"), "should show completion 1/2");
+            assert!(
+                text.contains("1/2 完成"),
+                "should show 1/2 完成, got: {text}"
+            );
         }
         other => panic!("expected Reply, got {other:?}"),
     }
@@ -277,8 +280,22 @@ async fn test_list_plans_shows_completion_counts() {
     let ctx = dummy_ctx();
     match h.handle("", &ctx).await {
         SlashResult::Reply(text) => {
-            assert!(text.contains("3/4"), "plan-a should show 3/4");
-            assert!(text.contains("0/1"), "plan-b should show 0/1");
+            assert!(
+                text.contains("1/4 完成"),
+                "plan-a should show 1/4 完成, got: {text}"
+            );
+            assert!(
+                text.contains("1 失败"),
+                "plan-a should show 1 失败, got: {text}"
+            );
+            assert!(
+                text.contains("1 已跳过"),
+                "plan-a should show 1 已跳过, got: {text}"
+            );
+            assert!(
+                text.contains("0/1 完成"),
+                "plan-b should show 0/1 完成, got: {text}"
+            );
         }
         other => panic!("expected Reply, got {other:?}"),
     }
