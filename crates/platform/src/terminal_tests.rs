@@ -1,6 +1,6 @@
 use crate::terminal::{
     current_uid, detect, detect_with_size, is_terminal, resolve_terminal_width, supports_ansi,
-    TerminalInfo,
+    supports_ansi_inner, TerminalInfo,
 };
 
 // ── TerminalInfo derive trait tests ───────────────────────────────
@@ -156,6 +156,73 @@ fn test_supports_ansi_returns_bool() {
 #[test]
 fn test_supports_ansi_no_dumb_term() {
     let _ = supports_ansi();
+}
+
+/// Empty TERM string should not match any ANSI pattern.
+#[test]
+fn test_supports_ansi_inner_empty_term() {
+    assert!(
+        !supports_ansi_inner(Some("")),
+        "empty TERM should not support ANSI"
+    );
+}
+
+/// "xterm-256color" contains "xterm" → should be recognized.
+#[test]
+fn test_supports_ansi_inner_xterm_256color() {
+    assert!(
+        supports_ansi_inner(Some("xterm-256color")),
+        "xterm-256color should support ANSI"
+    );
+}
+
+/// "dumb" TERM should not be recognized as ANSI-capable.
+#[test]
+fn test_supports_ansi_inner_dumb_term() {
+    assert!(
+        !supports_ansi_inner(Some("dumb")),
+        "dumb TERM should not support ANSI"
+    );
+}
+
+/// Unset TERM should not support ANSI.
+#[test]
+fn test_supports_ansi_inner_unset_term() {
+    assert!(
+        !supports_ansi_inner(None),
+        "unset TERM should not support ANSI"
+    );
+}
+
+/// Case-insensitive: "XTERM" should be recognized.
+#[test]
+fn test_supports_ansi_inner_case_insensitive() {
+    assert!(
+        supports_ansi_inner(Some("XTERM")),
+        "uppercase XTERM should support ANSI"
+    );
+    assert!(
+        supports_ansi_inner(Some("Screen")),
+        "mixed-case Screen should support ANSI"
+    );
+}
+
+/// "screen-256color" contains "screen" → should be recognized.
+#[test]
+fn test_supports_ansi_inner_screen_color() {
+    assert!(
+        supports_ansi_inner(Some("screen-256color")),
+        "screen-256color should support ANSI"
+    );
+}
+
+/// "vt100" should be recognized.
+#[test]
+fn test_supports_ansi_inner_vt100() {
+    assert!(
+        supports_ansi_inner(Some("vt100")),
+        "vt100 should support ANSI"
+    );
 }
 
 #[test]

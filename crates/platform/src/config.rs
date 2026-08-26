@@ -1,10 +1,8 @@
 //! Configuration directory resolution.
 //!
-//! Returns the platform-appropriate root and config directories for CloseClaw.
+//! Returns the root and config directories for CloseClaw.
 //! - Root: `~/.closeclaw` (PID files, agents/, templates/, skills/, etc.)
 //! - Config: `~/.closeclaw/config` (JSON config files: models.json, channels.json, etc.)
-//!
-//! Windows equivalents: `%APPDATA%\closeclaw` and `%APPDATA%\closeclaw\config`.
 //!
 //! Both [`root_dir`] and [`config_dir`] guarantee the returned directory exists
 //! on disk (created via `create_dir_all`), so callers never need to create them.
@@ -15,23 +13,13 @@ use anyhow::Context;
 
 // ── Path computation (platform-specific env var, suffix) ──────────
 
-/// Returns the env var name used to locate the user's base directory.
-#[cfg(unix)]
+/// Returns the env var name used to locate the user's home directory.
 fn home_env_var_name() -> &'static str {
     "HOME"
 }
 
-#[cfg(not(unix))]
-fn home_env_var_name() -> &'static str {
-    "APPDATA"
-}
-
-/// The platform-specific directory name under the user's home.
-#[cfg(unix)]
+/// The directory name under the user's home.
 const DIR_NAME: &str = ".closeclaw";
-
-#[cfg(not(unix))]
-const DIR_NAME: &str = "closeclaw";
 
 /// Computes the root CloseClaw path under the given home directory.
 ///
@@ -73,21 +61,18 @@ pub(crate) fn config_dir_inner(home: &str) -> anyhow::Result<PathBuf> {
 
 // ── Public API ────────────────────────────────────────────────────
 
-/// Returns the **root** CloseClaw directory for the current platform,
+/// Returns the **root** CloseClaw directory,
 /// creating it (and any parent directories) if it does not yet exist.
 ///
 /// This is the top-level directory that contains the `config/` subdirectory,
 /// `agents/`, `templates/`, `skills/`, PID files, and the admin socket.
-///
-/// - Linux/macOS: `~/.closeclaw`
-/// - Windows: `%APPDATA%\closeclaw`
 ///
 /// The directory is created idempotently — calling this function when the
 /// directory already exists is safe and has no side effects.
 ///
 /// # Errors
 ///
-/// Returns an error if the home directory / APPDATA cannot be determined,
+/// Returns an error if the `HOME` environment variable cannot be determined,
 /// or if the directory cannot be created (e.g. a parent path is a file
 /// instead of a directory).
 pub fn root_dir() -> anyhow::Result<PathBuf> {
@@ -96,21 +81,18 @@ pub fn root_dir() -> anyhow::Result<PathBuf> {
     root_dir_inner(&home)
 }
 
-/// Returns the **config** directory for the current platform,
+/// Returns the **config** directory,
 /// creating it (and any parent directories) if it does not yet exist.
 ///
 /// This is the subdirectory that contains JSON config files (models.json,
 /// channels.json, gateway.json, plugins.json, system.json).
-///
-/// - Linux/macOS: `~/.closeclaw/config`
-/// - Windows: `%APPDATA%\closeclaw\config`
 ///
 /// The directory is created idempotently — calling this function when the
 /// directory already exists is safe and has no side effects.
 ///
 /// # Errors
 ///
-/// Returns an error if the home directory / APPDATA cannot be determined,
+/// Returns an error if the `HOME` environment variable cannot be determined,
 /// or if the directory cannot be created (e.g. a parent path is a file
 /// instead of a directory).
 pub fn config_dir() -> anyhow::Result<PathBuf> {

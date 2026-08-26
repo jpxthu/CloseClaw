@@ -26,3 +26,5 @@ pub use stop::{handle_stop, handle_stop_at};
 
 #[cfg(test)]
 mod run_tests;
+#[cfg(test)]
+mod stop_tests;
