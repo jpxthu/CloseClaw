@@ -18,8 +18,12 @@ struct SimpleHandler {
 }
 #[async_trait::async_trait]
 impl SlashHandler for SimpleHandler {
-    #[rustfmt::skip]
-    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(SimpleHandler { command: self.command, requires_permission: self.requires_permission }) }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(SimpleHandler {
+            command: self.command,
+            requires_permission: self.requires_permission,
+        })
+    }
 
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
@@ -41,8 +45,13 @@ struct CountingHandler {
 }
 #[async_trait::async_trait]
 impl SlashHandler for CountingHandler {
-    #[rustfmt::skip]
-    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(CountingHandler { command: self.command, requires_permission: self.requires_permission, counter: Arc::clone(&self.counter) }) }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(CountingHandler {
+            command: self.command,
+            requires_permission: self.requires_permission,
+            counter: Arc::clone(&self.counter),
+        })
+    }
 
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
@@ -64,8 +73,12 @@ struct CapturingHandler {
 }
 #[async_trait::async_trait]
 impl SlashHandler for CapturingHandler {
-    #[rustfmt::skip]
-    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(CapturingHandler { command: self.command, last_ctx: Arc::clone(&self.last_ctx) }) }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(CapturingHandler {
+            command: self.command,
+            last_ctx: Arc::clone(&self.last_ctx),
+        })
+    }
 
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
@@ -84,7 +97,6 @@ impl SlashHandler for CapturingHandler {
     }
 }
 struct DefaultTestRouter;
-
 #[async_trait::async_trait]
 impl SlashRouter for DefaultTestRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
@@ -108,7 +120,6 @@ impl SlashRouter for DefaultTestRouter {
     }
 }
 struct EmptyRouter;
-
 #[async_trait::async_trait]
 impl SlashRouter for EmptyRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
@@ -126,7 +137,6 @@ struct CountingRouter {
     requires_permission: bool,
     counter: Arc<AtomicU32>,
 }
-
 #[async_trait::async_trait]
 impl SlashRouter for CountingRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
@@ -175,7 +185,6 @@ struct ImmediateCountingRouter {
     command: &'static str,
     counter: Arc<AtomicU32>,
 }
-
 #[async_trait::async_trait]
 impl SlashRouter for ImmediateCountingRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
@@ -195,7 +204,6 @@ impl SlashRouter for ImmediateCountingRouter {
         }
     }
 }
-
 fn clone_result(r: &SlashResult) -> SlashResult {
     match r {
         SlashResult::Reply(t) => SlashResult::Reply(t.clone()),
@@ -238,7 +246,6 @@ struct ResultRouter {
     result: SlashResult,
     requires_permission: bool,
 }
-
 #[async_trait::async_trait]
 impl SlashRouter for ResultRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
@@ -259,7 +266,6 @@ impl SlashRouter for ResultRouter {
         }
     }
 }
-
 fn make_gateway() -> Arc<Gateway> {
     let config = GatewayConfig {
         name: "test".to_owned(),
@@ -361,7 +367,6 @@ async fn test_slash_not_entering_agent_session() {
         .dispatch_slash("sess1", "/help", Some("user123"), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
-
     // Non-slash content returns None → falls through to agent session.
     let result = gw
         .dispatch_slash("sess1", "hello", Some("user123"), "feishu", Some("p"))
@@ -373,7 +378,6 @@ async fn test_unknown_slash_command_returns_reply() {
     let gw = make_gateway();
     // 空注册表——没有任何 handler
     gw.set_slash_dispatcher(Arc::new(EmptyRouter)).await;
-
     // 发送一个不存在的 slash 命令
     let result = gw
         .dispatch_slash(
@@ -399,7 +403,6 @@ async fn test_slash_context_channel_propagates() {
     let result = gw
         .dispatch_slash("sess42", "/help", Some("user123"), "telegram", Some("p"))
         .await;
-
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     let guard = last_ctx.lock().expect("ctx mutex poisoned");
     let captured = guard.as_ref().expect("handler was not invoked");
@@ -407,7 +410,6 @@ async fn test_slash_context_channel_propagates() {
     assert_eq!(captured.session_id, "sess42");
     assert_eq!(captured.sender_id, "user123");
 }
-
 // ===========================================================================
 // execute_and_route: SlashResult.execute() path tests
 // ===========================================================================
@@ -423,11 +425,14 @@ struct ImmediateCountingHandler {
     command: &'static str,
     counter: Arc<AtomicU32>,
 }
-
 #[async_trait::async_trait]
 impl SlashHandler for ImmediateCountingHandler {
-    #[rustfmt::skip]
-    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(ImmediateCountingHandler { command: self.command, counter: Arc::clone(&self.counter) }) }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(ImmediateCountingHandler {
+            command: self.command,
+            counter: Arc::clone(&self.counter),
+        })
+    }
 
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
@@ -456,11 +461,13 @@ struct ResultHandler {
     result: SlashResult,
     requires_permission: bool,
 }
-
 #[async_trait::async_trait]
 impl SlashHandler for ResultHandler {
-    #[rustfmt::skip]
-    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(ResultHandler { result: self.result }) }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(ResultHandler {
+            result: self.result,
+        })
+    }
 
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
@@ -517,7 +524,6 @@ async fn test_execute_route_system_append_variant() {
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
 }
-
 // ===========================================================================
 // Busy-queueing: non-immediate slash commands enqueued when session is busy
 // ===========================================================================
@@ -664,7 +670,6 @@ async fn test_non_immediate_idle_executes_normally() {
         "idle session must NOT enqueue"
     );
 }
-
 // ===========================================================================
 // Step 1.3: Permission denial reply text & edge-case tests
 // ===========================================================================
@@ -744,7 +749,6 @@ async fn test_permission_allow_after_deny_transition() {
         "handler must be invoked when permission engine allows"
     );
 }
-
 // ===========================================================================
 // Owner short-circuit path test
 // ===========================================================================
@@ -770,18 +774,17 @@ async fn test_owner_slash_direct_dispatch() {
         "owner should bypass permission engine and invoke handler"
     );
 }
-
 // ===========================================================================
 // Step 1.5: Exec.requires_permission bypass test
 // ===========================================================================
 /// Handler that returns `Exec { requires_permission: false }`,
 /// simulating a read-only git subcommand.
 struct ExecNoPermissionHandler;
-
 #[async_trait::async_trait]
 impl SlashHandler for ExecNoPermissionHandler {
-    #[rustfmt::skip]
-    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(ExecNoPermissionHandler) }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(ExecNoPermissionHandler)
+    }
 
     fn commands(&self) -> &[&str] {
         &["git"]
@@ -801,7 +804,6 @@ impl SlashHandler for ExecNoPermissionHandler {
 }
 
 struct ExecNoPermissionRouter;
-
 #[async_trait::async_trait]
 impl SlashRouter for ExecNoPermissionRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
@@ -844,7 +846,6 @@ async fn test_exec_no_permission_bypass() {
         "Exec with requires_permission: false should be dispatched without permission check"
     );
 }
-
 // ===========================================================================
 // Step 1.2: WorkdirHandler permission routing tests
 // ===========================================================================
@@ -861,11 +862,11 @@ async fn test_exec_no_permission_bypass() {
 
 /// WorkdirHandler mock: inspects git args to determine permission requirement.
 struct WorkdirHandler;
-
 #[async_trait::async_trait]
 impl SlashHandler for WorkdirHandler {
-    #[rustfmt::skip]
-    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(WorkdirHandler) }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(WorkdirHandler)
+    }
 
     fn commands(&self) -> &[&str] {
         &["git", "cd", "pwd"]
@@ -894,7 +895,6 @@ impl SlashHandler for WorkdirHandler {
         }
     }
 }
-
 struct WorkdirRouter;
 
 #[async_trait::async_trait]
