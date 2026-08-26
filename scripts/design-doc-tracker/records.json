@@ -457,9 +457,9 @@
   },
   {
     "path": "docs/design/processor_chain/dsl-parser.md",
-    "commit": "dbbce93bb83bc82c7e3ee69194f641b5134ef56c",
-    "commit_time": "2026-08-13T15:12:06+08:00",
-    "confirmed_time": "2026-08-13T15:32:40.047371+08:00",
+    "commit": "d61392538cf8493e867903b79a35bb3d10aa8f86",
+    "commit_time": "2026-08-27T00:54:17+08:00",
+    "confirmed_time": "2026-08-27T02:13:24.578161+08:00",
     "comment": "",
     "blocked_reason": ""
   },
