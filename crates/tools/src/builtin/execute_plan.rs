@@ -232,8 +232,13 @@ impl ExecutePlanTool {
             return resolve_plan_by_name(workdir, name)
                 .map(|p| p.to_string_lossy().into_owned())
                 .map_err(|e| match e {
-                    PlanResolveError::NotFound { name } => {
-                        ToolCallError::InvalidArgs(format!("未找到名为 '{}' 的 plan", name))
+                    PlanResolveError::NotFound { name: err_name } => {
+                        let display_name = if err_name.is_empty() {
+                            name.clone()
+                        } else {
+                            err_name
+                        };
+                        ToolCallError::InvalidArgs(format!("未找到名为 '{}' 的 plan", display_name))
                     }
                     PlanResolveError::Ambiguous { name, candidates } => ToolCallError::InvalidArgs(
                         format!("plan 名称 '{}' 歧义，候选：{}", name, candidates.join(", ")),
