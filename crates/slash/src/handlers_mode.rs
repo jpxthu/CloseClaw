@@ -159,22 +159,22 @@ pub(crate) fn parse_plan_path_arg(args: &str) -> (Option<PlanPath>, &str) {
 ///
 /// # Examples
 ///
-/// - `"foo bar baz"` → `(Some("foo"), Some("bar baz"))`
-/// - `"foo"` → `(Some("foo"), None)`
-/// - `""` → `(None, None)`
+/// - `"foo bar baz"` → `("foo", Some("bar baz"))`
+/// - `"foo"` → `("foo", None)`
+/// - `""` → `("", None)`
 ///
 /// The instruction preserves all whitespace after the first space,
 /// matching the doc spec: "空格后的内容".
-pub(crate) fn parse_execute_args(args: &str) -> (Option<String>, Option<String>) {
+pub(crate) fn parse_execute_args(args: &str) -> (String, Option<String>) {
     let trimmed = args.trim();
     if trimmed.is_empty() {
-        return (None, None);
+        return (String::new(), None);
     }
     match trimmed.split_once(char::is_whitespace) {
         Some((name, rest)) => {
             let instruction = rest.trim();
             (
-                Some(name.to_owned()),
+                name.to_owned(),
                 if instruction.is_empty() {
                     None
                 } else {
@@ -182,7 +182,7 @@ pub(crate) fn parse_execute_args(args: &str) -> (Option<String>, Option<String>)
                 },
             )
         }
-        None => (Some(trimmed.to_owned()), None),
+        None => (trimmed.to_owned(), None),
     }
 }
 
@@ -364,22 +364,18 @@ impl SlashHandler for ExecuteHandler {
         let (plan_name, instruction) = parse_execute_args(args);
         let workdir = self.session_manager.get_workdir(&ctx.session_id).await;
         let workdir_ref = workdir.as_deref();
+        let plan_name_opt = if plan_name.is_empty() {
+            None
+        } else {
+            Some(plan_name.as_str())
+        };
 
         if mode != SessionMode::Plan {
-            return self.handle_non_plan_mode(
-                plan_name.as_deref(),
-                workdir_ref,
-                instruction.as_deref(),
-            );
+            return self.handle_non_plan_mode(plan_name_opt, workdir_ref, instruction.as_deref());
         }
 
-        self.handle_plan_mode(
-            ctx,
-            plan_name.as_deref(),
-            workdir_ref,
-            instruction.as_deref(),
-        )
-        .await
+        self.handle_plan_mode(ctx, plan_name_opt, workdir_ref, instruction.as_deref())
+            .await
     }
 
     fn clone_box(&self) -> Box<dyn SlashHandler> {

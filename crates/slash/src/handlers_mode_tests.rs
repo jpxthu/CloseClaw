@@ -870,34 +870,33 @@ use crate::handlers_mode::parse_execute_args;
 
 #[test]
 fn test_parse_execute_args_all_cases() {
-    // Empty / whitespace-only → no name, no instruction
-    let (n, i) = parse_execute_args("");
-    assert!(n.is_none() && i.is_none());
+    // Empty / whitespace-only → empty name, no instruction
+    let (n, _i) = parse_execute_args("");
+    assert_eq!(n, "");
     let (n, i) = parse_execute_args("   ");
-    assert!(n.is_none() && i.is_none());
-    // Name only
-    let (n, i) = parse_execute_args("foo");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "");
     assert!(i.is_none());
+    let (n, _i) = parse_execute_args("foo");
+    assert_eq!(n, "foo");
     // Name + instruction
     let (n, i) = parse_execute_args("foo bar baz");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "foo");
     assert_eq!(i.as_deref(), Some("bar baz"));
     // Extra whitespace trimmed around name
     let (n, i) = parse_execute_args("  foo  bar baz  ");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "foo");
     assert_eq!(i.as_deref(), Some("bar baz"));
     // Whitespace-only instruction → None
     let (n, i) = parse_execute_args("foo   ");
-    assert_eq!(n.as_deref(), Some("foo"));
+    assert_eq!(n, "foo");
     assert!(i.is_none());
     // Name with .md suffix works
     let (n, i) = parse_execute_args("plan.md instruction");
-    assert_eq!(n.as_deref(), Some("plan.md"));
+    assert_eq!(n, "plan.md");
     assert_eq!(i.as_deref(), Some("instruction"));
     // Chinese name + instruction
     let (n, i) = parse_execute_args("修复登录 请优先处理");
-    assert_eq!(n.as_deref(), Some("修复登录"));
+    assert_eq!(n, "修复登录");
     assert_eq!(i.as_deref(), Some("请优先处理"));
 }
 
