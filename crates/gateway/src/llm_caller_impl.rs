@@ -205,10 +205,9 @@ mod tests {
                 &self,
                 _req: closeclaw_llm::types::InternalRequest,
                 _body: serde_json::Value,
-            ) -> closeclaw_llm::provider::Result<closeclaw_llm::types::InternalResponse>
-            {
+            ) -> closeclaw_llm::provider::Result<serde_json::Value> {
                 use closeclaw_llm::types::{RawContentBlock, RawUsage};
-                Ok(closeclaw_llm::types::InternalResponse {
+                let resp = closeclaw_llm::types::InternalResponse {
                     content_blocks: vec![RawContentBlock::Text("ok".to_string())],
                     usage: RawUsage {
                         prompt_tokens: 0,
@@ -219,7 +218,8 @@ mod tests {
                         reasoning_tokens: None,
                     },
                     finish_reason: None,
-                })
+                };
+                Ok(serde_json::to_value(&resp).unwrap())
             }
             async fn send_streaming(
                 &self,
@@ -385,10 +385,9 @@ mod tests {
                 &self,
                 _req: closeclaw_llm::types::InternalRequest,
                 _body: serde_json::Value,
-            ) -> closeclaw_llm::provider::Result<closeclaw_llm::types::InternalResponse>
-            {
+            ) -> closeclaw_llm::provider::Result<serde_json::Value> {
                 use closeclaw_llm::types::{RawContentBlock, RawUsage};
-                Ok(closeclaw_llm::types::InternalResponse {
+                let resp = closeclaw_llm::types::InternalResponse {
                     content_blocks: vec![RawContentBlock::Text("ok".to_string())],
                     usage: RawUsage {
                         prompt_tokens: 0,
@@ -399,7 +398,8 @@ mod tests {
                         reasoning_tokens: None,
                     },
                     finish_reason: None,
-                })
+                };
+                Ok(serde_json::to_value(&resp).unwrap())
             }
             async fn send_streaming(
                 &self,

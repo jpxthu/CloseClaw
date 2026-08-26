@@ -556,6 +556,34 @@ impl Gateway {
             return None;
         }
 
+        // ── Extract content early for size check and downstream use ─
+        let content = processed.text_content().unwrap_or("").to_string();
+
+        // ── max_message_size enforcement ────────────────────────────
+        // Per design doc: GatewayConfig includes max_message_size;
+        // messages exceeding the limit are rejected with a simplified
+        // reply before session resolution to protect downstream resources.
+        if content.len() > self.config.max_message_size {
+            tracing::warn!(
+                peer_id = %peer_id,
+                size = content.len(),
+                limit = self.config.max_message_size,
+                "inbound message exceeds max_message_size"
+            );
+            if !peer_id.is_empty() {
+                if let Err(e) = self
+                    .send_outbound_simplified(peer_id, channel, "消息过长，请缩短后重试")
+                    .await
+                {
+                    tracing::warn!(
+                        error = %e,
+                        "failed to send max_message_size rejection reply"
+                    );
+                }
+            }
+            return None;
+        }
+
         // ── Resolve session_key → session_id ────────────────────────
         let trace_id = processed.metadata.get("trace_id").map(|s| s.as_str());
         let session_id = match self.resolve_session_from_message(&processed, channel).await {
@@ -614,8 +642,6 @@ impl Gateway {
                 );
             }
         }
-
-        let content = processed.text_content().unwrap_or("").to_string();
 
         // ── Shutdown gate: reject new operations ──────────────────────
         if let Some(sh) = self.get_shutdown_handle() {

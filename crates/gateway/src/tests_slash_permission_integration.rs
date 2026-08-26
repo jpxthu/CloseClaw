@@ -18,6 +18,10 @@ struct SafeHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for SafeHandler {
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(SafeHandler)
+    }
+
     fn commands(&self) -> &[&str] {
         &["help"]
     }
@@ -38,6 +42,12 @@ struct CountingHandler {
 
 #[async_trait::async_trait]
 impl SlashHandler for CountingHandler {
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(CountingHandler {
+            counter: Arc::clone(&self.counter),
+        })
+    }
+
     fn commands(&self) -> &[&str] {
         &["help"]
     }

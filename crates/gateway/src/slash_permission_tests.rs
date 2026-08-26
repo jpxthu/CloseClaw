@@ -32,6 +32,12 @@ struct SystemAppendHandler {
 
 #[async_trait]
 impl SlashHandler for SystemAppendHandler {
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(SystemAppendHandler {
+            action: self.action.clone(),
+        })
+    }
+
     fn commands(&self) -> &[&str] {
         &["system"]
     }
@@ -346,6 +352,14 @@ struct CountingHandler {
 
 #[async_trait::async_trait]
 impl SlashHandler for CountingHandler {
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(CountingHandler {
+            command: self.command,
+            requires_permission: self.requires_permission,
+            counter: Arc::clone(&self.counter),
+        })
+    }
+
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
@@ -601,6 +615,13 @@ struct StopResultHandler {
 
 #[async_trait]
 impl SlashHandler for StopResultHandler {
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(StopResultHandler {
+            cascade: self.cascade,
+            force: self.force,
+        })
+    }
+
     fn commands(&self) -> &[&str] {
         &["stop"]
     }
