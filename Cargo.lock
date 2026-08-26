@@ -523,7 +523,6 @@ dependencies = [
  "serde_json",
  "serial_test",
  "tempfile",
- "terminal_size",
  "tokio",
  "tracing",
  "unicode-width",
@@ -794,6 +793,7 @@ dependencies = [
  "anyhow",
  "libc",
  "tempfile",
+ "terminal_size",
  "tokio",
  "tracing",
 ]

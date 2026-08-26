@@ -46,7 +46,6 @@ pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     } else {
         PathBuf::from(config_dir)
     };
-    std::fs::create_dir_all(&config_dir)?;
 
     let pid_file = closeclaw_platform::process::pid_file_path(&config_dir);
 

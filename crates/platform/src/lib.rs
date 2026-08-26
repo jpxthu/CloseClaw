@@ -17,7 +17,10 @@ pub use process::{
     check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
     wait_for_exit, wait_for_shutdown_signal, write_pid_file, SpawnOptions,
 };
-pub use terminal::{current_uid, is_terminal, read_line_raw, supports_ansi, write_raw};
+pub use terminal::{
+    current_uid, detect, is_terminal, read_line_raw, resolve_terminal_width, supports_ansi,
+    write_raw, TerminalInfo,
+};
 
 #[cfg(test)]
 mod config_tests;

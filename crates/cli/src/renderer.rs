@@ -55,14 +55,18 @@ pub(crate) fn strip_ansi(text: &str) -> String {
 ///
 /// When `terminal_size()` returns `Some`, we use the width;
 /// otherwise we fall back to the documented default of 80 columns.
+#[cfg(test)]
 pub(crate) fn resolve_terminal_width_from(size: Option<(u16, u16)>) -> usize {
     size.map(|(w, _)| w as usize).unwrap_or(80)
 }
 
 /// Return the terminal width in columns, falling back to 80.
+///
+/// Delegates to [`closeclaw_platform::terminal::detect`] for OS-level
+/// terminal size detection with a documented fallback of 80 columns.
+#[cfg(test)]
 pub(crate) fn get_terminal_width() -> usize {
-    let size = terminal_size::terminal_size().map(|(w, h)| (w.0, h.0));
-    resolve_terminal_width_from(size)
+    closeclaw_platform::terminal::detect().width
 }
 
 // ---------------------------------------------------------------------------
@@ -614,6 +618,7 @@ fn render_markdown_ansi(content: &str, ansi: bool) -> String {
 /// thinking blocks, tool use/result, and DSL element hints.
 pub struct TerminalRenderer {
     ansi: bool,
+    width: usize,
 }
 
 impl Default for TerminalRenderer {
@@ -623,16 +628,23 @@ impl Default for TerminalRenderer {
 }
 
 impl TerminalRenderer {
-    /// Create a new renderer with auto-detected ANSI capability.
+    /// Create a new renderer with auto-detected ANSI and width.
     pub fn new() -> Self {
+        let info = closeclaw_platform::terminal::detect();
         Self {
-            ansi: closeclaw_platform::terminal::supports_ansi(),
+            ansi: info.ansi,
+            width: info.width,
         }
     }
 
     /// Create a renderer with explicit ANSI mode.
+    ///
+    /// Width is auto-detected via [`closeclaw_platform::terminal::detect`].
     pub fn with_ansi(ansi: bool) -> Self {
-        Self { ansi }
+        Self {
+            ansi,
+            width: closeclaw_platform::terminal::detect().width,
+        }
     }
 
     // -- helper methods for non-text content blocks -------------------------
@@ -652,7 +664,7 @@ impl TerminalRenderer {
     /// Uses terminal column width (not character count) so CJK/fullwidth
     /// characters, which occupy 2 columns, are accounted for correctly.
     fn truncate_line_to_width(&self, content: &str) -> String {
-        let max_width = get_terminal_width();
+        let max_width = self.width;
         let mut width_so_far = 0;
         let mut end = 0;
         for ch in content.chars() {
