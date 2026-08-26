@@ -18,7 +18,7 @@ Tools 模块是 CloseClaw 的工具注册基础设施——提供统一接口、
 | [write-edit-tool.md](write-edit-tool.md) | Write/Edit 工具：精确文本替换、non-incremental 匹配、per-file 互斥、冲突检测 |
 | [bash-tool.md](bash-tool.md) | Bash 工具：命令执行、超时控制、输出截断、后台触发 |
 | [bash-security.md](bash-security.md) | Bash 安全解析：AST 分析、信任分级、攻击检测 |
-| [background-tasks.md](background-tasks.md) | 后台任务：异步执行、自动后台化、卡死检测、完成通知 |
+| [background-tasks.md](background-tasks.md) | 后台任务：异步执行、自动后台化、卡死检测、完成通知、输出生命周期与停止/销毁清理 |
 | [multi-tool-calls.md](multi-tool-calls.md) | 多工具并行调用：并发安全声明、per-file 互斥队列、配置开关 |
 | [tools-prompt-injection.md](tools-prompt-injection.md) | 工具提示词注入：两级注入机制、加载策略、长度控制 |
 | [dynamic-prompt-generation.md](dynamic-prompt-generation.md) | 提示词动态生成：Schema/Prompt 双轨制、上下文感知 |
