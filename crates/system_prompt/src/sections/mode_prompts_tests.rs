@@ -310,7 +310,50 @@ fn test_standard_path_phases_regression() {
 }
 
 // ===========================================================================
-// 9. Design doc alignment — Step 1.2 verification
+// 9. PATH_SELECTION_RULES — section 1 path selection
+// ===========================================================================
+
+#[test]
+fn test_path_selection_rules_multiline() {
+    assert_multiline("PATH_SELECTION_RULES", PATH_SELECTION_RULES);
+}
+
+#[test]
+fn test_path_selection_rules_content_integrity() {
+    assert!(
+        PATH_SELECTION_RULES.contains("Decide which planning path to follow"),
+        "PATH_SELECTION_RULES: must contain opening instruction"
+    );
+    assert!(
+        PATH_SELECTION_RULES.contains("Standard 4-phase workflow"),
+        "PATH_SELECTION_RULES: must reference Standard workflow"
+    );
+    assert!(
+        PATH_SELECTION_RULES.contains("Interview (iterative) workflow"),
+        "PATH_SELECTION_RULES: must reference Interview workflow"
+    );
+    assert!(
+        PATH_SELECTION_RULES.contains("quantifiable acceptance"),
+        "PATH_SELECTION_RULES: must mention quantifiable acceptance criteria"
+    );
+    assert!(
+        PATH_SELECTION_RULES.contains("Follow the chosen path's instructions below"),
+        "PATH_SELECTION_RULES: must end with follow instruction"
+    );
+}
+
+#[test]
+fn test_path_selection_rules_number_of_newlines() {
+    let count = PATH_SELECTION_RULES.matches('\n').count();
+    assert!(
+        count > 3,
+        "PATH_SELECTION_RULES should have several newlines, got {}",
+        count
+    );
+}
+
+// ===========================================================================
+// 10. Design doc alignment — Step 1.2 verification
 // ===========================================================================
 
 /// Verify INTERVIEW_PATH_PROMPT does NOT contain the removed subsections.

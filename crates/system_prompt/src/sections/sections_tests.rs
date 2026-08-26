@@ -323,14 +323,41 @@ fn test_mode_instruction_basics_and_auto() {
     assert!(rendered.contains("Expect course corrections"));
     assert!(rendered.contains("Do not take overly destructive actions"));
     assert!(rendered.contains("Avoid data exfiltration"));
-    // Default PlanPath is now Standard
+    // Default PlanPath=None renders plan mode instruction with path selection
     let s = Section::ModeInstruction {
         mode: SessionMode::Plan,
         plan_path: None,
         sparse: false,
         sub_agent: false,
     };
-    assert!(s.render().contains("Standard Path"));
+    let rendered = s.render();
+    assert!(rendered.contains("Decide which planning path"));
+    assert!(rendered.contains("Standard 4-phase workflow"));
+    assert!(rendered.contains("Interview (iterative) workflow"));
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("pair-planning"));
+}
+
+/// Verify render_plan_mode_instruction() output contains all required sections.
+#[test]
+fn test_render_plan_mode_instruction_content() {
+    let rendered = render_mode_instruction(SessionMode::Plan, None);
+    // §1 global constraint
+    assert!(rendered.contains("Plan mode is active"));
+    assert!(rendered.contains("This supercedes any other instructions"));
+    // §1 path selection rules
+    assert!(rendered.contains("Decide which planning path"));
+    assert!(rendered.contains("Standard 4-phase workflow"));
+    assert!(rendered.contains("Interview (iterative) workflow"));
+    // §2 standard path phases
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 2: Design"));
+    assert!(rendered.contains("Phase 3: Review"));
+    assert!(rendered.contains("Phase 4: Final Plan"));
+    // §3 interview path
+    assert!(rendered.contains("pair-planning"));
+    assert!(rendered.contains("The Loop"));
+    assert!(rendered.contains("When to Converge"));
 }
 
 #[test]
@@ -342,11 +369,11 @@ fn test_mode_instruction_plan_standard_and_interview() {
         sub_agent: false,
     };
     let r = std.render();
-    assert!(r.contains("## Mode: Plan \u{2014} Standard Path"));
-    assert!(r.contains("This supercedes any other instructions"));
+    assert!(r.contains("Phase 1: Initial Understanding"));
     assert!(r.contains("Phase 4: Final Plan"));
     assert!(!r.contains("Phase 5"));
     assert!(!r.contains("Interview Path"));
+    assert!(!r.contains("## Mode: Plan"));
     let intv = Section::ModeInstruction {
         mode: SessionMode::Plan,
         plan_path: Some(PlanPath::Interview),
@@ -354,13 +381,13 @@ fn test_mode_instruction_plan_standard_and_interview() {
         sub_agent: false,
     };
     let r = intv.render();
-    assert!(r.contains("## Mode: Plan \u{2014} Interview Path"));
     assert!(r.contains("pair-planning"));
     assert!(r.contains("Don't explore exhaustively before engaging the user"));
     assert!(r.contains("Never ask what you could find out by reading the code"));
     assert!(r.contains("When to Converge"));
     assert!(r.contains("The Loop"));
     assert!(!r.contains("Standard Path"));
+    assert!(!r.contains("## Mode: Plan"));
 }
 
 // -----------------------------------------------------------------------
@@ -431,6 +458,22 @@ fn test_section_render_mode_instruction_uses_flags() {
         "Expected Sub-agent Sparse text from render(), got: {}",
         r
     );
+
+    // When plan_path=None, render() should output plan mode with path selection rules
+    let s = Section::ModeInstruction {
+        mode: SessionMode::Plan,
+        plan_path: None,
+        sparse: false,
+        sub_agent: false,
+    };
+    let r = s.render();
+    assert!(
+        r.contains("Decide which planning path"),
+        "Expected path selection rules in Plan Mode with no explicit path, got: {}",
+        r
+    );
+    assert!(r.contains("Phase 1: Initial Understanding"));
+    assert!(r.contains("pair-planning"));
 }
 
 // ── Gap 4: Interview Path global constraint ─────────────────────────────
@@ -450,10 +493,7 @@ fn test_interview_path_includes_plan_mode_constraint() {
 #[test]
 fn test_interview_path_output_format() {
     let output = render_interview_path_instruction();
-    let expected = format!(
-        "## Mode: Plan \u{2014} Interview Path\n\n{}\n\n{}\n",
-        PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT
-    );
+    let expected = format!("{}\n\n{}\n", PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT);
     assert_eq!(output, expected);
 }
 
@@ -772,6 +812,7 @@ fn test_section_name_all_variants() {
 }
 
 /// Verify Section::render() does not panic for any remaining variant.
+/// Note: Normal mode returns empty string by design (no mode instruction).
 #[test]
 fn test_section_render_no_panic_all_variants() {
     let sections = vec![
@@ -783,12 +824,6 @@ fn test_section_render_no_panic_all_variants() {
         Section::GitStatus("On branch main".to_string()),
         Section::WorkingDirectory("/tmp/work".to_string()),
         Section::ModeInstruction {
-            mode: SessionMode::Normal,
-            plan_path: None,
-            sparse: false,
-            sub_agent: false,
-        },
-        Section::ModeInstruction {
             mode: SessionMode::Plan,
             plan_path: Some(PlanPath::Standard),
             sparse: false,
@@ -798,6 +833,12 @@ fn test_section_render_no_panic_all_variants() {
             mode: SessionMode::Auto,
             plan_path: None,
             sparse: true,
+            sub_agent: false,
+        },
+        Section::ModeInstruction {
+            mode: SessionMode::Plan,
+            plan_path: None,
+            sparse: false,
             sub_agent: false,
         },
     ];
