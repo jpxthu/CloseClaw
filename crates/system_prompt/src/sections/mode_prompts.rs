@@ -19,6 +19,23 @@ any changes to the system. This supercedes \
 any other instructions you have received.";
 
 // ---------------------------------------------------------------------------
+// Path Selection Rules — design doc section 1.
+// ---------------------------------------------------------------------------
+
+pub(crate) const PATH_SELECTION_RULES: &str = "\
+Decide which planning path to follow based on the user's task description:\n\
+\
+\
+- Standard 4-phase workflow: the description references specific\n\
+  files/modules/interfaces AND includes quantifiable acceptance\n\
+  criteria.\n\
+- Interview (iterative) workflow: the description is vague, the scope\n\
+  is unclear, or there are no concrete acceptance criteria.\n\
+\
+\
+Follow the chosen path's instructions below.";
+
+// ---------------------------------------------------------------------------
 // Standard Path 4-phase workflow — design doc section 2.
 // ---------------------------------------------------------------------------
 

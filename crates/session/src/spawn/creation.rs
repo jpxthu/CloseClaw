@@ -314,7 +314,10 @@ async fn configure_spawn_behavior(
     {
         let parent_mode = parent_cs.read().await.session_mode();
         if parent_mode == SessionMode::Plan {
-            cs.set_session_mode(SessionMode::Plan);
+            cs.set_session_mode(
+                SessionMode::Plan,
+                crate::llm_session::mode_transition::ModeChangeSource::Automatic,
+            );
         }
     }
 

@@ -95,9 +95,10 @@ async fn create_session_with_auto_mode(sm: &SessionManager) -> String {
         .expect("session");
 
     if let Some(conv) = sm.get_conversation_session(&sid).await {
-        conv.write()
-            .await
-            .set_session_mode(closeclaw_common::SessionMode::Auto);
+        conv.write().await.set_session_mode(
+            closeclaw_common::SessionMode::Auto,
+            closeclaw_session::llm_session::mode_transition::ModeChangeSource::Automatic,
+        );
     }
 
     sid
@@ -125,9 +126,10 @@ async fn create_session_with_plan_mode(sm: &SessionManager) -> String {
         .expect("session");
 
     if let Some(conv) = sm.get_conversation_session(&sid).await {
-        conv.write()
-            .await
-            .set_session_mode(closeclaw_common::SessionMode::Plan);
+        conv.write().await.set_session_mode(
+            closeclaw_common::SessionMode::Plan,
+            closeclaw_session::llm_session::mode_transition::ModeChangeSource::Automatic,
+        );
     }
 
     sid

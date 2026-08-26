@@ -109,13 +109,11 @@ impl Section {
 fn render_mode_instruction(mode: SessionMode, plan_path: Option<PlanPath>) -> String {
     match mode {
         SessionMode::Normal => String::new(),
-        SessionMode::Plan => {
-            let path = plan_path.unwrap_or_default();
-            match path {
-                PlanPath::Standard => render_standard_path_instruction(),
-                PlanPath::Interview => render_interview_path_instruction(),
-            }
-        }
+        SessionMode::Plan => match plan_path {
+            Some(PlanPath::Standard) => render_standard_path_instruction(),
+            Some(PlanPath::Interview) => render_interview_path_instruction(),
+            None => render_plan_mode_instruction(),
+        },
         SessionMode::Auto => {
             format!("## Mode: Auto\n\n{}\n", AUTO_MODE_PROMPT)
         }
@@ -147,15 +145,24 @@ pub(crate) fn render_mode_instruction_with_flags(
     render_mode_instruction(mode, plan_path)
 }
 
+/// Render Plan Mode instructions with path selection rules.
+///
+/// When no explicit path is specified, injects §1 global constraint,
+/// §1 path selection rules, §2 standard path, and §3 interview path.
+/// The Agent reads the task description and decides which path to follow.
+fn render_plan_mode_instruction() -> String {
+    format!(
+        "## Mode: Plan\n\n{}\n\n{}\n\n{}\n\n{}\n",
+        PLAN_MODE_CONSTRAINT, PATH_SELECTION_RULES, STANDARD_PATH_PHASES, INTERVIEW_PATH_PROMPT
+    )
+}
+
 /// Render Standard Path instructions (4 Phases).
 ///
 /// Uses verbatim prompt content from design doc section 1 (global
 /// constraint) and section 2 (Phase 1–4).
 fn render_standard_path_instruction() -> String {
-    format!(
-        "## Mode: Plan \u{2014} Standard Path\n\n{}\n\n{}\n",
-        PLAN_MODE_CONSTRAINT, STANDARD_PATH_PHASES
-    )
+    format!("{}\n\n{}\n", PLAN_MODE_CONSTRAINT, STANDARD_PATH_PHASES)
 }
 
 /// Render Interview Path instructions.
@@ -164,10 +171,7 @@ fn render_standard_path_instruction() -> String {
 /// exploration and clarification before a plan can be formed.
 /// Content verbatim from design doc section 3.
 fn render_interview_path_instruction() -> String {
-    format!(
-        "## Mode: Plan \u{2014} Interview Path\n\n{}\n\n{}\n",
-        PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT
-    )
+    format!("{}\n\n{}\n", PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT)
 }
 
 /// Render mode transition prompt based on transition type.

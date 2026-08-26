@@ -37,7 +37,7 @@ pub use closeclaw_common::tool_session::KillHandle;
 mod memory_injection;
 pub use memory_injection::{InjectionPosition, MemoryInjection};
 
-mod mode_transition;
+pub mod mode_transition;
 
 mod progress_notifier;
 pub use progress_notifier::PROGRESS_APPEND_PREFIX;
@@ -106,13 +106,9 @@ pub struct ConversationSession {
     turn_counter: TurnCounter,
     model: String,
     compaction_state: Option<String>,
-    /// Whether the session has been compacted (context summarized).
-    /// When `true`, sparse prompt variants are injected instead of
-    /// the full mode instruction. See design doc §8.
+    /// Whether compacted; when true, sparse prompt variants inject (§8).
     is_compacted: bool,
-    /// Whether this session is a sub-agent.
-    /// When `true`, the sub-agent sparse prompt variant is injected
-    /// instead of the full mode instruction. See design doc §5, §8.
+    /// Whether this session is a sub-agent (§5, §8).
     is_sub_agent: bool,
     is_llm_busy: Arc<AtomicBool>,
     unified_queue: session_pending_queue::UnifiedMessageQueue,
@@ -188,10 +184,11 @@ pub struct ConversationSession {
     file_read_ranges: Arc<RwLock<HashMap<PathBuf, closeclaw_common::FileReadCache>>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
-    /// Session mode controlling session-level behavior constraints.
-    /// Orthogonal to `ReasoningMode` — see [`SessionMode`] docs.
+    /// Session mode controlling session-level behavior constraints (§6).
     session_mode: Arc<Mutex<SessionMode>>,
     pending_mode_transition: mode_transition::PendingTransition,
+    /// Whether this session has ever entered Plan Mode (§6).
+    has_been_in_plan: Arc<AtomicBool>,
     /// Per-request context for dynamic-layer injection.
     request_context: Arc<Mutex<closeclaw_common::RequestContext>>,
     /// LLM caller injected by Gateway for delegating LLM requests.
@@ -270,6 +267,7 @@ impl ConversationSession {
             verbosity_level: VerbosityLevel::default(),
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
             pending_mode_transition: Arc::new(Mutex::new(None)),
+            has_been_in_plan: Arc::new(AtomicBool::new(false)),
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
             progress_appends: Arc::new(Mutex::new(Vec::new())),
             file_mtimes: Arc::new(RwLock::new(HashMap::new())),
@@ -499,7 +497,11 @@ impl ConversationSession {
             .expect("session_mode lock poisoned")
     }
     /// Overrides the session mode at runtime.
-    pub fn set_session_mode(&mut self, mode: SessionMode) {
+    pub fn set_session_mode(
+        &mut self,
+        mode: SessionMode,
+        source: mode_transition::ModeChangeSource,
+    ) {
         let prev = {
             let sm = &self.session_mode;
             let mut lock = sm.lock().expect("session_mode lock poisoned");
@@ -507,7 +509,11 @@ impl ConversationSession {
             *lock = mode;
             p
         };
-        if let Some(t) = mode_transition::detect(prev, mode) {
+        let has_been = self.has_been_in_plan.load(Ordering::Relaxed);
+        if mode == SessionMode::Plan {
+            self.has_been_in_plan.store(true, Ordering::Relaxed);
+        }
+        if let Some(t) = mode_transition::detect(prev, mode, has_been, source) {
             let pmt = &self.pending_mode_transition;
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
         }

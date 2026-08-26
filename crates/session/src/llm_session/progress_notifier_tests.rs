@@ -180,7 +180,10 @@ async fn test_progress_appends_accessor() {
 #[tokio::test]
 async fn test_on_plan_completed_resets_auto_to_normal() {
     let mut session = new_session();
-    session.set_session_mode(SessionMode::Auto);
+    session.set_session_mode(
+        SessionMode::Auto,
+        crate::llm_session::mode_transition::ModeChangeSource::Automatic,
+    );
     assert_eq!(session.session_mode(), SessionMode::Auto);
 
     session.on_plan_completed().await;

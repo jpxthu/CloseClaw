@@ -33,7 +33,10 @@ impl SessionLookup for SessionManager {
 
     async fn set_session_mode(&self, session_id: &str, mode: closeclaw_common::SessionMode) {
         if let Some(cs) = self.get_conversation_session(session_id).await {
-            cs.write().await.set_session_mode(mode);
+            cs.write().await.set_session_mode(
+                mode,
+                closeclaw_session::llm_session::mode_transition::ModeChangeSource::Automatic,
+            );
         }
     }
 }

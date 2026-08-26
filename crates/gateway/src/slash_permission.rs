@@ -481,7 +481,10 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         .await
         {
             match closeclaw_common::SessionMode::from_str_opt(mode) {
-                Some(parsed) => cs.write().await.set_session_mode(parsed),
+                Some(parsed) => cs.write().await.set_session_mode(
+                    parsed,
+                    closeclaw_session::llm_session::mode_transition::ModeChangeSource::Manual,
+                ),
                 None => tracing::warn!(
                     session_id,
                     mode,

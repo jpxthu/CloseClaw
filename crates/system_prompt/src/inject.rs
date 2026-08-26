@@ -71,12 +71,16 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
     // 3. ModeInstruction (when not Normal mode)
     if params.session_mode != SessionMode::Normal {
         // In Plan Mode, resolve the path: explicit override or auto-analysis.
+        // When no explicit path and no user input, return None to inject
+        // path selection rules (design doc §1).
         let resolved_plan_path = if params.session_mode == SessionMode::Plan {
-            Some(
-                params
-                    .explicit_plan_path
-                    .unwrap_or_else(|| analyze_plan_path(params.user_input.unwrap_or(""))),
-            )
+            if let Some(explicit) = params.explicit_plan_path {
+                Some(explicit)
+            } else if let Some(input) = params.user_input {
+                Some(analyze_plan_path(input))
+            } else {
+                None
+            }
         } else {
             None
         };
