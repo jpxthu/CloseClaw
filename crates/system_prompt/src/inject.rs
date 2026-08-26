@@ -74,13 +74,9 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
         // When no explicit path and no user input, return None to inject
         // path selection rules (design doc §1).
         let resolved_plan_path = if params.session_mode == SessionMode::Plan {
-            if let Some(explicit) = params.explicit_plan_path {
-                Some(explicit)
-            } else if let Some(input) = params.user_input {
-                Some(analyze_plan_path(input))
-            } else {
-                None
-            }
+            params
+                .explicit_plan_path
+                .or_else(|| params.user_input.map(analyze_plan_path))
         } else {
             None
         };
