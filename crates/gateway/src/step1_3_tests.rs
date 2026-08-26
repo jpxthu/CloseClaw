@@ -1,5 +1,6 @@
-//! Step 1.3 — Unit tests for Step 1.1 (slash queuing notification) and
-//! Step 1.2 (streaming degradation error markers).
+//! Step 1.3 — Unit tests for Step 1.1 (slash queuing notification),
+//! Step 1.2 (streaming degradation error markers), and
+//! the max_message_size / session_key-empty acceptance criteria.
 
 use std::sync::Arc;
 
@@ -34,6 +35,12 @@ impl SlashHandler for TestHandler {
     }
     fn requires_permission(&self) -> bool {
         self.requires_permission
+    }
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(TestHandler {
+            command: self.command,
+            requires_permission: self.requires_permission,
+        })
     }
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         SlashResult::Reply(format!("handled:{}", self.command))
@@ -630,5 +637,151 @@ fn test_raw_log_dir_config_does_not_affect_error_markers() {
         msg_with_dir.metadata.len(),
         msg_without_dir.metadata.len(),
         "marker count should be independent of channel/config"
+    );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Step 1.3: max_message_size and session_key-empty acceptance tests
+// ═════════════════════════════════════════════════════════════════════════════
+
+use closeclaw_common::processor::ProcessedMessage;
+use std::collections::HashMap;
+
+/// Build a ProcessedMessage with the given text and optional metadata entries.
+fn make_processed(
+    text: &str,
+    session_key: Option<&str>,
+    peer_id: &str,
+    sender_id: &str,
+) -> ProcessedMessage {
+    let mut metadata = HashMap::new();
+    metadata.insert("peer_id".into(), peer_id.into());
+    metadata.insert("sender_id".into(), sender_id.into());
+    metadata.insert("message_type".into(), "\"Text\"".into());
+    if let Some(sk) = session_key {
+        metadata.insert("session_key".into(), sk.into());
+    }
+    ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(text.to_string())],
+        metadata,
+    }
+}
+
+/// max_message_size normal path: message length == limit → passes size check.
+/// The plugin should NOT receive a "消息过长" rejection reply.
+#[tokio::test]
+async fn test_max_message_size_at_limit_passes() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let plugin_ref = Arc::clone(&plugin);
+    let (gw, _sm) = build_env("s-size-ok", "mock", plugin).await;
+
+    // max_message_size = 1024 (from test_config).
+    // Build a message whose content is exactly 1024 bytes.
+    let content = "x".repeat(1024);
+    let processed = make_processed(&content, Some("sk-ok"), "peer1", "user1");
+
+    let _result = gw
+        .handle_inbound_message(processed, Some("user1"), "mock")
+        .await;
+
+    // The size check should NOT block. No rejection reply should be sent.
+    let sent = plugin_ref.take_sent();
+    assert!(
+        !sent.iter().any(|(_, t)| t.contains("消息过长")),
+        "message at exactly the limit should not be rejected"
+    );
+}
+
+/// max_message_size exceeded path: message length > limit → returns None,
+/// sends rejection reply "消息过长，请缩短后重试".
+#[tokio::test]
+async fn test_max_message_size_exceeded_rejects() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let plugin_ref = Arc::clone(&plugin);
+    let (gw, _sm) = build_env("s-size-over", "mock", plugin).await;
+
+    // max_message_size = 1024; build a 1025-byte message.
+    let content = "y".repeat(1025);
+    let processed = make_processed(&content, Some("sk-over"), "peer2", "user2");
+
+    let result = gw
+        .handle_inbound_message(processed, Some("user2"), "mock")
+        .await;
+
+    assert!(
+        result.is_none(),
+        "over-limit message should be rejected (return None)"
+    );
+
+    let sent = plugin_ref.take_sent();
+    assert_eq!(sent.len(), 1, "should send exactly one rejection reply");
+    assert_eq!(sent[0].0, "peer2", "rejection targets correct peer_id");
+    assert!(
+        sent[0].1.contains("消息过长"),
+        "rejection text should mention the limit"
+    );
+}
+
+/// max_message_size: empty peer_id → rejection reply is skipped (no send
+/// attempt), but the method still returns None.
+#[tokio::test]
+async fn test_max_message_size_exceeded_empty_peer_skips_send() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let plugin_ref = Arc::clone(&plugin);
+    let (gw, _sm) = build_env("s-size-np", "mock", plugin).await;
+
+    let content = "z".repeat(1025);
+    let processed = make_processed(&content, Some("sk-np"), "", "user3");
+
+    let result = gw
+        .handle_inbound_message(processed, Some("user3"), "mock")
+        .await;
+
+    assert!(
+        result.is_none(),
+        "over-limit with empty peer_id should still return None"
+    );
+    let sent = plugin_ref.take_sent();
+    assert!(
+        sent.is_empty(),
+        "empty peer_id should not trigger a send attempt"
+    );
+}
+
+/// session_key empty + no routing match → new session is created.
+/// The resolve function creates a brand-new session via Path 3 (key_registry
+/// miss), so the method does NOT return None at the session routing failure
+/// gate. This confirms that empty session_key is a valid degraded path.
+///
+/// NOTE: The "session routing failure" reply path is only triggered when
+/// `SessionManager::resolve` returns `Err`. The existing tests in
+/// `session_routing_tests.rs` cover that scenario.
+#[tokio::test]
+async fn test_session_key_empty_no_routing_creates_new_session() {
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    let plugin_ref = Arc::clone(&plugin);
+    let (gw, sm) = build_env("s-sk-new", "mock", plugin).await;
+
+    // Message with no session_key AND no matching routing entry.
+    let processed = make_processed("hello", None, "new_peer", "new_user");
+
+    let _result = gw
+        .handle_inbound_message(processed, Some("new_user"), "mock")
+        .await;
+
+    // A new session should have been created (Path 3 in resolve).
+    // The routing failure reply should NOT be sent.
+    let sent = plugin_ref.take_sent();
+    assert!(
+        !sent
+            .iter()
+            .any(|(_, t)| t.contains("\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}")),
+        "should not send routing failure reply when new session is created"
+    );
+    // Verify a new session was created in the SessionManager.
+    let sessions = sm.sessions.read().await;
+    assert!(
+        sessions.len() > 1,
+        "should have created a new session (original + new)"
     );
 }
