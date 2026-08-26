@@ -159,22 +159,22 @@ pub(crate) fn parse_plan_path_arg(args: &str) -> (Option<PlanPath>, &str) {
 ///
 /// # Examples
 ///
-/// - `"foo bar baz"` → `(Some("foo"), Some("bar baz"))`
-/// - `"foo"` → `(Some("foo"), None)`
-/// - `""` → `(None, None)`
+/// - `"foo bar baz"` → `("foo", Some("bar baz"))`
+/// - `"foo"` → `("foo", None)`
+/// - `""` → `("", None)`
 ///
 /// The instruction preserves all whitespace after the first space,
 /// matching the doc spec: "空格后的内容".
-pub(crate) fn parse_execute_args(args: &str) -> (Option<String>, Option<String>) {
+pub(crate) fn parse_execute_args(args: &str) -> (String, Option<String>) {
     let trimmed = args.trim();
     if trimmed.is_empty() {
-        return (None, None);
+        return (String::new(), None);
     }
     match trimmed.split_once(char::is_whitespace) {
         Some((name, rest)) => {
             let instruction = rest.trim();
             (
-                Some(name.to_owned()),
+                name.to_owned(),
                 if instruction.is_empty() {
                     None
                 } else {
@@ -182,7 +182,7 @@ pub(crate) fn parse_execute_args(args: &str) -> (Option<String>, Option<String>)
                 },
             )
         }
-        None => (Some(trimmed.to_owned()), None),
+        None => (trimmed.to_owned(), None),
     }
 }
 
@@ -246,10 +246,11 @@ impl SlashHandler for AutoModeHandler {
 
 /// `/execute <plan名称> [附加指令]` — transition to Auto Mode execution.
 ///
-/// - In Plan Mode: resolves the plan by name (falls back to current
-///   `plan_state` when no name is given), then switches to Auto Mode.
-/// - In non-Plan Mode: resolves the plan by name (if given) and switches
-///   to Auto Mode; with no arguments, enters Auto Mode directly.
+/// The plan name is **required**; calling without a plan name returns
+/// a usage hint.
+///
+/// - In Plan Mode: resolves the plan by name, then switches to Auto Mode.
+/// - In non-Plan Mode: resolves the plan by name and switches to Auto Mode.
 /// - If additional instructions are provided after the plan name, they
 ///   are injected as the initial user message via `initial_input`.
 #[derive(Clone)]
@@ -263,26 +264,29 @@ impl ExecuteHandler {
         Self { session_manager }
     }
 
-    /// Non-Plan Mode: resolve plan by name if given, then enter Auto Mode.
+    /// Non-Plan Mode: resolve plan by name, then enter Auto Mode.
     fn handle_non_plan_mode(
         &self,
-        plan_name: Option<&str>,
+        plan_name: &str,
         workdir: Option<&std::path::Path>,
         instruction: Option<&str>,
     ) -> SlashResult {
-        let plan_file_path = match plan_name {
-            Some(name) => match workdir {
-                Some(wd) => match plan_file::resolve_plan_by_name(wd, name) {
-                    Ok(path) => Some(path),
-                    Err(e) => {
-                        return SlashResult::Reply(format!("计划文件解析失败：{e}"));
-                    }
-                },
-                None => {
-                    return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
+        if plan_name.is_empty() {
+            return SlashResult::Reply(
+                "请指定要执行的 plan 名称。用法：/execute <plan名称> [附加指令]".to_owned(),
+            );
+        }
+
+        let plan_file_path = match workdir {
+            Some(wd) => match plan_file::resolve_plan_by_name(wd, plan_name) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    return SlashResult::Reply(format!("计划文件解析失败：{e}"));
                 }
             },
-            None => None,
+            None => {
+                return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
+            }
         };
 
         SlashResult::SetMode {
@@ -293,42 +297,29 @@ impl ExecuteHandler {
         }
     }
 
-    /// Plan Mode: resolve plan by name (or fall back to plan_state).
+    /// Plan Mode: resolve plan by name, then enter Auto Mode.
     async fn handle_plan_mode(
         &self,
-        ctx: &SlashContext,
-        plan_name: Option<&str>,
+        _ctx: &SlashContext,
+        plan_name: &str,
         workdir: Option<&std::path::Path>,
         instruction: Option<&str>,
     ) -> SlashResult {
-        let plan_file_path = match plan_name {
-            Some(name) => match workdir {
-                Some(wd) => match plan_file::resolve_plan_by_name(wd, name) {
-                    Ok(path) => path,
-                    Err(e) => {
-                        return SlashResult::Reply(format!("计划文件解析失败：{e}"));
-                    }
-                },
-                None => {
-                    return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
+        if plan_name.is_empty() {
+            return SlashResult::Reply(
+                "请指定要执行的 plan 名称。用法：/execute <plan名称> [附加指令]".to_owned(),
+            );
+        }
+
+        let plan_file_path = match workdir {
+            Some(wd) => match plan_file::resolve_plan_by_name(wd, plan_name) {
+                Ok(path) => path,
+                Err(e) => {
+                    return SlashResult::Reply(format!("计划文件解析失败：{e}"));
                 }
             },
             None => {
-                let plan_state = match self.session_manager.get_plan_state(&ctx.session_id).await {
-                    Some(ps) => ps,
-                    None => {
-                        return SlashResult::Reply(
-                            "当前没有活跃的 plan。请先用 /plan <任务描述> 创建一个 plan。"
-                                .to_owned(),
-                        );
-                    }
-                };
-                if plan_state.plan_file_path.is_empty() {
-                    return SlashResult::Reply(
-                        "当前 plan 没有关联的 plan 文件，无法执行。".to_owned(),
-                    );
-                }
-                std::path::PathBuf::from(&plan_state.plan_file_path)
+                return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
             }
         };
 
@@ -366,20 +357,11 @@ impl SlashHandler for ExecuteHandler {
         let workdir_ref = workdir.as_deref();
 
         if mode != SessionMode::Plan {
-            return self.handle_non_plan_mode(
-                plan_name.as_deref(),
-                workdir_ref,
-                instruction.as_deref(),
-            );
+            return self.handle_non_plan_mode(&plan_name, workdir_ref, instruction.as_deref());
         }
 
-        self.handle_plan_mode(
-            ctx,
-            plan_name.as_deref(),
-            workdir_ref,
-            instruction.as_deref(),
-        )
-        .await
+        self.handle_plan_mode(ctx, &plan_name, workdir_ref, instruction.as_deref())
+            .await
     }
 
     fn clone_box(&self) -> Box<dyn SlashHandler> {
