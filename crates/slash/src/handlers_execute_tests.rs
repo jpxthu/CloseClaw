@@ -87,6 +87,24 @@ async fn create_session_with_plan_mode(sm: &SessionManager) -> String {
     sid
 }
 
+#[tokio::test]
+async fn test_execute_plan_mode_empty_args_returns_usage_hint() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("请指定要执行的 plan 名称"),
+                "should contain usage hint in plan mode, got: {text}"
+            );
+        }
+        other => panic!("expected Reply with usage hint in plan mode, got {other:?}"),
+    }
+}
+
 // ── Error path tests (Step 1.4) ──────────────────────────────────────────
 
 #[tokio::test]
@@ -174,26 +192,24 @@ async fn test_execute_non_plan_mode_name_not_found() {
 // ── Edge case tests (Step 1.4) ────────────────────────────────────────────
 
 #[tokio::test]
-async fn test_execute_empty_string_args_equivalent_to_no_args() {
+async fn test_execute_empty_string_args_returns_usage_hint() {
     let sm = make_session_manager_with_storage();
     let sid = create_test_session(&sm).await;
     let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            initial_input,
-            reply_message,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_none());
-            assert!(initial_input.is_none());
-            assert_eq!(reply_message.as_deref(), Some("开始执行"));
+        SlashResult::Reply(text) => {
+            assert!(
+                text.contains("请指定要执行的 plan 名称"),
+                "should contain usage hint, got: {text}"
+            );
+            assert!(
+                text.contains("/execute <plan名称> [附加指令]"),
+                "should show usage format, got: {text}"
+            );
         }
-        other => panic!("expected SetMode for empty args, got {other:?}"),
+        other => panic!("expected Reply with usage hint for empty args, got {other:?}"),
     }
 }
 
