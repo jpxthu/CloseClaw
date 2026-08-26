@@ -77,7 +77,7 @@ impl super::Gateway {
             .unwrap_or("");
 
         if session_key.is_empty() {
-            tracing::warn!("session_key is empty — falling back to routing fields");
+            tracing::info!("session_key empty, resolving via routing fields only");
         }
 
         let message =
