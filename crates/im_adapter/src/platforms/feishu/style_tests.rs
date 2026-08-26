@@ -322,6 +322,16 @@ fn test_code_block_empty_language() {
     assert_eq!(expand_element(&elem), "```\nfn main() {}\n```");
 }
 
+#[test]
+fn test_code_block_empty_text_with_language() {
+    let elem = serde_json::json!({
+        "tag": "code_block",
+        "text": "",
+        "language": "rust"
+    });
+    assert_eq!(expand_element(&elem), "```rust\n```");
+}
+
 // ================================================================
 // quote block expansion
 // ================================================================
