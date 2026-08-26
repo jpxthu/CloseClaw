@@ -18,12 +18,12 @@ use anyhow::Context;
 /// Does **not** create the directory — pure path computation only.
 /// Used by [`root_dir`] and indirectly available for testing.
 #[cfg(unix)]
-fn root_dir_path(home: &str) -> PathBuf {
+pub(crate) fn root_dir_path(home: &str) -> PathBuf {
     PathBuf::from(home).join(".closeclaw")
 }
 
 #[cfg(not(unix))]
-fn root_dir_path(appdata: &str) -> PathBuf {
+pub(crate) fn root_dir_path(appdata: &str) -> PathBuf {
     PathBuf::from(appdata).join("closeclaw")
 }
 
@@ -32,12 +32,12 @@ fn root_dir_path(appdata: &str) -> PathBuf {
 /// Does **not** create the directory — pure path computation only.
 /// Used by [`config_dir`] and indirectly available for testing.
 #[cfg(unix)]
-fn config_dir_path(home: &str) -> PathBuf {
+pub(crate) fn config_dir_path(home: &str) -> PathBuf {
     PathBuf::from(home).join(".closeclaw").join("config")
 }
 
 #[cfg(not(unix))]
-fn config_dir_path(appdata: &str) -> PathBuf {
+pub(crate) fn config_dir_path(appdata: &str) -> PathBuf {
     PathBuf::from(appdata).join("closeclaw").join("config")
 }
 
