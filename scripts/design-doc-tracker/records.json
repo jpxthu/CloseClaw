@@ -249,9 +249,9 @@
   },
   {
     "path": "docs/design/llm/README.md",
-    "commit": "75ede2751f35fed3f177b1fe2b820d0ec85dae94",
-    "commit_time": "2026-08-25T09:55:36+08:00",
-    "confirmed_time": "2026-08-25T09:59:13.691031+08:00",
+    "commit": "f5fba5ff6cb9561ff8c6cf8c6244a0fa00e7a588",
+    "commit_time": "2026-08-26T12:57:06+08:00",
+    "confirmed_time": "2026-08-26T13:09:45.358526+08:00",
     "comment": "",
     "blocked_reason": ""
   },
