@@ -3,8 +3,8 @@
 //! Provides natural-language trigger for plan execution — the tool
 //! equivalent of the `/execute` slash command. When the agent calls
 //! this tool, the framework presents a user confirmation dialog
-//! (approval_pending). On approval, the session transitions from
-//! Plan Mode to Auto Mode and begins executing the plan steps.
+//! (approval_pending). On approval, the session transitions to
+//! Auto Mode and begins executing the plan steps.
 //!
 //! Supports two execution paths:
 //! - **Same session**: the current session enters Auto Mode.
@@ -14,7 +14,6 @@
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
-use closeclaw_common::SessionMode;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_session::plan_file::{resolve_plan_by_name, PlanResolveError};
@@ -64,7 +63,7 @@ impl Tool for ExecutePlanTool {
         "Trigger execution of a plan by name. This is the natural-language \
          equivalent of the `/execute` slash command. The tool returns an \
          approval_pending result, prompting the user to confirm execution. \
-         \n\nOn approval, the session transitions from Plan Mode to Auto Mode \
+         \n\nOn approval, the session transitions to Auto Mode \
          and begins executing the plan steps sequentially. \
          \n\nSupports two execution paths: \
          \n- Same session: the current session enters Auto Mode. \
@@ -133,14 +132,18 @@ impl Tool for ExecutePlanTool {
             ToolCallError::ExecutionFailed("no session_id in tool context".to_string())
         })?;
 
-        self.validate_plan_mode(session_id).await?;
-
         let plan_name = Self::parse_plan_name(&args);
         let plan_file_path = Self::parse_plan_file_path(&args);
         let additional_instruction = Self::parse_additional_instruction(&args);
-        let plan_state = self.load_plan_state(session_id).await?;
+
+        // Load plan state only as fallback when no direct plan path is provided
+        let plan_state = if plan_name.is_none() && plan_file_path.is_none() {
+            Some(self.load_plan_state(session_id).await?)
+        } else {
+            None
+        };
         let effective_path =
-            self.resolve_effective_path(&plan_name, &plan_file_path, &plan_state, ctx)?;
+            self.resolve_effective_path(&plan_name, &plan_file_path, plan_state.as_ref(), ctx)?;
         let step_selection = Self::parse_step_selection(&args);
         let new_session = Self::parse_new_session(&args);
 
@@ -171,23 +174,6 @@ impl Tool for ExecutePlanTool {
 // ── Private helpers ─────────────────────────────────────────────────────
 
 impl ExecutePlanTool {
-    /// Validate that the session is in Plan Mode.
-    async fn validate_plan_mode(&self, session_id: &str) -> Result<(), ToolCallError> {
-        let conv = self
-            .session_manager
-            .get_conversation_session(session_id)
-            .await
-            .ok_or_else(|| ToolCallError::ExecutionFailed("当前会话未激活".to_string()))?;
-        let cs = conv.read().await;
-        if cs.session_mode() != SessionMode::Plan {
-            return Err(ToolCallError::InvalidArgs(
-                "execute_plan 需要在 Plan Mode 下使用。先用 /plan <任务描述> 进入 Plan Mode。"
-                    .to_string(),
-            ));
-        }
-        Ok(())
-    }
-
     /// Parse optional `plan_name` from tool arguments.
     fn parse_plan_name(args: &Value) -> Option<String> {
         args.get("plan_name")
@@ -237,7 +223,7 @@ impl ExecutePlanTool {
         &self,
         plan_name: &Option<String>,
         plan_file_path: &Option<String>,
-        plan_state: &closeclaw_common::PlanState,
+        plan_state: Option<&closeclaw_common::PlanState>,
         ctx: &ToolContext,
     ) -> Result<String, ToolCallError> {
         if let Some(name) = plan_name {
@@ -263,7 +249,7 @@ impl ExecutePlanTool {
     /// to the path stored in `plan_state`.
     fn resolve_plan_path(
         plan_file_path: &Option<String>,
-        plan_state: &closeclaw_common::PlanState,
+        plan_state: Option<&closeclaw_common::PlanState>,
     ) -> Result<String, ToolCallError> {
         match plan_file_path {
             Some(p) => {
@@ -275,14 +261,20 @@ impl ExecutePlanTool {
                 }
                 Ok(p.clone())
             }
-            None => {
-                if plan_state.plan_file_path.is_empty() {
-                    return Err(ToolCallError::InvalidArgs(
-                        "当前 plan 没有关联的 plan 文件，无法执行。".to_string(),
-                    ));
+            None => match plan_state {
+                Some(ps) => {
+                    if ps.plan_file_path.is_empty() {
+                        return Err(ToolCallError::InvalidArgs(
+                            "当前 plan 没有关联的 plan 文件，无法执行。".to_string(),
+                        ));
+                    }
+                    Ok(ps.plan_file_path.clone())
                 }
-                Ok(plan_state.plan_file_path.clone())
-            }
+                None => Err(ToolCallError::InvalidArgs(
+                    "当前没有活跃的 plan。请先用 /plan <任务描述> 创建一个 plan，或通过 plan_name 指定 plan。"
+                        .to_string(),
+                )),
+            },
         }
     }
 
