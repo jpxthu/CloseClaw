@@ -483,15 +483,15 @@ async fn test_session_key_empty_fallback_no_outbound_chain() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Info-level collector for testing info! macros
+// Warn-level collector for testing warn! macros
 // ═════════════════════════════════════════════════════════════════════════════
 
 #[derive(Clone)]
-struct InfoCollector {
+struct WarnCollector {
     messages: Arc<Mutex<Vec<String>>>,
 }
 
-impl InfoCollector {
+impl WarnCollector {
     fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
         let messages = Arc::new(Mutex::new(Vec::new()));
         (
@@ -503,7 +503,7 @@ impl InfoCollector {
     }
 }
 
-impl<S> tracing_subscriber::Layer<S> for InfoCollector
+impl<S> tracing_subscriber::Layer<S> for WarnCollector
 where
     S: tracing::Subscriber,
 {
@@ -512,17 +512,17 @@ where
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        if *event.metadata().level() == Level::INFO {
-            let mut visitor = InfoVisitor(String::new());
+        if *event.metadata().level() == Level::WARN {
+            let mut visitor = WarnVisitor(String::new());
             event.record(&mut visitor);
             self.messages.lock().unwrap().push(visitor.0);
         }
     }
 }
 
-struct InfoVisitor(String);
+struct WarnVisitor(String);
 
-impl tracing::field::Visit for InfoVisitor {
+impl tracing::field::Visit for WarnVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
             self.0 = format!("{:?}", value);
@@ -530,7 +530,7 @@ impl tracing::field::Visit for InfoVisitor {
     }
 }
 
-fn install_info_collector(collector: &InfoCollector) {
+fn install_warn_collector(collector: &WarnCollector) {
     let layer = collector.clone();
     let subscriber = tracing_subscriber::Registry::default().with(layer);
     let dispatch = tracing::Dispatch::new(subscriber);
@@ -573,13 +573,13 @@ async fn test_empty_session_key_routing_fields_complete_returns_handle() {
 /// `tracing::warn!("session_key is empty — falling back to routing fields")`
 /// when session_key is empty.
 ///
-/// NOTE: Step 1.1 changed the log level from warn to info for this case,
-/// so we use an InfoCollector instead of WarningCollector.
+/// NOTE: Step 1.4 reverted log level from info back to warn, per Design Doc
+/// which explicitly requires "Gateway 记录 warning 日志".
 #[tokio::test]
 #[serial]
-async fn test_empty_session_key_emits_info_log() {
-    let (collector, messages) = InfoCollector::new();
-    install_info_collector(&collector);
+async fn test_empty_session_key_emits_warn_log() {
+    let (collector, messages) = WarnCollector::new();
+    install_warn_collector(&collector);
 
     let (gw, _plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "test");
@@ -592,11 +592,11 @@ async fn test_empty_session_key_emits_info_log() {
     let captured = messages.lock().unwrap();
     assert!(
         !captured.is_empty(),
-        "expected an info log when session_key is empty"
+        "expected a warn log when session_key is empty"
     );
     assert!(
-        captured.iter().any(|w| w.contains("session_key empty")),
-        "info log should mention session_key empty, got: {:?}",
+        captured.iter().any(|w| w.contains("session_key is empty")),
+        "warn log should mention session_key is empty, got: {:?}",
         *captured
     );
 }
