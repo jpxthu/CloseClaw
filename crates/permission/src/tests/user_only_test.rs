@@ -52,6 +52,32 @@ fn file_write_request(agent: &str, user_id: &str) -> PermissionRequest {
 #[tokio::test]
 async fn test_user_only_matches_same_user_across_agents() {
     let ruleset = RuleSetBuilder::new()
+        // AgentOnly: all agents allow read (agent phase agreement)
+        .rule(
+            RuleBuilder::new()
+                .name("all-agents-read-allow")
+                .subject_agent("alpha")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("all-agents-read-allow-beta")
+                .subject_agent("beta")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        // UserOnly: alice can read on any agent (user phase agreement)
         .rule(
             RuleBuilder::new()
                 .name("alice-read-allow")
@@ -74,18 +100,18 @@ async fn test_user_only_matches_same_user_across_agents() {
 
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    // Agent "alpha" — alice should be allowed
+    // Agent "alpha" — Agent Allow + User Allow → Allowed
     let resp = engine.evaluate(file_read_request("alpha", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
-        "UserOnly allow should match alice on agent alpha, got: {resp:?}"
+        "Agent Allow + UserOnly Allow should match alice on agent alpha, got: {resp:?}"
     );
 
-    // Agent "beta" — alice should also be allowed (UserOnly is agent-agnostic)
+    // Agent "beta" — Agent Allow + User Allow → Allowed
     let resp = engine.evaluate(file_read_request("beta", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
-        "UserOnly allow should match alice on agent beta, got: {resp:?}"
+        "Agent Allow + UserOnly Allow should match alice on agent beta, got: {resp:?}"
     );
 }
 
@@ -223,7 +249,7 @@ async fn test_caller_to_subject_user_only_non_empty_user() {
 #[tokio::test]
 async fn test_user_only_and_user_and_agent_coexist() {
     let ruleset = RuleSetBuilder::new()
-        // UserOnly: alice can read on any agent (independent of agent phase)
+        // UserOnly: alice can read on any agent (intersection model: needs Agent Allow too)
         .rule(
             RuleBuilder::new()
                 .name("alice-all-agents-read")
@@ -277,11 +303,11 @@ async fn test_user_only_and_user_and_agent_coexist() {
 
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    // Alice read on other-agent — UserOnly matches (no agent rule needed)
+    // Alice read on other-agent — UserOnly Allow but no Agent Allow → Denied (intersection)
     let resp = engine.evaluate(file_read_request("other-agent", "ou_alice"), None);
     assert!(
-        matches!(resp, PermissionResponse::Allowed { .. }),
-        "UserOnly should match alice read on other-agent, got: {resp:?}"
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "UserOnly Allow without Agent Allow should be denied, got: {resp:?}"
     );
 
     // Alice write on dev-agent — AgentOnly + UserAndAgent both match → Allowed
@@ -324,8 +350,23 @@ async fn test_build_whitelist_rule_user_only() {
 
 #[tokio::test]
 async fn test_user_only_whitelist_rule_effective_in_engine() {
-    // Simulate: owner approves with --user-only, rule is written, then new request comes in
+    // Simulate: owner approves with --user-only, rule is written, then new request comes in.
+    // Intersection model: UserOnly Allow + AgentOnly Allow → Allowed.
     let ruleset = RuleSetBuilder::new()
+        // AgentOnly: agent allows read (agent phase agreement)
+        .rule(
+            RuleBuilder::new()
+                .name("agent-read-allow")
+                .subject_agent("completely-different-agent")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        // UserOnly: alice can read on any agent (user phase agreement)
         .rule(
             RuleBuilder::new()
                 .name("wl-user-only-001")
@@ -347,14 +388,14 @@ async fn test_user_only_whitelist_rule_effective_in_engine() {
 
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    // Alice on a completely different agent should be allowed
+    // Alice on agent with AgentOnly Allow + UserOnly Allow → Allowed
     let resp = engine.evaluate(
         file_read_request("completely-different-agent", "ou_alice"),
         None,
     );
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
-        "UserOnly whitelist should allow alice on any agent, got: {resp:?}"
+        "Agent Allow + UserOnly whitelist should allow alice, got: {resp:?}"
     );
 }
 
@@ -399,6 +440,20 @@ async fn test_owner_shortcut_skips_user_only_rules() {
 #[tokio::test]
 async fn test_user_only_glob_matching() {
     let ruleset = RuleSetBuilder::new()
+        // AgentOnly: agent allows read (agent phase agreement)
+        .rule(
+            RuleBuilder::new()
+                .name("agent-read-allow")
+                .subject_agent("any-agent")
+                .allow()
+                .action(Action::File {
+                    operation: "read".to_string(),
+                    paths: vec!["**".to_string()],
+                })
+                .build()
+                .unwrap(),
+        )
+        // UserOnly: team members can read on any agent (user phase agreement)
         .rule(
             RuleBuilder::new()
                 .name("team-allow-read")
@@ -420,14 +475,14 @@ async fn test_user_only_glob_matching() {
 
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
-    // ou_team_dev should match glob
+    // ou_team_dev should match glob — Agent Allow + User Allow → Allowed
     let resp = engine.evaluate(file_read_request("any-agent", "ou_team_dev"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
-        "UserOnly glob should match ou_team_dev, got: {resp:?}"
+        "Agent Allow + UserOnly glob should match ou_team_dev, got: {resp:?}"
     );
 
-    // ou_alice should NOT match glob
+    // ou_alice should NOT match glob — no User Allow → Denied
     let resp = engine.evaluate(file_read_request("any-agent", "ou_alice"), None);
     assert!(
         matches!(resp, PermissionResponse::Denied { .. }),
