@@ -353,9 +353,7 @@ fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     ))
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// --- Tests ---
 #[tokio::test]
 async fn test_slash_not_entering_agent_session() {
     let gw = make_gateway();
@@ -465,7 +463,9 @@ struct ResultHandler {
 impl SlashHandler for ResultHandler {
     fn clone_box(&self) -> Box<dyn SlashHandler> {
         Box::new(ResultHandler {
-            result: self.result,
+            command: self.command,
+            result: clone_result(&self.result),
+            requires_permission: self.requires_permission,
         })
     }
 
