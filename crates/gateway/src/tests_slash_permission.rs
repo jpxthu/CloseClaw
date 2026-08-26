@@ -18,6 +18,9 @@ struct SimpleHandler {
 }
 #[async_trait::async_trait]
 impl SlashHandler for SimpleHandler {
+    #[rustfmt::skip]
+    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(SimpleHandler { command: self.command, requires_permission: self.requires_permission }) }
+
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
@@ -38,6 +41,9 @@ struct CountingHandler {
 }
 #[async_trait::async_trait]
 impl SlashHandler for CountingHandler {
+    #[rustfmt::skip]
+    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(CountingHandler { command: self.command, requires_permission: self.requires_permission, counter: Arc::clone(&self.counter) }) }
+
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
@@ -58,6 +64,9 @@ struct CapturingHandler {
 }
 #[async_trait::async_trait]
 impl SlashHandler for CapturingHandler {
+    #[rustfmt::skip]
+    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(CapturingHandler { command: self.command, last_ctx: Arc::clone(&self.last_ctx) }) }
+
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
@@ -417,6 +426,9 @@ struct ImmediateCountingHandler {
 
 #[async_trait::async_trait]
 impl SlashHandler for ImmediateCountingHandler {
+    #[rustfmt::skip]
+    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(ImmediateCountingHandler { command: self.command, counter: Arc::clone(&self.counter) }) }
+
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
@@ -447,6 +459,9 @@ struct ResultHandler {
 
 #[async_trait::async_trait]
 impl SlashHandler for ResultHandler {
+    #[rustfmt::skip]
+    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(ResultHandler { result: self.result }) }
+
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }
@@ -765,6 +780,9 @@ struct ExecNoPermissionHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for ExecNoPermissionHandler {
+    #[rustfmt::skip]
+    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(ExecNoPermissionHandler) }
+
     fn commands(&self) -> &[&str] {
         &["git"]
     }
@@ -846,6 +864,9 @@ struct WorkdirHandler;
 
 #[async_trait::async_trait]
 impl SlashHandler for WorkdirHandler {
+    #[rustfmt::skip]
+    fn clone_box(&self) -> Box<dyn SlashHandler> { Box::new(WorkdirHandler) }
+
     fn commands(&self) -> &[&str] {
         &["git", "cd", "pwd"]
     }
@@ -963,7 +984,6 @@ async fn test_git_commit_owner_bypasses_permission_engine() {
     let gw = make_gateway();
     gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
     gw.set_permission_engine(deny_engine()).await;
-
     let result = gw
         .dispatch_slash(
             "sess4",
@@ -973,11 +993,8 @@ async fn test_git_commit_owner_bypasses_permission_engine() {
             Some("p"),
         )
         .await;
-
     assert!(
         matches!(result, Some(HandleResult::SlashHandled)),
         "/git commit for owner should bypass permission engine"
     );
 }
-
-// SlashDispatcher routing tests moved to tests_slash_dispatcher_routing.rs

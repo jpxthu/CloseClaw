@@ -13,6 +13,13 @@ struct SimpleHandler {
 
 #[async_trait::async_trait]
 impl SlashHandler for SimpleHandler {
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(SimpleHandler {
+            command: self.command,
+            requires_permission: self.requires_permission,
+        })
+    }
+
     fn commands(&self) -> &[&str] {
         std::slice::from_ref(&self.command)
     }

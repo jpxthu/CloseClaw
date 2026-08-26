@@ -482,26 +482,28 @@ async fn test_session_key_empty_fallback_no_outbound_chain() {
 // 6. Step 1.3 — Routing field fallback tests
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// A tracing layer that captures warning-level events into a `Vec<String>`.
-/// Used to verify that `session_key` empty triggers the expected warning.
+// ═════════════════════════════════════════════════════════════════════════════
+// Info-level collector for testing info! macros
+// ═════════════════════════════════════════════════════════════════════════════
+
 #[derive(Clone)]
-struct WarningCollector {
-    warnings: Arc<Mutex<Vec<String>>>,
+struct InfoCollector {
+    messages: Arc<Mutex<Vec<String>>>,
 }
 
-impl WarningCollector {
+impl InfoCollector {
     fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
-        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let messages = Arc::new(Mutex::new(Vec::new()));
         (
             Self {
-                warnings: warnings.clone(),
+                messages: messages.clone(),
             },
-            warnings,
+            messages,
         )
     }
 }
 
-impl<S> tracing_subscriber::Layer<S> for WarningCollector
+impl<S> tracing_subscriber::Layer<S> for InfoCollector
 where
     S: tracing::Subscriber,
 {
@@ -510,17 +512,17 @@ where
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        if *event.metadata().level() == Level::WARN {
-            let mut visitor = WarningVisitor(String::new());
+        if *event.metadata().level() == Level::INFO {
+            let mut visitor = InfoVisitor(String::new());
             event.record(&mut visitor);
-            self.warnings.lock().unwrap().push(visitor.0);
+            self.messages.lock().unwrap().push(visitor.0);
         }
     }
 }
 
-struct WarningVisitor(String);
+struct InfoVisitor(String);
 
-impl tracing::field::Visit for WarningVisitor {
+impl tracing::field::Visit for InfoVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
             self.0 = format!("{:?}", value);
@@ -528,10 +530,7 @@ impl tracing::field::Visit for WarningVisitor {
     }
 }
 
-/// Install a custom tracing subscriber that captures warnings.
-/// Uses `tracing::dispatch::set_global_default` to ensure the collector
-/// is active regardless of any pre-existing thread-local subscriber.
-fn install_warning_collector(collector: &WarningCollector) {
+fn install_info_collector(collector: &InfoCollector) {
     let layer = collector.clone();
     let subscriber = tracing_subscriber::Registry::default().with(layer);
     let dispatch = tracing::Dispatch::new(subscriber);
@@ -573,11 +572,14 @@ async fn test_empty_session_key_routing_fields_complete_returns_handle() {
 /// Verifies that `resolve_session_from_message` emits
 /// `tracing::warn!("session_key is empty — falling back to routing fields")`
 /// when session_key is empty.
+///
+/// NOTE: Step 1.1 changed the log level from warn to info for this case,
+/// so we use an InfoCollector instead of WarningCollector.
 #[tokio::test]
 #[serial]
-async fn test_empty_session_key_emits_warning_log() {
-    let (collector, warnings) = WarningCollector::new();
-    install_warning_collector(&collector);
+async fn test_empty_session_key_emits_info_log() {
+    let (collector, messages) = InfoCollector::new();
+    install_info_collector(&collector);
 
     let (gw, _plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "test");
@@ -587,14 +589,14 @@ async fn test_empty_session_key_emits_warning_log() {
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    let captured = warnings.lock().unwrap();
+    let captured = messages.lock().unwrap();
     assert!(
         !captured.is_empty(),
-        "expected a warning log when session_key is empty"
+        "expected an info log when session_key is empty"
     );
     assert!(
-        captured.iter().any(|w| w.contains("session_key is empty")),
-        "warning should mention session_key is empty, got: {:?}",
+        captured.iter().any(|w| w.contains("session_key empty")),
+        "info log should mention session_key empty, got: {:?}",
         *captured
     );
 }
