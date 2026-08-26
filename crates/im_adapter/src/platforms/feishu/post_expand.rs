@@ -97,10 +97,18 @@ pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
         "file" => "[文件]".to_string(),
         "code_block" => {
             let text = elem.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            let lang = elem
+                .get("language")
+                .and_then(|l| l.as_str())
+                .filter(|s| !s.is_empty());
+            let fence = match lang {
+                Some(l) => format!("```{}", l),
+                None => "```".to_string(),
+            };
             if text.is_empty() {
-                "```\n```".to_string()
+                format!("{}\n{}", fence, fence)
             } else {
-                format!("```\n{}\n```", text)
+                format!("{}\n{}\n{}", fence, text, fence)
             }
         }
         "code" | "inline_code" => {
