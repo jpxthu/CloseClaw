@@ -382,8 +382,12 @@ pub struct PlanSummary {
     pub stem: String,
     /// Plan title extracted from the first heading line.
     pub title: String,
-    /// Number of tasks in a terminal state (`[x]`, `[!]`, `[~]`).
+    /// Number of tasks completed (`[x]`).
     pub completed: usize,
+    /// Number of tasks failed (`[!]`).
+    pub failed: usize,
+    /// Number of tasks skipped (`[~]`).
+    pub skipped: usize,
     /// Total number of tasks (all checkbox lines in Tasks section).
     pub total: usize,
 }
@@ -414,11 +418,13 @@ pub fn list_plan_summaries(workdir: &Path) -> io::Result<Vec<PlanSummary>> {
         let stem = plan_file_stem(&path).unwrap_or_default();
         let content = std::fs::read_to_string(&path)?;
         let title = extract_title(&content);
-        let (completed, total) = count_tasks(&content);
+        let (completed, failed, skipped, total) = count_tasks(&content);
         summaries.push(PlanSummary {
             stem,
             title,
             completed,
+            failed,
+            skipped,
             total,
         });
     }
@@ -438,13 +444,15 @@ fn extract_title(content: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Count completed and total tasks in the Tasks section.
+/// Count completed, failed, skipped, and total tasks in the Tasks section.
 ///
-/// Completed: lines matching `[x]`, `[!]`, or `[~]`.
+/// Completed: lines matching `[x]`. Failed: `[!]`. Skipped: `[~]`.
 /// Total: all lines in the Tasks section starting with `- [`.
-fn count_tasks(content: &str) -> (usize, usize) {
+fn count_tasks(content: &str) -> (usize, usize, usize, usize) {
     let mut in_tasks = false;
     let mut completed = 0usize;
+    let mut failed = 0usize;
+    let mut skipped = 0usize;
     let mut total = 0usize;
     for line in content.lines() {
         if line.trim().starts_with("## Tasks") {
@@ -462,12 +470,13 @@ fn count_tasks(content: &str) -> (usize, usize) {
             continue;
         }
         total += 1;
-        if trimmed.starts_with("- [x]")
-            || trimmed.starts_with("- [!]")
-            || trimmed.starts_with("- [~]")
-        {
+        if trimmed.starts_with("- [x]") {
             completed += 1;
+        } else if trimmed.starts_with("- [!]") {
+            failed += 1;
+        } else if trimmed.starts_with("- [~]") {
+            skipped += 1;
         }
     }
-    (completed, total)
+    (completed, failed, skipped, total)
 }

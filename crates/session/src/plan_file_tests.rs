@@ -632,7 +632,9 @@ fn test_list_summaries_counts_checkboxes() {
     );
 
     let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
-    assert_eq!(summaries[0].completed, 3); // [x] + [!] + [~]
+    assert_eq!(summaries[0].completed, 1); // [x] only
+    assert_eq!(summaries[0].failed, 1); // [!]
+    assert_eq!(summaries[0].skipped, 1); // [~]
     assert_eq!(summaries[0].total, 5); // all - [ lines
 }
 
@@ -647,6 +649,8 @@ fn test_list_summaries_no_tasks_section_zero_counts() {
 
     let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
     assert_eq!(summaries[0].completed, 0);
+    assert_eq!(summaries[0].failed, 0);
+    assert_eq!(summaries[0].skipped, 0);
     assert_eq!(summaries[0].total, 0);
 }
 
@@ -661,6 +665,8 @@ fn test_list_summaries_tasks_no_checkboxes() {
 
     let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
     assert_eq!(summaries[0].completed, 0);
+    assert_eq!(summaries[0].failed, 0);
+    assert_eq!(summaries[0].skipped, 0);
     assert_eq!(summaries[0].total, 0);
 }
 
@@ -684,6 +690,8 @@ fn test_list_summaries_only_completed_checkboxes() {
 
     let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
     assert_eq!(summaries[0].completed, 3);
+    assert_eq!(summaries[0].failed, 0);
+    assert_eq!(summaries[0].skipped, 0);
     assert_eq!(summaries[0].total, 3);
 }
 
@@ -698,6 +706,8 @@ fn test_list_summaries_only_pending_checkboxes() {
 
     let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
     assert_eq!(summaries[0].completed, 0);
+    assert_eq!(summaries[0].failed, 0);
+    assert_eq!(summaries[0].skipped, 0);
     assert_eq!(summaries[0].total, 2);
 }
 
@@ -721,14 +731,20 @@ fn test_list_summaries_multiple_plans_mixed_states() {
 
     let plan1 = summaries.iter().find(|s| s.stem == "plan-1").unwrap();
     assert_eq!(plan1.completed, 1);
+    assert_eq!(plan1.failed, 0);
+    assert_eq!(plan1.skipped, 0);
     assert_eq!(plan1.total, 2);
 
     let plan2 = summaries.iter().find(|s| s.stem == "plan-2").unwrap();
-    assert_eq!(plan2.completed, 2);
+    assert_eq!(plan2.completed, 0);
+    assert_eq!(plan2.failed, 1);
+    assert_eq!(plan2.skipped, 1);
     assert_eq!(plan2.total, 2);
 
     let plan3 = summaries.iter().find(|s| s.stem == "plan-3").unwrap();
     assert_eq!(plan3.completed, 0);
+    assert_eq!(plan3.failed, 0);
+    assert_eq!(plan3.skipped, 0);
     assert_eq!(plan3.total, 0);
 }
 
@@ -744,6 +760,8 @@ fn test_list_summaries_stops_at_next_section() {
     let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
     // Only the task in the Tasks section counts
     assert_eq!(summaries[0].completed, 1);
+    assert_eq!(summaries[0].failed, 0);
+    assert_eq!(summaries[0].skipped, 0);
     assert_eq!(summaries[0].total, 1);
 }
 
