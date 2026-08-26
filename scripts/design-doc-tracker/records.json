@@ -385,9 +385,9 @@
   },
   {
     "path": "docs/design/mode/plan-browse.md",
-    "commit": "ab6882ba4f68a8b413521024864852ea61eca3b4",
-    "commit_time": "2026-08-23T16:26:43+08:00",
-    "confirmed_time": "2026-08-23T16:36:13.372660+08:00",
+    "commit": "96d8a0de8f314e8dbc1bd50a9b82adfa9c71ef14",
+    "commit_time": "2026-08-26T14:16:22+08:00",
+    "confirmed_time": "2026-08-26T14:31:32.907679+08:00",
     "comment": "",
     "blocked_reason": ""
   },
