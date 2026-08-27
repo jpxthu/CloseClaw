@@ -351,8 +351,7 @@ async fn test_spawn_background_services_with_independent_provider() {
         Arc::new(ConfigManager::new(tmp.path().join("config")).expect("ConfigManager::new failed"));
     let session_manager = make_session_manager();
 
-    let (sweeper_rx, announce_sweeper_rx, dreaming_rx, plan_archive_rx) = (
-        tokio::sync::watch::channel(()).1,
+    let (sweeper_rx, announce_sweeper_rx, dreaming_rx) = (
         tokio::sync::watch::channel(()).1,
         tokio::sync::watch::channel(()).1,
         tokio::sync::watch::channel(()).1,
@@ -361,7 +360,6 @@ async fn test_spawn_background_services_with_independent_provider() {
         sweeper: sweeper_rx,
         announce_sweeper: announce_sweeper_rx,
         dreaming: dreaming_rx,
-        plan_archive: plan_archive_rx,
     };
 
     let handles = Daemon::spawn_background_services(
@@ -372,18 +370,17 @@ async fn test_spawn_background_services_with_independent_provider() {
         Arc::clone(&provider),
     );
 
-    // All 4 handles should be valid (tasks are spawned).
-    let (sweeper_h, announce_h, dreaming_h, plan_archive_h) = handles;
+    // All 3 handles should be valid (tasks are spawned).
+    // PlanArchiveSweeper is now spawned in populate_registries, not here.
+    let (sweeper_h, announce_h, dreaming_h) = handles;
     assert!(!sweeper_h.is_finished());
     assert!(!announce_h.is_finished());
     assert!(!dreaming_h.is_finished());
-    assert!(!plan_archive_h.is_finished());
 
     // Abort all tasks so the test exits cleanly.
     sweeper_h.abort();
     announce_h.abort();
     dreaming_h.abort();
-    plan_archive_h.abort();
 }
 
 // ═══════════════════════════════════════════════════════════════════════

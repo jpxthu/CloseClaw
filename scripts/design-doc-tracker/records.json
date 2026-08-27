@@ -123,9 +123,9 @@
     "path": "docs/design/daemon/README.md",
     "commit": "03ac85d5102b678f121ae332653ebc5dbcf30485",
     "commit_time": "2026-08-26T08:09:07+08:00",
-    "confirmed_time": "2026-08-26T08:20:22.679225+08:00",
+    "confirmed_time": "2026-08-27T12:48:19.383341+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "设计文档内部矛盾：1) 文档声称后台任务权威清单包含5个任务，但代码中还有SkillWatcher后台任务；2) 文档声明Gateway依赖PermissionEngine，但代码拓扑排序中未包含此依赖。"
   },
   {
     "path": "docs/design/daemon/shutdown.md",

@@ -62,6 +62,8 @@ pub enum Service {
     AdminRpcServer,
     /// LLM provider registry — reads models.json, constructs LLM clients.
     LLMRegistry,
+    /// Background plan archive sweeper — archives old plan files.
+    PlanArchiveSweeper,
 }
 
 /// Identifies a daemon component for startup orchestration.
@@ -107,6 +109,7 @@ impl ComponentId {
                 Service::SpawnController => "SpawnController",
                 Service::AdminRpcServer => "AdminRpcServer",
                 Service::LLMRegistry => "LLMRegistry",
+                Service::PlanArchiveSweeper => "PlanArchiveSweeper",
             },
         }
     }
@@ -193,6 +196,7 @@ impl ComponentDeps for ComponentId {
             Self::Service(SpawnController) => {
                 &[Self::Service(AgentRegistry), Self::Service(ToolsRegistry)]
             }
+            Self::Service(PlanArchiveSweeper) => &[Self::Foundation(ConfigManager)],
             Self::Service(AdminRpcServer) => &[Self::Service(Gateway)],
         }
     }
@@ -224,6 +228,7 @@ pub fn all_component_entries() -> Vec<ComponentEntry> {
         ComponentId::Service(Service::ApprovalFlow),
         ComponentId::Service(Service::Gateway),
         ComponentId::Service(Service::SpawnController),
+        ComponentId::Service(Service::PlanArchiveSweeper),
         ComponentId::Service(Service::AdminRpcServer),
     ]
     .into_iter()
@@ -382,6 +387,7 @@ impl StartupPhase {
                 ComponentId::Service(AgentRegistry),
                 ComponentId::Service(ConfigHotReload),
                 ComponentId::Service(PermissionEngine),
+                ComponentId::Service(PlanArchiveSweeper),
                 ComponentId::Service(RenderersPlugins),
                 ComponentId::Service(SessionConfigProvider),
                 ComponentId::Service(SkillsRegistry),
