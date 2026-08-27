@@ -371,9 +371,9 @@
     "path": "docs/design/mode/README.md",
     "commit": "a83a4e13099108eb32b839fea0901eb1e4977804",
     "commit_time": "2026-08-26T18:30:11+08:00",
-    "confirmed_time": "2026-08-26T18:48:53.564420+08:00",
+    "confirmed_time": "2026-08-27T17:18:00.525667+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "mode-switching.md 数据流章节 /mode 非法参数提示写「可用：normal, plan」，遗漏 auto。文档自身定义了 3 种模式（Normal/Plan/Auto），代码正确输出「可用：normal, plan, auto」。文档内部事实错误。"
   },
   {
     "path": "docs/design/mode/execution.md",
