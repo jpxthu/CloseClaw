@@ -22,16 +22,21 @@ use crate::config_watcher;
 /// Dropping this sends a shutdown signal and aborts the task,
 /// consistent with the SkillWatcher/ConfigWatcher RAII pattern.
 pub(crate) struct PlanArchiveSweeperHandle {
-    _shutdown_tx: watch::Sender<()>,
-    _task: tokio::task::JoinHandle<()>,
+    // Implicit drop closes the channel, signaling the background task.
+    #[allow(dead_code)]
+    shutdown_tx: watch::Sender<()>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for PlanArchiveSweeperHandle {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl PlanArchiveSweeperHandle {
     pub(crate) fn new(shutdown_tx: watch::Sender<()>, task: tokio::task::JoinHandle<()>) -> Self {
-        Self {
-            _shutdown_tx: shutdown_tx,
-            _task: task,
-        }
+        Self { shutdown_tx, task }
     }
 }
 

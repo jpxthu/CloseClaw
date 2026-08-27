@@ -520,8 +520,7 @@ impl Daemon {
         // Signal DreamingScheduler to stop
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
         // PlanArchiveSweeper is RAII — stop on drop.
-        if let Some(sweeper) = self._plan_archive_sweeper.take() {
-            drop(sweeper);
+        if self._plan_archive_sweeper.take().is_some() {
             tracing::info!("PlanArchiveSweeper dropped in Phase 3");
         }
 
