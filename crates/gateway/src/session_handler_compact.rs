@@ -37,36 +37,6 @@ impl SessionMessageHandler {
         send_output(&self.output_tx, "⚠️ 对话即将压缩，可输入 /compact 手动管理").await;
     }
 
-    /// Estimate tokens and determine the warning state for the current conversation.
-    async fn estimate_and_check_state(
-        &self,
-        llm_messages: &[ChatMessage],
-        model: &str,
-        stats: &RunningStats,
-    ) -> (Vec<CompactionMessage>, TokenWarningState, usize) {
-        let compaction_msgs: Vec<CompactionMessage> = llm_messages
-            .iter()
-            .map(|m| CompactionMessage {
-                role: m.role.clone(),
-                content: m.content.clone(),
-            })
-            .collect();
-        let cpt = {
-            let svc = self.compaction_service.lock().await;
-            svc.config().chars_per_token
-        };
-        let tokens =
-            closeclaw_session::compaction::estimate_total_tokens(stats, &compaction_msgs, cpt);
-        let kb_window = self
-            .model_knowledge
-            .as_ref()
-            .and_then(|kb| find_context_window_for_model(kb, model));
-        let warning = {
-            let svc = self.compaction_service.lock().await;
-            svc.token_warning_state(tokens, model, kb_window)
-        };
-        (compaction_msgs, warning, tokens)
-    }
     /// Truncate persistent transcript to `max_history_messages`.
     async fn truncate_before_compact(&self, session_id: &str) {
         let max = {
@@ -122,6 +92,37 @@ impl SessionMessageHandler {
 
 // ── Compaction: circuit breaker + execution ──
 impl SessionMessageHandler {
+    /// Estimate tokens and determine the warning state for the current conversation.
+    async fn estimate_and_check_state(
+        &self,
+        llm_messages: &[ChatMessage],
+        model: &str,
+        stats: &RunningStats,
+    ) -> (Vec<CompactionMessage>, TokenWarningState, usize) {
+        let compaction_msgs: Vec<CompactionMessage> = llm_messages
+            .iter()
+            .map(|m| CompactionMessage {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            })
+            .collect();
+        let cpt = {
+            let svc = self.compaction_service.lock().await;
+            svc.config().chars_per_token
+        };
+        let tokens =
+            closeclaw_session::compaction::estimate_total_tokens(stats, &compaction_msgs, cpt);
+        let kb_window = self
+            .model_knowledge
+            .as_ref()
+            .and_then(|kb| find_context_window_for_model(kb, model));
+        let warning = {
+            let svc = self.compaction_service.lock().await;
+            svc.token_warning_state(tokens, model, kb_window)
+        };
+        (compaction_msgs, warning, tokens)
+    }
+
     /// Inject a one-time assistant message when the circuit breaker trips.
     async fn inject_circuit_breaker_notification(&self, session_id: &str) {
         let should_notify = {
