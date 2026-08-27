@@ -8,6 +8,7 @@
 //! - Session with running child (child_active) → child_active=true
 //! - Session Idle + running child → child_active=true
 //! - Session Idle + no running child → all false
+//! - Explicit struct-level assertions (assert_eq! against default)
 //!
 //! Tool-state tests are omitted because `register_tool_call` and
 //! `update_tool_state` are `pub(crate)` in `closeclaw-session` and
@@ -16,7 +17,7 @@
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{register_child_only, setup_parent_with_conv};
-use closeclaw_common::{ChildSessionState, LlmState};
+use closeclaw_common::{ChildSessionState, LlmState, SessionActivityDimensions};
 
 /// Helper: build a SessionManager with no persistence backend.
 fn make_mgr() -> super::SessionManager {
@@ -246,5 +247,100 @@ async fn test_activity_dimensions_llm_idle_child_terminates() {
     assert!(
         !mgr.activity_dimensions(&sid).await.any_active(),
         "session should have no active dimensions after child terminates and LLM is idle"
+    );
+}
+
+// ── Explicit struct-level assertions ──────────────────────────────────
+
+/// Verify not-found returns exactly `SessionActivityDimensions::default()`
+/// (all four bools false) — per design doc "session not in memory →
+/// no active work".
+#[tokio::test]
+async fn test_activity_dimensions_not_found_exact_default() {
+    let mgr = make_mgr();
+    let dims = mgr.activity_dimensions("ghost-session").await;
+    assert_eq!(
+        dims,
+        SessionActivityDimensions::default(),
+        "nonexistent session must return exactly the default (all-false) struct"
+    );
+}
+
+/// Verify idle session returns exactly `SessionActivityDimensions::default()`.
+#[tokio::test]
+async fn test_activity_dimensions_idle_exact_default() {
+    let mgr = make_mgr();
+    let sid = setup_parent_with_conv(&mgr, "idle-exact").await;
+    let dims = mgr.activity_dimensions(&sid).await;
+    assert_eq!(
+        dims,
+        SessionActivityDimensions::default(),
+        "idle session must return exactly the default (all-false) struct"
+    );
+}
+
+/// Verify LLM Requesting sets llm_active=true and leaves all other dims false.
+#[tokio::test]
+async fn test_activity_dimensions_llm_requesting_only_llm_true() {
+    let mgr = make_mgr();
+    let sid = setup_parent_with_conv(&mgr, "llm-only-req").await;
+    {
+        let cs = mgr.get_conversation_session(&sid).await.unwrap();
+        let cs = cs.write().await;
+        cs.set_llm_state(LlmState::Requesting);
+    }
+    let dims = mgr.activity_dimensions(&sid).await;
+    assert_eq!(
+        dims,
+        SessionActivityDimensions {
+            llm_active: true,
+            foreground_tool_active: false,
+            background_tool_active: false,
+            child_active: false,
+        },
+        "only llm_active must be true when LLM is Requesting"
+    );
+}
+
+/// Verify LLM Receiving sets llm_active=true and leaves all other dims false.
+#[tokio::test]
+async fn test_activity_dimensions_llm_receiving_only_llm_true() {
+    let mgr = make_mgr();
+    let sid = setup_parent_with_conv(&mgr, "llm-only-rec").await;
+    {
+        let cs = mgr.get_conversation_session(&sid).await.unwrap();
+        let cs = cs.write().await;
+        cs.set_llm_state(LlmState::Receiving);
+    }
+    let dims = mgr.activity_dimensions(&sid).await;
+    assert_eq!(
+        dims,
+        SessionActivityDimensions {
+            llm_active: true,
+            foreground_tool_active: false,
+            background_tool_active: false,
+            child_active: false,
+        },
+        "only llm_active must be true when LLM is Receiving"
+    );
+}
+
+/// Verify running child sets child_active=true and leaves all other dims false
+/// (LLM is idle, no tools registered).
+#[tokio::test]
+async fn test_activity_dimensions_child_only() {
+    let mgr = make_mgr();
+    let sid = setup_parent_with_conv(&mgr, "child-only").await;
+    setup_child_running(&mgr, &sid, "child-c1").await;
+    let dims = mgr.activity_dimensions(&sid).await;
+    assert_eq!(
+        dims,
+        SessionActivityDimensions {
+            llm_active: false,
+            foreground_tool_active: false,
+            background_tool_active: false,
+            child_active: true,
+        },
+        "only child_active must be true when a child is running and LLM is idle"
     );
 }
