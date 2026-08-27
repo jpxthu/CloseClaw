@@ -67,7 +67,7 @@ OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reaso
 
 ### 用量字段
 
-两种协议的用量字段归一化为统一 Usage 结构，各协议原生位置：
+两种协议的用量字段归一化为 [UnifiedUsage](../common/shared-types.md#unifiedresponse--unifiedusage)（协议未携带的字段以缺失值表示），各协议原生位置：
 
 | 统一字段 | 含义 | OpenAI 协议来源 | Anthropic 协议来源 |
 |---------|------|----------------|-------------------|

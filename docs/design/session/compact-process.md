@@ -29,7 +29,7 @@ Bootstrap 文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md 等）
 - **手动触发**：用户输入 `/compact` 斜杠命令，可附带自定义保留指令（如 `/compact 保留用户名和邮箱`）。仅输入 `/compact` 时不附带自定义指令。
 - **自动触发**：每次收到用户消息后，估算当前 token 用量，当剩余空间低于可配置阈值时自动执行压缩。自动触发内建了以下防护：
 
-**Token 估算**：组合使用服务端精确用量和字符估算。已完成的 LLM 调用使用服务端返回的精确 usage 数据（prompt_tokens、completion_tokens、cache 相关 token），从会话统计（RunningStats）中读取；尚未发送的待估消息（如用户新输入）用字符数乘以配置系数做线性估算，不依赖外部 tokenizer。两者相加得到当前上下文 token 总量。不同模型的上下文窗口大小由模型发现子系统的知识库提供。
+**Token 估算**：组合使用服务端精确用量和字符估算。已完成的 LLM 调用使用服务端返回的精确 usage 数据（prompt_tokens、completion_tokens、cache 相关 token），从会话统计（[RunningStats](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds)）中读取；尚未发送的待估消息（如用户新输入）用字符数乘以配置系数做线性估算，不依赖外部 tokenizer。两者相加得到当前上下文 token 总量。不同模型的上下文窗口大小由模型发现子系统的知识库提供。
 
 **分级告警阈值**：根据剩余 token 空间分为正常、预警、触发自动压缩三个级别。告警阈值和压缩阈值均按上下文窗口百分比配置，每个 Agent 可独立设置（通过 Session 配置中的 `compact` 节）。空间从正常区间进入预警区间时触发告警提示。若后续剩余空间回升至告警阈值以上，告警自动取消——此事件不重复提示用户；若空间再度跌破告警阈值，视为新的阈值穿越事件，重新触发告警。
 
