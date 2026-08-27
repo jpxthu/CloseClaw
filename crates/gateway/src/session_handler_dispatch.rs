@@ -385,6 +385,10 @@ impl SessionMessageHandler {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
         }
+        // Inject active children summary BEFORE the user message
+        // (design-doc position constraint).
+        self.inject_active_children_summary_if_needed(session_id)
+            .await;
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).
         if let Some(cs) = self
@@ -487,19 +491,10 @@ impl SessionMessageHandler {
             // before check_and_run_auto_compact (design-doc data-flow requirement).
             // Do NOT duplicate the append here.
 
-            // ── Spawn guard: first-layer defense ───────────────────
-            // If the parent has active children but has not yielded,
-            // inject a reminder so the LLM is prompted to yield.
-            if let Some(cs) = sm.get_conversation_session(&session_id).await {
-                let mut cs_write = cs.write().await;
-                if let Some(reminder) = cs_write.spawn_guard_reminder() {
-                    tracing::info!(
-                        session_id = %session_id,
-                        "spawn_guard: injecting reminder"
-                    );
-                    cs_write.inject_system_message(reminder);
-                }
-            }
+            // NOTE: Active children summary is now injected BEFORE the user
+            // message by inject_active_children_summary_if_needed (position
+            // constraint from design doc). This spawn block no longer handles
+            // summary injection.
 
             // Step 1.4: inject Now-priority announces before user message
             // processing so the agent sees urgent notifications first.

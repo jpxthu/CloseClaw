@@ -282,6 +282,42 @@ impl ConversationSession {
             .count()
     }
 
+    /// Returns a summary of all currently active (Running) child sessions.
+    ///
+    /// Reads `child_states`, filters for `ChildSessionState::Running`,
+    /// and extracts `agent_id` + `task_summary` from each
+    /// [`PendingOperationDetail::SubSessionSpawn`]. Children whose detail
+    /// is `None` (defensive) are silently skipped.
+    ///
+    /// Returns `None` when there are no running children.
+    /// The returned text is meant for injection as a system message.
+    pub fn active_children_summary(&self) -> Option<String> {
+        let states = self
+            .child_states
+            .read()
+            .expect("child_states lock poisoned");
+        let summaries: Vec<String> = states
+            .values()
+            .filter(|(s, _)| matches!(s, ChildSessionState::Running))
+            .filter_map(|(_, detail)| {
+                if let Some(PendingOperationDetail::SubSessionSpawn {
+                    agent_id,
+                    task_summary,
+                    ..
+                }) = detail
+                {
+                    Some(format!("- {} : {}", agent_id, task_summary))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if summaries.is_empty() {
+            return None;
+        }
+        Some(format!("当前活跃子 Session:\n{}", summaries.join("\n")))
+    }
+
     /// Returns a spawn-guard reminder if the parent should yield.
     ///
     /// First-layer defense against silent spawn failures: when a parent

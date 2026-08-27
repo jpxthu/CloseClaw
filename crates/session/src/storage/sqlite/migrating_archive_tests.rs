@@ -64,7 +64,6 @@ fn make_checkpoint_with_transcript(
         ],
         label: None,
         communication_config: None,
-        spawn_mode: None,
         snapshot_metas: Vec::new(),
         workflow_run: None,
     }
