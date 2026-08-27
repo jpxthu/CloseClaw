@@ -487,17 +487,29 @@ impl SessionMessageHandler {
             // before check_and_run_auto_compact (design-doc data-flow requirement).
             // Do NOT duplicate the append here.
 
-            // ── Spawn guard: first-layer defense ───────────────────
-            // If the parent has active children but has not yielded,
-            // inject a reminder so the LLM is prompted to yield.
+            // ── Active children summary injection ─────────────────
+            // Inject a summary of active child sessions (with
+            // agent_id + task_summary) before the user message so the
+            // parent LLM sees which children are still running.
+            // When the parent has not yet yielded, also append a yield
+            // suggestion (first-layer defense).
             if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 let mut cs_write = cs.write().await;
-                if let Some(reminder) = cs_write.spawn_guard_reminder() {
+                let summary = cs_write.active_children_summary();
+                let yield_reminder = cs_write.spawn_guard_reminder();
+                if summary.is_some() || yield_reminder.is_some() {
+                    let mut text = summary.unwrap_or_default();
+                    if let Some(reminder) = yield_reminder {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(&reminder);
+                    }
                     tracing::info!(
                         session_id = %session_id,
-                        "spawn_guard: injecting reminder"
+                        "injecting active children summary"
                     );
-                    cs_write.inject_system_message(reminder);
+                    cs_write.inject_system_message(text);
                 }
             }
 
