@@ -37,6 +37,62 @@ impl SessionMessageHandler {
         send_output(&self.output_tx, "⚠️ 对话即将压缩，可输入 /compact 手动管理").await;
     }
 
+    /// Truncate persistent transcript to `max_history_messages`.
+    async fn truncate_before_compact(&self, session_id: &str) {
+        let max = {
+            let svc = self.compaction_service.lock().await;
+            svc.config().max_history_messages
+        };
+        if let Some(max) = max {
+            if let Some(cs) = self
+                .session_manager
+                .get_conversation_session(session_id)
+                .await
+            {
+                let dropped = { cs.write().await.truncate_transcript_to_limit(Some(max)) };
+                if dropped > 0 {
+                    tracing::info!(session_id, max, dropped, "历史截断（消息上限截断）");
+                }
+            }
+        }
+    }
+
+    /// Check token usage and trigger auto-compaction if needed.
+    pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
+        // Step 1: truncate persistent transcript before loading inputs.
+        self.truncate_before_compact(session_id).await;
+        // Step 2: load inputs from (now-truncated) persistent history.
+        let Some((model, llm_messages, stats)) =
+            load_compact_inputs(&self.session_manager, session_id).await
+        else {
+            return;
+        };
+        // Step 3: estimate tokens and act on warning state.
+        let (_compaction_msgs, warning, tokens) = self
+            .estimate_and_check_state(&llm_messages, &model, &stats)
+            .await;
+        match warning {
+            TokenWarningState::Normal => {
+                *self.has_warned.lock().expect("has_warned poisoned") = false;
+            }
+            TokenWarningState::Warning => {
+                self.handle_token_warning_state(session_id, tokens, &model)
+                    .await;
+            }
+            TokenWarningState::AutoCompactTriggered => {
+                let preloaded = PreloadedCompactInputs {
+                    model,
+                    llm_messages,
+                    stats,
+                };
+                self.run_auto_compact(session_id, preloaded).await;
+            }
+        }
+    }
+}
+
+// ── Compaction: circuit breaker + execution ──
+impl SessionMessageHandler {
     /// Estimate tokens and determine the warning state for the current conversation.
     async fn estimate_and_check_state(
         &self,
@@ -68,42 +124,6 @@ impl SessionMessageHandler {
         (compaction_msgs, warning, tokens)
     }
 
-    /// Check token usage and trigger auto-compaction if needed.
-    pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
-        let Some((model, mut llm_messages, stats)) =
-            load_compact_inputs(&self.session_manager, session_id).await
-        else {
-            return;
-        };
-        {
-            let svc = self.compaction_service.lock().await;
-            truncate_messages(&mut llm_messages, svc.config().max_history_messages);
-        }
-        let (_compaction_msgs, warning, tokens) = self
-            .estimate_and_check_state(&llm_messages, &model, &stats)
-            .await;
-        match warning {
-            TokenWarningState::Normal => {
-                *self.has_warned.lock().expect("has_warned poisoned") = false;
-            }
-            TokenWarningState::Warning => {
-                self.handle_token_warning_state(session_id, tokens, &model)
-                    .await;
-            }
-            TokenWarningState::AutoCompactTriggered => {
-                let preloaded = PreloadedCompactInputs {
-                    model,
-                    llm_messages,
-                    stats,
-                };
-                self.run_auto_compact(session_id, preloaded).await;
-            }
-        }
-    }
-}
-
-// ── Compaction: circuit breaker + execution ──
-impl SessionMessageHandler {
     /// Inject a one-time assistant message when the circuit breaker trips.
     async fn inject_circuit_breaker_notification(&self, session_id: &str) {
         let should_notify = {
@@ -216,15 +236,5 @@ pub(crate) async fn send_output(output_tx: &OutputTx, text: &str) {
     let guard = output_tx.read().await;
     if let Some(tx) = guard.as_ref() {
         let _ = tx.send((text.to_string(), vec![])).await;
-    }
-}
-
-/// Truncate `llm_messages` to the most recent `max` entries.
-fn truncate_messages(llm_messages: &mut Vec<ChatMessage>, max: Option<usize>) {
-    if let Some(max) = max {
-        if llm_messages.len() > max {
-            let drain = llm_messages.len() - max;
-            llm_messages.drain(..drain);
-        }
     }
 }

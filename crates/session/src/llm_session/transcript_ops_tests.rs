@@ -193,3 +193,179 @@ fn test_convenience_methods_no_snapshot() {
     // Append operations should not create snapshots.
     assert_eq!(cs.snapshot_count(), None);
 }
+
+// ── truncate_transcript_to_limit ─────────────────────────────────────────
+
+/// Normal path: history > max → oldest messages removed, most recent
+/// `max` messages retained; returns the number of dropped messages.
+#[test]
+fn test_truncate_normal_path_drops_oldest() {
+    let mut cs = make_session("t1");
+    // Append 5 messages: m0..m4
+    for i in 0..5 {
+        cs.append_transcript("user", vec![ContentBlock::Text(format!("msg{i}"))]);
+    }
+    assert_eq!(cs.messages.len(), 5);
+
+    let dropped = cs.truncate_transcript_to_limit(Some(3));
+
+    assert_eq!(dropped, 2, "should drop 2 oldest messages");
+    assert_eq!(cs.messages.len(), 3, "should retain 3 messages");
+    // Oldest two (msg0, msg1) are gone; newest three remain.
+    assert_eq!(
+        cs.messages[0].content_blocks[0],
+        ContentBlock::Text("msg2".into())
+    );
+    assert_eq!(
+        cs.messages[1].content_blocks[0],
+        ContentBlock::Text("msg3".into())
+    );
+    assert_eq!(
+        cs.messages[2].content_blocks[0],
+        ContentBlock::Text("msg4".into())
+    );
+}
+
+/// Boundary: message count == max → no truncation, returns 0.
+#[test]
+fn test_truncate_at_limit_no_op() {
+    let mut cs = make_session("t2");
+    for i in 0..3 {
+        cs.append_transcript("user", vec![ContentBlock::Text(format!("msg{i}"))]);
+    }
+    let dropped = cs.truncate_transcript_to_limit(Some(3));
+    assert_eq!(dropped, 0, "no messages should be dropped at the limit");
+    assert_eq!(cs.messages.len(), 3);
+    assert_eq!(cs.snapshot_count(), None, "no snapshot should be created");
+}
+
+/// Boundary: message count < max → no truncation, returns 0.
+#[test]
+fn test_truncate_below_limit_no_op() {
+    let mut cs = make_session("t3");
+    for i in 0..2 {
+        cs.append_transcript("user", vec![ContentBlock::Text(format!("msg{i}"))]);
+    }
+    let dropped = cs.truncate_transcript_to_limit(Some(5));
+    assert_eq!(dropped, 0);
+    assert_eq!(cs.messages.len(), 2);
+    assert_eq!(cs.snapshot_count(), None);
+}
+
+/// Boundary: max = None → no truncation, returns 0.
+#[test]
+fn test_truncate_none_max_no_op() {
+    let mut cs = make_session("t4");
+    for i in 0..10 {
+        cs.append_transcript("user", vec![ContentBlock::Text(format!("msg{i}"))]);
+    }
+    let dropped = cs.truncate_transcript_to_limit(None);
+    assert_eq!(dropped, 0);
+    assert_eq!(cs.messages.len(), 10);
+    assert_eq!(cs.snapshot_count(), None);
+}
+
+/// Snapshot: truncation creates a PartialRewrite snapshot that can be
+/// rolled back to restore the pre-truncation state.
+#[test]
+fn test_truncate_creates_undoable_snapshot() {
+    let mut cs = make_session("t5");
+    for i in 0..5 {
+        cs.append_transcript("user", vec![ContentBlock::Text(format!("msg{i}"))]);
+    }
+    let dropped = cs.truncate_transcript_to_limit(Some(3));
+    assert_eq!(dropped, 2);
+    assert_eq!(cs.messages.len(), 3);
+    // A snapshot should exist after truncation.
+    assert_eq!(cs.snapshot_count(), Some(1));
+
+    // Rollback restores the pre-truncation state (5 messages).
+    let action = cs.rollback_transcript();
+    assert!(action.is_some(), "rollback should succeed");
+    match action.unwrap() {
+        RollbackAction::Replace { messages } => {
+            assert_eq!(messages.len(), 5, "rollback should restore all 5 messages");
+        }
+        _ => panic!("expected Replace action for PartialRewrite snapshot"),
+    }
+}
+
+/// last_activity_at is updated after a truncation that actually drops messages.
+///
+/// Uses a deterministic baseline: set last_activity_at to a known old
+/// timestamp, truncate, then verify it has been refreshed to the current
+/// time (which is necessarily greater than the fixed old baseline).
+#[test]
+fn test_truncate_updates_last_activity_at() {
+    let mut cs = make_session("t6");
+    cs.append_transcript("user", vec![ContentBlock::Text("a".into())]);
+    cs.append_transcript("user", vec![ContentBlock::Text("b".into())]);
+    cs.append_transcript("user", vec![ContentBlock::Text("c".into())]);
+    // Set a fixed old baseline — deterministic, no sleep required.
+    let old_ts: i64 = 1_000_000_000; // 2001-09-09 01:46:40 UTC
+    cs.last_activity_at = old_ts;
+    assert_eq!(cs.last_activity_at(), old_ts);
+    let _ = cs.truncate_transcript_to_limit(Some(2));
+    let after = cs.last_activity_at();
+    assert!(
+        after > old_ts,
+        "last_activity_at should be refreshed after truncation"
+    );
+}
+
+/// Truncation with mixed roles preserves the most recent messages
+/// regardless of role — the transcript is treated as an ordered log.
+#[test]
+fn test_truncate_preserves_newest_mixed_roles() {
+    let mut cs = make_session("t7");
+    cs.append_transcript("system", vec![ContentBlock::Text("sys".into())]);
+    cs.append_transcript("user", vec![ContentBlock::Text("q1".into())]);
+    cs.append_transcript("assistant", vec![ContentBlock::Text("a1".into())]);
+    cs.append_transcript("user", vec![ContentBlock::Text("q2".into())]);
+    cs.append_transcript("assistant", vec![ContentBlock::Text("a2".into())]);
+    // 5 messages, keep 3.
+    let dropped = cs.truncate_transcript_to_limit(Some(3));
+    assert_eq!(dropped, 2);
+    assert_eq!(cs.messages.len(), 3);
+    assert_eq!(cs.messages[0].role, "assistant"); // a1
+    assert_eq!(cs.messages[1].role, "user"); // q2
+    assert_eq!(cs.messages[2].role, "assistant"); // a2
+}
+
+/// Truncation on empty session returns 0 and leaves messages empty.
+#[test]
+fn test_truncate_empty_session_no_op() {
+    let mut cs = make_session("t8");
+    let dropped = cs.truncate_transcript_to_limit(Some(5));
+    assert_eq!(dropped, 0);
+    assert_eq!(cs.messages.len(), 0);
+    assert_eq!(cs.snapshot_count(), None);
+}
+
+/// Two consecutive truncations: the second operates on already-truncated
+/// history and only one snapshot is created per truncation.
+#[test]
+fn test_truncate_consecutive_truncations() {
+    let mut cs = make_session("t9");
+    for i in 0..10 {
+        cs.append_transcript("user", vec![ContentBlock::Text(format!("msg{i}"))]);
+    }
+    let d1 = cs.truncate_transcript_to_limit(Some(5));
+    assert_eq!(d1, 5);
+    assert_eq!(cs.messages.len(), 5);
+    assert_eq!(cs.snapshot_count(), Some(1));
+
+    let d2 = cs.truncate_transcript_to_limit(Some(3));
+    assert_eq!(d2, 2);
+    assert_eq!(cs.messages.len(), 3);
+    assert_eq!(cs.snapshot_count(), Some(2));
+    // Most recent 3 messages: msg7, msg8, msg9.
+    assert_eq!(
+        cs.messages[0].content_blocks[0],
+        ContentBlock::Text("msg7".into())
+    );
+    assert_eq!(
+        cs.messages[2].content_blocks[0],
+        ContentBlock::Text("msg9".into())
+    );
+}
