@@ -291,20 +291,25 @@ fn test_truncate_creates_undoable_snapshot() {
 }
 
 /// last_activity_at is updated after a truncation that actually drops messages.
+///
+/// Uses a deterministic baseline: set last_activity_at to a known old
+/// timestamp, truncate, then verify it has been refreshed to the current
+/// time (which is necessarily greater than the fixed old baseline).
 #[test]
 fn test_truncate_updates_last_activity_at() {
     let mut cs = make_session("t6");
     cs.append_transcript("user", vec![ContentBlock::Text("a".into())]);
     cs.append_transcript("user", vec![ContentBlock::Text("b".into())]);
     cs.append_transcript("user", vec![ContentBlock::Text("c".into())]);
-    let before = cs.last_activity_at();
-    // Small sleep to ensure timestamp difference (1-second resolution).
-    std::thread::sleep(std::time::Duration::from_millis(1100));
+    // Set a fixed old baseline — deterministic, no sleep required.
+    let old_ts: i64 = 1_000_000_000; // 2001-09-09 01:46:40 UTC
+    cs.last_activity_at = old_ts;
+    assert_eq!(cs.last_activity_at(), old_ts);
     let _ = cs.truncate_transcript_to_limit(Some(2));
     let after = cs.last_activity_at();
     assert!(
-        after > before,
-        "last_activity_at should be updated after truncation"
+        after > old_ts,
+        "last_activity_at should be refreshed after truncation"
     );
 }
 

@@ -36,6 +36,7 @@ impl SessionMessageHandler {
         }
         send_output(&self.output_tx, "⚠️ 对话即将压缩，可输入 /compact 手动管理").await;
     }
+
     /// Estimate tokens and determine the warning state for the current conversation.
     async fn estimate_and_check_state(
         &self,
