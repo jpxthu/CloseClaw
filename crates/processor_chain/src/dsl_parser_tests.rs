@@ -190,8 +190,8 @@ async fn test_process_content_blocks_takes_priority() {
 
     // content_blocks takes priority over ctx.content
     assert_eq!(result.text_content(), Some("Actual content"));
-    let dsl_val = result.metadata.get("dsl_result").unwrap();
-    assert!(!dsl_val.contains("button"));
+    // No DSL in content_blocks → metadata must NOT contain dsl_result.
+    assert!(!result.metadata.contains_key("dsl_result"));
 }
 
 // ---------------------------------------------------------------------------
@@ -357,9 +357,14 @@ async fn test_process_empty_string_content_blocks() {
 #[test]
 fn test_with_result_instruction_ordering_preserved() {
     let parser = DslParser;
-    let blocks = vec![
-        ContentBlock::Text("::button[label:A;action:1;value:x]\n::selector[label:B;action:2]\n::button[label:C;action:3;value:y]".to_string()),
-    ];
+    let blocks = vec![ContentBlock::Text(
+        concat!(
+            "::button[label:A;action:1;value:x]\n",
+            "::selector[label:B;action:2]\n",
+            "::button[label:C;action:3;value:y]",
+        )
+        .to_string(),
+    )];
     let (result, _) = parser.parse_content_blocks_with_result(&blocks);
     assert_eq!(result.instructions.len(), 3);
     assert_eq!(result.instructions[0].instruction_type, "button");
@@ -368,4 +373,55 @@ fn test_with_result_instruction_ordering_preserved() {
     assert_eq!(result.instructions[1].params["label"], "B");
     assert_eq!(result.instructions[2].instruction_type, "button");
     assert_eq!(result.instructions[2].params["label"], "C");
+}
+
+// ---------------------------------------------------------------------------
+// Passthrough mode unit tests (Step 1.3)
+// ---------------------------------------------------------------------------
+
+/// Passthrough mode: no DSL in content → dsl_result must NOT appear.
+#[tokio::test]
+async fn test_parse_content_blocks_passthrough_no_dsl() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text("Plain text without any DSL".to_string())];
+    let result = parser.parse_content_blocks(&blocks);
+    // No DSL found → result has no instructions.
+    assert!(result.instructions.is_empty());
+}
+
+/// Passthrough mode: DSL present → instructions parsed.
+#[tokio::test]
+async fn test_parse_content_blocks_passthrough_with_dsl() {
+    let parser = DslParser;
+    let blocks = vec![ContentBlock::Text(
+        "Hello\n::button[label:OK;action:submit]\nWorld".to_string(),
+    )];
+    let result = parser.parse_content_blocks(&blocks);
+    // DSL instruction parsed.
+    assert_eq!(result.instructions.len(), 1);
+    assert_eq!(result.instructions[0].instruction_type, "button");
+}
+
+/// Passthrough mode: non-Text blocks produce no instructions.
+#[tokio::test]
+async fn test_parse_content_blocks_passthrough_non_text() {
+    let parser = DslParser;
+    let blocks = vec![
+        ContentBlock::Thinking {
+            thinking: "reasoning".to_string(),
+            signature: None,
+        },
+        ContentBlock::ToolUse {
+            id: "c1".to_string(),
+            name: "search".to_string(),
+            input: "{}".to_string(),
+        },
+        ContentBlock::ToolResult {
+            tool_call_id: "c1".to_string(),
+            content: "result".to_string(),
+        },
+    ];
+    let result = parser.parse_content_blocks(&blocks);
+    // No DSL found in non-Text blocks.
+    assert!(result.instructions.is_empty());
 }
