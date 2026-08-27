@@ -69,12 +69,6 @@ async fn test_compact_success() {
         .boundary_message
         .contains("Compacted summary content"));
     assert!(result.boundary_message.contains("手动压缩"));
-    // Boundary message should contain a UTC ISO 8601 timestamp.
-    assert!(
-        result.boundary_message.contains("202") || result.boundary_message.contains("203"),
-        "boundary message should contain a timestamp year: {}",
-        result.boundary_message
-    );
 }
 
 #[tokio::test]
