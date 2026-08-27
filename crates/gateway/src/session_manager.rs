@@ -12,8 +12,9 @@ use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::tool_session::ToolSession;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    CacheBreakThresholds, DynamicPromptBuilder, LlmCaller, PromptOverrides, SessionExecStatus,
-    SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
+    CacheBreakThresholds, DynamicPromptBuilder, LlmCaller, PromptOverrides,
+    SessionActivityDimensions, SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder,
+    ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::session::SessionConfigProvider;
@@ -555,27 +556,27 @@ impl SessionManager {
         }
     }
 
-    /// Check whether a session is active (has ongoing LLM, tool, or child work).
+    /// Return the four-dimensional activity state of a session.
     ///
-    /// Looks up the session in the in-memory `conversation_sessions` table,
-    /// checks the four activity dimensions:
-    /// 1. **llm_active** — LLM in Requesting/Receiving state (via `exec_status`)
-    /// 2. **foreground_tool_active** — tool executing in foreground (via `exec_status`)
-    /// 3. **background_tool_active** — tool executing in background (via `exec_status`)
+    /// Looks up the session in the in-memory `conversation_sessions` table
+    /// and delegates to [`ConversationSession::activity_dimensions`] which
+    /// reports the four independent activity dimensions:
+    /// 1. **llm_active** — LLM in Requesting/Receiving state
+    /// 2. **foreground_tool_active** — tool pending or executing in foreground
+    /// 3. **background_tool_active** — tool executing in background
     /// 4. **child_active** — at least one child session is Running
     ///
-    /// Returns `true` if any dimension is active. Returns `false` if the
+    /// Returns a zeroed [`SessionActivityDimensions`] (all `false`) if the
     /// session does not exist in the in-memory table — a session that has
     /// been flushed or archived has no active work.
-    pub async fn is_active(&self, session_id: &str) -> bool {
+    pub async fn activity_dimensions(&self, session_id: &str) -> SessionActivityDimensions {
         let conv_sessions = self.conversation_sessions.read().await;
         match conv_sessions.get(session_id) {
             Some(cs) => {
                 let cs = cs.read().await;
-                !matches!(cs.exec_status(), SessionExecStatus::Idle)
-                    || <ConversationSession as ToolSession>::has_running_child(&*cs)
+                cs.activity_dimensions()
             }
-            None => false,
+            None => SessionActivityDimensions::default(),
         }
     }
 
@@ -820,11 +821,11 @@ impl SessionManager {
 
 #[async_trait]
 impl ActiveSessionQuery for SessionManager {
-    /// Check whether a session is actively executing work.
+    /// Return the four-dimensional activity state of the session.
     ///
-    /// Delegates to [`SessionManager::is_active`].
-    async fn is_active(&self, session_id: &str) -> bool {
-        self.is_active(session_id).await
+    /// Delegates to [`SessionManager::activity_dimensions`].
+    async fn activity_dimensions(&self, session_id: &str) -> SessionActivityDimensions {
+        self.activity_dimensions(session_id).await
     }
 }
 

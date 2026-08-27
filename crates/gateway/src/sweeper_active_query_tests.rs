@@ -7,6 +7,7 @@
 mod tests {
     use crate::sweeper::*;
     use async_trait::async_trait;
+    use closeclaw_common::SessionActivityDimensions;
     use closeclaw_config::session::PerAgentSessionConfig;
     use closeclaw_config::SessionConfigProvider;
     use closeclaw_session::persistence::{
@@ -164,7 +165,7 @@ mod tests {
         }
     }
 
-    /// Mock ActiveSessionQuery that returns true for specified session IDs.
+    /// Mock ActiveSessionQuery that returns active dimensions for specified session IDs.
     struct MockActiveQuery {
         active_ids: Mutex<Vec<String>>,
     }
@@ -183,11 +184,23 @@ mod tests {
 
     #[async_trait]
     impl ActiveSessionQuery for MockActiveQuery {
-        async fn is_active(&self, session_id: &str) -> bool {
-            self.active_ids
+        async fn activity_dimensions(&self, session_id: &str) -> SessionActivityDimensions {
+            if self
+                .active_ids
                 .lock()
                 .unwrap()
                 .contains(&session_id.to_string())
+            {
+                // Return all-active dimensions — the consumer checks any_active()
+                SessionActivityDimensions {
+                    llm_active: true,
+                    foreground_tool_active: true,
+                    background_tool_active: true,
+                    child_active: true,
+                }
+            } else {
+                SessionActivityDimensions::default()
+            }
         }
     }
 

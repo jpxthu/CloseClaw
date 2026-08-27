@@ -1,18 +1,18 @@
-//! Unit tests for `SessionManager::is_active()`.
+//! Unit tests for `SessionManager::activity_dimensions()`.
 //!
 //! Covers:
-//! - Session not found → false
-//! - Session Idle → false
-//! - Session Busy (llm_active) → true
-//! - Session Waiting → true
-//! - Session with running child (child_active) → true
-//! - Session Idle + running child → true
-//! - Session Idle + no running child → false
+//! - Session not found → all false
+//! - Session Idle → all false
+//! - Session Busy (llm_active) → llm_active=true
+//! - Session Waiting → may have all false (Waiting is not a four-dim dimension)
+//! - Session with running child (child_active) → child_active=true
+//! - Session Idle + running child → child_active=true
+//! - Session Idle + no running child → all false
 //!
 //! Tool-state tests are omitted because `register_tool_call` and
 //! `update_tool_state` are `pub(crate)` in `closeclaw-session` and
 //! cannot be called from gateway tests. Tool-state coverage is
-//! provided by the session crate's own `exec_status` unit tests.
+//! provided by the session crate's own `activity_dimensions` unit tests.
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{register_child_only, setup_parent_with_conv};
@@ -24,64 +24,76 @@ fn make_mgr() -> super::SessionManager {
 }
 
 #[tokio::test]
-async fn test_is_active_session_not_found() {
+async fn test_activity_dimensions_session_not_found() {
     let mgr = make_mgr();
+    let dims = mgr.activity_dimensions("nonexistent_session").await;
     assert!(
-        !mgr.is_active("nonexistent_session").await,
-        "session not in memory should return false"
+        !dims.any_active(),
+        "session not in memory should return all-false dimensions"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_session_idle() {
+async fn test_activity_dimensions_session_idle() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "idle-session").await;
 
-    // Default state is Idle — is_active should return false
+    // Default state is Idle — activity_dimensions should return all false
+    let dims = mgr.activity_dimensions(&sid).await;
     assert!(
-        !mgr.is_active(&sid).await,
-        "idle session should not be active"
+        !dims.any_active(),
+        "idle session should have no active dimensions"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_session_busy_llm() {
+async fn test_activity_dimensions_session_busy_llm() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "llm-busy-session").await;
 
-    // Set LLM to Requesting → Busy
+    // Set LLM to Requesting → llm_active=true
     {
         let cs = mgr.get_conversation_session(&sid).await.unwrap();
         let cs = cs.write().await;
         cs.set_llm_state(LlmState::Requesting);
     }
 
+    let dims = mgr.activity_dimensions(&sid).await;
     assert!(
-        mgr.is_active(&sid).await,
-        "session with active LLM should be active"
+        dims.llm_active,
+        "llm_active should be true when LLM is Requesting"
+    );
+    assert!(
+        dims.any_active(),
+        "session with active LLM should have at least one active dimension"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_session_busy_receiving() {
+async fn test_activity_dimensions_session_busy_receiving() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "llm-receiving-session").await;
 
-    // Set LLM to Receiving → Busy
+    // Set LLM to Receiving → llm_active=true
     {
         let cs = mgr.get_conversation_session(&sid).await.unwrap();
         let cs = cs.write().await;
         cs.set_llm_state(LlmState::Receiving);
     }
 
+    let dims = mgr.activity_dimensions(&sid).await;
     assert!(
-        mgr.is_active(&sid).await,
-        "session with LLM in Receiving state should be active"
+        dims.llm_active,
+        "llm_active should be true when LLM is Receiving"
+    );
+    assert!(
+        dims.any_active(),
+        "session with LLM in Receiving state should have at least one active dimension"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_session_waiting() {
+async fn test_activity_dimensions_session_waiting() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "waiting-session").await;
 
@@ -92,34 +104,37 @@ async fn test_is_active_session_waiting() {
         cs.enter_waiting();
     }
 
+    let dims = mgr.activity_dimensions(&sid).await;
+    // Waiting (yielding) is not a four-dim dimension; all dims may be false.
+    // This is expected per the design doc — Waiting is not covered by the four dims.
     assert!(
-        mgr.is_active(&sid).await,
-        "session in Waiting state should be active"
+        !dims.any_active(),
+        "session in Waiting (yielding) state should have all-false dimensions per design doc"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_llm_returns_to_idle() {
+async fn test_activity_dimensions_llm_returns_to_idle() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "transient-busy-session").await;
 
-    // Set LLM to Requesting → Busy → is_active = true
+    // Set LLM to Requesting → llm_active=true
     {
         let cs = mgr.get_conversation_session(&sid).await.unwrap();
         let cs = cs.write().await;
         cs.set_llm_state(LlmState::Requesting);
     }
-    assert!(mgr.is_active(&sid).await);
+    assert!(mgr.activity_dimensions(&sid).await.any_active());
 
-    // Return LLM to Idle → is_active = false
+    // Return LLM to Idle → activity_dimensions should return all false
     {
         let cs = mgr.get_conversation_session(&sid).await.unwrap();
         let cs = cs.write().await;
         cs.set_llm_state(LlmState::Idle);
     }
     assert!(
-        !mgr.is_active(&sid).await,
-        "session should not be active after LLM returns to idle"
+        !mgr.activity_dimensions(&sid).await.any_active(),
+        "session should have no active dimensions after LLM returns to idle"
     );
 }
 
@@ -151,21 +166,26 @@ async fn set_child_terminated(mgr: &super::SessionManager, parent_id: &str, chil
 }
 
 #[tokio::test]
-async fn test_is_active_with_running_child_only() {
+async fn test_activity_dimensions_with_running_child_only() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "parent-child-active").await;
 
     // LLM is Idle (default), no tool work — only child_active is true.
     setup_child_running(&mgr, &sid, "child-1").await;
 
+    let dims = mgr.activity_dimensions(&sid).await;
     assert!(
-        mgr.is_active(&sid).await,
-        "session with running child should be active even when exec_status is Idle"
+        dims.child_active,
+        "child_active should be true when a child session is running"
+    );
+    assert!(
+        dims.any_active(),
+        "session with running child should have at least one active dimension"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_child_terminated_no_active_dims() {
+async fn test_activity_dimensions_child_terminated_no_active_dims() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "parent-child-terminated").await;
 
@@ -173,18 +193,23 @@ async fn test_is_active_child_terminated_no_active_dims() {
     setup_child_running(&mgr, &sid, "child-2").await;
     set_child_terminated(&mgr, &sid, "child-2").await;
 
+    let dims = mgr.activity_dimensions(&sid).await;
     assert!(
-        !mgr.is_active(&sid).await,
-        "session with only terminated child and idle exec_status should not be active"
+        !dims.child_active,
+        "child_active should be false when child is terminated"
+    );
+    assert!(
+        !dims.any_active(),
+        "session with only terminated child and idle exec_status should have no active dimensions"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_llm_busy_plus_running_child() {
+async fn test_activity_dimensions_llm_busy_plus_running_child() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "parent-busy-child").await;
 
-    // Both LLM busy AND child running — still active.
+    // Both LLM busy AND child running
     {
         let cs = mgr.get_conversation_session(&sid).await.unwrap();
         let cs = cs.write().await;
@@ -192,25 +217,34 @@ async fn test_is_active_llm_busy_plus_running_child() {
     }
     setup_child_running(&mgr, &sid, "child-3").await;
 
+    let dims = mgr.activity_dimensions(&sid).await;
     assert!(
-        mgr.is_active(&sid).await,
-        "session with LLM busy and running child should be active"
+        dims.llm_active,
+        "llm_active should be true when LLM is Requesting"
+    );
+    assert!(
+        dims.child_active,
+        "child_active should be true when a child is running"
+    );
+    assert!(
+        dims.any_active(),
+        "session with LLM busy and running child should have at least one active dimension"
     );
 }
 
 #[tokio::test]
-async fn test_is_active_llm_idle_child_terminates() {
+async fn test_activity_dimensions_llm_idle_child_terminates() {
     let mgr = make_mgr();
     let sid = setup_parent_with_conv(&mgr, "parent-child-lifecycle").await;
 
-    // Start with running child → active.
+    // Start with running child → child_active=true
     setup_child_running(&mgr, &sid, "child-4").await;
-    assert!(mgr.is_active(&sid).await);
+    assert!(mgr.activity_dimensions(&sid).await.any_active());
 
-    // Child terminates → no active dimensions → not active.
+    // Child terminates → no active dimensions
     set_child_terminated(&mgr, &sid, "child-4").await;
     assert!(
-        !mgr.is_active(&sid).await,
-        "session should not be active after child terminates and LLM is idle"
+        !mgr.activity_dimensions(&sid).await.any_active(),
+        "session should have no active dimensions after child terminates and LLM is idle"
     );
 }
