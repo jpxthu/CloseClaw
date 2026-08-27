@@ -750,7 +750,7 @@ impl Daemon {
 
     /// Spawn ArchiveSweeper and DreamingScheduler.
     ///
-    /// PlanArchiveSweeper is spawned separately in `populate_registries`
+    /// PlanArchiveSweeper is spawned separately in `init_phase_2_registries`
     /// as a Layer 2 component (depends on ConfigManager).
     fn spawn_background_services(
         config_manager: &Arc<ConfigManager>,
