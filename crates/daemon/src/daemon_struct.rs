@@ -17,6 +17,29 @@ use tokio::sync::watch;
 
 use crate::config_watcher;
 
+/// RAII handle for the PlanArchiveSweeper background task.
+///
+/// Dropping this sends a shutdown signal and aborts the task,
+/// consistent with the SkillWatcher/ConfigWatcher RAII pattern.
+pub(crate) struct PlanArchiveSweeperHandle {
+    // Implicit drop closes the channel, signaling the background task.
+    #[allow(dead_code)]
+    shutdown_tx: watch::Sender<()>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for PlanArchiveSweeperHandle {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl PlanArchiveSweeperHandle {
+    pub(crate) fn new(shutdown_tx: watch::Sender<()>, task: tokio::task::JoinHandle<()>) -> Self {
+        Self { shutdown_tx, task }
+    }
+}
+
 /// Global daemon state
 pub struct Daemon {
     pub gateway: Arc<Gateway>,
@@ -33,8 +56,7 @@ pub struct Daemon {
     pub announce_shutdown_tx: watch::Sender<()>,
     /// Shutdown sender for DreamingScheduler
     pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
-    /// Shutdown sender for PlanArchiveTask
-    pub plan_archive_shutdown_tx: watch::Sender<()>,
+
     /// Shared skill registry, updated on hot reload
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Builtin skill registry — compiled-in skills, not subject to hot reload
@@ -64,8 +86,8 @@ pub struct Daemon {
     pub(crate) announce_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
     /// Join handle for DreamingScheduler background task
     pub(crate) dreaming_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Join handle for PlanArchiveTask background task
-    pub(crate) plan_archive_task_handle: Option<tokio::task::JoinHandle<()>>,
+    /// PlanArchiveSweeper background task handle (RAII: stops on drop)
+    pub(crate) _plan_archive_sweeper: Option<PlanArchiveSweeperHandle>,
     /// SpawnController reference — manages sub-agent lifecycle
     pub spawn_controller: Option<Arc<SpawnController>>,
     /// SystemPromptBuilder reference — static-layer prompt construction

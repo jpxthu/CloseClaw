@@ -103,6 +103,7 @@ impl Daemon {
                 s(Service::AgentRegistry),
                 s(Service::ConfigHotReload),
                 s(Service::PermissionEngine),
+                s(Service::PlanArchiveSweeper),
                 s(Service::RenderersPlugins),
                 s(Service::SessionConfigProvider),
                 s(Service::SkillsRegistry),
@@ -404,8 +405,6 @@ pub(crate) struct ServiceShutdownReceivers {
     pub announce_sweeper: watch::Receiver<()>,
     /// Receiver for DreamingScheduler shutdown signal.
     pub dreaming: watch::Receiver<()>,
-    /// Receiver for PlanArchiveTask shutdown signal.
-    pub plan_archive: watch::Receiver<()>,
 }
 
 // --- Phase 4-5 initialization ---
@@ -565,9 +564,8 @@ impl Daemon {
         watch::Sender<()>,
         watch::Sender<()>,
         watch::Sender<()>,
-        watch::Sender<()>,
         Option<config_watcher::ConfigWatcherHandle>,
-        tokio::task::JoinHandle<()>,
+        Option<crate::daemon_struct::PlanArchiveSweeperHandle>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
@@ -590,8 +588,7 @@ impl Daemon {
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (announce_sweeper_tx, announce_sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
-        let (plan_archive_tx, plan_archive_rx) = watch::channel(());
-        let (sweeper_handle, announce_sweeper_handle, dreaming_handle, plan_archive_handle) =
+        let (sweeper_handle, announce_sweeper_handle, dreaming_handle) =
             Self::spawn_background_services(
                 config_manager,
                 session_manager,
@@ -600,7 +597,6 @@ impl Daemon {
                     sweeper: sweeper_rx,
                     announce_sweeper: announce_sweeper_rx,
                     dreaming: dreaming_rx,
-                    plan_archive: plan_archive_rx,
                 },
                 session_config_provider,
             );
@@ -630,7 +626,7 @@ impl Daemon {
             data_dir,
             gateway,
         };
-        let config_watcher = registries::populate_registries(&ctx).await;
+        let (config_watcher, plan_archive_sweeper) = registries::populate_registries(&ctx).await;
 
         // Create SystemPromptBuilderAdapter and inject into SessionManager.
         // This bridges the SystemPromptBuilder trait (used by ConversationSession
@@ -739,18 +735,20 @@ impl Daemon {
             sweeper_tx,
             announce_sweeper_tx,
             dreaming_tx,
-            plan_archive_tx,
             config_watcher,
+            plan_archive_sweeper,
             sweeper_handle,
             announce_sweeper_handle,
             dreaming_handle,
-            plan_archive_handle,
             spawn_controller,
             prompt_builder_adapter,
         ))
     }
 
-    /// Spawn ArchiveSweeper, DreamingScheduler, and PlanArchiveTask.
+    /// Spawn ArchiveSweeper and DreamingScheduler.
+    ///
+    /// PlanArchiveSweeper is spawned separately in `populate_registries`
+    /// as a Layer 2 component (depends on ConfigManager).
     fn spawn_background_services(
         config_manager: &Arc<ConfigManager>,
         session_manager: &Arc<SessionManager>,
@@ -761,13 +759,11 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
-        tokio::task::JoinHandle<()>,
     ) {
         let ServiceShutdownReceivers {
             sweeper: sweeper_rx,
             announce_sweeper: announce_sweeper_rx,
             dreaming: dreaming_rx,
-            plan_archive: plan_archive_rx,
         } = shutdown_receivers;
         let dreaming_config_provider = Arc::clone(&session_config_provider);
         let storage: Arc<dyn PersistenceService> =
@@ -852,29 +848,7 @@ impl Daemon {
             dreaming_scheduler.run(dreaming_rx).await;
         });
         info!("DreamingScheduler spawned");
-        // Spawn PlanArchiveTask for periodic plan file archival.
-        let plan_archive_threshold_days = config_manager
-            .section(closeclaw_config::ConfigSection::System)
-            .and_then(|v| {
-                serde_json::from_value::<closeclaw_config::providers::SystemConfigData>(v).ok()
-            })
-            .and_then(|sys| sys.plan_archive)
-            .map(|p| p.threshold_days)
-            .unwrap_or(closeclaw_session::plan_archive::DEFAULT_THRESHOLD_DAYS);
-        let plan_archive_task = closeclaw_session::background::PlanArchiveTask::new(
-            data_dir.to_path_buf(),
-            plan_archive_threshold_days,
-        );
-        let plan_archive_handle = tokio::spawn(async move {
-            plan_archive_task.run(plan_archive_rx).await;
-        });
-        info!("PlanArchiveTask spawned");
-        (
-            sweeper_handle,
-            announce_sweeper_handle,
-            dreaming_handle,
-            plan_archive_handle,
-        )
+        (sweeper_handle, announce_sweeper_handle, dreaming_handle)
     }
 
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).

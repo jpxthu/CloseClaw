@@ -786,13 +786,11 @@ fn test_service_shutdown_receivers_construction() {
     let (_tx1, rx1) = tokio::sync::watch::channel(());
     let (_tx2, rx2) = tokio::sync::watch::channel(());
     let (_tx3, rx3) = tokio::sync::watch::channel(());
-    let (_tx4, rx4) = tokio::sync::watch::channel(());
 
     let receivers = ServiceShutdownReceivers {
         sweeper: rx1,
         announce_sweeper: rx2,
         dreaming: rx3,
-        plan_archive: rx4,
     };
 
     // Verify fields are accessible (destructure)
@@ -800,7 +798,6 @@ fn test_service_shutdown_receivers_construction() {
         sweeper: _,
         announce_sweeper: _,
         dreaming: _,
-        plan_archive: _,
     } = receivers;
 }
 
@@ -811,13 +808,11 @@ fn test_service_shutdown_receivers_destructure_like_spawn() {
     let (_tx1, rx1) = tokio::sync::watch::channel(());
     let (_tx2, rx2) = tokio::sync::watch::channel(());
     let (_tx3, rx3) = tokio::sync::watch::channel(());
-    let (_tx4, rx4) = tokio::sync::watch::channel(());
 
     let shutdown_receivers = ServiceShutdownReceivers {
         sweeper: rx1,
         announce_sweeper: rx2,
         dreaming: rx3,
-        plan_archive: rx4,
     };
 
     // Destructure exactly as spawn_background_services does
@@ -825,7 +820,6 @@ fn test_service_shutdown_receivers_destructure_like_spawn() {
         sweeper: sweeper_rx,
         announce_sweeper: announce_sweeper_rx,
         dreaming: dreaming_rx,
-        plan_archive: plan_archive_rx,
     } = shutdown_receivers;
 
     // Verify each receiver is a valid watch::Receiver<()> by checking
@@ -833,5 +827,4 @@ fn test_service_shutdown_receivers_destructure_like_spawn() {
     let _ = sweeper_rx.borrow();
     let _ = announce_sweeper_rx.borrow();
     let _ = dreaming_rx.borrow();
-    let _ = plan_archive_rx.borrow();
 }

@@ -25,8 +25,8 @@ fn test_all_component_entries_count() {
     let entries = all_component_entries();
     assert_eq!(
         entries.len(),
-        21,
-        "expected 21 components (20 original + LLMRegistry)"
+        22,
+        "expected 22 components (21 + PlanArchiveSweeper)"
     );
 }
 
@@ -52,6 +52,7 @@ fn test_all_component_entries_deps_match_design_doc() {
     assert_eq!(dep_map[&sid(RenderersPlugins)], vec![fid(ConfigManager)]);
     assert_eq!(dep_map[&sid(PermissionEngine)], vec![fid(ConfigManager)]);
     assert_eq!(dep_map[&sid(LLMRegistry)], vec![fid(ConfigManager)]);
+    assert_eq!(dep_map[&sid(PlanArchiveSweeper)], vec![fid(ConfigManager)]);
 
     // Layer 3
     assert_eq!(
@@ -136,6 +137,7 @@ fn test_topo_sort_six_layers_match_design_doc() {
             sid(ConfigHotReload),
             sid(LLMRegistry),
             sid(PermissionEngine),
+            sid(PlanArchiveSweeper),
             sid(RenderersPlugins),
             sid(SessionConfigProvider),
             sid(SkillsRegistry),
@@ -759,8 +761,8 @@ fn test_service_enum_variant_count() {
         .filter(|e| matches!(e.id, ComponentId::Service(_)))
         .count();
     assert_eq!(
-        service_count, 19,
-        "Service must have exactly 19 variants (total 21 components)"
+        service_count, 20,
+        "Service must have exactly 20 variants (total 22 components)"
     );
 }
 
@@ -873,8 +875,8 @@ fn test_full_graph_with_llm_registry_is_acyclic() {
     // All 21 components must be reachable (no cycle)
     let total: usize = layers.iter().map(|l| l.len()).sum();
     assert_eq!(
-        total, 21,
-        "all 21 components must be in topo sort result (no cycle)"
+        total, 22,
+        "all 22 components must be in topo sort result (no cycle)"
     );
 }
 
