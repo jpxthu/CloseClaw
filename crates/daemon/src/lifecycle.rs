@@ -244,8 +244,8 @@ impl Daemon {
 
         tokio::select! {
             _ = sigint.recv() => {
-                info!("Received Ctrl+C, initiating forceful shutdown...");
-                self.shutdown.try_start_forceful_shutdown();
+                info!("Received Ctrl+C, initiating graceful shutdown...");
+                self.shutdown.try_start_shutdown();
             }
             _ = sigterm.recv() => {
                 info!("Received SIGTERM, initiating graceful shutdown...");
