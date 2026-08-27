@@ -29,7 +29,7 @@ Gateway 直接回复用户
 
 - **输入**：无参数
 - **处理**：读取 SlashContext 中的会话状态字段
-- **输出**：Reply 包含当前模式、模型名称、推理深度、上下文用量、缓存命中率（会话累计缓存命中 token / 会话累计 prompt token，数据来源为会话统计 RunningStats）、缓存读写 token 累计、活跃子 agent 数、工作目录、system prompt 追加指令列表
+- **输出**：Reply 包含当前模式、模型名称、推理深度、上下文用量、缓存命中率（会话累计缓存命中 token / 会话累计 prompt token，数据来源为会话统计 [RunningStats](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds)）、缓存读写 token 累计、活跃子 agent 数、工作目录、system prompt 追加指令列表
 
 ## 模块关系
 

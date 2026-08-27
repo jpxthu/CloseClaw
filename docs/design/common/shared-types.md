@@ -4,7 +4,7 @@
 
 共享类型是跨模块传递的纯数据结构，被 2 个及以上模块共同消费。每个共享类型在本文档中唯一定义，各业务模块文档通过引用指向此处，不在自身文档中重复描述字段结构。
 
-> **本文档是 common crate 中共享类型的权威清单。** 若代码中 common crate 存在本文档未收录的 pub struct/enum，该类型不属于跨模块共享类型，应移至对应领域模块的 crate。反之，本文档定义的所有类型，代码中均位于 common crate（或其子 crate）。
+> **本文档是 common crate 中共享类型的权威清单。** 判定规则与 [STANDARDS.md「common 文档内容准入标准」](../STANDARDS.md)一致：被 2 个及以上模块消费的类型，在此完整定义、代码留 common crate；仅单模块消费的类型不在本清单——代码中如出现在 common crate，应移至对应领域模块的 crate。反之，本文档定义的所有类型，代码中均位于 common crate（或其子 crate）。
 
 本文档不包含 trait 接口定义——核心 trait 见 [core-traits](core-traits.md)。
 
@@ -34,13 +34,11 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 
 **身份映射**：`account_id` 由 IM Adapter 在解析入站消息时填入。与其他字段（platform、sender_id 等直接从消息 payload 提取）不同，account_id 需通过 sender_id 查询账户绑定表获取，非直接取值。映射规则：以 sender_id 为键查询账户绑定表，找到对应的 CloseClaw 账户 ID。一个账户可绑定多个平台的 sender_id。terminal 平台恒为 "owner"，无需查表。详见 [config 模块 accounts.json](../config/README.md)。
 
-**字段填充职责**：各字段由 IM Adapter 入站解析时填充。Processor Chain 不修改 NormalizedMessage 字段——ContentNormalizer 仅读取 content 做文本标准化，SessionRouter 读取 platform/sender_id/peer_id/account_id 计算 session_key。Processor Chain 各 Processor 通过共享的可变 ProcessedMessage 上下文传递数据：SessionRouter 计算 session_key 后直接写入 ProcessedMessage.metadata，ContentNormalizer 随后从同一 NormalizedMessage 读取 content 做标准化后写入 ProcessedMessage.content_blocks。session_key 不写入 NormalizedMessage。
+**字段填充职责**：各字段由 IM Adapter 入站解析时填充。Processor Chain 不修改 NormalizedMessage 字段——ContentNormalizer 读取 message_type 判断消息类型，仅对 text 类型做 content 文本标准化；SessionRouter 读取 platform/sender_id/peer_id/account_id 计算 session_key。Processor Chain 各 Processor 通过共享的可变 ProcessedMessage 上下文传递数据：SessionRouter 计算 session_key 后直接写入 ProcessedMessage.metadata，ContentNormalizer 随后从同一 NormalizedMessage 读取 content 做标准化后写入 ProcessedMessage.content_blocks。session_key 不写入 NormalizedMessage。
 
 **message_type 与 media_refs**：message_type 由 ContentNormalizer 消费（非 text 跳过标准化）。media_refs 为多模态支持预留，入站链路不消费。
 
-**建模边界**：NormalizedMessage 建模用户主动发送的消息（文本、图片、文件、音频）。卡片交互事件——用户点击消息中嵌入的按钮、选择器等交互控件——属于工具调用的回执，走 tool_result 通道注入对话，不经过 NormalizedMessage 入站通路。各 IM 平台在 Adapter 解析阶段须区分消息事件和交互事件，仅将消息事件转为 NormalizedMessage。
-
-NormalizedMessage 中引用的子结构：
+NormalizedMessage 引用的子结构：
 
 **MediaRef**：图片/文件/音频的资源引用，由 IM Adapter 下载到本地临时路径后填充。
 
@@ -50,6 +48,23 @@ NormalizedMessage 中引用的子结构：
 | `url` | string | 资源访问地址，Adapter 据此下载到本地临时路径 |
 
 `key` 与出站 [ContentBlock](#contentblock) 非文本变体的 `name` 均表示资源标识，语义等价——命名差异源于入站（MediaRef）与出站（ContentBlock）两套独立结构。
+
+**建模边界**：NormalizedMessage 建模用户主动发送的消息（文本、图片、文件、音频）。卡片交互事件——用户点击消息中嵌入的按钮、选择器等交互控件——属于工具调用的回执，走 tool_result 通道注入对话，不经过 NormalizedMessage 入站通路。各 IM 平台在 Adapter 解析阶段须区分消息事件和交互事件，仅将消息事件转为 NormalizedMessage。卡片交互事件的载荷结构为 [CardActionEvent](#cardactionevent)，平台解析阶段的识别规则见 [im_adapter feishu](../im_adapter/platforms/feishu.md)（事件区分段落）。
+
+#### CardActionEvent
+
+CardActionEvent 是用户与消息内嵌交互控件（按钮、选择器等）交互产生的事件载荷。Adapter 识别后将动作值作为工具调用回执经 tool_result 通道注入对话，不进入 NormalizedMessage 入站链路，也不经过入站 Processor Chain。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `platform` | string | 平台标识，如 `"feishu"` |
+| `sender_id` | string | 触发交互的用户在平台内的 ID |
+| `action_value` | string | 交互控件的回传值，即被触发动作的内容 |
+| `metadata` | map(string→string) | 平台附加信息（如卡片 ID、动作标签），可为空 |
+| `timestamp` | int | 事件发生时间（毫秒级 Unix 时间戳） |
+| `account_id` | string | CloseClaw 本地账号标识，用于多租户会话隔离，可为空 |
+
+`account_id` 为可选的原因：部分平台交互事件不携带租户/账号上下文，此时留空；填值时的解析方式与会话隔离语义同 [NormalizedMessage §身份映射](#normalizedmessage)。
 
 ### ContentBlock
 
@@ -113,20 +128,108 @@ StreamEvent 是流式输出的统一增量事件，ContentBlock 的流式形态�
 
 StreamEvent 共 5 种事件：
 
-| 事件 | 语义 |
-|------|------|
-| BlockStart | 内容块开始。开启一个 ContentBlock 边界，携带块类型（LLM 流式产出的内容块变体：Text/Thinking/ToolUse/ToolResult，语义沿用 [ContentBlock](#contentblock) 变体定义。Image/Audio/File 不以流式事件形式出现） |
-| BlockDelta | 内容增量。携带当前块的增量内容（文本片段、参数 JSON 片段等），一个块内可有任意多个增量 |
-| BlockEnd | 内容块结束。该块内容已完整，块级消费方据此判定全块就绪 |
-| MessageEnd | 消息结束。携带结束原因（完整结束/工具调用）与最终用量，此后不再有事件 |
-| Error | 错误。流式调用失败，流终止 |
+| 事件 | 载荷 | 语义 |
+|------|------|------|
+| BlockStart | `index`、`block_type` | 内容块开始。开启一个 ContentBlock 边界，携带块序号和块类型（正常出现的变体：Text/Thinking/ToolUse；ToolResult 属预留不出现，原因见 [ContentDelta §无生产者的预留变体](#contentdelta)；Image/Audio/File 不以流式事件形式出现） |
+| BlockDelta | `index`、[ContentDelta](#contentdelta) | 内容增量。携带当前块的增量载荷 [ContentDelta](#contentdelta)，一个块内可有任意多个增量 |
+| BlockEnd | `index`、`block_type` | 内容块结束。该块内容已完整，块级消费方据此判定全块就绪 |
+| MessageEnd | `usage`（Optional [UnifiedUsage](#unifiedresponse--unifiedusage)）、`finish_reason` | 消息结束。携带结束原因（如 stop / length / 工具调用）与最终用量（见 [UnifiedResponse §UnifiedUsage](#unifiedresponse--unifiedusage)），此后不再有事件 |
+| Error | `message` | 错误。流式调用失败，流终止 |
 
-**事件与块的关系**：一个 `BlockStart → 若干 BlockDelta → BlockEnd` 序列重组出一个完整的 ContentBlock；消息级完整 ContentBlock[] 由消费方按 BlockEnd 边界累积组装。典型事件顺序（文本 + 工具调用混合响应）：Thinking 块序列 → Text 块序列 → ToolUse 块序列 → MessageEnd。
+**事件与块的关系**：一个 `BlockStart → 若干 BlockDelta → BlockEnd` 序列重组出一个完整的 ContentBlock；消息级完整 ContentBlock[] 由消费方按 BlockEnd 边界累积组装。`index` 标识块在本次响应内的序号，供增量消费方把 BlockDelta 归属到正确的事件序列。典型事件顺序（文本 + 工具调用混合响应）：Thinking 块序列 → Text 块序列 → ToolUse 块序列 → MessageEnd。
+
+**媒体增量约束**：BlockDelta 的 ContentDelta 含 ImageRef/AudioRef/FileRef 变体是为结构完备预留——当前 LLM 协议不对媒体内容产生流式增量，正常链路不会出现这三种增量事件；媒体块仅在非流式路径按完整 ContentBlock 处理。
 
 **消费契约**：
 - 增量消费方按事件流逐事件处理，不等待完整块——Text 块的逐行渲染依赖 BlockDelta 携带的文本片段
 - 以完整块为处理粒度的消费方（Verbosity 过滤、Thinking/Tool 整块渲染）按块边界（BlockStart/BlockEnd）判定作用对象，等待 BlockEnd 后一次处理
 - 事件流的协议归一化规则（OpenAI/Anthropic SSE → StreamEvent）由 LLM 模块定义，见 [llm protocol-mapping](../llm/protocol-mapping.md)
+
+#### ContentDelta
+
+ContentDelta 是单个 ContentBlock 内部的增量载荷，BlockDelta 事件的载体。9 种变体与所归属的块类型一一对应：
+
+| 变体 | 字段 | 归属块类型 |
+|------|------|-----------|
+| Text | `text`（文本片段） | Text |
+| Thinking | `thinking`（思考片段）、`signature`（签名，可选） | Thinking |
+| ToolUseId | `id`（工具调用标识） | ToolUse |
+| ToolUseName | `name`（工具名） | ToolUse |
+| ToolUseInputChunk | `input`（参数 JSON 片段） | ToolUse |
+| ToolResultText | `text`（结果文本片段） | ToolResult（预留变体：工具结果是下一轮请求输入而非响应流产物，正常链路不出现此增量，见下方约束说明） |
+| ImageRef / AudioRef / FileRef | `name`（资源标识）、`url`（资源访问地址） | Image / Audio / File（当前协议不产出，见媒体增量约束） |
+
+逐个增量的归属由同一事件的块类型和 `index` 确定；完整块的组装由消费方按上述合并规则执行（LLM 侧归 Session 的事件组装；渲染侧的行缓冲与交付节奏见 [im_adapter streaming-render](../im_adapter/streaming-render.md)）。
+
+**同块多增量的合并规则**：消费方将多个增量的载荷按变体拼接重组——Text/ToolResult 依次追加文本片段；ToolUse 按 id → name → input 分字段填充；Thinking 追加思考片段，签名只在首个携带签名的增量处设置一次，后续空签名增量不覆盖已有值。
+
+**无生产者的预留变体**：LLM 响应流只包含模型生成的内容增量（文本、思考、工具请求）；工具结果由系统执行后进入下一轮请求，媒体引用走非流式路径。因此 ToolResultText 与三个媒体增量变体在正常事件流中不会出现，保留它们是为结构完备与协议扩展预留位。
+
+### UnifiedResponse / UnifiedUsage
+
+UnifiedResponse 是各 LLM Provider 非流式调用的统一响应结构。Session 在每次 LLM 对话后收到 UnifiedResponse，其中的 ContentBlock[] 进入出站处理链路（与 SlashResult 回复共用出站路径）。各供应商协议的响应映射为 UnifiedResponse 的规则由 LLM 模块定义，见 [llm protocol-mapping](../llm/protocol-mapping.md)；LlmCaller trait 以 UnifiedResponse 为非流式调用的返回类型，trait 定义见 [core-traits LlmCaller](core-traits.md#llmcaller)。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content_blocks` | ContentBlock[] | 按序排列的回复内容块，变体沿用 [ContentBlock](#contentblock) 定义 |
+| `usage` | [UnifiedUsage](#unifiedresponse--unifiedusage) | 本次请求的 token 用量统计 |
+| `finish_reason` | string? | 结束原因，如 `"stop"`、`"length"`。可选，协议未给出时为空 |
+| `retry_attempts` | int | 本响应成功前的重试次数，默认 0 |
+
+**UnifiedUsage** 是 UnifiedResponse 与 StreamEvent::MessageEnd 共用的 token 用量统计结构：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `prompt_tokens` | int | 输入 token 数 |
+| `completion_tokens` | int | 输出 token 数 |
+| `total_tokens` | int? | 总 token 数，可选。协议未给出时由消费方按需自行合计 |
+| `reasoning_tokens` | int? | 推理过程消耗的 token 数，协议提供时才有值 |
+| `cache_read_tokens` | int? | 缓存命中的输入 token 数，协议提供时才有值 |
+| `cache_write_tokens` | int? | 写入缓存的 token 数，协议提供时才有值 |
+
+注意 UnifiedUsage 只承载单次调用的原始计数。用户可见的派生指标——缓存命中率百分比、跨轮次累计等——由 [RunningStats](#runningstats--cachebreakinfo--cachebreakthresholds) 累计计算；预估费用等需要模型定价信息的指标不属于本结构的职责（定价知识在 LLM 模块）。
+
+### RunningStats / CacheBreakInfo / CacheBreakThresholds
+
+跨轮次 LLM 用量的统计结构族。Session 持有 RunningStats，每次 API 调用完成后将当次 UnifiedUsage 累加进去；派生的缓存命中率供 `/status` 展示与缓存异常提醒，统计快照参与 compaction 阈值判断。行为细节（流式 MessageEnd 时更新、会话结束清零）定义于 [llm-session-enhancements](../session/llm-session-enhancements.md)，压缩对统计的读取时机见 [compact-process](../session/compact-process.md)，Session 概览见 [session](../session/README.md)；对 slash 的呈现见 [slash status](../slash/status.md)。
+
+**RunningStats** 字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `total_prompt_tokens` | int | 所有调用累计的输入 token |
+| `total_completion_tokens` | int | 累计输出 token |
+| `total_tokens` | int | 累计总 token |
+| `total_cache_read_tokens` | int | 累计缓存命中 token |
+| `total_cache_write_tokens` | int | 累计缓存写入 token |
+| `request_count` | int | 已累加的 API 调用次数 |
+| `total_reasoning_tokens` | int | 累计推理 token |
+| `cache_break_thresholds` | CacheBreakThresholds? | 自定义命中率下降判定阈值，空则用默认值 |
+| `last_cache_read_tokens` | int? | 最近一次调用的缓存命中数，尚无调用时为空 |
+| `last_cache_hit_rate` | float? | 最近一次调用的单次命中率，尚无调用时为空 |
+| `last_cache_break` | CacheBreakInfo? | 最近一次命中率下降事件，未发生时为空 |
+
+除原始累计外，RunningStats 还提供累计缓存命中率、累计节省 token 等派生指标的查询。累计口径：单次用量缺省 total_tokens 时按 prompt + completion 求和后累加；可空的缓存/推理 token 缺省按 0 计入累计。缓存命中率下降事件的判定基于相邻两次调用的缓存命中数对比（单次命中率 = 该次 cache_read_tokens ÷ prompt_tokens），自有前值的第二次调用起参与判定（首次调用无前值不触发）；仅当绝对降幅超过下限且相对降幅超过阈值比例时触发，产生一个 CacheBreakInfo（当前值不低于前值时不触发，天然规避除零）。「缺省按 0 计入」仅是累加口径不等于展示或告警依据——协议始终不携带缓存字段的供应商不参与命中率下降检测与告警（需求见 [llm §F9](../../requirements/llm.md)，行为细节见 [llm-session-enhancements](../session/llm-session-enhancements.md)）。
+
+**CacheBreakThresholds** 字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `drop_ratio_threshold` | float | 触发下降事件的最小命中率降幅比例，默认 0.05 |
+| `min_drop_tokens` | int | 启动比例比较所需的最小绝对 token 降幅，默认 2000 |
+
+**CacheBreakInfo** 字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `previous_cache_read` | int | 上一次调用的缓存命中 token 数 |
+| `current_cache_read` | int | 本次调用的缓存命中 token 数 |
+| `drop_tokens` | int | 两次之间的绝对降幅 |
+| `drop_ratio` | float | 相对上次命中数的降幅比例 |
+| `previous_hit_rate` | float | 上一次调用的单次命中率 |
+| `current_hit_rate` | float | 本次调用的单次命中率 |
+
+CacheBreakInfo 可格式化为用户可读的命中率下降提示文本（含前后命中率对比、token 降幅与常见原因说明）。
 
 ### ProcessedMessage
 
@@ -134,7 +237,7 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `content_blocks` | ContentBlock[] | 处理后的内容块数组。入站方向为单个 ContentBlock::Text（ContentNormalizer 标准化后的文本），出站方向为经 DslParser 处理后的 ContentBlock[]（Text 块已剥离 DSL 行，其余块透传） |
+| `content_blocks` | ContentBlock[] | 处理后的内容块数组。入站方向为单个 ContentBlock::Text（ContentNormalizer 标准化后的文本；非 text 消息跳过标准化，此格为原样内容的 Text 包装，随后由 Gateway 构造错误回复走简化出站路径），出站方向为经 DslParser 处理后的 ContentBlock[]（Text 块已剥离 DSL 行，其余块透传） |
 | `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识）和 `message_type`（来自原始 NormalizedMessage，由 Processor Chain 在构建 ProcessedMessage 时从 NormalizedMessage 复制，供 Gateway 做非文本路由判断），出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化） |
 
 入站和出站不区分类型——同一个 ProcessedMessage 结构，内容形态和 metadata 字段按方向不同而不同。
@@ -160,7 +263,7 @@ SlashResult 共 10 种变体：
 
 **执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。高危指令（Exec、Git 写操作）的权限校验由 Gateway 在触发执行前经 Permission 引擎完成（校验通过方继续，拒绝则返回权限错误），不属于变体自身副作用。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
 
-**边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。
+**边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。权限管理指令（如 `/perm register`）同样不产出 SlashResult，由 Gateway 权限指令处理层硬拦截执行——新用户注册的载荷结构见 [UserRegistration / UserCreationRequest / InitialPermissionSet](#userregistration--usercreationrequest--initialpermissionset)。
 
 **SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于模式切换、会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
 
@@ -173,6 +276,30 @@ SlashResult 共 10 种变体：
 | `executor` | SlashEffectExecutor | 斜杠指令副作用执行接口（见 [core-traits SlashEffectExecutor](core-traits.md#slasheffectexecutor)） |
 
 **与 ContentBlock[] 的关系**：SlashResult 各变体在执行中通过 SideEffectContext 的回复通道产出 ContentBlock[]，进入出站 Processor Chain——与 LLM 的 UnifiedResponse 走同一条出站处理路径（VerbosityFilter → DslParser → OutboundRawLog → IM Adapter 渲染发送）。
+
+#### UserRegistration / UserCreationRequest / InitialPermissionSet
+
+新用户注册工作流的三个数据结构：注册结果记录、待审批请求、预置权限集。三者由 Gateway 权限指令处理层构造，由 permission 侧消费落为权限规则与用户记录；slash 指令层仅是参数入口，不经 SlashDispatcher 分派。用户注册的需求背景（新建 User 默认无任何权限，收发消息也需 Owner 显式授予）见 [permission 需求 §F1](../../requirements/permission.md)。结构流转路径见下文数据流节；审批队列的去重与请求 ID 回调机制以工具调用审批为背景定义于 [permission 审批工作流](../permission/approval-workflow.md#审批队列)。
+
+**UserRegistration**——已通过审批的注册用户的记录：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `user_id` | string | 用户唯一标识（如飞书 open_id） |
+| `im_channel` | string | 用户使用的 IM 渠道，如 `"feishu"` |
+| `initial_permissions` | list(InitialPermissionSet) | 注册时授予的预置权限集 |
+| `created_at` | string | 注册时间（ISO-8601 时间戳） |
+
+**UserCreationRequest**——需 Owner 审批的新用户注册请求（经审批队列流转）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `user_id` | string | 发起注册的用户标识 |
+| `im_channel` | string | 将使用的 IM 渠道 |
+| `request_id` | string | 审批队列中的唯一请求 ID，用于关联审批回调 |
+| `initial_permissions` | list(InitialPermissionSet) | 请求携带的预置权限集候选：入队时由 Gateway 按指令参数构造，Owner 审批时确认或调整；为空表示注册后不授予任何规则（与零权限默认一致） |
+
+**InitialPermissionSet**——Owner 可授予新注册用户的预置权限集枚举。每个变体映射为一组具体权限规则（如 BasicMessaging 对应收发消息 + workspace 读）。当前仅有 `BasicMessaging` 一个变体；新增预设按同样方式扩展映射规则。预设集是 Owner 在审批时**显式选择**的选项而非注册默认——需求要求新建 User 默认无任何权限（含收发消息），无预置权限集时注册后的 User 不获得任何规则，与 [permission 需求 §F1](../../requirements/permission.md) 的零权限默认一致。
 
 ### FragmentContext
 
@@ -196,7 +323,7 @@ PromptFragment 是单个 PromptFragmentProvider 产出的静态层片段。
 
 ### RenderedOutput
 
-RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构。渲染产出数据，发送执行副作用——Gateway 在两步之间插入中间件（审计、频率限制等）。
+RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构。渲染产出数据，发送执行副作用——Gateway 在两步之间插入中间件（审计、频率限制等）。流式场景下渲染以增量方式进行：StreamingRenderer 每处理完一批事件产出一个 StreamingOutput（见 [core-traits StreamingRenderer](core-traits.md#streamingrenderer)），平台将其组装为整条 RenderedOutput 后发送，不再单独定义平台消息结构。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -204,6 +331,17 @@ RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构�
 | `payload` | any | 平台原生格式的消息体，结构由各平台 Renderer 定义。Gateway 中间件和 Adapter 发送不解析 payload 内容 |
 
 **输出格式决策**：由各平台 Renderer 按内容特征选择输出格式，规则详见 [IM Adapter §平台渲染选择](../im_adapter/README.md#平台渲染选择)。大致原则：纯文本、无格式标记、无 DSL → `"text"`；含 markdown 格式/换行/DSL/Thinking/ToolUse/ToolResult 块 → `"interactive"`。终端渠道例外：terminal 渠道无富格式消息形态，RenderedOutput 恒为 `"text"`——富内容（Thinking/工具块、DSL）已在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）。
+
+#### StreamingOutput
+
+StreamingOutput 是流式渲染过程中单批事件的处理产出：本批投递的文本内容列表（完整文本行或强制输出时的行内片段），加本批内累积完整的非文本块。被 common 内 IMPlugin trait 的流式方法签名直接引用，gateway 在流式出站管线中消费——满足共享类型准入条件。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `text_messages` | list(string) | 本批输出的文本内容：行边界达成的完整文本行，或触发强制输出（缓冲超阈值/超时）时的行内片段。缓冲与阈值规则见 [im_adapter streaming-render](../im_adapter/streaming-render.md) |
+| `render_blocks` | ContentBlock[] | 本批内累积完整的非文本块（Thinking/ToolUse/ToolResult），等待全块就绪的渲染策略在此交付 |
+
+StreamingOutput 是渲染过程的中间产物，生命周期止于本次流式发送完成，不进入 Session 或日志持久化。行缓冲和分批规则见 [im_adapter streaming-render](../im_adapter/streaming-render.md)。
 
 ### VerbosityLevel
 
@@ -253,6 +391,12 @@ Gateway 路由
 
 NormalizedMessage 仅用于入站方向。出站方向使用 ContentBlock[]（LLM 输出）和 [ProcessedMessage](#processedmessage)（经 Processor Chain 处理后的中间结构），与 NormalizedMessage 无关。
 
+卡片交互事件不进入上述入站流动：Adapter 解析阶段识别后，[CardActionEvent](#cardactionevent) 的动作值经 tool_result 通道注入对话（见建模边界）。
+
+流式场景下的增量流动以 [StreamEvent](#streamevent) 事件流表达，流动路径即下文「ContentBlock[] 的出站流动路径」的流式分支（事件的产生与消费分工见模块关系节）；渲染过程中的单批产出为 [StreamingOutput](#streamingoutput)（完整文本行或强制输出的行内片段 + 本批完成的非文本块），生命周期止于本次流式发送完成。
+
+LLM 非流式调用的响应流动：LlmCaller 返回 [UnifiedResponse](#unifiedresponse--unifiedusage) → Session 封装后其 ContentBlock[] 进入上述出站路径；用量 UnifiedUsage 由 [RunningStats](#runningstats--cachebreakinfo--cachebreakthresholds) 累加，供用量统计与缓存异常提醒。
+
 ContentBlock[] 的出站流动路径：
 
 ```
@@ -274,6 +418,10 @@ ProcessedMessage { content_blocks, metadata[dsl_result] }
   ↓
 IM Adapter 发送到目标平台
 ```
+
+来源说明：卡片交互事件经 [CardActionEvent](#cardactionevent) 的 tool_result 通道注入对话后触发的模型回复，仍以 UnifiedResponse 形态进入上述同一条出站路径——卡片交互场景的出站闭环复用本图，不另设通路。
+
+图中出现的两处日志是不同层次的两份记录：链内的 OutboundRawLog 是 Processor Chain 出站的调试日志（按 Verbosity 过滤后的内容）；[Gateway 出站日志] 指发送成功后 Gateway 写入 session checkpoint 的出站历史记录（含 timestamp、session_id、platform、ContentBlock[]、dsl_result），规则详见 [gateway outbound-flow](../gateway/outbound-flow.md)。
 
 ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。流式模式下增量内容以 [StreamEvent](#streamevent) 事件流形式在链上传递：VerbosityFilter 按块边界逐事件过滤；DslParser 零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段对完整 ContentBlock[] 执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出。
 
@@ -401,6 +549,50 @@ Gateway 写入 Session 的 Verbosity 字段
 过滤后的 ContentBlock[] 继续后续出站链路（DslParser → OutboundRawLog → Renderer）
 ```
 
+### CardActionEvent
+
+CardActionEvent 的管理路径：
+
+```
+用户点击消息内嵌交互控件（按钮、选择器等）
+  ↓
+平台推送交互事件 → IM Adapter 解析识别（区分于消息事件，不产 NormalizedMessage）
+  ↓
+提取 action_value 等字段构造 CardActionEvent
+  ↓
+经 tool_result 通道注入对话（不进入入站 Processor Chain）
+```
+
+### UserRegistration / UserCreationRequest / InitialPermissionSet
+
+新用户注册工作流的载荷流转：
+
+```
+User 发起注册指令（如 /perm register）
+  ↓
+Gateway 层硬拦截（同审批类指令，不进 SlashDispatcher，不产出 SlashResult）
+  ↓
+构造 UserCreationRequest { request_id, initial_permissions } 入审批队列
+  ↓
+Owner 审批通过（快照与去重机制见 permission 审批工作流）
+  ↓
+生成 UserRegistration 记录 + InitialPermissionSet 映射为具体权限规则落盘
+```
+
+### UnifiedResponse / UnifiedUsage
+
+UnifiedResponse 的流动路径：
+
+```
+Session 发起非流式 LLM 调用 → LlmCaller 返回 UnifiedResponse { content_blocks, usage, ... }
+  ↓
+content_blocks → 出站处理链路（路径同上文 ContentBlock[]）
+  ↓
+usage (UnifiedUsage) → RunningStats 累加 → 用量统计与调试日志
+```
+
+流式调用不走 UnifiedResponse：增量以 StreamEvent 交付，收尾时 MessageEnd 携带 Optional UnifiedUsage 提供同一套用量口径（见 StreamEvent 节），同样汇入 RunningStats。
+
 ### PlanState
 
 PlanState 的管理路径：
@@ -442,8 +634,44 @@ Plan Mode 结束时销毁 PlanState
 ### StreamEvent
 
 - **生产者**：LLM 模块（Protocol 层 + ModelInterpreter 将各协议 SSE 事件归一化为 StreamEvent，映射规则见 [llm protocol-mapping](../llm/protocol-mapping.md)）
-- **消费者**：流式出站链路——Session（接收事件流并转发 Gateway）、Gateway（增量阶段调度 Processor Chain 与 IM Adapter 流式渲染）、Processor Chain 出站（VerbosityFilter 按块边界逐事件过滤、DslParser 透传）、IM Adapter 流式渲染器（逐事件消费，Text 块依赖 BlockDelta 逐行输出）
+- **消费者**：流式出站链路——Session（接收事件流并转发 Gateway）、Gateway（增量阶段调度 Processor Chain 与 IM Adapter 流式渲染）、Processor Chain 出站（VerbosityFilter 按块边界逐事件过滤、DslParser 透传）、IM Adapter 流式渲染器（逐事件消费，Text 块依赖 BlockDelta 携带的 [ContentDelta](#contentdelta) 逐行输出）
 - **无关**：入站链路（入站不产生流式事件）、SlashDispatcher（斜杠指令回复为完整 ContentBlock[]，走批量模式）
+
+### ContentDelta
+
+- **生产者**：LLM 模块（协议 SSE 归一化为 StreamEvent 时随 BlockDelta 产出）
+- **消费者**：流式渲染组件（StreamingRenderer 按 delta 变体累积行缓冲和块状态）、Session（重组完整 ContentBlock 写入对话历史）
+- **无关**：批量路径（非流式响应直接返回完整 ContentBlock[]，无增量）、入站链路
+
+### UnifiedResponse / UnifiedUsage
+
+- **生产者**：LLM 模块（各供应商协议响应归一化产出 UnifiedResponse；LlmCaller 实现方 gateway 返回给 Session）
+- **消费者**：Session（content_blocks 进入出站链路、写入对话历史；usage 记录统计）；UnifiedUsage 另被 StreamEvent::MessageEnd 作为收尾用量携带（消费者同 StreamEvent 流式链路）
+- **无关**：IM Adapter 入站链、Permission、斜杠指令分派
+
+### CardActionEvent
+
+- **生产者**：IM Adapter 各平台插件（入站解析阶段从交互事件 payload 构造）
+- **消费者**：Gateway/tool_result 通道（将 action_value 作为工具调用回执注入对话）
+- **无关**：入站 Processor Chain（交互事件不经消息链路）、LLM Provider（不感知事件来源结构）
+
+### StreamingOutput
+
+- **生产者**：IM Adapter 流式渲染组件（每次批量处理事件、刷新或超时检查后产出一批）
+- **消费者**：平台插件的流式发送逻辑（将本批文本行与内容块组装为 RenderedOutput 后经发送能力投递）、gateway（调度流式出站管线时传递该结构）
+- **无关**：Session 持久化（中间产物，不进 checkpoint）、批量渲染路径
+
+### UserRegistration / UserCreationRequest / InitialPermissionSet
+
+- **生产者**：Gateway 权限指令处理层（同审批指令的硬拦截路径：注册类权限指令不进 SlashDispatcher，解析参数后直接构造；审批通过后生成 UserRegistration）
+- **消费者**：permission 模块（InitialPermissionSet 映射为具体权限规则；UserRegistration 落盘用户记录）、审批队列（UserCreationRequest 流转与回调）
+- **无关**：SlashDispatcher（注册指令硬拦截，不产出 SlashResult）、LLM Provider、Processor Chain、IM Adapter 入站链
+
+### RunningStats / CacheBreakInfo / CacheBreakThresholds
+
+- **生产者**：Session（持有并随每次 LLM 调用累加；压缩流程按需读取快照）
+- **消费者**：session（compaction 阈值判断）、gateway（checkpoint 恢复时传递统计快照）、slash（/status 呈现命中率与累计用量）、llm（re-export 供模块内使用）
+- **无关**：Processor Chain 出站过滤、IM Adapter 渲染
 
 ### ProcessedMessage
 

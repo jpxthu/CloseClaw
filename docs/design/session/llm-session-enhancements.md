@@ -56,7 +56,7 @@ Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时
 
 ### 用量统计
 
-会话维护跨轮次的 `RunningStats`，每次 API 调用完成后累加用量数据。
+会话维护跨轮次的 `RunningStats`（结构定义见 [common 共享类型](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds)），每次 API 调用完成后累加 [UnifiedUsage](../common/shared-types.md#unifiedresponse--unifiedusage) 用量数据。
 
 **Usage 扩展**：除基础的 prompt/completion/total tokens 外，增加 `cache_read_tokens`（命中缓存的输入 token）、`cache_write_tokens`（新写入缓存的 token）和 `reasoning_tokens`（推理消耗的 token，与文本输出分开统计）。若 API 响应不携带缓存字段则对应字段显示为 0。
 
