@@ -68,17 +68,15 @@ impl super::ConversationSession {
             .expect("pending_session_mode lock poisoned")
             .take();
         if let Some(mode) = pending {
-            let prev = *self
-                .session_mode
-                .lock()
-                .expect("session_mode lock poisoned");
-            {
+            let prev = {
                 let mut lock = self
                     .session_mode
                     .lock()
                     .expect("session_mode lock poisoned");
+                let p = *lock;
                 *lock = mode;
-            }
+                p
+            };
             let has_been = self
                 .has_been_in_plan
                 .load(std::sync::atomic::Ordering::Relaxed);
