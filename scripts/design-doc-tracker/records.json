@@ -497,11 +497,11 @@
   },
   {
     "path": "docs/design/session/llm-session-enhancements.md",
-    "commit": "4debfc9be784a1f3850aeb0c43388be8cb6f0444",
-    "commit_time": "2026-08-27T18:33:34+08:00",
-    "confirmed_time": "2026-08-28T02:56:46.578954+08:00",
+    "commit": "6d8856835cb9c27fc99e0eebd5cf4e317104bf6f",
+    "commit_time": "2026-08-28T03:52:55+08:00",
+    "confirmed_time": "2026-08-28T04:08:31.495994+08:00",
     "comment": "",
-    "blocked_reason": "F2b 深度对比发现文档内部矛盾：「Reasoning Level 推理控制」节声明「四个等级：Low、Medium、High、Max」为完整枚举，但同节「运行时指令」描述 /reasoning [level|off] 且「/reasoning off 仅将推理强度降至最低档位」，代码 ReasoningLevel 枚举（session_types.rs）含五个变体（Off/Low/Medium/High/Max），Off 为正式枚举变体且被 /reasoning off 接受。等级列表与语法/行为描述互相矛盾，无法确定 Off 是否属于正式等级体系。另存在两项 must_fix（流式错误路径已完成 Thinking 块未写入 message history；Gateway 层降级路径无日志）待文档澄清后处理。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/session/run-health.md",
