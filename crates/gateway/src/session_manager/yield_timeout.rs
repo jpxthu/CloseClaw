@@ -317,7 +317,7 @@ impl SessionManager {
 
         let mut summaries = Vec::new();
         for info in child_list {
-            let lines = self.build_single_child_warning(&info).await;
+            let lines = self.build_single_child_warning(info).await;
             summaries.push(lines.join("\n"));
         }
         summaries.join("\n")
