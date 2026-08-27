@@ -292,6 +292,9 @@ impl SessionMessageHandler {
             }
             Err(err) => {
                 tracing::warn!(session_id, error = %err, "LLM call failed");
+                // Write complete Thinking blocks from partial streaming
+                // error to conversation history (design-doc §F2/§F5).
+                Self::write_partial_thinking(session_manager, session_id, &err).await;
                 // Mark run-mode child as Errored so try_push_announce
                 // resolves the correct ChildCompletionStatus.
                 session_manager.notify_child_error(session_id).await;
@@ -538,6 +541,44 @@ impl SessionMessageHandler {
         let tx = output_tx.clone();
         let me = metrics_emitter.clone();
         Box::pin(async move { Self::handle_recovery_action(sm, sid, action, tx, me).await })
+    }
+
+    /// Write complete Thinking blocks from a streaming error to
+    /// conversation history.
+    ///
+    /// When a [`LLMError::PartialContent`] carries complete Thinking
+    /// blocks, they are appended as an assistant message so subsequent
+    /// LLM calls can reference the reasoning chain. Incomplete Text
+    /// fragments are intentionally excluded.
+    async fn write_partial_thinking(
+        session_manager: &Arc<SessionManager>,
+        session_id: &str,
+        err: &closeclaw_llm::LLMError,
+    ) {
+        let closeclaw_llm::LLMError::PartialContent {
+            ref thinking_blocks,
+            ..
+        } = err
+        else {
+            return;
+        };
+        if thinking_blocks.is_empty() {
+            return;
+        }
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            let mut cs_write = cs.write().await;
+            cs_write.append_response(closeclaw_llm::types::UnifiedResponse {
+                content_blocks: thinking_blocks.clone(),
+                usage: Default::default(),
+                finish_reason: None,
+                retry_attempts: 0,
+            });
+            tracing::info!(
+                session_id,
+                count = thinking_blocks.len(),
+                "wrote partial Thinking blocks to history"
+            );
+        }
     }
 
     /// Step 1.5: best-effort announce to parent (run-mode child).
