@@ -7,7 +7,9 @@
 
 use super::ConversationSession;
 use crate::pending_operation_detail::PendingOperationDetail;
-use closeclaw_common::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
+use closeclaw_common::{
+    ChildSessionState, LlmState, SessionActivityDimensions, SessionExecStatus, ToolExecState,
+};
 
 #[allow(dead_code)] // Callers (gateway, tests) are integrated in later steps.
 impl ConversationSession {
@@ -105,6 +107,38 @@ impl ConversationSession {
         states
             .values()
             .any(|(s, _)| matches!(s, ToolExecState::RunningBackground))
+    }
+
+    /// Returns the four-dimensional activity snapshot for this session.
+    ///
+    /// Each boolean maps to an independent activity dimension as defined
+    /// in `docs/design/session/session-execution.md`:
+    /// - `llm_active`: `LlmState ∈ {Requesting, Receiving}`
+    /// - `foreground_tool_active`: any tool in `Pending | RunningForeground`
+    /// - `background_tool_active`: any tool in `RunningBackground`
+    /// - `child_active`: any child in `Running`
+    pub fn activity_dimensions(&self) -> SessionActivityDimensions {
+        let llm = self.llm_state.read().expect("llm_state lock poisoned");
+        let llm_active = matches!(*llm, LlmState::Requesting | LlmState::Receiving);
+        drop(llm);
+
+        let tools = self.tool_states.read().expect("tool_states lock poisoned");
+        let foreground_tool_active = tools
+            .values()
+            .any(|(s, _)| matches!(s, ToolExecState::Pending | ToolExecState::RunningForeground));
+        let background_tool_active = tools
+            .values()
+            .any(|(s, _)| matches!(s, ToolExecState::RunningBackground));
+        drop(tools);
+
+        let child_active = self.has_running_child();
+
+        SessionActivityDimensions {
+            llm_active,
+            foreground_tool_active,
+            background_tool_active,
+            child_active,
+        }
     }
 }
 

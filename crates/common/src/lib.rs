@@ -107,7 +107,8 @@ pub use processor::{
 pub use request_context::RequestContext;
 pub use session_lookup::{PendingMessage, SessionLookup};
 pub use session_state::{
-    ChildCompletionStatus, ChildSessionState, LlmState, SessionExecStatus, ToolExecState,
+    ChildCompletionStatus, ChildSessionState, LlmState, SessionActivityDimensions,
+    SessionExecStatus, ToolExecState,
 };
 pub use session_types::{AgentRole, ReasoningLevel};
 pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};

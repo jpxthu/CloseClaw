@@ -13,21 +13,25 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 use tracing::{error, info, warn};
 
-/// Trait for querying whether a session is actively executing work.
+/// Trait for querying the four-dimensional activity state of a session.
 ///
 /// Implemented by [`SessionManager`](crate::SessionManager) and injected
 /// into [`ArchiveSweeper`] so it can skip archiving sessions that are
 /// currently running LLM calls or tool executions.
+///
+/// Returns the four-dimensional activity snapshot. If the session does
+/// not exist in the in-memory table, all dimensions are `false`.
 #[async_trait]
 pub trait ActiveSessionQuery: Send + Sync {
-    /// Returns `true` if the session has ongoing LLM or tool work.
-    async fn is_active(&self, session_id: &str) -> bool;
+    /// Returns the four-dimensional activity state of the session.
+    async fn activity_dimensions(&self, session_id: &str) -> SessionActivityDimensions;
 }
 
 /// Grace period (in seconds) to wait for a running sweep to finish
 /// before forcibly aborting it on shutdown.
 pub(crate) const SWEEPER_GRACE_PERIOD_SECS: u64 = 10;
 
+use closeclaw_common::SessionActivityDimensions;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_session::persistence::{AgentRole, PersistenceError, PersistenceService};
 
@@ -293,32 +297,10 @@ impl ArchiveSweeper {
             for sid in idle_ids {
                 let sid_err = sid.clone();
 
-                // Skip archiving if the session has pending operations
-                // (design doc §Sweeper 机制: "pending_operations 为空").
-                match storage.load_checkpoint(&sid).await {
-                    Ok(Some(checkpoint)) if !checkpoint.pending_operations.is_empty() => {
-                        warn!(
-                            session_id = %sid_err,
-                            pending_count = checkpoint.pending_operations.len(),
-                            "skipping archive: session has pending operations"
-                        );
-                        continue;
-                    }
-                    Ok(_) => { /* pending_operations empty, proceed */ }
-                    Err(e) => {
-                        error!(
-                            session_id = %sid_err,
-                            %e,
-                            "failed to load checkpoint for pending_operations check, skipping"
-                        );
-                        continue;
-                    }
-                }
-
                 // Check if session is actively executing work (LLM call,
                 // tool execution, etc.). If so, skip archiving.
                 if let Some(aq) = active_query {
-                    if aq.is_active(&sid).await {
+                    if aq.activity_dimensions(&sid).await.any_active() {
                         warn!(
                             session_id = %sid_err,
                             "skipping archive: session is actively executing"
