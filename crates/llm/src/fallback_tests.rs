@@ -79,6 +79,13 @@ impl MockProvider {
                         LLMError::ApiError(msg) => Err(LLMError::ApiError(msg.clone())),
                         LLMError::NetworkError(msg) => Err(LLMError::NetworkError(msg.clone())),
                         LLMError::Cancelled => Err(LLMError::Cancelled),
+                        LLMError::PartialContent {
+                            reason,
+                            thinking_blocks,
+                        } => Err(LLMError::PartialContent {
+                            reason: reason.clone(),
+                            thinking_blocks: thinking_blocks.clone(),
+                        }),
                     }
                 }
             }),

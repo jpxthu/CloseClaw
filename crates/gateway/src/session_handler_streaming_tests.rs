@@ -9,7 +9,9 @@
 use closeclaw_common::im_plugin::{AdapterError, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::{IMPlugin, StreamDone, StreamingSink};
+use closeclaw_llm::ChatSession;
 use closeclaw_llm::LLMError;
+use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{
     PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
 };
@@ -634,4 +636,189 @@ async fn test_degradation_chat_id_unavailable_skips() {
         saved.is_empty(),
         "no checkpoint should be persisted when chat_id is unavailable"
     );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Step 1.3: Streaming error Thinking block history retention tests
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Behavior dimension 1 & 2: Thinking blocks preserved, Text filtered ─────
+
+/// StreamError with Thinking → returns PartialContent; with Thinking + Text →
+/// only Thinking preserved, Text sent to sink. Multiple Thinking all kept.
+#[test]
+fn test_stream_error_thinking_preserved_text_filtered() {
+    let sink = RecordingSink::new();
+    // Thinking + interleaved Text + ToolUse.
+    let error = GatewayError::StreamError {
+        message: "interrupted".to_string(),
+        partial_content: vec![
+            ContentBlock::Thinking {
+                thinking: "step 1".to_string(),
+                signature: Some("sig".to_string()),
+            },
+            ContentBlock::Text("partial answer".to_string()),
+            ContentBlock::Thinking {
+                thinking: "step 2".to_string(),
+                signature: None,
+            },
+            ContentBlock::ToolUse {
+                id: "c1".to_string(),
+                name: "exec".to_string(),
+                input: r"{}".to_string(),
+            },
+        ],
+    };
+    let result = handle_stream_error(error, &sink);
+    match result {
+        LLMError::PartialContent {
+            thinking_blocks, ..
+        } => {
+            assert_eq!(thinking_blocks.len(), 2, "both Thinking blocks preserved");
+        }
+        other => panic!(
+            "expected PartialContent, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+    // Text sent to sink (user sees partial output) but not preserved.
+    let texts = sink.texts.lock().unwrap();
+    assert_eq!(texts.len(), 1);
+    assert_eq!(texts[0], "partial answer");
+    let errors = sink.errors.lock().unwrap();
+    assert_eq!(errors.len(), 1, "error still sent");
+}
+
+// ── Behavior dimension 3: Edge cases ───────────────────────────────────────
+
+/// Empty partial_content / Text-only / ToolUse-only → ApiError (no Thinking).
+#[test]
+fn test_stream_error_no_thinking_yields_api_error() {
+    let cases: Vec<Vec<ContentBlock>> = vec![
+        vec![],
+        vec![ContentBlock::Text("partial".to_string())],
+        vec![ContentBlock::ToolUse {
+            id: "c1".to_string(),
+            name: "exec".to_string(),
+            input: r"{}".to_string(),
+        }],
+    ];
+    for (i, partial_content) in cases.into_iter().enumerate() {
+        let sink = RecordingSink::new();
+        let error = GatewayError::StreamError {
+            message: format!("case {i}"),
+            partial_content,
+        };
+        let result = handle_stream_error(error, &sink);
+        assert!(
+            matches!(result, LLMError::ApiError(_)),
+            "case {i}: no Thinking blocks should yield ApiError"
+        );
+    }
+}
+
+// ── Behavior dimension 4: Non-StreamError ───────────────────────────────────
+
+/// Non-StreamError variants → ApiError, no partial content handling.
+#[test]
+fn test_non_stream_error_variants_return_api_error() {
+    let errors = vec![
+        GatewayError::MissingSessionId,
+        GatewayError::AdapterError("plugin fail".to_string()),
+    ];
+    for error in errors {
+        let sink = RecordingSink::new();
+        let result = handle_stream_error(error, &sink);
+        assert!(
+            matches!(result, LLMError::ApiError(_)),
+            "non-StreamError should return ApiError"
+        );
+        assert!(sink.texts.lock().unwrap().is_empty());
+    }
+}
+
+// ── Behavior dimension 5: Context continuity ────────────────────────────────
+
+/// Thinking-only message in history → orphaned by clean_thinking_content.
+#[tokio::test]
+async fn test_thinking_only_message_cleaned_from_api_request() {
+    let mut session = ConversationSession::new(
+        "s-think-clean".to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    // User message via append_transcript.
+    session.append_transcript("user", vec![ContentBlock::Text("What is 2+2?".to_string())]);
+    // Streaming error: Thinking-only appended to history.
+    session.append_response(closeclaw_llm::types::UnifiedResponse {
+        content_blocks: vec![ContentBlock::Thinking {
+            thinking: "Let me calculate...".to_string(),
+            signature: None,
+        }],
+        usage: Default::default(),
+        finish_reason: None,
+        retry_attempts: 0,
+    });
+    assert_eq!(session.messages().len(), 2, "raw history has 2 messages");
+    let request = session.build_api_request();
+    // clean_thinking_content removes orphaned Thinking message.
+    assert_eq!(request.messages.len(), 1, "orphaned Thinking removed");
+    assert_eq!(request.messages[0].role, "user");
+}
+
+/// Normal assistant response with Thinking + Text → preserved (not error path).
+/// clean_thinking_content keeps it because it has non-Thinking blocks.
+#[tokio::test]
+async fn test_normal_response_thinking_with_text_preserved() {
+    let mut session = ConversationSession::new(
+        "s-think-text".to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    session.append_response(closeclaw_llm::types::UnifiedResponse {
+        content_blocks: vec![
+            ContentBlock::Thinking {
+                thinking: "reasoning".to_string(),
+                signature: None,
+            },
+            ContentBlock::Text("the answer is 4".to_string()),
+        ],
+        usage: Default::default(),
+        finish_reason: None,
+        retry_attempts: 0,
+    });
+    let request = session.build_api_request();
+    // Message preserved (has non-Thinking block).
+    assert_eq!(request.messages.len(), 1, "message preserved (has Text)");
+    assert!(
+        request.messages[0].content.contains("the answer is 4"),
+        "Text content should be present"
+    );
+}
+
+/// Multiple orphaned Thinking messages all removed.
+#[tokio::test]
+async fn test_multiple_thinking_only_messages_all_cleaned() {
+    let mut session = ConversationSession::new(
+        "s-multi-think".to_string(),
+        "test-model".to_string(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    session.append_transcript("user", vec![ContentBlock::Text("hello".to_string())]);
+    // Two Thinking-only error interruptions.
+    for thought in ["first", "second"] {
+        session.append_response(closeclaw_llm::types::UnifiedResponse {
+            content_blocks: vec![ContentBlock::Thinking {
+                thinking: format!("{thought} thought"),
+                signature: None,
+            }],
+            usage: Default::default(),
+            finish_reason: None,
+            retry_attempts: 0,
+        });
+    }
+    assert_eq!(session.messages().len(), 3, "raw history has 3 messages");
+    let request = session.build_api_request();
+    assert_eq!(request.messages.len(), 1, "all orphaned Thinking removed");
+    assert_eq!(request.messages[0].role, "user");
 }

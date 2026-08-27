@@ -313,6 +313,11 @@ async fn persist_streaming_checkpoint(
 /// accumulated text blocks are sent to the sink first, then the
 /// error message is sent. This ensures the user does not lose
 /// already-generated content.
+///
+/// Returns [`LLMError::PartialContent`] when the stream contained
+/// complete Thinking blocks, allowing callers to preserve them in
+/// conversation history. Other error variants map to
+/// [`LLMError::ApiError`].
 pub(crate) fn handle_stream_error(e: GatewayError, sink: &dyn StreamingSink) -> LLMError {
     let msg = e.to_string();
     if let GatewayError::StreamError {
@@ -331,5 +336,32 @@ pub(crate) fn handle_stream_error(e: GatewayError, sink: &dyn StreamingSink) -> 
         );
     }
     sink.send_error(msg.clone());
-    LLMError::ApiError(msg)
+    map_stream_error_to_llm_error(e, msg)
+}
+
+/// Map a [`GatewayError`] to an [`LLMError`], preserving complete
+/// Thinking blocks from [`GatewayError::StreamError`] for history
+/// retention.
+fn map_stream_error_to_llm_error(e: GatewayError, msg: String) -> LLMError {
+    match e {
+        GatewayError::StreamError {
+            ref partial_content,
+            ..
+        } => {
+            let thinking_blocks: Vec<ContentBlock> = partial_content
+                .iter()
+                .filter(|b| matches!(b, ContentBlock::Thinking { .. }))
+                .cloned()
+                .collect();
+            if thinking_blocks.is_empty() {
+                LLMError::ApiError(msg)
+            } else {
+                LLMError::PartialContent {
+                    reason: msg,
+                    thinking_blocks,
+                }
+            }
+        }
+        _ => LLMError::ApiError(msg),
+    }
 }
