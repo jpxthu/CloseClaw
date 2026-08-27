@@ -426,7 +426,10 @@ impl SessionManager {
                             child_id, timeout_secs
                         ),
                         completed_at: chrono::Utc::now(),
-                        priority: closeclaw_tasks::background::NotificationPriority::Next,
+                        // Use `Now` priority for hard-timeout termination
+                        // notifications, aligning with session-execution.md
+                        // (hard timeout → parent session queue injects with now priority).
+                        priority: closeclaw_tasks::background::NotificationPriority::Now,
                         status: closeclaw_common::session_state::ChildCompletionStatus::Terminated,
                     };
                     parent.write().await.push_announce_to_queue(event);
