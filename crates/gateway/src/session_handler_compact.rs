@@ -36,7 +36,6 @@ impl SessionMessageHandler {
         }
         send_output(&self.output_tx, "⚠️ 对话即将压缩，可输入 /compact 手动管理").await;
     }
-
     /// Estimate tokens and determine the warning state for the current conversation.
     async fn estimate_and_check_state(
         &self,
@@ -67,33 +66,29 @@ impl SessionMessageHandler {
         };
         (compaction_msgs, warning, tokens)
     }
-
-    /// Check token usage and trigger auto-compaction if needed.
-    ///
-    /// Before estimating tokens, the persistent transcript is truncated
-    /// to `max_history_messages` (if configured) so that the downstream
-    /// token estimate and compaction operate on the same (single source
-    /// of truth) history.
-    pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
-        // Step 1: truncate persistent transcript before loading inputs.
-        {
-            let max = {
-                let svc = self.compaction_service.lock().await;
-                svc.config().max_history_messages
-            };
-            if let Some(max) = max {
-                if let Some(cs) = self
-                    .session_manager
-                    .get_conversation_session(session_id)
-                    .await
-                {
-                    let dropped = { cs.write().await.truncate_transcript_to_limit(Some(max)) };
-                    if dropped > 0 {
-                        tracing::info!(session_id, max, dropped, "历史截断（消息上限截断）");
-                    }
+    /// Truncate persistent transcript to `max_history_messages`.
+    async fn truncate_before_compact(&self, session_id: &str) {
+        let max = {
+            let svc = self.compaction_service.lock().await;
+            svc.config().max_history_messages
+        };
+        if let Some(max) = max {
+            if let Some(cs) = self
+                .session_manager
+                .get_conversation_session(session_id)
+                .await
+            {
+                let dropped = { cs.write().await.truncate_transcript_to_limit(Some(max)) };
+                if dropped > 0 {
+                    tracing::info!(session_id, max, dropped, "历史截断（消息上限截断）");
                 }
             }
         }
+    }
+    /// Check token usage and trigger auto-compaction if needed.
+    pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
+        // Step 1: truncate persistent transcript before loading inputs.
+        self.truncate_before_compact(session_id).await;
         // Step 2: load inputs from (now-truncated) persistent history.
         let Some((model, llm_messages, stats)) =
             load_compact_inputs(&self.session_manager, session_id).await

@@ -139,9 +139,8 @@ impl ConversationSession {
     ///
     /// When `max` is `Some(n)` and the current message count exceeds `n`,
     /// the oldest messages are removed so that only the most recent `n`
-    /// remain. The replacement goes through [`apply_transcript_op`] with
-    /// [`TranscriptOp::PartialRewrite`] so that a snapshot is created
-    /// and the operation is undoable.
+    /// remain. A [`TranscriptOp::PartialRewrite`] snapshot is created
+    /// before replacement so the operation is undoable.
     ///
     /// Returns the number of messages that were dropped, or `0` if no
     /// truncation was necessary.
