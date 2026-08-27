@@ -2,6 +2,7 @@
 mod tests {
     use crate::sweeper::*;
     use async_trait::async_trait;
+    use closeclaw_common::SessionActivityDimensions;
     use closeclaw_config::session::PerAgentSessionConfig;
     use closeclaw_config::SessionConfigProvider;
     use closeclaw_session::persistence::{
@@ -24,19 +25,12 @@ mod tests {
         expired_sessions: Mutex<Vec<String>>,
         /// Session IDs deleted via `delete_checkpoint`.
         deleted: Mutex<Vec<String>>,
-        /// Session IDs for which `load_checkpoint` should return an error.
-        fail_load_ids: Mutex<Vec<String>>,
     }
 
     impl MemStorage {
         /// Add a session ID to be returned as idle by `list_idle_sessions_for_agent`.
         fn add_idle_session(&self, session_id: String) {
             self.idle_sessions.lock().unwrap().push(session_id);
-        }
-
-        /// Mark a session ID so that `load_checkpoint` returns an error for it.
-        fn fail_load_for(&self, session_id: String) {
-            self.fail_load_ids.lock().unwrap().push(session_id);
         }
 
         /// Add a session ID to be returned as expired by
@@ -70,14 +64,6 @@ mod tests {
             &self,
             session_id: &str,
         ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-            if self
-                .fail_load_ids
-                .lock()
-                .unwrap()
-                .contains(&session_id.to_string())
-            {
-                return Err(PersistenceError::NotFound(session_id.to_string()));
-            }
             let checkpoints = self.checkpoints.lock().unwrap();
             Ok(checkpoints
                 .iter()
@@ -195,6 +181,48 @@ mod tests {
 
         fn compact_config(&self) -> closeclaw_common::CompactConfig {
             closeclaw_common::CompactConfig::default()
+        }
+    }
+
+    /// Mock ActiveSessionQuery that returns all-false (no active dimensions).
+    struct MockActiveQuery;
+
+    impl MockActiveQuery {
+        fn none() -> Self {
+            Self
+        }
+    }
+
+    #[async_trait]
+    impl ActiveSessionQuery for MockActiveQuery {
+        async fn activity_dimensions(&self, _session_id: &str) -> SessionActivityDimensions {
+            SessionActivityDimensions::default()
+        }
+    }
+
+    /// Mock ActiveSessionQuery that returns custom dimensions per session ID.
+    struct MockActiveQueryWithDimensions {
+        dimensions: Mutex<Vec<(String, SessionActivityDimensions)>>,
+    }
+
+    impl MockActiveQueryWithDimensions {
+        fn new(dimensions: Vec<(String, SessionActivityDimensions)>) -> Self {
+            Self {
+                dimensions: Mutex::new(dimensions),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ActiveSessionQuery for MockActiveQueryWithDimensions {
+        async fn activity_dimensions(&self, session_id: &str) -> SessionActivityDimensions {
+            self.dimensions
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(id, _)| id == session_id)
+                .map(|(_, d)| *d)
+                .unwrap_or_default()
         }
     }
 
@@ -734,41 +762,21 @@ mod tests {
         assert_eq!(SWEEPER_GRACE_PERIOD_SECS, 10);
     }
 
-    // ── pending_operations tests ────────────────────────────────────────────
+    // ── archive determination behavior tests ─────────────────────────────────
 
-    /// Idle session with empty pending_operations → normal archive.
+    /// Pending operations non-empty + all four dimensions false + idle →
+    /// still archived (archive does NOT depend on pending_operations).
     #[tokio::test]
-    async fn test_idle_session_empty_pending_operations_archives() {
-        let mem = Arc::new(MemStorage::default());
-        mem.add_idle_session("session-pending-ok".into());
-        mem.add_checkpoint(SessionCheckpoint::new("session-pending-ok".into()));
-
-        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-        let config: Arc<dyn SessionConfigProvider> =
-            Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
-
-        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
-        sweeper.run_once().await.unwrap();
-
-        let archive_called = mem.archive_called.lock().unwrap();
-        assert!(
-            archive_called.contains(&"session-pending-ok".into()),
-            "session with empty pending_operations should be archived"
-        );
-    }
-
-    /// Idle session with non-empty pending_operations → skip archive.
-    #[tokio::test]
-    async fn test_idle_session_non_empty_pending_operations_skips() {
+    async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_false() {
         use chrono::Utc;
         use closeclaw_session::persistence::{
             PendingOperation, PendingOperationStatus, PendingOperationType,
         };
 
         let mem = Arc::new(MemStorage::default());
-        mem.add_idle_session("session-pending-wait".into());
+        mem.add_idle_session("pend-but-archive".into());
 
-        let mut cp = SessionCheckpoint::new("session-pending-wait".into());
+        let mut cp = SessionCheckpoint::new("pend-but-archive".into());
         cp = cp.with_pending_operations(vec![PendingOperation {
             op_id: "op-1".into(),
             op_type: PendingOperationType::ToolCall,
@@ -785,47 +793,115 @@ mod tests {
         let config: Arc<dyn SessionConfigProvider> =
             Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
 
-        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
+        // active_query returns all-false (session not actively executing)
+        let active_query: Arc<dyn ActiveSessionQuery> = Arc::new(MockActiveQuery::none());
+
+        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config))
+            .with_active_query(active_query);
         sweeper.run_once().await.unwrap();
 
         let archive_called = mem.archive_called.lock().unwrap();
         assert!(
-            !archive_called.contains(&"session-pending-wait".into()),
-            "session with pending_operations should NOT be archived"
+            archive_called.contains(&"pend-but-archive".into()),
+            "pending_operations non-empty but all dimensions false → must still archive"
         );
     }
 
-    /// Checkpoint load failure → skip and log, other sessions still archived.
+    /// Any single active dimension → skip archive.
+    /// (Four sub-cases: llm, foreground, background, child.)
     #[tokio::test]
-    async fn test_checkpoint_load_failure_skips_and_does_not_affect_others() {
+    async fn test_any_single_active_dimension_skips_archive() {
         let mem = Arc::new(MemStorage::default());
-        // Two idle sessions: one will fail to load, one will succeed.
-        mem.add_idle_session("session-fail-load".into());
-        mem.add_idle_session("session-ok-load".into());
-
-        // Mark the first as failing to load.
-        mem.fail_load_for("session-fail-load".into());
-
-        // Only provide a checkpoint for the second session.
-        mem.add_checkpoint(SessionCheckpoint::new("session-ok-load".into()));
+        mem.add_idle_session("dim-llm".into());
+        mem.add_idle_session("dim-fg".into());
+        mem.add_idle_session("dim-bg".into());
+        mem.add_idle_session("dim-child".into());
+        for id in ["dim-llm", "dim-fg", "dim-bg", "dim-child"] {
+            mem.add_checkpoint(SessionCheckpoint::new(id.into()));
+        }
 
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
         let config: Arc<dyn SessionConfigProvider> =
             Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
 
-        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
+        // Each session has exactly one dimension true.
+        let active_query: Arc<dyn ActiveSessionQuery> =
+            Arc::new(MockActiveQueryWithDimensions::new(vec![
+                (
+                    "dim-llm".into(),
+                    SessionActivityDimensions {
+                        llm_active: true,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "dim-fg".into(),
+                    SessionActivityDimensions {
+                        foreground_tool_active: true,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "dim-bg".into(),
+                    SessionActivityDimensions {
+                        background_tool_active: true,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "dim-child".into(),
+                    SessionActivityDimensions {
+                        child_active: true,
+                        ..Default::default()
+                    },
+                ),
+            ]));
+
+        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config))
+            .with_active_query(active_query);
         sweeper.run_once().await.unwrap();
 
         let archive_called = mem.archive_called.lock().unwrap();
-        // The failing session should NOT be archived.
         assert!(
-            !archive_called.contains(&"session-fail-load".into()),
-            "session with checkpoint load failure should NOT be archived"
+            !archive_called.contains(&"dim-llm".into()),
+            "llm_active=true → must skip archive"
         );
-        // The succeeding session should still be archived.
         assert!(
-            archive_called.contains(&"session-ok-load".into()),
-            "other sessions should still be archived despite one failure"
+            !archive_called.contains(&"dim-fg".into()),
+            "foreground_tool_active=true → must skip archive"
+        );
+        assert!(
+            !archive_called.contains(&"dim-bg".into()),
+            "background_tool_active=true → must skip archive"
+        );
+        assert!(
+            !archive_called.contains(&"dim-child".into()),
+            "child_active=true → must skip archive"
+        );
+    }
+
+    /// Session not in memory (ActiveSessionQuery returns all false) → normal archive.
+    /// (Document: not in memory = no active operations.)
+    #[tokio::test]
+    async fn test_session_not_in_memory_archives_normally() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_idle_session("not-in-mem".into());
+        mem.add_checkpoint(SessionCheckpoint::new("not-in-mem".into()));
+
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+        let config: Arc<dyn SessionConfigProvider> =
+            Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
+
+        let active_query: Arc<dyn ActiveSessionQuery> = Arc::new(MockActiveQuery::none());
+
+        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config))
+            .with_active_query(active_query);
+        sweeper.run_once().await.unwrap();
+
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(
+            archive_called.contains(&"not-in-mem".into()),
+            "session not in memory (all dimensions false) → must archive"
         );
     }
 }

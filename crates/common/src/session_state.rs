@@ -91,6 +91,41 @@ pub enum ChildCompletionStatus {
     Terminated,
 }
 
+/// Four-dimensional activity snapshot of a session.
+///
+/// Each boolean represents an independent activity dimension:
+/// - `llm_active`: LLM request or streaming response in progress
+///   (`LlmState::Requesting | Receiving`)
+/// - `foreground_tool_active`: A tool call is pending or executing in
+///   the foreground (`ToolExecState::Pending | RunningForeground`)
+/// - `background_tool_active`: A tool call is executing in the
+///   background (`ToolExecState::RunningBackground`)
+/// - `child_active`: A child session is still running
+///   (`ChildSessionState::Running`)
+///
+/// See `docs/design/session/session-execution.md` for the state model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct SessionActivityDimensions {
+    /// LLM request or streaming response is in progress.
+    pub llm_active: bool,
+    /// A tool call is pending or executing in the foreground.
+    pub foreground_tool_active: bool,
+    /// A tool call is executing in the background.
+    pub background_tool_active: bool,
+    /// A child session is running.
+    pub child_active: bool,
+}
+
+impl SessionActivityDimensions {
+    /// Returns `true` when **any** dimension is active.
+    pub fn any_active(&self) -> bool {
+        self.llm_active
+            || self.foreground_tool_active
+            || self.background_tool_active
+            || self.child_active
+    }
+}
+
 /// Overall session execution status derived from the three dimensions
 /// (LLM, tool, child session). See `docs/design/session/session-execution.md`
 /// for the full state table.
