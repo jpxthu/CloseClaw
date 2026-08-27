@@ -223,10 +223,13 @@ async fn test_rebuild_spawn_tree_checkpoint_error() {
 }
 
 // ── spawn_mode reconstruction tests ───────────────────────────────────
+// Design doc (spawn-tree.md): mode is not persisted to checkpoint and
+// defaults to Session on rebuild. All tests verify this semantic.
 
-/// spawn_mode="run" in checkpoint → ChildSessionInfo.mode == SpawnMode::Run
+/// Old checkpoint with spawn_mode serialized as JSON residual key:
+/// mode defaults to Session (field no longer read).
 #[tokio::test]
-async fn test_rebuild_spawn_tree_spawn_mode_run() {
+async fn test_rebuild_spawn_tree_spawn_mode_residual_json_key() {
     let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
 
     let mut parent_cp = SessionCheckpoint::new("parent-1".to_string());
@@ -234,11 +237,38 @@ async fn test_rebuild_spawn_tree_spawn_mode_run() {
     parent_cp.parent_session_id = None;
     storage.save_checkpoint(&parent_cp).await.unwrap();
 
-    let mut child_cp = SessionCheckpoint::new("child-1".to_string());
-    child_cp.depth = 1;
-    child_cp.agent_id = Some("agent-a".to_string());
-    child_cp.parent_session_id = Some("parent-1".to_string());
-    child_cp.spawn_mode = Some("run".to_string());
+    // Simulate old checkpoint JSON with residual "spawn_mode" key.
+    // serde ignores unknown fields by default, so the key is silently
+    // dropped and mode defaults to Session.
+    let raw = serde_json::json!({
+        "session_id": "child-1",
+        "depth": 1,
+        "agent_id": "agent-a",
+        "parent_session_id": "parent-1",
+        "spawn_mode": "run",
+        "created_at": "2025-01-01T00:00:00Z",
+        "updated_at": "2025-01-01T00:00:00Z",
+        "ttl_seconds": 604800,
+        "status": "active",
+        "reasoning_mode": "direct",
+        "reasoning_level": "low",
+        "dreaming_status": "completed",
+        "message_count": 0,
+        "session_mode": "normal",
+        "outbound_pending": [],
+        "system_appends": [],
+        "pending_operations": [],
+        "pending_tool_failures": [],
+        "progress_tool_calls": [],
+        "approval_tool_calls": [],
+        "plan_references": [],
+        "pending_messages": [],
+        "snapshot_metas": [],
+        "mined": false,
+        "mode_state": { "current_step": 0, "total_steps": 0, "step_messages": [], "is_complete": false },
+        "verbosity_level": "full"
+    });
+    let child_cp: SessionCheckpoint = serde_json::from_value(raw).unwrap();
     storage.save_checkpoint(&child_cp).await.unwrap();
 
     let mgr = make_mgr_with_storage(storage);
@@ -247,12 +277,16 @@ async fn test_rebuild_spawn_tree_spawn_mode_run() {
     let children = mgr.children.read().await;
     let list = children.list_children("parent-1");
     assert_eq!(list.len(), 1);
-    assert_eq!(list[0].mode, SpawnMode::Run);
+    assert_eq!(
+        list[0].mode,
+        SpawnMode::Session,
+        "residual spawn_mode JSON key should not affect rebuild — defaults to Session"
+    );
 }
 
-/// spawn_mode="session" in checkpoint → ChildSessionInfo.mode == SpawnMode::Session
+/// spawn_mode absent (new checkpoint) → defaults to Session
 #[tokio::test]
-async fn test_rebuild_spawn_tree_spawn_mode_session() {
+async fn test_rebuild_spawn_tree_spawn_mode_defaults_to_session() {
     let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
 
     let mut parent_cp = SessionCheckpoint::new("parent-1".to_string());
@@ -264,7 +298,6 @@ async fn test_rebuild_spawn_tree_spawn_mode_session() {
     child_cp.depth = 1;
     child_cp.agent_id = Some("agent-a".to_string());
     child_cp.parent_session_id = Some("parent-1".to_string());
-    child_cp.spawn_mode = Some("session".to_string());
     storage.save_checkpoint(&child_cp).await.unwrap();
 
     let mgr = make_mgr_with_storage(storage);
@@ -301,9 +334,10 @@ async fn test_rebuild_spawn_tree_orphan_effective_max_spawn_depth_reset() {
     assert_eq!(loaded.depth, 0, "demoted orphan depth should be reset to 0");
 }
 
-/// spawn_mode absent (old checkpoint, backward compat) → default to Session
+/// Mixed scenario: multiple children — all default to Session
+/// (mode is not persisted to checkpoint per design doc).
 #[tokio::test]
-async fn test_rebuild_spawn_tree_spawn_mode_missing_backward_compat() {
+async fn test_rebuild_spawn_tree_all_children_default_session() {
     let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
 
     let mut parent_cp = SessionCheckpoint::new("parent-1".to_string());
@@ -311,122 +345,30 @@ async fn test_rebuild_spawn_tree_spawn_mode_missing_backward_compat() {
     parent_cp.parent_session_id = None;
     storage.save_checkpoint(&parent_cp).await.unwrap();
 
-    let mut child_cp = SessionCheckpoint::new("child-1".to_string());
-    child_cp.depth = 1;
-    child_cp.agent_id = Some("agent-a".to_string());
-    child_cp.parent_session_id = Some("parent-1".to_string());
-    // spawn_mode intentionally left as None (simulates old checkpoint)
-    assert!(child_cp.spawn_mode.is_none());
-    storage.save_checkpoint(&child_cp).await.unwrap();
-
-    let mgr = make_mgr_with_storage(storage);
-    mgr.rebuild_spawn_tree().await.unwrap();
-
-    let children = mgr.children.read().await;
-    let list = children.list_children("parent-1");
-    assert_eq!(list.len(), 1);
-    assert_eq!(
-        list[0].mode,
-        SpawnMode::Session,
-        "missing spawn_mode should default to Session"
-    );
-}
-
-/// spawn_mode contains invalid string → default to Session
-#[tokio::test]
-async fn test_rebuild_spawn_tree_spawn_mode_invalid_string() {
-    let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
-
-    let mut parent_cp = SessionCheckpoint::new("parent-1".to_string());
-    parent_cp.depth = 0;
-    parent_cp.parent_session_id = None;
-    storage.save_checkpoint(&parent_cp).await.unwrap();
-
-    let mut child_cp = SessionCheckpoint::new("child-1".to_string());
-    child_cp.depth = 1;
-    child_cp.agent_id = Some("agent-a".to_string());
-    child_cp.parent_session_id = Some("parent-1".to_string());
-    child_cp.spawn_mode = Some("invalid_mode".to_string());
-    storage.save_checkpoint(&child_cp).await.unwrap();
-
-    let mgr = make_mgr_with_storage(storage);
-    mgr.rebuild_spawn_tree().await.unwrap();
-
-    let children = mgr.children.read().await;
-    let list = children.list_children("parent-1");
-    assert_eq!(list.len(), 1);
-    assert_eq!(
-        list[0].mode,
-        SpawnMode::Session,
-        "invalid spawn_mode should default to Session"
-    );
-}
-
-/// Mixed scenario: multiple children with different spawn_modes.
-#[tokio::test]
-async fn test_rebuild_spawn_tree_mixed_spawn_modes() {
-    let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
-
-    let mut parent_cp = SessionCheckpoint::new("parent-1".to_string());
-    parent_cp.depth = 0;
-    parent_cp.parent_session_id = None;
-    storage.save_checkpoint(&parent_cp).await.unwrap();
-
-    // child-A: run mode
     let mut child_a = SessionCheckpoint::new("child-A".to_string());
     child_a.depth = 1;
     child_a.agent_id = Some("agent-a".to_string());
     child_a.parent_session_id = Some("parent-1".to_string());
-    child_a.spawn_mode = Some("run".to_string());
     storage.save_checkpoint(&child_a).await.unwrap();
 
-    // child-B: session mode
     let mut child_b = SessionCheckpoint::new("child-B".to_string());
     child_b.depth = 1;
     child_b.agent_id = Some("agent-b".to_string());
     child_b.parent_session_id = Some("parent-1".to_string());
-    child_b.spawn_mode = Some("session".to_string());
     storage.save_checkpoint(&child_b).await.unwrap();
-
-    // child-C: no spawn_mode (old checkpoint)
-    let mut child_c = SessionCheckpoint::new("child-C".to_string());
-    child_c.depth = 1;
-    child_c.agent_id = Some("agent-c".to_string());
-    child_c.parent_session_id = Some("parent-1".to_string());
-    // spawn_mode intentionally None
-    storage.save_checkpoint(&child_c).await.unwrap();
-
-    // child-D: invalid spawn_mode
-    let mut child_d = SessionCheckpoint::new("child-D".to_string());
-    child_d.depth = 1;
-    child_d.agent_id = Some("agent-d".to_string());
-    child_d.parent_session_id = Some("parent-1".to_string());
-    child_d.spawn_mode = Some("unknown".to_string());
-    storage.save_checkpoint(&child_d).await.unwrap();
 
     let mgr = make_mgr_with_storage(storage);
     mgr.rebuild_spawn_tree().await.unwrap();
 
     let children = mgr.children.read().await;
     let list = children.list_children("parent-1");
-    assert_eq!(list.len(), 4, "should have 4 children under parent-1");
+    assert_eq!(list.len(), 2, "should have 2 children under parent-1");
 
-    // Build a map for stable assertions regardless of registration order.
-    let map: std::collections::HashMap<&str, &SpawnMode> = list
-        .iter()
-        .map(|info| (info.session_id.as_str(), &info.mode))
-        .collect();
-
-    assert_eq!(map["child-A"], &SpawnMode::Run);
-    assert_eq!(map["child-B"], &SpawnMode::Session);
-    assert_eq!(
-        map["child-C"],
-        &SpawnMode::Session,
-        "missing spawn_mode defaults to Session"
-    );
-    assert_eq!(
-        map["child-D"],
-        &SpawnMode::Session,
-        "invalid spawn_mode defaults to Session"
-    );
+    for info in &list {
+        assert_eq!(
+            info.mode,
+            SpawnMode::Session,
+            "all children should default to Session mode on rebuild"
+        );
+    }
 }

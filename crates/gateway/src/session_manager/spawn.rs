@@ -339,18 +339,16 @@ impl SessionManager {
         }
 
         // Persist checkpoint.
-        let mode_str = match &mode {
-            SpawnMode::Run => "run".to_string(),
-            SpawnMode::Session => "session".to_string(),
-        };
+        // NOTE: spawn_mode is intentionally NOT persisted — design doc
+        // (spawn-tree.md) specifies mode is not written to checkpoint and
+        // defaults to Session on rebuild.
         let mut cp = SessionCheckpoint::new(child_session_id.clone())
             .with_status(SessionStatus::Active)
             .with_platform("spawn".to_string())
             .with_agent_id(config.id.clone())
             .with_parent_session_id(parent_session_id.to_string())
             .with_depth(depth)
-            .with_effective_max_spawn_depth(Some(max_spawn_depth))
-            .with_spawn_mode(mode_str);
+            .with_effective_max_spawn_depth(Some(max_spawn_depth));
         let effective_label = match label {
             Some(l) => l.to_string(),
             None => default_spawn_label(),
@@ -647,10 +645,9 @@ impl SessionManager {
                 orphan_ids.push(session_id.clone());
                 continue;
             }
-            let mode = match cp.spawn_mode.as_deref() {
-                Some("run") => SpawnMode::Run,
-                _ => SpawnMode::Session,
-            };
+            // Design doc (spawn-tree.md): mode is not persisted to
+            // checkpoint and defaults to Session on rebuild.
+            let mode = SpawnMode::Session;
             self.register_child(
                 parent_id,
                 ChildSessionInfo {
