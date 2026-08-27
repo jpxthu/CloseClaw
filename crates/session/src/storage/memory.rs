@@ -447,7 +447,6 @@ mod tests {
             pending_messages: Vec::new(),
             label: None,
             communication_config: None,
-            spawn_mode: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
         }

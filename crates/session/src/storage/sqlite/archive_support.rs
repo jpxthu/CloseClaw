@@ -432,7 +432,6 @@ pub fn load_checkpoint_inner(
         pending_messages: transcript_messages,
         label: None,
         communication_config: None,
-        spawn_mode: None,
         snapshot_metas: Vec::new(),
         workflow_run: None,
     }))

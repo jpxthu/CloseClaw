@@ -241,6 +241,40 @@ impl SessionMessageHandler {
 }
 // ── Message dispatch ──
 impl SessionMessageHandler {
+    /// Inject active children summary and yield reminder into the
+    /// conversation transcript *before* the user message.
+    ///
+    /// This ensures the parent LLM sees which children are still
+    /// running (with agent_id + task_summary) ahead of the user's
+    /// latest input, satisfying the design-doc position constraint:
+    /// > 插入位置在用户消息之前
+    pub(crate) async fn inject_active_children_summary_if_needed(&self, session_id: &str) {
+        let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        else {
+            return;
+        };
+        let mut cs_write = cs.write().await;
+        let summary = cs_write.active_children_summary();
+        let yield_reminder = cs_write.spawn_guard_reminder();
+        if summary.is_some() || yield_reminder.is_some() {
+            let mut text = summary.unwrap_or_default();
+            if let Some(reminder) = yield_reminder {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(&reminder);
+            }
+            tracing::info!(
+                session_id = %session_id,
+                "injecting active children summary"
+            );
+            cs_write.inject_system_message(text);
+        }
+    }
+
     /// Handle an inbound message using default metadata.
     pub async fn handle_message(&self, session_id: &str, content: String) -> HandleResult {
         self.handle_message_with_meta(session_id, content, MessageMetadata::default_meta())
@@ -263,6 +297,10 @@ impl SessionMessageHandler {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
         }
+        // Inject active children summary BEFORE the user message
+        // (design-doc position constraint).
+        self.inject_active_children_summary_if_needed(session_id)
+            .await;
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).
         if let Some(cs) = self

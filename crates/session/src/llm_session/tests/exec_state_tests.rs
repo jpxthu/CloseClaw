@@ -618,3 +618,126 @@ fn test_spawn_guard_reminder_message_content_format() {
         "reminder should suggest yield"
     );
 }
+
+// ── active_children_summary ──────────────────────────────────────────────
+
+#[test]
+fn test_active_children_summary_returns_none_when_no_children() {
+    let session = ConversationSession::new("s_acs1".into(), "gpt-4o".into(), tmp_path());
+    assert!(session.active_children_summary().is_none());
+}
+
+#[test]
+fn test_active_children_summary_returns_none_when_all_completed() {
+    let session = ConversationSession::new("s_acs2".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "task 1");
+    session.update_child_state("c1", ChildSessionState::Completed);
+    assert!(session.active_children_summary().is_none());
+}
+
+#[test]
+fn test_active_children_summary_returns_none_when_all_terminated() {
+    let session = ConversationSession::new("s_acs3".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "task 1");
+    session.update_child_state("c1", ChildSessionState::Terminated);
+    assert!(session.active_children_summary().is_none());
+}
+
+#[test]
+fn test_active_children_summary_single_child() {
+    let session = ConversationSession::new("s_acs4".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "review code");
+    let summary = session.active_children_summary().unwrap();
+    assert!(summary.contains("agent-a"));
+    assert!(summary.contains("review code"));
+    assert!(summary.contains("当前活跃子 Session"));
+}
+
+#[test]
+fn test_active_children_summary_multiple_children() {
+    let session = ConversationSession::new("s_acs5".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "task 1");
+    session.register_child("c2", "agent-b", "task 2");
+    session.register_child("c3", "agent-c", "task 3");
+    let summary = session.active_children_summary().unwrap();
+    assert!(summary.contains("agent-a"));
+    assert!(summary.contains("task 1"));
+    assert!(summary.contains("agent-b"));
+    assert!(summary.contains("task 2"));
+    assert!(summary.contains("agent-c"));
+    assert!(summary.contains("task 3"));
+    // All three on separate lines.
+    assert_eq!(summary.matches('\n').count(), 3);
+}
+
+#[test]
+fn test_active_children_summary_mixed_states() {
+    let session = ConversationSession::new("s_acs6".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "running task");
+    session.register_child("c2", "agent-b", "done task");
+    session.update_child_state("c2", ChildSessionState::Completed);
+    let summary = session.active_children_summary().unwrap();
+    assert!(summary.contains("agent-a"));
+    assert!(summary.contains("running task"));
+    assert!(!summary.contains("agent-b"));
+    assert!(!summary.contains("done task"));
+}
+
+#[test]
+fn test_active_children_summary_skips_none_detail() {
+    let session = ConversationSession::new("s_acs7".into(), "gpt-4o".into(), tmp_path());
+    // Manually insert a Running child with None detail (defensive).
+    {
+        let mut states = session.child_states.write().unwrap();
+        states.insert(
+            "c_no_detail".to_string(),
+            (ChildSessionState::Running, None),
+        );
+        states.insert(
+            "c_with_detail".to_string(),
+            (
+                ChildSessionState::Running,
+                Some(PendingOperationDetail::SubSessionSpawn {
+                    child_session_id: "c_with_detail".to_string(),
+                    agent_id: "agent-x".to_string(),
+                    task_summary: "real task".to_string(),
+                }),
+            ),
+        );
+    }
+    let summary = session.active_children_summary().unwrap();
+    assert!(summary.contains("agent-x"));
+    assert!(summary.contains("real task"));
+    // Header line + 1 item = 1 newline.
+    assert_eq!(summary.matches('\n').count(), 1);
+}
+
+#[test]
+fn test_active_children_summary_state_transition() {
+    let session = ConversationSession::new("s_acs8".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "task 1");
+    session.register_child("c2", "agent-b", "task 2");
+    // Both active.
+    let summary = session.active_children_summary().unwrap();
+    assert!(summary.contains("agent-a"));
+    assert!(summary.contains("agent-b"));
+    // Complete one child.
+    session.update_child_state("c1", ChildSessionState::Completed);
+    let summary = session.active_children_summary().unwrap();
+    assert!(!summary.contains("agent-a"));
+    assert!(summary.contains("agent-b"));
+    // Complete the last one.
+    session.update_child_state("c2", ChildSessionState::Completed);
+    assert!(session.active_children_summary().is_none());
+}
+
+#[test]
+fn test_active_children_summary_yielded_session() {
+    let session = ConversationSession::new("s_acs9".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "task 1");
+    session.enter_waiting();
+    // Summary still returns data even when yielded.
+    let summary = session.active_children_summary();
+    assert!(summary.is_some());
+    assert!(summary.unwrap().contains("agent-a"));
+}

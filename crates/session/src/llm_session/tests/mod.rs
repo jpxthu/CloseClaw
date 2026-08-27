@@ -21,6 +21,7 @@ mod session_llm_tests;
 mod skill_listing_incremental_tests;
 mod skill_listing_tests;
 mod step1_4_behavior_tests;
+mod step1_5_ut_tests;
 mod stop_tests;
 mod streaming_tests;
 mod system_appends_tests;
