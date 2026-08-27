@@ -45,6 +45,57 @@ pub(crate) fn detect(
     }
 }
 
+// ── Deferred mode switching (§6 design) ────────────────────────────────
+
+impl super::ConversationSession {
+    /// Store a pending mode change triggered by a slash command.
+    ///
+    /// The mode is applied lazily on the next [`session_mode()`] call,
+    /// producing the one-message delay required by the design doc.
+    pub fn set_pending_session_mode(&self, mode: SessionMode) {
+        *self
+            .pending_session_mode
+            .lock()
+            .expect("pending_session_mode lock poisoned") = Some(mode);
+    }
+
+    /// Check for a pending mode and apply it if present.
+    /// Called by [`session_mode()`] to implement deferred mode switching.
+    pub(crate) fn apply_pending_session_mode_if_needed(&self) {
+        let pending = self
+            .pending_session_mode
+            .lock()
+            .expect("pending_session_mode lock poisoned")
+            .take();
+        if let Some(mode) = pending {
+            let prev = *self
+                .session_mode
+                .lock()
+                .expect("session_mode lock poisoned");
+            {
+                let mut lock = self
+                    .session_mode
+                    .lock()
+                    .expect("session_mode lock poisoned");
+                *lock = mode;
+            }
+            let has_been = self
+                .has_been_in_plan
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if mode == SessionMode::Plan {
+                self.has_been_in_plan
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            if let Some(t) = detect(prev, mode, has_been, ModeChangeSource::Manual) {
+                *self
+                    .pending_mode_transition
+                    .lock()
+                    .expect("pending_mode_transition lock poisoned") = Some(t);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
