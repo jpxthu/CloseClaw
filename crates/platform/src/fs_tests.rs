@@ -1,5 +1,6 @@
 use crate::fs::{
     check_executable, check_readable, check_writable, expand_home, normalize_path, set_executable,
+    to_platform_path,
 };
 use std::path::{Path, PathBuf};
 
@@ -43,6 +44,59 @@ fn test_normalize_path_trailing_separator() {
     let path = Path::new(r"C:\Users\test\");
     let normalized = normalize_path(path);
     assert_eq!(normalized, PathBuf::from("C:/Users/test/"));
+}
+
+// --- to_platform_path tests ---
+
+#[test]
+fn test_to_platform_path_identity_unix() {
+    let path = Path::new("/usr/local/bin");
+    let result = to_platform_path(path);
+    assert_eq!(result, PathBuf::from("/usr/local/bin"));
+}
+
+#[test]
+fn test_to_platform_path_backslashes() {
+    let path = Path::new(r"C:\Users\test\file.txt");
+    let result = to_platform_path(path);
+    assert_eq!(result, PathBuf::from("C:/Users/test/file.txt"));
+}
+
+#[test]
+fn test_to_platform_path_mixed_separators() {
+    let path = Path::new(r"C:\Users/test\another/file");
+    let result = to_platform_path(path);
+    assert_eq!(result, PathBuf::from("C:/Users/test/another/file"));
+}
+
+#[test]
+fn test_to_platform_path_empty() {
+    let path = Path::new("");
+    let result = to_platform_path(path);
+    assert_eq!(result, PathBuf::from(""));
+}
+
+#[test]
+fn test_to_platform_path_trailing_separator() {
+    let path = Path::new(r"C:\Users\test\");
+    let result = to_platform_path(path);
+    assert_eq!(result, PathBuf::from("C:/Users/test/"));
+}
+
+/// On `/`-separator platforms, `to_platform_path` and `normalize_path` produce
+/// identical output — this round-trip property must hold.
+#[test]
+fn test_to_platform_path_roundtrip_with_normalize() {
+    let inputs = [
+        r"C:\Users\test",
+        "/usr/local/bin",
+        "relative/path",
+        r"mixed\\path/here",
+    ];
+    for input in &inputs {
+        let p = Path::new(input);
+        assert_eq!(to_platform_path(p), normalize_path(p));
+    }
 }
 
 #[test]
