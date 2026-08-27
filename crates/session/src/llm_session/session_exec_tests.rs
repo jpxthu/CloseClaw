@@ -4,7 +4,9 @@
 //! state table in `docs/design/session/session-execution.md`.
 
 use super::*;
-use closeclaw_common::{ChildSessionState, LlmState, SessionExecStatus, ToolExecState};
+use closeclaw_common::{
+    ChildSessionState, LlmState, SessionActivityDimensions, SessionExecStatus, ToolExecState,
+};
 
 // ── 1. foreground + child simultaneously active → Busy ──────────────────────
 
@@ -201,4 +203,123 @@ fn test_exec_status_pending_tool_returns_busy() {
         SessionExecStatus::Busy,
         "Pending tool must be treated as foreground-active → Busy"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// activity_dimensions() tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// (a) Empty session → all four dimensions false.
+#[test]
+fn test_activity_dimensions_empty_session_all_false() {
+    let session = ConversationSession::new("s_empty".into(), "gpt-4o".into(), tmp_path());
+    let dims = session.activity_dimensions();
+    assert_eq!(
+        dims,
+        SessionActivityDimensions {
+            llm_active: false,
+            foreground_tool_active: false,
+            background_tool_active: false,
+            child_active: false,
+        },
+        "empty session must have all dimensions false"
+    );
+    assert!(
+        !dims.any_active(),
+        "any_active must be false when all are false"
+    );
+}
+
+/// (b) LLM Requesting → llm_active=true, others false.
+#[test]
+fn test_activity_dimensions_llm_requesting() {
+    let session = ConversationSession::new("s_llm_req".into(), "gpt-4o".into(), tmp_path());
+    session.set_llm_state(LlmState::Requesting);
+    let dims = session.activity_dimensions();
+    assert!(dims.llm_active, "llm_active must be true when Requesting");
+    assert!(!dims.foreground_tool_active);
+    assert!(!dims.background_tool_active);
+    assert!(!dims.child_active);
+    assert!(dims.any_active());
+}
+
+/// (b2) LLM Receiving → llm_active=true.
+#[test]
+fn test_activity_dimensions_llm_receiving() {
+    let session = ConversationSession::new("s_llm_rec".into(), "gpt-4o".into(), tmp_path());
+    session.set_llm_state(LlmState::Receiving);
+    let dims = session.activity_dimensions();
+    assert!(dims.llm_active, "llm_active must be true when Receiving");
+}
+
+/// (c) Pending tool → foreground_tool_active=true.
+#[test]
+fn test_activity_dimensions_pending_tool_fg() {
+    let session = ConversationSession::new("s_pend".into(), "gpt-4o".into(), tmp_path());
+    session.register_tool_call("t1", "bash", "echo");
+    let dims = session.activity_dimensions();
+    assert!(
+        dims.foreground_tool_active,
+        "Pending tool must set foreground_tool_active"
+    );
+    assert!(!dims.llm_active);
+    assert!(!dims.background_tool_active);
+    assert!(!dims.child_active);
+}
+
+/// (c2) RunningForeground tool → foreground_tool_active=true.
+#[test]
+fn test_activity_dimensions_running_fg_tool() {
+    let session = ConversationSession::new("s_run_fg".into(), "gpt-4o".into(), tmp_path());
+    session.register_tool_call("t1", "bash", "cmd");
+    session.update_tool_state("t1", ToolExecState::RunningForeground);
+    let dims = session.activity_dimensions();
+    assert!(
+        dims.foreground_tool_active,
+        "RunningForeground tool must set foreground_tool_active"
+    );
+}
+
+/// (d) RunningBackground tool → background_tool_active=true.
+#[test]
+fn test_activity_dimensions_running_bg_tool() {
+    let session = ConversationSession::new("s_run_bg".into(), "gpt-4o".into(), tmp_path());
+    session.register_tool_call("t1", "bash", "ls");
+    session.update_tool_state("t1", ToolExecState::RunningBackground);
+    let dims = session.activity_dimensions();
+    assert!(
+        dims.background_tool_active,
+        "RunningBackground tool must set background_tool_active"
+    );
+    assert!(!dims.foreground_tool_active, "bg must not set fg");
+}
+
+/// (e) Running child → child_active=true.
+#[test]
+fn test_activity_dimensions_running_child() {
+    let session = ConversationSession::new("s_child".into(), "gpt-4o".into(), tmp_path());
+    session.register_child("c1", "agent-a", "task");
+    let dims = session.activity_dimensions();
+    assert!(dims.child_active, "Running child must set child_active");
+    assert!(!dims.llm_active);
+    assert!(!dims.foreground_tool_active);
+    assert!(!dims.background_tool_active);
+}
+
+/// Multiple dimensions active simultaneously.
+#[test]
+fn test_activity_dimensions_multiple_active() {
+    let session = ConversationSession::new("s_multi".into(), "gpt-4o".into(), tmp_path());
+    session.set_llm_state(LlmState::Requesting);
+    session.register_tool_call("t1", "bash", "cmd");
+    session.update_tool_state("t1", ToolExecState::RunningForeground);
+    session.register_tool_call("t2", "bash", "ls");
+    session.update_tool_state("t2", ToolExecState::RunningBackground);
+    session.register_child("c1", "agent-a", "task");
+    let dims = session.activity_dimensions();
+    assert!(dims.llm_active);
+    assert!(dims.foreground_tool_active);
+    assert!(dims.background_tool_active);
+    assert!(dims.child_active);
+    assert!(dims.any_active());
 }
