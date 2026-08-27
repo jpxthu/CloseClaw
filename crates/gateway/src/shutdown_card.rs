@@ -698,6 +698,107 @@ mod tests {
         assert!(!body_f.contains("LLM"));
     }
 
+    // ── Shutdown heartbeat card tests ──────────────────────────────────────
+
+    /// Build the heartbeat card JSON for a given wait time and mode.
+    /// Mirrors the card structure built in `send_shutdown_heartbeat_card` for
+    /// testability without requiring the full Gateway runtime.
+    fn build_heartbeat_card(longest_wait_secs: u64, mode: ShutdownMode) -> serde_json::Value {
+        let content = format!(
+            "\u{23f3} \u{4ecd}\u{5728}\u{5173}\u{95ed}\u{4e2d}\u{ff0c}\u{5df2}\u{7b49}\u{5f85} {}s",
+            longest_wait_secs
+        );
+
+        let mut elements: Vec<serde_json::Value> = vec![json!({
+            "tag": "div",
+            "text": json!({
+                "tag": "lark_md",
+                "content": content
+            })
+        })];
+
+        if mode == ShutdownMode::Graceful {
+            elements.push(json!({
+                "tag": "action",
+                "actions": [
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "\u{7ee7}\u{7eed}\u{7b49}\u{5f85}"
+                        }),
+                        "type": "default",
+                        "disabled": true
+                    }),
+                    json!({
+                        "tag": "button",
+                        "text": json!({
+                            "tag": "plain_text",
+                            "content": "\u{5f3a}\u{5236}\u{5173}\u{95ed}"
+                        }),
+                        "type": "danger",
+                        "value": {"action": "forceful_shutdown"}
+                    })
+                ]
+            }));
+        }
+
+        json!({
+            "config": { "wide_screen_mode": true },
+            "header": json!({
+                "title": json!({
+                    "tag": "plain_text",
+                    "content": "\u{23f3} \u{5fc3}\u{8df3} \u{2014} \u{5173}\u{95ed}\u{4ecd}\u{5728}\u{8fdb}\u{884c}\u{4e2d}"
+                }),
+                "template": "blue"
+            }),
+            "elements": elements
+        })
+    }
+
+    /// Heartbeat message format is simplified: shows only elapsed time,
+    /// no session count or longest-wait label.
+    #[test]
+    fn test_heartbeat_message_simplified_format() {
+        let card = build_heartbeat_card(27, ShutdownMode::Graceful);
+        let body = card["elements"][0]["text"]["content"].as_str().unwrap();
+        assert_eq!(
+            body,
+            "\u{23f3} \u{4ecd}\u{5728}\u{5173}\u{95ed}\u{4e2d}\u{ff0c}\u{5df2}\u{7b49}\u{5f85} 27s"
+        );
+        // Must not contain session count
+        assert!(!body.contains("session"));
+        assert!(!body.contains("\u{6700}\u{957f}\u{7b49}\u{5f85}"));
+    }
+
+    /// Heartbeat message at 0s elapsed time.
+    #[test]
+    fn test_heartbeat_message_zero_secs() {
+        let card = build_heartbeat_card(0, ShutdownMode::Graceful);
+        let body = card["elements"][0]["text"]["content"].as_str().unwrap();
+        assert!(body.contains("0s"));
+    }
+
+    /// Graceful mode heartbeat card includes action buttons.
+    #[test]
+    fn test_heartbeat_card_graceful_has_buttons() {
+        let card = build_heartbeat_card(27, ShutdownMode::Graceful);
+        // Should have 2 elements: body div + action block
+        assert_eq!(card["elements"].as_array().unwrap().len(), 2);
+        let actions = card["elements"][1]["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0]["type"], "default");
+        assert_eq!(actions[1]["type"], "danger");
+    }
+
+    /// Forceful mode heartbeat card omits action buttons.
+    #[test]
+    fn test_heartbeat_card_forceful_no_buttons() {
+        let card = build_heartbeat_card(27, ShutdownMode::Forceful);
+        // Should have only 1 element: body div
+        assert_eq!(card["elements"].as_array().unwrap().len(), 1);
+    }
+
     // ── Progress card tool display behavior tests ───────────────────────────
 
     /// When a tool is running with name "make" and input "build --release",
