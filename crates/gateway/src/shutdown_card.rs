@@ -310,9 +310,10 @@ impl Gateway {
 
     /// Send a heartbeat card during Phase 2 when no state changes for a while.
     ///
-    /// Displays a simplified format: "⏳ 仍在关闭中，已等待 Ns"
-    /// with [Continue waiting] and [Force close] buttons. Only sent in graceful
-    /// mode. Sending failures are logged as warnings and do not block shutdown.
+    /// Displays a simplified format: "⏳ 仍在关闭中，已等待 Ns".
+    /// In graceful mode, shows [Continue waiting] (disabled) and [Force close]
+    /// buttons; in forceful mode, no action buttons are included.
+    /// Sending failures are logged as warnings and do not block shutdown.
     pub async fn send_shutdown_heartbeat_card(
         &self,
         longest_wait_secs: u64,
@@ -369,12 +370,13 @@ impl Gateway {
             }));
         }
 
+        let header_title = "⏳ 心跳 — 关闭仍在进行中";
         let card = json!({
             "config": { "wide_screen_mode": true },
             "header": json!({
                 "title": json!({
                     "tag": "plain_text",
-                    "content": "⏳ 心跳 — 关闭仍在进行中"
+                    "content": header_title
                 }),
                 "template": "blue"
             }),
@@ -698,7 +700,7 @@ mod tests {
         assert!(!body_f.contains("LLM"));
     }
 
-    // ── Shutdown heartbeat card tests ──────────────────────────────────────
+    // ── Shutdown heartbeat card tests ──────────────────────
 
     /// Build the heartbeat card JSON for a given wait time and mode.
     /// Mirrors the card structure built in `send_shutdown_heartbeat_card` for
@@ -743,12 +745,13 @@ mod tests {
             }));
         }
 
+        let header_title = "⏳ 心跳 — 关闭仍在进行中";
         json!({
             "config": { "wide_screen_mode": true },
             "header": json!({
                 "title": json!({
                     "tag": "plain_text",
-                    "content": "\u{23f3} \u{5fc3}\u{8df3} \u{2014} \u{5173}\u{95ed}\u{4ecd}\u{5728}\u{8fdb}\u{884c}\u{4e2d}"
+                    "content": header_title
                 }),
                 "template": "blue"
             }),
