@@ -450,24 +450,12 @@ impl Daemon {
                     let current_mode: closeclaw_common::shutdown::ShutdownMode =
                         self.shutdown.mode();
                     let longest_wait_secs = phase2_start.elapsed().as_secs();
-                    let active_count = {
-                        let conv = self
-                            .gateway
-                            .session_manager()
-                            .conversation_sessions
-                            .read()
-                            .await;
-                        conv.values().filter(|cs| {
-                            !cs.try_read().map_or(true, |c| c.is_stopped())
-                        }).count()
-                    };
                     tracing::info!(
-                        active_count,
                         longest_wait_secs,
                         "Phase 2 heartbeat — sending periodic notification"
                     );
                     self.gateway
-                        .send_shutdown_heartbeat_card(active_count, longest_wait_secs, current_mode)
+                        .send_shutdown_heartbeat_card(longest_wait_secs, current_mode)
                         .await;
                     // Reset heartbeat timer
                     last_event = tokio::time::Instant::now();
