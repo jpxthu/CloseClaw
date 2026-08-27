@@ -4,6 +4,8 @@
 //! traits (e.g., [`LlmCaller`](crate::llm_caller::LlmCaller)) can reference
 //! it without creating circular dependencies.
 
+use crate::processor::ContentBlock;
+
 /// Errors that can occur during LLM operations.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum LLMError {
@@ -29,6 +31,21 @@ pub enum LLMError {
     /// (cascade stop or explicit `/stop`). Never retried.
     #[error("Request cancelled")]
     Cancelled,
+
+    /// Streaming error that preserves complete Thinking blocks from partial
+    /// content. When a stream is interrupted mid-response, any
+    /// [`ContentBlock::Thinking`] blocks that were fully generated before the
+    /// error are preserved here so they can be written to conversation history.
+    ///
+    /// Only complete Thinking blocks are included; incomplete Text fragments
+    /// and other block types are intentionally excluded.
+    #[error("Partial content: {reason}")]
+    PartialContent {
+        /// Human-readable error message describing the stream interruption.
+        reason: String,
+        /// Complete Thinking blocks preserved from the partial stream output.
+        thinking_blocks: Vec<ContentBlock>,
+    },
 }
 
 /// Classifies an LLM error to determine retry strategy.
@@ -71,6 +88,7 @@ impl LLMError {
             }
             LLMError::NetworkError(_) => Transient,
             LLMError::Cancelled => InvalidRequest,
+            LLMError::PartialContent { .. } => Unknown,
         }
     }
 }
