@@ -155,8 +155,15 @@ impl ConversationSession {
             return 0;
         }
         let dropped = current_len - limit;
+        // Snapshot the full pre-truncation state before split_off mutates
+        // self.messages, so rollback restores the complete history.
+        self.snapshot_current_state(TranscriptOp::PartialRewrite, "truncate");
         let truncated: Vec<SessionMessage> = self.messages.split_off(dropped);
-        self.apply_transcript_op(TranscriptOp::PartialRewrite, truncated);
+        // replace messages and update last_activity_at.
+        // Snapshot already created above — skip the second snapshot
+        // that apply_transcript_op would create.
+        self.messages = truncated;
+        self.last_activity_at = chrono::Utc::now().timestamp();
         dropped
     }
 
