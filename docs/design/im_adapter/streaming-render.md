@@ -14,7 +14,7 @@
 - 类型路由：按块类型选择渲染路径
 - 增量输出：完整输出单元立即通过 IMPlugin 发送
 
-流式渲染器逐事件消费 StreamEvent——BlockDelta 到达即驱动 Text 块逐缓冲行输出（块未结束即可输出）；Thinking/Tool 块等待对应 BlockEnd 全块就绪后一次交付平台格式渲染器。交互式 UI 元素（按钮、选择器等）通过工具调用结果由 Gateway 直接处理，不属于流式渲染器职责范围。
+流式渲染器逐事件消费 StreamEvent（增量载荷结构 [ContentDelta](../common/shared-types.md#contentdelta)，本批产出结构见 [common StreamingOutput](../common/shared-types.md#streamingoutput)）——BlockDelta 到达即驱动 Text 块逐缓冲行输出（块未结束即可输出）；Thinking/Tool 块等待对应 BlockEnd 全块就绪后一次交付平台格式渲染器。交互式 UI 元素（按钮、选择器等）通过工具调用结果由 Gateway 直接处理，不属于流式渲染器职责范围。
 
 **行缓冲规则**：
 
