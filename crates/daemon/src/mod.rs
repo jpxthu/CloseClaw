@@ -172,7 +172,7 @@ impl Daemon {
     }
 
     /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry, LLMRegistry,
-    /// PermissionEngine.
+    /// PermissionEngine, PlanArchiveSweeper.
     async fn init_phase_2_registries(
         config_dir: &str,
         config_manager: &ConfigManager,
@@ -187,6 +187,7 @@ impl Daemon {
         Arc<closeclaw_llm::LLMRegistry>,
         SkillRescanHandle,
         Arc<tokio::sync::RwLock<PermissionEngine>>,
+        Option<crate::daemon_struct::PlanArchiveSweeperHandle>,
     )> {
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
@@ -215,6 +216,9 @@ impl Daemon {
             &std::collections::HashMap::new(),
         )
         .await;
+        let data_dir = std::path::PathBuf::from(config_dir);
+        let plan_archive_sweeper =
+            registries::spawn_plan_archive_sweeper(config_manager, &data_dir);
         Ok((
             agent_registry,
             skill_registry,
@@ -225,6 +229,7 @@ impl Daemon {
             llm_registry,
             skill_rescan_handle,
             permission_engine,
+            plan_archive_sweeper,
         ))
     }
 
@@ -565,7 +570,6 @@ impl Daemon {
         watch::Sender<()>,
         watch::Sender<()>,
         Option<config_watcher::ConfigWatcherHandle>,
-        Option<crate::daemon_struct::PlanArchiveSweeperHandle>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
@@ -626,7 +630,7 @@ impl Daemon {
             data_dir,
             gateway,
         };
-        let (config_watcher, plan_archive_sweeper) = registries::populate_registries(&ctx).await;
+        let config_watcher = registries::populate_registries(&ctx).await;
 
         // Create SystemPromptBuilderAdapter and inject into SessionManager.
         // This bridges the SystemPromptBuilder trait (used by ConversationSession
@@ -736,7 +740,6 @@ impl Daemon {
             announce_sweeper_tx,
             dreaming_tx,
             config_watcher,
-            plan_archive_sweeper,
             sweeper_handle,
             announce_sweeper_handle,
             dreaming_handle,
@@ -747,7 +750,7 @@ impl Daemon {
 
     /// Spawn ArchiveSweeper and DreamingScheduler.
     ///
-    /// PlanArchiveSweeper is spawned separately in `populate_registries`
+    /// PlanArchiveSweeper is spawned separately in `init_phase_2_registries`
     /// as a Layer 2 component (depends on ConfigManager).
     fn spawn_background_services(
         config_manager: &Arc<ConfigManager>,

@@ -41,6 +41,7 @@ impl Daemon {
             llm_registry,
             skill_rescan_handle,
             permission_engine,
+            plan_archive_sweeper,
         ) = Self::init_phase_2_registries(config_dir, &config_manager, &audit_logger).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
@@ -82,7 +83,6 @@ impl Daemon {
             announce_sweeper_tx,
             dreaming_tx,
             config_watcher,
-            plan_archive_sweeper,
             sweeper_handle,
             announce_sweeper_handle,
             dreaming_handle,

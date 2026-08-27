@@ -62,20 +62,14 @@ pub(crate) struct RegistryContext<'a> {
 /// 3. `spawn_builtin_tools` registers all builtin tools (including
 ///    session tools via `SessionToolsRegistrar`) via the Registrar
 ///    pattern and freezes the registry via `register_all`.
-/// 4. PlanArchiveSweeper is spawned as a Layer 2 background task
-///    (depends on ConfigManager).
 ///
-/// Returns an optional [`ConfigWatcherHandle`] for config hot-reload
-/// and an optional [`PlanArchiveSweeperHandle`] for plan archival.
+/// Returns an optional [`ConfigWatcherHandle`] for config hot-reload.
 pub(crate) async fn populate_registries(
     ctx: &RegistryContext<'_>,
-) -> (
-    Option<config_watcher::ConfigWatcherHandle>,
-    Option<PlanArchiveSweeperHandle>,
-) {
+) -> Option<config_watcher::ConfigWatcherHandle> {
     let disk_reg = match acquire_disk_registry(ctx.skill_registry) {
         Some(dr) => dr,
-        None => return (None, None),
+        None => return None,
     };
     load_and_populate_agents(ctx, &disk_reg);
     inject_agent_registry_into_skill_registry(ctx.skill_registry, ctx.agent_registry);
@@ -83,8 +77,7 @@ pub(crate) async fn populate_registries(
     wire_session_manager(ctx).await;
     let config_watcher = init_config_hot_reload(ctx);
     spawn_builtin_tools(ctx, &disk_reg).await;
-    let plan_archive_sweeper = spawn_plan_archive_sweeper(ctx);
-    (config_watcher, plan_archive_sweeper)
+    config_watcher
 }
 
 /// Acquire the DiskSkillRegistry from the shared handle, if available.
@@ -176,9 +169,11 @@ fn init_config_hot_reload(
 /// Reads the `plan_archive.threshold_days` config from ConfigManager,
 /// creates a `PlanArchiveTask`, and spawns it with a shutdown channel.
 /// Returns an RAII handle that stops the task on drop.
-fn spawn_plan_archive_sweeper(ctx: &RegistryContext<'_>) -> Option<PlanArchiveSweeperHandle> {
-    let threshold_days = ctx
-        .config_manager
+pub(crate) fn spawn_plan_archive_sweeper(
+    config_manager: &ConfigManager,
+    data_dir: &Path,
+) -> Option<PlanArchiveSweeperHandle> {
+    let threshold_days = config_manager
         .section(closeclaw_config::ConfigSection::System)
         .and_then(|v| {
             serde_json::from_value::<closeclaw_config::providers::SystemConfigData>(v).ok()
@@ -186,16 +181,14 @@ fn spawn_plan_archive_sweeper(ctx: &RegistryContext<'_>) -> Option<PlanArchiveSw
         .and_then(|sys| sys.plan_archive)
         .map(|p| p.threshold_days)
         .unwrap_or(closeclaw_session::plan_archive::DEFAULT_THRESHOLD_DAYS);
-    let plan_archive_task = closeclaw_session::background::PlanArchiveTask::new(
-        ctx.data_dir.to_path_buf(),
-        threshold_days,
-    );
+    let plan_archive_task =
+        closeclaw_session::background::PlanArchiveTask::new(data_dir.to_path_buf(), threshold_days);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
     let task = tokio::spawn(async move {
         plan_archive_task.run(shutdown_rx).await;
     });
     tracing::info!(
-        config_dir = %ctx.data_dir.display(),
+        config_dir = %data_dir.display(),
         threshold_days,
         "PlanArchiveSweeper spawned in Layer 2"
     );
