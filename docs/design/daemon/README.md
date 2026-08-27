@@ -11,7 +11,7 @@
 
 启动采用依赖声明模型：每个组件声明自身依赖，启动时拓扑排序确定执行顺序。同层组件并行初始化，同层内按组件名称字母序执行以保证确定性。存在循环依赖时拒绝启动并报错。
 
-各组件依赖关系及所属层由声明自动推导，以下为当前已知的代表性层级：
+各组件依赖关系及所属层由声明自动推导，完整分层依赖表如下：
 
 | 层 | 组件 | 依赖 |
 |----|------|------|
@@ -24,6 +24,7 @@
 | 2 | Skills Registry | ConfigManager |
 | 2 | Renderers / Plugins | ConfigManager |
 | 2 | Permission Engine | ConfigManager |
+| 2 | PlanArchiveSweeper | ConfigManager |
 | 3 | IM Adapters | Renderers, ConfigManager |
 | 3 | Tools Registry | Skills Registry |
 | 3 | ArchiveSweeper | Storage, SessionConfigProvider |
@@ -35,6 +36,8 @@
 | 4 | System Prompt 构建器 | AgentRegistry, Skills Registry, Tools Registry |
 | 5 | Gateway | Session Manager, IM Adapters, Permission Engine, ApprovalFlow, Renderers / Plugins |
 | 6 | Admin RPC Server | Gateway |
+
+上表中的后台任务类组件（Config Hot Reload、ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler）构成 Daemon 级后台任务的权威清单；新增后台任务时必须同步更新本表与 [shutdown.md](shutdown.md) 的后台任务清单及停止设计。
 
 初始化完成后进入消息循环，由 Gateway 接管所有消息处理。
 
@@ -62,11 +65,12 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   ├── 层 2（依赖层 1，并行初始化）
   │   ├── SessionConfigProvider（ConfigManager 加载后作为独立组件暴露，提供 per-agent 的 idle/purge 阈值）
   │   ├── AgentRegistry（创建空注册表 → ConfigManager 加载 agent 配置 → populate 填充）
-  │   ├── Config Hot Reload（spawn 后台任务，监听配置文件变更，触发增量/全量重载）
+  │   ├── Config Hot Reload（spawn 后台任务，监听配置文件变更，触发增量重载）
   │   ├── Skills Registry（创建注册表骨架，加载 bundled skills）
   │   ├── LLM Registry（读取 models.json 供应商定义与凭据，构造 LLM Client（UnifiedChatClient）实例，内部链路详见 [llm/README.md](../llm/README.md)）
   │   ├── Renderers / Plugins（各平台 Renderer 封装为 Plugin 并注册）
-  │   └── Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
+  │   ├── Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
+  │   └── PlanArchiveSweeper（spawn 后台任务，定时扫描「全部步骤终态」的 plan，将最后访问超过配置天数的自动归档；终态定义与归档规则详见 [mode/README.md](../mode/README.md)）
   │
   ├── 层 3（依赖层 2，并行初始化）
   │   ├── IM Adapters（各平台 Adapter 创建，注入对应 Renderer）
@@ -74,10 +78,10 @@ Daemon 启动（依赖驱动，按拓扑序分层执行）
   │   ├── ArchiveSweeper（spawn 后台任务，定时扫描 idle session 归档 + 过期 archive 清理；归档前查询 SessionManager 四维活跃状态——该运行时引用在 Session Manager 就绪后接线，不构成启动依赖，详见 [session/session-lifecycle.md](../session/session-lifecycle.md)）
   │   ├── AnnounceSweeper（spawn 后台任务，定时扫描 spawn_tree 补推完成通知与僵死检测——扫描经 Session Manager 进行，该运行时引用在 Session Manager 就绪后接线，不构成启动依赖，详见 [session/run-health.md](../session/run-health.md)）
   │   ├── DreamingScheduler（spawn 后台任务，定时扫描 archived 会话，触发记忆挖掘与升格）
-  │   ├── ApprovalFlow（注入 Permission Engine、AgentRegistry）
+  │   └── ApprovalFlow（注入 Permission Engine、AgentRegistry）
   │
   ├── 层 4（依赖层 3）
-  │   ├── Session Manager（注入 LLM Registry 构造的 LLM Client、storage、agent registry、tool/skill registry、session config provider，初始化完成后执行启动恢复扫描）
+  │   ├── Session Manager（注入 LLM Registry 构造的 LLM Client、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider，初始化完成后执行启动恢复扫描）
   │   ├── SpawnController（创建并管理子 session，持有 Tools Registry 引用）
   │   └── System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
   │
@@ -123,13 +127,14 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 |------|------|
 | ConfigManager | 启动时加载各配置文件，合并为各组件所需的数据结构 |
 | Storage | 启动时初始化持久化存储 |
-| SessionConfigProvider | 启动时加载 session_config.json，提供给 ArchiveSweeper 和 Session Manager |
+| SessionConfigProvider | 启动时加载 session_config.json，提供给各后台扫描任务（ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler）和 Session Manager |
 | Permission Engine | 启动时加载全局默认策略，Agent 维度规则延迟加载 |
+| PlanArchiveSweeper | 启动时 spawn 后台任务，定时扫描「全部步骤终态」的 plan，将最后访问超过配置天数的自动归档到 workspace/plans/archive/（终态定义与归档规则见 [mode/README.md](../mode/README.md)） |
 | AgentRegistry | 启动时创建 agent 注册表，从 ConfigManager 加载结果填充。Daemon 持有其所有权 |
 | Tools Registry | 启动时注册所有工具 |
 | Skills Registry | 启动时创建注册表骨架，加载 bundled skills |
 | LLM Registry | 启动时读取 models.json 供应商定义与凭据文件，构造 LLM Client（UnifiedChatClient）并注入 Session Manager，由 Session Manager 传递给各 ConversationSession 使用（LLM 模块内部架构详见 [llm/README.md](../llm/README.md)） |
-| Session Manager | 启动时创建并注入依赖（LLM Registry 构造的 LLM Client、storage、agent registry、tool/skill registry、session config provider），Daemon 持有其所有权 |
+| Session Manager | 启动时创建并注入依赖（LLM Registry 构造的 LLM Client、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider），Daemon 持有其所有权 |
 | System Prompt 构建器 | SessionManager 触发构建系统 prompt，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md) |
 | Renderers / Plugins | 启动时注册各平台 Renderer |
 | IM Adapters | 启动时创建各平台适配器 |
@@ -139,8 +144,8 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | AnnounceSweeper | 启动时 spawn 后台任务，定时扫描 spawn_tree 补推完成通知与僵死检测（扫描经 Session Manager 进行，运行时引用，详见 [session/run-health.md](../session/run-health.md)） |
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
 | SpawnController | 启动时创建，负责创建并管理子 session，持有 Tools Registry 引用。由 Session Manager 在处理 spawn 请求时调用 |
-| Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发重载 |
-| DreamingScheduler | 定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
+| Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发增量重载 |
+| DreamingScheduler | 启动时 spawn 后台任务（依赖 Storage 与 SessionConfigProvider），定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission；消费：LlmCaller、MetricsEmitter）
 - **无关**：**Processor Chain**（无调用关系）——处理器链由 Gateway 调度，Daemon 不直接参与
