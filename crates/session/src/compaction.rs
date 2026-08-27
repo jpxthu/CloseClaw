@@ -84,22 +84,15 @@ pub fn extract_summary(response: &str) -> Option<String> {
 
 /// Formats a boundary system message containing the summary.
 ///
-/// Output format: `[Session Compaction | {trigger} | {timestamp}]\n\n{summary}`
-/// where trigger is "手动压缩" or "自动压缩" and timestamp is UTC ISO 8601.
-pub fn format_boundary_message(
-    summary: &str,
-    is_auto: bool,
-    timestamp: chrono::DateTime<chrono::Utc>,
-) -> String {
+/// Output format: `[Session Compaction | {trigger}] {summary}`
+/// where trigger is "手动压缩" or "自动压缩".
+pub fn format_boundary_message(summary: &str, is_auto: bool) -> String {
     let trigger = if is_auto {
         "自动压缩"
     } else {
         "手动压缩"
     };
-    format!(
-        "[Session Compaction | {} | {}]\n\n{}",
-        trigger, timestamp, summary
-    )
+    format!("[Session Compaction | {}] {}", trigger, summary)
 }
 
 /// Estimate token count for a text string using character count coefficient.
@@ -346,7 +339,7 @@ impl CompactionService {
         let summary =
             extract_summary(&response_content).ok_or(CompactionError::SummaryParseFailed)?;
 
-        let boundary = format_boundary_message(&summary, is_auto, chrono::Utc::now());
+        let boundary = format_boundary_message(&summary, is_auto);
         let before_chars: usize = messages.iter().map(|m| m.content.chars().count()).sum();
         let before_tokens = compute_before_tokens(messages, stats, self.config.chars_per_token);
         let after_tokens = estimate_tokens(&boundary, self.config.chars_per_token);
