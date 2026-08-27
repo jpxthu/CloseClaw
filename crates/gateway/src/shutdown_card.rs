@@ -310,12 +310,11 @@ impl Gateway {
 
     /// Send a heartbeat card during Phase 2 when no state changes for a while.
     ///
-    /// Displays a simplified format: "⏳ 仍在关闭中，N 个 session 活跃（最长等待 Ns）"
+    /// Displays a simplified format: "⏳ 仍在关闭中，已等待 Ns"
     /// with [Continue waiting] and [Force close] buttons. Only sent in graceful
     /// mode. Sending failures are logged as warnings and do not block shutdown.
     pub async fn send_shutdown_heartbeat_card(
         &self,
-        active_count: usize,
         longest_wait_secs: u64,
         mode: closeclaw_common::shutdown::ShutdownMode,
     ) {
@@ -334,10 +333,7 @@ impl Gateway {
             return;
         }
 
-        let content = format!(
-            "⏳ 仍在关闭中，{} 个 session 活跃（最长等待 {}s）",
-            active_count, longest_wait_secs
-        );
+        let content = format!("⏳ 仍在关闭中，已等待 {}s", longest_wait_secs);
 
         let mut elements: Vec<serde_json::Value> = vec![json!({
             "tag": "div",
