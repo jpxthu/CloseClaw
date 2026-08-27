@@ -5,8 +5,8 @@
 //! VerbosityFilter → DslParser → OutboundRawLog in order.
 //!
 //! **Incremental-phase tests** verify `process_outbound_incremental`:
-//! runs VerbosityFilter only, skipping DslParser and OutboundRawLog
-//! (DslParser is a zero-overhead passthrough per the design doc).
+//! runs VerbosityFilter (normal mode) + DslParser (passthrough mode),
+//! skipping OutboundRawLog.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,6 +49,21 @@ fn file_block(name: &str) -> ContentBlock {
     ContentBlock::File {
         name: name.to_string(),
         url: format!("https://example.com/{name}"),
+    }
+}
+
+fn tool_use_block(name: &str) -> ContentBlock {
+    ContentBlock::ToolUse {
+        id: "call_1".to_string(),
+        name: name.to_string(),
+        input: "{}".to_string(),
+    }
+}
+
+fn tool_result_block(content: &str) -> ContentBlock {
+    ContentBlock::ToolResult {
+        tool_call_id: "call_1".to_string(),
+        content: content.to_string(),
     }
 }
 
@@ -142,21 +157,9 @@ async fn test_finish_phase_off_keeps_media_blocks() {
     };
     let result = registry.process_outbound(output).await.unwrap();
 
-    // Off: keep Text + Image + Audio + File, filter Thinking
-    assert_eq!(result.content_blocks.len(), 4);
+    // Off: keep Text only, filter Thinking + Image + Audio + File
+    assert_eq!(result.content_blocks.len(), 1);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "response"));
-    assert!(matches!(
-        &result.content_blocks[1],
-        ContentBlock::Image { .. }
-    ));
-    assert!(matches!(
-        &result.content_blocks[2],
-        ContentBlock::Audio { .. }
-    ));
-    assert!(matches!(
-        &result.content_blocks[3],
-        ContentBlock::File { .. }
-    ));
 }
 
 /// Streaming finish phase: Normal verbosity filters Thinking, preserves ToolUse.
@@ -258,26 +261,14 @@ impl MessageProcessor for TestProc {
     }
 }
 
-/// Incremental phase: only VerbosityFilter runs; DslParser and OutboundRawLog
-/// are both skipped (DslParser is a zero-overhead passthrough per design doc).
+/// Incremental phase: VerbosityFilter + DslParser (passthrough) run;
+/// OutboundRawLog is skipped.
+///
+/// DslParser runs in passthrough mode: it parses DSL and writes metadata,
+/// but does NOT strip DSL lines from content blocks.
+/// Uses real VerbosityFilter + DslParser + mock OutboundRawLog.
 #[tokio::test]
-async fn test_incremental_skips_dsl_parser_and_raw_log() {
-    let vf_counter = Arc::new(AtomicUsize::new(0));
-    let verbosity = Arc::new(TestProc {
-        name: "verbosity_filter".to_string(),
-        phase: ProcessPhase::Outbound,
-        priority: 5,
-        call_counter: vf_counter.clone(),
-        metadata_kv: None,
-    });
-    let dsl_counter = Arc::new(AtomicUsize::new(0));
-    let dsl = Arc::new(TestProc {
-        name: "DslParser".to_string(),
-        phase: ProcessPhase::Outbound,
-        priority: 10,
-        call_counter: dsl_counter.clone(),
-        metadata_kv: None,
-    });
+async fn test_incremental_runs_verbosity_and_dsl_passthrough() {
     let raw_log_counter = Arc::new(AtomicUsize::new(0));
     let raw_log = Arc::new(TestProc {
         name: "outbound_raw_log".to_string(),
@@ -288,33 +279,40 @@ async fn test_incremental_skips_dsl_parser_and_raw_log() {
     });
 
     let mut registry = ProcessorRegistry::new();
-    registry.register(verbosity);
-    registry.register(dsl);
+    registry.register(Arc::new(VerbosityFilter));
+    registry.register(Arc::new(DslParser));
     registry.register(raw_log);
 
+    let blocks = vec![
+        text_block("::button[label:OK;action:submit]"),
+        text_block("Hello world"),
+    ];
     let msg = closeclaw_common::processor::ProcessedMessage {
-        content_blocks: vec![ContentBlock::Text("test".to_string())],
+        content_blocks: blocks,
         metadata: HashMap::new(),
     };
     let result = registry.process_outbound_incremental(msg).await.unwrap();
 
-    assert_eq!(
-        vf_counter.load(Ordering::SeqCst),
-        1,
-        "verbosity_filter should run"
-    );
-    assert_eq!(
-        dsl_counter.load(Ordering::SeqCst),
-        0,
-        "dsl_parser must be skipped (zero-overhead passthrough in incremental phase)"
-    );
+    // OutboundRawLog must be skipped.
     assert_eq!(
         raw_log_counter.load(Ordering::SeqCst),
         0,
         "outbound_raw_log must be skipped"
     );
-    // Output reflects last executed processor (verbosity_filter)
-    assert_eq!(result.text_content(), Some("verbosity_filter"));
+    // DslParser passthrough: content blocks unchanged.
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(matches!(
+        &result.content_blocks[0],
+        ContentBlock::Text(s)
+            if s == "::button[label:OK;action:submit]"
+    ));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Text(s) if s == "Hello world"
+    ));
+    // DSL result written to metadata.
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
 }
 
 /// Incremental phase: VerbosityFilter filters Thinking blocks.
@@ -342,10 +340,10 @@ async fn test_incremental_verbosity_filter_works() {
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "visible text"));
 }
 
-/// Incremental phase: DslParser is a passthrough, DSL lines are not stripped.
+/// Incremental phase: DslParser runs in passthrough mode.
 ///
-/// Input contains a DSL line + plain text. DslParser is skipped in the
-/// incremental phase, so both blocks pass through unchanged.
+/// Input contains a DSL line + plain text. DslParser parses DSL, writes
+/// metadata, but does NOT strip DSL lines from content blocks.
 #[tokio::test]
 async fn test_incremental_dsl_parser_passthrough() {
     let mut registry = ProcessorRegistry::new();
@@ -362,14 +360,20 @@ async fn test_incremental_dsl_parser_passthrough() {
     };
     let result = registry.process_outbound_incremental(msg).await.unwrap();
 
-    // DslParser skipped — both text blocks pass through unchanged
+    // DslParser runs in passthrough: content blocks unchanged
     assert_eq!(result.content_blocks.len(), 2);
-    assert!(
-        matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "::button[label:OK;action:submit]")
-    );
-    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "Hello world"));
-    // No DSL result in metadata since DslParser did not run
-    assert!(result.metadata.get("dsl_result").is_none());
+    assert!(matches!(
+        &result.content_blocks[0],
+        ContentBlock::Text(s)
+            if s == "::button[label:OK;action:submit]"
+    ));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Text(s) if s == "Hello world"
+    ));
+    // DSL result written to metadata
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
 }
 
 /// Default trait implementation: non-registry impl delegates to full outbound chain.
@@ -418,5 +422,75 @@ async fn test_default_impl_delegates_to_full_chain() {
         result.metadata.get("full_chain").map(|s| s.as_str()),
         Some("yes"),
         "default impl must delegate to process_outbound"
+    );
+}
+
+/// Incremental phase with Off verbosity: VerbosityFilter runs first,
+/// removing all non-Text blocks, then DslParser passthrough receives
+/// only the remaining Text blocks. DSL in those Text blocks is parsed
+/// into metadata, but content blocks stay unchanged.
+#[tokio::test]
+async fn test_incremental_off_verbosity_filters_then_dsl_passthrough() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(VerbosityFilter));
+    registry.register(Arc::new(DslParser));
+
+    let blocks = vec![
+        thinking_block("internal reasoning"),
+        text_block("::button[label:OK;action:submit]"),
+        image_block("photo.png"),
+        text_block("Plain response"),
+    ];
+    let msg = closeclaw_common::processor::ProcessedMessage {
+        content_blocks: blocks,
+        metadata: make_meta("off"),
+    };
+    let result = registry.process_outbound_incremental(msg).await.unwrap();
+
+    // Off: VerbosityFilter removes Thinking + Image, keeps 2 Text blocks.
+    // DslParser passthrough: DSL line NOT stripped, metadata written.
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(
+        matches!(
+            &result.content_blocks[0],
+            ContentBlock::Text(s)
+                if s == "::button[label:OK;action:submit]"
+        ),
+        "DSL line must be preserved in passthrough mode"
+    );
+    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "Plain response"));
+    // DSL result written to metadata by DslParser passthrough.
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+}
+
+/// Incremental phase with Off verbosity and no DSL: VerbosityFilter
+/// removes non-Text blocks, DslParser passthrough finds no DSL,
+/// so metadata must NOT contain dsl_result.
+#[tokio::test]
+async fn test_incremental_off_verbosity_no_dsl_no_metadata() {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(VerbosityFilter));
+    registry.register(Arc::new(DslParser));
+
+    let blocks = vec![
+        thinking_block("hidden"),
+        text_block("Just text"),
+        tool_use_block("search"),
+        tool_result_block("result"),
+    ];
+    let msg = closeclaw_common::processor::ProcessedMessage {
+        content_blocks: blocks,
+        metadata: make_meta("off"),
+    };
+    let result = registry.process_outbound_incremental(msg).await.unwrap();
+
+    // Off: VerbosityFilter removes Thinking + ToolUse + ToolResult, keeps 1 Text.
+    // DslParser passthrough: no DSL found → no dsl_result in metadata.
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Just text"));
+    assert!(
+        !result.metadata.contains_key("dsl_result"),
+        "metadata must not contain dsl_result when no DSL is present"
     );
 }
