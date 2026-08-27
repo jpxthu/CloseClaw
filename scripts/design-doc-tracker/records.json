@@ -369,11 +369,11 @@
   },
   {
     "path": "docs/design/mode/README.md",
-    "commit": "a83a4e13099108eb32b839fea0901eb1e4977804",
-    "commit_time": "2026-08-26T18:30:11+08:00",
-    "confirmed_time": "2026-08-27T17:18:00.525667+08:00",
+    "commit": "5f25783ad418ae179d827f07bb19196160f0e8ff",
+    "commit_time": "2026-08-27T17:19:59+08:00",
+    "confirmed_time": "2026-08-27T18:06:23.800067+08:00",
     "comment": "",
-    "blocked_reason": "mode-switching.md 数据流章节 /mode 非法参数提示写「可用：normal, plan」，遗漏 auto。文档自身定义了 3 种模式（Normal/Plan/Auto），代码正确输出「可用：normal, plan, auto」。文档内部事实错误。"
+    "blocked_reason": "docs/design/slash/mode-switching.md 内部矛盾：数据流确认 Auto 模式存在，但 /mode 非法参数提示仅列出 normal, plan。代码接受 auto。红线禁止修改 docs/design/* 下文件，无法修正文档。"
   },
   {
     "path": "docs/design/mode/execution.md",
@@ -489,9 +489,9 @@
   },
   {
     "path": "docs/design/session/compact-process.md",
-    "commit": "695562f726d26bc04e7c9779799f16b939432f47",
-    "commit_time": "2026-08-15T18:28:27+08:00",
-    "confirmed_time": "2026-08-15T18:43:53.205872+08:00",
+    "commit": "2f2238734046d6eced6bf9f92c1fe4b0088bfc89",
+    "commit_time": "2026-08-27T18:08:00+08:00",
+    "confirmed_time": "2026-08-27T18:31:40.243347+08:00",
     "comment": "",
     "blocked_reason": ""
   },
