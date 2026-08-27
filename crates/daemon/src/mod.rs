@@ -103,6 +103,7 @@ impl Daemon {
                 s(Service::AgentRegistry),
                 s(Service::ConfigHotReload),
                 s(Service::PermissionEngine),
+                s(Service::PlanArchiveSweeper),
                 s(Service::RenderersPlugins),
                 s(Service::SessionConfigProvider),
                 s(Service::SkillsRegistry),

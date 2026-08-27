@@ -608,11 +608,11 @@ fn test_full_topo_sort_permission_engine_layer_2_regression() {
         layers[1].contains(&ComponentId::Service(Service::PermissionEngine)),
         "PermissionEngine must be in layer 2 (Registries phase)"
     );
-    // Count: layer 2 must have exactly 7 components
+    // Count: layer 2 must have exactly 8 components (including PlanArchiveSweeper)
     assert_eq!(
         layers[1].len(),
-        7,
-        "layer 2 (Registries) must have exactly 7 components, got {}",
+        8,
+        "layer 2 (Registries) must have exactly 8 components, got {}",
         layers[1].len()
     );
 }
