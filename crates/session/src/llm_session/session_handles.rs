@@ -263,6 +263,11 @@ impl ConversationSession {
     /// [`collect_pending_operations`](Self::collect_pending_operations) to
     /// still observe tool_states / child_states for checkpoint recording.
     ///
+    /// Operation order matches the design doc stop sequence: kill tool
+    /// processes first, then cancel in-flight LLM requests. This ensures
+    /// tool processes are terminated before the cancel token fires,
+    /// preventing partial cleanup from racing with in-flight tools.
+    ///
     /// Incomplete assistant message fragments are discarded: the cancel
     /// token causes in-flight streaming LLM calls to return
     /// `LLMError::Cancelled`, and the Gateway layer does not append
@@ -271,13 +276,14 @@ impl ConversationSession {
     /// This method is idempotent — cancelling an already-cancelled token
     /// and killing already-cleared handles are harmless no-ops.
     pub async fn force_kill(&self) {
-        // Cancel in-flight LLM requests. Streaming calls observe this
-        // via `cancel_token.cancelled()` in the Gateway's
+        // Kill every registered tool process first, per design doc
+        // stop sequence: cascade → kill tools → cancel LLM → cleanup.
+        self.kill_tool_handles().await;
+
+        // Then cancel in-flight LLM requests. Streaming calls observe
+        // this via `cancel_token.cancelled()` in the Gateway's
         // `call_llm_streaming` select branch and return Cancelled.
         self.cancel_token.cancel();
-
-        // Kill every registered tool process.
-        self.kill_tool_handles().await;
 
         tracing::info!(
             session_id = %self.session_id,
