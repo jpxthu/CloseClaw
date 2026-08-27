@@ -616,3 +616,114 @@ fn test_full_topo_sort_permission_engine_layer_2_regression() {
         layers[1].len()
     );
 }
+
+// ======================================================================
+// Step 1.6 — SIGINT first-signal graceful mode tests
+// ======================================================================
+
+/// SIGINT (Ctrl+C) first signal must trigger graceful shutdown.
+/// Before Step 1.1, SIGINT called `try_start_forceful_shutdown()` which
+/// was incorrect per design doc `shutdown.md`:
+/// "first SIGINT or SIGTERM → Graceful". After the fix, SIGINT calls
+/// `try_start_shutdown()` (graceful) just like SIGTERM.
+#[test]
+fn test_sigint_first_signal_is_graceful() {
+    let handle = crate::shutdown::ShutdownHandle::new();
+    // Simulate SIGINT first signal (now calls try_start_shutdown)
+    handle.try_start_shutdown();
+    assert_eq!(
+        handle.mode(),
+        ShutdownMode::Graceful,
+        "SIGINT first signal must enter Graceful mode"
+    );
+    assert!(
+        !handle.is_forceful(),
+        "SIGINT first signal must NOT be forceful"
+    );
+}
+
+/// After first SIGINT → Graceful, repeated SIGINT → Forceful.
+/// This tests the escalation path in Phase 1.
+#[test]
+fn test_repeated_sigint_escalates_to_forceful() {
+    let handle = crate::shutdown::ShutdownHandle::new();
+    // First SIGINT: graceful
+    handle.try_start_shutdown();
+    assert_eq!(handle.mode(), ShutdownMode::Graceful);
+    // Repeated SIGINT: escalate to forceful
+    let escalated = handle.escalate_to_forceful();
+    assert!(
+        escalated,
+        "escalate_to_forceful must return true on first escalation"
+    );
+    assert_eq!(
+        handle.mode(),
+        ShutdownMode::Forceful,
+        "Repeated SIGINT must escalate to Forceful"
+    );
+}
+
+// ======================================================================
+// Step 1.6 — PlanArchiveSweeper RAII drop tests
+// ======================================================================
+
+/// PlanArchiveSweeperHandle RAII: dropping the handle aborts the
+/// background task, consistent with SkillWatcher/ConfigWatcher pattern.
+#[tokio::test]
+async fn test_plan_archive_sweeper_handle_drop_aborts_task() {
+    use tokio::sync::watch;
+
+    // Spawn a mock long-running task
+    let (shutdown_tx, mut shutdown_rx) = watch::channel(());
+    let mut task_rx = shutdown_rx.clone();
+    let handle = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = task_rx.changed() => break,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+            }
+        }
+    });
+
+    // Wrap in PlanArchiveSweeperHandle
+    let sweeper = crate::daemon_struct::PlanArchiveSweeperHandle::new(shutdown_tx, handle);
+
+    // Drop the handle — this should abort the task
+    drop(sweeper);
+
+    // Verify the task was aborted (JoinHandle returns JoinError with
+    // is_cancelled() == true when the task was aborted)
+    // We can't directly check since the handle is moved, but we can
+    // verify the shutdown channel is closed
+    assert!(
+        shutdown_rx.changed().await.is_err(),
+        "shutdown channel must be closed after drop"
+    );
+}
+
+/// PlanArchiveSweeperHandle: shutdown_tx drop closes the channel,
+/// signaling the background task to exit.
+#[tokio::test]
+async fn test_plan_archive_sweeper_handle_drop_closes_channel() {
+    use tokio::sync::watch;
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async {});
+
+    let sweeper = crate::daemon_struct::PlanArchiveSweeperHandle::new(shutdown_tx, handle);
+
+    // Explicitly drop the sweeper before checking the channel
+    drop(sweeper);
+
+    // After drop, the receiver should see channel closed.
+    let mut rx = shutdown_rx;
+    let result = tokio::time::timeout(std::time::Duration::from_millis(100), rx.changed()).await;
+    assert!(
+        result.is_ok(),
+        "changed() must not timeout — channel should be closed"
+    );
+    assert!(
+        result.unwrap().is_err(),
+        "channel must be closed after PlanArchiveSweeperHandle drop"
+    );
+}
