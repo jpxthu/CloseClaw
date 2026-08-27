@@ -307,20 +307,19 @@ mod tests {
         );
     }
 
-    /// Pending operations + active query: pending_operations check happens
-    /// first, active query check happens after. Session with pending ops
-    /// is skipped regardless of active query.
+    /// Pending operations non-empty + all four dimensions false → still archived.
+    /// (Archive determination does NOT depend on pending_operations.)
     #[tokio::test]
-    async fn test_sweeper_pending_operations_checked_before_active_query() {
+    async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_false() {
         use chrono::Utc;
         use closeclaw_session::persistence::{
             PendingOperation, PendingOperationStatus, PendingOperationType,
         };
 
         let mem = Arc::new(MemStorage::default());
-        mem.add_idle_session("pend-and-active".into());
+        mem.add_idle_session("pend-but-archive".into());
 
-        let mut cp = SessionCheckpoint::new("pend-and-active".into());
+        let mut cp = SessionCheckpoint::new("pend-but-archive".into());
         cp = cp.with_pending_operations(vec![PendingOperation {
             op_id: "op-1".into(),
             op_type: PendingOperationType::ToolCall,
@@ -345,8 +344,8 @@ mod tests {
 
         let archive_called = mem.archive_called.lock().unwrap();
         assert!(
-            !archive_called.contains(&"pend-and-active".into()),
-            "session with pending_operations should be skipped regardless of active_query"
+            archive_called.contains(&"pend-but-archive".into()),
+            "pending_operations non-empty but all dimensions false → must still archive"
         );
     }
 }
