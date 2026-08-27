@@ -27,9 +27,12 @@ use std::time::Duration;
 
 use super::SessionManager;
 use closeclaw_common::ChildSessionState;
-use closeclaw_session::compaction::{estimate_total_tokens, get_context_window, CompactionMessage};
-use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::compaction::{
+    estimate_total_tokens, get_context_window, CompactConfig, CompactionMessage,
+};
+use closeclaw_session::llm_session::{ChatSession, SessionMessage};
 use closeclaw_session::persistence::PendingOperationDetail;
+use closeclaw_session::spawn::ChildSessionInfo;
 use closeclaw_tasks::NotificationPriority;
 
 impl SessionManager {
@@ -177,9 +180,12 @@ impl SessionManager {
             );
 
             let notification = format!(
-                "[⚠️ 超时预警] 子 agent 任务已运行 {} 秒。\n\n\u{251c}\u{2500} {}\n\u{251c}\u{2500} {}\n\u{251c}\u{2500} {}\n\u{2514}\u{2500} 子 session 详情:\n{}",
-                elapsed, warning_line, timeout_line,
-                "请耐心等待或检查子 session 状态。", child_summaries
+                "[⚠️ 超时预警] 子 agent 任务已运行 {} 秒。\n\n\
+                 \u{251c}\u{2500} {}\n\
+                 \u{251c}\u{2500} {}\n\
+                 \u{251c}\u{2500} 请耐心等待或检查子 session 状态。\n\
+                 \u{2514}\u{2500} 子 session 详情:\n{}",
+                elapsed, warning_line, timeout_line, child_summaries
             );
             cs_write.push_system_notification(notification, NotificationPriority::Next);
         }
@@ -311,69 +317,69 @@ impl SessionManager {
 
         let mut summaries = Vec::new();
         for info in child_list {
-            let elapsed_secs = info.created_at.elapsed().as_secs();
-            let mut lines = vec![format!(
-                "  - {} [已运行 {} 秒]",
-                info.session_id, elapsed_secs
-            )];
-
-            // Items 4 & 5: context window and token usage per child.
-            if let Some(child_cs) = self.get_conversation_session(&info.session_id).await {
-                let cs_read = child_cs.read().await;
-                let model = cs_read.model().to_string();
-                let stats = cs_read.stats().clone();
-                let messages = ChatSession::messages(&*cs_read);
-
-                // Build CompactionMessages for estimation.
-                let compaction_msgs: Vec<CompactionMessage> = messages
-                    .iter()
-                    .filter(|m| m.role == "user" || m.role == "assistant")
-                    .map(|m| CompactionMessage {
-                        role: m.role.clone(),
-                        content: m
-                            .content_blocks
-                            .iter()
-                            .map(|b| match b {
-                                closeclaw_llm::types::ContentBlock::Text(t) => t.as_str(),
-                                closeclaw_llm::types::ContentBlock::Thinking {
-                                    thinking: t,
-                                    ..
-                                } => t.as_str(),
-                                closeclaw_llm::types::ContentBlock::ToolUse { input, .. } => {
-                                    input.as_str()
-                                }
-                                closeclaw_llm::types::ContentBlock::ToolResult {
-                                    content, ..
-                                } => content.as_str(),
-                                _ => "",
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    })
-                    .collect();
-
-                // Item 4: context window usage.
-                let estimated_tokens = estimate_total_tokens(
-                    &stats,
-                    &compaction_msgs,
-                    0.25, // default chars_per_token
-                );
-                let context_window = get_context_window(&model, None);
-                lines.push(format!(
-                    "    context window: {} / {} tokens",
-                    estimated_tokens, context_window
-                ));
-
-                // Item 5: prompt + completion tokens.
-                lines.push(format!(
-                    "    token 用量: prompt={} completion={}",
-                    stats.total_prompt_tokens, stats.total_completion_tokens
-                ));
-            }
-
+            let lines = self.build_single_child_warning(&info).await;
             summaries.push(lines.join("\n"));
         }
         summaries.join("\n")
+    }
+
+    /// Build warning lines for a single child session.
+    async fn build_single_child_warning(&self, info: &ChildSessionInfo) -> Vec<String> {
+        let elapsed_secs = info.created_at.elapsed().as_secs();
+        let mut lines = vec![format!(
+            "  - {} [已运行 {} 秒]",
+            info.session_id, elapsed_secs
+        )];
+
+        if let Some(child_cs) = self.get_conversation_session(&info.session_id).await {
+            let cs_read = child_cs.read().await;
+            let model = cs_read.model().to_string();
+            let stats = cs_read.stats().clone();
+            let messages = ChatSession::messages(&*cs_read);
+
+            let compaction_msgs = Self::build_compaction_messages(messages);
+            let chars_per_token = CompactConfig::default().chars_per_token;
+            let estimated_tokens = estimate_total_tokens(&stats, &compaction_msgs, chars_per_token);
+            let context_window = get_context_window(&model, None);
+            lines.push(format!(
+                "    context window: {} / {} tokens",
+                estimated_tokens, context_window
+            ));
+
+            lines.push(format!(
+                "    token 用量: prompt={} completion={}",
+                stats.total_prompt_tokens, stats.total_completion_tokens
+            ));
+        }
+        lines
+    }
+
+    /// Convert chat messages into CompactionMessages for token
+    /// estimation.
+    fn build_compaction_messages(messages: &[SessionMessage]) -> Vec<CompactionMessage> {
+        messages
+            .iter()
+            .filter(|m| m.role == "user" || m.role == "assistant")
+            .map(|m| CompactionMessage {
+                role: m.role.clone(),
+                content: m
+                    .content_blocks
+                    .iter()
+                    .map(|b| match b {
+                        closeclaw_llm::types::ContentBlock::Text(t) => t.as_str(),
+                        closeclaw_llm::types::ContentBlock::Thinking { thinking: t, .. } => {
+                            t.as_str()
+                        }
+                        closeclaw_llm::types::ContentBlock::ToolUse { input, .. } => input.as_str(),
+                        closeclaw_llm::types::ContentBlock::ToolResult { content, .. } => {
+                            content.as_str()
+                        }
+                        _ => "",
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            })
+            .collect()
     }
 
     /// Build a human-readable summary of child sessions for the timeout
