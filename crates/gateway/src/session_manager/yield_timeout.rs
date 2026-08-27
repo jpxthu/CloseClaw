@@ -27,6 +27,8 @@ use std::time::Duration;
 
 use super::SessionManager;
 use closeclaw_common::ChildSessionState;
+use closeclaw_session::compaction::{estimate_total_tokens, get_context_window, CompactionMessage};
+use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::PendingOperationDetail;
 use closeclaw_tasks::NotificationPriority;
 
@@ -132,12 +134,21 @@ impl SessionManager {
     /// For cyclic mode, `elapsed` is seconds since overall timeout start,
     /// and `overall_timeout_secs` is the hard timeout, so the notification
     /// can show remaining time.
+    ///
+    /// Notification content follows design-doc §超时预警（timeout_warning）→
+    /// 通知内容:
+    /// 1. 设定的预期执行时长（warning_secs）
+    /// 2. 实际运行时长（per-child from created_at）
+    /// 3. 硬超时时间及剩余时间
+    /// 4. context window 使用情况（已用/总容量）
+    /// 5. 当前 token 用量（prompt + completion）
     async fn handle_yield_warning(
         &self,
         session_id: &str,
         _agent_id: &str,
         elapsed: u64,
         overall_timeout_secs: u64,
+        warning_secs: Option<u64>,
     ) {
         let remaining = overall_timeout_secs.saturating_sub(elapsed);
         tracing::warn!(
@@ -147,11 +158,28 @@ impl SessionManager {
             "yield warning timeout fired: injecting warning notification"
         );
 
+        // Build per-child summaries (items 2, 4, 5).
+        let child_summaries = self.build_warning_child_summaries(session_id).await;
+
         if let Some(cs) = self.get_conversation_session(session_id).await {
             let mut cs_write = cs.write().await;
+
+            // Item 1: timeout_warning_secs设定值.
+            let warning_line = match warning_secs {
+                Some(ws) => format!("设定预期执行时长: {} 秒", ws),
+                None => "设定预期执行时长: 未设定（legacy 模式）".to_string(),
+            };
+
+            // Item 3: 硬超时时间及剩余时间.
+            let timeout_line = format!(
+                "硬超时时间: {} 秒 | 剩余: {} 秒",
+                overall_timeout_secs, remaining
+            );
+
             let notification = format!(
-                "[⚠️ 超时预警] 子 agent 任务已运行 {} 秒，距超时上限还剩 {} 秒。\n请耐心等待或检查子 session 状态。",
-                elapsed, remaining
+                "[⚠️ 超时预警] 子 agent 任务已运行 {} 秒。\n\n\u{251c}\u{2500} {}\n\u{251c}\u{2500} {}\n\u{251c}\u{2500} {}\n\u{2514}\u{2500} 子 session 详情:\n{}",
+                elapsed, warning_line, timeout_line,
+                "请耐心等待或检查子 session 状态。", child_summaries
             );
             cs_write.push_system_notification(notification, NotificationPriority::Next);
         }
@@ -191,6 +219,7 @@ impl SessionManager {
                     &agent_id_owned,
                     elapsed,
                     overall_timeout_secs,
+                    Some(warning_secs),
                 )
                 .await;
                 elapsed = elapsed.saturating_add(interval_secs);
@@ -247,6 +276,7 @@ impl SessionManager {
                 &agent_id_owned,
                 warning_secs,
                 overall_timeout_secs,
+                None,
             )
             .await;
         });
@@ -261,6 +291,89 @@ impl SessionManager {
             warning_secs = warning_secs,
             "yield timeout started (legacy single warning + hard)"
         );
+    }
+
+    /// Build per-child warning summaries for the yield warning notification.
+    ///
+    /// Returns a formatted string with each child's:
+    /// - Actual running time (from created_at)
+    /// - Context window usage (estimated tokens / total capacity)
+    /// - Token usage (prompt + completion)
+    ///
+    /// Returns "(无子 session)" when no children exist.
+    async fn build_warning_child_summaries(&self, session_id: &str) -> String {
+        let children = self.children.read().await;
+        let child_list = children.list_children(session_id);
+
+        if child_list.is_empty() {
+            return "  (无子 session)".to_string();
+        }
+
+        let mut summaries = Vec::new();
+        for info in child_list {
+            let elapsed_secs = info.created_at.elapsed().as_secs();
+            let mut lines = vec![format!(
+                "  - {} [已运行 {} 秒]",
+                info.session_id, elapsed_secs
+            )];
+
+            // Items 4 & 5: context window and token usage per child.
+            if let Some(child_cs) = self.get_conversation_session(&info.session_id).await {
+                let cs_read = child_cs.read().await;
+                let model = cs_read.model().to_string();
+                let stats = cs_read.stats().clone();
+                let messages = ChatSession::messages(&*cs_read);
+
+                // Build CompactionMessages for estimation.
+                let compaction_msgs: Vec<CompactionMessage> = messages
+                    .iter()
+                    .filter(|m| m.role == "user" || m.role == "assistant")
+                    .map(|m| CompactionMessage {
+                        role: m.role.clone(),
+                        content: m
+                            .content_blocks
+                            .iter()
+                            .map(|b| match b {
+                                closeclaw_llm::types::ContentBlock::Text(t) => t.as_str(),
+                                closeclaw_llm::types::ContentBlock::Thinking {
+                                    thinking: t,
+                                    ..
+                                } => t.as_str(),
+                                closeclaw_llm::types::ContentBlock::ToolUse { input, .. } => {
+                                    input.as_str()
+                                }
+                                closeclaw_llm::types::ContentBlock::ToolResult {
+                                    content, ..
+                                } => content.as_str(),
+                                _ => "",
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    })
+                    .collect();
+
+                // Item 4: context window usage.
+                let estimated_tokens = estimate_total_tokens(
+                    &stats,
+                    &compaction_msgs,
+                    0.25, // default chars_per_token
+                );
+                let context_window = get_context_window(&model, None);
+                lines.push(format!(
+                    "    context window: {} / {} tokens",
+                    estimated_tokens, context_window
+                ));
+
+                // Item 5: prompt + completion tokens.
+                lines.push(format!(
+                    "    token 用量: prompt={} completion={}",
+                    stats.total_prompt_tokens, stats.total_completion_tokens
+                ));
+            }
+
+            summaries.push(lines.join("\n"));
+        }
+        summaries.join("\n")
     }
 
     /// Build a human-readable summary of child sessions for the timeout
