@@ -265,7 +265,12 @@ async fn test_rebuild_spawn_tree_spawn_mode_residual_json_key() {
         "pending_messages": [],
         "snapshot_metas": [],
         "mined": false,
-        "mode_state": { "current_step": 0, "total_steps": 0, "step_messages": [], "is_complete": false },
+        "mode_state": {
+          "current_step": 0,
+          "total_steps": 0,
+          "step_messages": [],
+          "is_complete": false
+        },
         "verbosity_level": "full"
     });
     let child_cp: SessionCheckpoint = serde_json::from_value(raw).unwrap();

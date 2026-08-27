@@ -1,7 +1,7 @@
-//! Core persistence data structures and service trait
+//! Core persistence data structures.
 //!
-//! Defines the core [`SessionCheckpoint`] structure and [`PersistenceService`] trait
-//! for implementing pluggable storage backends.
+//! Defines the core [`SessionCheckpoint`] structure.
+//! The [`PersistenceService`] trait lives in [`crate::persistence_service`].
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

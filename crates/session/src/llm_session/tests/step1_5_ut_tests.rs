@@ -159,7 +159,12 @@ fn test_old_checkpoint_with_spawn_mode_key_deserializes() {
         "pending_messages": [],
         "snapshot_metas": [],
         "mined": false,
-        "mode_state": { "current_step": 0, "total_steps": 0, "step_messages": [], "is_complete": false },
+        "mode_state": {
+          "current_step": 0,
+          "total_steps": 0,
+          "step_messages": [],
+          "is_complete": false
+        },
         "verbosity_level": "full"
     });
 
