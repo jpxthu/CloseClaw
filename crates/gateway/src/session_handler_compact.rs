@@ -56,6 +56,7 @@ impl SessionMessageHandler {
             }
         }
     }
+
     /// Check token usage and trigger auto-compaction if needed.
     pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
         // Step 1: truncate persistent transcript before loading inputs.
