@@ -12,6 +12,7 @@ pub mod terminal;
 pub use config::config_dir;
 pub use fs::{
     check_executable, check_readable, check_writable, expand_home, normalize_path, set_executable,
+    to_platform_path,
 };
 pub use process::{
     check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
