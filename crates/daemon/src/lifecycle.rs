@@ -81,12 +81,11 @@ impl Daemon {
             sweeper_tx,
             announce_sweeper_tx,
             dreaming_tx,
-            plan_archive_tx,
             config_watcher,
+            plan_archive_sweeper,
             sweeper_handle,
             announce_sweeper_handle,
             dreaming_handle,
-            plan_archive_handle,
             spawn_controller,
             system_prompt_builder,
         ) = Self::init_phase_5_background(
@@ -209,7 +208,6 @@ impl Daemon {
             sweeper_shutdown_tx: sweeper_tx,
             announce_shutdown_tx: announce_sweeper_tx,
             dreaming_scheduler_shutdown_tx: dreaming_tx,
-            plan_archive_shutdown_tx: plan_archive_tx,
             skill_registry,
             builtin_skill_registry,
             slash_registry,
@@ -223,7 +221,7 @@ impl Daemon {
             archive_sweeper_handle: Some(sweeper_handle),
             announce_sweeper_handle: Some(announce_sweeper_handle),
             dreaming_scheduler_handle: Some(dreaming_handle),
-            plan_archive_task_handle: Some(plan_archive_handle),
+            _plan_archive_sweeper: plan_archive_sweeper,
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
@@ -521,8 +519,11 @@ impl Daemon {
         let _ = self.announce_shutdown_tx.send(());
         // Signal DreamingScheduler to stop
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
-        // Signal PlanArchiveTask to stop
-        let _ = self.plan_archive_shutdown_tx.send(());
+        // PlanArchiveSweeper is RAII — stop on drop.
+        if let Some(sweeper) = self._plan_archive_sweeper.take() {
+            drop(sweeper);
+            tracing::info!("PlanArchiveSweeper dropped in Phase 3");
+        }
 
         // Wait for all background tasks to exit, aborting on timeout.
         let join_timeout = std::time::Duration::from_secs(10);
@@ -552,16 +553,6 @@ impl Daemon {
             Self::abort_and_join_background_task(
                 handle,
                 "DreamingScheduler",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-        }
-
-        if let Some(handle) = self.plan_archive_task_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "PlanArchiveTask",
                 join_timeout,
                 abort_grace,
             )
