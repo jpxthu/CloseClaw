@@ -73,9 +73,9 @@
   },
   {
     "path": "docs/design/common/README.md",
-    "commit": "6be51b4a6221b172c413c5cf487bd4c83163a5f4",
-    "commit_time": "2026-08-26T05:34:52+08:00",
-    "confirmed_time": "2026-08-26T05:51:27.620607+08:00",
+    "commit": "d0f06093921ef2a12b2b5d1eed0f8af623657505",
+    "commit_time": "2026-08-27T23:13:14+08:00",
+    "confirmed_time": "2026-08-28T00:01:03.293329+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -97,11 +97,11 @@
   },
   {
     "path": "docs/design/common/shared-types.md",
-    "commit": "b84774ef8fcd6b711632dc38e568cd007ba3dd8c",
-    "commit_time": "2026-08-26T05:52:17+08:00",
-    "confirmed_time": "2026-08-26T06:14:46.191884+08:00",
+    "commit": "d0f06093921ef2a12b2b5d1eed0f8af623657505",
+    "commit_time": "2026-08-27T23:13:14+08:00",
+    "confirmed_time": "2026-08-27T23:30:50.109077+08:00",
     "comment": "",
-    "blocked_reason": "权威清单规则与架构现实矛盾（P1 可行性验证确认）：UnifiedResponse/UnifiedUsage 被 common 内 LlmCaller trait 签名引用（core-traits.md 明确记载留 common 规避 session-llm 循环依赖），移出即违反 core-traits.md 且造成循环依赖；CardActionEvent/StreamingOutput 被 IMPlugin trait 方法签名引用，同理不可移。唯一自洽解为收录进权威清单=修改文档=红线禁止。与 issue #2529（ContentDelta）同源矛盾，待 Owner 裁决。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/config/README.md",
