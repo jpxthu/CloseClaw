@@ -505,9 +505,9 @@
   },
   {
     "path": "docs/design/session/run-health.md",
-    "commit": "52eaaefec94ec67f05862dc379ec778511b2b5cb",
-    "commit_time": "2026-07-28T18:07:46+08:00",
-    "confirmed_time": "2026-07-28T18:20:21.946929+08:00",
+    "commit": "6b0d133e48b72d21313625c180e3f0c449b324eb",
+    "commit_time": "2026-08-28T05:28:36+08:00",
+    "confirmed_time": "2026-08-28T05:41:15.392701+08:00",
     "comment": "",
     "blocked_reason": ""
   },
