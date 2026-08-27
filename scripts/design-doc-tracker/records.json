@@ -489,17 +489,17 @@
   },
   {
     "path": "docs/design/session/compact-process.md",
-    "commit": "695562f726d26bc04e7c9779799f16b939432f47",
-    "commit_time": "2026-08-15T18:28:27+08:00",
-    "confirmed_time": "2026-08-15T18:43:53.205872+08:00",
+    "commit": "2f2238734046d6eced6bf9f92c1fe4b0088bfc89",
+    "commit_time": "2026-08-27T18:08:00+08:00",
+    "confirmed_time": "2026-08-27T18:31:40.243347+08:00",
     "comment": "",
     "blocked_reason": ""
   },
   {
     "path": "docs/design/session/llm-session-enhancements.md",
-    "commit": "1c85a8f8909e7c563acb63030967cfe4a68b6d47",
-    "commit_time": "2026-08-10T21:14:06+08:00",
-    "confirmed_time": "2026-08-11T04:51:52.900307+08:00",
+    "commit": "4debfc9be784a1f3850aeb0c43388be8cb6f0444",
+    "commit_time": "2026-08-27T18:33:34+08:00",
+    "confirmed_time": "2026-08-27T19:13:13.293709+08:00",
     "comment": "",
     "blocked_reason": ""
   },
