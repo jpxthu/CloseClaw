@@ -16,7 +16,8 @@ use closeclaw_llm::types::ContentBlock;
 /// Processors are registered via [`register`](ProcessorRegistry::register) and
 /// automatically routed to the appropriate chain based on their [`phase`](MessageProcessor::phase).
 ///
-/// The two chains are driven independently by [`process_inbound`](ProcessorRegistry::process_inbound)
+/// The two chains are driven independently by
+/// [`process_inbound`](ProcessorRegistry::process_inbound)
 /// and [`process_outbound`](ProcessorRegistry::process_outbound).
 #[derive(Default)]
 pub struct ProcessorRegistry {
@@ -319,17 +320,80 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
         closeclaw_common::processor::ProcessedMessage,
         closeclaw_common::processor::ProcessError,
     > {
-        let main_msg = ProcessedMessage {
-            content_blocks: msg.content_blocks,
-            metadata: msg.metadata,
+        // Incremental phase — explicit processor handling:
+        // - VerbosityFilter (priority 5): normal execution
+        // - DslParser (priority 10): passthrough mode via public API
+        // - OutboundRawLog (priority 20): skipped
+        if self.outbound.is_empty() {
+            return Ok(msg);
+        }
+
+        let mut ctx = MessageContext::from_normalized(synthetic_from_output(&ProcessedMessage {
+            content_blocks: msg.content_blocks.clone(),
+            metadata: msg.metadata.clone(),
+        }));
+        ctx.metadata = msg.metadata;
+        ctx.content_blocks = msg.content_blocks;
+        let had_content_blocks = !ctx.content_blocks.is_empty();
+
+        // 1. VerbosityFilter — normal execution
+        let vf = self
+            .outbound
+            .iter()
+            .find(|p| p.name() == "verbosity_filter");
+        if let Some(processor) = vf {
+            match processor.process(&ctx).await {
+                Ok(Some(out)) => {
+                    ctx.content = out.text_content().unwrap_or("").to_string();
+                    ctx.content_blocks = out.content_blocks;
+                    for (k, v) in out.metadata {
+                        ctx.metadata.insert(k, v);
+                    }
+                }
+                Ok(None) => {
+                    ctx.skip = true;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        processor = %processor.name(),
+                        error = %e,
+                        "processor failed, continuing chain"
+                    );
+                }
+            }
+        }
+
+        // 2. DslParser — passthrough mode (parse DSL, write metadata,
+        //    but do NOT strip DSL lines from content blocks)
+        if !ctx.skip {
+            let dsl = self.outbound.iter().find(|p| p.name() == "DslParser");
+            if dsl.is_some() {
+                // Passthrough: parse DSL into metadata only.
+                // parse_content_blocks reads Text blocks for DSL lines,
+                // content blocks remain unchanged.
+                let dsl_result = DslParser.parse_content_blocks(&ctx.content_blocks);
+                if !dsl_result.instructions.is_empty() {
+                    let json = serde_json::to_string(&dsl_result).map_err(|e| {
+                        convert_process_error(ProcessError::processor_failed("DslParser", e))
+                    })?;
+                    ctx.metadata.insert("dsl_result".into(), json);
+                }
+            }
+        }
+
+        // 3. OutboundRawLog — skipped
+        // 4. Build result
+        let content_blocks = if ctx.skip {
+            vec![]
+        } else if ctx.content_blocks.is_empty() && !had_content_blocks {
+            vec![ContentBlock::Text(ctx.content)]
+        } else {
+            ctx.content_blocks
         };
-        // Incremental phase skips DslParser (zero-overhead passthrough, per
-        // design doc) and OutboundRawLog.  Only VerbosityFilter executes here;
-        // full DslParser parsing is deferred to the finish phase.
-        self.process_outbound_filtered(main_msg, &["DslParser", "outbound_raw_log"])
-            .await
-            .map(convert_processed_message)
-            .map_err(convert_process_error)
+        Ok(convert_processed_message(ProcessedMessage {
+            content_blocks,
+            metadata: ctx.metadata,
+        }))
     }
 
     fn inbound_len(&self) -> usize {

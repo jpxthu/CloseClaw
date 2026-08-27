@@ -228,11 +228,12 @@ impl MessageProcessor for DslParser {
                 (result, blocks)
             };
 
-        let json = serde_json::to_string(&result)
-            .map_err(|e| ProcessError::processor_failed("DslParser", e))?;
-
         let mut metadata = ctx.metadata.clone();
-        metadata.insert("dsl_result".to_string(), json);
+        if !result.instructions.is_empty() {
+            let json = serde_json::to_string(&result)
+                .map_err(|e| ProcessError::processor_failed("DslParser", e))?;
+            metadata.insert("dsl_result".to_string(), json);
+        }
 
         Ok(Some(super::ProcessedMessage {
             content_blocks: if updated_blocks.is_empty() {
@@ -641,7 +642,11 @@ mod tests {
     fn test_parse_dsl_instruction_ordering() {
         let parser = DslParser;
         // Verify instructions preserve source order.
-        let input = "::button[label:A;action:1;value:x]\n::selector[label:B;action:2]\n::button[label:C;action:3;value:y]";
+        let input = concat!(
+            "::button[label:A;action:1;value:x]\n",
+            "::selector[label:B;action:2]\n",
+            "::button[label:C;action:3;value:y]",
+        );
         let (result, _clean) = parser.parse(input);
         assert_eq!(result.instructions.len(), 3);
         assert_eq!(result.instructions[0].instruction_type, "button");

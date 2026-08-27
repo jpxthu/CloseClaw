@@ -74,7 +74,7 @@ fn test_filter_normal_keeps_tool_use_and_result() {
 }
 
 #[test]
-fn test_filter_off_keeps_text_and_media() {
+fn test_filter_off_keeps_text_only() {
     let blocks = vec![
         text_block("hello"),
         thinking_block("thinking"),
@@ -95,12 +95,9 @@ fn test_filter_off_keeps_text_and_media() {
         },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 5);
+    assert_eq!(result.len(), 2);
     assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
     assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
-    assert!(matches!(&result[2], ContentBlock::Image { .. }));
-    assert!(matches!(&result[3], ContentBlock::Audio { .. }));
-    assert!(matches!(&result[4], ContentBlock::File { .. }));
 }
 
 #[test]
@@ -185,9 +182,9 @@ fn test_filter_normal_all_thinking_produces_empty() {
     );
 }
 
-/// Off mode with mixed content types should keep only final reply blocks.
+/// Off mode with mixed content types should keep only Text blocks.
 #[test]
-fn test_filter_off_mixed_content_keeps_final_reply_and_media() {
+fn test_filter_off_mixed_content_keeps_text_only() {
     let blocks = vec![
         thinking_block("thinking"),
         text_block("hello"),
@@ -209,16 +206,9 @@ fn test_filter_off_mixed_content_keeps_final_reply_and_media() {
         },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(
-        result.len(),
-        5,
-        "Off mode should keep Text + Image + Audio + File"
-    );
+    assert_eq!(result.len(), 2, "Off mode should keep Text blocks only");
     assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
     assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
-    assert!(matches!(&result[2], ContentBlock::Image { .. }));
-    assert!(matches!(&result[3], ContentBlock::Audio { .. }));
-    assert!(matches!(&result[4], ContentBlock::File { .. }));
 }
 
 /// Normal mode preserves ToolUse and ToolResult alongside Text.
@@ -239,40 +229,37 @@ fn test_filter_normal_preserves_tool_blocks() {
     assert!(matches!(&result[3], ContentBlock::Text(t) if t == "after"));
 }
 
-/// Off mode with only Image block should keep it (media blocks are always shown).
+/// Off mode with only Image block should filter it (Off keeps Text only).
 #[test]
-fn test_filter_off_keeps_image_block() {
+fn test_filter_off_filters_image_block() {
     let blocks = vec![ContentBlock::Image {
         name: "photo.jpg".to_string(),
         url: "https://example.com/photo.jpg".to_string(),
     }];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 1, "Off mode should keep Image blocks");
-    assert!(matches!(&result[0], ContentBlock::Image { .. }));
+    assert!(result.is_empty(), "Off mode should filter Image blocks");
 }
 
-/// Off mode with only Audio block should keep it (media blocks are always shown).
+/// Off mode with only Audio block should filter it (Off keeps Text only).
 #[test]
-fn test_filter_off_keeps_audio_block() {
+fn test_filter_off_filters_audio_block() {
     let blocks = vec![ContentBlock::Audio {
         name: "voice.mp3".to_string(),
         url: "https://example.com/voice.mp3".to_string(),
     }];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 1, "Off mode should keep Audio blocks");
-    assert!(matches!(&result[0], ContentBlock::Audio { .. }));
+    assert!(result.is_empty(), "Off mode should filter Audio blocks");
 }
 
-/// Off mode with only File block should keep it (media blocks are always shown).
+/// Off mode with only File block should filter it (Off keeps Text only).
 #[test]
-fn test_filter_off_keeps_file_block() {
+fn test_filter_off_filters_file_block() {
     let blocks = vec![ContentBlock::File {
         name: "report.csv".to_string(),
         url: "https://example.com/report.csv".to_string(),
     }];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 1, "Off mode should keep File blocks");
-    assert!(matches!(&result[0], ContentBlock::File { .. }));
+    assert!(result.is_empty(), "Off mode should filter File blocks");
 }
 
 /// Off mode with all intermediate blocks should produce empty.
