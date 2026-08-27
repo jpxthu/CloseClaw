@@ -473,9 +473,9 @@
   },
   {
     "path": "docs/design/processor_chain/outbound-chain.md",
-    "commit": "96b82c2e7d7eae3b59265a58d80248a4d4002902",
-    "commit_time": "2026-08-15T10:34:59+08:00",
-    "confirmed_time": "2026-08-15T10:54:22.267746+08:00",
+    "commit": "9f0dbf1f3eed407919c5b62151812cb2e1932b3c",
+    "commit_time": "2026-08-27T09:22:36+08:00",
+    "confirmed_time": "2026-08-27T09:41:06.020918+08:00",
     "comment": "",
     "blocked_reason": ""
   },
