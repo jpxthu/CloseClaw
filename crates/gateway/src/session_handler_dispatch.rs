@@ -385,6 +385,10 @@ impl SessionMessageHandler {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
         }
+        // Inject active children summary BEFORE the user message
+        // (design-doc position constraint).
+        self.inject_active_children_summary_if_needed(session_id)
+            .await;
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).
         if let Some(cs) = self
@@ -487,31 +491,10 @@ impl SessionMessageHandler {
             // before check_and_run_auto_compact (design-doc data-flow requirement).
             // Do NOT duplicate the append here.
 
-            // ── Active children summary injection ─────────────────
-            // Inject a summary of active child sessions (with
-            // agent_id + task_summary) before the user message so the
-            // parent LLM sees which children are still running.
-            // When the parent has not yet yielded, also append a yield
-            // suggestion (first-layer defense).
-            if let Some(cs) = sm.get_conversation_session(&session_id).await {
-                let mut cs_write = cs.write().await;
-                let summary = cs_write.active_children_summary();
-                let yield_reminder = cs_write.spawn_guard_reminder();
-                if summary.is_some() || yield_reminder.is_some() {
-                    let mut text = summary.unwrap_or_default();
-                    if let Some(reminder) = yield_reminder {
-                        if !text.is_empty() {
-                            text.push('\n');
-                        }
-                        text.push_str(&reminder);
-                    }
-                    tracing::info!(
-                        session_id = %session_id,
-                        "injecting active children summary"
-                    );
-                    cs_write.inject_system_message(text);
-                }
-            }
+            // NOTE: Active children summary is now injected BEFORE the user
+            // message by inject_active_children_summary_if_needed (position
+            // constraint from design doc). This spawn block no longer handles
+            // summary injection.
 
             // Step 1.4: inject Now-priority announces before user message
             // processing so the agent sees urgent notifications first.
