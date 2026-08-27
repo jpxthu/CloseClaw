@@ -69,16 +69,38 @@ impl SessionMessageHandler {
     }
 
     /// Check token usage and trigger auto-compaction if needed.
+    ///
+    /// Before estimating tokens, the persistent transcript is truncated
+    /// to `max_history_messages` (if configured) so that the downstream
+    /// token estimate and compaction operate on the same (single source
+    /// of truth) history.
     pub(super) async fn check_and_run_auto_compact(&self, session_id: &str) {
-        let Some((model, mut llm_messages, stats)) =
+        // Step 1: truncate persistent transcript before loading inputs.
+        {
+            let max = {
+                let svc = self.compaction_service.lock().await;
+                svc.config().max_history_messages
+            };
+            if let Some(max) = max {
+                if let Some(cs) = self
+                    .session_manager
+                    .get_conversation_session(session_id)
+                    .await
+                {
+                    let dropped = { cs.write().await.truncate_transcript_to_limit(Some(max)) };
+                    if dropped > 0 {
+                        tracing::info!(session_id, max, dropped, "历史截断（消息上限截断）");
+                    }
+                }
+            }
+        }
+        // Step 2: load inputs from (now-truncated) persistent history.
+        let Some((model, llm_messages, stats)) =
             load_compact_inputs(&self.session_manager, session_id).await
         else {
             return;
         };
-        {
-            let svc = self.compaction_service.lock().await;
-            truncate_messages(&mut llm_messages, svc.config().max_history_messages);
-        }
+        // Step 3: estimate tokens and act on warning state.
         let (_compaction_msgs, warning, tokens) = self
             .estimate_and_check_state(&llm_messages, &model, &stats)
             .await;
@@ -216,15 +238,5 @@ pub(crate) async fn send_output(output_tx: &OutputTx, text: &str) {
     let guard = output_tx.read().await;
     if let Some(tx) = guard.as_ref() {
         let _ = tx.send((text.to_string(), vec![])).await;
-    }
-}
-
-/// Truncate `llm_messages` to the most recent `max` entries.
-fn truncate_messages(llm_messages: &mut Vec<ChatMessage>, max: Option<usize>) {
-    if let Some(max) = max {
-        if llm_messages.len() > max {
-            let drain = llm_messages.len() - max;
-            llm_messages.drain(..drain);
-        }
     }
 }
