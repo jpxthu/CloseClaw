@@ -135,6 +135,31 @@ impl ConversationSession {
         }
     }
 
+    /// Truncate the transcript to at most `max` messages.
+    ///
+    /// When `max` is `Some(n)` and the current message count exceeds `n`,
+    /// the oldest messages are removed so that only the most recent `n`
+    /// remain. The replacement goes through [`apply_transcript_op`] with
+    /// [`TranscriptOp::PartialRewrite`] so that a snapshot is created
+    /// and the operation is undoable.
+    ///
+    /// Returns the number of messages that were dropped, or `0` if no
+    /// truncation was necessary.
+    pub fn truncate_transcript_to_limit(&mut self, max: Option<usize>) -> usize {
+        let limit = match max {
+            Some(n) => n,
+            None => return 0,
+        };
+        let current_len = self.messages.len();
+        if current_len <= limit {
+            return 0;
+        }
+        let dropped = current_len - limit;
+        let truncated: Vec<SessionMessage> = self.messages.split_off(dropped);
+        self.apply_transcript_op(TranscriptOp::PartialRewrite, truncated);
+        dropped
+    }
+
     /// Extract tool-call info from the last `n` messages.
     ///
     /// Scans `self.messages` in reverse, collecting
