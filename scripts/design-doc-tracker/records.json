@@ -241,9 +241,9 @@
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
-    "commit": "99c1444c8fb7f379d40f7169de87242adf0bf002",
-    "commit_time": "2026-08-24T02:09:29+08:00",
-    "confirmed_time": "2026-08-24T02:12:37.707396+08:00",
+    "commit": "c2d7b270db515ea4c279c97cd33876388ba56c9c",
+    "commit_time": "2026-08-28T00:02:10+08:00",
+    "confirmed_time": "2026-08-28T00:09:49.080737+08:00",
     "comment": "",
     "blocked_reason": ""
   },
