@@ -186,6 +186,7 @@ pub struct ConversationSession {
     verbosity_level: VerbosityLevel,
     /// Session mode controlling session-level behavior constraints (§6).
     session_mode: Arc<Mutex<SessionMode>>,
+    pending_session_mode: Arc<Mutex<Option<SessionMode>>>,
     pending_mode_transition: mode_transition::PendingTransition,
     /// Whether this session has ever entered Plan Mode (§6).
     has_been_in_plan: Arc<AtomicBool>,
@@ -266,6 +267,7 @@ impl ConversationSession {
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
             session_mode: Arc::new(Mutex::new(SessionMode::default())),
+            pending_session_mode: Arc::new(Mutex::new(None)),
             pending_mode_transition: Arc::new(Mutex::new(None)),
             has_been_in_plan: Arc::new(AtomicBool::new(false)),
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
@@ -489,8 +491,9 @@ impl ConversationSession {
     pub fn set_verbosity_level(&mut self, level: VerbosityLevel) {
         self.verbosity_level = level;
     }
-    /// Returns the current session mode.
+    /// Returns the current session mode, applying any pending deferred mode.
     pub fn session_mode(&self) -> SessionMode {
+        self.apply_pending_session_mode_if_needed();
         *self
             .session_mode
             .lock()
