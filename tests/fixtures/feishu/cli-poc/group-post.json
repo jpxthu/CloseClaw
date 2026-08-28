@@ -1,0 +1,7 @@
+{
+  "type": "im.message.receive_v1",
+  "chat_type": "group",
+  "message_type": "post",
+  "sender_type": "bot",
+  "content": "<post title>\nplain text [link](https://example.com)\n<at user_id=\"all\"></at>"
+}
