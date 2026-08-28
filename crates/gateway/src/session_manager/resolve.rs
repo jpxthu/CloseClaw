@@ -894,8 +894,11 @@ impl SessionManager {
     /// [`ConversationSession`] in memory (`needs_conv = false`).
     ///
     /// Extracted from Path 2 and Path 3 of [`Self::resolve`] to avoid
-    /// duplicating the rebuild logic. Handles agent_id extraction,
-    /// bootstrap_mode query, builder injection, and the rebuild call.
+    /// duplicating the rebuild logic. Performs the full injection chain
+    /// (matching the new session path) so that dynamic prompt builder,
+    /// skill listing, snapshot meta store, checkpoint storage, prompt
+    /// overrides, and session config are all wired up.
+    ///
     /// Lock-range optimised: clones the `Arc` under a read lock then
     /// releases it before acquiring the write lock on the inner session.
     async fn rebuild_archived_session_prompt(
@@ -915,11 +918,43 @@ impl SessionManager {
         };
         if let Some(cs_arc) = cs_arc {
             let mut cs = cs_arc.write().await;
+            // Inject system prompt builder (was already present).
             if let Some(builder) = self.get_system_prompt_builder().await {
                 cs.set_system_prompt_builder(builder);
             }
+            // Inject prompt overrides (missing — added for parity with new session path).
+            cs.set_prompt_overrides(self.get_prompt_overrides().await);
+            // Inject dynamic prompt builder for per-request dynamic-layer injection.
+            if let Some(dpb) = self.get_dynamic_prompt_builder().await {
+                cs.set_dynamic_prompt_builder(dpb);
+            }
+            // Inject skill listing provider and agent-level skills whitelist.
+            // Note: wire_skill_listing_deps takes &mut ConversationSession but we
+            // already have the write lock, so we inline the wiring here.
+            if let Some(provider) = self.get_skill_listing_provider().await {
+                cs.set_skill_listing_provider(provider);
+            }
+            if let Some(config) = self.get_agent_config(&agent_id_for_rebuild).await {
+                if let Some(skills) = config.effective_skills() {
+                    cs.set_agent_skills(skills);
+                }
+            }
+            // Cache bootstrap mode on the session (was only queried, not cached).
+            *cs = cs.clone().with_bootstrap_mode(bootstrap_mode);
+            // Rebuild the system prompt (existing behavior).
             cs.rebuild_system_prompt(session_id, &agent_id_for_rebuild, Some(bootstrap_mode))
                 .await;
+            // Inject snapshot meta store for persistence.
+            self.inject_snapshot_meta_store(session_id, &mut cs).await;
+            // Inject checkpoint storage for pending-operation persistence.
+            self.inject_checkpoint_storage(&mut cs).await;
+            // Apply session config (git_status switch).
+            if let Some(cfg) = self
+                .get_session_config_for_agent(&agent_id_for_rebuild)
+                .await
+            {
+                cs.set_git_status(cfg.is_git_status_enabled);
+            }
         }
     }
 
