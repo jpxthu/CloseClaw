@@ -620,84 +620,28 @@ impl closeclaw_config::session::SessionConfigProvider for MockSessionConfigProvi
     }
 }
 
-/// Persistence mock for checkpoint_manager setup.
-struct InjectionPersistMock;
-
-#[async_trait::async_trait]
-impl PersistenceService for InjectionPersistMock {
-    async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn load_checkpoint(
-        &self,
-        _: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-    async fn load_archived_checkpoint(
-        &self,
-        _: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-    async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-    async fn restore_checkpoint(
-        &self,
-        _: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-    async fn archive_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-    async fn purge_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn invalidate_session(&self, _: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn list_idle_sessions_for_agent(
-        &self,
-        _: &str,
-        _: closeclaw_session::persistence::AgentRole,
-        _: i64,
-    ) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-    async fn list_expired_archived_sessions_for_agent(
-        &self,
-        _: &str,
-        _: closeclaw_session::persistence::AgentRole,
-        _: i64,
-    ) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-    async fn find_archived_session_by_routing(
-        &self,
-        _: Option<&str>,
-        _: &str,
-        _: &str,
-        _: &str,
-    ) -> Result<Option<String>, PersistenceError> {
-        Ok(None)
-    }
-}
-
-/// Persistence mock for archived session restore (returns checkpoint on load/restore).
-struct ArchRestorePersistMock {
+/// Unified persistence mock: returns `Ok(None)` when `checkpoint` is `None`,
+/// or clones the checkpoint on load/restore when `Some`.
+struct TestPersistMock {
     checkpoint: tokio::sync::Mutex<Option<SessionCheckpoint>>,
 }
 
+impl TestPersistMock {
+    fn no_checkpoint() -> Self {
+        Self {
+            checkpoint: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    fn with_checkpoint(cp: SessionCheckpoint) -> Self {
+        Self {
+            checkpoint: tokio::sync::Mutex::new(Some(cp)),
+        }
+    }
+}
+
 #[async_trait::async_trait]
-impl PersistenceService for ArchRestorePersistMock {
+impl PersistenceService for TestPersistMock {
     async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
         Ok(())
     }
@@ -871,9 +815,7 @@ async fn test_archived_restore_full_injection_chain() {
         .with_agent_id("agent-b".into());
     cp.platform = Some("feishu".into());
 
-    let persist: Arc<dyn PersistenceService> = Arc::new(ArchRestorePersistMock {
-        checkpoint: tokio::sync::Mutex::new(Some(cp)),
-    });
+    let persist: Arc<dyn PersistenceService> = Arc::new(TestPersistMock::with_checkpoint(cp));
     let (mgr, _tmp) = setup_mgr_with_injection_deps(persist).await;
 
     let msg = test_message();
@@ -969,7 +911,7 @@ async fn test_archived_restore_full_injection_chain() {
 /// archived path, so the new-session path should be unchanged.
 #[tokio::test]
 async fn test_new_session_path_injection_unchanged() {
-    let persist: Arc<dyn PersistenceService> = Arc::new(InjectionPersistMock);
+    let persist: Arc<dyn PersistenceService> = Arc::new(TestPersistMock::no_checkpoint());
     let (mgr, _tmp) = setup_mgr_with_injection_deps(persist).await;
 
     let msg = test_message();

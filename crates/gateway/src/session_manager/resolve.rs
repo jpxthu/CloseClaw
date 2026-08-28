@@ -951,16 +951,8 @@ impl SessionManager {
                 cs.set_dynamic_prompt_builder(dpb);
             }
             // Inject skill listing provider and agent-level skills whitelist.
-            // Note: wire_skill_listing_deps takes &mut ConversationSession but we
-            // already have the write lock, so we inline the wiring here.
-            if let Some(provider) = self.get_skill_listing_provider().await {
-                cs.set_skill_listing_provider(provider);
-            }
-            if let Some(config) = self.get_agent_config(&agent_id_for_rebuild).await {
-                if let Some(skills) = config.effective_skills() {
-                    cs.set_agent_skills(skills);
-                }
-            }
+            self.wire_skill_listing_deps(&mut cs, &agent_id_for_rebuild)
+                .await;
             // Cache bootstrap mode on the session (was only queried, not cached).
             *cs = cs.clone().with_bootstrap_mode(bootstrap_mode);
             // Rebuild the system prompt (existing behavior).
