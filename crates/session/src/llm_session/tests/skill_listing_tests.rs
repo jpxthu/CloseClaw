@@ -171,7 +171,7 @@ async fn test_skill_listing_injected_at_position_zero() {
     // Inspect captured request messages
     let req = fake_ref.last_request().unwrap();
     assert!(req.messages.len() >= 2, "should have skill listing + user");
-    assert_eq!(req.messages[0].role, "tool");
+    assert_eq!(req.messages[0].role, "system");
     assert!(req.messages[0].content.contains("## Available Skills"));
     assert_eq!(req.messages[1].role, "user");
     assert_eq!(req.messages[1].content, "hello");
@@ -243,7 +243,7 @@ async fn test_whitelist_passed_to_provider() {
 
     // Message should contain the listing
     let req = fake_ref.last_request().unwrap();
-    assert_eq!(req.messages[0].role, "tool");
+    assert_eq!(req.messages[0].role, "system");
     assert_eq!(req.messages[0].content, "filtered skills");
 }
 
@@ -304,7 +304,7 @@ async fn test_skill_listing_before_memory_injection() {
     let req = fake_ref.last_request().unwrap();
     // Expected order: [skill_listing, user, memory_after_current]
     assert_eq!(req.messages.len(), 3);
-    assert_eq!(req.messages[0].role, "tool");
+    assert_eq!(req.messages[0].role, "system");
     assert_eq!(req.messages[0].content, "skill_data");
     assert_eq!(req.messages[1].role, "user");
     assert_eq!(req.messages[1].content, "hello");
@@ -331,7 +331,7 @@ async fn test_skill_listing_before_memory_before_next() {
     let req = fake_ref.last_request().unwrap();
     // Expected order: [skill_listing, memory_injection, user]
     assert_eq!(req.messages.len(), 3);
-    assert_eq!(req.messages[0].role, "tool");
+    assert_eq!(req.messages[0].role, "system");
     assert_eq!(req.messages[0].content, "skill_info");
     assert_eq!(req.messages[1].role, "tool");
     assert_eq!(req.messages[1].content, "memory_pre");
