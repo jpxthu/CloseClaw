@@ -14,6 +14,8 @@
 | 文件 | 场景 | 关键字段证据 |
 |------|------|------------|
 | `p2p-top-text.json` | 私聊顶层文本消息（每条开启新 Session 的对象） | 无 thread 字段 |
+| `p2p-image-post.json` | 私聊图片+文字混合消息 | `message_type: "post"`，图片以 `![Image](img_key)` 行内标记嵌入，文字随行；adapter 需识别 img 标记提取 file_key |
+| `p2p-file.json` | 私聊文件消息 | `message_type: "file"`，content 为 `<file key="..." name="..."/>` 标签（含文件名） |
 | `p2p-thread-reply.json` | 私聊内话题回复（归入既有 Session） | `thread_id` + `root_id` + `reply_to`；本例 `root_id` == `reply_to` == 根消息 `message_id` |
 | `group-mention-all.json` | 群内 @all（bot 发送方） | `sender_type: "bot"`，`content` 以 `@_all` 开头 |
 | `group-mention-bot.json` | 群内定向 @bot（bot 发送方） | `mentions[].id` 为接收方应用语境 open_id，`content` 内占位符已替换为显示名 |
@@ -39,6 +41,7 @@
 - `root_id`：话题根消息 ID（话题内各消息相同）；`reply_to`：直接父消息 ID
 - 群消息默认「@才收」：未 @ 的群消息不产生 receive 事件（对 text/post/markdown/卡片一致）
 - 图片消息不能与 @ 同条发送：纯图片不触发接收事件，「图+通知」需拆两条消息
+- 图片+文字混合消息落地为 post 类型，`![Image](img_key)` 行内标记；纯文件为独立 `file` 类型，标签内含文件名
 
 ## 发送侧
 
