@@ -2,7 +2,7 @@
 
 ## 概述
 
-Daemon 关闭流程在收到操作系统信号后触发，由 ShutdownHandle 统一协调，按 Phase 0（信号接收与模式判定）+ Phase 1–7（停止流程）有序关闭所有组件。支持 graceful（优雅等待）和 forceful（强制终止）两种模式，Owner 可在 graceful 期间随时升级为 forceful。关闭过程中保证已持久化的数据不丢失——未完成的操作通过 recovery 机制在下次启动时恢复（forceful 的已知代价见「双模关闭」）。
+Daemon 关闭流程在收到操作系统信号后触发，由 ShutdownHandle 统一协调，按 Phase 0（信号接收与模式判定）+ Phase 1–7（停止流程）有序关闭所有组件。支持 graceful（优雅等待）和 forceful（强制终止）两种模式，Owner 可在 graceful 期间随时升级为 forceful。关闭过程中保证已持久化的数据不丢失——未完成的操作通过 recovery 机制在下次启动时恢复（forceful 的已知代价见「Recovery 衔接」）。
 
 ## 架构
 
@@ -22,7 +22,7 @@ ShutdownHandle 实现跨模块关停接口 ShutdownSignal（定义见 [common/co
 | 组件 | 递增时机 | 递减时机 |
 |------|---------|---------|
 | Gateway 消息处理循环 | 消息出队开始处理 | 响应发送完成 |
-| 异步工具执行 | 工具进程创建 | 进程退出 |
+| Agent 异步调用的工具 | 工具进程创建 | 进程退出 |
 | 子 session 处理 | 子 session 创建 | 子 session 结果注入父 session |
 
 ShutdownHandle 不管理后台任务——这些有自己的停止接口，不属于活跃操作计数范畴。Daemon 级后台任务的完整清单见「架构 / Daemon 级后台任务清单」。
@@ -59,7 +59,7 @@ Graceful 模式下各维度的等待行为（SessionManager 侧的状态机详�
 | 活跃维度 | Graceful 行为 |
 |---------|--------------|
 | LLM 流式输出中 | 等待流结束。结束后 assistant 消息若含工具调用请求，将工具调用写入待完成操作记录并持久化会话检查点，不执行工具（重启后的衔接见「Recovery 衔接」） |
-| 同步工具执行中 | 等待工具完成。完成后工具结果写入对话记录、清除待完成操作记录、持久化会话检查点。不触发新一轮 LLM turn——后续对话推进由下次 User 消息到来时自然衔接（若期间经历重启，则为重启恢复后的首条 User 消息） |
+| 同步工具执行中 | 等待工具完成（不经活跃操作计数，由本维度等待兜底）。完成后工具结果写入对话记录、清除待完成操作记录、持久化会话检查点。不触发新一轮 LLM turn——后续对话推进由下次 User 消息到来时自然衔接（若期间经历重启，则为重启恢复后的首条 User 消息） |
 | 后台任务（Agent 异步调用的工具） | 工具启动即登记进活跃操作计数（见 ShutdownHandle），drain 阶段统一等待；进入 Phase 2 仍在运行的，与其他维度并行等待其自然结束，结果照常写入对话记录。不设硬超时——长耗时后台任务是否继续等待由 Owner 经进度通知决策 |
 | 子 session 未完成 | 由树序保证：叶子先于父节点停止，父 session 待其全部直接子 session 完成停止且产出已注入后才进入自身收尾 |
 | 已就绪（四维均否） | 直接持久化 |
@@ -136,7 +136,7 @@ Graceful 关闭期间，向 Owner 发送实时状态，收集各组件状态汇�
 
 Owner 可选择等待或升级为 forceful。关闭启动时（Phase 0 模式判定后）立即发送首次通知，告知 Owner 系统正在关闭。进入 Session 停止阶段后切换为进度详情通知，有状态变化时更新（session 完成、新 session 开始停止等）。每个活跃 session 的展示文案取其当前活跃维度：LLM 流式输出中 / 工具执行中 / 子任务进行中（仅有子 session 维度活跃时）；就绪的 session 完成持久化后即从列表移除。
 
-会话停止期间若长时间无状态变化，系统每 30 秒发送一次心跳通知，让 Owner 确认系统仍在关闭中而非卡死。心跳内容为简化格式，不逐条列出 session 详情：
+关闭等待期间若长时间无状态变化，系统每 30 秒发送一次心跳通知，让 Owner 确认系统仍在关闭中而非卡死。心跳内容为简化格式，不逐条列出 session 详情：
 
 ```
 ⏳ 仍在关闭中，已等待 27s
@@ -144,7 +144,7 @@ Owner 可选择等待或升级为 forceful。关闭启动时（Phase 0 模式判
 [继续等待] [强制关闭]
 ```
 
-心跳仅在 Phase 2（Session 停止）阶段生效，所有 session 停止完毕后自动停止。
+心跳在存在等待的停止阶段生效（Phase 1 drain 等待、Phase 2 Session 停止、Phase 3 后台任务停止）：期间无状态变化时每 30 秒发送一次；Phase 4 起为落盘与连接关闭等快速操作，不再发送。
 
 进度通知通过 IM Adapters 出站通道发送——Phase 1 仅关闭入站，出站在 Phase 5 才关闭，Phase 2-4 期间出站通道可用。
 
@@ -174,7 +174,9 @@ Owner 可选择等待或升级为 forceful。关闭启动时（Phase 0 模式判
 - **Gateway**：清理路由表和注册表
 - **llm 模块**：经 ShutdownSignal 接口向其暴露关停状态查询、忙计数与 graceful→forceful 升级（见 [common/core-traits](../common/core-traits.md)）
 - **SqliteStorage**：关闭存储连接
-- **后台任务**：逐一停止（完整清单见「架构 / Daemon 级后台任务清单」，共 5 个：ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler、Config Hot Reload）
+- **后台任务**：逐一停止。完整清单、统一停止机制与副作用移交见「架构 / Daemon 级后台任务清单」
+
+> 配置触发的网关择机重启（[daemon 需求 §F6](../../requirements/daemon.md)）不经过本关闭流程：重启仅重建 Gateway 层，会话层不动，会话停止与最终持久化仅在全量关闭时执行；其执行中的出站消息按本流程优雅关闭语义收尾。
 
 ### 无关
 
