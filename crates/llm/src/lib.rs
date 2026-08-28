@@ -8,6 +8,7 @@
 //! the full type classification.
 
 pub mod anthropic;
+pub mod anthropic_plugin;
 pub mod cache_adapter;
 pub mod call_chain;
 pub mod fallback;
@@ -62,6 +63,8 @@ pub mod fake;
 pub use fake::FakeProvider;
 
 pub use anthropic::AnthropicProvider;
+pub use anthropic_plugin::resolve_anthropic_effective;
+pub use anthropic_plugin::AnthropicPlugin;
 pub use deepseek::DeepSeekPlugin;
 pub use deepseek::DeepSeekProvider;
 pub use glm::{GlmPlugin, GlmProvider};
