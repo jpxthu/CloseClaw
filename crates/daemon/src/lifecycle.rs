@@ -1,13 +1,13 @@
 //! Daemon lifecycle: start, run, and shutdown phases.
 
 use super::{Daemon, Phase5Deps};
-use closeclaw_config::SystemConfigData;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig};
-use closeclaw_permission::engine::audit_log::{AuditLogger, FileAuditLogger};
-use closeclaw_permission::engine::rejection_log::FileRejectionLogger;
-use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
+use closeclaw_permission::engine::audit_log::AuditLogger;
+use closeclaw_permission::PermissionEngine;
 use std::sync::Arc;
 use tracing::{error, info, warn};
+
+use crate::shutdown_heartbeat::ShutdownHeartbeat;
 
 pub(crate) use crate::llm_components::assemble_llm_components;
 
@@ -340,6 +340,39 @@ impl Daemon {
         Ok(())
     }
 
+    /// Shutdown inbound for all registered IM plugins.
+    async fn shutdown_inbound_plugins(gateway: &Arc<closeclaw_gateway::Gateway>) {
+        let plugins = gateway.get_all_plugins().await;
+        for plugin in &plugins {
+            if let Err(e) = plugin.shutdown_inbound().await {
+                tracing::warn!(
+                    platform = plugin.platform(),
+                    error = %e,
+                    "failed to shutdown plugin inbound — continuing"
+                );
+            }
+        }
+    }
+
+    /// Send a heartbeat card if the interval has elapsed.
+    /// Returns `true` if a heartbeat was sent.
+    async fn try_send_heartbeat(&self, heartbeat: &mut ShutdownHeartbeat) -> bool {
+        if heartbeat.should_send_heartbeat() {
+            let mode = self.shutdown.mode();
+            tracing::info!(
+                elapsed = heartbeat.elapsed_secs(),
+                "shutdown heartbeat — sending periodic notification"
+            );
+            self.gateway()
+                .await
+                .send_shutdown_heartbeat_card(heartbeat.elapsed_secs(), mode)
+                .await;
+            heartbeat.record_event();
+            return true;
+        }
+        false
+    }
+
     /// Phase 1: Inbound shutdown + drain.
     ///
     /// - Calls `shutdown()` on all registered IM plugins
@@ -350,24 +383,13 @@ impl Daemon {
         sigint: &mut tokio::signal::unix::Signal,
         sigterm: &mut tokio::signal::unix::Signal,
     ) {
-        // Shutdown inbound for all registered plugins
-        let plugins = self.gateway().await.get_all_plugins().await;
-        for plugin in &plugins {
-            if let Err(e) = plugin.shutdown_inbound().await {
-                tracing::warn!(
-                    platform = plugin.platform(),
-                    error = %e,
-                    "failed to shutdown plugin inbound — continuing"
-                );
-            }
-        }
+        Self::shutdown_inbound_plugins(&self.gateway().await).await;
 
-        // Initiate graceful drain
         let shutdown_handle = self.shutdown.clone();
         let mut shutdown_task =
             tokio::spawn(async move { shutdown_handle.initiate_shutdown().await });
+        let mut heartbeat = ShutdownHeartbeat::new();
 
-        // Monitor for escalation signals during drain
         loop {
             tokio::select! {
                 result = &mut shutdown_task => {
@@ -391,11 +413,16 @@ impl Daemon {
                     if self.shutdown.escalate_to_forceful() {
                         info!("Received repeated Ctrl+C, escalated to forceful shutdown");
                     }
+                    heartbeat.record_event();
                 }
                 _ = sigterm.recv() => {
                     if self.shutdown.escalate_to_forceful() {
                         info!("Received repeated SIGTERM, escalated to forceful shutdown");
                     }
+                    heartbeat.record_event();
+                }
+                _ = tokio::time::sleep_until(heartbeat.next_deadline()) => {
+                    self.try_send_heartbeat(&mut heartbeat).await;
                 }
             }
         }
@@ -433,9 +460,7 @@ impl Daemon {
         let mut sigterm = signal(SignalKind::terminate()).ok();
 
         // Heartbeat state: send every 30s when no progress events arrive.
-        let heartbeat_interval = std::time::Duration::from_secs(30);
-        let phase2_start = std::time::Instant::now();
-        let mut last_event: tokio::time::Instant = tokio::time::Instant::now();
+        let mut heartbeat = ShutdownHeartbeat::new();
 
         // Monitor for escalation and update card
         let mut last_mode = mode;
@@ -467,7 +492,7 @@ impl Daemon {
                 Some(progress) = progress_rx.recv() => {
                     // Progress event: update card with throttle
                     let now = std::time::Instant::now();
-                    last_event = tokio::time::Instant::now();
+                    heartbeat.record_event();
                     if progress.remaining == 0
                         || now.duration_since(last_card_update) >= throttle_interval
                     {
@@ -504,22 +529,8 @@ impl Daemon {
                     // Escalation signal received
                 }
 
-                _ = tokio::time::sleep_until(
-                    last_event + heartbeat_interval
-                ) => {
-                    // 30s with no events — send heartbeat notification
-                    let current_mode: closeclaw_common::shutdown::ShutdownMode =
-                        self.shutdown.mode();
-                    let longest_wait_secs = phase2_start.elapsed().as_secs();
-                    tracing::info!(
-                        longest_wait_secs,
-                        "Phase 2 heartbeat — sending periodic notification"
-                    );
-                    self.gateway().await
-                        .send_shutdown_heartbeat_card(longest_wait_secs, current_mode)
-                        .await;
-                    // Reset heartbeat timer
-                    last_event = tokio::time::Instant::now();
+                _ = tokio::time::sleep_until(heartbeat.next_deadline()) => {
+                    self.try_send_heartbeat(&mut heartbeat).await;
                 }
             }
 
@@ -575,6 +586,7 @@ impl Daemon {
         // Wait for all background tasks to exit, aborting on timeout.
         let join_timeout = std::time::Duration::from_secs(10);
         let abort_grace = std::time::Duration::from_secs(3);
+        let mut heartbeat = ShutdownHeartbeat::new();
 
         if let Some(handle) = self.archive_sweeper_handle.take() {
             Self::abort_and_join_background_task(
@@ -584,6 +596,7 @@ impl Daemon {
                 abort_grace,
             )
             .await;
+            self.try_send_heartbeat(&mut heartbeat).await;
         }
 
         if let Some(handle) = self.announce_sweeper_handle.take() {
@@ -594,6 +607,7 @@ impl Daemon {
                 abort_grace,
             )
             .await;
+            self.try_send_heartbeat(&mut heartbeat).await;
         }
 
         if let Some(handle) = self.dreaming_scheduler_handle.take() {
@@ -604,6 +618,7 @@ impl Daemon {
                 abort_grace,
             )
             .await;
+            self.try_send_heartbeat(&mut heartbeat).await;
         }
 
         // Clear pending approval requests (denied with callbacks triggered)
@@ -737,134 +752,6 @@ impl Daemon {
         match std::env::var("BOOTSTRAP_MODE").as_deref() {
             Ok("minimal") => closeclaw_session::bootstrap::BootstrapMode::Minimal,
             _ => closeclaw_session::bootstrap::BootstrapMode::Full,
-        }
-    }
-
-    /// Build permission engine, loading templates from config_dir/templates/ if present.
-    ///
-    /// When a `rejection_log` section is present in `system.json`, a
-    /// [`FileRejectionLogger`] with the configured `max_entries` limit is
-    /// injected via [`PermissionEngine::with_rejection_logger`].
-    pub(crate) fn build_permission_engine(
-        config_dir: &str,
-        audit_logger: Option<Arc<dyn AuditLogger>>,
-    ) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-        let rule_set = RuleSet {
-            rules: Vec::new(),
-            defaults: Defaults::default(),
-            user_defaults: Defaults::user_defaults(),
-            template_includes: Vec::new(),
-            rule_version: String::new(),
-        };
-        let mut engine = PermissionEngine::new(rule_set, std::path::PathBuf::from(config_dir));
-        let templates_dir = std::path::Path::new(config_dir).join("templates");
-        if templates_dir.exists() {
-            if let Ok(templates) =
-                closeclaw_permission::templates::load_templates_from_dir(&templates_dir)
-            {
-                let count = templates.len();
-                if count > 0 {
-                    engine.load_templates(templates);
-                    info!(
-                        "Loaded {} permission templates from {}",
-                        count,
-                        templates_dir.display()
-                    );
-                }
-            }
-        }
-        // Inject rejection log logger if configured in system.json.
-        let engine = Self::wire_rejection_logger(engine, config_dir);
-        // Inject audit log logger if provided.
-        let engine = if let Some(logger) = audit_logger {
-            engine.with_audit_logger(logger)
-        } else {
-            engine
-        };
-        info!("Permission engine initialized");
-        Arc::new(tokio::sync::RwLock::new(engine))
-    }
-
-    /// Read `rejection_log` config from `system.json` and inject the
-    /// logger into the permission engine.
-    fn wire_rejection_logger(mut engine: PermissionEngine, config_dir: &str) -> PermissionEngine {
-        let system_path = std::path::Path::new(config_dir).join("system.json");
-        if !system_path.exists() {
-            return engine;
-        }
-        match SystemConfigData::from_file(&system_path) {
-            Ok(sys_cfg) => {
-                if let Some(rejection_cfg) = sys_cfg.rejection_log {
-                    let log_path = std::path::Path::new(config_dir)
-                        .join("logs")
-                        .join("rejection.log");
-                    match FileRejectionLogger::new_with_limit(log_path, rejection_cfg.max_entries) {
-                        Ok(logger) => {
-                            engine = engine.with_rejection_logger(Arc::new(logger));
-                            info!(
-                                max_entries = ?rejection_cfg.max_entries,
-                                "Rejection log logger configured"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                error = %e,
-                                "Failed to create rejection log logger — continuing without"
-                            );
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::debug!(
-                    error = %e,
-                    "system.json not found or invalid — skipping rejection log config"
-                );
-            }
-        }
-        engine
-    }
-
-    /// Read `audit_log` config from `system.json` and create a
-    /// [`FileAuditLogger`] if configured.
-    fn create_audit_logger(config_dir: &str) -> Option<Arc<dyn AuditLogger>> {
-        let system_path = std::path::Path::new(config_dir).join("system.json");
-        if !system_path.exists() {
-            return None;
-        }
-        match SystemConfigData::from_file(&system_path) {
-            Ok(sys_cfg) => {
-                if let Some(audit_cfg) = sys_cfg.audit_log {
-                    let log_path = std::path::Path::new(config_dir)
-                        .join("logs")
-                        .join("audit.log");
-                    match FileAuditLogger::new_with_limit(log_path, audit_cfg.max_entries) {
-                        Ok(logger) => {
-                            info!(
-                                max_entries = ?audit_cfg.max_entries,
-                                "Audit log logger configured"
-                            );
-                            Some(Arc::new(logger))
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                error = %e,
-                                "Failed to create audit log logger — continuing without"
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            }
-            Err(e) => {
-                tracing::debug!(
-                    error = %e,
-                    "system.json not found or invalid — skipping audit log config"
-                );
-                None
-            }
         }
     }
 
