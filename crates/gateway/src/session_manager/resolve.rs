@@ -241,7 +241,12 @@ impl SessionManager {
                                 .unwrap_or(BootstrapMode::Full);
                             conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
                             // Build initial system prompt via session's own builder.
-                            info!(session_id = %session_id, event = "session_injection", trigger = "archived_session_restore", "full injection for archived session (new ConversationSession)");
+                            info!(
+                                session_id = %session_id,
+                                event = "session_injection",
+                                trigger = "archived_session_restore",
+                                "full injection for archived session (new ConversationSession)"
+                            );
                             conv_session
                                 .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
                                 .await;
@@ -259,7 +264,12 @@ impl SessionManager {
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
                         } else {
-                            info!(session_id = %session_id, event = "session_injection", trigger = "archived_session_restore", "rebuilding prompt for archived session in memory");
+                            info!(
+                                session_id = %session_id,
+                                event = "session_injection",
+                                trigger = "archived_session_restore",
+                                "rebuilding prompt for archived session in memory"
+                            );
                             self.rebuild_archived_session_prompt(&session_id, &cp, message)
                                 .await;
                         }
@@ -357,7 +367,6 @@ impl SessionManager {
                     let mut registry = self.key_registry.write().await;
                     registry.insert(routing_key.clone(), session_id.clone());
                 }
-
                 self.update_checkpoint_thread_id(&session_id, &message.thread_id)
                     .await;
                 return Ok(session_id);
@@ -408,7 +417,6 @@ impl SessionManager {
                 }
             }
         }
-
         // SQLite double-check: query storage for an existing active session
         // with the same routing fields. This covers the edge case where the
         // key_registry was not yet written but SQLite already has a record
@@ -453,7 +461,6 @@ impl SessionManager {
             );
             return Ok(existing_id);
         }
-
         // Migrating session check: if no active session found in SQLite,
         // check for a migrating session and wait for archive completion
         // before falling through to the archived check.
@@ -518,7 +525,6 @@ impl SessionManager {
             // Fall through to archived check; if archived, it will
             // pick up the session.  If not, a new session is created.
         }
-
         // Archived session check: if no active session found in SQLite,
         // check for an archived session that can be restored.
         let archived_check = {
@@ -645,7 +651,6 @@ impl SessionManager {
                             self.rebuild_archived_session_prompt(&archived_id, &cp, message)
                                 .await;
                         }
-
                         // Restore pending messages, system_appends, verbosity_level,
                         // and communication_config from checkpoint.
                         // NOTE: system_appends must be restored AFTER rebuild_system_prompt
@@ -727,7 +732,6 @@ impl SessionManager {
                         }
                     }
                 }
-
                 // Re-register routing_key so subsequent lookups find
                 // the restored session.
                 {
@@ -746,7 +750,6 @@ impl SessionManager {
                 return Ok(archived_id);
             }
         }
-
         let session_id = session_helpers::generate_session_id(&message.to);
 
         // Write to key_registry using routing_key (no timestamps)
@@ -754,10 +757,8 @@ impl SessionManager {
             let mut registry = self.key_registry.write().await;
             registry.insert(routing_key.to_string(), session_id.clone());
         }
-
         // Build system prompt
         let agent_id = message.to.clone();
-
         // Compute workdir: prefer per-agent workspace from AgentRegistry,
         // fall back to global workspace_dir.
         let workdir_path = if let Some(per_agent_ws) = self.query_agent_workspace(&agent_id).await {
@@ -875,7 +876,6 @@ impl SessionManager {
             routing_key = %routing_key,
             "created new session"
         );
-
         Ok(session_id)
     }
 
