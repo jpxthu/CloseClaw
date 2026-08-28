@@ -115,7 +115,6 @@ impl Daemon {
                 s(Service::ArchiveSweeper),
                 s(Service::DreamingScheduler),
                 s(Service::IMAdapters),
-                s(Service::SkillWatcher),
                 s(Service::ToolsRegistry),
             ],
             vec![

@@ -20,7 +20,7 @@ use crate::config_watcher;
 /// RAII handle for the PlanArchiveSweeper background task.
 ///
 /// Dropping this sends a shutdown signal and aborts the task,
-/// consistent with the SkillWatcher/ConfigWatcher RAII pattern.
+/// consistent with the ConfigWatcher RAII pattern.
 pub(crate) struct PlanArchiveSweeperHandle {
     // Implicit drop closes the channel, signaling the background task.
     #[allow(dead_code)]
