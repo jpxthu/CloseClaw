@@ -938,6 +938,8 @@ mod shutdown_tests;
 #[path = "spawn_controller_crate_reexport_tests.rs"]
 mod spawn_controller_crate_reexport_tests;
 #[cfg(test)]
+mod step14_comprehensive_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod unit_tests;
