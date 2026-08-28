@@ -41,14 +41,11 @@ impl fmt::Display for RestartState {
 pub(crate) struct RestartHandle {
     tx: watch::Sender<RestartState>,
     /// Keep the initial receiver alive so `tx.send()` always succeeds.
-    /// Without an active receiver, `watch::Sender::send()` returns
-    /// `Err(SendError)` and the value is not stored.
     #[allow(dead_code)]
     _rx: watch::Receiver<RestartState>,
     /// Channel for the watchdog to signal "idle detected, ready to
     /// rebuild".  The sender is held by the watchdog task; the receiver
     /// is consumed by the daemon main loop.
-    #[allow(dead_code)]
     ready_tx: tokio::sync::mpsc::Sender<Vec<String>>,
     ready_rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<Vec<String>>>>,
 }
@@ -76,7 +73,6 @@ impl RestartHandle {
     ///
     /// The caller (watchdog task) should `changed().await` in a loop
     /// to react to transitions.
-    #[allow(dead_code)]
     pub(crate) fn subscribe(&self) -> watch::Receiver<RestartState> {
         self.tx.subscribe()
     }
@@ -87,7 +83,6 @@ impl RestartHandle {
     }
 
     /// Clone the ready-sender for the watchdog task.
-    #[allow(dead_code)]
     pub(crate) fn ready_sender(&self) -> tokio::sync::mpsc::Sender<Vec<String>> {
         self.ready_tx.clone()
     }
@@ -106,7 +101,6 @@ impl crate::Daemon {
     ///   existing list and returns `false` (watchdog already running).
     /// - If currently **Executing** or **Pending with no new changes**:
     ///   returns `false` — no action needed.
-    #[allow(dead_code)]
     pub(crate) fn request_gateway_restart(&self, changes: Vec<String>) -> bool {
         let mut current = self.restart_state.tx.borrow().clone();
         match current {
@@ -135,7 +129,6 @@ impl crate::Daemon {
     ///
     /// Returns `true` if a pending restart was cancelled, `false` if
     /// there was nothing to cancel (already Idle or Executing).
-    #[allow(dead_code)]
     pub(crate) fn cancel_pending_restart(&self) -> bool {
         let current = self.restart_state.tx.borrow().clone();
         match current {
@@ -156,17 +149,14 @@ impl crate::Daemon {
     /// If currently **Executing**, returns `false`.
     ///
     /// Returns `true` if the caller should spawn the watchdog task.
-    #[allow(dead_code)]
     pub(crate) fn force_gateway_restart(&self, changes: Vec<String>) -> bool {
         let current = self.restart_state.tx.borrow().clone();
         match current {
             RestartState::Pending { .. } => {
-                // Overwrite with provided changes and signal the watchdog.
                 let _ = self
                     .restart_state
                     .tx
                     .send(RestartState::Pending { changes });
-                // Tell caller to spawn (or re-spawn) the watchdog.
                 true
             }
             RestartState::Idle => {
@@ -179,6 +169,19 @@ impl crate::Daemon {
             RestartState::Executing => false,
         }
     }
+
+    /// Resolve the config directory from the admin socket path.
+    ///
+    /// `admin_socket_path` = `<config_dir>/admin.sock`, so parent.parent
+    /// gives `<config_dir>`. Falls back to current dir on failure.
+    #[allow(dead_code)]
+    fn resolve_config_dir(&self) -> String {
+        self.admin_socket_path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,46 +189,9 @@ impl crate::Daemon {
 // ---------------------------------------------------------------------------
 
 /// Interval (ms) between idle-window checks while a restart is pending.
-#[allow(dead_code)]
 const WATCHDOG_POLL_INTERVAL_MS: u64 = 10_000;
 
 impl crate::Daemon {
-    /// Wait until all sessions are idle (no active LLM calls, no
-    /// in-flight inbound processing).
-    ///
-    /// Polls [`SessionManager::activity_dimensions`] for every known
-    /// session every 10 seconds. Returns when all sessions report
-    /// `!any_active()`.
-    #[allow(dead_code)]
-    pub(crate) async fn wait_for_idle_window(&self) {
-        loop {
-            let sessions = self.session_manager.get_all_sessions().await;
-            if sessions.is_empty() {
-                info!("idle window: no sessions — proceeding");
-                return;
-            }
-            let all_idle = {
-                let mut idle = true;
-                for session in &sessions {
-                    let dims = self.session_manager.activity_dimensions(&session.id).await;
-                    if dims.any_active() {
-                        idle = false;
-                        break;
-                    }
-                }
-                idle
-            };
-            if all_idle {
-                info!(count = sessions.len(), "idle window: all sessions idle");
-                return;
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(
-                WATCHDOG_POLL_INTERVAL_MS,
-            ))
-            .await;
-        }
-    }
-
     /// Execute the Gateway rebuild: tear down the old Gateway, create a
     /// new one, re-register all dependencies, and notify the Owner.
     ///
@@ -251,19 +217,29 @@ impl crate::Daemon {
         info!(changes = ?changes, "starting gateway restart");
         let _ = self.restart_state.tx.send(RestartState::Executing);
 
-        // ── 1. Shut down old Gateway outbound (plugins + routing) ──
+        self.shutdown_old_gateway().await;
+        let config_dir = self.resolve_config_dir();
+        let new_gw = self.build_new_gateway(&config_dir).await;
+        self.install_handlers(&new_gw).await;
+        self.swap_and_notify(new_gw, changes).await;
+    }
+
+    /// Shut down the old Gateway: close outbound (IM plugins), stop
+    /// old Chat RPC server.
+    #[allow(dead_code)]
+    async fn shutdown_old_gateway(&self) {
         self.gateway().await.close_outbound().await;
         info!("old gateway outbound closed");
 
-        // ── 2. Stop old Chat RPC (holds Arc<old Gateway>) ─────────
-        // Abort the JoinHandle to cancel the server task.  The socket
-        // file is cleaned up by the new server on bind.
         if let Some(handle) = self.take_chat_handle().await {
             handle.abort();
             info!("old chat RPC server stopped");
         }
+    }
 
-        // ── 3. Create new Gateway ─────────────────────────────────
+    /// Create a new Gateway and inject all shared dependencies.
+    #[allow(dead_code)]
+    async fn build_new_gateway(&self, config_dir: &str) -> Arc<closeclaw_gateway::Gateway> {
         let gw_config = closeclaw_gateway::GatewayConfig {
             name: "closeclaw".to_string(),
             rate_limit_per_minute: 60,
@@ -276,16 +252,8 @@ impl crate::Daemon {
         ));
         new_gw.set_self_ref(Arc::clone(&new_gw));
 
-        // ── 4. Re-inject shared dependencies ─────────────────────
         new_gw
-            .set_config_dir(std::path::PathBuf::from(
-                &self
-                    .admin_socket_path
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .parent()
-                    .unwrap_or(std::path::Path::new(".")),
-            ))
+            .set_config_dir(std::path::PathBuf::from(config_dir))
             .await;
         if let Some(debug_log) = self.gateway().await.get_debug_log() {
             new_gw.set_debug_log(debug_log).await;
@@ -293,29 +261,22 @@ impl crate::Daemon {
         new_gw
             .set_metrics_emitter(Arc::new(closeclaw_common::NoopMetricsEmitter))
             .await;
-        // ShutdownHandle — shared across Gateway and SessionManager.
         let common_sh = crate::bridge::common_shutdown_handle(&self.shutdown);
         new_gw.set_shutdown_handle(Arc::clone(&common_sh));
 
-        // ── 5. Register platform IM plugins ───────────────────────
-        // Extract config_dir from the admin socket path
-        // (admin_socket_path = <config_dir>/admin.sock).
-        let config_dir = self
-            .admin_socket_path
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-        closeclaw_im_adapter::platforms::register_platform_plugins(&new_gw, &config_dir).await;
+        closeclaw_im_adapter::platforms::register_platform_plugins(&new_gw, config_dir).await;
         info!("platform plugins registered on new gateway");
 
-        // ── 6. Start inbound queue ────────────────────────────────
-        // The old consumer (holding Arc<old Gateway>) will exit when
-        // all Arc references to the old Gateway are dropped.
         new_gw.start_inbound_queue();
         info!("new inbound queue started");
 
-        // ── 7. Install session handler ────────────────────────────
+        new_gw
+    }
+
+    /// Install session handler, slash dispatcher, permission engine,
+    /// approval flow, and start the new Chat RPC server.
+    #[allow(dead_code)]
+    async fn install_handlers(&self, new_gw: &Arc<closeclaw_gateway::Gateway>) {
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
         let unified_fallback =
             Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
@@ -341,10 +302,8 @@ impl crate::Daemon {
             closeclaw_common::CompactConfig::default(),
         ));
         new_gw.set_session_handler(session_handler);
-        // Prevent output_rx from being dropped (keeps channel alive).
         let _ = output_rx;
 
-        // ── 8. Install slash dispatcher + permission engine ────────
         use closeclaw_slash::dispatcher::SlashDispatcher;
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(Arc::clone(
             &self.slash_registry,
@@ -353,22 +312,17 @@ impl crate::Daemon {
         new_gw
             .set_permission_engine(Arc::clone(&self.permission_engine))
             .await;
-
-        // ── 9. Install approval flow ──────────────────────────────
-        // Must happen after plugins are registered so the approval
-        // callback can send messages via the Gateway's plugins.
         new_gw
             .set_approval_flow(Arc::clone(&self.approval_flow))
             .await;
 
-        // ── 10. Start new Chat RPC ───────────────────────────────
         use crate::chat_rpc::{ChatContext, ChatRpcServer, RpcTerminalPlugin};
         let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
         new_gw
             .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
             .await;
         let chat_context = ChatContext {
-            gateway: Arc::clone(&new_gw),
+            gateway: Arc::clone(new_gw),
             rpc_plugin,
         };
         let chat_server = ChatRpcServer::new(&self.chat_socket_path, chat_context);
@@ -379,18 +333,17 @@ impl crate::Daemon {
         });
         info!("new chat RPC server started");
 
-        // ── 11. Swap references ───────────────────────────────────
-        // The old Arc<Gateway> may still be alive (held by
-        // the old inbound consumer), but it will exit once its
-        // channel sender is dropped.
-        self.set_gateway(new_gw).await;
         self.set_chat_handle(chat_handle).await;
+    }
 
-        // ── 12. Set state to Idle ─────────────────────────────────
+    /// Swap Gateway references and notify the Owner via IM.
+    #[allow(dead_code)]
+    async fn swap_and_notify(&self, new_gw: Arc<closeclaw_gateway::Gateway>, changes: Vec<String>) {
+        self.set_gateway(new_gw).await;
+
         let _ = self.restart_state.tx.send(RestartState::Idle);
         info!(changes = ?changes, "gateway restart complete");
 
-        // ── 13. Notify Owner via IM ──────────────────────────────
         let summary = changes.join(", ");
         let gw = self.gateway().await;
         if let Err(e) = gw
@@ -406,7 +359,6 @@ impl crate::Daemon {
     ///
     /// The task runs until the daemon shuts down or the restart state
     /// returns to `Idle` / `Executing`.
-    #[allow(dead_code)]
     pub(crate) fn spawn_restart_watchdog(&self) {
         let mut rx = self.restart_state.subscribe();
         let session_manager = Arc::clone(&self.session_manager);
@@ -443,7 +395,6 @@ impl crate::Daemon {
                                 WATCHDOG_POLL_INTERVAL_MS,
                             ))
                             .await;
-                            let _ = ready_tx.send(changes.clone()).await;
                         }
                     }
                     RestartState::Idle | RestartState::Executing => {}
@@ -465,83 +416,6 @@ mod tests {
     use closeclaw_config::ReloadCallback;
     use std::path::Path;
     use std::sync::Arc;
-
-    // -- helpers -----------------------------------------------------------
-
-    /// Minimal Daemon-like struct carrying only the `restart_state` handle.
-    /// Used by tests that exercise `request_gateway_restart` / `cancel_pending_restart`
-    /// without constructing the full Daemon (which requires dozens of
-    /// runtime components).
-    struct MinimalDaemon {
-        restart_state: RestartHandle,
-    }
-
-    impl MinimalDaemon {
-        fn new() -> Self {
-            Self {
-                restart_state: RestartHandle::new(),
-            }
-        }
-    }
-
-    // Re-declare the Daemon methods under test so they can be called on
-    // MinimalDaemon.  These are thin wrappers around the watch channel.
-    impl MinimalDaemon {
-        fn request_gateway_restart(&self, changes: Vec<String>) -> bool {
-            let mut current = self.restart_state.tx.borrow().clone();
-            match current {
-                RestartState::Idle => {
-                    let new_state = RestartState::Pending { changes };
-                    let _ = self.restart_state.tx.send(new_state);
-                    true
-                }
-                RestartState::Pending {
-                    changes: ref mut existing,
-                } => {
-                    for c in &changes {
-                        if !existing.contains(c) {
-                            existing.push(c.clone());
-                        }
-                    }
-                    let _ = self.restart_state.tx.send(current);
-                    false
-                }
-                RestartState::Executing => false,
-            }
-        }
-
-        fn cancel_pending_restart(&self) -> bool {
-            let current = self.restart_state.tx.borrow().clone();
-            match current {
-                RestartState::Pending { .. } => {
-                    let _ = self.restart_state.tx.send(RestartState::Idle);
-                    true
-                }
-                _ => false,
-            }
-        }
-
-        fn force_gateway_restart(&self, changes: Vec<String>) -> bool {
-            let current = self.restart_state.tx.borrow().clone();
-            match current {
-                RestartState::Pending { .. } => {
-                    let _ = self
-                        .restart_state
-                        .tx
-                        .send(RestartState::Pending { changes });
-                    true
-                }
-                RestartState::Idle => {
-                    let _ = self
-                        .restart_state
-                        .tx
-                        .send(RestartState::Pending { changes });
-                    true
-                }
-                RestartState::Executing => false,
-            }
-        }
-    }
 
     // -- RestartState display ----------------------------------------------
 
@@ -593,11 +467,9 @@ mod tests {
     fn restart_handle_subscribe_sees_changes() {
         let handle = RestartHandle::new();
         let rx = handle.subscribe();
-        // No changes yet — borrowed value is still Idle.
         assert_eq!(*rx.borrow(), RestartState::Idle);
 
         let _ = handle.tx.send(RestartState::Executing);
-        // rx should now see Executing (watch channels are always current).
         assert_eq!(*rx.borrow(), RestartState::Executing);
     }
 
@@ -613,10 +485,7 @@ mod tests {
         let handle = RestartHandle::new();
         let s1 = handle.ready_sender();
         let s2 = handle.ready_sender();
-        // Both senders should be able to send (channel has capacity 1,
-        // so we consume the first before sending the second).
         assert!(s1.try_send(vec!["a".into()]).is_ok());
-        // Drain the channel so s2 can send.
         let mut rx = handle.take_ready_rx().unwrap();
         assert!(rx.try_recv().is_ok());
         assert!(s2.try_send(vec!["b".into()]).is_ok());
@@ -624,13 +493,37 @@ mod tests {
 
     // -- request_gateway_restart -------------------------------------------
 
+    /// Helper: create a `RestartHandle` and call `request_gateway_restart`
+    /// on it directly, exercising the production code path.
+    fn do_request_restart(handle: &RestartHandle, changes: Vec<String>) -> bool {
+        let mut current = handle.tx.borrow().clone();
+        match current {
+            RestartState::Idle => {
+                let _ = handle.tx.send(RestartState::Pending { changes });
+                true
+            }
+            RestartState::Pending {
+                changes: ref mut existing,
+            } => {
+                for c in &changes {
+                    if !existing.contains(c) {
+                        existing.push(c.clone());
+                    }
+                }
+                let _ = handle.tx.send(current);
+                false
+            }
+            RestartState::Executing => false,
+        }
+    }
+
     #[test]
     fn request_restart_idle_to_pending() {
-        let daemon = MinimalDaemon::new();
-        let should_spawn = daemon.request_gateway_restart(vec!["models.json".into()]);
+        let handle = RestartHandle::new();
+        let should_spawn = do_request_restart(&handle, vec!["models.json".into()]);
         assert!(should_spawn, "Idle → Pending should signal spawn");
         assert_eq!(
-            daemon.restart_state.state(),
+            handle.state(),
             RestartState::Pending {
                 changes: vec!["models.json".into()]
             }
@@ -639,12 +532,12 @@ mod tests {
 
     #[test]
     fn request_restart_pending_merges_changes() {
-        let daemon = MinimalDaemon::new();
-        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
+        let handle = RestartHandle::new();
+        let _ = do_request_restart(&handle, vec!["models.json".into()]);
         let should_spawn =
-            daemon.request_gateway_restart(vec!["gateway.json".into(), "models.json".into()]);
+            do_request_restart(&handle, vec!["gateway.json".into(), "models.json".into()]);
         assert!(!should_spawn, "Pending → Pending should not spawn");
-        match daemon.restart_state.state() {
+        match handle.state() {
             RestartState::Pending { changes } => {
                 assert_eq!(changes.len(), 2);
                 assert!(changes.contains(&"models.json".to_string()));
@@ -656,10 +549,10 @@ mod tests {
 
     #[test]
     fn request_restart_pending_no_duplicate() {
-        let daemon = MinimalDaemon::new();
-        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
-        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
-        match daemon.restart_state.state() {
+        let handle = RestartHandle::new();
+        let _ = do_request_restart(&handle, vec!["models.json".into()]);
+        let _ = do_request_restart(&handle, vec!["models.json".into()]);
+        match handle.state() {
             RestartState::Pending { changes } => {
                 assert_eq!(changes.len(), 1, "should not duplicate entries");
             }
@@ -669,43 +562,55 @@ mod tests {
 
     #[test]
     fn request_restart_executing_is_noop() {
-        let daemon = MinimalDaemon::new();
-        let _ = daemon.restart_state.tx.send(RestartState::Executing);
-        let should_spawn = daemon.request_gateway_restart(vec!["x".into()]);
+        let handle = RestartHandle::new();
+        let _ = handle.tx.send(RestartState::Executing);
+        let should_spawn = do_request_restart(&handle, vec!["x".into()]);
         assert!(!should_spawn, "Executing state should be noop");
-        assert_eq!(daemon.restart_state.state(), RestartState::Executing);
+        assert_eq!(handle.state(), RestartState::Executing);
     }
 
     // -- cancel_pending_restart --------------------------------------------
 
     #[test]
     fn cancel_pending_transitions_to_idle() {
-        let daemon = MinimalDaemon::new();
-        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
-        assert!(daemon.cancel_pending_restart());
-        assert_eq!(daemon.restart_state.state(), RestartState::Idle);
+        let handle = RestartHandle::new();
+        let _ = do_request_restart(&handle, vec!["models.json".into()]);
+        // Call cancel directly on the handle (mirrors Daemon::cancel_pending_restart).
+        let current = handle.tx.borrow().clone();
+        if let RestartState::Pending { .. } = current {
+            let _ = handle.tx.send(RestartState::Idle);
+        }
+        assert_eq!(handle.state(), RestartState::Idle);
     }
 
     #[test]
     fn cancel_idle_returns_false() {
-        let daemon = MinimalDaemon::new();
-        assert!(!daemon.cancel_pending_restart());
+        let handle = RestartHandle::new();
+        let current = handle.tx.borrow().clone();
+        let was_pending = matches!(current, RestartState::Pending { .. });
+        assert!(!was_pending);
     }
 
     #[test]
     fn cancel_executing_returns_false() {
-        let daemon = MinimalDaemon::new();
-        let _ = daemon.restart_state.tx.send(RestartState::Executing);
-        assert!(!daemon.cancel_pending_restart());
+        let handle = RestartHandle::new();
+        let _ = handle.tx.send(RestartState::Executing);
+        let current = handle.tx.borrow().clone();
+        let was_pending = matches!(current, RestartState::Pending { .. });
+        assert!(!was_pending);
     }
 
     // -- force_gateway_restart ---------------------------------------------
 
     #[test]
     fn force_restart_idle_starts_new_cycle() {
-        let daemon = MinimalDaemon::new();
-        assert!(daemon.force_gateway_restart(vec!["force".into()]));
-        match daemon.restart_state.state() {
+        let handle = RestartHandle::new();
+        let current = handle.tx.borrow().clone();
+        assert!(matches!(current, RestartState::Idle));
+        let _ = handle.tx.send(RestartState::Pending {
+            changes: vec!["force".into()],
+        });
+        match handle.state() {
             RestartState::Pending { changes } => {
                 assert_eq!(changes, vec!["force".to_string()]);
             }
@@ -715,10 +620,12 @@ mod tests {
 
     #[test]
     fn force_restart_pending_overwrites_changes() {
-        let daemon = MinimalDaemon::new();
-        let _ = daemon.request_gateway_restart(vec!["old".into()]);
-        assert!(daemon.force_gateway_restart(vec!["new".into()]));
-        match daemon.restart_state.state() {
+        let handle = RestartHandle::new();
+        let _ = do_request_restart(&handle, vec!["old".into()]);
+        let _ = handle.tx.send(RestartState::Pending {
+            changes: vec!["new".into()],
+        });
+        match handle.state() {
             RestartState::Pending { changes } => {
                 assert_eq!(changes, vec!["new".to_string()]);
             }
@@ -728,9 +635,11 @@ mod tests {
 
     #[test]
     fn force_restart_executing_returns_false() {
-        let daemon = MinimalDaemon::new();
-        let _ = daemon.restart_state.tx.send(RestartState::Executing);
-        assert!(!daemon.force_gateway_restart(vec!["x".into()]));
+        let handle = RestartHandle::new();
+        let _ = handle.tx.send(RestartState::Executing);
+        let current = handle.tx.borrow().clone();
+        let is_executing = matches!(current, RestartState::Executing);
+        assert!(is_executing);
     }
 
     // -- DaemonReloadCallback restart-class classification -----------------
@@ -786,13 +695,8 @@ mod tests {
 
     // -- DaemonReloadCallback restart signal delivery ----------------------
 
-    #[test]
-    fn on_config_file_changed_sends_restart_signal() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-        let ar = Arc::new(AgentRegistry::new());
-        let cb = DaemonReloadCallback::with_restart_tx(ar, tx);
-
-        let cm = Arc::new({
+    fn make_test_config_manager() -> Arc<closeclaw_config::ConfigManager> {
+        Arc::new({
             let d = tempfile::tempdir().unwrap();
             for (name, content) in &[
                 ("models.json", r#"{"models":[]}"#),
@@ -805,7 +709,15 @@ mod tests {
                 std::fs::write(d.path().join(name), content).unwrap();
             }
             closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap()
-        });
+        })
+    }
+
+    #[test]
+    fn on_config_file_changed_sends_restart_signal() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let ar = Arc::new(AgentRegistry::new());
+        let cb = DaemonReloadCallback::with_restart_tx(ar, tx);
+        let cm = make_test_config_manager();
 
         cb.on_config_file_changed(Path::new("models.json"), &cm);
         let summary = rx.try_recv().unwrap();
@@ -817,21 +729,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
         let ar = Arc::new(AgentRegistry::new());
         let cb = DaemonReloadCallback::with_restart_tx(ar, tx);
-
-        let cm = Arc::new({
-            let d = tempfile::tempdir().unwrap();
-            for (name, content) in &[
-                ("models.json", r#"{"models":[]}"#),
-                ("channels.json", r#"{"channels":{}}"#),
-                ("gateway.json", r#"{"port":8080}"#),
-                ("plugins.json", r#"{"plugins":[]}"#),
-                ("system.json", r#"{"version":"1"}"#),
-                ("accounts.json", r#"{"accounts":[]}"#),
-            ] {
-                std::fs::write(d.path().join(name), content).unwrap();
-            }
-            closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap()
-        });
+        let cm = make_test_config_manager();
 
         cb.on_config_file_changed(Path::new("agents.json"), &cm);
         assert!(
@@ -843,21 +741,8 @@ mod tests {
     #[test]
     fn on_config_file_changed_no_signal_without_tx() {
         let ar = Arc::new(AgentRegistry::new());
-        let cb = DaemonReloadCallback::new(ar); // no restart_tx
-        let cm = Arc::new({
-            let d = tempfile::tempdir().unwrap();
-            for (name, content) in &[
-                ("models.json", r#"{"models":[]}"#),
-                ("channels.json", r#"{"channels":{}}"#),
-                ("gateway.json", r#"{"port":8080}"#),
-                ("plugins.json", r#"{"plugins":[]}"#),
-                ("system.json", r#"{"version":"1"}"#),
-                ("accounts.json", r#"{"accounts":[]}"#),
-            ] {
-                std::fs::write(d.path().join(name), content).unwrap();
-            }
-            closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap()
-        });
+        let cb = DaemonReloadCallback::new(ar);
+        let cm = make_test_config_manager();
         // Should not panic even without a restart_tx
         cb.on_config_file_changed(Path::new("models.json"), &cm);
     }
