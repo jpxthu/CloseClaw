@@ -513,9 +513,9 @@
   },
   {
     "path": "docs/design/session/session-execution.md",
-    "commit": "87ed5aee3d89b1bcad2fd4530e54cd9801a9ae77",
-    "commit_time": "2026-08-28T08:44:47+08:00",
-    "confirmed_time": "2026-08-28T09:07:37.644069+08:00",
+    "commit": "2c0950ab7571e182b28ae1736033657acac5ec0b",
+    "commit_time": "2026-08-28T09:08:45+08:00",
+    "confirmed_time": "2026-08-28T09:23:19.085555+08:00",
     "comment": "",
     "blocked_reason": ""
   },
