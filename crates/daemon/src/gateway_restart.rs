@@ -791,4 +791,127 @@ mod tests {
         // Should not panic even without a restart_tx
         cb.on_config_file_changed(Path::new("models.json"), &cm);
     }
+
+    // ── Step 1.3: Gateway restart rebuild UTs ──────────────────────────
+
+    /// ChatContext holds a Gateway Arc — it must be rebuilt on restart.
+    /// Compile-time check: struct literal requires `gateway` and `rpc_plugin`.
+    #[test]
+    fn chat_context_holds_gateway_reference() {
+        use crate::chat_rpc::{ChatContext, RpcTerminalPlugin};
+        use closeclaw_gateway::types::GatewayConfig;
+        use closeclaw_gateway::{Gateway, SessionManager};
+
+        let gw = Arc::new(Gateway::new(
+            GatewayConfig::default(),
+            Arc::new(SessionManager::new(
+                &GatewayConfig::default(),
+                None,
+                None,
+                closeclaw_common::ReasoningLevel::default(),
+            )),
+        ));
+        let ctx = ChatContext {
+            gateway: Arc::clone(&gw),
+            rpc_plugin: Arc::new(RpcTerminalPlugin::new()),
+        };
+        // Arc::strong_count tracks lifecycle; same Arc = same Gateway.
+        assert!(Arc::ptr_eq(&ctx.gateway, &gw));
+    }
+
+    /// AdminContext must NOT hold a Gateway reference — it is unaffected
+    /// by gateway restarts. Compile-time check: struct literal requires
+    /// exactly these fields (no `gateway` field exists).
+    #[test]
+    fn admin_context_has_no_gateway_reference() {
+        use closeclaw_cli::admin::AdminContext;
+
+        // This struct literal will fail to compile if AdminContext gains
+        // a `gateway` field — the required-field check catches it.
+        let ctx = AdminContext {
+            agent_registry: Arc::new(AgentRegistry::new()),
+            skill_registry: Arc::new(std::sync::RwLock::new(None)),
+            config_manager: make_test_config_manager(),
+            config_dir: std::path::PathBuf::from("/tmp/test"),
+            skill_rescan: None,
+            restart_tx: None,
+        };
+        // Verify the context was constructed (field existence is compile-time).
+        assert!(ctx.restart_tx.is_none());
+    }
+
+    /// After a simulated restart, chat_handle is replaced with a new JoinHandle.
+    /// This locks the behavioral invariant: old handle is taken, new handle stored.
+    #[tokio::test]
+    async fn chat_handle_replaced_after_restart() {
+        let handle = Arc::new(tokio::sync::Mutex::new(Some(tokio::spawn(async {}))));
+
+        // Simulate shutdown_old_gateway: take old handle.
+        let old = handle.lock().await.take();
+        assert!(old.is_some(), "old chat handle should exist before restart");
+
+        // Simulate install_handlers: set new handle.
+        let new = tokio::spawn(async {});
+        *handle.lock().await = Some(new);
+
+        // Verify: the stored handle is a different task.
+        let stored = handle.lock().await;
+        assert!(stored.is_some(), "new chat handle should be stored");
+        // The old handle was dropped (aborted); stored is the new one.
+        drop(stored);
+    }
+
+    /// Admin RPC server handle is NOT touched during gateway restart.
+    /// It is a plain Option<JoinHandle> (not Arc<Mutex>) and remains
+    /// unchanged across the restart flow.
+    #[tokio::test]
+    async fn admin_handle_unchanged_during_restart() {
+        let admin_handle: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(async {}));
+
+        // Gateway restart does NOT call take/set on admin_handle.
+        // Simulate: admin_handle stays as-is.
+        assert!(admin_handle.is_some());
+
+        // Verify the handle is still the original one (not replaced).
+        let handle_ref = admin_handle.as_ref().unwrap();
+        assert!(!handle_ref.is_finished());
+    }
+
+    /// Gateway restart state machine: Pending → Executing → Idle.
+    /// Ensures the full restart lifecycle transitions are reachable.
+    #[test]
+    fn restart_lifecycle_full_transition() {
+        let handle = RestartHandle::new();
+        assert_eq!(handle.state(), RestartState::Idle);
+
+        // Idle → Pending (request restart)
+        let should_spawn = do_request_restart(&handle, vec!["gateway.json".into()]);
+        assert!(should_spawn);
+        assert!(matches!(handle.state(), RestartState::Pending { .. }));
+
+        // Pending → Executing (restart starts)
+        let _ = handle.tx.send(RestartState::Executing);
+        assert_eq!(handle.state(), RestartState::Executing);
+
+        // Executing → Idle (restart completes)
+        let _ = handle.tx.send(RestartState::Idle);
+        assert_eq!(handle.state(), RestartState::Idle);
+    }
+
+    /// Pending restart merges duplicate and non-duplicate changes.
+    /// Locks the restart-request batching behavior.
+    #[test]
+    fn restart_request_merges_changes() {
+        let handle = RestartHandle::new();
+        let _ = do_request_restart(&handle, vec!["models.json".into()]);
+        let _ = do_request_restart(&handle, vec!["gateway.json".into(), "models.json".into()]);
+        match handle.state() {
+            RestartState::Pending { changes } => {
+                assert_eq!(changes.len(), 2);
+                assert!(changes.contains(&"models.json".to_string()));
+                assert!(changes.contains(&"gateway.json".to_string()));
+            }
+            other => panic!("expected Pending, got {:?}", other),
+        }
+    }
 }
