@@ -8,6 +8,7 @@ pub mod config_reload;
 pub mod config_watcher;
 mod daemon_struct;
 pub mod dreaming_scheduler;
+pub mod gateway_restart;
 pub mod lifecycle;
 pub mod registries;
 pub mod shutdown;

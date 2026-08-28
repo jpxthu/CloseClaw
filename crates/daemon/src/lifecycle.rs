@@ -224,6 +224,7 @@ impl Daemon {
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
             _output_rx: output_rx,
+            restart_state: crate::gateway_restart::RestartHandle::new(),
         })
     }
 

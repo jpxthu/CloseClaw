@@ -16,6 +16,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 
 use crate::config_watcher;
+use crate::gateway_restart::RestartHandle;
 
 /// RAII handle for the PlanArchiveSweeper background task.
 ///
@@ -99,6 +100,8 @@ pub struct Daemon {
     #[allow(dead_code)]
     pub(crate) _output_rx:
         tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+    /// Gateway restart state machine — tracks Pending/Executing transitions.
+    pub(crate) restart_state: RestartHandle,
 }
 
 /// Dependencies for Phase 5 background initialization.
