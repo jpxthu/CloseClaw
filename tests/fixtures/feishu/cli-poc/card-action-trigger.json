@@ -1,0 +1,14 @@
+{
+  "type": "card.action.trigger",
+  "event_id": "7a1f2a99e7b8cc91e1ca0a80e690ed96",
+  "timestamp": "1787884959729992",
+  "operator_id": "<open_id_4>",
+  "message_id": "om_x100b663b198028b4b4aaf6a4f2ca40d",
+  "chat_id": "<chat_id_2>",
+  "host": "im_message",
+  "token": "<card_callback_token>",
+  "action_tag": "button",
+  "action_value": "{\"action\":\"approve\",\"task\":\"t16\"}",
+  "checked": false,
+  "card_content": "{\"body\":{\"elements\":[{\"content\":\"**T16 卡片按钮测试**\",\"element_id\":\"_2\",\"tag\":\"markdown\"},{\"element_id\":\"_3\",\"tag\":\"button\",\"text\":{\"content\":\"确认执行\",\"tag\":\"plain_text\"},\"type\":\"primary_filled\",\"width\":\"fill\"},{\"element_id\":\"_5\",\"tag\":\"button\",\"text\":{\"content\":\"拒绝\",\"tag\":\"plain_text\"},\"type\":\"danger\"}]},\"config\":{\"enable_forward_interaction\":false,\"streaming_mode\":false},\"schema\":\"2.0\"}"
+}

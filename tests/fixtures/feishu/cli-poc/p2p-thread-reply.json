@@ -1,0 +1,18 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "4a7524d304156486aa5e4b0433a2a23e",
+  "timestamp": "1787922155722",
+  "id": "om_x100b662c207e7ca4dd414962d2c6de4",
+  "message_id": "om_x100b662c207e7ca4dd414962d2c6de4",
+  "create_time": "1787922155354",
+  "update_time": "1787922155425",
+  "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+  "chat_type": "p2p",
+  "message_type": "text",
+  "sender_id": "<open_id_owner_b1ctx>",
+  "sender_type": "user",
+  "root_id": "om_x100b662c236f18a4c213c559ac4a010",
+  "thread_id": "omt_19f40e130f4f5b8d",
+  "reply_to": "om_x100b662c236f18a4c213c559ac4a010",
+  "content": "A4 话题回复"
+}

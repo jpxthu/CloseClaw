@@ -1,0 +1,14 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "160ea3d3a5220bc16211d5ea6c713d7d",
+  "timestamp": "1787935617008",
+  "id": "om_x100b662ff6c4b0a4c3ebae616bc2430",
+  "message_id": "om_x100b662ff6c4b0a4c3ebae616bc2430",
+  "create_time": "1787935616684",
+  "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+  "chat_type": "p2p",
+  "message_type": "file",
+  "sender_id": "<open_id_owner_b1ctx>",
+  "sender_type": "user",
+  "content": "<file key=\"file_v3_00151_73185fa1-df09-4c05-ba1c-67a60c8aafbg\" name=\"poc-test.txt\"/>"
+}

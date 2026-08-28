@@ -1,0 +1,20 @@
+{
+  "schema": "2.0",
+  "header": {
+    "event_id": "30527b412344fdfab72c456bbd89b5e5",
+    "token": "",
+    "create_time": "1787911174356",
+    "event_type": "im.message.reaction.created_v1",
+    "tenant_key": "<tenant_key>",
+    "app_id": "cli_aa1a3da6c6b89bc4"
+  },
+  "event": {
+    "action_time": "1787911174356",
+    "app_id": "cli_a964e565a9f8dcb3",
+    "message_id": "om_x100b662133e87cbcb260134e36516ff",
+    "operator_type": "app",
+    "reaction_type": {
+      "emoji_type": "THUMBSUP"
+    }
+  }
+}
