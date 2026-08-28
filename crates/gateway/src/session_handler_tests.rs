@@ -4,8 +4,8 @@ use super::*;
 use crate::session_handler::apply_compact_result;
 use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler::MessageMetadata;
-use closeclaw_common::tool_session::ToolSession;
-use closeclaw_common::{LlmCaller, ToolExecState};
+use crate::session_manager::test_helpers::make_msg;
+use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
@@ -43,23 +43,6 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         fallback_llm_caller,
         closeclaw_session::compaction::CompactConfig::default(),
     )
-}
-
-fn make_msg() -> crate::Message {
-    use std::collections::HashMap;
-    crate::Message {
-        id: "msg_1".into(),
-        from: "alice".into(),
-        to: "bob".into(),
-        content: "hello".into(),
-        channel: "ch".into(),
-        timestamp: chrono::Utc::now().timestamp(),
-        metadata: HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    }
 }
 
 fn make_config() -> crate::GatewayConfig {
@@ -931,6 +914,38 @@ async fn test_user_message_persisted_before_compact_check() {
 
 // ── to_request_context (Step 1.4 / 1.5) ─────────────────────────────────
 
+/// Verify that `MessageMetadata::default_meta()` maps all fields
+/// correctly into a `closeclaw_common::RequestContext`.
+#[test]
+fn test_default_meta_to_request_context() {
+    let meta = MessageMetadata::default_meta();
+    let ctx = meta.to_request_context();
+    assert!(ctx.sender_id.is_empty());
+    assert!(ctx.channel.is_empty());
+    // Timestamp should be recent (within last 60 seconds)
+    let now = chrono::Utc::now().timestamp();
+    assert!(ctx.timestamp <= now);
+    assert!(ctx.timestamp > now - 60);
+}
+
+/// Empty-string fields roundtrip correctly.
+#[test]
+fn test_to_request_context_empty_fields() {
+    let meta = MessageMetadata {
+        sender_id: String::new(),
+        channel: String::new(),
+        timestamp: 0,
+        chat_name: String::new(),
+        trace_id: None,
+        session_key: None,
+    };
+    let ctx = meta.to_request_context();
+    assert!(ctx.sender_id.is_empty());
+    assert!(ctx.channel.is_empty());
+    assert_eq!(ctx.timestamp, 0);
+    assert!(ctx.chat_name.is_empty());
+}
+
 /// Verify that `MessageMetadata::to_request_context` maps all fields
 /// correctly into a `closeclaw_common::RequestContext`.
 #[test]
@@ -948,40 +963,4 @@ fn test_to_request_context_maps_fields() {
     assert_eq!(ctx.channel, "feishu");
     assert_eq!(ctx.timestamp, 1700000000);
     assert_eq!(ctx.chat_name, "test-group");
-}
-
-/// Consumer behavior: `is_session_busy()` returns `false` when a
-/// background tool is running (design doc state table row 2).
-#[tokio::test]
-async fn test_is_session_busy_false_with_background_tool() {
-    let sm = make_sm();
-    let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-
-    // Register a background tool via the ToolSession trait.
-    let cs = sm
-        .get_conversation_session(&sid)
-        .await
-        .expect("session exists");
-    {
-        let guard = cs.write().await;
-        <closeclaw_session::llm_session::ConversationSession as ToolSession>::register_tool_call(
-            &*guard,
-            "bg-1".into(),
-            "bash".into(),
-            "ls".into(),
-        )
-        .await;
-        <closeclaw_session::llm_session::ConversationSession as ToolSession>::update_tool_state(
-            &*guard,
-            "bg-1",
-            ToolExecState::RunningBackground,
-        )
-        .await;
-    }
-
-    // Background tool running → session is NOT busy (per design doc).
-    assert!(
-        !sm.is_session_busy(&sid).await,
-        "is_session_busy must return false when only background tool is active"
-    );
 }

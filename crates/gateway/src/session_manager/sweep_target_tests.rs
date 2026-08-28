@@ -8,31 +8,16 @@
 //! - `terminate_stale_child`: kill + no notification when parent archived
 //! - `terminate_stale_child`: kill still fires when kill_child fails
 //! - Cascade: nested descendants terminated on stale kill
+//! - Consumer behavior: `is_session_busy` / `is_session_idle` with background tool
 
 use super::spawn::SpawnMode;
-use super::test_helpers::{append_assistant_to_child, setup_parent_with_conv};
+use super::test_helpers::{
+    append_assistant_to_child, make_msg, register_bg_tool, setup_parent_with_conv,
+};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
-use closeclaw_common::{tool_session::ToolSession, ToolExecState};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
-
-fn make_msg() -> crate::Message {
-    use std::collections::HashMap;
-    crate::Message {
-        id: "msg_sweep".into(),
-        from: "alice".into(),
-        to: "bob".into(),
-        content: "hello".into(),
-        channel: "ch".into(),
-        timestamp: chrono::Utc::now().timestamp(),
-        metadata: HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    }
-}
 
 // ── 1. get_last_output_at: session exists → returns timestamp ────────────
 
@@ -479,31 +464,42 @@ async fn test_is_session_idle_with_background_tool() {
     let mgr = make_test_mgr(None);
     let sid = mgr.find_or_create("ch", &make_msg(), None).await.unwrap();
 
-    // Register a background tool via the ToolSession trait.
+    // Register a background tool via the shared helper.
     let cs = mgr
         .get_conversation_session(&sid)
         .await
         .expect("session exists");
-    {
-        let guard = cs.write().await;
-        <closeclaw_session::llm_session::ConversationSession as ToolSession>::register_tool_call(
-            &*guard,
-            "bg-sweep-1".into(),
-            "bash".into(),
-            "ls".into(),
-        )
-        .await;
-        <closeclaw_session::llm_session::ConversationSession as ToolSession>::update_tool_state(
-            &*guard,
-            "bg-sweep-1",
-            ToolExecState::RunningBackground,
-        )
-        .await;
-    }
+    register_bg_tool(&cs, "bg-sweep-1").await;
 
     // Background tool running → session IS idle (per design doc).
     assert!(
         mgr.is_session_idle(&sid).await,
         "is_session_idle must return true when only background tool is active"
+    );
+}
+
+// ── 11. is_session_busy: background tool running → false ─────────────────
+
+/// Consumer behavior: `is_session_busy()` returns `false` when a
+/// background tool is running (design doc state table row 2).
+#[tokio::test]
+#[serial]
+async fn test_is_session_busy_false_with_background_tool() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let sid = mgr.find_or_create("ch", &make_msg(), None).await.unwrap();
+
+    // Register a background tool via the shared helper.
+    let cs = mgr
+        .get_conversation_session(&sid)
+        .await
+        .expect("session exists");
+    register_bg_tool(&cs, "bg-1").await;
+
+    // Background tool running → session is NOT busy (per design doc).
+    assert!(
+        !mgr.is_session_busy(&sid).await,
+        "is_session_busy must return false when only background tool is active"
     );
 }
