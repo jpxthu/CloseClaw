@@ -305,6 +305,18 @@ impl crate::Daemon {
         closeclaw_im_adapter::platforms::register_platform_plugins(&new_gw, config_dir).await;
         info!("platform plugins registered on new gateway");
 
+        // Inject shared CheckpointManager from SessionManager so outbound
+        // checkpoint persistence survives the restart.
+        if let Some(cm) = self.session_manager.checkpoint_manager().await {
+            new_gw.set_checkpoint_manager(cm);
+            info!("checkpoint manager injected into new gateway");
+        } else {
+            warn!(
+                "session manager has no checkpoint_manager \u{2014} \
+                    outbound checkpoint persistence disabled after restart"
+            );
+        }
+
         new_gw.start_inbound_queue();
         info!("new inbound queue started");
 
@@ -315,25 +327,15 @@ impl crate::Daemon {
     /// approval flow, and start the new Chat RPC server.
     async fn install_handlers(&self, new_gw: &Arc<closeclaw_gateway::Gateway>) {
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
-        let unified_fallback =
-            Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
-                vec![],
-                Arc::new(closeclaw_llm::retry::CooldownManager::new()),
-            ));
         let active_searcher = Arc::new(
             closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-                client: Arc::clone(&unified_fallback),
+                client: Arc::clone(&self.fallback_client),
                 model: String::new(),
             },
         );
-        #[allow(deprecated)]
-        let compact_client = Arc::new(closeclaw_llm::fallback::FallbackClient::from_strings(
-            Arc::clone(&self.llm_registry),
-            vec![],
-        ));
         let session_handler = Arc::new(closeclaw_gateway::SessionMessageHandler::new(
             Arc::clone(&self.session_manager),
-            compact_client,
+            Arc::clone(&self.fallback_client),
             output_tx,
             active_searcher,
             closeclaw_common::CompactConfig::default(),

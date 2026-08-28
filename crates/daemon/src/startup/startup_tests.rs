@@ -805,7 +805,7 @@ fn test_validate_phase_components_registries_expected_includes_llm_registry() {
 #[tokio::test]
 async fn test_init_llm_registry_empty_env_returns_empty_registry() {
     let dir = tempfile::tempdir().unwrap();
-    let registry =
+    let (registry, _fallback_client) =
         crate::Daemon::init_llm_registry(dir.path(), &std::collections::HashMap::new()).await;
     let providers = registry.list().await;
     assert!(
@@ -819,7 +819,8 @@ async fn test_init_llm_registry_empty_env_returns_empty_registry() {
 async fn test_init_llm_registry_with_env_override_registers_provider() {
     let dir = tempfile::tempdir().unwrap();
     let overrides = std::collections::HashMap::from([("OPENAI_API_KEY", "sk-test")]);
-    let registry = crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    let (registry, _fallback_client) =
+        crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
     let providers = registry.list().await;
     assert!(
         providers.contains(&"openai".to_string()),
@@ -833,7 +834,8 @@ async fn test_init_llm_registry_empty_key_not_registered() {
     let dir = tempfile::tempdir().unwrap();
     let overrides =
         std::collections::HashMap::from([("OPENAI_API_KEY", ""), ("ANTHROPIC_API_KEY", "")]);
-    let registry = crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    let (registry, _fallback_client) =
+        crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
     let providers = registry.list().await;
     assert!(
         providers.is_empty(),

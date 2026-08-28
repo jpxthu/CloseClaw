@@ -4,6 +4,7 @@
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
+use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::LLMRegistry;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
@@ -97,6 +98,10 @@ pub struct Daemon {
     /// LLM provider registry — reads models.json, constructs LLM clients.
     /// Initialized in Phase 2, consumed by LLM call chain assembly.
     pub llm_registry: Arc<LLMRegistry>,
+    /// Unified fallback client built in layer 2 from registered providers.
+    /// Shared across all LLM call sites (SessionManager, active searcher,
+    /// compaction, gateway restart).
+    pub fallback_client: Arc<UnifiedFallbackClient>,
     /// Receiver half of the SessionMessageHandler output channel.
     /// Retained here to prevent the sender from being silently closed;
     /// will be wired to the outbound pipeline in a future step.

@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Circuit breaker notification tests (Step 1.3 — plan Step 1.1).
 //!
 //! Verifies that when the compaction circuit breaker trips, an assistant
@@ -9,11 +7,9 @@
 use super::*;
 use crate::session_handler::{ActiveSearcherLlmCaller, MessageMetadata};
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::TranscriptOp;
@@ -63,18 +59,16 @@ fn handler_with_channel(
     tokio::sync::mpsc::Receiver<(String, Vec<ContentBlock>)>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::channel(10);
+    let ufc = Arc::new(UnifiedFallbackClient::new(
+        vec![],
+        Arc::new(CooldownManager::new()),
+    ));
     let handler = SessionMessageHandler::new(
         Arc::clone(sm),
-        Arc::new(FallbackClient::from_strings(
-            Arc::new(LLMRegistry::new()),
-            vec![],
-        )),
+        ufc.clone(),
         tx,
         Arc::new(ActiveSearcherLlmCaller {
-            client: Arc::new(UnifiedFallbackClient::new(
-                vec![],
-                Arc::new(CooldownManager::new()),
-            )),
+            client: ufc,
             model: String::new(),
         }),
         closeclaw_session::compaction::CompactConfig::default(),

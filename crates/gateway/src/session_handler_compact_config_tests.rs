@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Unit tests for per-agent compact configuration (Step 1.4).
 //!
 //! Verifies that `SessionMessageHandler` correctly propagates the
@@ -9,11 +7,9 @@
 
 use super::*;
 use crate::session_handler::ActiveSearcherLlmCaller;
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::compaction::CompactConfig;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
@@ -38,10 +34,10 @@ fn make_sm() -> Arc<SessionManager> {
     ))
 }
 
-fn make_fallback_client() -> Arc<FallbackClient> {
-    Arc::new(FallbackClient::from_strings(
-        Arc::new(LLMRegistry::new()),
+fn make_fallback_client() -> Arc<UnifiedFallbackClient> {
+    Arc::new(UnifiedFallbackClient::new(
         vec![],
+        Arc::new(CooldownManager::new()),
     ))
 }
 
