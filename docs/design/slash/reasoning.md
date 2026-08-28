@@ -2,13 +2,15 @@
 
 ## 概述
 
-`/reasoning` 指令用于查询或设置当前会话的推理深度。推理深度控制 LLM 在生成回复前的内部推理量，四个等级适用于不同的任务复杂度。
+`/reasoning` 指令用于查询或设置当前会话的推理深度档位，或请求关闭推理输出。推理深度控制 LLM 在生成回复前的内部推理量，四个档位适用于不同的任务复杂度。
 
 ## 架构
 
 推理深度有两个生效入口：config 全局默认值 + `/reasoning` 运行时覆盖。运行时覆盖优先级高于 config 默认值。
 
-**四个等级**：Low、Medium、High、Max。High 为默认值。`off` 是 Low 的别名。不支持的等级由 Provider 侧自动降级（如 Max 在不支持的模型上降为 High）。
+**四个档位**：Low、Medium、High、Max。High 为默认档位。不支持的档位由 Provider 侧自动降级（如 Max 在不支持的模型上降为 High）。
+
+**关闭推理请求**：`off` 不是档位，是关闭推理输出的请求，实际效果取决于供应商能力——支持关闭推理的 provider 真正关闭推理输出；不支持的 provider 不视为错误，仅将推理强度降至最低可用档位。完整语义与 provider 映射见 [LLM 会话增强](../session/llm-session-enhancements.md)。
 
 ```
 /reasoning medium
@@ -26,8 +28,8 @@ Gateway 写入 session reasoning_level = Medium
 
 ## 数据流
 
-- **`/reasoning`**（无参数）：读取 session 当前推理深度 → Reply("当前推理深度：Medium")
-- **`/reasoning low|medium|high|max|off`**：解析等级 → SetReasoning(level) → Gateway 写入 session。`off` 映射为 Low。
+- **`/reasoning`**（无参数）：读取 session 当前实际生效档位（含 provider 降级后的值；关闭请求在支持关闭的 provider 上显示为已关闭，在不支持的 provider 上显示为降级后的最低可用档位）→ Reply
+- **`/reasoning low|medium|high|max|off`**：解析档位或关闭请求 → SetReasoning(level|off) → Gateway 写入 session，回复实际生效结果——档位变更回复实际生效档位（含 provider 降级后的值）；关闭请求按供应商能力回复已关闭或已降至最低可用档位。off 的 provider 侧映射见 [LLM 会话增强](../session/llm-session-enhancements.md)。
 
 ## 模块关系
 

@@ -13,7 +13,7 @@ ConversationSession
   │
   ├── 构建请求 ──────────────────────────────────────────
   │     ├── 消息历史 + system prompt
-  │     ├── Reasoning Level 注入（config 默认 + 运行时覆盖）
+  │     ├── 推理强度注入（config 默认档位 + 运行时覆盖的档位或关闭请求）
   │     └── stream 标志位
   │
   ├── 调用 LLM ──────────────────────────────────────────
@@ -44,15 +44,15 @@ ConversationSession
 
 Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时指令覆盖两级入口生效。
 
-**四个等级**：Low、Medium、High、Max。High 为各 provider 默认值。不支持的等级自动降级（如 Max 在不支持的模型上降为 High），降级时记录日志但不对用户主动通知。
+**推理强度档位**：Low、Medium、High、Max 四个档位，High 为各 provider 默认值。不支持的档位自动降级（如 Max 在不支持的模型上降为 High），降级时记录日志但不对用户主动通知。
+
+**关闭推理请求**：档位之外，用户可通过 `off` 请求关闭推理输出。off 不是档位，实际效果取决于供应商能力（需求 [llm §F4](../../requirements/llm.md)）：支持关闭推理的 provider 真正关闭推理输出；不支持关闭的 provider（含设计上总输出推理内容的模型，如 DeepSeek 的 thinking 无法真正关闭、MiMo 在所有场景下均输出推理）不视为错误，仅将推理强度降至最低可用档位。
 
 **两级入口**：
-- **Config 配置**：`llm.reasoning_level` 设置全局默认值
-- **运行时指令**：`/reasoning` 无参数时查询当前实际生效等级（含 provider 降级后的值），`/reasoning [level|off]` 修改当前 session 等级，覆盖 config 默认值，不回写配置文件。输入非法档位值时忽略输入并回显当前生效的档位
+- **Config 配置**：`llm.reasoning_level` 设置全局默认档位
+- **运行时指令**：`/reasoning` 无参数时查询当前实际生效档位（含 provider 降级后的值；关闭请求在支持关闭的 provider 上显示为已关闭，在不支持的 provider 上显示为降级后的最低可用档位），`/reasoning [level|off]` 修改当前 session 的档位或提交关闭请求，覆盖 config 默认值，不回写配置文件。输入非法档位值时忽略输入并回显当前生效的档位
 
-**Provider 注入**：各 provider builder 持有自己的参数映射表，将 ReasoningLevel 转换为 provider 原生的 reasoning 参数。不同 provider 支持的参数格式不同——有的用 `reasoning_effort` 字段，有的用 `thinking.type` 开关，部分 provider 不支持 reasoning 控制。
-
-部分供应商的模型设计上总是输出推理内容（如 DeepSeek 的 thinking 无法真正关闭，MiMo 在所有场景下均输出推理），`/reasoning off` 在这些供应商上仅将推理强度降至最低档位。
+**Provider 注入**：各 provider builder 持有自己的参数映射表，将运行时取值（档位或关闭请求）转换为 provider 原生的 reasoning 参数。不同 provider 支持的参数格式不同——有的用 `reasoning_effort` 字段，有的用 `thinking.type` 开关，部分 provider 不支持 reasoning 控制。关闭请求的映射同「关闭推理请求」：支持关闭的 provider 注入关闭参数，不支持的 provider 注入最低可用档位参数。
 
 ### 用量统计
 
@@ -60,11 +60,11 @@ Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时
 
 **Usage 扩展**：除基础的 prompt/completion/total tokens 外，增加 `cache_read_tokens`（命中缓存的输入 token）、`cache_write_tokens`（新写入缓存的 token）和 `reasoning_tokens`（推理消耗的 token，与文本输出分开统计）。若 API 响应不携带缓存字段则对应字段显示为 0。
 
-**RunningStats** 跨轮次累加所有用量，保留上一轮快照用于命中率对比。支持查询缓存命中率（cache_read / total_input）。流式过程中 RunningStats 在 MessageEnd 事件到达时更新（此时才有完整 usage），中途查询返回上一次累加值。会话结束时 RunningStats 清零。
+**RunningStats** 跨轮次累加所有用量，保留上一轮快照用于命中率对比。支持查询累计缓存命中率（累计 cache_read / 累计 prompt，派生指标定义见 [common 共享类型](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds)）。流式过程中 RunningStats 在 MessageEnd 事件到达时更新（此时才有完整 usage），中途查询返回上一次累加值。会话结束时 RunningStats 清零。
 
 **缓存命中率下降检测**：
 
-增强层在每次 API 调用后比对本轮与上一轮的缓存命中率（`cache_read_tokens` / `total_input_tokens`）。命中率基于 RunningStats 中保留的上一轮快照与本轮增量计算，若降幅超过可配置阈值则标记为缓存命中率下降事件。用户可通过用量查询（如 `/status` 指令）查看该事件及可能的下降原因（如上下文变更、缓存 TTL 过期等）。
+增强层在每次 API 调用后参与缓存命中率下降检测：单次命中率 = 该次 `cache_read_tokens` ÷ `prompt_tokens`，相邻两次调用的对比方式、触发阈值与无缓存字段供应商的排除规则以 [RunningStats 权威定义](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds) 为准。用户可通过用量查询（如 `/status` 指令）查看下降事件及可能的下降原因（如上下文变更、缓存 TTL 过期等）。
 
 检测仅基于 API 响应中已有的缓存统计字段，不做额外的请求指纹计算或消息注入。
 
@@ -75,7 +75,7 @@ LLM 响应中的 Thinking 内容以独立 block 形式保留在消息历史中�
 **消息历史策略**：Thinking block 保留在 message history 中，参与 token 计数和上下文窗口管理。理由：Thinking 内容蕴含模型的推理链，后续对话中可供模型参考，提升推理连续性。
 
 **两道清理防线**（仅在构造发送给 LLM API 的消息列表时执行，不改变存储的 message history。先执行孤立清理再执行末尾清理）：
-- **孤立 Thinking 清理**：流式合并过程中，同一消息 ID 下的 Thinking block 可能因 provider 行为差异而与其他 block 分属不同消息。清理时移除没有同消息 ID non-Thinking 兄弟 block 的孤立 Thinking 消息。
+- **孤立 Thinking 清理**：流式合并过程中，同一消息 ID 下的 Thinking block 可能因 provider 行为差异而与其他 block 分属不同消息。清理时移除没有同消息 ID non-Thinking 兄弟 block 的孤立 Thinking 消息。清理仅影响发送给 API 的消息列表，存储的 message history 不变。对工具多轮推理带回（需求 [llm §F5](../../requirements/llm.md)）而言：随 assistant 消息保留的 Thinking block 均正常带回参与后续上下文；被移除的孤立 Thinking 不带回，其推理内容不进入后续请求。
 - **末尾 Thinking 清理**：API 不允许 assistant 消息以 Thinking block 结尾。若发送给 API 的消息列表中最后一条 assistant 消息的末尾 block 为 Thinking，从末尾移除直到遇到 non-Thinking block。若全部为 Thinking，替换为占位空文本。
 
 **可见性策略**：Thinking 内容属于内部推理，在消息传输和存储层面始终保留（供后续对话引用），但在终端展示层面可控制显示。增强层默认不在主终端展示思考过程，通过推理状态指示（如 shimmer）告知用户推理进行中。用户可通过详情面板按需查看完整推理文本。
@@ -115,7 +115,7 @@ LLM 响应中的 Thinking 内容以独立 block 形式保留在消息历史中�
 ### Reasoning Level 生效链路
 
 ```
-config.yaml: llm.reasoning_level: high
+config.yaml: llm.reasoning_level: high（默认档位）
                 │
                 ▼
         SessionManager 读入默认值
@@ -123,14 +123,14 @@ config.yaml: llm.reasoning_level: high
     ┌───────────┴───────────┐
     │                       │
     ▼                       ▼
-无运行时覆盖               /reasoning medium
+无运行时覆盖               /reasoning medium|off
     │                       │
     ▼                       ▼
-使用 config 默认        session 运行时覆盖
+使用 config 默认档位      session 运行时覆盖（档位或关闭请求）
     │                       │
     └───────────┬───────────┘
                 ▼
-        Provider builder 映射（各 provider 转换为其原生 reasoning 参数）
+        Provider builder 映射（各 provider 转换为其原生 reasoning 参数；关闭请求按供应商能力映射为关闭参数或最低可用档位）
                 │
                 ▼
         注入 LLM API 请求体
@@ -152,17 +152,17 @@ RunningStats 累加
   ├── 缓存命中输入累加
   ├── 缓存写入累加
   ├── 推理消耗 token 累加
-  ├── 总输入 token 累加
-  └── 比对本轮与上一轮缓存命中率（cache_read / total_input）→ 降幅超过阈值 → 标记缓存命中率下降事件
+  ├── prompt token 累加
+  └── 缓存命中率下降检测（相邻两次调用命中率对比，单次 = cache_read / prompt，判定细节见 RunningStats 权威定义）→ 触发时标记下降事件
 ```
 
 ## 模块关系
 
 ### 上游
 
-- **ConversationSession**：调用增强层构建 LLM 请求、处理响应，提供 Reasoning Level 运行时覆盖和 RunningStats 存储。
-- **SessionManager**：创建 session 时注入 config 中的默认 reasoning level。
-- **Slash Command**：`/reasoning` 指令运行时修改 session 的 reasoning level。
+- **ConversationSession**：调用增强层构建 LLM 请求、处理响应，提供 Reasoning Level 运行时覆盖（档位或关闭请求）和 RunningStats 存储。
+- **SessionManager**：创建 session 时注入 config 中的默认推理档位。
+- **Slash Command**：`/reasoning` 指令运行时修改 session 的推理档位或提交关闭请求。
 
 ### 下游
 

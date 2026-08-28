@@ -219,7 +219,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
   | 会话生命周期 | `/new` 创建新 session、`/stop` 强制终止当前运行（级联终止子 Session，session 保留待命） |
   | 工作目录 | `/cd` `/pwd` `/git` 读写 working directory |
   | 模式控制 | `/plan` `/mode` `/execute` 切换对话模式，模式标记由 Session 持久化（见下） |
-  | 推理控制 | `/reasoning` 设置推理深度 |
+  | 推理控制 | `/reasoning` 设置推理深度档位或请求关闭推理输出 |
   | 展示控制 | `/verbose` 设置信息展示等级 |
   | 上下文管理 | `/compact` 压缩对话历史、`/system` 管理 system prompt 追加区 |
 - **Daemon**：启动时初始化 SqliteStorage 和 SessionConfigProvider，spawn Sweeper 后台任务；系统关闭时委托 SessionManager 统一停止所有 session（详见 [daemon/README.md](../daemon/README.md) 关闭路径）；启动时创建 SessionManager，SessionManager 在其初始化过程中自动执行恢复扫描（详见 session-recovery.md）
