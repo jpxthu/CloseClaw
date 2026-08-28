@@ -39,7 +39,7 @@ use closeclaw_session::{
     checkpoint_manager::CheckpointManager, persistence::PersistenceService, storage::SqliteStorage,
 };
 use closeclaw_skills::builtin::builtin_skills;
-use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillWatcherHandle};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_system_prompt::sections::SectionCache;
 use closeclaw_tools::ToolRegistry;
 use std::path::{Path, PathBuf};
@@ -181,7 +181,6 @@ impl Daemon {
         Arc<closeclaw_agent::registry::AgentRegistry>,
         Arc<RwLock<Option<DiskSkillRegistry>>>,
         Arc<ToolRegistry>,
-        Option<SkillWatcherHandle>,
         Arc<RwLock<SectionCache>>,
         Arc<dyn SessionConfigProvider>,
         Arc<closeclaw_llm::LLMRegistry>,
@@ -195,14 +194,13 @@ impl Daemon {
             Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
         let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
-        let (skill_registry, skill_watcher, skill_rescan_handle) =
-            skill_reload::init_skill_hot_reload(
-                config_dir,
-                None,
-                Arc::clone(&shared_cache),
-                extra_dirs,
-            )
-            .await?;
+        let (skill_registry, skill_rescan_handle) = skill_reload::init_skill_registry(
+            config_dir,
+            None,
+            Arc::clone(&shared_cache),
+            extra_dirs,
+        )
+        .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
         let session_config_provider =
             config_manager.session_config_provider().unwrap_or_else(|| {
@@ -223,7 +221,6 @@ impl Daemon {
             agent_registry,
             skill_registry,
             tool_registry,
-            skill_watcher,
             shared_cache,
             session_config_provider,
             llm_registry,

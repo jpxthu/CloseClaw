@@ -8,7 +8,7 @@ use closeclaw_llm::LLMRegistry;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::storage::SqliteStorage;
-use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillWatcherHandle};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_system_prompt::sections::SectionCache;
 use closeclaw_tools::ToolRegistry;
 use std::path::PathBuf;
@@ -64,8 +64,6 @@ pub struct Daemon {
     /// Slash command handler registry — shared with SlashDispatcher;
     /// allows late registration of SkillSlashHandler after registries are ready.
     pub slash_registry: Arc<closeclaw_slash::registry::HandlerRegistry>,
-    /// Skill file watcher handle (RAII: stops on drop)
-    pub(crate) _skill_watcher: Option<SkillWatcherHandle>,
     /// Config file watcher handle (RAII: stops on drop)
     pub(crate) _config_watcher: Option<config_watcher::ConfigWatcherHandle>,
     /// Daemon-level approval orchestrator
