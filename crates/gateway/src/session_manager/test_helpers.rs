@@ -9,11 +9,55 @@ use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
 use closeclaw_common::BootstrapMode;
+use closeclaw_common::{tool_session::ToolSession, ToolExecState};
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 use std::path::PathBuf;
+
+// ── Shared message factory ──────────────────────────────────────────────
+
+/// Build a minimal [`crate::Message`] for gateway-level tests.
+pub(crate) fn make_msg() -> crate::Message {
+    use std::collections::HashMap;
+    crate::Message {
+        id: "msg_1".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: HashMap::new(),
+        thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
+    }
+}
+
+// ── Background tool registration helper ─────────────────────────────────
+
+/// Register a background tool on a [`ConversationSession`] and set its
+/// state to [`ToolExecState::RunningBackground`].
+///
+/// `tool_id` is used for both registration and state update.
+pub(crate) async fn register_bg_tool(cs: &tokio::sync::RwLock<ConversationSession>, tool_id: &str) {
+    let guard = cs.write().await;
+    <ConversationSession as ToolSession>::register_tool_call(
+        &*guard,
+        tool_id.into(),
+        "bash".into(),
+        "ls".into(),
+    )
+    .await;
+    <ConversationSession as ToolSession>::update_tool_state(
+        &*guard,
+        tool_id,
+        ToolExecState::RunningBackground,
+    )
+    .await;
+}
 
 // ── Mock agent registry query ─────────────────────────────────────────────
 
