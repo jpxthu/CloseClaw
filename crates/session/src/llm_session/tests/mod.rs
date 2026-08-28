@@ -17,6 +17,7 @@ mod memory_injection_dedup_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;
 mod session_exec_tests;
+mod session_injection_role_tests;
 mod session_llm_tests;
 mod skill_listing_incremental_tests;
 mod skill_listing_tests;
