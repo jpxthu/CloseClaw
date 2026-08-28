@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Unit tests for auto-compact history truncation (Step 1.3).
 //!
 //! Verifies that `check_and_run_auto_compact` truncates the persistent
@@ -10,11 +8,9 @@
 use super::*;
 use crate::session_handler::ActiveSearcherLlmCaller;
 use closeclaw_common::ContentBlock;
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::ChatSession;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::compaction::CompactConfig;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -40,10 +36,10 @@ fn make_sm() -> Arc<SessionManager> {
     ))
 }
 
-fn make_fallback_client() -> Arc<FallbackClient> {
-    Arc::new(FallbackClient::from_strings(
-        Arc::new(LLMRegistry::new()),
+fn make_fallback_client() -> Arc<UnifiedFallbackClient> {
+    Arc::new(UnifiedFallbackClient::new(
         vec![],
+        Arc::new(CooldownManager::new()),
     ))
 }
 

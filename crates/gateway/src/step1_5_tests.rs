@@ -400,12 +400,6 @@ async fn test_gateway_delegates_llm_to_session_layer() {
         None,
         ReasoningLevel::default(),
     ));
-    let registry = Arc::new(closeclaw_llm::LLMRegistry::new());
-    #[allow(deprecated)]
-    let fallback = Arc::new(closeclaw_llm::fallback::FallbackClient::from_strings(
-        registry,
-        vec![],
-    ));
     let ufc = Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
         vec![],
         Arc::new(closeclaw_llm::retry::CooldownManager::new()),
@@ -415,13 +409,13 @@ async fn test_gateway_delegates_llm_to_session_layer() {
     // Set LLM caller on SessionManager so ConversationSession gets it at creation.
     sm.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
-        client: ufc,
+        client: Arc::clone(&ufc),
         model: String::new(),
     });
     let handler = Arc::new(
         crate::session_handler::SessionMessageHandler::new_no_output(
             Arc::clone(&sm),
-            fallback,
+            ufc,
             fallback_llm_caller,
             closeclaw_session::compaction::CompactConfig::default(),
         ),

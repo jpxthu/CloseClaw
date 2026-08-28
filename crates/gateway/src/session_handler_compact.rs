@@ -9,9 +9,8 @@ use super::session_handler::SessionMessageHandler;
 use crate::session_manager::compact::{load_compact_inputs, PreloadedCompactInputs};
 use crate::OutputTx;
 use closeclaw_common::RunningStats;
-#[allow(deprecated)]
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::Message as ChatMessage;
 use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_session::compaction::{CompactionMessage, TokenWarningState};
@@ -205,29 +204,52 @@ pub(crate) fn find_context_window_for_model(
     None
 }
 
-/// Build a [`ChatFn`] that forwards messages directly to the LLM client.
-#[allow(deprecated)]
-pub(crate) fn build_chat_fn(fc: Arc<FallbackClient>) -> closeclaw_session::compaction::ChatFn {
+/// Build a [`ChatFn`] that forwards messages to the [`UnifiedFallbackClient`].
+///
+/// Converts between compaction's simplified message type and the internal
+/// request/response types used by the unified client.
+pub(crate) fn build_chat_fn(
+    fc: Arc<UnifiedFallbackClient>,
+) -> closeclaw_session::compaction::ChatFn {
     Arc::new(move |model, messages| {
         let fc = Arc::clone(&fc);
         Box::pin(async move {
-            use closeclaw_llm::{ChatRequest, Message as LlmMessage};
+            use closeclaw_common::llm_types::{InternalMessage, InternalRequest};
 
-            let llm_messages: Vec<LlmMessage> = messages
+            let internal_messages: Vec<InternalMessage> = messages
                 .iter()
-                .map(|m| LlmMessage {
+                .map(|m| InternalMessage {
                     role: m.role.clone(),
                     content: m.content.clone(),
+                    tool_call_id: None,
                 })
                 .collect();
-            let request = ChatRequest {
+            let request = InternalRequest {
                 model,
-                messages: llm_messages,
+                messages: internal_messages,
                 temperature: 0.0,
                 max_tokens: Some(4096),
+                stream: false,
+                extra_body: Default::default(),
+                system_static: None,
+                system_dynamic: None,
+                system_blocks: None,
+                tools: None,
+                session_id: None,
+                reasoning_level: Default::default(),
+                turn_count: None,
             };
-            let (response, retries) = fc.chat(request).await.map_err(|e| e.to_string())?;
-            Ok((response.content, retries))
+            let response = fc.chat(request).await.map_err(|e| e.to_string())?;
+            let content = response
+                .content_blocks
+                .iter()
+                .filter_map(|block| match block {
+                    closeclaw_common::processor::ContentBlock::Text(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            Ok((content, response.retry_attempts))
         })
     })
 }

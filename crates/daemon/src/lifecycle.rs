@@ -9,8 +9,6 @@ use tracing::{error, info, warn};
 
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
 
-pub(crate) use crate::llm_components::assemble_llm_components;
-
 impl Daemon {
     /// Start the daemon with the given config directory.
     pub async fn start(config_dir: &str) -> anyhow::Result<Self> {
@@ -38,6 +36,7 @@ impl Daemon {
             shared_cache,
             session_config_provider,
             llm_registry,
+            fallback_client,
             skill_rescan_handle,
             permission_engine,
             plan_archive_sweeper,
@@ -107,63 +106,31 @@ impl Daemon {
         )
         .await?;
 
-        // LLM call chain assembly: CacheAdapter → UnifiedChatClient → FallbackChain
-        // → LLMCaller. Must happen after Phase 5.
-        let provider_ids = llm_registry.list().await;
-        let mut chain_entries: Vec<closeclaw_llm::unified_fallback::ChainEntry> = Vec::new();
-        for provider_id in &provider_ids {
-            if let Some(provider) = llm_registry.get(provider_id).await {
-                let cache_adapter = closeclaw_llm::cache_adapter::for_provider(provider_id);
-
-                // Per-provider assembly: protocol / interpreter / plugin (design doc llm/README.md)
-                let (protocol, interpreter_registry, plugin_pipeline) =
-                    assemble_llm_components(provider_id.as_str());
-
-                let client = closeclaw_llm::UnifiedChatClient::new(
-                    provider,
-                    protocol,
-                    interpreter_registry,
-                    plugin_pipeline,
-                    cache_adapter,
-                );
-                chain_entries.push(closeclaw_llm::unified_fallback::ChainEntry {
-                    provider_id: provider_id.clone(),
-                    model_id: provider_id.clone(),
-                    client: Arc::new(client),
-                });
-            }
-        }
-        let cooldown_manager = Arc::new(closeclaw_llm::retry::CooldownManager::new());
-        let unified_fallback =
-            Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
-                chain_entries,
-                Arc::clone(&cooldown_manager),
-            ));
+        // LLM caller injection: the fallback client was built in layer 2
+        // (init_llm_registry → build_fallback_client). Layer 4 wires it
+        // into SessionManager (design doc § layer 4).
         let fallback_llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
-            Arc::clone(&unified_fallback),
+            Arc::clone(&fallback_client),
         ));
         session_manager
             .set_llm_caller(fallback_llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
             .await;
-        info!(count = provider_ids.len(), "LLM call chain assembled");
+        info!(
+            chain_len = fallback_client.chain().len(),
+            "LLM call chain injected into SessionManager (layer 4)"
+        );
 
         // Create SessionMessageHandler for busy/pending state machine.
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
         let active_searcher_llm_caller = Arc::new(
             closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-                client: Arc::clone(&unified_fallback),
+                client: Arc::clone(&fallback_client),
                 model: String::new(),
             },
         );
-        #[allow(deprecated)]
-        let fallback_client_for_compact =
-            Arc::new(closeclaw_llm::fallback::FallbackClient::from_strings(
-                Arc::clone(&llm_registry),
-                vec![],
-            ));
         let session_handler = Arc::new(closeclaw_gateway::SessionMessageHandler::new(
             Arc::clone(&session_manager),
-            fallback_client_for_compact,
+            Arc::clone(&fallback_client),
             output_tx,
             active_searcher_llm_caller,
             closeclaw_common::CompactConfig::default(),
@@ -226,6 +193,7 @@ impl Daemon {
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
+            fallback_client: Arc::clone(&fallback_client),
             _output_rx: output_rx,
             restart_state: crate::gateway_restart::RestartHandle::new(),
             restart_rx: Some(restart_rx),

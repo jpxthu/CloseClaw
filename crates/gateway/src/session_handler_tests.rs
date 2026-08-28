@@ -1,17 +1,13 @@
-#![allow(deprecated)]
-
 use super::*;
 use crate::session_handler::apply_compact_result;
 use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler::MessageMetadata;
 use crate::session_manager::test_helpers::make_msg;
 use closeclaw_common::LlmCaller;
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::TranscriptOp;
@@ -24,8 +20,6 @@ use closeclaw_tasks::{
 /// into the `SessionManager`. Must be called BEFORE `find_or_create`
 /// so the `ConversationSession` gets the caller at creation time.
 async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
-    let registry = Arc::new(LLMRegistry::new());
-    let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
         Arc::new(CooldownManager::new()),
@@ -34,12 +28,12 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
     // Set LLM caller on SessionManager so ConversationSession gets it at creation.
     sm.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        client: ufc,
+        client: Arc::clone(&ufc),
         model: String::new(),
     });
     SessionMessageHandler::new_no_output(
         sm,
-        fallback,
+        ufc,
         fallback_llm_caller,
         closeclaw_session::compaction::CompactConfig::default(),
     )
@@ -762,18 +756,16 @@ fn handler_with_channel(
     tokio::sync::mpsc::Receiver<(String, Vec<ContentBlock>)>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::channel(10);
+    let ufc = Arc::new(UnifiedFallbackClient::new(
+        vec![],
+        Arc::new(CooldownManager::new()),
+    ));
     let handler = SessionMessageHandler::new(
         Arc::clone(sm),
-        Arc::new(FallbackClient::from_strings(
-            Arc::new(LLMRegistry::new()),
-            vec![],
-        )),
+        Arc::clone(&ufc),
         tx,
         Arc::new(ActiveSearcherLlmCaller {
-            client: Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
-                vec![],
-                Arc::new(CooldownManager::new()),
-            )),
+            client: ufc,
             model: String::new(),
         }),
         closeclaw_session::compaction::CompactConfig::default(),

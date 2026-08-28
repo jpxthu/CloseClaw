@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use super::session_handler::MessageMetadata;
 use super::*;
 use crate::session_handler::ActiveSearcherLlmCaller;
@@ -8,26 +6,22 @@ use closeclaw_common::system_prompt::inject::{
 };
 use closeclaw_common::system_prompt::sections::Section;
 use closeclaw_common::SessionMode;
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::persistence::ReasoningLevel;
 
 fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
-    let registry = Arc::new(LLMRegistry::new());
-    let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
         Arc::new(CooldownManager::new()),
     ));
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        client: ufc,
+        client: Arc::clone(&ufc),
         model: String::new(),
     });
     SessionMessageHandler::new_no_output(
         sm,
-        fallback,
+        ufc,
         fallback_llm_caller,
         closeclaw_session::compaction::CompactConfig::default(),
     )

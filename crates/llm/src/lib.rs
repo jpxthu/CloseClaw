@@ -9,6 +9,7 @@
 
 pub mod anthropic;
 pub mod cache_adapter;
+pub mod call_chain;
 pub mod fallback;
 #[cfg(test)]
 mod fallback_tests;
