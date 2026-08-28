@@ -1,0 +1,14 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "9a4620ab0eeb613cc341d4ae3b2e2f7b",
+  "timestamp": "1787922138667",
+  "id": "om_x100b662c236f18a4c213c559ac4a010",
+  "message_id": "om_x100b662c236f18a4c213c559ac4a010",
+  "create_time": "1787922138261",
+  "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+  "chat_type": "p2p",
+  "message_type": "text",
+  "sender_id": "<open_id_owner_b1ctx>",
+  "sender_type": "user",
+  "content": "A2 补测"
+}

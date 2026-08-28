@@ -1,0 +1,26 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "7b2faf7af71fabd9f94920adc4a8611e",
+  "timestamp": "1787922174849",
+  "id": "om_x100b662c212b04a0c00c3c266956842",
+  "message_id": "om_x100b662c212b04a0c00c3c266956842",
+  "create_time": "1787922174485",
+  "chat_id": "oc_d5d0e0cee1ed3443ef15d100d0fd6f84",
+  "chat_type": "group",
+  "message_type": "text",
+  "sender_id": "<open_id_owner_b1ctx>",
+  "sender_type": "user",
+  "content": "B3 @供测试的机器人 @供测试的机器人2",
+  "mentions": [
+    {
+      "key": "@_user_1",
+      "id": "ou_29c257ed9cfb7fd7363f581ace9d3374",
+      "name": "供测试的机器人"
+    },
+    {
+      "key": "@_user_2",
+      "id": "ou_586e887f31cfddc6beb8540bcdb03550",
+      "name": "供测试的机器人2"
+    }
+  ]
+}

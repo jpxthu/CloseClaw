@@ -1,0 +1,15 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "c0b76f881417032a1675545aa7e750ba",
+  "timestamp": "1787935595049",
+  "id": "om_x100b662ff86424a0c102b38a9310225",
+  "message_id": "om_x100b662ff86424a0c102b38a9310225",
+  "create_time": "1787935594701",
+  "update_time": "1787935594794",
+  "chat_id": "oc_776cc48742519220a6648c0ca0c2cfaa",
+  "chat_type": "p2p",
+  "message_type": "post",
+  "sender_id": "<open_id_owner_b1ctx>",
+  "sender_type": "user",
+  "content": "![Image](img_v3_02151_c1a08b51-bd04-4b95-ae90-135e977d613g)\n一张图片，是 bot 的头像原图"
+}
