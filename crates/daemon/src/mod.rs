@@ -866,6 +866,7 @@ impl Daemon {
         config_manager: &Arc<ConfigManager>,
         config_dir: &str,
         skill_rescan_handle: SkillRescanHandle,
+        admin_restart_tx: tokio::sync::mpsc::Sender<bool>,
     ) -> (tokio::task::JoinHandle<()>, PathBuf) {
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
         let admin_context = AdminContext {
@@ -874,6 +875,7 @@ impl Daemon {
             config_manager: Arc::clone(config_manager),
             config_dir: PathBuf::from(config_dir),
             skill_rescan: Some(Arc::new(move || skill_rescan_handle.perform())),
+            restart_tx: Some(admin_restart_tx),
         };
         let admin_server = AdminServer::new(&admin_sock_path, admin_context);
         let admin_handle = tokio::spawn(async move {

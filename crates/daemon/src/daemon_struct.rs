@@ -109,6 +109,9 @@ pub struct Daemon {
     /// Processes incoming signals and calls `request_gateway_restart()`.
     /// Wrapped in `Option` so it can be taken in `run()` for the restart loop.
     pub(crate) restart_rx: Option<tokio::sync::mpsc::Receiver<String>>,
+    /// Receiver for admin RPC restart commands (force=true, cancel=false).
+    /// Processed in `run()` select loop alongside config watcher signals.
+    pub(crate) admin_restart_rx: Option<tokio::sync::mpsc::Receiver<bool>>,
 }
 
 impl Daemon {

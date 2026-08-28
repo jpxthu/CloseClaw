@@ -82,6 +82,10 @@ pub enum AdminRequest {
     SkillRescan,
     /// Health check — returns Pong.
     Ping,
+    /// Force an immediate gateway restart (skip idle-window wait).
+    ForceRestart,
+    /// Cancel a pending gateway restart.
+    CancelPendingRestart,
 }
 
 /// Response sent from the admin server back to the CLI client.
@@ -185,6 +189,28 @@ mod tests {
     #[test]
     fn test_ping_request_serialization() {
         let req = AdminRequest::Ping;
+        let json = serde_json::to_vec(&req).unwrap();
+        let deserialized: AdminRequest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            serde_json::to_string(&deserialized).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_force_restart_request_serialization() {
+        let req = AdminRequest::ForceRestart;
+        let json = serde_json::to_vec(&req).unwrap();
+        let deserialized: AdminRequest = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&req).unwrap(),
+            serde_json::to_string(&deserialized).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_cancel_pending_restart_request_serialization() {
+        let req = AdminRequest::CancelPendingRestart;
         let json = serde_json::to_vec(&req).unwrap();
         let deserialized: AdminRequest = serde_json::from_slice(&json).unwrap();
         assert_eq!(

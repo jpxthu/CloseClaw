@@ -185,12 +185,14 @@ impl Daemon {
                  — continuing"
             );
         }
+        let (admin_restart_tx, admin_restart_rx) = tokio::sync::mpsc::channel(2);
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
             &skill_registry,
             &config_manager,
             config_dir,
             skill_rescan_handle,
+            admin_restart_tx,
         )
         .await;
         let (chat_handle, chat_sock_path) = Self::init_phase_6_chat_rpc(&gateway, config_dir).await;
@@ -227,6 +229,7 @@ impl Daemon {
             _output_rx: output_rx,
             restart_state: crate::gateway_restart::RestartHandle::new(),
             restart_rx: Some(restart_rx),
+            admin_restart_rx: Some(admin_restart_rx),
         })
     }
 
@@ -246,6 +249,7 @@ impl Daemon {
         // The restart_rx receives change summaries from DaemonReloadCallback
         // and triggers the restart state machine.
         let mut restart_rx = self.restart_rx.take();
+        let mut admin_restart_rx = self.admin_restart_rx.take();
         loop {
             tokio::select! {
                 biased;
@@ -266,6 +270,22 @@ impl Daemon {
                     } else {
                         // Channel closed — receiver taken or sender dropped.
                         restart_rx = None;
+                    }
+                }
+                cmd = async { admin_restart_rx.as_mut().unwrap().recv().await }, if admin_restart_rx.is_some() => {
+                    if let Some(force) = cmd {
+                        if force {
+                            info!("admin RPC: force restart requested");
+                            let should_spawn = self.force_gateway_restart(vec!["admin force restart".to_string()]);
+                            if should_spawn {
+                                self.spawn_restart_watchdog();
+                            }
+                        } else {
+                            info!("admin RPC: cancel pending restart");
+                            self.cancel_pending_restart();
+                        }
+                    } else {
+                        admin_restart_rx = None;
                     }
                 }
             }
