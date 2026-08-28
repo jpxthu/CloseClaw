@@ -4,7 +4,6 @@
 //! hierarchical directories to find, parse, and load skill definitions.
 
 pub mod frontmatter;
-pub mod hot_reload;
 pub mod init;
 pub mod loader;
 pub mod path_matcher;
@@ -13,7 +12,6 @@ pub mod resolve;
 pub mod types;
 
 pub use frontmatter::{extract_skill_body, parse_skill_md};
-pub use hot_reload::{start_skill_watcher, SkillWatcherHandle};
 pub use init::init_disk_skills;
 pub use loader::scan_all_skills;
 pub use registry::DiskSkillRegistry;

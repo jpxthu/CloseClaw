@@ -25,8 +25,8 @@ fn test_all_component_entries_count() {
     let entries = all_component_entries();
     assert_eq!(
         entries.len(),
-        22,
-        "expected 22 components (21 + PlanArchiveSweeper)"
+        21,
+        "expected 21 components (20 + PlanArchiveSweeper)"
     );
 }
 
@@ -68,7 +68,6 @@ fn test_all_component_entries_deps_match_design_doc() {
         dep_map[&sid(AnnounceSweeper)],
         vec![fid(Storage), sid(SessionConfigProvider)]
     );
-    assert_eq!(dep_map[&sid(SkillWatcher)], vec![sid(SkillsRegistry)]);
     assert_eq!(dep_map[&sid(ConfigHotReload)], vec![fid(ConfigManager)]);
     assert_eq!(
         dep_map[&sid(DreamingScheduler)],
@@ -154,7 +153,6 @@ fn test_topo_sort_six_layers_match_design_doc() {
             sid(ArchiveSweeper),
             sid(DreamingScheduler),
             sid(IMAdapters),
-            sid(SkillWatcher),
             sid(ToolsRegistry),
         ],
         "Layer 3 mismatch"
@@ -424,7 +422,6 @@ fn test_validate_layers_catches_wrong_spawn_controller_layer() {
             sid(DreamingScheduler),
             sid(IMAdapters),
             sid(PermissionEngine),
-            sid(SkillWatcher),
             sid(ToolsRegistry),
         ],
         vec![
@@ -461,7 +458,6 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
             sid(DreamingScheduler),
             sid(IMAdapters),
             sid(PermissionEngine),
-            sid(SkillWatcher),
             sid(SpawnController),
             sid(ToolsRegistry),
         ],
@@ -761,8 +757,8 @@ fn test_service_enum_variant_count() {
         .filter(|e| matches!(e.id, ComponentId::Service(_)))
         .count();
     assert_eq!(
-        service_count, 20,
-        "Service must have exactly 20 variants (total 22 components)"
+        service_count, 19,
+        "Service must have exactly 19 variants (total 21 components)"
     );
 }
 
@@ -875,8 +871,8 @@ fn test_full_graph_with_llm_registry_is_acyclic() {
     // All 21 components must be reachable (no cycle)
     let total: usize = layers.iter().map(|l| l.len()).sum();
     assert_eq!(
-        total, 22,
-        "all 22 components must be in topo sort result (no cycle)"
+        total, 21,
+        "all 21 components must be in topo sort result (no cycle)"
     );
 }
 

@@ -8,7 +8,7 @@ use closeclaw_llm::LLMRegistry;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::storage::SqliteStorage;
-use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillWatcherHandle};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_system_prompt::sections::SectionCache;
 use closeclaw_tools::ToolRegistry;
 use std::path::PathBuf;
@@ -20,7 +20,7 @@ use crate::config_watcher;
 /// RAII handle for the PlanArchiveSweeper background task.
 ///
 /// Dropping this sends a shutdown signal and aborts the task,
-/// consistent with the SkillWatcher/ConfigWatcher RAII pattern.
+/// consistent with the ConfigWatcher RAII pattern.
 pub(crate) struct PlanArchiveSweeperHandle {
     // Implicit drop closes the channel, signaling the background task.
     #[allow(dead_code)]
@@ -57,15 +57,13 @@ pub struct Daemon {
     /// Shutdown sender for DreamingScheduler
     pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
 
-    /// Shared skill registry, updated on hot reload
+    /// Shared skill registry, rebuilt on demand via admin RPC
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
-    /// Builtin skill registry — compiled-in skills, not subject to hot reload
+    /// Builtin skill registry — compiled-in skills, not subject to rescan
     pub builtin_skill_registry: Arc<BuiltinSkillRegistry>,
     /// Slash command handler registry — shared with SlashDispatcher;
     /// allows late registration of SkillSlashHandler after registries are ready.
     pub slash_registry: Arc<closeclaw_slash::registry::HandlerRegistry>,
-    /// Skill file watcher handle (RAII: stops on drop)
-    pub(crate) _skill_watcher: Option<SkillWatcherHandle>,
     /// Config file watcher handle (RAII: stops on drop)
     pub(crate) _config_watcher: Option<config_watcher::ConfigWatcherHandle>,
     /// Daemon-level approval orchestrator

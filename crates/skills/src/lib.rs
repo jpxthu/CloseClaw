@@ -17,10 +17,7 @@ mod tool_registrar_tests;
 
 pub use builtin::builtin_skills;
 pub use coding_agent::CodingAgentSkill;
-pub use disk::{
-    init_disk_skills, resolve_skill, start_skill_watcher, DiskSkillRegistry, ResolvedSkill,
-    ScanConfig, SkillWatcherHandle,
-};
+pub use disk::{init_disk_skills, resolve_skill, DiskSkillRegistry, ResolvedSkill, ScanConfig};
 pub use registry::{BuiltinSkillRegistry, Skill, SkillError, SkillListingMeta, SkillManifest};
 pub use skill_creator::SkillCreatorSkill;
 pub use tool_registrar::SkillsToolsRegistrar;
