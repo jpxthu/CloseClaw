@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Unit tests for Gateway debug log emission (Step 1.6 + 1.8 + 1.3).
 //!
 //! Covers:
@@ -14,10 +12,8 @@ use crate::session_handler::{ActiveSearcherLlmCaller, SessionMessageHandler};
 use crate::{compute_session_key, GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -170,8 +166,6 @@ async fn read_events_from_dir(dir: &std::path::Path) -> Vec<closeclaw_debug_log:
 /// Create a SessionMessageHandler for route.decision tests.
 /// Sets the LLM caller on SessionManager so sessions can be created.
 async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
-    let registry = Arc::new(LLMRegistry::new());
-    let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
         Arc::new(CooldownManager::new()),
@@ -180,12 +174,12 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
     sm.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        client: ufc,
+        client: Arc::clone(&ufc),
         model: String::new(),
     });
     SessionMessageHandler::new_no_output(
         sm,
-        fallback,
+        ufc,
         fallback_llm_caller,
         closeclaw_session::compaction::CompactConfig::default(),
     )

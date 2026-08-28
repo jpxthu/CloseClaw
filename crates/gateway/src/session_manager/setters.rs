@@ -347,6 +347,13 @@ impl SessionManager {
         *self.checkpoint_manager.write().await = Some(cm);
     }
 
+    /// Get a clone of the persistence coordination layer, if set.
+    pub async fn checkpoint_manager(
+        &self,
+    ) -> Option<Arc<CheckpointManager<dyn PersistenceService>>> {
+        self.checkpoint_manager.read().await.clone()
+    }
+
     /// Set the persistence coordination layer directly.
     pub async fn set_checkpoint_manager(&self, cm: Arc<CheckpointManager<dyn PersistenceService>>) {
         *self.checkpoint_manager.write().await = Some(cm);

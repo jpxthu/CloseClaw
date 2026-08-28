@@ -463,7 +463,8 @@ impl Gateway {
         msg: &Message,
         mark_sent: bool,
     ) {
-        let Some(ref cm) = self.checkpoint_manager else {
+        let cm = self.checkpoint_manager.read().unwrap().clone();
+        let Some(cm) = cm else {
             return;
         };
         let checkpoint = match cm.load(session_id).await {

@@ -192,7 +192,7 @@ async fn test_init_llm_registry_credentials_file_priority() {
     .unwrap();
 
     // Act: pass empty overrides — file key takes priority over env
-    let registry = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
 
     // Assert: provider registered with file key
     let provider = registry.get("openai").await;
@@ -211,7 +211,7 @@ async fn test_init_llm_registry_env_fallback() {
     ]);
 
     // Act
-    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
 
     // Assert: providers registered from env overrides
     let listed = registry.list().await;
@@ -238,7 +238,7 @@ async fn test_init_llm_registry_both_absent_no_registration() {
     ]);
 
     // Act
-    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
 
     // Assert: no providers registered (empty dir, empty overrides block env fallback)
     let listed = registry.list().await;
@@ -257,7 +257,7 @@ async fn test_init_llm_registry_mimo_via_env_override() {
     let tmp = TempDir::new().unwrap();
     let overrides: HashMap<&str, &str> = HashMap::from([("MIMO_API_KEY", "mimo-env-key-789")]);
 
-    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
 
     let listed = registry.list().await;
     assert!(
@@ -281,7 +281,7 @@ async fn test_init_llm_registry_mimo_via_credentials_file() {
     )
     .unwrap();
 
-    let registry = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
 
     let listed = registry.list().await;
     assert!(
@@ -299,7 +299,7 @@ async fn test_init_llm_registry_mimo_not_registered_when_absent() {
     let tmp = TempDir::new().unwrap();
     let overrides: HashMap<&str, &str> = HashMap::from([("MIMO_API_KEY", "")]);
 
-    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
 
     let listed = registry.list().await;
     assert!(
@@ -490,7 +490,7 @@ async fn test_init_llm_registry_contains_configured_providers() {
     )
     .unwrap();
 
-    let registry = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
     let listed = registry.list().await;
 
     assert!(listed.contains(&"openai".to_string()));
@@ -507,7 +507,7 @@ async fn test_init_llm_registry_env_override_providers() {
         ("MINIMAX_API_KEY", "env-minimax-key"),
     ]);
 
-    let registry = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
     let listed = registry.list().await;
 
     assert!(listed.contains(&"openai".to_string()));

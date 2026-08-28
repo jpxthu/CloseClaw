@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Step 1.3: Unit tests for agent_id explicit passing and queuing notification.
 //!
 //! Test dimensions:
@@ -12,11 +10,9 @@ use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
 use crate::session_handler::{HandleResult, MessageMetadata, SessionMessageHandler};
 use crate::Message;
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
@@ -37,19 +33,17 @@ fn test_message() -> Message {
 }
 
 fn build_handler(sm: Arc<SessionManager>) -> SessionMessageHandler {
-    let registry = Arc::new(LLMRegistry::new());
-    let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
         Arc::new(CooldownManager::new()),
     ));
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
-        client: ufc,
+        client: Arc::clone(&ufc),
         model: String::new(),
     });
     SessionMessageHandler::new_no_output(
         sm,
-        fallback,
+        ufc,
         fallback_llm_caller,
         closeclaw_session::compaction::CompactConfig::default(),
     )

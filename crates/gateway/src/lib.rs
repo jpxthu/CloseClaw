@@ -125,7 +125,7 @@ pub struct Gateway {
     plugins: RwLock<HashMap<String, Arc<dyn closeclaw_common::IMPlugin>>>,
     session_manager: Arc<SessionManager>,
     processor_registry: std::sync::RwLock<Option<Arc<dyn ProcessorChain>>>,
-    checkpoint_manager: Option<Arc<CheckpointManager<dyn PersistenceService>>>,
+    checkpoint_manager: std::sync::RwLock<Option<Arc<CheckpointManager<dyn PersistenceService>>>>,
     session_handler: std::sync::OnceLock<Arc<SessionMessageHandler>>,
     /// Daemon-level approval flow for intercepting `/approve` / `/deny` commands.
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,
@@ -167,7 +167,7 @@ impl Gateway {
             plugins: RwLock::new(HashMap::new()),
             session_manager,
             processor_registry: std::sync::RwLock::new(Some(Arc::new(registry))),
-            checkpoint_manager: None,
+            checkpoint_manager: std::sync::RwLock::new(None),
             session_handler: std::sync::OnceLock::new(),
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
@@ -196,7 +196,7 @@ impl Gateway {
             plugins: RwLock::new(HashMap::new()),
             session_manager,
             processor_registry: std::sync::RwLock::new(Some(registry)),
-            checkpoint_manager: None,
+            checkpoint_manager: std::sync::RwLock::new(None),
             session_handler: std::sync::OnceLock::new(),
             approval_flow: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
@@ -225,11 +225,25 @@ impl Gateway {
 
     /// Configure a CheckpointManager for session snapshot persistence.
     pub fn with_checkpoint_manager(
-        mut self,
+        self,
         cm: Arc<CheckpointManager<dyn PersistenceService>>,
     ) -> Self {
-        self.checkpoint_manager = Some(cm);
+        *self.checkpoint_manager.write().unwrap() = Some(cm);
         self
+    }
+
+    /// Set the CheckpointManager for session snapshot persistence.
+    ///
+    /// Runtime setter (non-builder) so an already-constructed `Gateway`
+    /// can receive the shared [`CheckpointManager`] — e.g. during a
+    /// config-triggered gateway restart.
+    pub fn set_checkpoint_manager(&self, cm: Arc<CheckpointManager<dyn PersistenceService>>) {
+        *self.checkpoint_manager.write().unwrap() = Some(cm);
+    }
+
+    /// Check if a CheckpointManager is currently set.
+    pub fn has_checkpoint_manager(&self) -> bool {
+        self.checkpoint_manager.read().unwrap().is_some()
     }
 
     /// Configure a SessionMessageHandler for busy/pending LLM session management.

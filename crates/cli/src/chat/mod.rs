@@ -46,7 +46,7 @@ enum ExitReason {
 async fn build_gateway(
     config_dir: &std::path::Path,
     agent_id: &str,
-    llm_registry: &Arc<closeclaw_llm::LLMRegistry>,
+    _llm_registry: &Arc<closeclaw_llm::LLMRegistry>,
     fallback_client: &Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
 ) -> anyhow::Result<(
     Arc<Gateway>,
@@ -89,15 +89,9 @@ async fn build_gateway(
         },
     );
 
-    // FallbackClient::from_strings is deprecated but no alternative exists for CLI single-session use.
-    #[allow(deprecated)]
-    let fallback_client_for_compact = Arc::new(
-        closeclaw_llm::fallback::FallbackClient::from_strings(Arc::clone(llm_registry), vec![]),
-    );
-
     let session_handler = Arc::new(SessionMessageHandler::new(
         Arc::clone(&session_manager),
-        fallback_client_for_compact,
+        Arc::clone(fallback_client),
         output_tx,
         active_searcher_llm_caller,
         closeclaw_common::CompactConfig::default(),

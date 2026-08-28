@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Unit tests for Step 1.1–1.2 notification logic in `handle_inbound_message`.
 //!
 //! Test dimensions:
@@ -15,12 +13,10 @@ use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin};
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
 use closeclaw_session::persistence::SessionStatus;
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel, SessionCheckpoint};
 use serde_json::json;
@@ -253,19 +249,17 @@ fn make_processed(msg: &Message, channel: &str, content: &str) -> ProcessedMessa
 
 /// Build a SessionMessageHandler for testing the busy/queue path.
 fn build_handler(sm: Arc<SessionManager>) -> crate::session_handler::SessionMessageHandler {
-    let registry = Arc::new(LLMRegistry::new());
-    let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
         Arc::new(CooldownManager::new()),
     ));
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
-        client: ufc,
+        client: Arc::clone(&ufc),
         model: String::new(),
     });
     crate::session_handler::SessionMessageHandler::new_no_output(
         sm,
-        fallback,
+        ufc,
         fallback_llm_caller,
         closeclaw_session::compaction::CompactConfig::default(),
     )

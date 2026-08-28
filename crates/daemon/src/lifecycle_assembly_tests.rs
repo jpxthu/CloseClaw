@@ -4,11 +4,11 @@
 //! ChatProtocol, Interpreter, and Plugin combination per the design doc
 //! (`docs/design/llm/README.md`).
 //!
-//! All tests call the shared [`crate::lifecycle::assemble_llm_components`]
+//! All tests call the shared [`crate::llm_components::assemble_llm_components`]
 //! function, ensuring they exercise the real production path rather than
 //! a duplicated replica.
 
-use crate::lifecycle::assemble_llm_components;
+use crate::llm_components::assemble_llm_components;
 use closeclaw_common::InternalMessage;
 use closeclaw_llm::types::{InternalRequest, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::persistence::ReasoningLevel;

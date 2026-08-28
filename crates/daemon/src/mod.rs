@@ -191,6 +191,7 @@ impl Daemon {
         Arc<RwLock<SectionCache>>,
         Arc<dyn SessionConfigProvider>,
         Arc<closeclaw_llm::LLMRegistry>,
+        Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
         SkillRescanHandle,
         Arc<tokio::sync::RwLock<PermissionEngine>>,
         Option<crate::daemon_struct::PlanArchiveSweeperHandle>,
@@ -224,7 +225,7 @@ impl Daemon {
         );
         let empty_env: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         let llm_fut = Self::init_llm_registry(std::path::Path::new(config_dir), &empty_env);
-        let (skill_result, llm_registry) = tokio::join!(skill_fut, llm_fut);
+        let (skill_result, (llm_registry, fallback_client)) = tokio::join!(skill_fut, llm_fut);
         let (skill_registry, skill_rescan_handle) = skill_result?;
 
         Ok((
@@ -234,6 +235,7 @@ impl Daemon {
             shared_cache,
             session_config_provider,
             llm_registry,
+            fallback_client,
             skill_rescan_handle,
             permission_engine,
             plan_archive_sweeper,
@@ -922,6 +924,8 @@ impl Daemon {
 mod daemon_shutdown_tests;
 #[cfg(test)]
 mod dreaming_scheduler_tests;
+#[cfg(test)]
+mod gateway_restart_checkpoint_tests;
 #[cfg(test)]
 mod lifecycle_abort_tests;
 #[cfg(test)]
