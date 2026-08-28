@@ -1,0 +1,22 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "a1e358c15d52403ad574b288ec8745f8",
+  "timestamp": "1787911042731",
+  "id": "om_x100b6621f6e9dca8b1656e3eb2ce330",
+  "message_id": "om_x100b6621f6e9dca8b1656e3eb2ce330",
+  "create_time": "1787911042366",
+  "update_time": "1787911042443",
+  "chat_id": "oc_d5d0e0cee1ed3443ef15d100d0fd6f84",
+  "chat_type": "group",
+  "message_type": "post",
+  "sender_id": "ou_586e887f31cfddc6beb8540bcdb03550",
+  "sender_type": "bot",
+  "content": "B5 富文本 @bot-1\n@供测试的机器人 这是 **bold** 和 *italic* 混排\n**链接:**[example](https://example.com)",
+  "mentions": [
+    {
+      "key": "@_user_1",
+      "id": "ou_29c257ed9cfb7fd7363f581ace9d3374",
+      "name": "供测试的机器人"
+    }
+  ]
+}

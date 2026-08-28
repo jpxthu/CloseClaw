@@ -1,0 +1,14 @@
+{
+  "type": "im.message.receive_v1",
+  "event_id": "3a6f295fb5ec13d9c9227aa629e46320",
+  "timestamp": "1787910098964",
+  "id": "om_x100b662133e87cbcb260134e36516ff",
+  "message_id": "om_x100b662133e87cbcb260134e36516ff",
+  "create_time": "1787910098514",
+  "chat_id": "oc_d5d0e0cee1ed3443ef15d100d0fd6f84",
+  "chat_type": "group",
+  "message_type": "text",
+  "sender_id": "ou_586e887f31cfddc6beb8540bcdb03550",
+  "sender_type": "bot",
+  "content": "@_all B1 @all test from bot-2"
+}
