@@ -11,6 +11,8 @@ use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;
 use tracing::info;
 
+// ── Permission engine construction ──────────────────────────────────
+
 impl Daemon {
     /// Build permission engine, loading templates from config_dir/templates/ if present.
     ///
@@ -96,7 +98,11 @@ impl Daemon {
         }
         engine
     }
+}
 
+// ── Audit logger construction ───────────────────────────────────────
+
+impl Daemon {
     /// Read `audit_log` config from `system.json` and create a
     /// [`FileAuditLogger`] if configured.
     pub(crate) fn create_audit_logger(config_dir: &str) -> Option<Arc<dyn AuditLogger>> {

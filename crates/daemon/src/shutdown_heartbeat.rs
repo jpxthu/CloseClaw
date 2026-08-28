@@ -48,14 +48,14 @@ pub(crate) struct ShutdownHeartbeat {
 
 impl ShutdownHeartbeat {
     /// Create a new heartbeat tracker with the default 30s interval.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with_interval(DEFAULT_HEARTBEAT_INTERVAL)
     }
 
     /// Create a new heartbeat tracker with a custom interval.
     ///
     /// Useful for testing with short intervals.
-    pub fn with_interval(interval: Duration) -> Self {
+    pub(crate) fn with_interval(interval: Duration) -> Self {
         Self {
             interval,
             last_event: tokio::time::Instant::now(),
@@ -80,7 +80,7 @@ impl ShutdownHeartbeat {
     /// before the deadline, the select branch is not taken (the future
     /// is still pending). After the branch fires, call
     /// `should_send_heartbeat()` to confirm, then `record_event()`.
-    pub fn next_deadline(&self) -> tokio::time::Instant {
+    pub(crate) fn next_deadline(&self) -> tokio::time::Instant {
         self.last_event + self.interval
     }
 
@@ -90,7 +90,7 @@ impl ShutdownHeartbeat {
     /// event. Always call this after the sleep branch fires in
     /// `tokio::select!` to confirm the heartbeat is still warranted
     /// (an event may have arrived in the same poll cycle).
-    pub fn should_send_heartbeat(&self) -> bool {
+    pub(crate) fn should_send_heartbeat(&self) -> bool {
         self.last_event.elapsed() >= self.interval
     }
 
@@ -98,7 +98,7 @@ impl ShutdownHeartbeat {
     ///
     /// Resets the heartbeat timer so the next heartbeat won't fire
     /// until `interval` after this event.
-    pub fn record_event(&mut self) {
+    pub(crate) fn record_event(&mut self) {
         self.last_event = tokio::time::Instant::now();
     }
 
@@ -106,7 +106,7 @@ impl ShutdownHeartbeat {
     ///
     /// Used as the `longest_wait_secs` parameter for
     /// `send_shutdown_heartbeat_card`.
-    pub fn elapsed_secs(&self) -> u64 {
+    pub(crate) fn elapsed_secs(&self) -> u64 {
         self.phase_start.elapsed().as_secs()
     }
 
@@ -189,7 +189,7 @@ mod tests {
         let hb = ShutdownHeartbeat::with_start(start, Duration::from_secs(30));
         let elapsed = hb.elapsed_secs();
         assert!(
-            elapsed >= 4 && elapsed <= 6,
+            (4..=6).contains(&elapsed),
             "elapsed should be ~5s, got {}",
             elapsed
         );
