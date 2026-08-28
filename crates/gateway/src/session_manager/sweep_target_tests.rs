@@ -8,9 +8,12 @@
 //! - `terminate_stale_child`: kill + no notification when parent archived
 //! - `terminate_stale_child`: kill still fires when kill_child fails
 //! - Cascade: nested descendants terminated on stale kill
+//! - Consumer behavior: `is_session_busy` / `is_session_idle` with background tool
 
 use super::spawn::SpawnMode;
-use super::test_helpers::{append_assistant_to_child, setup_parent_with_conv};
+use super::test_helpers::{
+    append_assistant_to_child, make_msg, register_bg_tool, setup_parent_with_conv,
+};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_tasks::NotificationPriority;
@@ -445,5 +448,58 @@ async fn test_terminate_stale_child_notification_text_format() {
         text.contains("自动终止"),
         "should mention auto-terminated: {}",
         text
+    );
+}
+
+// ── 10. is_session_idle: background tool running → true ────────────────
+
+/// `is_session_idle` returns `true` when a background tool is running.
+/// This verifies the core fix from Step 1.1: background_tool_active
+/// no longer blocks idle determination (design doc state table row 2).
+#[tokio::test]
+#[serial]
+async fn test_is_session_idle_with_background_tool() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let sid = mgr.find_or_create("ch", &make_msg(), None).await.unwrap();
+
+    // Register a background tool via the shared helper.
+    let cs = mgr
+        .get_conversation_session(&sid)
+        .await
+        .expect("session exists");
+    register_bg_tool(&cs, "bg-sweep-1").await;
+
+    // Background tool running → session IS idle (per design doc).
+    assert!(
+        mgr.is_session_idle(&sid).await,
+        "is_session_idle must return true when only background tool is active"
+    );
+}
+
+// ── 11. is_session_busy: background tool running → false ─────────────────
+
+/// Consumer behavior: `is_session_busy()` returns `false` when a
+/// background tool is running (design doc state table row 2).
+#[tokio::test]
+#[serial]
+async fn test_is_session_busy_false_with_background_tool() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let sid = mgr.find_or_create("ch", &make_msg(), None).await.unwrap();
+
+    // Register a background tool via the shared helper.
+    let cs = mgr
+        .get_conversation_session(&sid)
+        .await
+        .expect("session exists");
+    register_bg_tool(&cs, "bg-1").await;
+
+    // Background tool running → session is NOT busy (per design doc).
+    assert!(
+        !mgr.is_session_busy(&sid).await,
+        "is_session_busy must return false when only background tool is active"
     );
 }

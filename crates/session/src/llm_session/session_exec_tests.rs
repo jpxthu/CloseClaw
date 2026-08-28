@@ -125,8 +125,8 @@ fn test_exec_status_bg_tool_and_child_returns_idle() {
 
     assert_eq!(
         session.exec_status(),
-        SessionExecStatus::IdleWithBackgroundTasks,
-        "background tool + child → IdleWithBackgroundTasks"
+        SessionExecStatus::Idle,
+        "background tool + child → Idle (per design doc)"
     );
 }
 

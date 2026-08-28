@@ -219,14 +219,17 @@ impl ConversationSession {
     }
 
     /// Computes the overall session execution status by combining the
-    /// three dimensions (LLM / foreground tool / background tool)
-    /// plus the yielding flag. Lock acquisition order is **always**
-    /// LLM → Tool to avoid potential deadlocks.
+    /// four dimensions (LLM / foreground tool / background tool /
+    /// child session) plus the yielding flag. Lock acquisition order
+    /// is **always** LLM → Tool to avoid potential deadlocks.
     ///
     /// Per `docs/design/session/session-execution.md`:
-    /// - `child_active` does NOT affect idle/Busy determination.
-    /// - `Waiting` is only returned when the session is actively yielding
-    ///   (`is_yielding=true`) with no LLM or foreground tool activity.
+    /// - `background_tool_active` and `child_active` do NOT affect
+    ///   the idle/busy determination. Only `llm_active` and
+    ///   `foreground_tool_active` drive Busy.
+    /// - `Waiting` is only returned when the session is actively
+    ///   yielding (`is_yielding=true`) with no LLM or foreground
+    ///   tool activity.
     pub fn exec_status(&self) -> SessionExecStatus {
         // 1. LLM dimension.
         let llm = self.llm_state.read().expect("llm_state lock poisoned");
@@ -235,7 +238,7 @@ impl ConversationSession {
         }
         drop(llm);
 
-        // 2. Tool dimension.
+        // 2. Foreground tool dimension.
         //    Pending and RunningForeground both count as foreground-active
         //    tools.  Pending is the transient state between register and
         //    the first update; it is treated as foreground because the tool
@@ -247,23 +250,22 @@ impl ConversationSession {
         {
             return SessionExecStatus::Busy;
         }
-        let has_background_tool = tools
-            .values()
-            .any(|(s, _)| matches!(s, ToolExecState::RunningBackground));
         drop(tools);
 
         // 3. Yielding dimension.
-        //    When the session is actively yielding (agent called sessions_yield),
-        //    return Waiting — child_active does NOT cause Waiting.
+        //    When the session is actively yielding (agent called
+        //    sessions_yield), return Waiting — child_active does NOT
+        //    cause Waiting.
         if self.is_waiting() {
             return SessionExecStatus::Waiting;
         }
 
-        if has_background_tool {
-            SessionExecStatus::IdleWithBackgroundTasks
-        } else {
-            SessionExecStatus::Idle
-        }
+        // 4. Background tool / child dimensions do NOT affect idle.
+        //    Per design doc: background_tool_active and child_active
+        //    are exposed via activity_dimensions() for consumers that
+        //    need them, but exec_status() returns Idle when only these
+        //    dimensions are active.
+        SessionExecStatus::Idle
     }
 }
 

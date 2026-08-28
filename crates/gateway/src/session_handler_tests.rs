@@ -4,6 +4,7 @@ use super::*;
 use crate::session_handler::apply_compact_result;
 use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler::MessageMetadata;
+use crate::session_manager::test_helpers::make_msg;
 use closeclaw_common::LlmCaller;
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
@@ -42,23 +43,6 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
         fallback_llm_caller,
         closeclaw_session::compaction::CompactConfig::default(),
     )
-}
-
-fn make_msg() -> crate::Message {
-    use std::collections::HashMap;
-    crate::Message {
-        id: "msg_1".into(),
-        from: "alice".into(),
-        to: "bob".into(),
-        content: "hello".into(),
-        channel: "ch".into(),
-        timestamp: chrono::Utc::now().timestamp(),
-        metadata: HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    }
 }
 
 fn make_config() -> crate::GatewayConfig {
@@ -930,27 +914,8 @@ async fn test_user_message_persisted_before_compact_check() {
 
 // ── to_request_context (Step 1.4 / 1.5) ─────────────────────────────────
 
-/// Verify that `MessageMetadata::to_request_context` maps all fields
+/// Verify that `MessageMetadata::default_meta()` maps all fields
 /// correctly into a `closeclaw_common::RequestContext`.
-#[test]
-fn test_to_request_context_maps_fields() {
-    let meta = MessageMetadata {
-        sender_id: "ou_sender_123".into(),
-        channel: "feishu".into(),
-        timestamp: 1700000000,
-        chat_name: "test-group".into(),
-        trace_id: None,
-        session_key: None,
-    };
-    let ctx = meta.to_request_context();
-    assert_eq!(ctx.sender_id, "ou_sender_123");
-    assert_eq!(ctx.channel, "feishu");
-    assert_eq!(ctx.timestamp, 1700000000);
-    assert_eq!(ctx.chat_name, "test-group");
-}
-
-/// `default_meta()` produces a RequestContext with empty sender/channel
-/// and a non-zero timestamp (current time).
 #[test]
 fn test_default_meta_to_request_context() {
     let meta = MessageMetadata::default_meta();
@@ -979,4 +944,23 @@ fn test_to_request_context_empty_fields() {
     assert!(ctx.channel.is_empty());
     assert_eq!(ctx.timestamp, 0);
     assert!(ctx.chat_name.is_empty());
+}
+
+/// Verify that `MessageMetadata::to_request_context` maps all fields
+/// correctly into a `closeclaw_common::RequestContext`.
+#[test]
+fn test_to_request_context_maps_fields() {
+    let meta = MessageMetadata {
+        sender_id: "ou_sender_123".into(),
+        channel: "feishu".into(),
+        timestamp: 1700000000,
+        chat_name: "test-group".into(),
+        trace_id: None,
+        session_key: None,
+    };
+    let ctx = meta.to_request_context();
+    assert_eq!(ctx.sender_id, "ou_sender_123");
+    assert_eq!(ctx.channel, "feishu");
+    assert_eq!(ctx.timestamp, 1700000000);
+    assert_eq!(ctx.chat_name, "test-group");
 }
