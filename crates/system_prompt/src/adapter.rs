@@ -24,7 +24,7 @@ use crate::sections::SectionCache;
 /// cross-crate trait used by session handlers.
 ///
 /// Holds a shared [`SectionCache`] so that invalidation from any call
-/// site (slash handler, skill watcher, compaction callback) reaches
+/// site (slash handler, compaction callback) reaches
 /// all session builders.
 pub struct SystemPromptBuilderAdapter {
     tool_registry: Arc<ToolRegistry>,
@@ -60,7 +60,7 @@ impl SystemPromptBuilderAdapter {
     /// Create a new adapter with a shared cache instance.
     ///
     /// Used when the caller needs to share the cache across multiple
-    /// components (e.g. daemon + skill watcher).
+    /// components (e.g. daemon).
     pub fn new_with_cache(
         tool_registry: Arc<ToolRegistry>,
         agent_registry: Arc<RwLock<AgentRegistry>>,
@@ -79,7 +79,7 @@ impl SystemPromptBuilderAdapter {
 
     /// Get a reference to the shared section cache.
     ///
-    /// Allows external callers (e.g. daemon, skill watcher) to hold a
+    /// Allows external callers (e.g. daemon) to hold a
     /// clone of the `Arc` and invalidate the same cache.
     pub fn shared_cache(&self) -> &Arc<std::sync::RwLock<SectionCache>> {
         &self.shared_cache
