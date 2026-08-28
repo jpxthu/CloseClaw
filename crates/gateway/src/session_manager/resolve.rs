@@ -241,6 +241,7 @@ impl SessionManager {
                                 .unwrap_or(BootstrapMode::Full);
                             conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
                             // Build initial system prompt via session's own builder.
+                            info!(session_id = %session_id, event = "session_injection", trigger = "archived_session_restore", "full injection for archived session (new ConversationSession)");
                             conv_session
                                 .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
                                 .await;
@@ -258,6 +259,7 @@ impl SessionManager {
                                 cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
                         } else {
+                            info!(session_id = %session_id, event = "session_injection", trigger = "archived_session_restore", "rebuilding prompt for archived session in memory");
                             self.rebuild_archived_session_prompt(&session_id, &cp, message)
                                 .await;
                         }
@@ -606,6 +608,13 @@ impl SessionManager {
                                 .unwrap_or(BootstrapMode::Full);
                             conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
                             // Build initial system prompt via session's own builder.
+                            info!(
+                                session_id = %archived_id,
+                                agent_id = %agent_id,
+                                event = "session_injection",
+                                trigger = "archived_session_restore",
+                                "injecting full session deps for archived session (new ConversationSession)"
+                            );
                             conv_session
                                 .rebuild_system_prompt(
                                     &archived_id,
@@ -627,6 +636,12 @@ impl SessionManager {
                                 cs.insert(archived_id.clone(), Arc::new(RwLock::new(conv_session)));
                             }
                         } else {
+                            info!(
+                                session_id = %archived_id,
+                                event = "session_injection",
+                                trigger = "archived_session_restore",
+                                "rebuilding prompt for archived session already in memory"
+                            );
                             self.rebuild_archived_session_prompt(&archived_id, &cp, message)
                                 .await;
                         }
@@ -796,6 +811,13 @@ impl SessionManager {
             .unwrap_or(BootstrapMode::Full);
         conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
         // Build initial system prompt via session's own builder.
+        info!(
+            session_id = %session_id,
+            agent_id = %agent_id,
+            event = "session_injection",
+            trigger = "new_session",
+            "injecting full session deps for new session"
+        );
         conv_session
             .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
             .await;
