@@ -57,9 +57,9 @@ pub struct Daemon {
     /// Shutdown sender for DreamingScheduler
     pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
 
-    /// Shared skill registry, updated on hot reload
+    /// Shared skill registry, rebuilt on demand via admin RPC
     pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
-    /// Builtin skill registry — compiled-in skills, not subject to hot reload
+    /// Builtin skill registry — compiled-in skills, not subject to rescan
     pub builtin_skill_registry: Arc<BuiltinSkillRegistry>,
     /// Slash command handler registry — shared with SlashDispatcher;
     /// allows late registration of SkillSlashHandler after registries are ready.
