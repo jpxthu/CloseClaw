@@ -619,7 +619,7 @@ impl SessionManager {
                                 agent_id = %agent_id,
                                 event = "session_injection",
                                 trigger = "archived_session_restore",
-                                "injecting full session deps for archived session (new ConversationSession)"
+                                "archived session: full deps injection (new ConversationSession)"
                             );
                             conv_session
                                 .rebuild_system_prompt(
