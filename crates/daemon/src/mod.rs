@@ -4,6 +4,7 @@
 //! Handles graceful shutdown via ShutdownCoordinator.
 pub mod bridge;
 pub mod chat_rpc;
+pub mod config_helpers;
 pub mod config_reload;
 pub mod config_watcher;
 mod daemon_struct;
@@ -12,6 +13,7 @@ pub mod gateway_restart;
 pub mod lifecycle;
 pub mod registries;
 pub mod shutdown;
+pub(crate) mod shutdown_heartbeat;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
