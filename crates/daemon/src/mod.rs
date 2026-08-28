@@ -173,6 +173,11 @@ impl Daemon {
 
     /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry, LLMRegistry,
     /// PermissionEngine, PlanArchiveSweeper.
+    ///
+    /// Independent components within the same layer are initialized in parallel
+    /// using `tokio::join!` to improve startup latency. Components with
+    /// sequential dependencies (e.g. skill_registry → shared_cache) maintain
+    /// their ordering.
     async fn init_phase_2_registries(
         config_dir: &str,
         config_manager: &ConfigManager,
@@ -188,19 +193,12 @@ impl Daemon {
         Arc<tokio::sync::RwLock<PermissionEngine>>,
         Option<crate::daemon_struct::PlanArchiveSweeperHandle>,
     )> {
+        // Synchronous components: no async work, create directly.
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         info!("Agent registry initialized");
         let permission_engine =
             Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
         let shared_cache = Arc::new(RwLock::new(SectionCache::new()));
-        let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
-        let (skill_registry, skill_rescan_handle) = skill_reload::init_skill_registry(
-            config_dir,
-            None,
-            Arc::clone(&shared_cache),
-            extra_dirs,
-        )
-        .await?;
         let tool_registry = Arc::new(ToolRegistry::new());
         let session_config_provider =
             config_manager.session_config_provider().unwrap_or_else(|| {
@@ -209,14 +207,24 @@ impl Daemon {
                     closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
                 )
             });
-        let llm_registry = Self::init_llm_registry(
-            std::path::Path::new(config_dir),
-            &std::collections::HashMap::new(),
-        )
-        .await;
         let data_dir = std::path::PathBuf::from(config_dir);
         let plan_archive_sweeper =
             registries::spawn_plan_archive_sweeper(config_manager, &data_dir);
+
+        // Parallel async components: skill_registry and llm_registry are
+        // independent within Layer 2, so run them concurrently.
+        let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
+        let skill_fut = skill_reload::init_skill_registry(
+            config_dir,
+            None,
+            Arc::clone(&shared_cache),
+            extra_dirs,
+        );
+        let empty_env: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+        let llm_fut = Self::init_llm_registry(std::path::Path::new(config_dir), &empty_env);
+        let (skill_result, llm_registry) = tokio::join!(skill_fut, llm_fut);
+        let (skill_registry, skill_rescan_handle) = skill_result?;
+
         Ok((
             agent_registry,
             skill_registry,
@@ -412,6 +420,9 @@ pub(crate) struct ServiceShutdownReceivers {
 // --- Phase 4-5 initialization ---
 impl Daemon {
     /// Phase 4: Wiring — ApprovalFlow.
+    ///
+    /// ApprovalFlow and BuiltinSkillRegistry are independent within the
+    /// same layer, so they are initialized in parallel via `tokio::join!`.
     async fn init_phase_4_wiring(
         gateway: &Arc<Gateway>,
         session_manager: &Arc<SessionManager>,
@@ -425,12 +436,6 @@ impl Daemon {
     ) {
         // Build the whitelist-updated callback: invalidate the agent's cached
         // rules so the next evaluate() lazily re-reads from disk.
-        //
-        // Previously this callback used reload_rules() to replace the entire
-        // global rule set, which caused multi-agent interference (multiple
-        // agents overwriting each other's rules). Now we only invalidate the
-        // specific agent's cache — the engine's AgentRuleStore handles the
-        // per-agent lazy loading and mtime-based cache invalidation.
         let pe_clone = Arc::clone(permission_engine);
         let whitelist_cb: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent_id: &str| {
             if let Ok(guard) = pe_clone.try_write() {
@@ -448,49 +453,87 @@ impl Daemon {
         });
 
         // Build the child-session creation callback for the new-session
-        // execution path. The callback captures SessionManager and
-        // ConfigManager to resolve agent config at call time.
+        // execution path.
         let sm_for_spawn = Arc::clone(session_manager);
         let cm_for_spawn = Arc::clone(config_manager);
-        let create_child_fn: closeclaw_permission::approval_flow::CreateChildSessionFn = Arc::new(
+        let create_child_fn = Self::build_create_child_fn(sm_for_spawn, cm_for_spawn);
+
+        let mut af = ApprovalFlow::new(
+            Arc::clone(session_manager) as Arc<dyn SessionLookup>,
+            Arc::new(|_| {}),
+            whitelist_cb,
+            tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
+            std::path::PathBuf::from(config_dir),
+            RuleSet::default(),
+        );
+        if let Some(logger) = audit_logger {
+            af = af.with_audit_logger(logger);
+        }
+        af.set_create_child_session_fn(create_child_fn);
+        let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
+
+        // Sync approval flow snapshot with actual loaded rules.
+        {
+            let pe_guard = permission_engine.read().await;
+            let engine_rules = pe_guard.rules().clone();
+            drop(pe_guard);
+            approval_flow.lock().await.update_rules(engine_rules);
+        }
+
+        // Parallel: approval_flow wiring + builtin_skill_registry creation
+        // are independent within Layer 4.
+        let gw = Arc::clone(gateway);
+        let af_for_gw = Arc::clone(&approval_flow);
+        let approval_fut = async {
+            gw.set_approval_flow(af_for_gw).await;
+        };
+        let builtin_fut = async {
+            let skills = builtin_skills();
+            let reg = Arc::new(BuiltinSkillRegistry::from_skills(skills).await);
+            let count = reg.list().await.len();
+            info!(count, "builtin skills registered in BuiltinSkillRegistry");
+            reg
+        };
+        let ((), builtin_skill_registry) = tokio::join!(approval_fut, builtin_fut);
+
+        (approval_flow, builtin_skill_registry)
+    }
+
+    /// Build the child-session creation callback for the approval flow.
+    fn build_create_child_fn(
+        sm: Arc<SessionManager>,
+        cm: Arc<closeclaw_config::ConfigManager>,
+    ) -> closeclaw_permission::approval_flow::CreateChildSessionFn {
+        Arc::new(
             move |parent_session_id: String,
                   plan_content: String,
                   step_selection: Option<Vec<usize>>|
                   -> std::pin::Pin<
                 Box<dyn std::future::Future<Output = Result<String, String>> + Send>,
             > {
-                let sm = Arc::clone(&sm_for_spawn);
-                let cm = Arc::clone(&cm_for_spawn);
+                let sm = Arc::clone(&sm);
+                let cm = Arc::clone(&cm);
                 Box::pin(async move {
-                    // Resolve the parent session's agent_id.
                     let agent_id = sm.get_chat_id(&parent_session_id).await.unwrap_or_default();
-
-                    // Resolve agent config from ConfigManager.
                     let config = {
                         let agents = cm.agents.read().unwrap();
                         agents.get(&agent_id).cloned()
                     }
                     .ok_or_else(|| format!("agent config not found for agent_id={}", agent_id))?;
-
-                    // Determine parent session depth.
                     let depth = sm.get_session_depth(&parent_session_id).await.unwrap_or(0);
-                    // Build task description and inject plan content as initial context.
                     let task = format!(
                         "Execute plan (new session). Step selection: {:?}",
                         step_selection
                     );
-                    // Inject the full plan file content into the system prompt
-                    // so the new session has complete plan context from the start.
                     let prompt_prefix = format!(
                         "## Plan Content (auto-injected for new session execution)\n\n{}",
                         plan_content
                     );
-                    // Determine max_spawn_depth from parent session.
                     let max_spawn_depth = sm
                         .get_effective_max_spawn_depth(&parent_session_id)
                         .await
                         .unwrap_or(3);
-
                     use closeclaw_gateway::session_manager::{ChildSessionConfig, SpawnMode};
                     let child_config = ChildSessionConfig {
                         config,
@@ -512,49 +555,10 @@ impl Daemon {
                         timeout_notify_interval_ratio: None,
                     };
                     let child_id = sm.create_child_session_with_config(child_config).await?;
-
-                    // Child created in Run mode; approval flow's handle_new_session_path
-                    // sets Auto Mode and plan state after this callback returns.
                     Ok(child_id)
                 })
             },
-        );
-
-        let mut af = ApprovalFlow::new(
-            Arc::clone(session_manager) as Arc<dyn SessionLookup>,
-            Arc::new(|_| {}),
-            whitelist_cb,
-            tokio::runtime::Handle::current(),
-            HeartbeatApprovalMode::default(),
-            std::path::PathBuf::from(config_dir),
-            RuleSet::default(),
-        );
-        if let Some(logger) = audit_logger {
-            af = af.with_audit_logger(logger);
-        }
-        af.set_create_child_session_fn(create_child_fn);
-        let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
-
-        // Sync approval flow snapshot with actual loaded rules.
-        // Without this, the approval flow holds `RuleSet::default()` and
-        // all snapshots would evaluate against empty rules.
-        {
-            let pe_guard = permission_engine.read().await;
-            let engine_rules = pe_guard.rules().clone();
-            drop(pe_guard);
-            approval_flow.lock().await.update_rules(engine_rules);
-        }
-
-        gateway.set_approval_flow(Arc::clone(&approval_flow)).await;
-        let builtin_skills = builtin_skills();
-        let builtin_skill_registry =
-            Arc::new(BuiltinSkillRegistry::from_skills(builtin_skills).await);
-        let builtin_count = builtin_skill_registry.list().await.len();
-        info!(
-            count = builtin_count,
-            "builtin skills registered in BuiltinSkillRegistry"
-        );
-        (approval_flow, builtin_skill_registry)
+        )
     }
 
     /// Phase 5: Background services — ArchiveSweeper, DreamingScheduler, registry population.
