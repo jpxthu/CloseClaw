@@ -16,6 +16,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 
 use crate::config_watcher;
+use crate::gateway_restart::RestartHandle;
 
 /// RAII handle for the PlanArchiveSweeper background task.
 ///
@@ -42,7 +43,12 @@ impl PlanArchiveSweeperHandle {
 
 /// Global daemon state
 pub struct Daemon {
-    pub gateway: Arc<Gateway>,
+    /// Gateway instance — wrapped in Mutex for restart-time swap.
+    /// Read via `self.gateway()` helper; write during restart only.
+    pub gateway: Arc<tokio::sync::Mutex<Arc<Gateway>>>,
+    /// Chat RPC server task handle — wrapped for restart-time swap.
+    #[allow(dead_code)]
+    pub(crate) chat_handle: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
     pub permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     pub shutdown: Arc<crate::shutdown::ShutdownHandle>,
@@ -73,9 +79,7 @@ pub struct Daemon {
     pub(crate) admin_handle: Option<tokio::task::JoinHandle<()>>,
     /// Path to the admin RPC socket file (cleaned up on shutdown)
     pub(crate) admin_socket_path: PathBuf,
-    /// Chat RPC server task handle (drop cancels the task)
-    #[allow(dead_code)]
-    pub(crate) chat_handle: Option<tokio::task::JoinHandle<()>>,
+
     /// Path to the chat RPC socket file (cleaned up on shutdown)
     pub(crate) chat_socket_path: PathBuf,
     /// Join handle for ArchiveSweeper background task
@@ -99,6 +103,46 @@ pub struct Daemon {
     #[allow(dead_code)]
     pub(crate) _output_rx:
         tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+    /// Gateway restart state machine — tracks Pending/Executing transitions.
+    pub(crate) restart_state: RestartHandle,
+    /// Receiver for restart-class config change signals from the config watcher.
+    /// Processes incoming signals and calls `request_gateway_restart()`.
+    /// Wrapped in `Option` so it can be taken in `run()` for the restart loop.
+    pub(crate) restart_rx: Option<tokio::sync::mpsc::Receiver<String>>,
+    /// Receiver for admin RPC restart commands (force=true, cancel=false).
+    /// Processed in `run()` select loop alongside config watcher signals.
+    pub(crate) admin_restart_rx: Option<tokio::sync::mpsc::Receiver<bool>>,
+}
+
+impl Daemon {
+    /// Get a clone of the current Gateway Arc.
+    ///
+    /// This is the preferred read path — it briefly locks the Mutex,
+    /// clones the inner Arc, and releases the lock immediately.
+    pub async fn gateway(&self) -> Arc<Gateway> {
+        self.gateway.lock().await.clone()
+    }
+
+    /// Replace the Gateway instance (used during restart).
+    pub async fn set_gateway(&self, gw: Arc<Gateway>) {
+        *self.gateway.lock().await = gw;
+    }
+
+    /// Take the chat RPC JoinHandle (used during restart).
+    pub async fn take_chat_handle(&self) -> Option<tokio::task::JoinHandle<()>> {
+        self.chat_handle.lock().await.take()
+    }
+
+    /// Store a new chat RPC JoinHandle (used during restart).
+    pub async fn set_chat_handle(&self, h: tokio::task::JoinHandle<()>) {
+        *self.chat_handle.lock().await = Some(h);
+    }
+
+    /// Take the ready-receiver for the restart watchdog channel.
+    /// Returns `None` if already taken.
+    pub fn take_restart_ready_rx(&self) -> Option<tokio::sync::mpsc::Receiver<Vec<String>>> {
+        self.restart_state.take_ready_rx()
+    }
 }
 
 /// Dependencies for Phase 5 background initialization.

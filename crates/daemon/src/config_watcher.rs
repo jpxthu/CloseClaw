@@ -120,8 +120,15 @@ pub(crate) fn init_config_hot_reload(
     agent_registry: Arc<AgentRegistry>,
     session_manager: Arc<SessionManager>,
     gateway: Arc<Gateway>,
+    restart_tx: Option<tokio::sync::mpsc::Sender<String>>,
 ) -> anyhow::Result<ConfigWatcherHandle> {
-    let callback = Arc::new(DaemonReloadCallback::new(Arc::clone(&agent_registry)));
+    let callback = match restart_tx {
+        Some(tx) => Arc::new(DaemonReloadCallback::with_restart_tx(
+            Arc::clone(&agent_registry),
+            tx,
+        )),
+        None => Arc::new(DaemonReloadCallback::new(Arc::clone(&agent_registry))),
+    };
     let mut manager = ConfigReloadManager::with_defaults(Arc::clone(&config_manager), callback);
 
     let watcher = manager

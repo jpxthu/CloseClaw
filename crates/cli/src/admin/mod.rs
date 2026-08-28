@@ -3,6 +3,7 @@
 mod agent;
 mod common;
 mod config;
+mod restart;
 pub mod rpc;
 mod rule;
 mod run;
@@ -19,6 +20,7 @@ pub use common::{
     RuleCheckOutput, RuleListEntry, RuleListOutput, RunOutput, StopOutput,
 };
 pub use config::{handle_config, handle_config_with, read_config_files};
+pub use restart::handle_restart;
 pub use rule::{handle_rule, handle_rule_with};
 pub use run::{handle_run, handle_run_foreground, DaemonRunner};
 pub use skill::{handle_skill, handle_skill_with};

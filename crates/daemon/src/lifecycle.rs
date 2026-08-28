@@ -87,6 +87,7 @@ impl Daemon {
             dreaming_handle,
             spawn_controller,
             system_prompt_builder,
+            restart_rx,
         ) = Self::init_phase_5_background(
             Phase5Deps {
                 config_manager: &config_manager,
@@ -184,12 +185,14 @@ impl Daemon {
                  — continuing"
             );
         }
+        let (admin_restart_tx, admin_restart_rx) = tokio::sync::mpsc::channel(2);
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
             &agent_registry,
             &skill_registry,
             &config_manager,
             config_dir,
             skill_rescan_handle,
+            admin_restart_tx,
         )
         .await;
         let (chat_handle, chat_sock_path) = Self::init_phase_6_chat_rpc(&gateway, config_dir).await;
@@ -198,7 +201,7 @@ impl Daemon {
             env!("CARGO_PKG_VERSION")
         );
         Ok(Self {
-            gateway,
+            gateway: Arc::new(tokio::sync::Mutex::new(gateway)),
             agent_registry,
             permission_engine,
             shutdown,
@@ -214,7 +217,7 @@ impl Daemon {
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
-            chat_handle: Some(chat_handle),
+            chat_handle: Arc::new(tokio::sync::Mutex::new(Some(chat_handle))),
             chat_socket_path: chat_sock_path,
             archive_sweeper_handle: Some(sweeper_handle),
             announce_sweeper_handle: Some(announce_sweeper_handle),
@@ -224,6 +227,9 @@ impl Daemon {
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
             _output_rx: output_rx,
+            restart_state: crate::gateway_restart::RestartHandle::new(),
+            restart_rx: Some(restart_rx),
+            admin_restart_rx: Some(admin_restart_rx),
         })
     }
 
@@ -231,6 +237,7 @@ impl Daemon {
     /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
+
         // Phase 0: Signal reception & mode determination
         // Register signal handlers and wait for the first shutdown signal.
         let mut sigint = signal(SignalKind::interrupt())
@@ -238,19 +245,74 @@ impl Daemon {
         let mut sigterm = signal(SignalKind::terminate())
             .map_err(|e| anyhow::anyhow!("failed to register SIGTERM handler: {}", e))?;
 
-        tokio::select! {
-            _ = sigint.recv() => {
-                info!("Received Ctrl+C, initiating graceful shutdown...");
-                self.shutdown.try_start_shutdown();
-            }
-            _ = sigterm.recv() => {
-                info!("Received SIGTERM, initiating graceful shutdown...");
-                self.shutdown.try_start_shutdown();
+        // Process restart signals until shutdown is initiated.
+        // The restart_rx receives change summaries from DaemonReloadCallback
+        // and triggers the restart state machine.
+        let mut restart_rx = self.restart_rx.take();
+        let mut admin_restart_rx = self.admin_restart_rx.take();
+        let mut ready_rx = self.take_restart_ready_rx();
+        let mut restart_rx_closed = false;
+        let mut admin_restart_rx_closed = false;
+        loop {
+            tokio::select! {
+                biased;
+                _ = sigint.recv() => {
+                    info!("Received Ctrl+C, initiating graceful shutdown...");
+                    self.shutdown.try_start_shutdown();
+                    break;
+                }
+                _ = sigterm.recv() => {
+                    info!("Received SIGTERM, initiating graceful shutdown...");
+                    self.shutdown.try_start_shutdown();
+                    break;
+                }
+                msg = async { restart_rx.as_mut().unwrap().recv().await }, if !restart_rx_closed => {
+                    if let Some(summary) = msg {
+                        info!(summary = %summary, "restart signal received from config watcher");
+                        let should_spawn = self.request_gateway_restart(vec![summary]);
+                        if should_spawn {
+                            self.spawn_restart_watchdog();
+                        }
+                    } else {
+                        // Channel closed — receiver taken or sender dropped.
+                        restart_rx = None;
+                        restart_rx_closed = true;
+                    }
+                }
+                cmd = async { admin_restart_rx.as_mut().unwrap().recv().await }, if !admin_restart_rx_closed => {
+                    if let Some(force) = cmd {
+                        if force {
+                            info!("admin RPC: force restart requested");
+                            let (should_spawn, force_pending) =
+                                self.force_gateway_restart(vec!["admin force restart".to_string()]);
+                            if should_spawn {
+                                self.spawn_restart_watchdog();
+                            } else if force_pending {
+                                self.signal_watchdog_ready(vec!["admin force restart".to_string()]);
+                            }
+                        } else {
+                            info!("admin RPC: cancel pending restart");
+                            self.cancel_pending_restart();
+                        }
+                    } else {
+                        admin_restart_rx = None;
+                        admin_restart_rx_closed = true;
+                    }
+                }
+                ready = async { ready_rx.as_mut().unwrap().recv().await }, if ready_rx.is_some() => {
+                    if let Some(changes) = ready {
+                        info!(changes = ?changes, "watchdog ready signal received — executing restart");
+                        self.execute_gateway_restart().await;
+                    } else {
+                        ready_rx = None;
+                    }
+                }
             }
         }
 
         // Phase 0: Send brief start notification (no session details yet)
-        self.gateway
+        self.gateway()
+            .await
             .send_shutdown_start_notification(self.shutdown.mode())
             .await;
 
@@ -289,7 +351,7 @@ impl Daemon {
         sigterm: &mut tokio::signal::unix::Signal,
     ) {
         // Shutdown inbound for all registered plugins
-        let plugins = self.gateway.get_all_plugins().await;
+        let plugins = self.gateway().await.get_all_plugins().await;
         for plugin in &plugins {
             if let Err(e) = plugin.shutdown_inbound().await {
                 tracing::warn!(
@@ -349,7 +411,7 @@ impl Daemon {
         mode: crate::shutdown::ShutdownMode,
     ) -> closeclaw_gateway::session_manager::stop::StopResult {
         // Send initial progress card (no-op if no active sessions)
-        self.gateway.send_shutdown_progress_card(mode).await;
+        self.gateway().await.send_shutdown_progress_card(mode).await;
 
         // Create progress channel for real-time session stop updates
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<
@@ -357,7 +419,7 @@ impl Daemon {
         >(64);
 
         // Spawn session stop as a background task
-        let sm = self.gateway.session_manager().clone();
+        let sm = self.gateway().await.session_manager().clone();
         let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
         let mut stop_handle = tokio::spawn(async move {
             sm.stop_all_sessions(mode, timeout, Some(&progress_tx))
@@ -411,7 +473,8 @@ impl Daemon {
                     {
                         let current_mode: closeclaw_common::shutdown::ShutdownMode =
                             self.shutdown.mode();
-                        self.gateway
+                        self.gateway()
+                            .await
                             .send_shutdown_progress_card(current_mode)
                             .await;
                         last_card_update = now;
@@ -452,7 +515,7 @@ impl Daemon {
                         longest_wait_secs,
                         "Phase 2 heartbeat — sending periodic notification"
                     );
-                    self.gateway
+                    self.gateway().await
                         .send_shutdown_heartbeat_card(longest_wait_secs, current_mode)
                         .await;
                     // Reset heartbeat timer
@@ -468,7 +531,10 @@ impl Daemon {
                     ?current_mode,
                     "shutdown mode changed, updating progress card"
                 );
-                self.gateway.send_shutdown_progress_card(current_mode).await;
+                self.gateway()
+                    .await
+                    .send_shutdown_progress_card(current_mode)
+                    .await;
                 last_card_update = std::time::Instant::now();
                 last_mode = current_mode;
             }
@@ -476,7 +542,7 @@ impl Daemon {
 
         // Session stop completed — send final card
         let result = stop_result.unwrap_or_default();
-        self.gateway.send_shutdown_final_card(&result).await;
+        self.gateway().await.send_shutdown_final_card(&result).await;
         result
     }
 
@@ -582,11 +648,11 @@ impl Daemon {
     }
     /// Phase 4: Final persistence — flush checkpoints and sync WAL.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
-        match self.gateway.flush_all_sessions(mode).await {
+        match self.gateway().await.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
-        match self.gateway.sync_storage().await {
+        match self.gateway().await.sync_storage().await {
             Ok(()) => tracing::info!("storage fsync complete"),
             Err(e) => tracing::warn!(error = %e, "storage fsync failed"),
         }
@@ -594,12 +660,12 @@ impl Daemon {
 
     /// Phase 5: Outbound shutdown — clean up routing tables.
     async fn phase_5_outbound_close(&self) {
-        self.gateway.close_outbound().await;
+        self.gateway().await.close_outbound().await;
     }
 
     /// Phase 6: Storage close — release persistent connections/handles.
     async fn phase_6_storage_close(&self) {
-        match self.gateway.close_storage().await {
+        match self.gateway().await.close_storage().await {
             Ok(()) => tracing::info!("storage closed"),
             Err(e) => tracing::warn!(error = %e, "storage close failed"),
         }
@@ -610,17 +676,18 @@ impl Daemon {
         // Check for sessions still in the active table — after
         // stop_all_sessions, only sessions that were NOT stopped
         // (e.g. skipped due to missing ConversationSession) remain.
-        let remaining = self.gateway.session_manager().get_all_sessions().await;
+        let remaining = self
+            .gateway()
+            .await
+            .session_manager()
+            .get_all_sessions()
+            .await;
         let mut stopped_count = 0usize;
         for session in &remaining {
             // Only warn about sessions that haven't been stopped yet.
             let is_stopped = {
-                let conv = self
-                    .gateway
-                    .session_manager()
-                    .conversation_sessions
-                    .read()
-                    .await;
+                let gw = self.gateway().await;
+                let conv = gw.session_manager().conversation_sessions.read().await;
                 match conv.get(&session.id) {
                     Some(cs) => cs.read().await.is_stopped(),
                     None => false,

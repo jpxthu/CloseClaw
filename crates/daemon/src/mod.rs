@@ -8,6 +8,7 @@ pub mod config_reload;
 pub mod config_watcher;
 mod daemon_struct;
 pub mod dreaming_scheduler;
+pub mod gateway_restart;
 pub mod lifecycle;
 pub mod registries;
 pub mod shutdown;
@@ -571,6 +572,7 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         Arc<SpawnController>,
         Arc<dyn closeclaw_common::SystemPromptBuilder>,
+        tokio::sync::mpsc::Receiver<String>,
     )> {
         let Phase5Deps {
             config_manager,
@@ -611,6 +613,11 @@ impl Daemon {
         let late_bound_session_manager =
             Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
         let builtin_skill_listing = Arc::clone(builtin_skill_registry);
+        // Create the restart signal channel.  The sender is captured
+        // by the DaemonReloadCallback (via config_watcher) to signal
+        // restart-class config changes; the receiver is consumed by
+        // the daemon main loop to call request_gateway_restart().
+        let (restart_tx, restart_rx) = tokio::sync::mpsc::channel(8);
         let ctx = registries::RegistryContext {
             config_manager,
             agent_registry,
@@ -625,6 +632,7 @@ impl Daemon {
             config_subdir: &config_subdir,
             data_dir,
             gateway,
+            restart_tx: Some(restart_tx),
         };
         let config_watcher = registries::populate_registries(&ctx).await;
 
@@ -741,6 +749,7 @@ impl Daemon {
             dreaming_handle,
             spawn_controller,
             prompt_builder_adapter,
+            restart_rx,
         ))
     }
 
@@ -857,6 +866,7 @@ impl Daemon {
         config_manager: &Arc<ConfigManager>,
         config_dir: &str,
         skill_rescan_handle: SkillRescanHandle,
+        admin_restart_tx: tokio::sync::mpsc::Sender<bool>,
     ) -> (tokio::task::JoinHandle<()>, PathBuf) {
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
         let admin_context = AdminContext {
@@ -865,6 +875,7 @@ impl Daemon {
             config_manager: Arc::clone(config_manager),
             config_dir: PathBuf::from(config_dir),
             skill_rescan: Some(Arc::new(move || skill_rescan_handle.perform())),
+            restart_tx: Some(admin_restart_tx),
         };
         let admin_server = AdminServer::new(&admin_sock_path, admin_context);
         let admin_handle = tokio::spawn(async move {
