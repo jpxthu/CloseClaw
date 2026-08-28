@@ -142,14 +142,16 @@ impl crate::Daemon {
 
     /// Force an immediate gateway restart (skip idle-window wait).
     ///
-    /// If currently **Pending**, transitions directly to `Executing` so
-    /// the watchdog proceeds immediately. If currently **Idle**, starts
-    /// a fresh restart cycle by going to `Pending` with the given
-    /// `changes` and returning `true` (caller should spawn watchdog).
+    /// If currently **Pending**, overwrites changes and signals the
+    /// watchdog immediately via the ready channel. If currently **Idle**,
+    /// starts a fresh restart cycle by going to `Pending` and returning
+    /// `true` (caller should spawn watchdog).
     /// If currently **Executing**, returns `false`.
     ///
     /// Returns `true` if the caller should spawn the watchdog task.
-    pub(crate) fn force_gateway_restart(&self, changes: Vec<String>) -> bool {
+    /// Also sets `force_pending` flag if already Pending, so the
+    /// caller can signal the watchdog directly.
+    pub(crate) fn force_gateway_restart(&self, changes: Vec<String>) -> (bool, bool) {
         let current = self.restart_state.tx.borrow().clone();
         match current {
             RestartState::Pending { .. } => {
@@ -157,28 +159,38 @@ impl crate::Daemon {
                     .restart_state
                     .tx
                     .send(RestartState::Pending { changes });
-                true
+                // Already Pending — caller should signal watchdog
+                // directly instead of spawning a new one.
+                (false, true)
             }
             RestartState::Idle => {
                 let _ = self
                     .restart_state
                     .tx
                     .send(RestartState::Pending { changes });
-                true
+                (true, false)
             }
-            RestartState::Executing => false,
+            RestartState::Executing => (false, false),
         }
+    }
+
+    /// Send the ready signal to the watchdog with the given changes.
+    /// Used when `force_gateway_restart` returns `(false, true)` —
+    /// the caller needs to signal the already-running watchdog.
+    pub(crate) fn signal_watchdog_ready(&self, changes: Vec<String>) {
+        let ready_tx = self.restart_state.ready_sender();
+        tokio::spawn(async move {
+            let _ = ready_tx.send(changes).await;
+        });
     }
 
     /// Resolve the config directory from the admin socket path.
     ///
-    /// `admin_socket_path` = `<config_dir>/admin.sock`, so parent.parent
+    /// `admin_socket_path` = `<config_dir>/admin.sock`, so parent()
     /// gives `<config_dir>`. Falls back to current dir on failure.
-    #[allow(dead_code)]
     fn resolve_config_dir(&self) -> String {
         self.admin_socket_path
             .parent()
-            .and_then(|p| p.parent())
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| ".".to_string())
     }
@@ -204,7 +216,6 @@ impl crate::Daemon {
     ///   webhooks) are shut down before the new Gateway starts.
     /// - The old inbound queue consumer exits naturally when the old
     ///   `Arc<Gateway>` is dropped (its channel sender is dropped).
-    #[allow(dead_code)]
     pub(crate) async fn execute_gateway_restart(&self) {
         let changes = match self.restart_state.tx.borrow().clone() {
             RestartState::Pending { changes } => changes,
@@ -224,9 +235,42 @@ impl crate::Daemon {
         self.swap_and_notify(new_gw, changes).await;
     }
 
+    /// Load GatewayConfig from `{config_dir}/gateway.json`.
+    ///
+    /// Falls back to `GatewayConfig::default()` if the file is missing
+    /// or cannot be parsed.
+    async fn load_gateway_config(&self, config_dir: &str) -> closeclaw_gateway::GatewayConfig {
+        let config_path = std::path::Path::new(config_dir).join("gateway.json");
+        match tokio::fs::read_to_string(&config_path).await {
+            Ok(content) => {
+                match serde_json::from_str::<closeclaw_gateway::GatewayConfig>(&content) {
+                    Ok(config) => {
+                        info!("loaded GatewayConfig from {}", config_path.display());
+                        config
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            path = %config_path.display(),
+                            "failed to parse gateway.json — using defaults"
+                        );
+                        closeclaw_gateway::GatewayConfig::default()
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    path = %config_path.display(),
+                    "gateway.json not found — using defaults"
+                );
+                closeclaw_gateway::GatewayConfig::default()
+            }
+        }
+    }
+
     /// Shut down the old Gateway: close outbound (IM plugins), stop
     /// old Chat RPC server.
-    #[allow(dead_code)]
     async fn shutdown_old_gateway(&self) {
         self.gateway().await.close_outbound().await;
         info!("old gateway outbound closed");
@@ -238,14 +282,8 @@ impl crate::Daemon {
     }
 
     /// Create a new Gateway and inject all shared dependencies.
-    #[allow(dead_code)]
     async fn build_new_gateway(&self, config_dir: &str) -> Arc<closeclaw_gateway::Gateway> {
-        let gw_config = closeclaw_gateway::GatewayConfig {
-            name: "closeclaw".to_string(),
-            rate_limit_per_minute: 60,
-            max_message_size: 16_384,
-            ..Default::default()
-        };
+        let gw_config = self.load_gateway_config(config_dir).await;
         let new_gw = Arc::new(closeclaw_gateway::Gateway::new(
             gw_config,
             Arc::clone(&self.session_manager),
@@ -275,7 +313,6 @@ impl crate::Daemon {
 
     /// Install session handler, slash dispatcher, permission engine,
     /// approval flow, and start the new Chat RPC server.
-    #[allow(dead_code)]
     async fn install_handlers(&self, new_gw: &Arc<closeclaw_gateway::Gateway>) {
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
         let unified_fallback =
@@ -316,6 +353,16 @@ impl crate::Daemon {
             .set_approval_flow(Arc::clone(&self.approval_flow))
             .await;
 
+        let chat_handle = self.start_chat_rpc_server(new_gw).await;
+        self.set_chat_handle(chat_handle).await;
+    }
+
+    /// Start a new Chat RPC server on the given socket path.
+    /// Returns the JoinHandle so the caller can store/abort it.
+    async fn start_chat_rpc_server(
+        &self,
+        new_gw: &Arc<closeclaw_gateway::Gateway>,
+    ) -> tokio::task::JoinHandle<()> {
         use crate::chat_rpc::{ChatContext, ChatRpcServer, RpcTerminalPlugin};
         let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
         new_gw
@@ -332,12 +379,10 @@ impl crate::Daemon {
             }
         });
         info!("new chat RPC server started");
-
-        self.set_chat_handle(chat_handle).await;
+        chat_handle
     }
 
     /// Swap Gateway references and notify the Owner via IM.
-    #[allow(dead_code)]
     async fn swap_and_notify(&self, new_gw: Arc<closeclaw_gateway::Gateway>, changes: Vec<String>) {
         self.set_gateway(new_gw).await;
 

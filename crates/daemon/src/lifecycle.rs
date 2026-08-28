@@ -250,6 +250,9 @@ impl Daemon {
         // and triggers the restart state machine.
         let mut restart_rx = self.restart_rx.take();
         let mut admin_restart_rx = self.admin_restart_rx.take();
+        let mut ready_rx = self.take_restart_ready_rx();
+        let mut restart_rx_closed = false;
+        let mut admin_restart_rx_closed = false;
         loop {
             tokio::select! {
                 biased;
@@ -263,22 +266,29 @@ impl Daemon {
                     self.shutdown.try_start_shutdown();
                     break;
                 }
-                msg = async { restart_rx.as_mut().unwrap().recv().await }, if restart_rx.is_some() => {
+                msg = async { restart_rx.as_mut().unwrap().recv().await }, if !restart_rx_closed => {
                     if let Some(summary) = msg {
                         info!(summary = %summary, "restart signal received from config watcher");
-                        self.request_gateway_restart(vec![summary]);
+                        let should_spawn = self.request_gateway_restart(vec![summary]);
+                        if should_spawn {
+                            self.spawn_restart_watchdog();
+                        }
                     } else {
                         // Channel closed — receiver taken or sender dropped.
                         restart_rx = None;
+                        restart_rx_closed = true;
                     }
                 }
-                cmd = async { admin_restart_rx.as_mut().unwrap().recv().await }, if admin_restart_rx.is_some() => {
+                cmd = async { admin_restart_rx.as_mut().unwrap().recv().await }, if !admin_restart_rx_closed => {
                     if let Some(force) = cmd {
                         if force {
                             info!("admin RPC: force restart requested");
-                            let should_spawn = self.force_gateway_restart(vec!["admin force restart".to_string()]);
+                            let (should_spawn, force_pending) =
+                                self.force_gateway_restart(vec!["admin force restart".to_string()]);
                             if should_spawn {
                                 self.spawn_restart_watchdog();
+                            } else if force_pending {
+                                self.signal_watchdog_ready(vec!["admin force restart".to_string()]);
                             }
                         } else {
                             info!("admin RPC: cancel pending restart");
@@ -286,6 +296,15 @@ impl Daemon {
                         }
                     } else {
                         admin_restart_rx = None;
+                        admin_restart_rx_closed = true;
+                    }
+                }
+                ready = async { ready_rx.as_mut().unwrap().recv().await }, if ready_rx.is_some() => {
+                    if let Some(changes) = ready {
+                        info!(changes = ?changes, "watchdog ready signal received — executing restart");
+                        self.execute_gateway_restart().await;
+                    } else {
+                        ready_rx = None;
                     }
                 }
             }

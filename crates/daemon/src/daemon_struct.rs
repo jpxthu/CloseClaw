@@ -140,7 +140,6 @@ impl Daemon {
 
     /// Take the ready-receiver for the restart watchdog channel.
     /// Returns `None` if already taken.
-    #[allow(dead_code)]
     pub fn take_restart_ready_rx(&self) -> Option<tokio::sync::mpsc::Receiver<Vec<String>>> {
         self.restart_state.take_ready_rx()
     }
