@@ -573,11 +573,11 @@ fn test_decorate_headers_content_type() {
     );
 }
 // ── reasoning_level downgrade tests ───────────────────────────────────────
-// Anthropic only supports High. Non-High levels are downgraded to High
-// inside build_request_body (cloned + mutated). The body itself never
-// contains reasoning fields.
+// Anthropic only supports High natively. Reasoning level downgrade is handled
+// by AnthropicPlugin (plugin layer), not here. build_request only builds
+// the JSON body from the already-normalised request.
 #[test]
-fn test_build_request_downgrades_non_high_reasoning_level() {
+fn test_build_request_no_reasoning_fields_for_non_high_level() {
     let proto = AnthropicProtocol::new();
     let non_high_levels = [
         ReasoningLevel::Low,

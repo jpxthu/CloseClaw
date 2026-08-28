@@ -27,6 +27,11 @@ pub fn assemble_llm_components(
 ) -> (Arc<dyn ChatProtocol>, InterpreterRegistry, PluginPipeline) {
     use crate::plugin::PluginPipeline;
     match provider_id {
+        "anthropic" => (
+            Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
+            InterpreterRegistry::default(),
+            PluginPipeline::new().add(Box::new(crate::AnthropicPlugin)),
+        ),
         "minimax" => (
             Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
             InterpreterRegistry::new(vec![(Box::new(crate::MinimaxInterpreter), "minimax/*")]),

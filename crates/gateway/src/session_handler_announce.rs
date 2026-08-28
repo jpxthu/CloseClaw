@@ -23,6 +23,7 @@ use super::session_handler::SessionMessageHandler;
 use super::OutputTx;
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
+use closeclaw_llm::resolve_anthropic_effective as resolve_anthropic_effective_shared;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::ChatSession;
@@ -68,21 +69,39 @@ fn resolve_for_levels(
     }
 }
 
+/// Check if a model name looks like an Anthropic model.
+///
+/// All Anthropic production models use the "claude" prefix.
+/// This is used as a heuristic when `provider_id` is not available
+/// but the model name is the actual model name
+/// (not a placeholder like "default").
+fn is_anthropic_model(model: &str) -> bool {
+    let lower = model.to_lowercase();
+    lower.contains("claude") || lower.contains("anthropic")
+}
+
 /// Resolve the effective reasoning level for a given model.
 ///
 /// Iterates through the knowledge base to find the provider that
 /// serves this model, then checks if the requested level is
 /// supported. If not, returns the highest supported level.
-/// Falls back to `requested` when the model is not in the knowledge base.
+///
+/// When the model is not in the knowledge base, falls back to
+/// provider-specific static capability tables. Currently handles:
+/// - **Anthropic**: Off→Low, non-High→High (only High natively supported)
+///
+/// Provider identification is done via model name heuristic ("claude"
+/// or "anthropic" prefix) since `provider_id` is not available at
+/// the session level.
 fn resolve_effective_reasoning_level(
     model: &str,
     requested: ReasoningLevel,
     knowledge: &closeclaw_llm::ProviderModelKnowledge,
 ) -> ReasoningLevel {
-    for provider_id in knowledge.all_providers() {
-        let models = knowledge.all_models(provider_id);
+    for kb_provider_id in knowledge.all_providers() {
+        let models = knowledge.all_models(kb_provider_id);
         if models.contains(&model) {
-            if let Some(params) = knowledge.find(provider_id, model) {
+            if let Some(params) = knowledge.find(kb_provider_id, model) {
                 return match params.reasoning_levels {
                     closeclaw_llm::knowledge::ReasoningLevels::None => requested,
                     closeclaw_llm::knowledge::ReasoningLevels::Toggle { .. } => {
@@ -96,6 +115,11 @@ fn resolve_effective_reasoning_level(
                 };
             }
         }
+    }
+    // Model not in knowledge base — apply provider-specific fallback.
+    // Use model name heuristic ("claude" or "anthropic" prefix).
+    if is_anthropic_model(model) {
+        return resolve_anthropic_effective_shared(requested);
     }
     requested
 }
@@ -815,5 +839,82 @@ pub(crate) mod tests {
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Low, &kb),
             ReasoningLevel::Low,
         );
+    }
+
+    // ── Anthropic fallback (model name heuristic) ───────────────────────────
+
+    #[test]
+    fn test_resolve_effective_level_anthropic_off_via_model_heuristic() {
+        // Model name contains "claude" → Anthropic fallback triggered.
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level(
+            "claude-3-5-sonnet-20241022",
+            ReasoningLevel::Off,
+            &kb,
+        );
+        assert_eq!(result, ReasoningLevel::Low);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_anthropic_max_via_model_heuristic() {
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level(
+            "claude-3-5-sonnet-20241022",
+            ReasoningLevel::Max,
+            &kb,
+        );
+        assert_eq!(result, ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_anthropic_low_via_model_heuristic() {
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level(
+            "claude-3-5-sonnet-20241022",
+            ReasoningLevel::Low,
+            &kb,
+        );
+        assert_eq!(result, ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_anthropic_medium_via_model_heuristic() {
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level(
+            "claude-3-5-sonnet-20241022",
+            ReasoningLevel::Medium,
+            &kb,
+        );
+        assert_eq!(result, ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_anthropic_high_via_model_heuristic() {
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level(
+            "claude-3-5-sonnet-20241022",
+            ReasoningLevel::High,
+            &kb,
+        );
+        assert_eq!(result, ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_non_anthropic_no_fallback() {
+        // Non-Anthropic model not in KB → requested returned unchanged.
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("gpt-4o", ReasoningLevel::Off, &kb);
+        assert_eq!(result, ReasoningLevel::Off);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_anthropic_model_name_detection() {
+        // is_anthropic_model helper test.
+        assert!(is_anthropic_model("claude-3-5-sonnet-20241022"));
+        assert!(is_anthropic_model("Claude-3-Haiku"));
+        assert!(is_anthropic_model("anthropic-model"));
+        assert!(!is_anthropic_model("gpt-4o"));
+        assert!(!is_anthropic_model("MiniMax-M2.7"));
+        assert!(!is_anthropic_model("default"));
     }
 }
