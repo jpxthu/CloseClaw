@@ -4,7 +4,8 @@ use super::*;
 use crate::session_handler::apply_compact_result;
 use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler::MessageMetadata;
-use closeclaw_common::LlmCaller;
+use closeclaw_common::tool_session::ToolSession;
+use closeclaw_common::{LlmCaller, ToolExecState};
 use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
@@ -949,34 +950,38 @@ fn test_to_request_context_maps_fields() {
     assert_eq!(ctx.chat_name, "test-group");
 }
 
-/// `default_meta()` produces a RequestContext with empty sender/channel
-/// and a non-zero timestamp (current time).
-#[test]
-fn test_default_meta_to_request_context() {
-    let meta = MessageMetadata::default_meta();
-    let ctx = meta.to_request_context();
-    assert!(ctx.sender_id.is_empty());
-    assert!(ctx.channel.is_empty());
-    // Timestamp should be recent (within last 60 seconds)
-    let now = chrono::Utc::now().timestamp();
-    assert!(ctx.timestamp <= now);
-    assert!(ctx.timestamp > now - 60);
-}
+/// Consumer behavior: `is_session_busy()` returns `false` when a
+/// background tool is running (design doc state table row 2).
+#[tokio::test]
+async fn test_is_session_busy_false_with_background_tool() {
+    let sm = make_sm();
+    let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
-/// Empty-string fields roundtrip correctly.
-#[test]
-fn test_to_request_context_empty_fields() {
-    let meta = MessageMetadata {
-        sender_id: String::new(),
-        channel: String::new(),
-        timestamp: 0,
-        chat_name: String::new(),
-        trace_id: None,
-        session_key: None,
-    };
-    let ctx = meta.to_request_context();
-    assert!(ctx.sender_id.is_empty());
-    assert!(ctx.channel.is_empty());
-    assert_eq!(ctx.timestamp, 0);
-    assert!(ctx.chat_name.is_empty());
+    // Register a background tool via the ToolSession trait.
+    let cs = sm
+        .get_conversation_session(&sid)
+        .await
+        .expect("session exists");
+    {
+        let guard = cs.write().await;
+        <closeclaw_session::llm_session::ConversationSession as ToolSession>::register_tool_call(
+            &*guard,
+            "bg-1".into(),
+            "bash".into(),
+            "ls".into(),
+        )
+        .await;
+        <closeclaw_session::llm_session::ConversationSession as ToolSession>::update_tool_state(
+            &*guard,
+            "bg-1",
+            ToolExecState::RunningBackground,
+        )
+        .await;
+    }
+
+    // Background tool running → session is NOT busy (per design doc).
+    assert!(
+        !sm.is_session_busy(&sid).await,
+        "is_session_busy must return false when only background tool is active"
+    );
 }

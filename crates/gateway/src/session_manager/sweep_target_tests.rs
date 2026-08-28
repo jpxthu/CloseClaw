@@ -12,9 +12,27 @@
 use super::spawn::SpawnMode;
 use super::test_helpers::{append_assistant_to_child, setup_parent_with_conv};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
+use closeclaw_common::{tool_session::ToolSession, ToolExecState};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
+
+fn make_msg() -> crate::Message {
+    use std::collections::HashMap;
+    crate::Message {
+        id: "msg_sweep".into(),
+        from: "alice".into(),
+        to: "bob".into(),
+        content: "hello".into(),
+        channel: "ch".into(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: HashMap::new(),
+        thread_id: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
+    }
+}
 
 // ── 1. get_last_output_at: session exists → returns timestamp ────────────
 
@@ -445,5 +463,47 @@ async fn test_terminate_stale_child_notification_text_format() {
         text.contains("自动终止"),
         "should mention auto-terminated: {}",
         text
+    );
+}
+
+// ── 10. is_session_idle: background tool running → true ────────────────
+
+/// `is_session_idle` returns `true` when a background tool is running.
+/// This verifies the core fix from Step 1.1: background_tool_active
+/// no longer blocks idle determination (design doc state table row 2).
+#[tokio::test]
+#[serial]
+async fn test_is_session_idle_with_background_tool() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let sid = mgr.find_or_create("ch", &make_msg(), None).await.unwrap();
+
+    // Register a background tool via the ToolSession trait.
+    let cs = mgr
+        .get_conversation_session(&sid)
+        .await
+        .expect("session exists");
+    {
+        let guard = cs.write().await;
+        <closeclaw_session::llm_session::ConversationSession as ToolSession>::register_tool_call(
+            &*guard,
+            "bg-sweep-1".into(),
+            "bash".into(),
+            "ls".into(),
+        )
+        .await;
+        <closeclaw_session::llm_session::ConversationSession as ToolSession>::update_tool_state(
+            &*guard,
+            "bg-sweep-1",
+            ToolExecState::RunningBackground,
+        )
+        .await;
+    }
+
+    // Background tool running → session IS idle (per design doc).
+    assert!(
+        mgr.is_session_idle(&sid).await,
+        "is_session_idle must return true when only background tool is active"
     );
 }
