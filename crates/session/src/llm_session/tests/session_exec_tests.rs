@@ -4,7 +4,7 @@
 //! - foreground + child active → Busy
 //! - only child (no yielding) → Idle
 //! - child + yielding → Waiting
-//! - background tool + child → IdleWithBackgroundTasks
+//! - background tool + child → Idle (per design doc)
 
 use super::super::*;
 use closeclaw_common::{LlmState, SessionExecStatus, ToolExecState};
@@ -65,20 +65,18 @@ fn test_exec_status_child_and_yielding_waiting() {
     assert_eq!(session.exec_status(), SessionExecStatus::Waiting);
 }
 
-// ── background tool + child → IdleWithBackgroundTasks ──────────────────────
+// ── background tool + child → Idle (per design doc) ──────────────────────
 
-/// Background tool + child → IdleWithBackgroundTasks (child doesn't
-/// affect status, background tool determines the result).
+/// Background tool + child → Idle (child doesn't
+/// affect status, background_tool_active does not affect idle
+/// per design doc state table row 2).
 #[test]
 fn test_exec_status_bg_tool_and_child() {
     let session = ConversationSession::new("se_bg_child".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("bg_1", "bash", "ls");
     session.update_tool_state("bg_1", ToolExecState::RunningBackground);
     session.register_child("child_1", "agent-a", "task");
-    assert_eq!(
-        session.exec_status(),
-        SessionExecStatus::IdleWithBackgroundTasks
-    );
+    assert_eq!(session.exec_status(), SessionExecStatus::Idle);
 }
 
 // ── LLM + child → Busy ────────────────────────────────────────────────────

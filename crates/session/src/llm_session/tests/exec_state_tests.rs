@@ -256,14 +256,11 @@ fn test_exec_status_waiting_only_when_yielding() {
 }
 
 #[test]
-fn test_exec_status_idle_with_background_tasks() {
+fn test_exec_status_bg_tool_only_returns_idle() {
     let session = ConversationSession::new("s_exec_6".into(), "gpt-4o".into(), tmp_path());
     session.register_tool_call("bg_1", "bash", "ls");
     session.update_tool_state("bg_1", ToolExecState::RunningBackground);
-    assert_eq!(
-        session.exec_status(),
-        SessionExecStatus::IdleWithBackgroundTasks
-    );
+    assert_eq!(session.exec_status(), SessionExecStatus::Idle);
 }
 
 #[test]
@@ -333,12 +330,9 @@ fn test_bg_lifecycle_exec_status() {
     session.register_tool_call("bg-1", "bash", "ls");
     assert_eq!(session.exec_status(), SessionExecStatus::Busy);
 
-    // RunningBackground → no foreground tools → IdleWithBackgroundTasks
+    // RunningBackground → no foreground tools → Idle (per design doc)
     session.update_tool_state("bg-1", ToolExecState::RunningBackground);
-    assert_eq!(
-        session.exec_status(),
-        SessionExecStatus::IdleWithBackgroundTasks
-    );
+    assert_eq!(session.exec_status(), SessionExecStatus::Idle);
     assert!(!session.has_active_foreground_tool());
     assert!(session.has_active_background_tool());
     // Still in tool_states (not deregistered)
@@ -385,10 +379,7 @@ fn test_fg_timeout_to_bg_preserves_exec_status() {
 
     // Timeout: auto-promote to background
     session.update_tool_state("to-1", ToolExecState::RunningBackground);
-    assert_eq!(
-        session.exec_status(),
-        SessionExecStatus::IdleWithBackgroundTasks
-    );
+    assert_eq!(session.exec_status(), SessionExecStatus::Idle);
     assert!(!session.has_active_foreground_tool());
     assert!(session.has_active_background_tool());
     // Must remain in tool_states

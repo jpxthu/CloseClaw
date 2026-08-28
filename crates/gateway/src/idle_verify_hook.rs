@@ -84,11 +84,7 @@ pub(crate) fn check_idle_verify_conditions(
     session_id: &str,
 ) -> Option<VerifyInjectParams> {
     let exec_status = cs.exec_status();
-    let is_idle = matches!(
-        exec_status,
-        closeclaw_common::SessionExecStatus::Idle
-            | closeclaw_common::SessionExecStatus::IdleWithBackgroundTasks
-    );
+    let is_idle = matches!(exec_status, closeclaw_common::SessionExecStatus::Idle);
     if !is_idle {
         tracing::debug!(
             session_id = %session_id,

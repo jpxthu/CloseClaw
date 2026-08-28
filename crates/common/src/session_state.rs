@@ -126,16 +126,20 @@ impl SessionActivityDimensions {
     }
 }
 
-/// Overall session execution status derived from the three dimensions
-/// (LLM, tool, child session). See `docs/design/session/session-execution.md`
-/// for the full state table.
+/// Overall session execution status derived from the four dimensions
+/// (LLM, foreground tool, background tool, child session). See
+/// `docs/design/session/session-execution.md` for the full state table.
+///
+/// Only two output states: `Idle` and `Busy`. `Waiting` is a special
+/// case when the session is actively yielding (`is_yielding=true`).
+/// `background_tool_active` and `child_active` do NOT affect the
+/// idle/busy determination — they are exposed via
+/// [`SessionActivityDimensions`] for consumers that need them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionExecStatus {
-    /// Fully idle: no LLM, no tool, no child session activity.
+    /// Fully idle: no LLM, no foreground tool activity.
+    /// Background tools or children may still be running.
     Idle,
-    /// Idle on the LLM/foreground axis, but background tools are running.
-    /// The session can still accept new input.
-    IdleWithBackgroundTasks,
     /// Waiting on a running child session to complete.
     Waiting,
     /// LLM interaction or foreground tool execution in progress.
