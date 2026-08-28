@@ -27,6 +27,10 @@ pub struct AdminContext {
     /// Skill rescan handle — `None` in test contexts where daemon
     /// components are not fully initialized.
     pub skill_rescan: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Channel to signal gateway restart requests to the daemon.
+    /// `Some(true)` = force immediate restart, `Some(false)` = cancel pending.
+    /// `None` in test contexts.
+    pub restart_tx: Option<tokio::sync::mpsc::Sender<bool>>,
 }
 
 /// Admin RPC server that binds a Unix domain socket and handles
@@ -133,6 +137,8 @@ pub(crate) async fn dispatch(request: AdminRequest, context: &AdminContext) -> A
         AdminRequest::SkillInstall { name } => dispatch_skill_install(&name, context).await,
         AdminRequest::SkillRescan => dispatch_skill_rescan(context).await,
         AdminRequest::Ping => AdminResponse::Pong,
+        AdminRequest::ForceRestart => dispatch_force_restart(context).await,
+        AdminRequest::CancelPendingRestart => dispatch_cancel_pending_restart(context).await,
     }
 }
 
@@ -417,6 +423,36 @@ async fn dispatch_skill_rescan(context: &AdminContext) -> AdminResponse {
         }
         None => AdminResponse::Error {
             message: "skill rescan not available".to_string(),
+        },
+    }
+}
+
+/// Send a force-restart signal to the daemon (true = force immediate).
+async fn dispatch_force_restart(context: &AdminContext) -> AdminResponse {
+    match &context.restart_tx {
+        Some(tx) => match tx.send(true).await {
+            Ok(()) => AdminResponse::Ok,
+            Err(e) => AdminResponse::Error {
+                message: format!("failed to send force-restart signal: {}", e),
+            },
+        },
+        None => AdminResponse::Error {
+            message: "restart not available in this context".to_string(),
+        },
+    }
+}
+
+/// Send a cancel-pending-restart signal to the daemon (false = cancel).
+async fn dispatch_cancel_pending_restart(context: &AdminContext) -> AdminResponse {
+    match &context.restart_tx {
+        Some(tx) => match tx.send(false).await {
+            Ok(()) => AdminResponse::Ok,
+            Err(e) => AdminResponse::Error {
+                message: format!("failed to send cancel-restart signal: {}", e),
+            },
+        },
+        None => AdminResponse::Error {
+            message: "restart not available in this context".to_string(),
         },
     }
 }

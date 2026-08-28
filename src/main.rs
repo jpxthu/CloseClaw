@@ -48,6 +48,11 @@ enum Commands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Restart the gateway (optionally with --force to skip idle wait).
+    Restart {
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -71,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
             handle_run(config_dir, cli.json, foreground, &runner).await?
         }
         Commands::Stop { force } => handle_stop(force, cli.json).await?,
+        Commands::Restart { force } => handle_restart(force, cli.json).await?,
     }
     Ok(())
 }

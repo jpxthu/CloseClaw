@@ -41,6 +41,13 @@ pub trait ReloadCallback: Send + Sync + 'static {
     ///
     /// The implementor should rebuild the session config provider.
     fn on_session_reloaded(&self, config_manager: &ConfigManager);
+
+    /// Called after any config file change is processed.
+    ///
+    /// The implementor can inspect the `path` to determine whether
+    /// the change requires a restart-class action (e.g., gateway
+    /// rebuild).  Default implementation is a no-op.
+    fn on_config_file_changed(&self, _path: &Path, _config_manager: &ConfigManager) {}
 }
 
 /// RAII handle that keeps the filesystem watcher alive.
@@ -450,6 +457,11 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
                 .callback
                 .on_session_reloaded(&manager.config_manager);
         }
+        // Notify the callback about any config file change so it can
+        // detect restart-class changes (e.g. gateway, models).
+        manager
+            .callback
+            .on_config_file_changed(path, &manager.config_manager);
     }
 }
 

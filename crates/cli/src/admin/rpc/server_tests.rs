@@ -24,6 +24,7 @@ fn make_test_context() -> AdminContext {
         config_manager,
         config_dir,
         skill_rescan: None,
+        restart_tx: None,
     }
 }
 
@@ -171,6 +172,7 @@ fn make_context_with_agents(config_dir: &std::path::Path) -> AdminContext {
         config_manager: Arc::new(config_manager),
         config_dir: config_dir.to_path_buf(),
         skill_rescan: None,
+        restart_tx: None,
     }
 }
 
@@ -567,6 +569,7 @@ async fn test_dispatch_skill_rescan_with_handle_executes_and_returns_list() {
         config_manager,
         config_dir,
         skill_rescan: Some(handle),
+        restart_tx: None,
     };
 
     let resp = dispatch(AdminRequest::SkillRescan, &ctx).await;
