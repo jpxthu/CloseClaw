@@ -49,7 +49,7 @@ impl DaemonReloadCallback {
     /// - `channels.json` — IM Adapter configuration
     /// - `gateway.json` — Gateway configuration
     /// - `models.json` — LLM Provider configuration
-    fn is_restart_class(path: &Path) -> bool {
+    pub(crate) fn is_restart_class(path: &Path) -> bool {
         let filename = match path.file_name().and_then(|n| n.to_str()) {
             Some(f) => f,
             None => return false,

@@ -40,6 +40,11 @@ impl fmt::Display for RestartState {
 /// The receiver half is consumed by the watchdog task (spawned later).
 pub(crate) struct RestartHandle {
     tx: watch::Sender<RestartState>,
+    /// Keep the initial receiver alive so `tx.send()` always succeeds.
+    /// Without an active receiver, `watch::Sender::send()` returns
+    /// `Err(SendError)` and the value is not stored.
+    #[allow(dead_code)]
+    _rx: watch::Receiver<RestartState>,
     /// Channel for the watchdog to signal "idle detected, ready to
     /// rebuild".  The sender is held by the watchdog task; the receiver
     /// is consumed by the daemon main loop.
@@ -55,6 +60,7 @@ impl RestartHandle {
         let (ready_tx, ready_rx) = tokio::sync::mpsc::channel(1);
         Self {
             tx,
+            _rx,
             ready_tx,
             ready_rx: std::sync::Mutex::new(Some(ready_rx)),
         }
@@ -444,5 +450,415 @@ impl crate::Daemon {
                 }
             }
         });
+    }
+}
+
+// ===========================================================================
+// Unit tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config_reload::reload::DaemonReloadCallback;
+    use closeclaw_agent::registry::AgentRegistry;
+    use closeclaw_config::ReloadCallback;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    // -- helpers -----------------------------------------------------------
+
+    /// Minimal Daemon-like struct carrying only the `restart_state` handle.
+    /// Used by tests that exercise `request_gateway_restart` / `cancel_pending_restart`
+    /// without constructing the full Daemon (which requires dozens of
+    /// runtime components).
+    struct MinimalDaemon {
+        restart_state: RestartHandle,
+    }
+
+    impl MinimalDaemon {
+        fn new() -> Self {
+            Self {
+                restart_state: RestartHandle::new(),
+            }
+        }
+    }
+
+    // Re-declare the Daemon methods under test so they can be called on
+    // MinimalDaemon.  These are thin wrappers around the watch channel.
+    impl MinimalDaemon {
+        fn request_gateway_restart(&self, changes: Vec<String>) -> bool {
+            let mut current = self.restart_state.tx.borrow().clone();
+            match current {
+                RestartState::Idle => {
+                    let new_state = RestartState::Pending { changes };
+                    let _ = self.restart_state.tx.send(new_state);
+                    true
+                }
+                RestartState::Pending {
+                    changes: ref mut existing,
+                } => {
+                    for c in &changes {
+                        if !existing.contains(c) {
+                            existing.push(c.clone());
+                        }
+                    }
+                    let _ = self.restart_state.tx.send(current);
+                    false
+                }
+                RestartState::Executing => false,
+            }
+        }
+
+        fn cancel_pending_restart(&self) -> bool {
+            let current = self.restart_state.tx.borrow().clone();
+            match current {
+                RestartState::Pending { .. } => {
+                    let _ = self.restart_state.tx.send(RestartState::Idle);
+                    true
+                }
+                _ => false,
+            }
+        }
+
+        fn force_gateway_restart(&self, changes: Vec<String>) -> bool {
+            let current = self.restart_state.tx.borrow().clone();
+            match current {
+                RestartState::Pending { .. } => {
+                    let _ = self
+                        .restart_state
+                        .tx
+                        .send(RestartState::Pending { changes });
+                    true
+                }
+                RestartState::Idle => {
+                    let _ = self
+                        .restart_state
+                        .tx
+                        .send(RestartState::Pending { changes });
+                    true
+                }
+                RestartState::Executing => false,
+            }
+        }
+    }
+
+    // -- RestartState display ----------------------------------------------
+
+    #[test]
+    fn restart_state_display_idle() {
+        assert_eq!(RestartState::Idle.to_string(), "Idle");
+    }
+
+    #[test]
+    fn restart_state_display_pending() {
+        let state = RestartState::Pending {
+            changes: vec!["models.json".into(), "gateway.json".into()],
+        };
+        assert_eq!(state.to_string(), "Pending(models.json, gateway.json)");
+    }
+
+    #[test]
+    fn restart_state_display_executing() {
+        assert_eq!(RestartState::Executing.to_string(), "Executing");
+    }
+
+    // -- RestartState equality ---------------------------------------------
+
+    #[test]
+    fn restart_state_equality() {
+        let a = RestartState::Pending {
+            changes: vec!["x".into()],
+        };
+        let b = RestartState::Pending {
+            changes: vec!["x".into()],
+        };
+        assert_eq!(a, b);
+
+        let c = RestartState::Pending {
+            changes: vec!["y".into()],
+        };
+        assert_ne!(a, c);
+    }
+
+    // -- RestartHandle basics ----------------------------------------------
+
+    #[test]
+    fn restart_handle_initial_state_is_idle() {
+        let handle = RestartHandle::new();
+        assert_eq!(handle.state(), RestartState::Idle);
+    }
+
+    #[test]
+    fn restart_handle_subscribe_sees_changes() {
+        let handle = RestartHandle::new();
+        let rx = handle.subscribe();
+        // No changes yet — borrowed value is still Idle.
+        assert_eq!(*rx.borrow(), RestartState::Idle);
+
+        let _ = handle.tx.send(RestartState::Executing);
+        // rx should now see Executing (watch channels are always current).
+        assert_eq!(*rx.borrow(), RestartState::Executing);
+    }
+
+    #[test]
+    fn restart_handle_take_ready_rx_only_once() {
+        let handle = RestartHandle::new();
+        assert!(handle.take_ready_rx().is_some());
+        assert!(handle.take_ready_rx().is_none());
+    }
+
+    #[test]
+    fn restart_handle_ready_sender_clones() {
+        let handle = RestartHandle::new();
+        let s1 = handle.ready_sender();
+        let s2 = handle.ready_sender();
+        // Both senders should be able to send (channel has capacity 1,
+        // so we consume the first before sending the second).
+        assert!(s1.try_send(vec!["a".into()]).is_ok());
+        // Drain the channel so s2 can send.
+        let mut rx = handle.take_ready_rx().unwrap();
+        assert!(rx.try_recv().is_ok());
+        assert!(s2.try_send(vec!["b".into()]).is_ok());
+    }
+
+    // -- request_gateway_restart -------------------------------------------
+
+    #[test]
+    fn request_restart_idle_to_pending() {
+        let daemon = MinimalDaemon::new();
+        let should_spawn = daemon.request_gateway_restart(vec!["models.json".into()]);
+        assert!(should_spawn, "Idle → Pending should signal spawn");
+        assert_eq!(
+            daemon.restart_state.state(),
+            RestartState::Pending {
+                changes: vec!["models.json".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn request_restart_pending_merges_changes() {
+        let daemon = MinimalDaemon::new();
+        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
+        let should_spawn =
+            daemon.request_gateway_restart(vec!["gateway.json".into(), "models.json".into()]);
+        assert!(!should_spawn, "Pending → Pending should not spawn");
+        match daemon.restart_state.state() {
+            RestartState::Pending { changes } => {
+                assert_eq!(changes.len(), 2);
+                assert!(changes.contains(&"models.json".to_string()));
+                assert!(changes.contains(&"gateway.json".to_string()));
+            }
+            other => panic!("expected Pending, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn request_restart_pending_no_duplicate() {
+        let daemon = MinimalDaemon::new();
+        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
+        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
+        match daemon.restart_state.state() {
+            RestartState::Pending { changes } => {
+                assert_eq!(changes.len(), 1, "should not duplicate entries");
+            }
+            other => panic!("expected Pending, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn request_restart_executing_is_noop() {
+        let daemon = MinimalDaemon::new();
+        let _ = daemon.restart_state.tx.send(RestartState::Executing);
+        let should_spawn = daemon.request_gateway_restart(vec!["x".into()]);
+        assert!(!should_spawn, "Executing state should be noop");
+        assert_eq!(daemon.restart_state.state(), RestartState::Executing);
+    }
+
+    // -- cancel_pending_restart --------------------------------------------
+
+    #[test]
+    fn cancel_pending_transitions_to_idle() {
+        let daemon = MinimalDaemon::new();
+        let _ = daemon.request_gateway_restart(vec!["models.json".into()]);
+        assert!(daemon.cancel_pending_restart());
+        assert_eq!(daemon.restart_state.state(), RestartState::Idle);
+    }
+
+    #[test]
+    fn cancel_idle_returns_false() {
+        let daemon = MinimalDaemon::new();
+        assert!(!daemon.cancel_pending_restart());
+    }
+
+    #[test]
+    fn cancel_executing_returns_false() {
+        let daemon = MinimalDaemon::new();
+        let _ = daemon.restart_state.tx.send(RestartState::Executing);
+        assert!(!daemon.cancel_pending_restart());
+    }
+
+    // -- force_gateway_restart ---------------------------------------------
+
+    #[test]
+    fn force_restart_idle_starts_new_cycle() {
+        let daemon = MinimalDaemon::new();
+        assert!(daemon.force_gateway_restart(vec!["force".into()]));
+        match daemon.restart_state.state() {
+            RestartState::Pending { changes } => {
+                assert_eq!(changes, vec!["force".to_string()]);
+            }
+            other => panic!("expected Pending, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn force_restart_pending_overwrites_changes() {
+        let daemon = MinimalDaemon::new();
+        let _ = daemon.request_gateway_restart(vec!["old".into()]);
+        assert!(daemon.force_gateway_restart(vec!["new".into()]));
+        match daemon.restart_state.state() {
+            RestartState::Pending { changes } => {
+                assert_eq!(changes, vec!["new".to_string()]);
+            }
+            other => panic!("expected Pending, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn force_restart_executing_returns_false() {
+        let daemon = MinimalDaemon::new();
+        let _ = daemon.restart_state.tx.send(RestartState::Executing);
+        assert!(!daemon.force_gateway_restart(vec!["x".into()]));
+    }
+
+    // -- DaemonReloadCallback restart-class classification -----------------
+
+    #[test]
+    fn restart_class_channels_json() {
+        assert!(DaemonReloadCallback::is_restart_class(Path::new(
+            "config/platforms/channels.json"
+        )));
+    }
+
+    #[test]
+    fn restart_class_gateway_json() {
+        assert!(DaemonReloadCallback::is_restart_class(Path::new(
+            "gateway.json"
+        )));
+    }
+
+    #[test]
+    fn restart_class_models_json() {
+        assert!(DaemonReloadCallback::is_restart_class(Path::new(
+            "models.json"
+        )));
+    }
+
+    #[test]
+    fn not_restart_class_agents_json() {
+        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
+            "config/agents.json"
+        )));
+    }
+
+    #[test]
+    fn not_restart_class_permissions_json() {
+        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
+            "agents/epsilon/permissions.json"
+        )));
+    }
+
+    #[test]
+    fn not_restart_class_session_json() {
+        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
+            "session.json"
+        )));
+    }
+
+    #[test]
+    fn not_restart_class_unknown_file() {
+        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
+            "some_plugin.json"
+        )));
+    }
+
+    // -- DaemonReloadCallback restart signal delivery ----------------------
+
+    #[test]
+    fn on_config_file_changed_sends_restart_signal() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let ar = Arc::new(AgentRegistry::new());
+        let cb = DaemonReloadCallback::with_restart_tx(ar, tx);
+
+        let cm = Arc::new({
+            let d = tempfile::tempdir().unwrap();
+            for (name, content) in &[
+                ("models.json", r#"{"models":[]}"#),
+                ("channels.json", r#"{"channels":{}}"#),
+                ("gateway.json", r#"{"port":8080}"#),
+                ("plugins.json", r#"{"plugins":[]}"#),
+                ("system.json", r#"{"version":"1"}"#),
+                ("accounts.json", r#"{"accounts":[]}"#),
+            ] {
+                std::fs::write(d.path().join(name), content).unwrap();
+            }
+            closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap()
+        });
+
+        cb.on_config_file_changed(Path::new("models.json"), &cm);
+        let summary = rx.try_recv().unwrap();
+        assert!(summary.contains("LLM Provider"), "summary: {summary}");
+    }
+
+    #[test]
+    fn on_config_file_changed_ignores_non_restart_class() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let ar = Arc::new(AgentRegistry::new());
+        let cb = DaemonReloadCallback::with_restart_tx(ar, tx);
+
+        let cm = Arc::new({
+            let d = tempfile::tempdir().unwrap();
+            for (name, content) in &[
+                ("models.json", r#"{"models":[]}"#),
+                ("channels.json", r#"{"channels":{}}"#),
+                ("gateway.json", r#"{"port":8080}"#),
+                ("plugins.json", r#"{"plugins":[]}"#),
+                ("system.json", r#"{"version":"1"}"#),
+                ("accounts.json", r#"{"accounts":[]}"#),
+            ] {
+                std::fs::write(d.path().join(name), content).unwrap();
+            }
+            closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap()
+        });
+
+        cb.on_config_file_changed(Path::new("agents.json"), &cm);
+        assert!(
+            rx.try_recv().is_err(),
+            "non-restart-class should not send restart signal"
+        );
+    }
+
+    #[test]
+    fn on_config_file_changed_no_signal_without_tx() {
+        let ar = Arc::new(AgentRegistry::new());
+        let cb = DaemonReloadCallback::new(ar); // no restart_tx
+        let cm = Arc::new({
+            let d = tempfile::tempdir().unwrap();
+            for (name, content) in &[
+                ("models.json", r#"{"models":[]}"#),
+                ("channels.json", r#"{"channels":{}}"#),
+                ("gateway.json", r#"{"port":8080}"#),
+                ("plugins.json", r#"{"plugins":[]}"#),
+                ("system.json", r#"{"version":"1"}"#),
+                ("accounts.json", r#"{"accounts":[]}"#),
+            ] {
+                std::fs::write(d.path().join(name), content).unwrap();
+            }
+            closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap()
+        });
+        // Should not panic even without a restart_tx
+        cb.on_config_file_changed(Path::new("models.json"), &cm);
     }
 }
