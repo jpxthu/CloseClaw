@@ -46,7 +46,7 @@ impl ConversationSession {
     /// Uses the current `activated_conditional_skills` set.
     ///
     /// Returns `(listing_to_inject, new_snapshot)` where
-    /// `listing_to_inject` is the content for the tool-role attachment
+    /// `listing_to_inject` is the content for the system-role attachment
     /// (`None` when nothing to inject) and `new_snapshot` is the
     /// updated snapshot to persist.
     pub(crate) fn compute_skill_listing_for_turn(&self) -> (Option<String>, Option<String>) {

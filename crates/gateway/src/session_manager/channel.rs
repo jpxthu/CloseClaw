@@ -77,6 +77,9 @@ impl SessionManager {
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
             conv_session.set_dynamic_prompt_builder(dpb);
         }
+        // Inject skill listing provider and agent skills.
+        self.wire_skill_listing_deps(&mut conv_session, agent_id)
+            .await;
         // Query bootstrap mode from AgentRegistry and cache.
         let bootstrap_mode = self
             .query_agent_bootstrap_mode(agent_id)

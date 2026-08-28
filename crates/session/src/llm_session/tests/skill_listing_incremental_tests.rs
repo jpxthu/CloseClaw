@@ -151,13 +151,17 @@ impl LlmCaller for FakeLlmCaller {
     }
 }
 
-/// Helper: extract tool-role messages from a request.
-fn tool_messages(req: &InternalRequest) -> Vec<&str> {
-    req.messages
-        .iter()
-        .filter(|m| m.role == "tool")
-        .map(|m| m.content.as_str())
-        .collect()
+/// Helper: extract the skill listing from system-role messages.
+/// The skill listing is always inserted at position 0 in the messages
+/// list by `build_llm_messages_with_listing`.
+fn skill_listing_messages(req: &InternalRequest) -> Vec<&str> {
+    // Skill listing is always at position 0 when present
+    if let Some(msg) = req.messages.first() {
+        if msg.role == "system" {
+            return vec![msg.content.as_str()];
+        }
+    }
+    Vec::new()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -180,7 +184,7 @@ async fn test_first_turn_injects_full_listing() {
     let _ = session.invoke_llm("hello").await.unwrap();
 
     let req = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req);
+    let tools = skill_listing_messages(&req);
     assert_eq!(tools.len(), 1);
     assert!(tools[0].contains("skill_a"));
     assert!(tools[0].contains("skill_b"));
@@ -201,12 +205,12 @@ async fn test_no_change_no_injection() {
 
     let _ = session.invoke_llm("turn1").await.unwrap();
     let req1 = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req1).len(), 1);
+    assert_eq!(skill_listing_messages(&req1).len(), 1);
 
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
     assert_eq!(
-        tool_messages(&req2).len(),
+        skill_listing_messages(&req2).len(),
         0,
         "no listing should be injected when nothing changed"
     );
@@ -232,7 +236,7 @@ async fn test_new_skill_injected_incrementally() {
 
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req2);
+    let tools = skill_listing_messages(&req2);
     assert_eq!(tools.len(), 1);
     assert!(tools[0].contains("skill_c"));
     assert!(!tools[0].contains("skill_a"));
@@ -253,7 +257,7 @@ async fn test_conditional_skill_excluded_from_initial() {
 
     let _ = session.invoke_llm("hello").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req);
+    let tools = skill_listing_messages(&req);
     assert_eq!(tools.len(), 1);
     assert!(
         !tools[0].contains("rs_helper"),
@@ -286,14 +290,14 @@ async fn test_conditional_activation_next_turn() {
     // First turn: no file paths
     let _ = session.invoke_llm("hello").await.unwrap();
     let req1 = fake_ref.last_request().unwrap();
-    let tools1 = tool_messages(&req1);
+    let tools1 = skill_listing_messages(&req1);
     assert_eq!(tools1.len(), 1);
     assert!(!tools1[0].contains("rs_helper"));
 
     // Second turn: .rs file → marks activation, not injected yet
     let _ = session.invoke_llm("edit src/main.rs please").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    let tools2 = tool_messages(&req2);
+    let tools2 = skill_listing_messages(&req2);
     assert_eq!(
         tools2.len(),
         0,
@@ -303,7 +307,7 @@ async fn test_conditional_activation_next_turn() {
     // Third turn: activated skill appears as incremental
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    let tools3 = tool_messages(&req3);
+    let tools3 = skill_listing_messages(&req3);
     assert_eq!(tools3.len(), 1);
     assert!(tools3[0].contains("rs_helper"));
     assert!(tools3[0].contains("⚡"));
@@ -334,13 +338,13 @@ async fn test_no_reactivation_of_already_activated() {
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req3).len(), 1);
+    assert_eq!(skill_listing_messages(&req3).len(), 1);
 
     // Same .rs path again → no new injection
     let _ = session.invoke_llm("edit src/lib.rs").await.unwrap();
     let req4 = fake_ref.last_request().unwrap();
     assert_eq!(
-        tool_messages(&req4).len(),
+        skill_listing_messages(&req4).len(),
         0,
         "already activated skill should not trigger new injection"
     );
@@ -355,7 +359,7 @@ async fn test_no_provider_no_listing() {
 
     let _ = session.invoke_llm("hello").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req).len(), 0);
+    assert_eq!(skill_listing_messages(&req).len(), 0);
 }
 
 #[tokio::test]
@@ -370,7 +374,7 @@ async fn test_empty_listing_no_injection() {
 
     let _ = session.invoke_llm("hello").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req).len(), 0);
+    assert_eq!(skill_listing_messages(&req).len(), 0);
 }
 
 #[tokio::test]
@@ -407,7 +411,7 @@ async fn test_selective_conditional_activation() {
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    let tools3 = tool_messages(&req3);
+    let tools3 = skill_listing_messages(&req3);
     assert_eq!(tools3.len(), 1);
     assert!(tools3[0].contains("rs_helper"));
     assert!(!tools3[0].contains("py_helper"));
@@ -428,7 +432,7 @@ async fn test_removed_skill_disappears() {
 
     let _ = session.invoke_llm("turn1").await.unwrap();
     let req1 = fake_ref.last_request().unwrap();
-    assert!(tool_messages(&req1)[0].contains("skill_b"));
+    assert!(skill_listing_messages(&req1)[0].contains("skill_b"));
 
     // Remove skill_b
     provider.set_all_listing("- **skill_a**: desc_a");
@@ -437,7 +441,7 @@ async fn test_removed_skill_disappears() {
     // Turn 2: deletion of skill_b → injection with `- ` prefix
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    let tools2 = tool_messages(&req2);
+    let tools2 = skill_listing_messages(&req2);
     assert_eq!(tools2.len(), 1, "should inject deletion notification");
     assert!(
         tools2[0].contains("- - **skill_b**"),
@@ -447,7 +451,7 @@ async fn test_removed_skill_disappears() {
     // Turn 3: snapshot updated, stable
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req3).len(), 0);
+    assert_eq!(skill_listing_messages(&req3).len(), 0);
 }
 
 // ── Scenario 3: file change + conditional activation simultaneously ──────
@@ -483,7 +487,7 @@ async fn test_file_change_and_conditional_activation_same_turn() {
     // Turn 1: establish baseline
     let _ = session.invoke_llm("hello").await.unwrap();
     let req1 = fake_ref.last_request().unwrap();
-    let tools1 = tool_messages(&req1);
+    let tools1 = skill_listing_messages(&req1);
     assert_eq!(tools1.len(), 1);
     assert!(tools1[0].contains("skill_a"));
     assert!(tools1[0].contains("skill_b"));
@@ -509,7 +513,7 @@ async fn test_file_change_and_conditional_activation_same_turn() {
         .await
         .unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    let tools2 = tool_messages(&req2);
+    let tools2 = skill_listing_messages(&req2);
     assert_eq!(
         tools2.len(),
         1,
@@ -531,7 +535,7 @@ async fn test_file_change_and_conditional_activation_same_turn() {
     // Turn 3: rs_helper activated from last turn's path match
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    let tools3 = tool_messages(&req3);
+    let tools3 = skill_listing_messages(&req3);
     assert_eq!(tools3.len(), 1);
     assert!(tools3[0].contains("rs_helper"));
     // skill_c is already in the snapshot, so it should NOT appear in the diff
@@ -570,7 +574,7 @@ async fn test_file_change_removes_base_skill_with_conditional_active() {
     // Turn 1: baseline with skill_a only
     let _ = session.invoke_llm("hello").await.unwrap();
     let req1 = fake_ref.last_request().unwrap();
-    let tools1 = tool_messages(&req1);
+    let tools1 = skill_listing_messages(&req1);
     assert_eq!(tools1.len(), 1);
     assert!(tools1[0].contains("skill_a"));
 
@@ -579,7 +583,7 @@ async fn test_file_change_removes_base_skill_with_conditional_active() {
     // Turn 3: rs_helper now activated → incremental injection
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    let tools3 = tool_messages(&req3);
+    let tools3 = skill_listing_messages(&req3);
     assert_eq!(tools3.len(), 1);
     assert!(tools3[0].contains("rs_helper"));
 
@@ -591,7 +595,7 @@ async fn test_file_change_removes_base_skill_with_conditional_active() {
     // Turn 4: listing changes → diff should show removals
     let _ = session.invoke_llm("turn4").await.unwrap();
     let req4 = fake_ref.last_request().unwrap();
-    let tools4 = tool_messages(&req4);
+    let tools4 = skill_listing_messages(&req4);
     assert_eq!(tools4.len(), 1, "should inject diff for removed skills");
     assert!(
         tools4[0].contains("- - **skill_a**"),

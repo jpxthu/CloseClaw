@@ -126,11 +126,15 @@ impl LlmCaller for FakeLlmCaller {
     }
 }
 
-/// Helper: extract tool-role messages from a request.
-fn tool_messages(req: &InternalRequest) -> Vec<&str> {
+/// Helper: extract the skill listing from system-role messages.
+/// Skill listing messages are inserted at position 0 by
+/// `build_llm_messages_with_listing`. They contain either `##` headers
+/// or `- **` formatted entries, distinguishing them from generic system
+/// role messages in conversation history (e.g. `[compacted]` summaries).
+fn skill_listing_messages(req: &InternalRequest) -> Vec<&str> {
     req.messages
         .iter()
-        .filter(|m| m.role == "tool")
+        .filter(|m| m.role == "system" && (m.content.contains("##") || m.content.contains("- **")))
         .map(|m| m.content.as_str())
         .collect()
 }
@@ -196,7 +200,7 @@ async fn test_snapshot_survives_compaction() {
     // and injects the full listing
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req);
+    let tools = skill_listing_messages(&req);
     assert_eq!(
         tools.len(),
         1,
@@ -215,7 +219,7 @@ async fn test_snapshot_survives_compaction() {
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     assert_eq!(
-        tool_messages(&req3).len(),
+        skill_listing_messages(&req3).len(),
         0,
         "no listing should be injected when nothing changed"
     );
@@ -258,7 +262,7 @@ async fn test_new_skill_detected_after_compaction() {
     // Turn 2: full listing injected (snapshot was cleared)
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req);
+    let tools = skill_listing_messages(&req);
     assert_eq!(tools.len(), 1, "should inject full listing");
     assert!(
         tools[0].contains("skill_a"),
@@ -273,7 +277,7 @@ async fn test_new_skill_detected_after_compaction() {
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     assert_eq!(
-        tool_messages(&req3).len(),
+        skill_listing_messages(&req3).len(),
         0,
         "no diff expected when listing unchanged after injection"
     );
@@ -309,7 +313,10 @@ async fn test_compaction_with_empty_snapshot() {
 
     // Turn 2: still no listing
     let _ = session.invoke_llm("turn2").await.unwrap();
-    assert_eq!(tool_messages(&fake_ref.last_request().unwrap()).len(), 0);
+    assert_eq!(
+        skill_listing_messages(&fake_ref.last_request().unwrap()).len(),
+        0
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -351,14 +358,14 @@ async fn test_compaction_with_empty_activated_set() {
     // Turn 2: snapshot cleared → full listing injected
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req);
+    let tools = skill_listing_messages(&req);
     assert_eq!(tools.len(), 1, "full listing should be injected");
     assert!(tools[0].contains("skill_a"), "should include skill_a");
 
     // Turn 3: no diff (listing unchanged)
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req3).len(), 0);
+    assert_eq!(skill_listing_messages(&req3).len(), 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -393,7 +400,7 @@ async fn test_compaction_after_hot_reload_no_diff() {
     provider.set_base_listing(listing_a_b_c);
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
-    let tools2 = tool_messages(&req2);
+    let tools2 = skill_listing_messages(&req2);
     assert_eq!(tools2.len(), 1);
     assert!(tools2[0].contains("skill_c"));
     let snap2 = session.skill_listing_snapshot().unwrap().to_string();
@@ -413,7 +420,7 @@ async fn test_compaction_after_hot_reload_no_diff() {
     // Turn 3: snapshot cleared → full listing injected
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    let tools3 = tool_messages(&req3);
+    let tools3 = skill_listing_messages(&req3);
     assert_eq!(
         tools3.len(),
         1,
@@ -427,7 +434,7 @@ async fn test_compaction_after_hot_reload_no_diff() {
     let _ = session.invoke_llm("turn4").await.unwrap();
     let req4 = fake_ref.last_request().unwrap();
     assert_eq!(
-        tool_messages(&req4).len(),
+        skill_listing_messages(&req4).len(),
         0,
         "no diff expected when listing unchanged after injection"
     );
@@ -468,7 +475,7 @@ async fn test_removal_detected_after_compaction() {
     // Turn 2: full listing injected (snapshot was cleared)
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req);
+    let tools = skill_listing_messages(&req);
     assert_eq!(tools.len(), 1, "full listing should be injected");
     assert!(tools[0].contains("skill_a"), "should include skill_a");
     assert!(tools[0].contains("skill_c"), "should include new skill_c");
@@ -480,7 +487,7 @@ async fn test_removal_detected_after_compaction() {
     // Turn 3: no diff (listing unchanged)
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    assert_eq!(tool_messages(&req3).len(), 0);
+    assert_eq!(skill_listing_messages(&req3).len(), 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -520,7 +527,7 @@ async fn test_compaction_with_listing_change() {
     // Turn 2: full listing injected (includes both skills)
     let _ = session.invoke_llm("turn2").await.unwrap();
     let req = fake_ref.last_request().unwrap();
-    let tools = tool_messages(&req);
+    let tools = skill_listing_messages(&req);
     assert_eq!(tools.len(), 1, "full listing should be injected");
     assert!(
         tools[0].contains("skill_a"),
@@ -540,7 +547,7 @@ async fn test_compaction_with_listing_change() {
     let _ = session.invoke_llm("turn3").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     assert_eq!(
-        tool_messages(&req3).len(),
+        skill_listing_messages(&req3).len(),
         0,
         "no diff expected after full re-injection"
     );

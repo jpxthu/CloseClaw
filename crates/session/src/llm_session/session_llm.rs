@@ -206,12 +206,12 @@ impl ConversationSession {
     ///
     /// Corresponds to the design doc's "注入当前 turn 的 instruction
     /// block" section (`docs/design/skills/skill-listing-injection.md`).
-    /// The skill listing is injected as a tool-role message at position 0,
+    /// The skill listing is injected as a system-role message at position 0,
     /// which is the code-level implementation of the design doc's
     /// "instruction block" injection.
     ///
     /// Message assembly order:
-    /// 1. Skill listing attachment (tool role, position 0) — per-turn
+    /// 1. Skill listing attachment (system role, position 0) — per-turn
     ///    incremental diff from the [`SkillListingProvider`] when
     ///    non-empty. Prepared by [`prepare_turn_skill_listing`].
     /// 2. Memory injection (tool role) — positioned per
@@ -241,7 +241,7 @@ impl ConversationSession {
                 messages.insert(
                     0,
                     InternalMessage {
-                        role: "tool".to_string(),
+                        role: "system".to_string(),
                         content: listing,
                         tool_call_id: None,
                     },

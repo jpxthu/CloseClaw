@@ -367,7 +367,7 @@ impl ConversationSession {
     /// Inject a [`SkillListingProvider`] for per-turn skill listing injection.
     ///
     /// Called by Gateway after session creation so each LLM turn can
-    /// prepend a tool-role attachment with the agent's available skills.
+    /// prepend a system-role attachment with the agent's available skills.
     pub fn set_skill_listing_provider(&mut self, provider: Arc<dyn SkillListingProvider>) {
         self.skill_listing_provider = Some(provider);
     }
