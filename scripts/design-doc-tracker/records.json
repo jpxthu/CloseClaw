@@ -121,11 +121,11 @@
   },
   {
     "path": "docs/design/daemon/README.md",
-    "commit": "d589c82ca56844c205341f7d92aa327764312c1c",
-    "commit_time": "2026-08-27T13:30:16+08:00",
-    "confirmed_time": "2026-08-27T13:46:07.687825+08:00",
+    "commit": "8966f63a1b443a4cba19f1ab11bd904a5ad67485",
+    "commit_time": "2026-08-29T06:19:24+08:00",
+    "confirmed_time": "2026-08-29T06:31:49.703138+08:00",
     "comment": "",
-    "blocked_reason": "设计文档内部矛盾：1) 文档声称后台任务权威清单包含5个任务（ConfigHotReload/ArchiveSweeper/AnnounceSweeper/PlanArchiveSweeper/DreamingScheduler），但代码中还有SkillWatcher后台任务（Layer 3组件，有RAII handle，shutdown Phase 3显式drop）；2) 文档声明'新增后台任务时必须同步更新本表'，但SkillWatcher未被记录；3) shutdown.md Phase 3描述'四个定时器型扫描任务使用统一停止机制'，但代码中实际使用异构停止模式（RAII drop vs watch channel信号）。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/daemon/shutdown.md",
