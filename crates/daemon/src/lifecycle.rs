@@ -482,7 +482,7 @@ impl Daemon {
 
     /// Phase 3: Background task stop.
     ///
-    /// - Drops SkillWatcher and ConfigWatcher (RAII) via `take()`
+    /// - Drops ConfigWatcher (RAII) via `take()`
     /// - Signals ArchiveSweeper and DreamingScheduler to stop
     /// - Verifies all background tasks have exited (abort + confirm)
     /// - Clears pending approval requests
