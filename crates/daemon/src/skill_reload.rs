@@ -121,8 +121,6 @@ pub(crate) async fn init_skill_registry(
         scan_config,
         Arc::clone(&shared_cache),
     );
-
-    info!("skill registry initialized");
     Ok((registry_arc, rescan_handle))
 }
 
@@ -135,11 +133,12 @@ fn derive_global_dir(config_dir: &str) -> Option<PathBuf> {
     Path::new(config_dir).parent().map(|p| p.join("skills"))
 }
 
-/// Build a [`ScanConfig`] for the given global directory.
+/// Build a [`ScanConfig`] from the provided directories.
 ///
-/// `config_dir` is the root config directory (e.g. `~/.closeclaw`).
-/// `agent_id` is the agent identifier; when provided, `agent_skills_dir`
-/// is derived as `{config_dir}/agents/{agent_id}/skills/`.
+/// - `global_dir`: the global skills directory (e.g. `~/.closeclaw/skills`).
+/// - `agent_skills_dir`: the per-agent skills directory.
+/// - `project_root`: the project-level `.closeclaw/skills` directory.
+/// - `extra_dirs`: additional directories to scan.
 fn build_scan_config(
     global_dir: Option<PathBuf>,
     agent_skills_dir: Option<PathBuf>,
