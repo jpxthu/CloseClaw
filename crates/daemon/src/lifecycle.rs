@@ -198,7 +198,7 @@ impl Daemon {
             env!("CARGO_PKG_VERSION")
         );
         Ok(Self {
-            gateway,
+            gateway: Arc::new(tokio::sync::Mutex::new(gateway)),
             agent_registry,
             permission_engine,
             shutdown,
@@ -214,7 +214,7 @@ impl Daemon {
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
-            chat_handle: Some(chat_handle),
+            chat_handle: Arc::new(tokio::sync::Mutex::new(Some(chat_handle))),
             chat_socket_path: chat_sock_path,
             archive_sweeper_handle: Some(sweeper_handle),
             announce_sweeper_handle: Some(announce_sweeper_handle),
@@ -251,7 +251,8 @@ impl Daemon {
         }
 
         // Phase 0: Send brief start notification (no session details yet)
-        self.gateway
+        self.gateway()
+            .await
             .send_shutdown_start_notification(self.shutdown.mode())
             .await;
 
@@ -290,7 +291,7 @@ impl Daemon {
         sigterm: &mut tokio::signal::unix::Signal,
     ) {
         // Shutdown inbound for all registered plugins
-        let plugins = self.gateway.get_all_plugins().await;
+        let plugins = self.gateway().await.get_all_plugins().await;
         for plugin in &plugins {
             if let Err(e) = plugin.shutdown_inbound().await {
                 tracing::warn!(
@@ -350,7 +351,7 @@ impl Daemon {
         mode: crate::shutdown::ShutdownMode,
     ) -> closeclaw_gateway::session_manager::stop::StopResult {
         // Send initial progress card (no-op if no active sessions)
-        self.gateway.send_shutdown_progress_card(mode).await;
+        self.gateway().await.send_shutdown_progress_card(mode).await;
 
         // Create progress channel for real-time session stop updates
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<
@@ -358,7 +359,7 @@ impl Daemon {
         >(64);
 
         // Spawn session stop as a background task
-        let sm = self.gateway.session_manager().clone();
+        let sm = self.gateway().await.session_manager().clone();
         let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
         let mut stop_handle = tokio::spawn(async move {
             sm.stop_all_sessions(mode, timeout, Some(&progress_tx))
@@ -412,7 +413,8 @@ impl Daemon {
                     {
                         let current_mode: closeclaw_common::shutdown::ShutdownMode =
                             self.shutdown.mode();
-                        self.gateway
+                        self.gateway()
+                            .await
                             .send_shutdown_progress_card(current_mode)
                             .await;
                         last_card_update = now;
@@ -453,7 +455,7 @@ impl Daemon {
                         longest_wait_secs,
                         "Phase 2 heartbeat — sending periodic notification"
                     );
-                    self.gateway
+                    self.gateway().await
                         .send_shutdown_heartbeat_card(longest_wait_secs, current_mode)
                         .await;
                     // Reset heartbeat timer
@@ -469,7 +471,10 @@ impl Daemon {
                     ?current_mode,
                     "shutdown mode changed, updating progress card"
                 );
-                self.gateway.send_shutdown_progress_card(current_mode).await;
+                self.gateway()
+                    .await
+                    .send_shutdown_progress_card(current_mode)
+                    .await;
                 last_card_update = std::time::Instant::now();
                 last_mode = current_mode;
             }
@@ -477,7 +482,7 @@ impl Daemon {
 
         // Session stop completed — send final card
         let result = stop_result.unwrap_or_default();
-        self.gateway.send_shutdown_final_card(&result).await;
+        self.gateway().await.send_shutdown_final_card(&result).await;
         result
     }
 
@@ -583,11 +588,11 @@ impl Daemon {
     }
     /// Phase 4: Final persistence — flush checkpoints and sync WAL.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
-        match self.gateway.flush_all_sessions(mode).await {
+        match self.gateway().await.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
         }
-        match self.gateway.sync_storage().await {
+        match self.gateway().await.sync_storage().await {
             Ok(()) => tracing::info!("storage fsync complete"),
             Err(e) => tracing::warn!(error = %e, "storage fsync failed"),
         }
@@ -595,12 +600,12 @@ impl Daemon {
 
     /// Phase 5: Outbound shutdown — clean up routing tables.
     async fn phase_5_outbound_close(&self) {
-        self.gateway.close_outbound().await;
+        self.gateway().await.close_outbound().await;
     }
 
     /// Phase 6: Storage close — release persistent connections/handles.
     async fn phase_6_storage_close(&self) {
-        match self.gateway.close_storage().await {
+        match self.gateway().await.close_storage().await {
             Ok(()) => tracing::info!("storage closed"),
             Err(e) => tracing::warn!(error = %e, "storage close failed"),
         }
@@ -611,17 +616,18 @@ impl Daemon {
         // Check for sessions still in the active table — after
         // stop_all_sessions, only sessions that were NOT stopped
         // (e.g. skipped due to missing ConversationSession) remain.
-        let remaining = self.gateway.session_manager().get_all_sessions().await;
+        let remaining = self
+            .gateway()
+            .await
+            .session_manager()
+            .get_all_sessions()
+            .await;
         let mut stopped_count = 0usize;
         for session in &remaining {
             // Only warn about sessions that haven't been stopped yet.
             let is_stopped = {
-                let conv = self
-                    .gateway
-                    .session_manager()
-                    .conversation_sessions
-                    .read()
-                    .await;
+                let gw = self.gateway().await;
+                let conv = gw.session_manager().conversation_sessions.read().await;
                 match conv.get(&session.id) {
                     Some(cs) => cs.read().await.is_stopped(),
                     None => false,
