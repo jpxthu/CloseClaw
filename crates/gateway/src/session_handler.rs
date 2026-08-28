@@ -436,6 +436,12 @@ pub(crate) async fn apply_compact_result(
     // The write guard above is now dropped, so we can safely acquire
     // a write lock for the rebuild. This must happen before persisting
     // the checkpoint, per the design doc's compaction pipeline.
+    tracing::info!(
+        session_id = %session_id,
+        event = "session_injection",
+        trigger = "compaction",
+        "rebuilding system prompt after compaction"
+    );
     sm.rebuild_system_prompt_for_session(session_id).await;
     // Persist checkpoint after rebuild to protect plan_state.
     // system prompt is a runtime field not in the checkpoint, so

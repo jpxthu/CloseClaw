@@ -136,6 +136,14 @@ impl ConversationSession {
                 }
             }
         }
+        if !newly_activated.is_empty() {
+            tracing::info!(
+                session_id = %self.session_id,
+                event = "conditional_skill_activation",
+                activated = ?newly_activated.iter().collect::<Vec<_>>(),
+                "conditionally activated skills for current turn"
+            );
+        }
 
         // 2. Compute listing using ONLY current activation set
         //    (newly activated skills are applied after this turn)
@@ -256,6 +264,12 @@ impl ConversationSession {
 
         // ── Memory injection — positioned per InjectionPosition ────
         if let Some(injection) = self.take_memory_injection() {
+            tracing::info!(
+                session_id = %self.session_id,
+                event = "memory_injection",
+                position = ?injection.position_mode,
+                "consuming memory_injection slot"
+            );
             let tool_msg = InternalMessage {
                 role: "tool".to_string(),
                 content: injection.content.clone(),
