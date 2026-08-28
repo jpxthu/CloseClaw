@@ -11,20 +11,22 @@
 
 ## 文件清单
 
-| 文件 | 场景 | 关键字段证据 |
-|------|------|------------|
-| `p2p-top-text.json` | 私聊顶层文本消息（每条开启新 Session 的对象） | 无 thread 字段 |
-| `p2p-image-post.json` | 私聊图片+文字混合消息 | `message_type: "post"`，图片以 `![Image](img_key)` 行内标记嵌入，文字随行；adapter 需识别 img 标记提取 file_key |
-| `p2p-file.json` | 私聊文件消息 | `message_type: "file"`，content 为 `<file key="..." name="..."/>` 标签（含文件名） |
-| `p2p-thread-reply.json` | 私聊内话题回复（归入既有 Session） | `thread_id` + `root_id` + `reply_to`；本例 `root_id` == `reply_to` == 根消息 `message_id` |
-| `group-mention-all.json` | 群内 @all（bot 发送方） | `sender_type: "bot"`，`content` 以 `@_all` 开头 |
-| `group-mention-bot.json` | 群内定向 @bot（bot 发送方） | `mentions[].id` 为接收方应用语境 open_id，`content` 内占位符已替换为显示名 |
-| `group-mention-user-b1view.json` | 同一条用户双@消息，**bot-1 接收视角** | 与 `*-b2view.json` 对照用，见下「跨应用 ID 翻译」 |
-| `group-mention-user-b2view.json` | 同一条用户双@消息，**bot-2 接收视角** | 同上 |
-| `group-thread-reply.json` | 群内话题回复（bot 发送方） | `thread_id`（`omt_` 前缀）+ `root_id` + `reply_to` 三件套 |
-| `group-post-flat.json` | 群内富文本（post）消息 | `content` 为**平文本化**结果：标题并入正文、链接转 `[text](url)`、@ 保留 `<at>` 标签；样式（粗体等）不进事件流 |
-| `reaction-created-envelope.json` | 表情回应事件（信封式格式代表） | `schema`/`header.event_type` + `event.message_id`；`operator` 侧为 app_id |
-| `card-action-trigger.json` | 卡片按钮点击回调 | `action_tag`/`action_value`/`host`；**单消费者限制**（第二个 consumer 被拒） |
+| 文件 | 场景 | 来源（产生该事件的发送操作） | 关键字段证据 |
+|------|------|------|------------|
+| `p2p-top-text.json` | 私聊顶层文本消息（每条开启新 Session 的对象） | owner 手工私聊发送 | 无 thread 字段 |
+| `p2p-image-post.json` | 私聊图片+文字混合消息 | owner 私聊客户端发图+附言 | `message_type: "post"`，图片以 `![Image](img_key)` 行内标记嵌入，文字随行；adapter 需识别 img 标记提取 file_key |
+| `p2p-file.json` | 私聊文件消息 | owner 私聊客户端发文件 | `message_type: "file"`，content 为 `<file key="..." name="..."/>` 标签（含文件名） |
+| `p2p-thread-reply.json` | 私聊内话题回复（归入既有 Session） | owner 在上一条消息上话题回复 | `thread_id` + `root_id` + `reply_to`；本例 `root_id` == `reply_to` == 根消息 `message_id` |
+| `group-mention-all.json` | 群内 @all（bot 发送方） | bot-2 `+messages-send --chat-id … --text '<at user_id="all"></at> …'` | `sender_type: "bot"`，`content` 以 `@_all` 开头 |
+| `group-mention-bot.json` | 群内定向 @bot（bot 发送方） | bot-1 `+messages-send --chat-id … --text '<at user_id="ou_xxx"></at> …'` | `mentions[].id` 为接收方应用语境 open_id，`content` 内占位符已替换为显示名 |
+| `group-mention-user-b1view.json` | 同一条用户双@消息，**bot-1 接收视角** | owner 手工群内双@（无 CLI 命令） | 与 `*-b2view.json` 对照用，见下「跨应用 ID 翻译」 |
+| `group-mention-user-b2view.json` | 同一条用户双@消息，**bot-2 接收视角** | 同上（同一条消息） | 同上 |
+| `group-thread-reply.json` | 群内话题回复（bot 发送方） | bot-1 `+messages-reply --message-id … --reply-in-thread` | `thread_id`（`omt_` 前缀）+ `root_id` + `reply_to` 三件套 |
+| `group-post-flat.json` | 群内富文本（post）消息 | bot-2 `+messages-send --msg-type post --content '{zh_cn:…}'` | `content` 为**平文本化**结果：标题并入正文、链接转 `[text](url)`、@ 保留 `<at>` 标签；样式（粗体等）不进事件流 |
+| `reaction-created-envelope.json` | 表情回应事件（信封式格式代表） | bot-1 `im reactions create`（对上一条群@消息贴 THUMBSUP） | `schema`/`header.event_type` + `event.message_id`；`operator` 侧为 app_id |
+| `card-action-trigger.json` | 卡片按钮点击回调 | bot `+messages-send --msg-type interactive`（卡片）后 owner 点击按钮 | `action_tag`/`action_value`/`host`；**单消费者限制**（第二个 consumer 被拒） |
+
+> 注：bot→owner 的发送（图片 A5 / 文件 A6 / 文本等）不产生接收方 CLI 事件，无对应 JSON；发送侧证据在 `send-commands.md`。
 
 ## 跨应用 ID 翻译（b1view / b2view 对照）
 
