@@ -572,6 +572,7 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         Arc<SpawnController>,
         Arc<dyn closeclaw_common::SystemPromptBuilder>,
+        tokio::sync::mpsc::Receiver<String>,
     )> {
         let Phase5Deps {
             config_manager,
@@ -612,6 +613,11 @@ impl Daemon {
         let late_bound_session_manager =
             Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
         let builtin_skill_listing = Arc::clone(builtin_skill_registry);
+        // Create the restart signal channel.  The sender is captured
+        // by the DaemonReloadCallback (via config_watcher) to signal
+        // restart-class config changes; the receiver is consumed by
+        // the daemon main loop to call request_gateway_restart().
+        let (restart_tx, restart_rx) = tokio::sync::mpsc::channel(8);
         let ctx = registries::RegistryContext {
             config_manager,
             agent_registry,
@@ -626,6 +632,7 @@ impl Daemon {
             config_subdir: &config_subdir,
             data_dir,
             gateway,
+            restart_tx: Some(restart_tx),
         };
         let config_watcher = registries::populate_registries(&ctx).await;
 
@@ -742,6 +749,7 @@ impl Daemon {
             dreaming_handle,
             spawn_controller,
             prompt_builder_adapter,
+            restart_rx,
         ))
     }
 

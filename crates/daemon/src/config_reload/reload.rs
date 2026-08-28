@@ -8,21 +8,67 @@ use std::path::Path;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::manager::ConfigManager;
 use closeclaw_config::ReloadCallback;
+use tokio::sync::mpsc;
 use tracing::info;
 use tracing::warn;
 
 /// Daemon-level reload callback.
 ///
-/// Handles agent registry sync, permissions reload, and session
-/// provider rebuild after config changes.
+/// Handles agent registry sync, permissions reload, session
+/// provider rebuild, and restart-class config detection.
 pub struct DaemonReloadCallback {
     agent_registry: std::sync::Arc<AgentRegistry>,
+    /// Channel to signal a restart-class config change to the Daemon.
+    /// `String` is a human-readable change summary.
+    daemon_restart_tx: Option<mpsc::Sender<String>>,
 }
 
 impl DaemonReloadCallback {
     /// Create a new daemon reload callback.
     pub fn new(agent_registry: std::sync::Arc<AgentRegistry>) -> Self {
-        Self { agent_registry }
+        Self {
+            agent_registry,
+            daemon_restart_tx: None,
+        }
+    }
+
+    /// Create a new daemon reload callback with restart signal support.
+    pub fn with_restart_tx(
+        agent_registry: std::sync::Arc<AgentRegistry>,
+        daemon_restart_tx: mpsc::Sender<String>,
+    ) -> Self {
+        Self {
+            agent_registry,
+            daemon_restart_tx: Some(daemon_restart_tx),
+        }
+    }
+
+    /// Determine whether a config file change requires a gateway restart.
+    ///
+    /// Returns `true` for restart-class files:
+    /// - `channels.json` — IM Adapter configuration
+    /// - `gateway.json` — Gateway configuration
+    /// - `models.json` — LLM Provider configuration
+    fn is_restart_class(path: &Path) -> bool {
+        let filename = match path.file_name().and_then(|n| n.to_str()) {
+            Some(f) => f,
+            None => return false,
+        };
+        matches!(filename, "channels.json" | "gateway.json" | "models.json")
+    }
+
+    /// Build a human-readable change summary for a restart-class config.
+    fn describe_restart_class(path: &Path) -> String {
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+        match filename {
+            "channels.json" => "IM Adapter config changed".to_string(),
+            "gateway.json" => "Gateway config changed".to_string(),
+            "models.json" => "LLM Provider config changed".to_string(),
+            _ => format!("config changed: {}", filename),
+        }
     }
 
     /// Reload agent configs and sync the `AgentRegistry`.
@@ -94,6 +140,26 @@ impl ReloadCallback for DaemonReloadCallback {
 
     fn on_session_reloaded(&self, config_manager: &ConfigManager) {
         config_manager.reload_session_provider();
+    }
+
+    fn on_config_file_changed(&self, path: &Path, _config_manager: &ConfigManager) {
+        if !Self::is_restart_class(path) {
+            return;
+        }
+        let summary = Self::describe_restart_class(path);
+        info!(
+            path = %path.display(),
+            summary = %summary,
+            "restart-class config change detected"
+        );
+        if let Some(ref tx) = self.daemon_restart_tx {
+            if tx.try_send(summary).is_err() {
+                warn!(
+                    path = %path.display(),
+                    "failed to send restart signal — channel full or closed"
+                );
+            }
+        }
     }
 }
 

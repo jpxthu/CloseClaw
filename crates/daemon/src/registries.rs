@@ -51,6 +51,8 @@ pub(crate) struct RegistryContext<'a> {
     pub data_dir: &'a Path,
     /// Gateway reference for sending IM notifications on config reload failures.
     pub gateway: &'a Arc<Gateway>,
+    /// Optional channel sender to signal restart-class config changes.
+    pub restart_tx: Option<tokio::sync::mpsc::Sender<String>>,
 }
 
 /// Populate registries and wire them together.
@@ -151,6 +153,7 @@ fn init_config_hot_reload(
         Arc::clone(ctx.agent_registry),
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.gateway),
+        ctx.restart_tx.clone(),
     ) {
         Ok(handle) => Some(handle),
         Err(e) => {

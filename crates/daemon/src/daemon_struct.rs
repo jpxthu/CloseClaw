@@ -105,6 +105,10 @@ pub struct Daemon {
         tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
     /// Gateway restart state machine — tracks Pending/Executing transitions.
     pub(crate) restart_state: RestartHandle,
+    /// Receiver for restart-class config change signals from the config watcher.
+    /// Processes incoming signals and calls `request_gateway_restart()`.
+    /// Wrapped in `Option` so it can be taken in `run()` for the restart loop.
+    pub(crate) restart_rx: Option<tokio::sync::mpsc::Receiver<String>>,
 }
 
 impl Daemon {

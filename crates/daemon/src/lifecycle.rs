@@ -87,6 +87,7 @@ impl Daemon {
             dreaming_handle,
             spawn_controller,
             system_prompt_builder,
+            restart_rx,
         ) = Self::init_phase_5_background(
             Phase5Deps {
                 config_manager: &config_manager,
@@ -225,6 +226,7 @@ impl Daemon {
             llm_registry: Arc::clone(&llm_registry),
             _output_rx: output_rx,
             restart_state: crate::gateway_restart::RestartHandle::new(),
+            restart_rx: Some(restart_rx),
         })
     }
 
@@ -232,6 +234,7 @@ impl Daemon {
     /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
+
         // Phase 0: Signal reception & mode determination
         // Register signal handlers and wait for the first shutdown signal.
         let mut sigint = signal(SignalKind::interrupt())
@@ -239,14 +242,32 @@ impl Daemon {
         let mut sigterm = signal(SignalKind::terminate())
             .map_err(|e| anyhow::anyhow!("failed to register SIGTERM handler: {}", e))?;
 
-        tokio::select! {
-            _ = sigint.recv() => {
-                info!("Received Ctrl+C, initiating graceful shutdown...");
-                self.shutdown.try_start_shutdown();
-            }
-            _ = sigterm.recv() => {
-                info!("Received SIGTERM, initiating graceful shutdown...");
-                self.shutdown.try_start_shutdown();
+        // Process restart signals until shutdown is initiated.
+        // The restart_rx receives change summaries from DaemonReloadCallback
+        // and triggers the restart state machine.
+        let mut restart_rx = self.restart_rx.take();
+        loop {
+            tokio::select! {
+                biased;
+                _ = sigint.recv() => {
+                    info!("Received Ctrl+C, initiating graceful shutdown...");
+                    self.shutdown.try_start_shutdown();
+                    break;
+                }
+                _ = sigterm.recv() => {
+                    info!("Received SIGTERM, initiating graceful shutdown...");
+                    self.shutdown.try_start_shutdown();
+                    break;
+                }
+                msg = async { restart_rx.as_mut().unwrap().recv().await }, if restart_rx.is_some() => {
+                    if let Some(summary) = msg {
+                        info!(summary = %summary, "restart signal received from config watcher");
+                        self.request_gateway_restart(vec![summary]);
+                    } else {
+                        // Channel closed — receiver taken or sender dropped.
+                        restart_rx = None;
+                    }
+                }
             }
         }
 
