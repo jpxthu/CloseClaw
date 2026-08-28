@@ -1,15 +1,11 @@
-//! Skill Hot Reload Initialization
+//! Skill Registry Initialization
 //!
-//! Initializes the skill registry and file watcher at daemon startup.
+//! Initializes the skill registry at daemon startup.
 //!
-//! Implements the design doc's "file change" trigger for incremental
-//! skill listing updates (`docs/design/skills/skill-listing-injection.md`):
-//! file changes → re-scan registry → invalidate listing cache → next turn
-//! the Session module picks up the updated listing.
+//! The shared rescan handle allows the admin RPC `skill rescan` command
+//! to trigger an immediate registry rebuild without relying on a file watcher.
 
-use closeclaw_skills::{
-    init_disk_skills, start_skill_watcher, DiskSkillRegistry, ScanConfig, SkillWatcherHandle,
-};
+use closeclaw_skills::{init_disk_skills, DiskSkillRegistry, ScanConfig};
 use closeclaw_system_prompt::sections::SectionCache;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -52,10 +48,10 @@ impl SkillRescanHandle {
 
 /// Re-scan skill directories and update the shared registry + cache.
 ///
-/// This is the core rescan logic shared between the file-watcher hot-reload
-/// path and the `skill rescan` admin command. It rebuilds the registry from
-/// disk, preserves the `agent_skills_query` reference from the old registry,
-/// and invalidates the `skill_listing` section cache.
+/// This is the core rescan logic used by the `skill rescan` admin command.
+/// It rebuilds the registry from disk, preserves the `agent_skills_query`
+/// reference from the old registry, and invalidates the `skill_listing`
+/// section cache.
 pub(crate) fn perform_skill_rescan(
     registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
     scan_config: &ScanConfig,
@@ -85,30 +81,19 @@ pub(crate) fn perform_skill_rescan(
     tracing::info!("skill registry rescan complete");
 }
 
-/// Initialize skill hot reload system.
+/// Initialize the skill registry and rescan handle.
 ///
-/// Implements the design doc's file-change-driven hot reload path:
-/// "SKILL.md create/modify/delete → 300ms debounce → invalidate
-/// listing cache → re-scan changed directory, update registry
-/// listing cache → next turn update attachment content."
+/// Scans skill directories once at startup and builds a [`SkillRescanHandle`]
+/// for the admin RPC `skill rescan` command. No file watcher is started;
+/// rescan is triggered on demand.
 ///
-/// When skill files change, the watcher callback re-scans the
-/// registry and invalidates the `skill_listing` entry on the shared
-/// [`SectionCache`], so the next system prompt build regenerates
-/// from the current registry state.
-///
-/// Returns the shared skill registry and the watcher handle
-/// (RAII: stops on drop).
-pub(crate) async fn init_skill_hot_reload(
+/// Returns the shared skill registry and the rescan handle.
+pub(crate) async fn init_skill_registry(
     config_dir: &str,
     project_root: Option<&Path>,
     shared_cache: Arc<RwLock<SectionCache>>,
     extra_dirs: Vec<PathBuf>,
-) -> anyhow::Result<(
-    Arc<RwLock<Option<DiskSkillRegistry>>>,
-    Option<SkillWatcherHandle>,
-    SkillRescanHandle,
-)> {
+) -> anyhow::Result<(Arc<RwLock<Option<DiskSkillRegistry>>>, SkillRescanHandle)> {
     let agent_id = Path::new(config_dir).file_name().and_then(|s| s.to_str());
     let global_dir = derive_global_dir(config_dir);
     let config_path = Path::new(config_dir);
@@ -121,13 +106,7 @@ pub(crate) async fn init_skill_hot_reload(
             .join("skills")
     });
     let project_root_buf = project_root.map(|p| p.join(".closeclaw").join("skills"));
-    let scan_config = build_scan_config(
-        global_dir.clone(),
-        agent_skills_dir.clone(),
-        project_root_buf.clone(),
-        extra_dirs.clone(),
-    );
-    let skill_dirs = build_skill_dirs(global_dir, agent_skills_dir, project_root_buf, extra_dirs);
+    let scan_config = build_scan_config(global_dir, agent_skills_dir, project_root_buf, extra_dirs);
 
     // Initialize shared registry state
     let registry = init_disk_skills(&scan_config);
@@ -136,31 +115,13 @@ pub(crate) async fn init_skill_hot_reload(
 
     info!(loaded = registry_len, "skill registry initialized");
 
-    // Build the rescan handle — shared between watcher and admin RPC.
+    // Build the rescan handle for admin RPC.
     let rescan_handle = SkillRescanHandle::new(
         Arc::clone(&registry_arc),
-        scan_config.clone(),
+        scan_config,
         Arc::clone(&shared_cache),
     );
-
-    // Start watcher — re-scan uses the same ScanConfig as initial scan
-    let watcher_config = scan_config;
-    let registry_for_watcher = Arc::clone(&registry_arc);
-    let watcher = if skill_dirs.is_empty() {
-        info!("no skill directories to watch, skipping hot reload watcher");
-        None
-    } else {
-        Some(start_skill_watcher(
-            skill_dirs,
-            Box::new(move || {
-                perform_skill_rescan(&registry_for_watcher, &watcher_config, &shared_cache);
-                tracing::info!("skill registry reloaded after file change");
-            }),
-        )?)
-    };
-
-    info!("skill hot reload initialized");
-    Ok((registry_arc, watcher, rescan_handle))
+    Ok((registry_arc, rescan_handle))
 }
 
 /// Derive the global skills directory from the config directory.
@@ -172,45 +133,12 @@ fn derive_global_dir(config_dir: &str) -> Option<PathBuf> {
     Path::new(config_dir).parent().map(|p| p.join("skills"))
 }
 
-/// Build the list of directories to watch for skill changes.
+/// Build a [`ScanConfig`] from the provided directories.
 ///
-/// Includes `global_dir` only when it exists on disk.
-/// `extra_dirs` directories are appended when they exist on disk.
-fn build_skill_dirs(
-    global_dir: Option<PathBuf>,
-    agent_skills_dir: Option<PathBuf>,
-    project_root: Option<PathBuf>,
-    extra_dirs: Vec<PathBuf>,
-) -> Vec<PathBuf> {
-    let mut dirs = vec![];
-    if let Some(gd) = global_dir {
-        if gd.exists() {
-            dirs.push(gd);
-        }
-    }
-    if let Some(ad) = agent_skills_dir {
-        if ad.exists() {
-            dirs.push(ad);
-        }
-    }
-    if let Some(pr) = project_root {
-        if pr.exists() {
-            dirs.push(pr);
-        }
-    }
-    for ed in extra_dirs {
-        if ed.exists() {
-            dirs.push(ed);
-        }
-    }
-    dirs
-}
-
-/// Build a [`ScanConfig`] for the given global directory.
-///
-/// `config_dir` is the root config directory (e.g. `~/.closeclaw`).
-/// `agent_id` is the agent identifier; when provided, `agent_skills_dir`
-/// is derived as `{config_dir}/agents/{agent_id}/skills/`.
+/// - `global_dir`: the global skills directory (e.g. `~/.closeclaw/skills`).
+/// - `agent_skills_dir`: the per-agent skills directory.
+/// - `project_root`: the project-level `.closeclaw/skills` directory.
+/// - `extra_dirs`: additional directories to scan.
 fn build_scan_config(
     global_dir: Option<PathBuf>,
     agent_skills_dir: Option<PathBuf>,
@@ -270,21 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn test_skill_dirs_contains_global_only_when_exists() {
-        let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join("home/user/.closeclaw/eda");
-        std::fs::create_dir_all(&config_dir).unwrap();
-
-        let global_dir = derive_global_dir(config_dir.to_str().unwrap()).unwrap();
-        std::fs::create_dir_all(&global_dir).unwrap();
-
-        let skill_dirs = build_skill_dirs(Some(global_dir.clone()), None, None, vec![]);
-
-        assert_eq!(skill_dirs.len(), 1);
-        assert!(skill_dirs.contains(&global_dir));
-    }
-
-    #[test]
     fn test_global_dir_none_when_no_parent() {
         let result = derive_global_dir("/");
         assert_eq!(result, None);
@@ -310,7 +223,7 @@ mod tests {
         let config_dir = tmp.path().join("home/user/.closeclaw/eda");
         std::fs::create_dir_all(&config_dir).unwrap();
 
-        // Simulate what init_skill_hot_reload does: extract agent_id from
+        // Simulate what init_skill_registry does: extract agent_id from
         // config_dir and compute the agent skills directory.
         let agent_id = config_dir.file_name().unwrap().to_str().unwrap();
         let agent_skills_dir = config_dir
@@ -442,168 +355,6 @@ mod tests {
         assert_eq!(scan_config.global_dir, Some(global_dir));
         assert_eq!(scan_config.agent_skills_dir, Some(agent_dir));
         assert_eq!(scan_config.project_root, Some(project_root));
-    }
-
-    // --- Step 1.4 tests: hot reload watch dirs include Agent and Project layers ---
-
-    /// build_skill_dirs includes agent_skills_dir when the directory exists on disk.
-    #[test]
-    fn test_build_skill_dirs_includes_agent_layer_when_exists() {
-        let tmp = TempDir::new().unwrap();
-        let agent_skills_dir = tmp.path().join("agents/eda/skills");
-        std::fs::create_dir_all(&agent_skills_dir).unwrap();
-
-        let skill_dirs = build_skill_dirs(None, Some(agent_skills_dir.clone()), None, vec![]);
-
-        assert_eq!(skill_dirs.len(), 1);
-        assert!(skill_dirs.contains(&agent_skills_dir));
-    }
-
-    /// build_skill_dirs includes project skills dir when the directory exists on disk.
-    /// Note: project_root passed to build_skill_dirs is already the skills dir
-    /// (i.e. `<project-root>/.closeclaw/skills/`), not the project root itself.
-    #[test]
-    fn test_build_skill_dirs_includes_project_layer_when_exists() {
-        let tmp = TempDir::new().unwrap();
-        let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
-        std::fs::create_dir_all(&project_skills_dir).unwrap();
-
-        let skill_dirs = build_skill_dirs(None, None, Some(project_skills_dir.clone()), vec![]);
-
-        assert_eq!(skill_dirs.len(), 1);
-        assert!(skill_dirs.contains(&project_skills_dir));
-    }
-
-    /// build_skill_dirs skips nonexistent directories without panicking.
-    #[test]
-    fn test_build_skill_dirs_skips_nonexistent_directories() {
-        let tmp = TempDir::new().unwrap();
-        let agent_skills_dir = tmp.path().join("agents/eda/skills");
-        let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
-        // Intentionally do NOT create these dirs
-
-        let skill_dirs = build_skill_dirs(
-            None,
-            Some(agent_skills_dir),
-            Some(project_skills_dir),
-            vec![],
-        );
-
-        assert!(skill_dirs.is_empty());
-    }
-
-    /// build_skill_dirs includes both global and agent dirs when both exist.
-    #[test]
-    fn test_build_skill_dirs_includes_global_and_agent_when_both_exist() {
-        let tmp = TempDir::new().unwrap();
-        let global_dir = tmp.path().join("global_skills");
-        let agent_skills_dir = tmp.path().join("agents/eda/skills");
-        std::fs::create_dir_all(&global_dir).unwrap();
-        std::fs::create_dir_all(&agent_skills_dir).unwrap();
-
-        let skill_dirs = build_skill_dirs(
-            Some(global_dir.clone()),
-            Some(agent_skills_dir.clone()),
-            None,
-            vec![],
-        );
-
-        assert_eq!(skill_dirs.len(), 2);
-        assert!(skill_dirs.contains(&global_dir));
-        assert!(skill_dirs.contains(&agent_skills_dir));
-    }
-
-    /// build_skill_dirs includes all three layers when all dirs exist.
-    #[test]
-    fn test_build_skill_dirs_includes_all_three_layers() {
-        let tmp = TempDir::new().unwrap();
-        let global_dir = tmp.path().join("global_skills");
-        let agent_skills_dir = tmp.path().join("agents/eda/skills");
-        let project_skills_dir = tmp.path().join("my/project/.closeclaw/skills");
-        std::fs::create_dir_all(&global_dir).unwrap();
-        std::fs::create_dir_all(&agent_skills_dir).unwrap();
-        std::fs::create_dir_all(&project_skills_dir).unwrap();
-
-        let skill_dirs = build_skill_dirs(
-            Some(global_dir.clone()),
-            Some(agent_skills_dir.clone()),
-            Some(project_skills_dir.clone()),
-            vec![],
-        );
-
-        assert_eq!(skill_dirs.len(), 3);
-        assert!(skill_dirs.contains(&global_dir));
-        assert!(skill_dirs.contains(&agent_skills_dir));
-        assert!(skill_dirs.contains(&project_skills_dir));
-    }
-
-    // --- Step 1.4 tests: ExtraDirs in watcher list ---
-
-    /// build_skill_dirs includes extra_dirs that exist on disk.
-    #[test]
-    fn test_build_skill_dirs_includes_existing_extra_dirs() {
-        let tmp = TempDir::new().unwrap();
-        let extra_dir = tmp.path().join("extra/skills");
-        std::fs::create_dir_all(&extra_dir).unwrap();
-
-        let skill_dirs = build_skill_dirs(None, None, None, vec![extra_dir.clone()]);
-
-        assert_eq!(skill_dirs.len(), 1);
-        assert!(skill_dirs.contains(&extra_dir));
-    }
-
-    /// build_skill_dirs skips nonexistent extra_dirs.
-    #[test]
-    fn test_build_skill_dirs_skips_nonexistent_extra_dirs() {
-        let tmp = TempDir::new().unwrap();
-        let extra_dir = tmp.path().join("missing/skills");
-        // Intentionally do NOT create the dir
-
-        let skill_dirs = build_skill_dirs(None, None, None, vec![extra_dir]);
-
-        assert!(skill_dirs.is_empty());
-    }
-
-    /// build_skill_dirs includes extra_dirs alongside other layers.
-    #[test]
-    fn test_build_skill_dirs_extra_dirs_with_other_layers() {
-        let tmp = TempDir::new().unwrap();
-        let global_dir = tmp.path().join("global_skills");
-        let extra_dir = tmp.path().join("extra/skills");
-        std::fs::create_dir_all(&global_dir).unwrap();
-        std::fs::create_dir_all(&extra_dir).unwrap();
-
-        let skill_dirs = build_skill_dirs(
-            Some(global_dir.clone()),
-            None,
-            None,
-            vec![extra_dir.clone()],
-        );
-
-        assert_eq!(skill_dirs.len(), 2);
-        assert!(skill_dirs.contains(&global_dir));
-        assert!(skill_dirs.contains(&extra_dir));
-    }
-
-    /// build_skill_dirs: mix of existing and nonexistent extra_dirs.
-    #[test]
-    fn test_build_skill_dirs_mixed_extra_dirs() {
-        let tmp = TempDir::new().unwrap();
-        let existing = tmp.path().join("exists/skills");
-        let missing = tmp.path().join("missing/skills");
-        std::fs::create_dir_all(&existing).unwrap();
-
-        let skill_dirs = build_skill_dirs(None, None, None, vec![existing.clone(), missing]);
-
-        assert_eq!(skill_dirs.len(), 1);
-        assert!(skill_dirs.contains(&existing));
-    }
-
-    /// build_skill_dirs: empty extra_dirs has no effect.
-    #[test]
-    fn test_build_skill_dirs_empty_extra_dirs() {
-        let skill_dirs = build_skill_dirs(None, None, None, vec![]);
-        assert!(skill_dirs.is_empty());
     }
 
     // --- Rescan behavior tests (perform_skill_rescan) ---

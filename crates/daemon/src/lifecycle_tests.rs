@@ -668,7 +668,7 @@ fn test_repeated_sigint_escalates_to_forceful() {
 // ======================================================================
 
 /// PlanArchiveSweeperHandle RAII: dropping the handle aborts the
-/// background task, consistent with SkillWatcher/ConfigWatcher pattern.
+/// background task, consistent with ConfigWatcher RAII pattern.
 #[tokio::test]
 async fn test_plan_archive_sweeper_handle_drop_aborts_task() {
     use tokio::sync::watch;

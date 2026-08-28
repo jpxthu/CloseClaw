@@ -42,8 +42,6 @@ pub enum Service {
     ArchiveSweeper,
     /// Background announce delivery sweeper for spawn silent-failure protection.
     AnnounceSweeper,
-    /// Background skill file watcher.
-    SkillWatcher,
     /// Background config file hot-reload watcher.
     ConfigHotReload,
     /// Background dreaming/memory-mining scheduler.
@@ -99,7 +97,6 @@ impl ComponentId {
                 Service::ToolsRegistry => "ToolsRegistry",
                 Service::ArchiveSweeper => "ArchiveSweeper",
                 Service::AnnounceSweeper => "AnnounceSweeper",
-                Service::SkillWatcher => "SkillWatcher",
                 Service::ConfigHotReload => "ConfigHotReload",
                 Service::DreamingScheduler => "DreamingScheduler",
                 Service::SessionManager => "SessionManager",
@@ -162,7 +159,6 @@ impl ComponentDeps for ComponentId {
                 Self::Foundation(Storage),
                 Self::Service(SessionConfigProvider),
             ],
-            Self::Service(SkillWatcher) => &[Self::Service(SkillsRegistry)],
             Self::Service(ConfigHotReload) => &[Self::Foundation(ConfigManager)],
             Self::Service(DreamingScheduler) => &[
                 Self::Foundation(Storage),
@@ -219,7 +215,6 @@ pub fn all_component_entries() -> Vec<ComponentEntry> {
         ComponentId::Service(Service::ToolsRegistry),
         ComponentId::Service(Service::ArchiveSweeper),
         ComponentId::Service(Service::AnnounceSweeper),
-        ComponentId::Service(Service::SkillWatcher),
         ComponentId::Service(Service::ConfigHotReload),
         ComponentId::Service(Service::DreamingScheduler),
         ComponentId::Service(Service::LLMRegistry),
@@ -362,7 +357,7 @@ pub enum StartupPhase {
     /// SessionConfigProvider, SkillsRegistry — depend on ConfigManager (Layer 1).
     Registries,
     /// AnnounceSweeper, ApprovalFlow, ArchiveSweeper, DreamingScheduler,
-    /// IMAdapters, SkillWatcher, ToolsRegistry — depend on Layer 0-1 (Layer 2).
+    /// IMAdapters, ToolsRegistry — depend on Layer 0-1 (Layer 2).
     CoreServices,
     /// SessionManager, SpawnController, SystemPromptBuilder — depend on
     /// Layer 0-2 (Layer 3).
@@ -399,7 +394,6 @@ impl StartupPhase {
                 ComponentId::Service(ArchiveSweeper),
                 ComponentId::Service(DreamingScheduler),
                 ComponentId::Service(IMAdapters),
-                ComponentId::Service(SkillWatcher),
                 ComponentId::Service(ToolsRegistry),
             ],
             Self::Wiring => &[
