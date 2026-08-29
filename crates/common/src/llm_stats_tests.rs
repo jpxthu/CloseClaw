@@ -566,9 +566,10 @@ fn detect_cache_break_hit_rate_and_token_both_trigger() {
 }
 
 #[test]
-fn detect_cache_break_hit_rate_only_triggers() {
-    // When token drop is below min_drop_tokens but hit-rate drops significantly,
-    // break is triggered by rate alone.
+fn detect_cache_break_token_and_rate_both_trigger() {
+    // When both token drop (9800 > min_drop_tokens 2000) and rate drop
+    // (0.98 > drop_ratio_threshold 0.05) exceed thresholds,
+    // break is triggered by both conditions.
     let mut stats = RunningStats::new();
     // Previous: 9900/10000 = 0.99
     stats.detect_cache_break_and_update(Some(9900), Some(10000));
