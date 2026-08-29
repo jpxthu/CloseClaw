@@ -375,12 +375,24 @@ impl FeishuPlugin {
     }
 
     /// Normalize content and apply identity mapping to an inbound message.
-    fn normalize_inbound_message(&self, msg: &mut NormalizedMessage) {
+    ///
+    /// `bot_app_id` is resolved with priority:
+    /// 1. `header_app_id` from `last_metadata` (the event header's app_id)
+    /// 2. The adapter's own `app_id` (fallback for legacy flows)
+    async fn normalize_inbound_message(&self, msg: &mut NormalizedMessage) {
         msg.content = normalize_urls(&msg.content);
         msg.content = add_code_block_language_hint(&msg.content);
         if let Some(resolver) = self.identity_resolver() {
+            let bot_app_id = self
+                .adapter
+                .last_metadata
+                .try_lock()
+                .ok()
+                .and_then(|m| m.get("header_app_id").cloned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| self.adapter.app_id.clone());
             msg.account_id = resolver
-                .resolve(&msg.platform, "", &msg.sender_id)
+                .resolve(&msg.platform, &bot_app_id, &msg.sender_id)
                 .unwrap_or(std::mem::take(&mut msg.account_id));
         }
     }
@@ -461,7 +473,7 @@ impl IMPlugin for FeishuPlugin {
         }
 
         if let Some(ref mut m) = msg {
-            self.normalize_inbound_message(m);
+            self.normalize_inbound_message(m).await;
         }
 
         // Emit structured debug_log event for inbound parse.
