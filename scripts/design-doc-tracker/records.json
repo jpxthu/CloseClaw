@@ -481,9 +481,9 @@
   },
   {
     "path": "docs/design/session/README.md",
-    "commit": "94e21122b1ce10d0cebcf7dbd8f9bd168462318c",
-    "commit_time": "2026-08-28T05:17:06+08:00",
-    "confirmed_time": "2026-08-28T05:27:39.260230+08:00",
+    "commit": "a875915b5a1c3aceb918aa7f58512d419984a726",
+    "commit_time": "2026-08-29T12:05:26+08:00",
+    "confirmed_time": "2026-08-29T12:20:59.598089+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -521,9 +521,9 @@
   },
   {
     "path": "docs/design/session/session-injection.md",
-    "commit": "a260ad09fce4b7f665d114b98fd0520e2c02790f",
-    "commit_time": "2026-07-23T03:55:42+08:00",
-    "confirmed_time": "2026-07-23T04:04:34.875175+08:00",
+    "commit": "8188812ff8ef768dd9042bde1e708c705a89c1de",
+    "commit_time": "2026-08-29T12:22:17+08:00",
+    "confirmed_time": "2026-08-29T12:30:03.335658+08:00",
     "comment": "",
     "blocked_reason": ""
   },
