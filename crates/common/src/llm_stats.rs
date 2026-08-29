@@ -190,6 +190,18 @@ impl RunningStats {
         current_cache_read: Option<u32>,
         current_prompt_tokens: Option<u32>,
     ) -> Option<CacheBreakInfo> {
+        // Providers that always return 0 for cache_read are not using
+        // caching at all. Update state but skip detection entirely.
+        if current_cache_read == Some(0) {
+            self.last_cache_read_tokens = Some(0);
+            let current_rate = match (current_cache_read, current_prompt_tokens) {
+                (Some(cr), Some(pt)) if pt > 0 => Some(cr as f64 / pt as f64),
+                _ => None,
+            };
+            self.last_cache_hit_rate = current_rate;
+            return None;
+        }
+
         let prev_rate = self.last_cache_hit_rate;
         let mut info = detect_cache_break(
             self.last_cache_read_tokens,
