@@ -5,6 +5,7 @@
     "default_temperature": 1.0,
     "reasoning": true,
     "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "reasoning_always": true,
     "input_types": ["text"],
     "recommended_protocol": "openai"
   },
@@ -14,6 +15,7 @@
     "default_temperature": 1.0,
     "reasoning": true,
     "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "reasoning_always": true,
     "input_types": ["text"],
     "recommended_protocol": "openai"
   },
@@ -23,6 +25,7 @@
     "default_temperature": 1.0,
     "reasoning": true,
     "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "reasoning_always": true,
     "input_types": ["text"],
     "recommended_protocol": "openai"
   },
@@ -32,6 +35,7 @@
     "default_temperature": 1.0,
     "reasoning": true,
     "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "reasoning_always": true,
     "input_types": ["text"],
     "recommended_protocol": "openai"
   },
@@ -41,6 +45,7 @@
     "default_temperature": 1.0,
     "reasoning": true,
     "reasoning_levels": { "type": "toggle", "value": { "on": true } },
+    "reasoning_always": true,
     "input_types": ["text"],
     "recommended_protocol": "openai"
   }
