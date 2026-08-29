@@ -537,9 +537,9 @@
   },
   {
     "path": "docs/design/session/session-recovery.md",
-    "commit": "cc2d41a03d3954dc904a839d2fcca51ff847c0ae",
-    "commit_time": "2026-08-03T06:01:20+08:00",
-    "confirmed_time": "2026-08-03T06:09:30.136996+08:00",
+    "commit": "c5c42f36271b44bb21b6a42c53bfe69448e238e4",
+    "commit_time": "2026-08-29T12:51:10+08:00",
+    "confirmed_time": "2026-08-29T13:02:31.229710+08:00",
     "comment": "",
     "blocked_reason": ""
   },
