@@ -147,6 +147,7 @@ impl SlashEffectExecutor for MockSlashEffectExecutor {
 struct MockSessionLookup {
     pending_messages: Arc<Mutex<Vec<PendingMessage>>>,
     chat_id: Option<String>,
+    plan_state: Arc<Mutex<Option<crate::PlanState>>>,
 }
 
 impl MockSessionLookup {
@@ -154,6 +155,7 @@ impl MockSessionLookup {
         Self {
             pending_messages: Arc::new(Mutex::new(Vec::new())),
             chat_id,
+            plan_state: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -161,7 +163,19 @@ impl MockSessionLookup {
         Self {
             pending_messages: pending,
             chat_id: None,
+            plan_state: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Create with an existing plan_state and return a shared handle for assertions.
+    fn with_plan_state(state: crate::PlanState) -> (Self, Arc<Mutex<Option<crate::PlanState>>>) {
+        let plan = Arc::new(Mutex::new(Some(state)));
+        let mock = Self {
+            pending_messages: Arc::new(Mutex::new(Vec::new())),
+            chat_id: None,
+            plan_state: plan.clone(),
+        };
+        (mock, plan)
     }
 }
 
@@ -185,10 +199,12 @@ impl SessionLookup for MockSessionLookup {
     }
 
     async fn get_plan_state(&self, _session_id: &str) -> Option<crate::PlanState> {
-        None
+        self.plan_state.lock().unwrap().clone()
     }
 
-    async fn set_plan_state(&self, _session_id: &str, _plan_state: crate::PlanState) {}
+    async fn set_plan_state(&self, _session_id: &str, plan_state: crate::PlanState) {
+        *self.plan_state.lock().unwrap() = Some(plan_state);
+    }
 
     async fn set_session_mode(&self, _session_id: &str, _mode: crate::SessionMode) {}
 }
@@ -337,6 +353,91 @@ async fn test_set_mode_custom_reply_message() {
         }
         other => panic!("expected Reply, got {other:?}"),
     }
+}
+
+// ── Test: SetMode with plan_file_path writes new plan_state ───────────
+
+#[tokio::test]
+async fn test_set_mode_with_plan_file_path_writes_new_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(crate::PlanState::new());
+    // Clear initial state so we test fresh write.
+    *plan_handle.lock().unwrap() = None;
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-plan-new", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "auto".into(),
+        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/my-plan.md")),
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    let stored = plan_handle.lock().unwrap().clone();
+    let ps = stored.expect("plan_state should be set");
+    assert_eq!(ps.plan_file_path, "/tmp/plans/my-plan.md");
+    assert_eq!(ps.phase, crate::PlanPhase::Research);
+    assert!(ps.pending_steps.is_empty());
+}
+
+// ── Test: SetMode with plan_file_path updates existing plan_state ─────
+
+#[tokio::test]
+async fn test_set_mode_with_plan_file_path_updates_existing_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let existing = crate::PlanState {
+        phase: crate::PlanPhase::Design,
+        pending_steps: vec!["step-1".into()],
+        plan_file_path: String::new(),
+    };
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(existing);
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-plan-upd", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "auto".into(),
+        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/updated.md")),
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    let ps = plan_handle
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("plan_state should be set");
+    assert_eq!(ps.plan_file_path, "/tmp/plans/updated.md");
+    // Existing phase and pending_steps must be preserved.
+    assert_eq!(ps.phase, crate::PlanPhase::Design);
+    assert_eq!(ps.pending_steps, vec!["step-1"]);
+}
+
+// ── Test: SetMode with None plan_file_path does not touch plan_state ──
+
+#[tokio::test]
+async fn test_set_mode_with_none_plan_file_path_does_not_touch_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(crate::PlanState::new());
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-plan-none", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "normal".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    // plan_state was not touched — still the initial value (PlanState::new()).
+    let stored = plan_handle.lock().unwrap().clone();
+    assert!(stored.is_some(), "plan_state should remain untouched");
+    assert_eq!(stored.unwrap().plan_file_path, String::new());
 }
 
 // ── Test: NewSession variant ──────────────────────────────────────────

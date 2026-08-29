@@ -70,7 +70,6 @@ pub struct SessionMessage {
     /// When the message was created.
     pub timestamp: DateTime<Utc>,
 }
-
 /// Announce event pushed by a child session to its parent.
 ///
 /// Produced when a run-mode child completes; the parent injects
@@ -215,12 +214,12 @@ pub struct ConversationSession {
     workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
     /// Workflow handler for tool result processing and engine state.
     workflow_handler: Option<crate::workflow_handler::WorkflowHandler>,
+    plan_file_path: Option<String>,
 }
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
 // (below): construction and basic setters/getters. Block B (further
 // down): pending messages and announce queue.
-
 /// Construction and basic setters/getters.
 impl ConversationSession {
     /// Creates a new session with the given model and working directory.
@@ -277,6 +276,7 @@ impl ConversationSession {
             llm_caller: None,
             system_prompt_builder: None,
             prompt_overrides: None,
+            plan_file_path: None,
             dynamic_prompt_builder: None,
             manual_background_signal: Arc::new(tokio::sync::Notify::new()),
             checkpoint_storage: None,

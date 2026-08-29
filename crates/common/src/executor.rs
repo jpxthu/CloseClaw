@@ -136,12 +136,31 @@ async fn execute_reply(ctx: &SideEffectContext, text: String) {
 
 /// Handle `SlashResult::SetMode` — set session mode and optionally inject
 /// an initial user message.
+///
+/// When `plan_file_path` is `Some`, the path is persisted into the
+/// session's [`PlanState`] so that downstream prompt builders can
+/// read it during Auto Mode prompt construction.
 async fn execute_set_mode(
     ctx: &SideEffectContext,
     mode: String,
+    plan_file_path: Option<std::path::PathBuf>,
     initial_input: Option<String>,
     reply_message: Option<String>,
 ) {
+    // Persist plan file path into session plan_state when provided.
+    if let Some(path) = plan_file_path {
+        let path_str = path.to_string_lossy().to_string();
+        let mut state = ctx
+            .session_manager
+            .get_plan_state(&ctx.session_id)
+            .await
+            .unwrap_or_else(crate::PlanState::new);
+        state.plan_file_path = path_str;
+        ctx.session_manager
+            .set_plan_state(&ctx.session_id, state)
+            .await;
+    }
+
     ctx.executor.execute_set_mode(&ctx.session_id, &mode).await;
     let reply = reply_message.unwrap_or_else(|| format!("Mode set to: {mode}"));
     send_reply(ctx, reply).await;
@@ -254,10 +273,12 @@ impl SlashResultExecutor for SlashResult {
             SlashResult::Reply(text) => execute_reply(ctx, text).await,
             SlashResult::SetMode {
                 mode,
-                plan_file_path: _,
+                plan_file_path,
                 initial_input,
                 reply_message,
-            } => execute_set_mode(ctx, mode, initial_input, reply_message).await,
+            } => {
+                execute_set_mode(ctx, mode, plan_file_path, initial_input, reply_message).await;
+            }
             SlashResult::NewSession => execute_new_session(ctx).await,
             SlashResult::Stop { cascade, force } => execute_stop(ctx, cascade, force).await,
             SlashResult::Compact { instruction } => execute_compact(ctx, instruction).await,

@@ -864,3 +864,80 @@ fn test_role_and_heartbeat_section_removed() {
     let s = Section::ToolsSection("x".to_string());
     assert_eq!(s.name(), "tools");
 }
+
+// ── PlanFile section tests — Step 1.4 ──────────────────────────────────
+
+/// PlanFile section renders correctly with path and content.
+#[test]
+fn test_plan_file_section_render() {
+    let s = Section::PlanFile {
+        path: "/tmp/plans/my-plan.md".to_string(),
+        content: "# My Plan\nStep 1: do stuff\n".to_string(),
+    };
+    let rendered = s.render();
+    assert!(rendered.contains("## Plan File"));
+    assert!(rendered.contains("路径：/tmp/plans/my-plan.md"));
+    assert!(rendered.contains("# My Plan"));
+    assert!(rendered.contains("Step 1: do stuff"));
+}
+
+/// PlanFile section name is "plan_file" and is not cacheable.
+#[test]
+fn test_plan_file_section_name_and_cacheable() {
+    let s = Section::PlanFile {
+        path: "/tmp/p.md".to_string(),
+        content: String::new(),
+    };
+    assert_eq!(s.name(), "plan_file");
+    assert!(!s.is_cacheable(), "PlanFile is a dynamic section");
+}
+
+/// PlanFile section renders without panic for empty content.
+#[test]
+fn test_plan_file_section_render_empty_content() {
+    let s = Section::PlanFile {
+        path: "/tmp/empty.md".to_string(),
+        content: String::new(),
+    };
+    let rendered = s.render();
+    assert!(rendered.contains("## Plan File"));
+    assert!(rendered.contains("路径："));
+}
+
+/// PlanFile is included in the full Section enum name uniqueness check.
+#[test]
+fn test_plan_file_name_unique_among_all_variants() {
+    let all_names = vec![
+        Section::ToolsSection("t".into()).name(),
+        Section::MemorySection("m".into()).name(),
+        Section::ChannelContext {
+            chat_name: "c".into(),
+        }
+        .name(),
+        Section::GitStatus("g".into()).name(),
+        Section::WorkingDirectory("w".into()).name(),
+        Section::ModeInstruction {
+            mode: SessionMode::Normal,
+            plan_path: None,
+            sparse: false,
+            sub_agent: false,
+        }
+        .name(),
+        Section::ModeTransition(closeclaw_common::system_prompt::ModeTransition::PlanModeReentry)
+            .name(),
+        Section::PlanFile {
+            path: String::new(),
+            content: String::new(),
+        }
+        .name(),
+    ];
+    let mut sorted = all_names.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(
+        all_names.len(),
+        sorted.len(),
+        "all section names must be unique, got: {:?}",
+        all_names
+    );
+}

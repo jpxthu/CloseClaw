@@ -736,6 +736,18 @@ impl SessionManager {
 
     /// Set plan_state on the session checkpoint.
     pub async fn set_plan_state(&self, session_id: &str, plan_state: closeclaw_common::PlanState) {
+        // Sync plan_file_path to the live ConversationSession so that
+        // build_system_prompt_parts can read it for Auto Mode injection.
+        let plan_file_path = if plan_state.plan_file_path.is_empty() {
+            None
+        } else {
+            Some(plan_state.plan_file_path.clone())
+        };
+        if let Some(cs) = self.get_conversation_session(session_id).await {
+            let mut cs = cs.write().await;
+            cs.set_plan_file_path(plan_file_path);
+        }
+
         let cm_guard = {
             let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
