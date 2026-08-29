@@ -17,7 +17,6 @@ pub(crate) mod shutdown_heartbeat;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
-use crate::skill_reload::SkillRescanHandle;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::{NoopMetricsEmitter, SessionLookup};
@@ -216,19 +215,11 @@ impl Daemon {
         // Parallel async components: skill_registry and llm_registry are
         // independent within Layer 2, so run them concurrently.
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
-        let skill_fut = skill_reload::init_skill_registry(
-            config_dir,
-            None,
-            Arc::clone(&shared_cache),
-            extra_dirs,
-        );
+        let skill_fut = skill_reload::init_skill_registry(config_dir, None, extra_dirs);
         let empty_env: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         let llm_fut = Self::init_llm_registry(std::path::Path::new(config_dir), &empty_env);
         let (skill_result, (llm_registry, fallback_client)) = tokio::join!(skill_fut, llm_fut);
-        let (skill_registry, _rescan_handle): (
-            Arc<RwLock<Option<DiskSkillRegistry>>>,
-            SkillRescanHandle,
-        ) = skill_result?;
+        let skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>> = skill_result?;
 
         Ok((
             agent_registry,
