@@ -139,12 +139,14 @@ impl Default for ProviderModelKnowledge {
     }
 }
 
+#[cfg(feature = "test-helpers")]
 impl ProviderModelKnowledge {
     /// Insert a custom model entry for testing purposes.
     ///
     /// Returns `self` for chaining: `kb.with_test_model("p", "m", params)`.
     ///
-    /// This method is intended for test code only.
+    /// Gated behind the `test-helpers` feature flag to prevent use in
+    /// production code (this method uses `Box::leak`).
     pub fn with_test_model(
         mut self,
         provider_id: &str,
