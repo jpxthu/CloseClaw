@@ -70,7 +70,6 @@ pub struct SessionMessage {
     /// When the message was created.
     pub timestamp: DateTime<Utc>,
 }
-
 /// Announce event pushed by a child session to its parent.
 ///
 /// Produced when a run-mode child completes; the parent injects
@@ -221,7 +220,6 @@ pub struct ConversationSession {
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
 // (below): construction and basic setters/getters. Block B (further
 // down): pending messages and announce queue.
-
 /// Construction and basic setters/getters.
 impl ConversationSession {
     /// Creates a new session with the given model and working directory.
@@ -532,12 +530,6 @@ impl ConversationSession {
     pub fn request_context(&self) -> closeclaw_common::RequestContext {
         self.request_context.lock().expect("rc poisoned").clone()
     }
-    pub fn plan_file_path(&self) -> Option<&str> {
-        self.plan_file_path.as_deref()
-    }
-    pub fn set_plan_file_path(&mut self, path: Option<String>) {
-        self.plan_file_path = path;
-    }
     /// Returns a reference to the memory-injection Arc.
     pub fn memory_injection_arc(&self) -> &Arc<Mutex<Option<MemoryInjection>>> {
         &self.memory_injection
@@ -616,11 +608,18 @@ impl ConversationSession {
         self.system_prompt.as_deref()
     }
 
-    /// Rebuild the system prompt via the injected [`SystemPromptBuilder`].
-    /// * `session_id` / `agent_id` — per-session and agent identifiers.
-    /// * `bootstrap_mode_override` — `None` for standard rebuilds;
-    ///   child's mode for spawn callers.
-    /// Returns the rebuilt prompt, or empty when no builder is injected.
+    /// Rebuild the system prompt using the session's own builder and overrides.
+    ///
+    /// This is the session-side entry point for prompt rebuilds after
+    /// compaction or config changes. The session owns the builder and
+    /// overrides; no external references are needed.
+    ///
+    /// * `bootstrap_mode_override` — optional override for the bootstrap mode
+    ///   used when building the prompt. Pass `None` for standard rebuilds;
+    ///   spawn callers should pass the child's bootstrap mode.
+    ///
+    /// Returns the rebuilt prompt string for callers that need it
+    /// (e.g. initial session creation in `resolve.rs`).
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,
@@ -712,7 +711,9 @@ impl ConversationSession {
     /// blocks from assistant messages, and returns the first match.
     /// Returns `None` if no matching assistant message is found.
     ///
-    /// Look up assistant message content from the transcript.
+    /// Used by `drain_outbound_pending_for_session` to look up message
+    /// content from the transcript (authoritative source) instead of
+    /// relying on the outbound_pending cache.
     pub fn find_assistant_text_by_content(
         messages: &[SessionMessage],
         target: &str,

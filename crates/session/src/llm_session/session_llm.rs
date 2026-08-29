@@ -401,4 +401,14 @@ impl ConversationSession {
             }
         }
     }
+
+    /// Returns the plan file path associated with this session, if any.
+    pub fn plan_file_path(&self) -> Option<&str> {
+        self.plan_file_path.as_deref()
+    }
+
+    /// Sets the plan file path for this session.
+    pub fn set_plan_file_path(&mut self, path: Option<String>) {
+        self.plan_file_path = path
+    }
 }
