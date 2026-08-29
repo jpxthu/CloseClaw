@@ -380,7 +380,7 @@ impl FeishuPlugin {
         msg.content = add_code_block_language_hint(&msg.content);
         if let Some(resolver) = self.identity_resolver() {
             msg.account_id = resolver
-                .resolve(&msg.platform, &msg.sender_id)
+                .resolve(&msg.platform, "", &msg.sender_id)
                 .unwrap_or(std::mem::take(&mut msg.account_id));
         }
     }

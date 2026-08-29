@@ -13,6 +13,7 @@ use crate::validators::for_section;
 fn make_account(platform: &str, sender_id: &str, account_id: &str) -> IdentityMapping {
     IdentityMapping {
         platform: platform.to_string(),
+        bot_app_id: String::new(),
         sender_id: sender_id.to_string(),
         account_id: account_id.to_string(),
     }

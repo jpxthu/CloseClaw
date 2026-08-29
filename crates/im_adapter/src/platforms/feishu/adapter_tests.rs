@@ -661,12 +661,12 @@ async fn test_parse_inbound_image_type() {
 // ===========================================================================
 // Identity mapping tests
 // ===========================================================================
-
 #[tokio::test]
 async fn test_parse_inbound_with_identity_mapping() {
     let adapter = Arc::new(make_test_adapter());
     let resolver = ConfigIdentityResolver::new(vec![IdentityMapping {
         platform: "feishu".to_string(),
+        bot_app_id: String::new(),
         sender_id: "ou_sender".to_string(),
         account_id: "mapped_user".to_string(),
     }]);
@@ -682,6 +682,7 @@ async fn test_parse_inbound_without_mapping_fallback() {
     // Resolver has a mapping for a different sender, not ou_sender.
     let resolver = ConfigIdentityResolver::new(vec![IdentityMapping {
         platform: "feishu".to_string(),
+        bot_app_id: String::new(),
         sender_id: "ou_other".to_string(),
         account_id: "other_user".to_string(),
     }]);

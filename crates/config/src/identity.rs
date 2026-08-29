@@ -15,11 +15,19 @@ use serde::{Deserialize, Serialize};
 
 /// A single identity mapping entry loaded from configuration.
 ///
-/// Maps a `(platform, sender_id)` pair to a local `account_id`.
+/// Maps a `(platform, bot_app_id, sender_id)` triple to a local
+/// `account_id`. An empty `bot_app_id` represents the legacy "no
+/// application isolation" configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityMapping {
     /// Platform identifier, e.g. `"feishu"`, `"discord"`.
     pub platform: String,
+
+    /// Receiving bot application ID on the IM platform.
+    ///
+    /// Defaults to empty string when absent in configuration (serde).
+    #[serde(default)]
+    pub bot_app_id: String,
 
     /// Sender's platform-specific user ID.
     pub sender_id: String,
@@ -35,19 +43,19 @@ pub struct IdentityMapping {
 /// An [`IdentityResolver`] backed by a set of [`IdentityMapping`] entries
 /// loaded from a JSON configuration file.
 ///
-/// Internally stores a `HashMap` keyed by `(platform, sender_id)` for
-/// O(1) lookups.
+/// Internally stores a `HashMap` keyed by `(platform, bot_app_id,
+/// sender_id)` for O(1) lookups.
 #[derive(Debug, Clone)]
 pub struct ConfigIdentityResolver {
-    mappings: HashMap<(String, String), String>,
+    mappings: HashMap<(String, String, String), String>,
 }
 
 impl ConfigIdentityResolver {
     /// Build a resolver from a list of mapping entries.
     pub fn new(mappings: Vec<IdentityMapping>) -> Self {
-        let map: HashMap<(String, String), String> = mappings
+        let map: HashMap<(String, String, String), String> = mappings
             .into_iter()
-            .map(|m| ((m.platform, m.sender_id), m.account_id))
+            .map(|m| ((m.platform, m.bot_app_id, m.sender_id), m.account_id))
             .collect();
         Self { mappings: map }
     }
@@ -70,9 +78,13 @@ impl ConfigIdentityResolver {
 }
 
 impl IdentityResolver for ConfigIdentityResolver {
-    fn resolve(&self, platform: &str, sender_id: &str) -> Option<String> {
+    fn resolve(&self, platform: &str, bot_app_id: &str, sender_id: &str) -> Option<String> {
         self.mappings
-            .get(&(platform.to_string(), sender_id.to_string()))
+            .get(&(
+                platform.to_string(),
+                bot_app_id.to_string(),
+                sender_id.to_string(),
+            ))
             .cloned()
     }
 }
@@ -89,16 +101,19 @@ mod tests {
         vec![
             IdentityMapping {
                 platform: "feishu".to_string(),
+                bot_app_id: String::new(),
                 sender_id: "ou_aaa".to_string(),
                 account_id: "local_user_1".to_string(),
             },
             IdentityMapping {
                 platform: "feishu".to_string(),
+                bot_app_id: String::new(),
                 sender_id: "ou_bbb".to_string(),
                 account_id: "local_user_2".to_string(),
             },
             IdentityMapping {
                 platform: "discord".to_string(),
+                bot_app_id: String::new(),
                 sender_id: "12345".to_string(),
                 account_id: "local_user_1".to_string(),
             },
@@ -109,11 +124,11 @@ mod tests {
     fn test_resolve_match() {
         let resolver = ConfigIdentityResolver::new(sample_mappings());
         assert_eq!(
-            resolver.resolve("feishu", "ou_aaa"),
+            resolver.resolve("feishu", "", "ou_aaa"),
             Some("local_user_1".to_string())
         );
         assert_eq!(
-            resolver.resolve("discord", "12345"),
+            resolver.resolve("discord", "", "12345"),
             Some("local_user_1".to_string())
         );
     }
@@ -121,8 +136,8 @@ mod tests {
     #[test]
     fn test_resolve_no_match() {
         let resolver = ConfigIdentityResolver::new(sample_mappings());
-        assert_eq!(resolver.resolve("feishu", "ou_unknown"), None);
-        assert_eq!(resolver.resolve("slack", "ou_aaa"), None);
+        assert_eq!(resolver.resolve("feishu", "", "ou_unknown"), None);
+        assert_eq!(resolver.resolve("slack", "", "ou_aaa"), None);
     }
 
     #[test]
@@ -130,7 +145,7 @@ mod tests {
         let resolver = ConfigIdentityResolver::new(vec![]);
         assert!(resolver.is_empty());
         assert_eq!(resolver.len(), 0);
-        assert_eq!(resolver.resolve("feishu", "ou_aaa"), None);
+        assert_eq!(resolver.resolve("feishu", "", "ou_aaa"), None);
     }
 
     #[test]
@@ -138,22 +153,24 @@ mod tests {
         let mappings = vec![
             IdentityMapping {
                 platform: "feishu".to_string(),
+                bot_app_id: String::new(),
                 sender_id: "ou_aaa".to_string(),
                 account_id: "alice".to_string(),
             },
             IdentityMapping {
                 platform: "discord".to_string(),
+                bot_app_id: String::new(),
                 sender_id: "12345".to_string(),
                 account_id: "alice".to_string(),
             },
         ];
         let resolver = ConfigIdentityResolver::new(mappings);
         assert_eq!(
-            resolver.resolve("feishu", "ou_aaa"),
+            resolver.resolve("feishu", "", "ou_aaa"),
             Some("alice".to_string())
         );
         assert_eq!(
-            resolver.resolve("discord", "12345"),
+            resolver.resolve("discord", "", "12345"),
             Some("alice".to_string())
         );
     }
@@ -167,11 +184,11 @@ mod tests {
         let resolver = ConfigIdentityResolver::from_json(json).unwrap();
         assert_eq!(resolver.len(), 2);
         assert_eq!(
-            resolver.resolve("feishu", "ou_xxx"),
+            resolver.resolve("feishu", "", "ou_xxx"),
             Some("local_user_1".to_string())
         );
         assert_eq!(
-            resolver.resolve("discord", "42"),
+            resolver.resolve("discord", "", "42"),
             Some("local_user_2".to_string())
         );
     }

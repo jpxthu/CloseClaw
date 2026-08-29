@@ -123,8 +123,8 @@ fn test_identity_mapping_loads_accounts_json() {
     let resolver = load_identity_resolver(dir.path().to_str().unwrap());
     assert!(resolver.is_some());
     let r = resolver.unwrap();
-    assert_eq!(r.resolve("feishu", "ou_aaa"), Some("user1".into()));
-    assert_eq!(r.resolve("feishu", "ou_bbb"), Some("user2".into()));
+    assert_eq!(r.resolve("feishu", "", "ou_aaa"), Some("user1".into()));
+    assert_eq!(r.resolve("feishu", "", "ou_bbb"), Some("user2".into()));
 }
 
 /// accounts.json missing → no resolver (returns None).
@@ -159,7 +159,7 @@ fn test_identity_mapping_unknown_sender() {
     let json = r#"{"accounts":[{"platform":"feishu","sender_id":"ou_xxx","account_id":"user1"}]}"#;
     let dir = setup_accounts_dir(Some(json));
     let resolver = load_identity_resolver(dir.path().to_str().unwrap()).unwrap();
-    assert_eq!(resolver.resolve("feishu", "ou_unknown"), None);
+    assert_eq!(resolver.resolve("feishu", "", "ou_unknown"), None);
 }
 
 /// Identity resolver: cross-platform isolation (feishu mapping doesn't affect
@@ -169,10 +169,16 @@ fn test_identity_mapping_cross_platform_isolation() {
     let json = r#"{"accounts":[{"platform":"feishu","sender_id":"ou_aaa","account_id":"user1"},{"platform":"discord","sender_id":"12345","account_id":"user2"}]}"#;
     let dir = setup_accounts_dir(Some(json));
     let resolver = load_identity_resolver(dir.path().to_str().unwrap()).unwrap();
-    assert_eq!(resolver.resolve("feishu", "ou_aaa"), Some("user1".into()));
-    assert_eq!(resolver.resolve("discord", "12345"), Some("user2".into()));
-    assert_eq!(resolver.resolve("discord", "ou_aaa"), None);
-    assert_eq!(resolver.resolve("feishu", "12345"), None);
+    assert_eq!(
+        resolver.resolve("feishu", "", "ou_aaa"),
+        Some("user1".into())
+    );
+    assert_eq!(
+        resolver.resolve("discord", "", "12345"),
+        Some("user2".into())
+    );
+    assert_eq!(resolver.resolve("discord", "", "ou_aaa"), None);
+    assert_eq!(resolver.resolve("feishu", "", "12345"), None);
 }
 
 /// accounts.json with multiple accounts sharing the same account_id
@@ -182,7 +188,10 @@ fn test_identity_mapping_many_to_one() {
     let json = r#"{"accounts":[{"platform":"feishu","sender_id":"ou_aaa","account_id":"alice"},{"platform":"discord","sender_id":"99","account_id":"alice"},{"platform":"slack","sender_id":"U001","account_id":"alice"}]}"#;
     let dir = setup_accounts_dir(Some(json));
     let resolver = load_identity_resolver(dir.path().to_str().unwrap()).unwrap();
-    assert_eq!(resolver.resolve("feishu", "ou_aaa"), Some("alice".into()));
-    assert_eq!(resolver.resolve("discord", "99"), Some("alice".into()));
-    assert_eq!(resolver.resolve("slack", "U001"), Some("alice".into()));
+    assert_eq!(
+        resolver.resolve("feishu", "", "ou_aaa"),
+        Some("alice".into())
+    );
+    assert_eq!(resolver.resolve("discord", "", "99"), Some("alice".into()));
+    assert_eq!(resolver.resolve("slack", "", "U001"), Some("alice".into()));
 }
