@@ -128,6 +128,50 @@ impl BuiltinSkillRegistry {
     // Listing generation
     // -----------------------------------------------------------------------
 
+    /// Return filtered, sorted, rendered listing entries suitable for
+    /// merge into the combined listing.
+    ///
+    /// Each entry is `(listing_line, u8)`. The list is
+    /// sorted by `(source, name)` for consistent merge ordering.
+    /// All builtin skills share source value `4u8` (`SkillSource::Bundled`).
+    ///
+    /// When `exclude_conditional` is `true`, skills with non-empty
+    /// `paths` are excluded. When `false`, all qualifying skills
+    /// (including conditional) are included.
+    pub async fn listing_entries(
+        &self,
+        skills_whitelist: Option<&[String]>,
+        exclude_conditional: bool,
+    ) -> Vec<(String, u8)> {
+        let entries = self.sorted_skills().await;
+        let use_whitelist = skills_whitelist
+            .filter(|w| !(w.len() == 1 && w[0] == "*"))
+            .map(|w| {
+                w.iter()
+                    .map(|s| s.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+            });
+
+        let mut filtered: Vec<(String, u8)> = entries
+            .into_iter()
+            .filter(|(m, meta)| {
+                meta.user_invocable
+                    && !(exclude_conditional && !meta.paths.is_empty())
+                    && match &use_whitelist {
+                        Some(set) => set.contains(m.name.as_str()),
+                        None => true,
+                    }
+            })
+            .map(|(m, meta)| {
+                let line = Self::render_single_listing(&m, &meta);
+                (line, 4u8) // Bundled priority
+            })
+            .collect();
+
+        filtered.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        filtered
+    }
+
     /// Return the names of all registered skills with `user_invocable: true`.
     ///
     /// Used by [`SkillSlashHandler`] to register slash commands for
@@ -790,5 +834,127 @@ mod tests {
         let mut names = registry.user_invocable_names().await;
         names.sort();
         assert_eq!(names, vec!["invocable_a", "invocable_c"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // listing_entries tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_listing_entries_no_whitelist_and_star() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "alpha",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "beta",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+        ])
+        .await;
+        // None whitelist — no filtering
+        let entries = registry.listing_entries(None, false).await;
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().all(|(_, p)| *p == 4));
+        assert!(entries[0].0.contains("alpha"));
+        assert!(entries[1].0.contains("beta"));
+        // ["*"] should also not filter
+        let entries = registry
+            .listing_entries(Some(&["*".to_string()]), false)
+            .await;
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_listing_entries_with_whitelist() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "alpha",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "beta",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "gamma",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+        ])
+        .await;
+        let entries = registry
+            .listing_entries(Some(&["beta".to_string(), "gamma".to_string()]), false)
+            .await;
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0].0.contains("beta"));
+        assert!(entries[1].0.contains("gamma"));
+    }
+
+    #[tokio::test]
+    async fn test_listing_entries_conditional_and_invocable() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_meta(
+                "regular",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "conditional",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: true,
+                    paths: vec!["**/*.rs".to_string()],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+            Arc::new(MockSkill::with_meta(
+                "hidden",
+                SkillListingMeta {
+                    when_to_use: String::new(),
+                    user_invocable: false,
+                    paths: vec![],
+                    effort: SkillEffort::Unknown,
+                },
+            )),
+        ])
+        .await;
+        // exclude_conditional=true: conditional excluded, hidden excluded
+        let entries = registry.listing_entries(None, true).await;
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].0.contains("regular"));
+        assert_eq!(entries[0].1, 4u8);
+        // exclude_conditional=false: conditional included, hidden still excluded
+        let entries = registry.listing_entries(None, false).await;
+        assert_eq!(entries.len(), 2);
     }
 }
