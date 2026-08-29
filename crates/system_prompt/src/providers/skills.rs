@@ -40,7 +40,12 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
         // Re-scan disk skill directories at every SP assembly boundary
         // so the listing reflects the latest on-disk skill files.
-        self.listing.rescan();
+        // Spawn on a blocking thread to avoid blocking the async runtime
+        // with synchronous disk I/O.
+        let listing = Arc::clone(&self.listing);
+        tokio::task::spawn_blocking(move || listing.rescan())
+            .await
+            .ok();
 
         let content = self
             .listing
