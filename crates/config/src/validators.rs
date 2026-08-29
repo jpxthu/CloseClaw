@@ -606,6 +606,8 @@ pub fn validate_accounts(
     let has_channels_config = channels_config.is_some();
 
     let mut seen_ids = std::collections::HashSet::new();
+    let mut seen_bindings: std::collections::HashSet<(String, String, String)> =
+        std::collections::HashSet::new();
 
     for (i, entry) in accounts.iter().enumerate() {
         if !entry.is_object() {
@@ -625,6 +627,7 @@ pub fn validate_accounts(
 
         check_account_id_unique(entry, i, &mut seen_ids)?;
         validate_account_platform(entry, i)?;
+        check_platform_binding_unique(entry, i, &mut seen_bindings)?;
 
         // Cross-reference: account.platform must have a matching channel config.
         if has_channels_config {
@@ -648,6 +651,40 @@ fn check_account_id_unique(
                 id, index
             ));
         }
+    }
+    Ok(())
+}
+
+/// Check that `(platform, bot_app_id, sender_id)` is unique across all accounts.
+///
+/// Within the same platform, the combination of bot application and sender
+/// must be unique (design doc: accounts 校验规则).
+fn check_platform_binding_unique(
+    entry: &serde_json::Value,
+    index: usize,
+    seen_bindings: &mut std::collections::HashSet<(String, String, String)>,
+) -> Result<(), String> {
+    let platform = entry
+        .get("platform")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let bot_app_id = entry
+        .get("botAppId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let sender_id = entry
+        .get("senderId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let key = (platform.clone(), bot_app_id, sender_id.clone());
+    if !seen_bindings.insert(key) {
+        return Err(format!(
+            "accounts.accounts[{}].(botAppId, senderId) '{}' in platform '{}' is not unique",
+            index, sender_id, platform
+        ));
     }
     Ok(())
 }
