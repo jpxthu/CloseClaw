@@ -16,7 +16,6 @@ pub mod inject;
 pub mod plan_path;
 pub mod providers;
 pub mod sections;
-pub mod tools_section;
 pub mod workdir;
 
 #[cfg(test)]
@@ -33,8 +32,5 @@ pub use builder::{
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use inject::{DynamicSectionsParams, SystemPromptDynamicBuilder};
 pub use providers::bootstrap::BootstrapFragmentProvider;
-pub use providers::memory::MemoryFragmentProvider;
-pub use providers::tools::ToolsFragmentProvider;
 pub use sections::{Section, SectionCache};
-pub use tools_section::{build_tools_section, ToolsSectionParams};
 pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};

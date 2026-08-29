@@ -3,14 +3,8 @@
 //! Orchestrates section assembly and renders the final system prompt string.
 
 use crate::fragment::{FragmentContext, PromptFragmentProvider};
-use crate::providers::bootstrap::BootstrapFragmentProvider;
-use crate::providers::memory::MemoryFragmentProvider;
-use crate::providers::skills::SkillsFragmentProvider;
-use crate::providers::tools::ToolsFragmentProvider;
 use crate::sections::{Section, SectionCache};
-use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::BootstrapMode;
-use closeclaw_common::SkillListingProvider;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -19,8 +13,6 @@ pub use closeclaw_common::system_prompt::PromptOverrides;
 
 /// Default system prompt fallback
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
-
-use closeclaw_tools::ToolRegistry;
 
 // ---------------------------------------------------------------------------
 // PromptBuilder: Provider-driven prompt assembly
@@ -37,26 +29,14 @@ pub struct PromptBuilder {
 }
 
 impl PromptBuilder {
-    /// Create a new builder with the standard providers registered.
+    /// Create a new builder with the given providers.
     ///
-    /// The three standard providers (Bootstrap, Tools, Memory) are created
-    /// here and sorted by priority. They are reused across all `build()`
-    /// invocations.
-    pub fn new(
-        tool_registry: Arc<ToolRegistry>,
-        agent_tools: Option<Vec<String>>,
-        agent_disallowed_tools: Option<Vec<String>>,
-        session_mode: Option<SessionMode>,
-        skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
-    ) -> Self {
-        Self::new_with_cache(
-            tool_registry,
-            agent_tools,
-            agent_disallowed_tools,
-            session_mode,
-            Arc::new(RwLock::new(SectionCache::new())),
-            skill_listing_provider,
-        )
+    /// Providers are sorted by priority (lower first). The caller is
+    /// responsible for constructing the appropriate providers for the
+    /// domain crates (tools, skills, memory) and the bootstrap provider
+    /// from this crate.
+    pub fn new(providers: Vec<Box<dyn PromptFragmentProvider>>) -> Self {
+        Self::new_with_cache(providers, Arc::new(RwLock::new(SectionCache::new())))
     }
 
     /// Create a builder with a shared cache instance.
@@ -64,26 +44,9 @@ impl PromptBuilder {
     /// Used when the cache must be shared across multiple builders
     /// (e.g. for cross-session invalidation via `SystemPromptBuilder`).
     pub fn new_with_cache(
-        tool_registry: Arc<ToolRegistry>,
-        agent_tools: Option<Vec<String>>,
-        agent_disallowed_tools: Option<Vec<String>>,
-        session_mode: Option<SessionMode>,
+        mut providers: Vec<Box<dyn PromptFragmentProvider>>,
         shared_cache: Arc<RwLock<SectionCache>>,
-        skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
     ) -> Self {
-        let mut providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
-            Box::new(BootstrapFragmentProvider::new()),
-            Box::new(ToolsFragmentProvider::new(
-                Arc::clone(&tool_registry),
-                agent_tools,
-                agent_disallowed_tools,
-                session_mode,
-            )),
-        ];
-        if let Some(listing) = skill_listing_provider {
-            providers.push(Box::new(SkillsFragmentProvider::new(listing)));
-        }
-        providers.push(Box::new(MemoryFragmentProvider::new()));
         providers.sort_by_key(|p| p.priority());
 
         Self {
@@ -190,18 +153,8 @@ fn append_append_section(base: String, append: Option<String>) -> String {
 
 /// Configuration for `build_from_workspace`.
 pub struct WorkspaceBuildConfig {
-    /// Tool registry for generating the ToolsSection.
-    pub tool_registry: Option<Arc<ToolRegistry>>,
-    /// Agent ID for prompt context.
-    pub agent_id: Option<String>,
-    /// Agent-level tool whitelist from config (`tools` field).
-    pub agent_tools: Option<Vec<String>>,
-    /// Agent-level tool blacklist from config (`disallowedTools` field).
-    pub agent_disallowed_tools: Option<Vec<String>>,
-    /// Skill listing provider for the skills section.
-    /// When `Some`, a [`SkillsFragmentProvider`] is registered in the
-    /// provider pipeline (priority=3).
-    pub skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
+    /// Pre-constructed provider list (already sorted or will be sorted).
+    pub providers: Vec<Box<dyn PromptFragmentProvider>>,
 
     /// Additional dynamic sections to include.
     pub dynamic_sections: Vec<Section>,
@@ -210,8 +163,6 @@ pub struct WorkspaceBuildConfig {
     /// Bootstrap mode for this build — caller is responsible for querying
     /// the AgentRegistry and passing the result here.
     pub bootstrap_mode_override: Option<BootstrapMode>,
-    /// Session mode for mode-aware tool filtering.
-    pub session_mode: Option<SessionMode>,
 }
 
 // --- Private helpers -------------------------------------------------------
@@ -246,31 +197,14 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
     let bootstrap_mode = config.bootstrap_mode_override;
 
     let ctx = FragmentContext {
-        agent_id: config.agent_id.clone().unwrap_or_default(),
+        agent_id: String::new(),
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
         bootstrap_dir: root.to_path_buf(),
     };
 
-    let tool_registry = config
-        .tool_registry
-        .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
-
     let builder = match shared_cache {
-        Some(cache) => PromptBuilder::new_with_cache(
-            tool_registry,
-            config.agent_tools,
-            config.agent_disallowed_tools,
-            config.session_mode,
-            cache,
-            config.skill_listing_provider,
-        ),
-        None => PromptBuilder::new(
-            tool_registry,
-            config.agent_tools,
-            config.agent_disallowed_tools,
-            config.session_mode,
-            config.skill_listing_provider,
-        ),
+        Some(cache) => PromptBuilder::new_with_cache(config.providers, cache),
+        None => PromptBuilder::new(config.providers),
     };
 
     let static_layer = builder.build(&ctx).await;
@@ -365,143 +299,13 @@ mod tests {
     // ---- WorkspaceBuildConfig tests ----
 
     #[test]
-    fn test_workspace_build_config_has_agent_id_field() {
+    fn test_workspace_build_config_has_providers_field() {
         let config = WorkspaceBuildConfig {
-            tool_registry: None,
-            agent_id: None,
-            agent_tools: None,
-            agent_disallowed_tools: None,
+            providers: vec![],
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: None,
-            session_mode: None,
-            skill_listing_provider: None,
         };
-        assert!(config.agent_id.is_none());
-    }
-
-    #[test]
-    fn test_workspace_build_config_with_agent_id() {
-        use closeclaw_session::bootstrap::loader::BootstrapMode;
-
-        let config = WorkspaceBuildConfig {
-            tool_registry: None,
-            agent_id: Some("test-agent".to_string()),
-            agent_tools: None,
-            agent_disallowed_tools: None,
-            dynamic_sections: vec![],
-            append_section: None,
-            bootstrap_mode_override: Some(BootstrapMode::Minimal),
-            session_mode: None,
-            skill_listing_provider: None,
-        };
-        assert_eq!(config.agent_id.as_deref(), Some("test-agent"));
-        assert_eq!(config.bootstrap_mode_override, Some(BootstrapMode::Minimal));
-    }
-
-    // ---- PromptBuilder tests ----
-
-    #[test]
-    fn test_prompt_builder_new() {
-        let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
-        // Verify construction succeeds, providers are registered, and list is non-empty.
-        assert!(!builder.providers.is_empty());
-        assert_eq!(builder.providers.len(), 3);
-    }
-
-    #[test]
-    fn test_prompt_builder_providers_sorted_by_priority() {
-        let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
-        let priorities: Vec<u32> = builder.providers.iter().map(|p| p.priority()).collect();
-        // Bootstrap=1, Tools=2, Memory=4 (no Skills provider when None)
-        assert_eq!(priorities, vec![1, 2, 4]);
-        // Verify provider names match expected order.
-        assert_eq!(builder.providers[0].name(), "bootstrap");
-        assert_eq!(builder.providers[1].name(), "tools");
-        assert_eq!(builder.providers[2].name(), "memory");
-    }
-
-    #[tokio::test]
-    async fn test_prompt_builder_build_fallback_default() {
-        let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
-
-        // No bootstrap_dir → BootstrapFragmentProvider returns None
-        // Empty tool registry → ToolsFragmentProvider returns None
-        // No bootstrap_dir → MemoryFragmentProvider returns None
-        // → fallback DEFAULT_PROMPT
-        let ctx = FragmentContext::test_default();
-        let result = builder.build(&ctx).await;
-        assert_eq!(result, DEFAULT_PROMPT);
-    }
-
-    #[tokio::test]
-    async fn test_prompt_builder_build_with_memory() {
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("MEMORY.md"), "remember X").unwrap();
-
-        let tool_reg = Arc::new(ToolRegistry::new());
-        let builder = PromptBuilder::new(tool_reg, None, None, None, None);
-
-        let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
-            ..FragmentContext::test_default()
-        };
-        let result = builder.build(&ctx).await;
-        assert!(result.contains("## Memory"));
-        assert!(result.contains("remember X"));
-    }
-
-    // ---- bootstrap_mode_override tests ----
-
-    #[tokio::test]
-    async fn test_build_from_workspace_override_mode() {
-        let tmp = tempfile::tempdir().unwrap();
-        // BOOTSTRAP.md is only loaded in Full mode, not Minimal.
-        std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
-        std::fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
-
-        let config = WorkspaceBuildConfig {
-            tool_registry: None,
-            agent_id: Some("test-agent".into()),
-            agent_tools: None,
-            agent_disallowed_tools: None,
-            dynamic_sections: vec![],
-            append_section: None,
-            bootstrap_mode_override: Some(BootstrapMode::Minimal),
-            session_mode: None,
-            skill_listing_provider: None,
-        };
-
-        let result = build_from_workspace(tmp.path(), config).await;
-        // Override forces Minimal → BOOTSTRAP.md excluded.
-        assert!(!result.contains("bootstrap only in full"));
-        assert!(result.contains("agents content"));
-    }
-
-    #[tokio::test]
-    async fn test_build_from_workspace_no_override_defaults_to_full() {
-        let tmp = tempfile::tempdir().unwrap();
-        // BOOTSTRAP.md is only loaded in Full mode.
-        std::fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
-        std::fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
-
-        let config = WorkspaceBuildConfig {
-            tool_registry: None,
-            agent_id: Some("test-agent".into()),
-            agent_tools: None,
-            agent_disallowed_tools: None,
-            dynamic_sections: vec![],
-            append_section: None,
-            bootstrap_mode_override: None,
-            session_mode: None,
-            skill_listing_provider: None,
-        };
-
-        let result = build_from_workspace(tmp.path(), config).await;
-        // No override → defaults to Full → BOOTSTRAP.md included.
-        assert!(result.contains("bootstrap only in full"));
+        assert!(config.providers.is_empty());
     }
 }

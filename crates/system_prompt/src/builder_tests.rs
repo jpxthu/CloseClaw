@@ -4,7 +4,6 @@ use crate::builder::PromptBuilder;
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 use crate::sections::SectionCache;
 use async_trait::async_trait;
-use closeclaw_tools::ToolRegistry;
 use std::sync::Arc;
 
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
@@ -296,11 +295,107 @@ async fn build_from_mocks_with_cache(
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.2: ToolsSection caching integration tests
+// PromptBuilder with injection-based construction
+// ---------------------------------------------------------------------------
+
+/// Verify that PromptBuilder correctly sorts providers by priority.
+#[test]
+fn test_prompt_builder_new() {
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(MockProvider::with_fragment("memory", 4, "mem")),
+        Box::new(MockProvider::with_fragment("bootstrap", 1, "boot")),
+        Box::new(MockProvider::with_fragment("tools", 2, "tool")),
+    ];
+    let builder = PromptBuilder::new(providers);
+    // Verify construction succeeds, providers are registered, and list is sorted.
+    assert!(!builder.providers.is_empty());
+    assert_eq!(builder.providers.len(), 3);
+    let priorities: Vec<u32> = builder.providers.iter().map(|p| p.priority()).collect();
+    assert_eq!(priorities, vec![1, 2, 4]);
+}
+
+/// Verify that PromptBuilder sorts providers correctly with skills included.
+#[test]
+fn test_prompt_builder_providers_sorted_by_priority() {
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(MockProvider::with_fragment("memory", 4, "mem")),
+        Box::new(MockProvider::with_fragment("bootstrap", 1, "boot")),
+        Box::new(MockProvider::with_fragment("skills", 3, "skill")),
+        Box::new(MockProvider::with_fragment("tools", 2, "tool")),
+    ];
+    let builder = PromptBuilder::new(providers);
+    let priorities: Vec<u32> = builder.providers.iter().map(|p| p.priority()).collect();
+    assert_eq!(priorities, vec![1, 2, 3, 4]);
+    assert_eq!(builder.providers[0].name(), "bootstrap");
+    assert_eq!(builder.providers[1].name(), "tools");
+    assert_eq!(builder.providers[2].name(), "skills");
+    assert_eq!(builder.providers[3].name(), "memory");
+}
+
+/// Empty provider list → fallback DEFAULT_PROMPT.
+#[tokio::test]
+async fn test_prompt_builder_empty_providers_fallback() {
+    let builder = PromptBuilder::new(vec![]);
+    let ctx = FragmentContext::test_default();
+    let result = builder.build(&ctx).await;
+    assert_eq!(result, DEFAULT_PROMPT);
+}
+
+/// Single provider that returns content → builder uses it.
+#[tokio::test]
+async fn test_prompt_builder_single_provider() {
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+        MockProvider::with_fragment("test", 1, "test content"),
+    )];
+    let builder = PromptBuilder::new(providers);
+    let ctx = FragmentContext::test_default();
+    let result = builder.build(&ctx).await;
+    assert!(result.contains("test content"));
+}
+
+/// Multiple providers concatenated in priority order.
+#[tokio::test]
+async fn test_prompt_builder_multiple_providers_order() {
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(MockProvider::with_fragment("memory", 4, "mem")),
+        Box::new(MockProvider::with_fragment("bootstrap", 1, "boot")),
+        Box::new(MockProvider::with_fragment("tools", 2, "tool")),
+    ];
+    let builder = PromptBuilder::new(providers);
+    let ctx = FragmentContext::test_default();
+    let result = builder.build(&ctx).await;
+    let boot_pos = result.find("boot").unwrap();
+    let tool_pos = result.find("tool").unwrap();
+    let mem_pos = result.find("mem").unwrap();
+    assert!(boot_pos < tool_pos);
+    assert!(tool_pos < mem_pos);
+}
+
+// ---------------------------------------------------------------------------
+// PromptBuilder instance isolation
+// ---------------------------------------------------------------------------
+
+/// Two independent PromptBuilder instances have separate caches.
+#[tokio::test]
+async fn test_prompt_builder_instance_isolation() {
+    let builder_a = PromptBuilder::new(vec![]);
+    let builder_b = PromptBuilder::new(vec![]);
+
+    // Verify they have separate cache instances
+    let cache_a = builder_a.shared_cache();
+    let cache_b = builder_b.shared_cache();
+    assert!(
+        !Arc::ptr_eq(cache_a, cache_b),
+        "two PromptBuilder instances must have separate SectionCache instances"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Cache integration tests
 // ---------------------------------------------------------------------------
 
 /// Two consecutive builds with the same context should hit cache on the
-/// second build. The cached content is reused without calling generate().
+/// second build.
 #[tokio::test]
 async fn test_tools_section_cached_after_first_build() {
     let mut cache = SectionCache::new();
@@ -312,7 +407,7 @@ async fn test_tools_section_cached_after_first_build() {
     let result1 = build_from_mocks_with_cache(providers, &mut cache).await;
     assert!(result1.contains("tools content"));
 
-    // Second build: cache hit → uses cached content, does not call generate
+    // Second build: cache hit → uses cached content
     let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
         MockProvider::with_fragment("tools", 2, "tools content").with_cache_key("tools"),
     )];
@@ -347,84 +442,19 @@ async fn test_tools_section_cache_invalidated() {
 }
 
 // ---------------------------------------------------------------------------
-// Skill listing removed from system prompt static layer (Step 1.1)
+// Skills provider priority ordering
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn test_prompt_builder_no_skill_listing_in_output() {
-    let tool_reg = Arc::new(ToolRegistry::new());
-    let builder = PromptBuilder::new(tool_reg, None, None, None, None);
-    let ctx = FragmentContext::test_default();
-    let result = builder.build(&ctx).await;
-    assert!(
-        !result.contains("## Available Skills"),
-        "system prompt should not contain skill listing after migration to per-turn injection"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Step 1.5: PromptBuilder isolation tests
-// ---------------------------------------------------------------------------
-
-/// Two independent PromptBuilder instances have separate caches.
-/// Modifying one builder's cache does not affect the other.
-#[tokio::test]
-async fn test_prompt_builder_instance_isolation() {
-    let tool_reg_a = Arc::new(ToolRegistry::new());
-    let tool_reg_b = Arc::new(ToolRegistry::new());
-    let builder_a = PromptBuilder::new(tool_reg_a, None, None, None, None);
-    let builder_b = PromptBuilder::new(tool_reg_b, None, None, None, None);
-
-    // Verify they have separate cache instances
-    let cache_a = builder_a.shared_cache();
-    let cache_b = builder_b.shared_cache();
-    // The key assertion: they are different Arc instances
-    assert!(
-        !Arc::ptr_eq(cache_a, cache_b),
-        "two PromptBuilder instances must have separate SectionCache instances"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Step 1.5: PromptBuilder with Skills provider priority ordering
-// ---------------------------------------------------------------------------
-
-/// Mock SkillListingProvider that produces a fixed listing.
-struct MockSkillListing;
-
-impl closeclaw_common::SkillListingProvider for MockSkillListing {
-    fn generate_listing(
-        &self,
-        _agent_id: Option<&str>,
-        _agent_skills: Option<&[String]>,
-    ) -> String {
-        "- **test-skill**: A test skill".to_string()
-    }
-
-    fn generate_listing_excluding_conditional(
-        &self,
-        _agent_id: Option<&str>,
-        _agent_skills: Option<&[String]>,
-    ) -> String {
-        "- **test-skill**: A test skill".to_string()
-    }
-
-    fn find_conditional_matches(
-        &self,
-        _paths: &[std::path::PathBuf],
-    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
-        vec![]
-    }
-}
-
-/// Verify that registering all 4 providers (Bootstrap, Tools, Skills, Memory)
-/// yields priorities sorted as [1, 2, 3, 4].
+/// Verify that registering all 4 providers yields priorities sorted as [1, 2, 3, 4].
 #[test]
 fn test_prompt_builder_with_skills_provider() {
-    let tool_reg = Arc::new(ToolRegistry::new());
-    let skill_listing: Option<Arc<dyn closeclaw_common::SkillListingProvider>> =
-        Some(Arc::new(MockSkillListing));
-    let builder = PromptBuilder::new(tool_reg, None, None, None, skill_listing);
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(MockProvider::with_fragment("memory", 4, "mem")),
+        Box::new(MockProvider::with_fragment("bootstrap", 1, "boot")),
+        Box::new(MockProvider::with_fragment("skills", 3, "skill")),
+        Box::new(MockProvider::with_fragment("tools", 2, "tool")),
+    ];
+    let builder = PromptBuilder::new(providers);
 
     assert_eq!(builder.providers.len(), 4, "expected 4 providers");
 
