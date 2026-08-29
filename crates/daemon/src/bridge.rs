@@ -93,6 +93,14 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
             })
             .unwrap_or_default()
     }
+
+    async fn rescan(&self) {
+        if let Ok(mut guard) = self.0.write() {
+            if let Some(ref mut registry) = *guard {
+                registry.rescan();
+            }
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -267,6 +275,14 @@ fn extract_name(line: &str) -> String {
 }
 
 impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
+    fn rescan(&self) {
+        if let Ok(mut guard) = self.disk.write() {
+            if let Some(ref mut registry) = *guard {
+                registry.rescan();
+            }
+        }
+    }
+
     fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
         self.merged_listing(agent_id, agent_skills, false)
     }
