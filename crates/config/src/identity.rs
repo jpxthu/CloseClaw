@@ -198,4 +198,102 @@ mod tests {
         let json = r#"not valid json"#;
         assert!(ConfigIdentityResolver::from_json(json).is_err());
     }
+
+    // ------------------------------------------------------------------
+    // Isolation semantics: same platform+sender_id, different bot_app_id
+    // ------------------------------------------------------------------
+
+    /// Core isolation behavior: the same (platform, sender_id) pair maps
+    /// to different local accounts depending on which bot_app_id received
+    /// the message. This is the fundamental guarantee of the triple key.
+    #[test]
+    fn test_isolation_different_bot_app_id_yields_different_account() {
+        let mappings = vec![
+            IdentityMapping {
+                platform: "feishu".to_string(),
+                bot_app_id: "app_x".to_string(),
+                sender_id: "ou_alice".to_string(),
+                account_id: "alice_via_app_x".to_string(),
+            },
+            IdentityMapping {
+                platform: "feishu".to_string(),
+                bot_app_id: "app_y".to_string(),
+                sender_id: "ou_alice".to_string(),
+                account_id: "alice_via_app_y".to_string(),
+            },
+        ];
+        let resolver = ConfigIdentityResolver::new(mappings);
+
+        // Same sender, different bot_app_id → different account_id.
+        assert_eq!(
+            resolver.resolve("feishu", "app_x", "ou_alice"),
+            Some("alice_via_app_x".to_string())
+        );
+        assert_eq!(
+            resolver.resolve("feishu", "app_y", "ou_alice"),
+            Some("alice_via_app_y".to_string())
+        );
+
+        // Cross-check: the two accounts are distinct.
+        assert_ne!(
+            resolver.resolve("feishu", "app_x", "ou_alice"),
+            resolver.resolve("feishu", "app_y", "ou_alice")
+        );
+    }
+
+    /// Legacy config compatibility: empty bot_app_id behaves as a separate
+    /// key from any non-empty bot_app_id. A user with empty-bot mapping
+    /// should NOT collide with the same sender under a real app.
+    #[test]
+    fn test_isolation_empty_bot_app_id_vs_real_app() {
+        let mappings = vec![
+            IdentityMapping {
+                platform: "feishu".to_string(),
+                bot_app_id: String::new(), // legacy no-app config
+                sender_id: "ou_bob".to_string(),
+                account_id: "bob_legacy".to_string(),
+            },
+            IdentityMapping {
+                platform: "feishu".to_string(),
+                bot_app_id: "app_real".to_string(),
+                sender_id: "ou_bob".to_string(),
+                account_id: "bob_real_app".to_string(),
+            },
+        ];
+        let resolver = ConfigIdentityResolver::new(mappings);
+
+        assert_eq!(
+            resolver.resolve("feishu", "", "ou_bob"),
+            Some("bob_legacy".to_string())
+        );
+        assert_eq!(
+            resolver.resolve("feishu", "app_real", "ou_bob"),
+            Some("bob_real_app".to_string())
+        );
+    }
+
+    /// from_json round-trip: bot_app_id field is preserved through
+    /// serialization and correctly used as a resolution key.
+    #[test]
+    fn test_from_json_with_bot_app_id() {
+        let json = r#"[
+            {"platform":"feishu","bot_app_id":"app1","sender_id":"ou_x","account_id":"u1"},
+            {"platform":"feishu","bot_app_id":"app2","sender_id":"ou_x","account_id":"u2"}
+        ]"#;
+        let resolver = ConfigIdentityResolver::from_json(json).unwrap();
+        assert_eq!(resolver.len(), 2);
+        assert_eq!(
+            resolver.resolve("feishu", "app1", "ou_x"),
+            Some("u1".to_string())
+        );
+        assert_eq!(
+            resolver.resolve("feishu", "app2", "ou_x"),
+            Some("u2".to_string())
+        );
+        // Cross-check: different apps, same sender → different accounts.
+        assert_ne!(
+            resolver.resolve("feishu", "app1", "ou_x"),
+            resolver.resolve("feishu", "app2", "ou_x")
+        );
+    }
 }
