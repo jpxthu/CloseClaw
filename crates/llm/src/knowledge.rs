@@ -139,6 +139,27 @@ impl Default for ProviderModelKnowledge {
     }
 }
 
+impl ProviderModelKnowledge {
+    /// Insert a custom model entry for testing purposes.
+    ///
+    /// Returns `self` for chaining: `kb.with_test_model("p", "m", params)`.
+    ///
+    /// This method is intended for test code only.
+    pub fn with_test_model(
+        mut self,
+        provider_id: &str,
+        model_id: &str,
+        params: ModelRecommendParams,
+    ) -> Self {
+        let static_model_id: &'static str = Box::leak(model_id.to_string().into_boxed_str());
+        self.inner
+            .entry(provider_id.to_string())
+            .or_default()
+            .insert(static_model_id, params);
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

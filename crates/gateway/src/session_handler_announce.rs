@@ -939,6 +939,43 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_resolve_effective_level_toggle_off_returns_low() {
+        // Toggle on=false: reasoning unavailable → always Low.
+        // No real model has on=false in the knowledge base, so construct
+        // a custom entry via the test-only `with_test_model` helper.
+        let params = closeclaw_llm::knowledge::ModelRecommendParams {
+            context_window: 128_000,
+            max_tokens: 8_192,
+            default_temperature: 0.7,
+            reasoning: true,
+            reasoning_levels: closeclaw_llm::knowledge::ReasoningLevels::Toggle { on: false },
+            input_types: vec![closeclaw_llm::model_info::InputType::Text],
+            recommended_protocol: closeclaw_llm::types::ProtocolId::from("openai"),
+        };
+        let kb = ProviderModelKnowledge::new().with_test_model(
+            "test_provider",
+            "toggle-off-model",
+            params,
+        );
+
+        // All requested levels should resolve to Low when on=false.
+        for level in [
+            ReasoningLevel::Off,
+            ReasoningLevel::Low,
+            ReasoningLevel::Medium,
+            ReasoningLevel::High,
+            ReasoningLevel::Max,
+        ] {
+            let result = resolve_effective_reasoning_level("toggle-off-model", level, &kb);
+            assert_eq!(
+                result,
+                ReasoningLevel::Low,
+                "Toggle on=false should return Low for requested {level:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_resolve_effective_level_anthropic_model_name_detection() {
         // is_anthropic_model helper test.
         assert!(is_anthropic_model("claude-3-5-sonnet-20241022"));
