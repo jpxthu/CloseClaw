@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::path_matcher::PathMatcher;
-use super::types::{DiskSkill, SkillSource};
+use super::types::{DiskSkill, ScanConfig, SkillSource};
 
 /// In-memory registry holding all discovered disk skills.
 #[derive(Clone)]
@@ -17,6 +17,8 @@ pub struct DiskSkillRegistry {
     /// directly from the agent config, avoiding the need for the caller
     /// to pass it explicitly.
     agent_skills_query: Option<Arc<dyn AgentSkillsQuery>>,
+    /// Stored scan configuration for rescan support.
+    scan_config: Option<ScanConfig>,
 }
 
 impl std::fmt::Debug for DiskSkillRegistry {
@@ -30,6 +32,7 @@ impl std::fmt::Debug for DiskSkillRegistry {
                     .as_ref()
                     .map(|_| "<dyn AgentSkillsQuery>"),
             )
+            .field("scan_config", &self.scan_config)
             .finish()
     }
 }
@@ -50,6 +53,7 @@ impl DiskSkillRegistry {
         Self {
             skills,
             agent_skills_query: None,
+            scan_config: None,
         }
     }
 
@@ -58,6 +62,7 @@ impl DiskSkillRegistry {
         Self {
             skills: Vec::new(),
             agent_skills_query: None,
+            scan_config: None,
         }
     }
 
@@ -65,6 +70,22 @@ impl DiskSkillRegistry {
     /// lookups.
     pub fn set_agent_skills_query(&mut self, query: Arc<dyn AgentSkillsQuery>) {
         self.agent_skills_query = Some(query);
+    }
+
+    /// Store the scan configuration for use by [`rescan`](Self::rescan).
+    pub fn set_scan_config(&mut self, config: ScanConfig) {
+        self.scan_config = Some(config);
+    }
+
+    /// Re-scan the disk skill directories and replace the internal skills
+    /// list. The stored [`ScanConfig`] must have been set via
+    /// [`set_scan_config`](Self::set_scan_config) first; otherwise this
+    /// method is a no-op. The `agent_skills_query` reference is preserved.
+    pub fn rescan(&mut self) {
+        let Some(ref config) = self.scan_config else {
+            return;
+        };
+        self.skills = super::scan_all_skills(config);
     }
 
     /// Returns skills that have path-based conditional activation
