@@ -35,7 +35,9 @@ Owner 和 User 可以创建新会话，以及终止当前会话运行。
 - `/new`：创建新会话
 - `/stop`：终止当前会话运行（Immediate）
 
-> **交叉引用**：会话创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）；会话归档详见 [session §F6](session.md)（会话归档与清理）；子 Session 终止详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：会话创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：会话归档详见 [session §F6](session.md)（会话归档与清理）。
+> **交叉引用**：子 Session 终止详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ### F4. 状态查询
 
@@ -74,7 +76,7 @@ Owner 和 User 可以在运行时向 system prompt 的追加区动态添加指�
 追加内容超过 500 字符时，直接拒绝并向 User 返回错误提示，不进行截断。`/system add` 不带内容时，向 User 返回用法提示。
 
 > **交叉引用**：追加区在 system prompt 中的位置由 [system_prompt §F5](system_prompt.md)（动态指令管理）定义。
-> **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）定义。
+> **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的 system prompt 重建）定义。
 
 ### F7. 工作目录操作
 
@@ -85,7 +87,7 @@ Owner 和 User 可以变更和查看当前会话的工作目录，以及执行 G
 - `/pwd`：查看当前工作目录
 - `/git <参数>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（仅列出分支））无需权限审批直接执行，写操作必须经权限审批，审批不可绕过
 
-> **交叉引用**：工作目录的定义（字段、默认值、变更后的状态展示、Git 命令输出）见 [session §F8](session.md)（工作目录）。
+> **交叉引用**：工作目录的归属、默认值与生命周期见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：Git 写操作的权限审批见 [permission §F3](permission.md)（权限决策模型）。
 
 ### F8. 命令执行
@@ -95,7 +97,9 @@ Owner 可以执行任意 Shell 命令，执行前必须经权限审批，审批�
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
 
-> **交叉引用**：命令执行的权限评估由 Permission 模块负责，详见 [permission §F3](permission.md)（权限决策模型）；User 默认权限与授权方式详见 [permission §F1](permission.md)（身份体系）、[permission §F6](permission.md)（权限配置管理）。
+> **交叉引用**：命令执行的权限评估由 Permission 模块负责，详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：User 默认权限见 [permission §F1](permission.md)（身份体系）。
+> **交叉引用**：权限规则修改与授权方式见 [permission §F6](permission.md)（权限配置管理）。
 
 ### F9. 帮助
 
@@ -122,7 +126,7 @@ Owner 和 User 可以查询和设置当前会话的展示等级。设置等级�
 - `/verbose`（无参数）：查询当前展示等级（Immediate）
 - `/verbose full|normal|off`：设置展示等级（Immediate）
 
-> **交叉引用**：展示等级的过滤内容定义见 [processor_chain §F4](processor_chain.md)（出站回复冗余控制）。
+> **交叉引用**：各展示等级对应的回复内容见 [processor_chain §F4](processor_chain.md)（出站回复冗余控制）。
 
 ### F12. plan 浏览
 
