@@ -33,9 +33,9 @@
 
 ### plan 文件
 
-每个 plan 以独立文件持久化到 `workspace/plans/`，包含任务标题、Context/Tasks/Verification/Notes 四节。plan 本身无全局状态，只有步骤级状态（未开始/进行中/已完成/失败/已跳过），由 Agent 自行管理。User 可在时间戳格式和随机词组格式间选择文件命名。详细格式和状态定义见 [plan-mode.md](plan-mode.md) 和 [execution.md](execution.md)。
+每个 plan 以独立文件持久化到 `workspace/plans/`。plan 本身无全局状态，只有步骤级状态（未开始/进行中/已完成/失败/已跳过），由 Agent 自行管理。文件内容与命名格式（User 在时间戳格式和随机词组格式间选择）详见 [plan-mode.md](plan-mode.md)。
 
-全部步骤处于终态（已完成 `[x]`、失败 `[!]` 或已跳过 `[~]`）的 plan，在最后访问超过配置天数（由 User 配置）后由 Daemon 后台任务 PlanArchiveSweeper 定时扫描并自动归档到 `workspace/plans/archive/`（任务调度见 [daemon/README.md](../daemon/README.md)，停止机制见 [daemon/shutdown.md](../daemon/shutdown.md)）。
+全部步骤处于终态（已完成 `[x]`、失败 `[!]` 或已跳过 `[~]`）的 plan，其访问时间戳超过配置天数后，由 Daemon 后台任务 PlanArchiveSweeper 定时扫描并自动归档到 `workspace/plans/archive/`（任务调度见 [daemon/README.md](../daemon/README.md)，停止机制见 [daemon/shutdown.md](../daemon/shutdown.md)）。访问时间戳由应用层在 Agent 触达 plan 时记录——Agent 读取 plan 内容、写步骤状态、或基于 plan 重建执行上下文会刷新；`/plans` 查看等纯浏览不刷新。归档天数由 User 配置（承载见 [config](../config/README.md)）。
 
 ### 子功能索引
 
@@ -50,16 +50,14 @@
 
 ### 进入 Plan Mode
 
-1. User `/plan "任务描述"`（描述可选；不带描述时仅切换模式）
+1. User `/plan [任务描述]`（描述可选；不带描述时仅切换模式）
 2. session 设置 plan_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
-3. 任务描述作为下一条用户消息注入对话
-4. 工具过滤：工具集取「完整工具集 ∩ 模式白名单」，仅放行 plans/ 目录写操作
-5. 系统提示词注入统一 Plan Mode 指令（含标准路径与 Interview 路径及路径自选规则）
-6. Agent 读取任务描述自行判断清晰度（含明确文件/模块/接口引用且有可量化验收条件 → 标准路径，否则 → Interview 路径），进入对应路径（详见 [plan-mode.md](plan-mode.md) 数据流）
+3. 若带任务描述 → 作为下一条用户消息注入对话
+4. 完整路径（含工具过滤、系统提示词注入、标准/Interview 路径自选）见 [plan-mode.md](plan-mode.md) 数据流
 
 ### 进入 Auto Mode
 
-1. User `/execute <plan名称>`，或自然语言触发（Agent 调用执行触发工具）
+1. User `/execute <plan名称>`，或自然语言触发（Agent 调用执行触发工具）。`<plan名称>` 即 plan 文件 identifier（命名见 [plan-mode.md](plan-mode.md)）
 2. session 设置 auto_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
 3. 恢复完整工具集（危险操作受运行时审查）
 4. 注入 Auto Mode 指令 + plan 文件上下文
@@ -68,14 +66,14 @@
 ### 退出 Plan Mode → 进入 Auto Mode
 
 1. Plan Mode 下 User 触发执行（`/execute` 或自然语言）
-2. session 清除 plan_mode 标记 → 设置 auto_mode 标记
+2. session 清除 plan_mode 标记 → 设置 auto_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
 3. 恢复完整工具集（危险操作受运行时审查）
 4. 注入 Auto Mode 指令 + plan 文件上下文
 5. Agent 开始执行 plan 步骤
 
 ### 退出 Auto Mode
 
-1. 全部步骤完成
+1. 全部步骤到达终态（全部完成，或失败后 User 决定放弃）
 2. session 清除 auto_mode 标记
 3. 恢复默认模式
 
