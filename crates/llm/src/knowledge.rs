@@ -56,6 +56,10 @@ pub struct ModelRecommendParams {
     pub reasoning: bool,
     /// Supported reasoning level scheme.
     pub reasoning_levels: ReasoningLevels,
+    /// Whether the model always produces reasoning output regardless
+    /// of the thinking parameter toggle (e.g. MiMo).
+    #[serde(default)]
+    pub reasoning_always: bool,
     /// Supported input modalities.
     pub input_types: Vec<InputType>,
     /// Recommended protocol for this model.
