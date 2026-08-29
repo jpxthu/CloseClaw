@@ -692,7 +692,7 @@ impl FeishuAdapter {
             trace_id: String::new(),
             message_id: String::new(),
             reply_ref: None,
-            unavailable_media: vec![],
+            unavailable_media: Vec::new(),
         }))
     }
 
