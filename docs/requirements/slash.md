@@ -2,21 +2,21 @@
 
 ## 概述
 
-Owner 和 User 可以通过以 `/` 开头的消息发送系统控制指令，这些指令不进入 LLM 对话流程，由 Gateway 拦截并分派给对应的指令处理器执行。部分指令标记为 Immediate，可绕过排队条件，立即受理；非 Immediate 指令不绕过排队条件，Session 忙碌时排队等待，空闲后响应。
+Owner 和 User 可以通过以 `/` 开头的消息发送系统控制指令，这些指令不进入 LLM 对话流程，由 Gateway 拦截并分派给对应的指令处理器执行。
 
 Slash 模块仅提供指令入口与分派机制；跨模块指令的业务功能由对应功能模块定义，本文档以交叉引用指向权威定义，不重复定义。
 
-排队条件定义详见 [session §F10](session.md)（消息排队），Session 忙碌与空闲的判定详见 [session §F11](session.md)（Session 活跃维度）。
+排队条件定义详见 [session §F10](session.md)（消息排队），Session 忙碌与空闲的判定详见 [session §F11](session.md)（Session 活跃维度），Immediate 指令的排队绕过语义详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ## 功能需求
 
 ### F1. 斜杠指令入口
 
-Owner 或 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对话流程，而是由 Gateway 拦截并解析为指令名和参数，分派给对应的指令处理器执行。无匹配处理器的指令向 User 返回友好错误提示，引导使用 `/help` 查看可用指令。
+Owner 或 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对话流程，而是由 Gateway 拦截后解析为指令名和参数，分派给对应的指令处理器执行。无匹配处理器的指令向 User 返回友好错误提示，引导使用 `/help` 查看可用指令。
 
 各指令的 Immediate 标记在后续各功能域中分别标注；未标注 Immediate 的指令默认为非 Immediate。
 
-> **交叉引用**：斜杠指令的拦截和分派由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：斜杠指令的拦截、分派与 Immediate 排队语义由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：不以 `/` 开头的普通消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 
 ### F2. 模式切换
@@ -90,12 +90,12 @@ Owner 和 User 可以变更和查看当前会话的工作目录，以及执行 G
 
 ### F8. 命令执行
 
-Owner 可以执行任意 Shell 命令，执行前必须经权限审批，审批不可绕过；Owner 的命令在审批中默认放行。User 默认无权限（可由 Owner 通过权限规则授权）。
+Owner 可以执行任意 Shell 命令，执行前必须经权限审批，审批不可绕过；Owner 的命令在审批中默认放行。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
 
-> **交叉引用**：命令执行的权限评估由 Permission 模块负责，详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：命令执行的权限评估由 Permission 模块负责，详见 [permission §F3](permission.md)（权限决策模型）；User 默认权限与授权方式详见 [permission §F1](permission.md)（身份体系）、[permission §F6](permission.md)（权限配置管理）。
 
 ### F9. 帮助
 
