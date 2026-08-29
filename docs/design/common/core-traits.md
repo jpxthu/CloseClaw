@@ -156,9 +156,9 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 标识 | Plugin 的唯一平台名（如 `"feishu"`、`"terminal"`），用于 Gateway 的 Plugin Registry 路由 |
-| 入站 | 解析平台原生 webhook/事件 payload 为 [NormalizedMessage](shared-types.md#normalizedmessage)。text 类型空 content 消息在解析阶段丢弃，非文本消息（image/file/audio）正常产出 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空） |
+| 入站 | 解析平台原生事件 payload 为 [NormalizedMessage](shared-types.md#normalizedmessage)。text 类型空 content 消息在解析阶段丢弃；其余消息正常产出 NormalizedMessage（message_type 标记类型，media_refs 承载已落盘的媒体引用，纯媒体消息 content 可为空），由 Gateway 分型处理（消息过滤完整规则见 [shared-types](shared-types.md#normalizedmessage)） |
 | 渲染 | 接收 [ContentBlock](shared-types.md#contentblock)[] 和 [DslParseResult](shared-types.md#dslparseresult--dslinstruction)，按平台能力选择输出格式（纯文本或富格式），产出 [RenderedOutput](shared-types.md#renderedoutput)。渲染是纯数据转换，无副作用 |
-| 发送 | 接收 [RenderedOutput](shared-types.md#renderedoutput)，以指定目标（peer_id + thread_id）调用平台发送 API |
+| 发送 | 接收 [RenderedOutput](shared-types.md#renderedoutput)，以指定目标（peer_id + reply_ref）调用平台发送 API |
 | 生命周期 | `init()`：启动时初始化（连接池、token 等），不需要的插件空实现；`shutdown()`：关闭时清理资源，不需要的插件空实现 |
 
 **渲染与发送的分离**：渲染产出数据（RenderedOutput），发送执行副作用。Gateway 在两步之间可插入审计、频率限制等中间件。
@@ -425,7 +425,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### IdentityResolver
 
-**用途**：平台身份解析接口。config 支持的 ConfigIdentityResolver 实现，im_adapter/gateway 消费——将 `(platform, sender_id)` 解析为本地 account_id。
+**用途**：平台身份解析接口。config 支持的 ConfigIdentityResolver 实现，im_adapter/gateway 消费——将 `(platform, bot_app_id, sender_id)` 解析为本地 account_id。接收方机器人应用（bot_app_id）参与映射键：IM 平台的发送者标识按「应用 × 发送者」隔离（同一用户在不同应用语境下标识不同），跨应用 ID 不可直接互换。
 
 **接口契约**：
 

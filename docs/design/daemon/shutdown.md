@@ -77,7 +77,7 @@ Daemon 不依赖 session 停止流程的硬超时自动升级——工具执行�
    - 关闭进行中再次收到任一信号 → Forceful 模式
 
 2. **Phase 1：入站停摆 + Drain**
-   - IM Adapters 关闭入站（websocket 断开、webhook 退订）
+   - IM Adapters 关闭入站（长连接断开、事件订阅停止、子进程终止）
    - 调用 drain 等待在途消息处理完毕
      - 全部排空：进入 Phase 2
      - 超时（可配，默认 30s）：记录剩余活跃操作计数，进入 Phase 2

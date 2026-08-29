@@ -10,8 +10,8 @@
 
 **SessionCheckpoint** 是 session 持久化的核心数据结构，包含：
 - 标识：session_id（格式 `{agent_id}_{timestamp}_{random_suffix}`，其中 timestamp 精确到秒、random_suffix 为 8 位小写 hex 随机字符串）、agent_id、role（主 agent / 子 agent）
-- 会话路由键：platform（如 feishu）、sender_id（发送者平台内 ID）、peer_id（会话对端：群聊 chat_id 或私聊对方 ID）、account_id（CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。一个 CloseClaw 账号可绑定多个平台的 sender_id）
-- 出站定向字段：thread_id（话题 ID，可选。不参与 session_key 计算，仅用于出站时定向回复到正确的话题线）
+- 会话路由键：platform（如 feishu）、sender_id（发送者平台内 ID）、peer_id（会话对端：会话上下文锚点，由插件按平台语义构造——如私聊话题粒度的「用户 + 话题」组合、群聊的群 ID）、account_id（CloseClaw 本地账号标识，由「平台 + 接收方机器人应用 + sender_id」经身份映射得到。一个 CloseClaw 账号可绑定多个平台的多个发送者标识）
+- 出站定向字段：reply_ref（出站定向引用，可选。由插件按平台语义填入——如飞书话题的根消息 ID、顶层消息的消息 ID。不参与 session 路由与 session_key 计算，仅用于出站时定向投递到原会话位置）
 - 生命周期状态：status（active / migrating / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
 - 运行时快照：pending_messages（transcript，含消息列表）、mode（对话模式：normal/plan/auto）、mode_state（推理步骤状态）
@@ -79,6 +79,8 @@ SQLite 访问通过线程池包装为异步调用，保证不阻塞运行时。
 2. **Purge**：扫描 status=archived 且 archived_at 超过 purgeAfterMinutes 的 session → 调用 purge，彻底删除。
 
 **调度策略**：启动后延迟一个完整 interval 再执行首次扫描；Unix 系统上将 Sweeper 进程优先级降低，减少对业务逻辑的 CPU 影响。
+
+**媒体清理扩展（可选、低优先级）**：若启用「跟随 Session 生命周期」的媒体清理（见 [im_adapter media-store](../im_adapter/media-store.md)），Sweeper 在 purge 扫描时追加媒体引用查询——对即将清理的 session，先查其关联媒体并删除对应媒体文件，再执行记录与 transcript 清理；无 session 引用的媒体由媒体存储自身的保留期清理兑底。此扩展为可选项，不实现时媒体仅按保留期清理。
 
 ### Session 配置
 

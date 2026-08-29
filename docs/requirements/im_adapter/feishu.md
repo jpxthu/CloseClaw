@@ -115,7 +115,6 @@ Agent 可使用以下飞书平台工具，在对话中完成平台特有操作�
 ## 关联设计文档
 
 - [✓ im_adapter/platforms/feishu.md](../design/im_adapter/platforms/feishu.md)
-
 ## 非功能需求
 
 ### 性能

@@ -57,9 +57,9 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 
   **session_key 与会话路由键**：
   - session_key = {timestamp_ms}-{hash}，算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)
-  - session_key 是消息级标识，用于日志追踪。SessionManager 内部从消息路由字段中提取稳定的**会话路由键**（platform + sender_id + peer_id + account_id）用于 registry 查找——session_key 本身不直接参与路由
+  - session_key 是消息级标识，用于日志追踪。SessionManager 内部从消息路由字段中提取稳定的**会话路由键**（platform + sender_id + peer_id + account_id）用于 registry 查找——session_key 本身不直接参与路由。peer_id 为会话上下文锚点，由插件按平台语义构造（如私聊话题粒度的「用户 + 话题」组合）
   - 会话路由键是稳定的 lookup 键。同一会话路由键下可以有多个 session（`/new` 指令创建新 session 后覆盖映射——仅映射表指针更新，旧 session 不删除，仍可通过 SQLite 查询到归档历史）。
-  - session_key 用于日志追踪，会话路由键用于 registry 查找，两者是不同概念、不同用途的键。
+  - session_key 用于日志追踪，会话路由键用于 registry 查找，两者是不同概念、不同用途的键。出站定向引用 reply_ref 同样随路由字段入 checkpoint 存储（见下方数据模型），仅用于出站定向投递，不参与路由
 
   **key registry 生命周期**：
   - 启动时：SessionManager 扫描所有 status=active 的 session，按会话路由键（platform + sender_id + peer_id + account_id）分组，取各会话路由键下 last_message_at 最大的 session_id 写入映射表。archived 和 migrating session 不加载。同时执行数据一致性校验（详见 [session-lifecycle.md](session-lifecycle.md) 数据一致性校验节）
