@@ -43,7 +43,7 @@ v
 
 ### 技能变更生效边界
 
-技能模块不监听技能文件系统变更，不存在 watcher 组件，无运行时热生效路径。注册中心内容（技能元数据与清单）的唯一生效时机是 System Prompt 组装边界：组装边界之间注册中心稳定，修改、新增或删除 SKILL.md 的元数据不影响任何正在运行的 session，下一次组装时从磁盘重新扫描加载；已注册技能的正文按需加载（调用时从磁盘读取，见 [skill-definition.md](skill-definition.md)），不受该边界约束。此边界与需求 [skills §F5](../../requirements/skills.md) 对应。
+技能模块不监听技能文件系统变更，不存在 watcher 组件，无运行时热生效路径。注册中心内容（技能元数据与清单）的唯一生效时机是 System Prompt 组装边界：组装边界之间注册中心稳定，修改、新增或删除 SKILL.md 的元数据不影响任何正在运行的 session，下一次组装时从磁盘重新扫描加载；已注册技能的正文按需加载（调用时从磁盘读取，见 [skill-definition.md](skill-definition.md)），不受该边界约束。此边界与需求 [skills §F5](../../requirements/skills.md) 对应。全局技能配置 [skills.json](../config/README.md) 中的 `extraDirs` 外部复用目录字段同属边界生效类——该字段变更后自下次 System Prompt 组装时生效（extraDirs 构成磁盘扫描的一层，见下文「加载与注册」），配置重载机制见 [config 热重载](../config/hot-reload.md)，需求见 [skills §F2](../../requirements/skills.md)。
 
 ### 加载与注册
 
