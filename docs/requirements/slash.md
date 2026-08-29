@@ -6,8 +6,6 @@ Owner 和 User 可以通过以 `/` 开头的消息发送系统控制指令，这
 
 Slash 模块仅提供指令入口与分派机制；跨模块指令的业务功能由对应功能模块定义，本文档以交叉引用指向权威定义，不重复定义。
 
-排队条件定义详见 [session §F10](session.md)（消息排队），Session 忙碌与空闲的判定详见 [session §F11](session.md)（Session 活跃维度），Immediate 指令的排队绕过语义详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
-
 ## 功能需求
 
 ### F1. 斜杠指令入口
@@ -17,11 +15,13 @@ Owner 或 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对�
 各指令的 Immediate 标记在后续各功能域中分别标注；未标注 Immediate 的指令默认为非 Immediate。
 
 > **交叉引用**：斜杠指令的拦截、分派与 Immediate 排队语义由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：排队条件定义详见 [session §F10](session.md)（消息排队）。
+> **交叉引用**：Session 活跃维度详见 [session §F11](session.md)（Session 活跃维度）。
 > **交叉引用**：不以 `/` 开头的普通消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 
 ### F2. 模式切换
 
-模式切换指令（`/plan`、`/mode`、`/execute`）的完整语法、参数和业务行为由 Mode 模块定义。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）。`/plan` 与 `/execute` 为非 Immediate 指令——Session 忙碌时在当前 LLM 调用结束后执行。`/mode` 在无参数查询形态下为 Immediate，在带参数切换形态下为非 Immediate。
+模式切换指令（`/plan`、`/mode`、`/execute`）的完整语法、参数和业务行为由 Mode 模块定义。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）。`/plan` 与 `/execute` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行。`/mode` 在无参数查询形态下为 Immediate，在带参数切换形态下为非 Immediate。
 
 > **交叉引用**：`/plan` 和 `/mode` 的语法和语义详见 [mode §F14](mode.md)（模式切换指令）。
 > **交叉引用**：`/execute` 的触发语义详见 [mode §F4](mode.md)（执行触发）。
@@ -36,7 +36,6 @@ Owner 和 User 可以创建新会话，以及终止当前会话运行。
 - `/stop`：终止当前会话运行（Immediate）
 
 > **交叉引用**：会话创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
-> **交叉引用**：会话归档详见 [session §F6](session.md)（会话归档与清理）。
 > **交叉引用**：子 Session 终止详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ### F4. 状态查询
@@ -130,7 +129,7 @@ Owner 和 User 可以查询和设置当前会话的展示等级。设置等级�
 
 ### F12. plan 浏览
 
-`/plans` 指令的完整语法、参数和业务行为由 Mode 模块定义。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）。`/plans` 为非 Immediate 指令——Session 忙碌时在当前 LLM 调用结束后执行。
+`/plans` 指令的完整语法、参数和业务行为由 Mode 模块定义。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）。`/plans` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行。
 
 > **交叉引用**：指令语法和 plan 浏览语义详见 [mode §F6](mode.md)（plan 浏览与管理）。
 
@@ -169,4 +168,4 @@ Slash 模块在以下环节记录调试日志：
 
 - Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟：/stop、/status、/mode（无参数查询形态）、/reasoning、/verbose、/help
 
-> **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
