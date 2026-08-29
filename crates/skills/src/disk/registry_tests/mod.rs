@@ -1,12 +1,13 @@
-use super::super::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
+use super::super::types::{ScanConfig, SkillContext, SkillEffort, SkillManifest, SkillSource};
 use super::DiskSkill;
 use super::DiskSkillRegistry;
 use std::path::{Path, PathBuf};
 
 mod refactor_verify;
+mod replace_skills;
 mod user_invocable;
 
-fn skill(name: &str, source: SkillSource) -> DiskSkill {
+pub(crate) fn skill(name: &str, source: SkillSource) -> DiskSkill {
     DiskSkill {
         source,
         manifest: SkillManifest {
@@ -463,26 +464,87 @@ fn test_find_matching_skills_priority_dedup_mixed() {
     assert_eq!(names3, ["rs", "md"]);
 }
 
+// ---- Rescan tests ----
+fn rescan_registry(dir: &std::path::Path) -> DiskSkillRegistry {
+    let mut reg = DiskSkillRegistry::new(vec![]);
+    reg.set_scan_config(ScanConfig {
+        global_dir: Some(dir.to_path_buf()),
+        ..Default::default()
+    });
+    reg
+}
+fn create_skill_file(dir: &std::path::Path, name: &str, desc: &str) {
+    let d = dir.join(name);
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(
+        d.join("SKILL.md"),
+        format!("---\ndescription: {}\n---\n# {}\n", desc, name),
+    )
+    .unwrap();
+}
+#[test]
+fn test_rescan_picks_up_new_skill_from_disk() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "existing", "existing skill");
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    assert_eq!(reg.len(), 1);
+    assert!(reg.contains("existing"));
+    create_skill_file(dir, "new-skill", "brand new skill");
+    reg.rescan();
+    assert_eq!(reg.len(), 2);
+    assert!(reg.contains("new-skill"));
+    assert!(reg.contains("existing"));
+}
+#[test]
+fn test_rescan_removes_deleted_skill() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "keep", "keep this");
+    create_skill_file(dir, "remove", "delete this");
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    assert_eq!(reg.len(), 2);
+    assert!(reg.contains("keep"));
+    assert!(reg.contains("remove"));
+    std::fs::remove_dir_all(dir.join("remove")).unwrap();
+    reg.rescan();
+    assert_eq!(reg.len(), 1);
+    assert!(reg.contains("keep"));
+    assert!(!reg.contains("remove"));
+}
+#[test]
+fn test_rescan_no_scan_config_is_noop() {
+    let mut reg = DiskSkillRegistry::new(vec![
+        skill("a", SkillSource::Bundled),
+        skill("b", SkillSource::Bundled),
+    ]);
+    reg.rescan();
+    assert_eq!(reg.len(), 2);
+    assert!(reg.contains("a"));
+    assert!(reg.contains("b"));
+}
+
 // ---- AgentSkillsQuery mock tests ----
-// Tests for DiskSkillRegistry's ability to query the AgentSkillsQuery
-// trait directly for skills whitelist configuration.
 
 use closeclaw_common::AgentSkillsQuery;
 use std::sync::Arc;
 
 /// Mock agent skills query for testing.
-struct MockAgentSkillsQuery {
+pub(crate) struct MockAgentSkillsQuery {
+    /// agent_id → skills whitelist
     configs: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl MockAgentSkillsQuery {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             configs: std::collections::HashMap::new(),
         }
     }
 
-    fn with_config(mut self, agent_id: &str, skills: Vec<String>) -> Self {
+    pub(crate) fn with_config(mut self, agent_id: &str, skills: Vec<String>) -> Self {
         self.configs.insert(agent_id.to_string(), skills);
         self
     }

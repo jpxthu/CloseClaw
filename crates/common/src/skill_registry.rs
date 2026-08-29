@@ -11,6 +11,14 @@ use async_trait::async_trait;
 /// session manager to list available skills without a direct dependency on the skills module.
 #[async_trait]
 pub trait SkillRegistryQuery: Send + Sync {
+    /// Re-scan the disk skill directories and refresh the internal
+    /// skills list.
+    ///
+    /// Called before each SP assembly boundary to ensure the listing
+    /// reflects the latest on-disk skill files. The default
+    /// implementation is a no-op.
+    async fn rescan(&self) {}
+
     /// Check if a skill with the given name exists.
     async fn has_skill(&self, name: &str) -> bool;
 
