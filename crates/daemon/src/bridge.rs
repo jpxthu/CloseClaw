@@ -93,6 +93,30 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
             })
             .unwrap_or_default()
     }
+
+    async fn rescan(&self) {
+        // Step 1: Read scan_config under a short read lock.
+        let scan_config = self
+            .0
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.scan_config()))
+            .flatten();
+
+        let Some(config) = scan_config else {
+            return;
+        };
+
+        // Step 2: Perform the expensive disk scan outside any lock.
+        let new_skills = closeclaw_skills::disk::scan_all_skills(&config);
+
+        // Step 3: Briefly acquire write lock to replace the skills list.
+        if let Ok(mut guard) = self.0.write() {
+            if let Some(ref mut registry) = *guard {
+                registry.replace_skills(new_skills);
+            }
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -267,6 +291,30 @@ fn extract_name(line: &str) -> String {
 }
 
 impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
+    fn rescan(&self) {
+        // Step 1: Read scan_config under a short read lock.
+        let scan_config = self
+            .disk
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.scan_config()))
+            .flatten();
+
+        let Some(config) = scan_config else {
+            return;
+        };
+
+        // Step 2: Perform the expensive disk scan outside any lock.
+        let new_skills = closeclaw_skills::disk::scan_all_skills(&config);
+
+        // Step 3: Briefly acquire write lock to replace the skills list.
+        if let Ok(mut guard) = self.disk.write() {
+            if let Some(ref mut registry) = *guard {
+                registry.replace_skills(new_skills);
+            }
+        }
+    }
+
     fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
         self.merged_listing(agent_id, agent_skills, false)
     }
@@ -714,7 +762,57 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Test 9: empty registries produce empty listing
+    // Test 10: SkillListingProviderWrapper::rescan() integration
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_wrapper_rescan_picks_up_new_disk_skill() {
+        run_with_runtime(|| {
+            // Create a temp directory with an initial skill
+            let temp = tempfile::tempdir().unwrap();
+            let skill_dir = temp.path().join("existing-skill");
+            std::fs::create_dir_all(&skill_dir).unwrap();
+            std::fs::write(
+                skill_dir.join("SKILL.md"),
+                "---\ndescription: existing\nuser-invocable: true\n---\n# Existing\n",
+            )
+            .unwrap();
+
+            // Build disk registry with scan_config pointing at temp dir
+            let mut disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
+            disk_reg.set_scan_config(closeclaw_skills::ScanConfig {
+                global_dir: Some(temp.path().to_path_buf()),
+                ..Default::default()
+            });
+            disk_reg.rescan(); // initial scan
+
+            let disk = Arc::new(std::sync::RwLock::new(Some(disk_reg)));
+            let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+            let wrapper = SkillListingProviderWrapper::new(disk, builtin);
+
+            // Listing should contain the existing skill
+            let listing = wrapper.generate_listing(None, None);
+            assert!(listing.contains("existing-skill"));
+
+            // Add a new skill to disk
+            let new_skill_dir = temp.path().join("new-skill");
+            std::fs::create_dir_all(&new_skill_dir).unwrap();
+            std::fs::write(
+                new_skill_dir.join("SKILL.md"),
+                "---\ndescription: new skill\nuser-invocable: true\n---\n# New\n",
+            )
+            .unwrap();
+
+            // After rescan, listing should reflect the new skill
+            wrapper.rescan();
+            let listing = wrapper.generate_listing(None, None);
+            assert!(listing.contains("new-skill"));
+            assert!(listing.contains("existing-skill"));
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Test 11: empty registries produce empty listing
     // ------------------------------------------------------------------
 
     #[test]

@@ -25,6 +25,14 @@ pub struct ConditionalSkillMatch {
 /// inject per-turn skill listings without requiring a direct
 /// dependency on the skills crate.
 pub trait SkillListingProvider: Send + Sync {
+    /// Re-scan the disk skill directories and refresh the internal
+    /// skills list.
+    ///
+    /// Called before each SP assembly boundary to ensure the listing
+    /// reflects the latest on-disk skill files. The default
+    /// implementation is a no-op.
+    fn rescan(&self) {}
+
     /// Generate a formatted skill listing string for the given agent.
     ///
     /// When `agent_id` is provided, the listing is filtered to skills

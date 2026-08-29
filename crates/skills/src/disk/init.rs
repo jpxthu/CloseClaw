@@ -17,7 +17,9 @@ pub fn init_disk_skills(config: &super::ScanConfig) -> DiskSkillRegistry {
         "disk skill scan complete",
     );
 
-    DiskSkillRegistry::new(skills)
+    let mut registry = DiskSkillRegistry::new(skills);
+    registry.set_scan_config(config.clone());
+    registry
 }
 
 #[cfg(test)]
