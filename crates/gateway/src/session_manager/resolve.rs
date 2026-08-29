@@ -289,6 +289,7 @@ impl SessionManager {
                                 if let Some(ref comm_config) = cp.communication_config {
                                     cs.set_communication_config(comm_config.clone());
                                 }
+                                Self::sync_plan_file_path_from_checkpoint(&mut cs, &cp);
                                 // Restore transcript from checkpoint ("transcript is the
                                 // single source of truth" per design doc).
                                 if !cp.pending_messages.is_empty() {
@@ -666,6 +667,7 @@ impl SessionManager {
                                 if let Some(ref comm_config) = cp.communication_config {
                                     cs.set_communication_config(comm_config.clone());
                                 }
+                                Self::sync_plan_file_path_from_checkpoint(&mut cs, &cp);
                                 // Restore transcript from checkpoint.
                                 if !cp.pending_messages.is_empty() {
                                     cs.apply_transcript_op(
@@ -878,7 +880,6 @@ impl SessionManager {
         );
         Ok(session_id)
     }
-
     /// Bounded poll: wait for a session's checkpoint status to become Archived.
     ///
     /// Polls `cm.load(session_id)` every 500 ms for up to 5 s.
@@ -911,7 +912,6 @@ impl SessionManager {
             }
         }
     }
-
     /// Rebuild system prompt for an archived session that already has a
     /// [`ConversationSession`] in memory (`needs_conv = false`).
     ///
@@ -971,7 +971,6 @@ impl SessionManager {
             }
         }
     }
-
     /// Wire skill listing provider and agent-level skills whitelist
     /// into a [`ConversationSession`]. Helper to avoid duplicating
     /// this block across resolve/recovery paths.
@@ -986,6 +985,15 @@ impl SessionManager {
         if let Some(config) = self.get_agent_config(agent_id).await {
             if let Some(skills) = config.effective_skills() {
                 conv.set_agent_skills(skills);
+            }
+        }
+    }
+    /// Sync `plan_file_path` from checkpoint into ConversationSession
+    /// so Auto Mode plan injection survives process restarts.
+    fn sync_plan_file_path_from_checkpoint(conv: &mut ConversationSession, cp: &SessionCheckpoint) {
+        if let Some(ref ps) = cp.plan_state {
+            if !ps.plan_file_path.is_empty() {
+                conv.set_plan_file_path(Some(ps.plan_file_path.clone()));
             }
         }
     }

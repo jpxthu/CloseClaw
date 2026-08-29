@@ -502,7 +502,12 @@ impl SlashHandler for ModeHandler {
                 Some(m) => m,
                 None => return SlashResult::Reply("当前会话未激活".to_owned()),
             };
-            return SlashResult::Reply(format!("当前模式：{mode}"));
+            let display = match mode {
+                SessionMode::Normal => "Normal",
+                SessionMode::Plan => "Plan",
+                SessionMode::Auto => "Auto",
+            };
+            return SlashResult::Reply(format!("当前模式：{display}"));
         }
 
         // Split mode name from remaining args: "plan 任务描述" → ("plan", "任务描述")
@@ -512,7 +517,7 @@ impl SlashHandler for ModeHandler {
         };
 
         let Some(target_mode) = SessionMode::from_str_opt(mode_str) else {
-            return SlashResult::Reply("无效模式。可用：normal, plan, auto".to_owned());
+            return SlashResult::Reply("无效模式。可用：normal, plan".to_owned());
         };
 
         // Delegate /mode plan and /mode auto to their dedicated handlers

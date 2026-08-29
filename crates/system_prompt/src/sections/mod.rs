@@ -45,6 +45,14 @@ pub enum Section {
     /// Carries the transition type and renders the corresponding prompt
     /// from design doc §6.
     ModeTransition(ModeTransition),
+    /// Plan file context for Auto Mode injection.
+    ///
+    /// Contains the plan file path and its full content, injected
+    /// after ModeInstruction in Auto Mode.
+    PlanFile {
+        path: String,
+        content: String,
+    },
 }
 
 impl Section {
@@ -64,6 +72,7 @@ impl Section {
             Section::WorkingDirectory(_) => "working_directory",
             Section::ModeInstruction { .. } => "mode_instruction",
             Section::ModeTransition(_) => "mode_transition",
+            Section::PlanFile { .. } => "plan_file",
         }
     }
     /// Render the section as a string for the system prompt
@@ -93,6 +102,9 @@ impl Section {
                 sub_agent,
             } => render_mode_instruction_with_flags(*mode, *plan_path, *sparse, *sub_agent),
             Section::ModeTransition(transition) => render_mode_transition(*transition),
+            Section::PlanFile { path, content } => {
+                format!("## Plan File\n路径：{}\n\n{}\n", path, content)
+            }
         }
     }
 }
