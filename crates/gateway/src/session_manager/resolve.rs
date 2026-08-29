@@ -880,7 +880,6 @@ impl SessionManager {
         );
         Ok(session_id)
     }
-
     /// Bounded poll: wait for a session's checkpoint status to become Archived.
     ///
     /// Polls `cm.load(session_id)` every 500 ms for up to 5 s.
@@ -913,7 +912,6 @@ impl SessionManager {
             }
         }
     }
-
     /// Rebuild system prompt for an archived session that already has a
     /// [`ConversationSession`] in memory (`needs_conv = false`).
     ///
@@ -946,17 +944,25 @@ impl SessionManager {
             if let Some(builder) = self.get_system_prompt_builder().await {
                 cs.set_system_prompt_builder(builder);
             }
+            // Inject prompt overrides (missing — added for parity with new session path).
             cs.set_prompt_overrides(self.get_prompt_overrides().await);
+            // Inject dynamic prompt builder for per-request dynamic-layer injection.
             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
                 cs.set_dynamic_prompt_builder(dpb);
             }
+            // Inject skill listing provider and agent-level skills whitelist.
             self.wire_skill_listing_deps(&mut cs, &agent_id_for_rebuild)
                 .await;
+            // Cache bootstrap mode on the session (was only queried, not cached).
             *cs = cs.clone().with_bootstrap_mode(bootstrap_mode);
+            // Rebuild the system prompt (existing behavior).
             cs.rebuild_system_prompt(session_id, &agent_id_for_rebuild, Some(bootstrap_mode))
                 .await;
+            // Inject snapshot meta store for persistence.
             self.inject_snapshot_meta_store(session_id, &mut cs).await;
+            // Inject checkpoint storage for pending-operation persistence.
             self.inject_checkpoint_storage(&mut cs).await;
+            // Apply session config (git_status switch).
             if let Some(cfg) = self
                 .get_session_config_for_agent(&agent_id_for_rebuild)
                 .await
@@ -965,7 +971,6 @@ impl SessionManager {
             }
         }
     }
-
     /// Wire skill listing provider and agent-level skills whitelist
     /// into a [`ConversationSession`]. Helper to avoid duplicating
     /// this block across resolve/recovery paths.
@@ -983,7 +988,6 @@ impl SessionManager {
             }
         }
     }
-
     /// Sync `plan_file_path` from checkpoint into ConversationSession
     /// so Auto Mode plan injection survives process restarts.
     fn sync_plan_file_path_from_checkpoint(conv: &mut ConversationSession, cp: &SessionCheckpoint) {
