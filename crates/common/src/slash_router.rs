@@ -101,7 +101,12 @@ pub trait SlashRouter: Send + Sync {
     async fn dispatch(&self, content: &str, ctx: &SlashContext) -> Option<SlashResult>;
 
     /// Check whether a command is immediate (responds even when LLM is busy).
-    fn is_immediate(&self, command: &str) -> bool;
+    ///
+    /// `content` is the full raw message content (e.g. `"/mode"` or
+    /// `"/mode plan"`). Implementations should parse the content to
+    /// extract the command name and arguments before delegating to
+    /// [`SlashHandler::immediate`].
+    fn is_immediate(&self, content: &str) -> bool;
 
     /// Get a handler by command name.
     fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>>;
@@ -121,7 +126,10 @@ pub trait SlashHandler: Send + Sync {
     fn description(&self) -> &str;
 
     /// Whether this is an immediate command (responds even when LLM is busy).
-    fn immediate(&self, _cmd: &str) -> bool {
+    ///
+    /// `cmd` is the command name (without the leading `/`), and `args` is
+    /// the remainder of the content after the command name.
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -149,5 +157,8 @@ pub trait SlashDispatcherTrait: Send + Sync {
     fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>>;
 
     /// Check whether a command is immediate.
-    fn is_immediate(&self, command: &str) -> bool;
+    ///
+    /// `content` is the full raw message content (e.g. `"/mode"` or
+    /// `"/mode plan"`).
+    fn is_immediate(&self, content: &str) -> bool;
 }

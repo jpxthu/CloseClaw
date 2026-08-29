@@ -62,7 +62,7 @@ fn test_description_non_empty() {
 #[test]
 fn test_immediate_returns_true() {
     let (h, _dir) = handler_with_empty_config();
-    assert!(h.immediate("user"));
+    assert!(h.immediate("user", ""));
 }
 
 #[test]

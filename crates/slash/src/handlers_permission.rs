@@ -72,7 +72,7 @@ impl SlashHandler for PermissionSlashHandler {
         "管理权限规则（Owner only）"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 

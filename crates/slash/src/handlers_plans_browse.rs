@@ -37,7 +37,7 @@ impl SlashHandler for PlanBrowseHandler {
         "列出或查看工作区中的 plan"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 

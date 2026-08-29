@@ -123,7 +123,7 @@ mod tests {
         fn description(&self) -> &str {
             &self.desc
         }
-        fn immediate(&self, _cmd: &str) -> bool {
+        fn immediate(&self, _cmd: &str, _args: &str) -> bool {
             false
         }
         fn clone_box(&self) -> Box<dyn SlashHandler> {

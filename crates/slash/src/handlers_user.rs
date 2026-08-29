@@ -84,7 +84,7 @@ impl SlashHandler for UserSlashHandler {
         "管理用户注册（Owner only）"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 

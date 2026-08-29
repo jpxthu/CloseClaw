@@ -72,7 +72,7 @@ fn test_new_session_handler_commands() {
 
 #[test]
 fn test_new_session_handler_immediate() {
-    assert!(!NewSessionHandler.immediate("new"));
+    assert!(!NewSessionHandler.immediate("new", ""));
 }
 
 #[tokio::test]
@@ -91,7 +91,7 @@ fn test_stop_handler_commands() {
 
 #[test]
 fn test_stop_handler_immediate() {
-    assert!(StopHandler.immediate("stop"));
+    assert!(StopHandler.immediate("stop", ""));
 }
 
 #[tokio::test]
@@ -169,7 +169,7 @@ fn test_status_handler_immediate() {
     assert!(StatusHandler::new(
         make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
     )
-    .immediate("status"));
+    .immediate("status", ""));
 }
 
 #[tokio::test]
@@ -358,7 +358,7 @@ fn test_bg_handler_immediate() {
     let h = BackgroundHandler::new(
         make_workdir_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>
     );
-    assert!(!h.immediate("bg"), "/bg should not be immediate");
+    assert!(!h.immediate("bg", ""), "/bg should not be immediate");
 }
 
 /// /bg with a valid session calls trigger_manual_background.

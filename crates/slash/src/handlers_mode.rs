@@ -44,7 +44,7 @@ impl SlashHandler for PlanModeHandler {
         "进入 Plan Mode"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -215,7 +215,7 @@ impl SlashHandler for AutoModeHandler {
         "直接进入 Auto Mode"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -342,7 +342,7 @@ impl SlashHandler for ExecuteHandler {
         "/execute <plan名称> [附加指令] — 进入 Auto Mode 执行 plan"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -396,7 +396,7 @@ impl SlashHandler for PauseHandler {
         "暂停正在执行的 plan"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -489,8 +489,8 @@ impl SlashHandler for ModeHandler {
         "查询或切换会话模式"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
-        false
+    fn immediate(&self, _cmd: &str, args: &str) -> bool {
+        args.trim().is_empty()
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {

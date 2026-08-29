@@ -160,7 +160,7 @@ fn test_handler_commands_and_description() {
 #[test]
 fn test_handler_not_immediate() {
     let h = make_handler(std::collections::HashMap::new());
-    assert!(!h.immediate("plans"));
+    assert!(!h.immediate("plans", ""));
 }
 
 // ── /plans (no args) — list ─────────────────────────────────────────────

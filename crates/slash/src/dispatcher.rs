@@ -84,10 +84,17 @@ impl SlashDispatcher {
 
     /// Check whether a command is an Immediate command (responds even when
     /// the LLM is busy). Returns false for unknown commands.
-    pub fn is_immediate(&self, command: &str) -> bool {
+    ///
+    /// `content` is the full raw message content (e.g. `"/mode"` or
+    /// `"/mode plan"`). Parses the content to extract command name and
+    /// arguments, then delegates to [`SlashHandler::immediate`].
+    pub fn is_immediate(&self, content: &str) -> bool {
+        let Some((cmd, args)) = parse_slash(content) else {
+            return false;
+        };
         self.registry
-            .get_arc(command)
-            .map(|h| h.immediate(command))
+            .get_arc(cmd)
+            .map(|h| h.immediate(cmd, args))
             .unwrap_or(false)
     }
 
@@ -114,10 +121,13 @@ impl SlashRouter for SlashDispatcher {
         Some(result)
     }
 
-    fn is_immediate(&self, command: &str) -> bool {
+    fn is_immediate(&self, content: &str) -> bool {
+        let Some((cmd, args)) = parse_slash(content) else {
+            return false;
+        };
         self.registry
-            .get_arc(command)
-            .map(|h| h.immediate(command))
+            .get_arc(cmd)
+            .map(|h| h.immediate(cmd, args))
             .unwrap_or(false)
     }
 

@@ -438,7 +438,7 @@ impl SlashHandler for ImmediateCountingHandler {
     fn description(&self) -> &str {
         "immediate counting handler"
     }
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {

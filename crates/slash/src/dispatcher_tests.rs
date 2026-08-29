@@ -54,7 +54,7 @@ impl SlashHandler for ImmediateHandler {
         "Respond immediately"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 
@@ -297,7 +297,7 @@ async fn get_handler_known_returns_box() {
     let handler = SlashRouter::get_handler(&dispatcher, "echo").unwrap();
     assert_eq!(handler.commands(), &["echo"]);
     assert_eq!(handler.description(), "Echo back the arguments");
-    assert!(!handler.immediate("echo"));
+    assert!(!handler.immediate("echo", ""));
 }
 
 /// Unknown command → `None`.
@@ -314,7 +314,7 @@ async fn get_handler_immediate_reports_true() {
     let dispatcher = dispatcher_with(default_registry());
 
     let handler = SlashRouter::get_handler(&dispatcher, "ping").unwrap();
-    assert!(handler.immediate("ping"));
+    assert!(handler.immediate("ping", ""));
     assert_eq!(handler.description(), "Respond immediately");
 }
 
@@ -352,21 +352,21 @@ async fn get_handler_returns_independent_clones() {
 #[tokio::test]
 async fn is_immediate_true_for_immediate_command() {
     let dispatcher = dispatcher_with(default_registry());
-    assert!(SlashRouter::is_immediate(&dispatcher, "ping"));
+    assert!(SlashRouter::is_immediate(&dispatcher, "/ping"));
 }
 
 /// Non-immediate command → `false`.
 #[tokio::test]
 async fn is_immediate_false_for_non_immediate() {
     let dispatcher = dispatcher_with(default_registry());
-    assert!(!SlashRouter::is_immediate(&dispatcher, "echo"));
+    assert!(!SlashRouter::is_immediate(&dispatcher, "/echo"));
 }
 
 /// Unknown command → `false`.
 #[tokio::test]
 async fn is_immediate_false_for_unknown() {
     let dispatcher = dispatcher_with(default_registry());
-    assert!(!SlashRouter::is_immediate(&dispatcher, "nope"));
+    assert!(!SlashRouter::is_immediate(&dispatcher, "/nope"));
 }
 
 /// Empty command string → `false`.

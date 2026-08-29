@@ -50,7 +50,7 @@ fn test_description_non_empty() {
 #[test]
 fn test_immediate_returns_true() {
     let h = PermissionSlashHandler;
-    assert!(h.immediate("perm"));
+    assert!(h.immediate("perm", ""));
 }
 
 #[test]

@@ -77,7 +77,7 @@ impl SlashHandler for WorkflowSlashHandler {
         "启动受控工作流"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 

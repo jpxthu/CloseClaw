@@ -33,7 +33,7 @@ impl SlashHandler for BackgroundHandler {
         "将当前前台命令转为后台执行"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
