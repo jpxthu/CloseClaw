@@ -88,6 +88,23 @@ impl DiskSkillRegistry {
         self.skills = super::scan_all_skills(config);
     }
 
+    /// Replace the internal skills list with the given skills.
+    ///
+    /// This is a lightweight operation intended to be called while holding
+    /// a write lock after an expensive disk scan was performed outside
+    /// the lock. The `agent_skills_query` reference is preserved.
+    pub fn replace_skills(&mut self, skills: Vec<DiskSkill>) {
+        self.skills = skills;
+    }
+
+    /// Returns a clone of the stored [`ScanConfig`], if set.
+    ///
+    /// Intended for callers that need to perform a disk scan outside
+    /// a lock before calling [`replace_skills`](Self::replace_skills).
+    pub fn scan_config(&self) -> Option<ScanConfig> {
+        self.scan_config.clone()
+    }
+
     /// Returns skills that have path-based conditional activation
     /// (`paths` is non-empty).
     ///

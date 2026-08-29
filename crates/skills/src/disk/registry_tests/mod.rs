@@ -4,9 +4,10 @@ use super::DiskSkillRegistry;
 use std::path::{Path, PathBuf};
 
 mod refactor_verify;
+mod replace_skills;
 mod user_invocable;
 
-fn skill(name: &str, source: SkillSource) -> DiskSkill {
+pub(crate) fn skill(name: &str, source: SkillSource) -> DiskSkill {
     DiskSkill {
         source,
         manifest: SkillManifest {
@@ -526,25 +527,24 @@ fn test_rescan_no_scan_config_is_noop() {
 }
 
 // ---- AgentSkillsQuery mock tests ----
-// Tests for DiskSkillRegistry's ability to query the AgentSkillsQuery
-// trait directly for skills whitelist configuration.
 
 use closeclaw_common::AgentSkillsQuery;
 use std::sync::Arc;
 
 /// Mock agent skills query for testing.
-struct MockAgentSkillsQuery {
+pub(crate) struct MockAgentSkillsQuery {
+    /// agent_id → skills whitelist
     configs: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl MockAgentSkillsQuery {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             configs: std::collections::HashMap::new(),
         }
     }
 
-    fn with_config(mut self, agent_id: &str, skills: Vec<String>) -> Self {
+    pub(crate) fn with_config(mut self, agent_id: &str, skills: Vec<String>) -> Self {
         self.configs.insert(agent_id.to_string(), skills);
         self
     }

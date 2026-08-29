@@ -95,9 +95,25 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
     }
 
     async fn rescan(&self) {
+        // Step 1: Read scan_config under a short read lock.
+        let scan_config = self
+            .0
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.scan_config()))
+            .flatten();
+
+        let Some(config) = scan_config else {
+            return;
+        };
+
+        // Step 2: Perform the expensive disk scan outside any lock.
+        let new_skills = closeclaw_skills::disk::scan_all_skills(&config);
+
+        // Step 3: Briefly acquire write lock to replace the skills list.
         if let Ok(mut guard) = self.0.write() {
             if let Some(ref mut registry) = *guard {
-                registry.rescan();
+                registry.replace_skills(new_skills);
             }
         }
     }
@@ -276,9 +292,25 @@ fn extract_name(line: &str) -> String {
 
 impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
     fn rescan(&self) {
+        // Step 1: Read scan_config under a short read lock.
+        let scan_config = self
+            .disk
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.scan_config()))
+            .flatten();
+
+        let Some(config) = scan_config else {
+            return;
+        };
+
+        // Step 2: Perform the expensive disk scan outside any lock.
+        let new_skills = closeclaw_skills::disk::scan_all_skills(&config);
+
+        // Step 3: Briefly acquire write lock to replace the skills list.
         if let Ok(mut guard) = self.disk.write() {
             if let Some(ref mut registry) = *guard {
-                registry.rescan();
+                registry.replace_skills(new_skills);
             }
         }
     }
