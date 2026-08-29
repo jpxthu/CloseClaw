@@ -58,7 +58,7 @@ Plan Mode 下的工具限制由模式系统自身执行——写工具中仅 pla
 
 ### Plan 文件
 
-**路径**：`workspace/plans/{identifier}.md`，identifier 格式由配置决定。
+**路径**：`workspace/plans/{identifier}.md`，identifier 即 plan 的命名标识，命名格式由 User 在配置中一次性指定——时间戳格式（如 `20260718-2006-任务名`）或随机词组格式（如 `ancient-forest-mist`），创建新 plan 时自动套用所选格式。
 
 **文件内容**：
 
@@ -92,7 +92,7 @@ Plan 内容在以下场景丢失时按优先级恢复（任一可用即可）：
 ### 进入 Plan Mode
 
 1. User `/plan "任务描述"`（描述可选；不带描述时仅切换模式）
-2. session 设置 plan_mode 标记
+2. session 设置 plan_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
 3. 任务描述作为下一条用户消息注入对话
 4. 工具过滤取交集白名单：仅 plan 文件写工具可见
 5. 系统 prompt 组装：注入统一 Plan Mode 指令（含标准路径与 Interview 路径及路径自选规则）
@@ -134,14 +134,14 @@ Plan 内容在以下场景丢失时按优先级恢复（任一可用即可）：
 **通过 `/execute` 指令**：
 
 1. SlashDispatcher 接收 /execute → ModeSwitchHandler 切换模式
-2. session 退出 plan_mode → 标记 auto_mode
+2. session 退出 plan_mode → 标记 auto_mode（切换不立即生效，下一条用户消息前才应用约束）
 3. 详见 [execution.md](execution.md) 同 session 执行数据流
 
 **通过自然语言触发**：
 
 1. User 自然语言要求执行
 2. Agent 调用执行触发工具 → User 确认
-3. session 退出 plan_mode → 标记 auto_mode
+3. session 退出 plan_mode → 标记 auto_mode（切换不立即生效，下一条用户消息前才应用约束）
 4. 详见 [execution.md](execution.md) 同 session 执行（自然语言触发）数据流
 
 ## 模块关系

@@ -19,7 +19,7 @@
 │   ├── accounts.json        # 账户注册与 IM 平台身份绑定
 │   ├── gateway.json         # Gateway 服务配置
 │   ├── plugins.json         # 插件列表与配置
-│   ├── session.json         # 会话生命周期配置（idle 超时、purge TTL、compaction 阈值等）
+│   ├── session.json         # 会话生命周期与执行持久化配置（idle 超时、purge TTL、compaction 阈值、plan 归档天数、审计日志存储上限等）
 │   ├── media.json           # 媒体存储配置（存储目录、保留期等）
 │   ├── system.json          # 系统级配置（定时任务、钩子、消息等）
 │   ├── agents.json          # Agent 注册清单（显式 ID 列表，JSONC）
@@ -50,7 +50,7 @@
 ### 核心组件
 
 - **ConfigManager**：所有配置读写的统一入口。负责加载所有子配置文件到内存、提供读写接口、管理写入流程（校验 → 备份 → 原子写入 → 更新内存）、启动时自动回退损坏文件。
-- **ConfigProvider 体系**：每个子配置文件对应一个 Provider 实现，封装该子配置的数据结构、校验规则和文件路径。session.json 对应 SessionConfigProvider，负责解析 idle 超时、purge TTL 等会话生命周期参数。accounts.json 对应 AccountsConfigProvider，负责加载账户身份绑定、校验发送者标识与平台对应关系。media.json 对应 MediaConfigProvider，负责解析媒体存储目录、保留期等媒体存储参数（详见 [im_adapter media-store](../im_adapter/media-store.md)）。
+- **ConfigProvider 体系**：每个子配置文件对应一个 Provider 实现，封装该子配置的数据结构、校验规则和文件路径。session.json 对应 SessionConfigProvider，负责解析 idle 超时、purge TTL、plan 归档天数、审计日志存储上限等会话生命周期与执行持久化参数。accounts.json 对应 AccountsConfigProvider，负责加载账户身份绑定、校验发送者标识与平台对应关系。media.json 对应 MediaConfigProvider，负责解析媒体存储目录、保留期等媒体存储参数（详见 [im_adapter media-store](../im_adapter/media-store.md)）。
 - **BackupManager**：滚动备份管理，每次写入前自动创建 `.backups/` 目录（如不存在），在 `.backups/` 下维护每个配置文件最近 N 份历史备份（命名格式 `<文件名>.<时间戳>.json`），支持启动时回退到最近可用备份。
 - **ConfigReloadManager**：文件变更监控与热重载，监听配置目录变更事件，增量重载变更文件，校验通过后更新内存配置并通过事件通道向各消费模块发送变更通知（详见 hot-reload.md）。
 - **CredentialsProvider**：按供应商分文件加载 `credentials/` 目录下的凭据，运行时根据 models 等业务配置中的供应商引用按需注入凭据值。加载失败不阻塞 daemon 启动，仅影响需要该供应商的功能。
@@ -150,7 +150,7 @@ Daemon 正常运行，热重载监听器后台运行
 | channels | 渠道类型为已知类型、绑定目标存在 |
 | gateway | 端口在有效范围、超时非负 |
 | plugins | 插件名非空、插件可解析 |
-| session | idleMinutes 非负、purgeAfterMinutes 非负、sweeperIntervalSeconds 为正 |
+| session | idleMinutes 非负、purgeAfterMinutes 非负、sweeperIntervalSeconds 为正、planArchiveDays 非负、auditLogLimit 非负 |
 | system | 版本号非空、cron 表达式合法 |
 | accounts | 账户 ID 非空且唯一、平台名与 channels 中的渠道对应、发送者标识非空；同一平台内「接收方机器人应用 × 发送者标识」组合唯一 |
 | media | 存储目录路径合法、保留期为非负整数（0 表示禁用定期清理）、图片内容阈值为非负整数 |

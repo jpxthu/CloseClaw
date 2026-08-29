@@ -10,7 +10,7 @@
 
 plan 写完后，User 通过以下方式触发执行：
 
-**斜杠指令**：通过 `/execute <plan名称> [附加指令]` 命令触发执行。`plan名称` 为必选参数，指定要执行的 plan；`附加指令` 可选，空格后的内容作为一条用户消息注入 Auto Mode 初始对话。若当前处于 Plan Mode 则先退出。
+**斜杠指令**：通过 `/execute <plan名称> [附加指令]` 命令触发执行。`plan名称` 为必选参数（即 plan 文件 identifier，命名见 [plan-mode.md](plan-mode.md)），指定要执行的 plan；`附加指令` 可选，空格后的内容作为一条用户消息注入 Auto Mode 初始对话。若当前处于 Plan Mode 则先退出。
 
 **自然语言**：Agent 调用执行触发工具，参数与 `/execute` 相同（`plan名称` + 可选附加指令）。该工具自动发起 User 确认交互——支持交互的通道弹出确认卡片，不支持的通道以自然语言让 User 回复确认。确认后进入 Auto Mode 开始执行。
 
@@ -95,7 +95,7 @@ Auto Mode 下触发审批的危险操作会生成审计日志，User 可查看�
 
 1. User `/execute`
 2. 若处于 Plan Mode → 退出 Plan Mode
-3. session 标记 Auto Mode
+3. session 标记 Auto Mode（切换不立即生效，下一条用户消息前才应用约束）
 4. 注入 Auto Mode 指令 + plan 文件内容
 5. Agent 按 plan Tasks 节顺序逐步执行
 6. 每步完成后 Agent 更新 plan 文件步骤标记
@@ -106,7 +106,7 @@ Auto Mode 下触发审批的危险操作会生成审计日志，User 可查看�
 1. User 自然语言要求执行
 2. Agent 调用执行触发工具 → User 确认
 3. 若处于 Plan Mode → 退出 Plan Mode
-4. session 标记 Auto Mode
+4. session 标记 Auto Mode（切换不立即生效，下一条用户消息前才应用约束）
 5. 注入 Auto Mode 指令 + plan 文件内容
 6. Agent 按 plan Tasks 节顺序逐步执行
 7. 每步完成后 Agent 更新 plan 文件步骤标记
