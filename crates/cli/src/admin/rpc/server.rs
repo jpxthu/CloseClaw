@@ -24,9 +24,6 @@ pub struct AdminContext {
     pub skill_registry: Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>,
     pub config_manager: Arc<ConfigManager>,
     pub config_dir: PathBuf,
-    /// Skill rescan handle — `None` in test contexts where daemon
-    /// components are not fully initialized.
-    pub skill_rescan: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Channel to signal gateway restart requests to the daemon.
     /// `Some(true)` = force immediate restart, `Some(false)` = cancel pending.
     /// `None` in test contexts.
@@ -135,7 +132,7 @@ pub(crate) async fn dispatch(request: AdminRequest, context: &AdminContext) -> A
         }
         AdminRequest::SkillList => dispatch_skill_list(context).await,
         AdminRequest::SkillInstall { name } => dispatch_skill_install(&name, context).await,
-        AdminRequest::SkillRescan => dispatch_skill_rescan(context).await,
+
         AdminRequest::Ping => AdminResponse::Pong,
         AdminRequest::ForceRestart => dispatch_force_restart(context).await,
         AdminRequest::CancelPendingRestart => dispatch_cancel_pending_restart(context).await,
@@ -409,22 +406,6 @@ async fn copy_skill_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io
         }
     }
     Ok(())
-}
-
-/// Trigger an immediate skill directory rescan.
-///
-/// Executes the rescan handle (if available) to rebuild the skill
-/// registry from disk, then returns the updated skill listing.
-async fn dispatch_skill_rescan(context: &AdminContext) -> AdminResponse {
-    match &context.skill_rescan {
-        Some(handle) => {
-            handle();
-            dispatch_skill_list(context).await
-        }
-        None => AdminResponse::Error {
-            message: "skill rescan not available".to_string(),
-        },
-    }
 }
 
 /// Send a force-restart signal to the daemon (true = force immediate).
