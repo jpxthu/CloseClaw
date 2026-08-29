@@ -584,8 +584,9 @@ fn detect_cache_break_hit_rate_only_triggers() {
 
 #[test]
 fn detect_cache_break_rate_only_no_token_break() {
-    // Pure rate-only break: token drop is below min_drop_tokens (1999 < 2000)
-    // but hit-rate drops significantly (0.5 → 0.3001, drop = 0.1999 > 0.05).
+    // Token drop (1999) is below min_drop_tokens (2000) and rate drop
+    // (0.5 → 0.3001, drop = 0.1999 > 0.05) exceeds ratio threshold,
+    // but both conditions must be met — so no break is triggered.
     let mut stats = RunningStats::new();
     // Previous call: 5000/10000 = 0.5 hit rate
     stats.detect_cache_break_and_update(Some(5000), Some(10000));
@@ -602,9 +603,9 @@ fn detect_cache_break_rate_only_no_token_break() {
 
 #[test]
 fn cache_read_zero_skips_detection() {
-    // When current_cache_read is Some(0), detection is skipped entirely
-    // (provider always returns 0 — not using caching at all).
-    // State should be updated but no break reported.
+    // When current_cache_read is Some(0), effective_cache_read becomes
+    // None via .filter(|&v| v != 0), so detect_cache_break returns None
+    // naturally (same path as a truly absent cache_read field).
     let mut stats = RunningStats::new();
     // Previous call: 10000 cache_read
     stats.detect_cache_break_and_update(Some(10000), Some(20000));
@@ -615,12 +616,12 @@ fn cache_read_zero_skips_detection() {
         result.is_none(),
         "cache_read=0 should not trigger detection"
     );
-    // State should be updated to reflect the new call
-    assert_eq!(stats.last_cache_read_tokens, Some(0));
-    let expected_rate = 0.0_f64 / 20000.0_f64;
+    // last_cache_read_tokens is None (Some(0) filtered to None)
+    assert_eq!(stats.last_cache_read_tokens, None);
+    // hit rate is None because effective_cache_read is None → rate computation yields None
     assert!(
-        (stats.last_cache_hit_rate.unwrap() - expected_rate).abs() < f64::EPSILON,
-        "hit rate should be updated even when detection is skipped"
+        stats.last_cache_hit_rate.is_none(),
+        "hit rate should be None when effective_cache_read is None"
     );
 }
 

@@ -191,36 +191,30 @@ impl RunningStats {
         current_prompt_tokens: Option<u32>,
     ) -> Option<CacheBreakInfo> {
         // Providers that always return 0 for cache_read are not using
-        // caching at all. Update state but skip detection entirely.
-        if current_cache_read == Some(0) {
-            self.last_cache_read_tokens = Some(0);
-            let current_rate = match (current_cache_read, current_prompt_tokens) {
-                (Some(cr), Some(pt)) if pt > 0 => Some(cr as f64 / pt as f64),
-                _ => None,
-            };
-            self.last_cache_hit_rate = current_rate;
-            return None;
-        }
+        // caching at all. Treat as None so the normal detection path
+        // excludes them naturally (detect_cache_break returns None
+        // when current is None).
+        let effective_cache_read = current_cache_read.filter(|&v| v != 0);
 
         let prev_rate = self.last_cache_hit_rate;
         let mut info = detect_cache_break(
             self.last_cache_read_tokens,
-            current_cache_read,
+            effective_cache_read,
             self.cache_break_thresholds.as_ref(),
         );
         // Save previous value for rate-based comparison; update after rate check.
         let prev_cache_read = self.last_cache_read_tokens;
-        self.last_cache_read_tokens = current_cache_read;
+        self.last_cache_read_tokens = effective_cache_read;
 
         // Compute current per-call hit rate.
-        let current_rate = match (current_cache_read, current_prompt_tokens) {
+        let current_rate = match (effective_cache_read, current_prompt_tokens) {
             (Some(cr), Some(pt)) if pt > 0 => Some(cr as f64 / pt as f64),
             _ => None,
         };
 
         // Override with hit-rate based detection when both rates available.
         if let (Some(prev), Some(curr)) = (prev_rate, current_rate) {
-            self.apply_rate_break(&mut info, prev, curr, prev_cache_read, current_cache_read);
+            self.apply_rate_break(&mut info, prev, curr, prev_cache_read, effective_cache_read);
             // If token break exists but rate drop didn't trigger, fill rates.
             if let Some(ref mut b) = info {
                 if b.previous_hit_rate == 0.0 && b.current_hit_rate == 0.0 {
