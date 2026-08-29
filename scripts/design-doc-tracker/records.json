@@ -552,6 +552,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/session/spawn-tree.md",
+    "commit": "4b514a6094adc06d3bd64292097e50cad78e3eb6",
+    "commit_time": "2026-08-29T13:18:00+08:00",
+    "confirmed_time": "2026-08-29T13:34:24.481086+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/session/working-directory.md",
     "commit": "e2dc9aeb19fa2419a2a06b0eff021c8b57325d01",
     "commit_time": "2026-07-23T08:40:17+08:00",
