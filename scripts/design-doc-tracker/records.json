@@ -577,9 +577,9 @@
   },
   {
     "path": "docs/design/skills/skill-definition.md",
-    "commit": "d32f3a98d9fa8d7abe15039261b7942da23dfd1a",
-    "commit_time": "2026-08-03T07:17:12+08:00",
-    "confirmed_time": "2026-08-03T07:23:30.863293+08:00",
+    "commit": "344ebe2009a79ce3ac6bfababcdd5a33466563b4",
+    "commit_time": "2026-08-29T13:39:21+08:00",
+    "confirmed_time": "2026-08-29T13:58:46.608837+08:00",
     "comment": "",
     "blocked_reason": ""
   },
