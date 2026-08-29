@@ -434,6 +434,149 @@ fn test_git_status_not_injected_without_workdir() {
     );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PlanFile injection tests — Step 1.2 / Step 1.4
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Auto Mode + plan_file_path=Some → PlanFile section is injected.
+#[test]
+fn test_auto_mode_with_plan_file_path_injects_plan_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("test-plan.md");
+    std::fs::write(&plan_path, "# My Plan\nStep 1: do stuff\n").unwrap();
+
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        plan_file_path: Some(plan_path.to_str().unwrap()),
+        ..make_params(&meta, SessionMode::Auto)
+    });
+
+    let plan_sec = sections.iter().find(|s| s.name() == "plan_file");
+    assert!(
+        plan_sec.is_some(),
+        "Auto Mode with plan_file_path should inject PlanFile section"
+    );
+    let rendered = plan_sec.unwrap().render();
+    assert!(
+        rendered.contains("## Plan File"),
+        "PlanFile section should contain heading, got: {}",
+        rendered
+    );
+    assert!(
+        rendered.contains("# My Plan"),
+        "PlanFile section should contain plan content, got: {}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Step 1: do stuff"),
+        "PlanFile section should contain plan body, got: {}",
+        rendered
+    );
+    assert!(
+        rendered.contains(plan_path.to_str().unwrap()),
+        "PlanFile section should contain file path, got: {}",
+        rendered
+    );
+}
+
+/// Auto Mode + plan_file_path=None → no PlanFile section.
+#[test]
+fn test_auto_mode_without_plan_file_path_no_plan_file_section() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Auto));
+    assert!(
+        !sections.iter().any(|s| s.name() == "plan_file"),
+        "Auto Mode without plan_file_path should NOT inject PlanFile section"
+    );
+}
+
+/// Auto Mode + plan_file_path pointing to nonexistent file → no PlanFile
+/// section, no panic.
+#[test]
+fn test_auto_mode_plan_file_read_failure_skips_section() {
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        plan_file_path: Some("/tmp/nonexistent-plan-abc123.md"),
+        ..make_params(&meta, SessionMode::Auto)
+    });
+    assert!(
+        !sections.iter().any(|s| s.name() == "plan_file"),
+        "Plan file read failure should skip PlanFile section, not inject it"
+    );
+    // ModeInstruction should still be present (failure must not block prompt build)
+    assert!(
+        sections.iter().any(|s| s.name() == "mode_instruction"),
+        "ModeInstruction should still be present after plan file read failure"
+    );
+}
+
+/// Normal Mode + plan_file_path=Some → no PlanFile section.
+/// PlanFile injection is exclusive to Auto Mode.
+#[test]
+fn test_normal_mode_with_plan_file_path_no_plan_file_section() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+    std::fs::write(&plan_path, "# Plan\n").unwrap();
+
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        plan_file_path: Some(plan_path.to_str().unwrap()),
+        ..make_params(&meta, SessionMode::Normal)
+    });
+    assert!(
+        !sections.iter().any(|s| s.name() == "plan_file"),
+        "Normal Mode must NOT inject PlanFile even with plan_file_path set"
+    );
+}
+
+/// Plan Mode + plan_file_path=Some → no PlanFile section.
+/// PlanFile injection is exclusive to Auto Mode.
+#[test]
+fn test_plan_mode_with_plan_file_path_no_plan_file_section() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+    std::fs::write(&plan_path, "# Plan\n").unwrap();
+
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        plan_file_path: Some(plan_path.to_str().unwrap()),
+        ..make_params(&meta, SessionMode::Plan)
+    });
+    assert!(
+        !sections.iter().any(|s| s.name() == "plan_file"),
+        "Plan Mode must NOT inject PlanFile even with plan_file_path set"
+    );
+}
+
+/// PlanFile section appears after ModeInstruction in section ordering.
+#[test]
+fn test_plan_file_ordering_after_mode_instruction() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.md");
+    std::fs::write(&plan_path, "# Plan\n").unwrap();
+
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&DynamicSectionsParams {
+        plan_file_path: Some(plan_path.to_str().unwrap()),
+        ..make_params(&meta, SessionMode::Auto)
+    });
+
+    let mode_idx = sections
+        .iter()
+        .position(|s| s.name() == "mode_instruction")
+        .expect("ModeInstruction should be present");
+    let plan_idx = sections
+        .iter()
+        .position(|s| s.name() == "plan_file")
+        .expect("PlanFile should be present");
+    assert!(
+        mode_idx < plan_idx,
+        "ModeInstruction should come before PlanFile, got mode_idx={} plan_idx={}",
+        mode_idx,
+        plan_idx
+    );
+}
+
 // ── Dimension 1: Full happy path ─────────────────────────────────────────
 
 /// build_dynamic_sections produces exactly the four section types defined
