@@ -12,6 +12,7 @@
 //! - Tool = LLM 可调用能力
 
 pub mod bash;
+pub mod build_tools_section;
 pub mod builtin;
 pub mod dispatcher;
 pub mod file_mutex;
@@ -22,7 +23,11 @@ pub mod registry;
 pub mod security;
 pub mod spawn_validation;
 pub mod tool_types;
+pub mod tools_fragment_provider;
 pub mod workdir_context;
+
+#[cfg(test)]
+pub(crate) mod test_adapters;
 
 pub use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
@@ -35,6 +40,8 @@ pub type ToolRegistry = ToolRegistryImpl;
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 
 // Re-export WorkdirContext helpers from common (via workdir_context module).
+pub use build_tools_section::{build_tools_section, ToolsSectionParams};
+pub use tools_fragment_provider::ToolsFragmentProvider;
 pub use workdir_context::{build_git_status_for, build_workdir_context, WorkdirContext};
 
 // Re-export tool trait types from common (except ToolSummary/ToolError which live here,

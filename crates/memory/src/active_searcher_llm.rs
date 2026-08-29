@@ -12,13 +12,16 @@ use super::active_searcher::ActiveSearcherError;
 
 // ── LLM caller trait ─────────────────────────────────────────────────────
 
-/// Abstract LLM caller for concept extraction and summarisation.
+/// Narrow LLM interface for the active-searcher pipeline.
 ///
 /// Implementors must be `Send + Sync` for use in async contexts.
-/// In production, wrap a real [`Provider`][closeclaw_llm::Provider];
+/// In production, wrap a [`closeclaw_common::LlmCaller`] via an adapter;
 /// in tests, provide a mock that returns fixed strings.
+///
+/// This trait is intentionally narrow (prompt → text) so that the
+/// memory crate does not depend on gateway internals.
 #[async_trait]
-pub trait LlmCaller: Send + Sync {
+pub trait ActiveSearchLlm: Send + Sync {
     /// Send a prompt to the LLM and return the text completion.
     async fn complete(&self, prompt: &str) -> Result<String, ActiveSearcherError>;
 }
@@ -115,7 +118,7 @@ pub(crate) fn parse_concepts(raw: &str) -> Vec<String> {
 ///
 /// Builds the prompt, calls the LLM, and parses the JSON array.
 pub(crate) async fn extract_concepts_llm(
-    caller: &dyn LlmCaller,
+    caller: &dyn ActiveSearchLlm,
     context_messages: &[SessionMessage],
     current_message: &str,
 ) -> Result<Vec<String>, ActiveSearcherError> {
@@ -129,7 +132,7 @@ pub(crate) async fn extract_concepts_llm(
 /// Builds a prompt with the event text, calls the LLM, and returns
 /// the condensed summary (truncated to `max_chars` as a safety net).
 pub(crate) async fn summarize_events_llm(
-    caller: &dyn LlmCaller,
+    caller: &dyn ActiveSearchLlm,
     events_text: &str,
     max_chars: usize,
 ) -> Result<String, ActiveSearcherError> {

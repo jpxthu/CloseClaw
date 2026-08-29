@@ -4,14 +4,16 @@
 //! content as a [`PromptFragment`].
 
 use std::collections::hash_map::DefaultHasher;
+use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use async_trait::async_trait;
+use closeclaw_common::fragment::{
+    FragmentContext, PromptFragment, PromptFragmentProvider, SectionType,
+};
 use closeclaw_common::BootstrapMode;
-
-use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
-use crate::sections::read_file_section;
 
 /// Provider that contributes the long-term memory (`MEMORY.md`) to the
 /// system prompt. The file is read from the agent's working directory
@@ -57,6 +59,23 @@ impl Default for MemoryFragmentProvider {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Read a file's content if it exists, returning `(content, mtime)`.
+///
+/// Inlined from `system_prompt::sections::read_file_section` so the
+/// memory crate does not depend on `closeclaw-system-prompt`.
+fn read_file_section<P: AsRef<Path>>(path: P) -> Option<(String, u64)> {
+    let path = path.as_ref();
+    let metadata = fs::metadata(path).ok()?;
+    let mtime = metadata
+        .modified()
+        .ok()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let content = fs::read_to_string(path).ok()?;
+    Some((content, mtime))
 }
 
 #[async_trait]
