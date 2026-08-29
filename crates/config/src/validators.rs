@@ -655,7 +655,7 @@ fn check_account_id_unique(
     Ok(())
 }
 
-/// Check that `(platform, bot_app_id, sender_id)` is unique across all accounts.
+/// Check that `(bot_app_id, sender_id)` is unique within the same platform.
 ///
 /// Within the same platform, the combination of bot application and sender
 /// must be unique (design doc: accounts 校验规则).

@@ -56,7 +56,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::PlatformEntry;
 
@@ -381,18 +381,25 @@ impl FeishuPlugin {
     /// `bot_app_id` is resolved with priority:
     /// 1. `header_app_id` from `last_metadata` (the event header's app_id)
     /// 2. The adapter's own `app_id` (fallback for legacy flows)
-    async fn normalize_inbound_message(&self, msg: &mut NormalizedMessage) {
+    fn normalize_inbound_message(&self, msg: &mut NormalizedMessage) {
         msg.content = normalize_urls(&msg.content);
         msg.content = add_code_block_language_hint(&msg.content);
         if let Some(resolver) = self.identity_resolver() {
-            let bot_app_id = self
-                .adapter
-                .last_metadata
-                .try_lock()
-                .ok()
-                .and_then(|m| m.get("header_app_id").cloned())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| self.adapter.app_id.clone());
+            let bot_app_id = match self.adapter.last_metadata.try_lock() {
+                Ok(guard) => guard
+                    .get("header_app_id")
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| self.adapter.app_id.clone()),
+                Err(_) => {
+                    debug!(
+                        platform = %msg.platform,
+                        sender_id = %msg.sender_id,
+                        "normalize_inbound_message: try_lock failed — falling back to adapter.app_id"
+                    );
+                    self.adapter.app_id.clone()
+                }
+            };
             msg.account_id = resolver
                 .resolve(&msg.platform, &bot_app_id, &msg.sender_id)
                 .unwrap_or(std::mem::take(&mut msg.account_id));
@@ -475,7 +482,7 @@ impl IMPlugin for FeishuPlugin {
         }
 
         if let Some(ref mut m) = msg {
-            self.normalize_inbound_message(m).await;
+            self.normalize_inbound_message(m);
         }
 
         // Emit structured debug_log event for inbound parse.
