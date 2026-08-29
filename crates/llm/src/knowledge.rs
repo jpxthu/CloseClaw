@@ -139,6 +139,29 @@ impl Default for ProviderModelKnowledge {
     }
 }
 
+#[cfg(feature = "test-helpers")]
+impl ProviderModelKnowledge {
+    /// Insert a custom model entry for testing purposes.
+    ///
+    /// Returns `self` for chaining: `kb.with_test_model("p", "m", params)`.
+    ///
+    /// Gated behind the `test-helpers` feature flag to prevent use in
+    /// production code (this method uses `Box::leak`).
+    pub fn with_test_model(
+        mut self,
+        provider_id: &str,
+        model_id: &str,
+        params: ModelRecommendParams,
+    ) -> Self {
+        let static_model_id: &'static str = Box::leak(model_id.to_string().into_boxed_str());
+        self.inner
+            .entry(provider_id.to_string())
+            .or_default()
+            .insert(static_model_id, params);
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,7 +252,7 @@ mod tests {
             ReasoningLevels::Levels {
                 off: true,
                 base: true,
-                reasoner: true
+                reasoner: false
             }
         ));
     }

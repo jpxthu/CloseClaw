@@ -4,7 +4,7 @@
     "max_tokens": 8192,
     "default_temperature": 0.7,
     "reasoning": false,
-    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": true } },
+    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": false } },
     "input_types": ["text"],
     "recommended_protocol": "anthropic"
   },
@@ -13,7 +13,7 @@
     "max_tokens": 8192,
     "default_temperature": 0.7,
     "reasoning": false,
-    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": true } },
+    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": false } },
     "input_types": ["text"],
     "recommended_protocol": "anthropic"
   },
@@ -22,7 +22,7 @@
     "max_tokens": 8192,
     "default_temperature": 0.7,
     "reasoning": true,
-    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": true } },
+    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": false } },
     "input_types": ["text"],
     "recommended_protocol": "anthropic"
   },
@@ -31,7 +31,7 @@
     "max_tokens": 384000,
     "default_temperature": 1.0,
     "reasoning": true,
-    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": true } },
+    "reasoning_levels": { "type": "levels", "value": { "off": false, "base": true, "reasoner": false } },
     "input_types": ["text"],
     "recommended_protocol": "anthropic"
   },
@@ -40,7 +40,7 @@
     "max_tokens": 384000,
     "default_temperature": 1.0,
     "reasoning": true,
-    "reasoning_levels": { "type": "levels", "value": { "off": true, "base": true, "reasoner": true } },
+    "reasoning_levels": { "type": "levels", "value": { "off": true, "base": true, "reasoner": false } },
     "input_types": ["text"],
     "recommended_protocol": "anthropic"
   }

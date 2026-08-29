@@ -104,8 +104,17 @@ fn resolve_effective_reasoning_level(
             if let Some(params) = knowledge.find(kb_provider_id, model) {
                 return match params.reasoning_levels {
                     closeclaw_llm::knowledge::ReasoningLevels::None => requested,
-                    closeclaw_llm::knowledge::ReasoningLevels::Toggle { .. } => {
-                        ReasoningLevel::High
+                    closeclaw_llm::knowledge::ReasoningLevels::Toggle { on: true } => {
+                        // Toggle models: Off/Low → disabled injection, Medium/High →
+                        // enabled injection, Max → downgraded to High then enabled.
+                        if requested == ReasoningLevel::Max {
+                            ReasoningLevel::High
+                        } else {
+                            requested
+                        }
+                    }
+                    closeclaw_llm::knowledge::ReasoningLevels::Toggle { on: false } => {
+                        ReasoningLevel::Low
                     }
                     closeclaw_llm::knowledge::ReasoningLevels::Levels {
                         off,
@@ -777,36 +786,49 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_resolve_effective_level_toggle_maps_to_high() {
-        // Toggle models (e.g. glm-5.1) map any requested level to High.
+    fn test_resolve_effective_level_toggle_on_returns_requested() {
+        // Toggle on=true: returns requested level, except Max → High (downgrade).
         let kb = ProviderModelKnowledge::new();
-        for level in [
+        assert_eq!(
+            resolve_effective_reasoning_level("glm-5.1", ReasoningLevel::Low, &kb),
             ReasoningLevel::Low,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("glm-5.1", ReasoningLevel::Medium, &kb),
             ReasoningLevel::Medium,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("glm-5.1", ReasoningLevel::High, &kb),
             ReasoningLevel::High,
-            ReasoningLevel::Max,
-        ] {
-            let result = resolve_effective_reasoning_level("glm-5.1", level, &kb);
-            assert_eq!(
-                result,
-                ReasoningLevel::High,
-                "Toggle should map {:?} → High",
-                level
-            );
-        }
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("glm-5.1", ReasoningLevel::Max, &kb),
+            ReasoningLevel::High,
+            "Max should downgrade to High on Toggle",
+        );
     }
 
     #[test]
-    fn test_resolve_effective_level_levels_all_enabled() {
-        // deepseek-v4-flash: off=true, base=true, reasoner=true
+    fn test_resolve_effective_level_toggle_on_off_returns_off() {
+        // Toggle on=true + Off request → Off (plugin injects disabled).
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("glm-5.1", ReasoningLevel::Off, &kb);
+        assert_eq!(result, ReasoningLevel::Off);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_levels_flash() {
+        // deepseek-v4-flash: off=true, base=true, reasoner=false
+        // Max→High (no reasoner), High→Medium (base), Medium→Medium,
+        // Low→Low, Off→Off.
         let kb = ProviderModelKnowledge::new();
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Max, &kb),
-            ReasoningLevel::Max,
+            ReasoningLevel::High,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::High, &kb),
-            ReasoningLevel::High,
+            ReasoningLevel::Medium,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Medium, &kb),
@@ -816,20 +838,25 @@ pub(crate) mod tests {
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Low, &kb),
             ReasoningLevel::Low,
         );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Off, &kb),
+            ReasoningLevel::Off,
+        );
     }
 
     #[test]
-    fn test_resolve_effective_level_levels_no_off() {
-        // deepseek-v4-pro: off=false, base=true, reasoner=true
-        // Medium+ supported directly; Low falls through to Low (no off support).
+    fn test_resolve_effective_level_levels_pro() {
+        // deepseek-v4-pro: off=false, base=true, reasoner=false
+        // Max→High (no reasoner), High→Medium (base), Medium→Medium,
+        // Low→Low, Off→Low (no off support).
         let kb = ProviderModelKnowledge::new();
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Max, &kb),
-            ReasoningLevel::Max,
+            ReasoningLevel::High,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::High, &kb),
-            ReasoningLevel::High,
+            ReasoningLevel::Medium,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Medium, &kb),
@@ -837,6 +864,10 @@ pub(crate) mod tests {
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Low, &kb),
+            ReasoningLevel::Low,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Off, &kb),
             ReasoningLevel::Low,
         );
     }
@@ -905,6 +936,43 @@ pub(crate) mod tests {
         let kb = ProviderModelKnowledge::new();
         let result = resolve_effective_reasoning_level("gpt-4o", ReasoningLevel::Off, &kb);
         assert_eq!(result, ReasoningLevel::Off);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_toggle_off_returns_low() {
+        // Toggle on=false: reasoning unavailable → always Low.
+        // No real model has on=false in the knowledge base, so construct
+        // a custom entry via the test-only `with_test_model` helper.
+        let params = closeclaw_llm::knowledge::ModelRecommendParams {
+            context_window: 128_000,
+            max_tokens: 8_192,
+            default_temperature: 0.7,
+            reasoning: true,
+            reasoning_levels: closeclaw_llm::knowledge::ReasoningLevels::Toggle { on: false },
+            input_types: vec![closeclaw_llm::model_info::InputType::Text],
+            recommended_protocol: closeclaw_llm::types::ProtocolId::from("openai"),
+        };
+        let kb = ProviderModelKnowledge::new().with_test_model(
+            "test_provider",
+            "toggle-off-model",
+            params,
+        );
+
+        // All requested levels should resolve to Low when on=false.
+        for level in [
+            ReasoningLevel::Off,
+            ReasoningLevel::Low,
+            ReasoningLevel::Medium,
+            ReasoningLevel::High,
+            ReasoningLevel::Max,
+        ] {
+            let result = resolve_effective_reasoning_level("toggle-off-model", level, &kb);
+            assert_eq!(
+                result,
+                ReasoningLevel::Low,
+                "Toggle on=false should return Low for requested {level:?}"
+            );
+        }
     }
 
     #[test]
