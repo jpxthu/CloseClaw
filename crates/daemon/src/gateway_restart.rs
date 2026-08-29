@@ -835,7 +835,6 @@ mod tests {
             skill_registry: Arc::new(std::sync::RwLock::new(None)),
             config_manager: make_test_config_manager(),
             config_dir: std::path::PathBuf::from("/tmp/test"),
-            skill_rescan: None,
             restart_tx: None,
         };
         // Verify the context was constructed (field existence is compile-time).

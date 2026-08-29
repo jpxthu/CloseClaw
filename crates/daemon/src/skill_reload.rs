@@ -16,6 +16,7 @@ use tracing::info;
 /// Encapsulates the scan configuration and shared state references needed
 /// to perform an immediate skill registry rescan on demand. The admin server
 /// invokes `perform()` when handling a `SkillRescan` RPC request.
+#[allow(dead_code)] // Will be fully removed in Step 1.4
 pub(crate) struct SkillRescanHandle {
     registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     scan_config: ScanConfig,
@@ -41,6 +42,7 @@ impl SkillRescanHandle {
     /// reference from the previous registry, and invalidates the
     /// `skill_listing` cache so the next system prompt build picks up
     /// changes.
+    #[allow(dead_code)] // Will be fully removed in Step 1.4
     pub(crate) fn perform(&self) {
         perform_skill_rescan(&self.registry, &self.scan_config, &self.shared_cache);
     }
@@ -52,6 +54,7 @@ impl SkillRescanHandle {
 /// It rebuilds the registry from disk, preserves the `agent_skills_query`
 /// reference from the old registry, and invalidates the `skill_listing`
 /// section cache.
+#[allow(dead_code)] // Will be fully removed in Step 1.4
 pub(crate) fn perform_skill_rescan(
     registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
     scan_config: &ScanConfig,

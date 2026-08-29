@@ -412,7 +412,7 @@ async fn test_gateway_restart_replaces_chat_handle() {
 /// AdminContext does NOT hold a Gateway reference.
 /// This is a compile-time structural guarantee — AdminContext fields
 /// are agent_registry, skill_registry, config_manager, config_dir,
-/// skill_rescan, restart_tx. No Gateway field exists.
+/// restart_tx. No Gateway field exists.
 #[test]
 fn test_admin_context_no_gateway_field() {
     use closeclaw_agent::registry::AgentRegistry;
@@ -428,7 +428,6 @@ fn test_admin_context_no_gateway_field() {
             closeclaw_config::ConfigManager::new(tempfile::tempdir().unwrap().into_path()).unwrap()
         }),
         config_dir: std::path::PathBuf::from("/tmp/test"),
-        skill_rescan: None,
         restart_tx: None,
     };
     // Verify: no gateway field exists (compile-time check)

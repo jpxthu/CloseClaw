@@ -192,7 +192,6 @@ impl Daemon {
         Arc<dyn SessionConfigProvider>,
         Arc<closeclaw_llm::LLMRegistry>,
         Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
-        SkillRescanHandle,
         Arc<tokio::sync::RwLock<PermissionEngine>>,
         Option<crate::daemon_struct::PlanArchiveSweeperHandle>,
     )> {
@@ -226,7 +225,10 @@ impl Daemon {
         let empty_env: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
         let llm_fut = Self::init_llm_registry(std::path::Path::new(config_dir), &empty_env);
         let (skill_result, (llm_registry, fallback_client)) = tokio::join!(skill_fut, llm_fut);
-        let (skill_registry, skill_rescan_handle) = skill_result?;
+        let (skill_registry, _rescan_handle): (
+            Arc<RwLock<Option<DiskSkillRegistry>>>,
+            SkillRescanHandle,
+        ) = skill_result?;
 
         Ok((
             agent_registry,
@@ -236,7 +238,6 @@ impl Daemon {
             session_config_provider,
             llm_registry,
             fallback_client,
-            skill_rescan_handle,
             permission_engine,
             plan_archive_sweeper,
         ))
@@ -873,7 +874,6 @@ impl Daemon {
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
         config_manager: &Arc<ConfigManager>,
         config_dir: &str,
-        skill_rescan_handle: SkillRescanHandle,
         admin_restart_tx: tokio::sync::mpsc::Sender<bool>,
     ) -> (tokio::task::JoinHandle<()>, PathBuf) {
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
@@ -882,7 +882,6 @@ impl Daemon {
             skill_registry: skill_registry.clone(),
             config_manager: Arc::clone(config_manager),
             config_dir: PathBuf::from(config_dir),
-            skill_rescan: Some(Arc::new(move || skill_rescan_handle.perform())),
             restart_tx: Some(admin_restart_tx),
         };
         let admin_server = AdminServer::new(&admin_sock_path, admin_context);
