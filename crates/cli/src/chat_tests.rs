@@ -185,6 +185,8 @@ async fn test_process_inbound_chain_cleans_control_characters() {
             message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
+            reply_ref: None,
+            unavailable_media: Vec::new(),
         })
         .await;
 
@@ -212,6 +214,8 @@ async fn test_process_inbound_chain_suppress_message() {
             message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
+            reply_ref: None,
+            unavailable_media: Vec::new(),
         })
         .await;
 
@@ -242,6 +246,8 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
                 message_id: String::new(),
                 message_type: Default::default(),
                 media_refs: Vec::new(),
+                reply_ref: None,
+                unavailable_media: Vec::new(),
             })
             .await;
         assert_eq!(processed.text_content().unwrap_or(""), *cmd);
@@ -268,6 +274,8 @@ async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
             message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
+            reply_ref: None,
+            unavailable_media: Vec::new(),
         })
         .await;
 
@@ -301,6 +309,8 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
             message_id: String::new(),
             message_type: Default::default(),
             media_refs: Vec::new(),
+            reply_ref: None,
+            unavailable_media: Vec::new(),
         })
         .await;
 

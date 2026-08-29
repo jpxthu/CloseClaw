@@ -691,6 +691,8 @@ impl FeishuAdapter {
             chat_name: String::new(),
             trace_id: String::new(),
             message_id: String::new(),
+            reply_ref: None,
+            unavailable_media: Vec::new(),
         }))
     }
 

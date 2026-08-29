@@ -211,8 +211,13 @@ impl Gateway {
 
 /// Build extra metadata map from [`NormalizedMessage`] fields.
 ///
-/// Propagates `thread_id`, `media_refs`, `account_id`, `chat_name`, and
-/// `trace_id` so they are available downstream in the Gateway.
+/// Propagates `thread_id`, `media_refs`, `unavailable_media`, `account_id`,
+/// `chat_name`, and `trace_id` so they are available downstream in the
+/// Gateway.
+///
+/// `unavailable_media` is unconditionally serialized as a JSON array into
+/// the metadata map — same pattern as `media_refs` — so that downstream
+/// Gateway logic can determine media availability.
 ///
 /// Note: `message_type` is injected by the Processor Chain (SessionRouter),
 /// not by the Gateway — see design doc `data-flow.md`.
@@ -225,6 +230,10 @@ fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, Strin
         "media_refs".to_string(),
         serde_json::to_string(&normalized.media_refs).unwrap_or_else(|_| "[]".to_string()),
     );
+    meta.insert(
+        "unavailable_media".to_string(),
+        serde_json::to_string(&normalized.unavailable_media).unwrap_or_else(|_| "[]".to_string()),
+    );
     if !normalized.account_id.is_empty() {
         meta.insert("account_id".to_string(), normalized.account_id.clone());
     }
@@ -235,4 +244,139 @@ fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, Strin
         meta.insert("trace_id".to_string(), normalized.trace_id.clone());
     }
     meta
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use closeclaw_common::im_plugin::{MediaRef, MessageType};
+
+    fn make_normalized(overrides: impl FnOnce(&mut NormalizedMessage)) -> NormalizedMessage {
+        let mut msg = NormalizedMessage {
+            platform: "test".into(),
+            sender_id: "sender1".into(),
+            peer_id: "peer1".into(),
+            content: "hello".into(),
+            message_type: MessageType::Text,
+            media_refs: vec![],
+            unavailable_media: vec![],
+            timestamp: 0,
+            ..Default::default()
+        };
+        overrides(&mut msg);
+        msg
+    }
+
+    #[test]
+    fn unavailable_media_empty_produces_empty_json_array() {
+        let normalized = make_normalized(|_| {});
+        let meta = build_extra_metadata(&normalized);
+        assert_eq!(meta.get("unavailable_media").unwrap(), "[]");
+    }
+
+    #[test]
+    fn unavailable_media_non_empty_serializes_correctly() {
+        let normalized = make_normalized(|n| {
+            n.unavailable_media = vec!["img_001".into(), "file_002".into()];
+        });
+        let meta = build_extra_metadata(&normalized);
+        let val = meta.get("unavailable_media").unwrap();
+        let parsed: Vec<String> = serde_json::from_str(val).unwrap();
+        assert_eq!(parsed, vec!["img_001", "file_002"]);
+    }
+
+    #[test]
+    fn media_refs_empty_produces_empty_json_array() {
+        let normalized = make_normalized(|_| {});
+        let meta = build_extra_metadata(&normalized);
+        assert_eq!(meta.get("media_refs").unwrap(), "[]");
+    }
+
+    #[test]
+    fn media_refs_non_empty_serializes_correctly() {
+        let normalized = make_normalized(|n| {
+            n.media_refs = vec![MediaRef {
+                key: "ref_a".into(),
+                url: "https://example.com/a".into(),
+            }];
+        });
+        let meta = build_extra_metadata(&normalized);
+        let parsed: Vec<MediaRef> = serde_json::from_str(meta.get("media_refs").unwrap()).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].key, "ref_a");
+    }
+
+    #[test]
+    fn thread_id_propagated_when_present() {
+        let normalized = make_normalized(|n| {
+            n.thread_id = Some("t_123".into());
+        });
+        let meta = build_extra_metadata(&normalized);
+        assert_eq!(meta.get("thread_id").unwrap(), "t_123");
+    }
+
+    #[test]
+    fn thread_id_absent_when_none() {
+        let normalized = make_normalized(|_| {});
+        let meta = build_extra_metadata(&normalized);
+        assert!(!meta.contains_key("thread_id"));
+    }
+
+    #[test]
+    fn account_id_propagated_when_non_empty() {
+        let normalized = make_normalized(|n| {
+            n.account_id = "acc_1".into();
+        });
+        let meta = build_extra_metadata(&normalized);
+        assert_eq!(meta.get("account_id").unwrap(), "acc_1");
+    }
+
+    #[test]
+    fn account_id_absent_when_empty() {
+        let normalized = make_normalized(|_| {});
+        let meta = build_extra_metadata(&normalized);
+        assert!(!meta.contains_key("account_id"));
+    }
+
+    #[test]
+    fn chat_name_propagated_when_non_empty() {
+        let normalized = make_normalized(|n| {
+            n.chat_name = "General".into();
+        });
+        let meta = build_extra_metadata(&normalized);
+        assert_eq!(meta.get("chat_name").unwrap(), "General");
+    }
+
+    #[test]
+    fn trace_id_propagated_when_non_empty() {
+        let normalized = make_normalized(|n| {
+            n.trace_id = "tr_abc".into();
+        });
+        let meta = build_extra_metadata(&normalized);
+        assert_eq!(meta.get("trace_id").unwrap(), "tr_abc");
+    }
+
+    #[test]
+    fn all_fields_combined() {
+        let normalized = make_normalized(|n| {
+            n.thread_id = Some("t_1".into());
+            n.media_refs = vec![MediaRef {
+                key: "r1".into(),
+                url: "https://example.com/r1".into(),
+            }];
+            n.unavailable_media = vec!["u1".into(), "u2".into()];
+            n.account_id = "a1".into();
+            n.chat_name = "chat".into();
+            n.trace_id = "tr1".into();
+        });
+        let meta = build_extra_metadata(&normalized);
+        assert_eq!(meta.len(), 6);
+        assert_eq!(meta.get("thread_id").unwrap(), "t_1");
+        let unavailable: Vec<String> =
+            serde_json::from_str(meta.get("unavailable_media").unwrap()).unwrap();
+        assert_eq!(unavailable, vec!["u1", "u2"]);
+        assert_eq!(meta.get("account_id").unwrap(), "a1");
+        assert_eq!(meta.get("chat_name").unwrap(), "chat");
+        assert_eq!(meta.get("trace_id").unwrap(), "tr1");
+    }
 }

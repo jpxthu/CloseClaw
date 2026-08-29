@@ -248,6 +248,8 @@ fn build_inbound_input(content: String) -> NormalizedMessage {
         chat_name: String::new(),
         trace_id: format!("chat-{}", now_ms),
         message_id: format!("chat-{}", now_ms),
+        reply_ref: None,
+        unavailable_media: vec![],
     }
 }
 
@@ -356,6 +358,8 @@ async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<C
         chat_name: String::new(),
         trace_id: String::new(),
         message_id: format!("stop-{}", now_ms),
+        reply_ref: None,
+        unavailable_media: vec![],
     };
 
     let processed = context.gateway.process_inbound_chain(&input).await;

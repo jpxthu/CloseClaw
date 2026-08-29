@@ -157,6 +157,21 @@ pub struct NormalizedMessage {
     #[serde(default)]
     pub trace_id: String,
 
+    /// Outbound directed reference, optional.
+    /// Platform-specific reference populated by the adapter (e.g. a topic root
+    /// message ID) and consumed as-is at outbound, used to deliver the reply
+    /// back to the original conversation location.
+    /// Does **not** participate in session routing.
+    #[serde(default)]
+    pub reply_ref: Option<String>,
+
+    /// List of media resource identifiers that are unavailable (download
+    /// failed or exceeded size limits).
+    /// Populated by the adapter during inbound parsing; failed media are
+    /// excluded from `media_refs` and recorded here only.
+    #[serde(default)]
+    pub unavailable_media: Vec<String>,
+
     /// Platform-specific message identifier, or empty.
     #[serde(default)]
     pub message_id: String,

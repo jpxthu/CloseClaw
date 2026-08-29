@@ -88,6 +88,8 @@ fn make_normalized(content: &str) -> NormalizedMessage {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         thread_id: None,
         account_id: String::new(),
         ..Default::default()
@@ -140,6 +142,8 @@ fn make_normalized_with_type(content: &str, message_type: MessageType) -> Normal
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type,
         media_refs: Vec::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         thread_id: None,
         account_id: String::new(),
         ..Default::default()
