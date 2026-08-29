@@ -103,7 +103,6 @@ impl SystemPromptBuilderAdapter {
             tool_registry,
             None,
             None,
-            None,
         )));
         providers.sort_by_key(|p| p.priority());
 
@@ -209,6 +208,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: Some(bootstrap_mode),
+            agent_id: Some(agent_id.to_string()),
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(

@@ -163,6 +163,9 @@ pub struct WorkspaceBuildConfig {
     /// Bootstrap mode for this build — caller is responsible for querying
     /// the AgentRegistry and passing the result here.
     pub bootstrap_mode_override: Option<BootstrapMode>,
+    /// Agent ID — passed through to [`FragmentContext`] so providers can
+    /// perform per-agent filtering (tool white/blacklists, skill filtering).
+    pub agent_id: Option<String>,
 }
 
 // --- Private helpers -------------------------------------------------------
@@ -197,7 +200,7 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
     let bootstrap_mode = config.bootstrap_mode_override;
 
     let ctx = FragmentContext {
-        agent_id: String::new(),
+        agent_id: config.agent_id.clone().unwrap_or_default(),
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
         bootstrap_dir: root.to_path_buf(),
     };
@@ -305,6 +308,7 @@ mod tests {
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: None,
+            agent_id: None,
         };
         assert!(config.providers.is_empty());
     }

@@ -664,8 +664,7 @@ impl Daemon {
             Arc::new(closeclaw_memory::MemoryFragmentProvider::new()),
             Arc::new(closeclaw_tools::ToolsFragmentProvider::new(
                 Arc::clone(tool_registry),
-                None,
-                None,
+                Some(Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentToolsConfigQuery>),
                 None,
             )),
         ];

@@ -16,15 +16,16 @@ use crate::build_tools_section::{build_tools_section, ToolsSectionParams};
 
 /// Provider that contributes the tool listing to the system prompt.
 ///
-/// Holds references to the [`ToolRegistry`] and agent-level tool
-/// configuration. When the registry is empty or produces no content,
+/// Holds references to the [`ToolRegistry`] and an optional
+/// [`AgentToolsConfigQuery`] for runtime agent-level tool filtering.
+/// When the registry is empty or produces no content,
 /// [`generate`](Self::generate) returns `None`.
 pub struct ToolsFragmentProvider {
     registry: Arc<ToolRegistry>,
-    /// Agent-level tool whitelist (`tools` field in agent config).
-    agent_tools: Option<Vec<String>>,
-    /// Agent-level tool blacklist (`disallowedTools` field in agent config).
-    agent_disallowed_tools: Option<Vec<String>>,
+    /// Runtime query for agent-level tool configuration.
+    /// When `Some`, the provider queries per-agent tool white/blacklists
+    /// at generation time rather than using hardcoded values.
+    tools_config_query: Option<Arc<dyn closeclaw_common::AgentToolsConfigQuery>>,
     /// Session mode for mode-aware tool filtering.
     session_mode: Option<SessionMode>,
     /// Agent role (human-readable name/purpose) from agent config.
@@ -36,14 +37,12 @@ pub struct ToolsFragmentProvider {
 impl ToolsFragmentProvider {
     pub fn new(
         registry: Arc<ToolRegistry>,
-        agent_tools: Option<Vec<String>>,
-        agent_disallowed_tools: Option<Vec<String>>,
+        tools_config_query: Option<Arc<dyn closeclaw_common::AgentToolsConfigQuery>>,
         session_mode: Option<SessionMode>,
     ) -> Self {
         Self {
             registry,
-            agent_tools,
-            agent_disallowed_tools,
+            tools_config_query,
             session_mode,
             agent_role: None,
             agent_type: None,
@@ -90,9 +89,21 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
         let tool_ctx = Self::tool_context(ctx, self.session_mode);
+
+        // Runtime agent-level tool filtering via query, or no filtering.
+        let (agent_tools, agent_disallowed_tools) = if let Some(ref query) = self.tools_config_query
+        {
+            match query.get_agent_tools_config(&ctx.agent_id).await {
+                Some(config) => (config.tools, config.disallowed_tools),
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
         let params = ToolsSectionParams {
-            agent_tools: self.agent_tools.clone(),
-            agent_disallowed_tools: self.agent_disallowed_tools.clone(),
+            agent_tools,
+            agent_disallowed_tools,
             session_mode: self.session_mode,
             agent_role: self.agent_role.clone(),
             agent_type: self.agent_type.clone(),
@@ -128,7 +139,7 @@ mod tests {
     #[test]
     fn test_provider_name_and_priority() {
         let registry = Arc::new(ToolRegistry::new());
-        let provider = ToolsFragmentProvider::new(registry, None, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None);
         assert_eq!(provider.name(), "tools");
         assert_eq!(provider.priority(), 2);
     }
@@ -136,7 +147,7 @@ mod tests {
     #[test]
     fn test_cache_key_returns_tools() {
         let registry = Arc::new(ToolRegistry::new());
-        let provider = ToolsFragmentProvider::new(registry, None, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None);
         let ctx = FragmentContext::test_default();
         assert_eq!(provider.cache_key(&ctx), Some("tools".to_string()));
     }
@@ -144,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn test_generate_empty_registry_returns_none() {
         let registry = Arc::new(ToolRegistry::new());
-        let provider = ToolsFragmentProvider::new(registry, None, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None);
         let ctx = FragmentContext::test_default();
         // Empty registry → no tools → content is empty → None
         assert!(provider.generate(&ctx).await.is_none());
@@ -229,7 +240,7 @@ mod tests {
         ];
         registry.register_all(registrars).await.unwrap();
 
-        let provider = ToolsFragmentProvider::new(registry, None, None, None);
+        let provider = ToolsFragmentProvider::new(registry, None, None);
         let ctx = FragmentContext::test_default();
         let fragment = provider.generate(&ctx).await;
         assert!(fragment.is_some());
