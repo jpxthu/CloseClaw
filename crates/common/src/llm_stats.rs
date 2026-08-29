@@ -190,25 +190,31 @@ impl RunningStats {
         current_cache_read: Option<u32>,
         current_prompt_tokens: Option<u32>,
     ) -> Option<CacheBreakInfo> {
+        // Providers that always return 0 for cache_read are not using
+        // caching at all. Treat as None so the normal detection path
+        // excludes them naturally (detect_cache_break returns None
+        // when current is None).
+        let effective_cache_read = current_cache_read.filter(|&v| v != 0);
+
         let prev_rate = self.last_cache_hit_rate;
         let mut info = detect_cache_break(
             self.last_cache_read_tokens,
-            current_cache_read,
+            effective_cache_read,
             self.cache_break_thresholds.as_ref(),
         );
         // Save previous value for rate-based comparison; update after rate check.
         let prev_cache_read = self.last_cache_read_tokens;
-        self.last_cache_read_tokens = current_cache_read;
+        self.last_cache_read_tokens = effective_cache_read;
 
         // Compute current per-call hit rate.
-        let current_rate = match (current_cache_read, current_prompt_tokens) {
+        let current_rate = match (effective_cache_read, current_prompt_tokens) {
             (Some(cr), Some(pt)) if pt > 0 => Some(cr as f64 / pt as f64),
             _ => None,
         };
 
         // Override with hit-rate based detection when both rates available.
         if let (Some(prev), Some(curr)) = (prev_rate, current_rate) {
-            self.apply_rate_break(&mut info, prev, curr, prev_cache_read, current_cache_read);
+            self.apply_rate_break(&mut info, prev, curr, prev_cache_read, effective_cache_read);
             // If token break exists but rate drop didn't trigger, fill rates.
             if let Some(ref mut b) = info {
                 if b.previous_hit_rate == 0.0 && b.current_hit_rate == 0.0 {
@@ -321,10 +327,17 @@ impl RunningStats {
     /// Checks whether a hit-rate drop between consecutive calls exceeds
     /// the configured threshold.
     ///
-    /// Returns `true` when the rate drop exceeds `drop_ratio_threshold`.
-    fn did_rate_drop_exceed_threshold(&self, prev_rate: f64, current_rate: f64) -> bool {
+    /// Returns `true` when both the rate drop exceeds
+    /// `drop_ratio_threshold` **and** the absolute token drop exceeds
+    /// `min_drop_tokens`.
+    fn did_rate_drop_exceed_threshold(
+        &self,
+        prev_rate: f64,
+        current_rate: f64,
+        drop_tokens: u32,
+    ) -> bool {
         let th = self.cache_break_thresholds.clone().unwrap_or_default();
-        (prev_rate - current_rate) > th.drop_ratio_threshold
+        (prev_rate - current_rate) > th.drop_ratio_threshold && drop_tokens > th.min_drop_tokens
     }
 
     /// Applies rate-based break detection: either enhances an existing
@@ -337,16 +350,16 @@ impl RunningStats {
         prev_cache_read: Option<u32>,
         current_cache_read: Option<u32>,
     ) {
-        if !self.did_rate_drop_exceed_threshold(prev_rate, current_rate) {
+        let prev_ct = prev_cache_read.unwrap_or(0);
+        let curr_ct = current_cache_read.unwrap_or(0);
+        let drop_tokens = prev_ct.saturating_sub(curr_ct);
+        if !self.did_rate_drop_exceed_threshold(prev_rate, current_rate, drop_tokens) {
             return;
         }
         if let Some(ref mut b) = info {
             b.previous_hit_rate = prev_rate;
             b.current_hit_rate = current_rate;
         } else {
-            let prev_ct = prev_cache_read.unwrap_or(0);
-            let curr_ct = current_cache_read.unwrap_or(0);
-            let drop_tokens = prev_ct.saturating_sub(curr_ct);
             let drop_ratio = if prev_ct > 0 {
                 drop_tokens as f64 / prev_ct as f64
             } else {
