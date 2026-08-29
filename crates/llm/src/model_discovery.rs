@@ -347,7 +347,7 @@ mod tests {
             ReasoningLevels::Levels {
                 off: true,
                 base: true,
-                reasoner: true
+                reasoner: false
             }
         ));
 
