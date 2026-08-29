@@ -654,13 +654,28 @@ impl Daemon {
                 skill_registry.clone(),
                 Arc::clone(&builtin_skill_listing),
             ));
-        let prompt_builder_adapter = Arc::new(
-            closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter::new_with_cache(
+        // Build Provider list from domain crates (tools, skills, memory).
+        // BootstrapFragmentProvider remains in system_prompt (its own crate's provider).
+        let mut providers: Vec<Arc<dyn closeclaw_common::PromptFragmentProvider>> = vec![
+            Arc::new(closeclaw_system_prompt::BootstrapFragmentProvider::new()),
+            Arc::new(closeclaw_skills::SkillsFragmentProvider::new(
+                skill_provider,
+            )),
+            Arc::new(closeclaw_memory::MemoryFragmentProvider::new()),
+            Arc::new(closeclaw_tools::ToolsFragmentProvider::new(
                 Arc::clone(tool_registry),
+                None,
+                None,
+                None,
+            )),
+        ];
+        providers.sort_by_key(|p| p.priority());
+        let prompt_builder_adapter = Arc::new(
+            closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter::new_with_providers(
                 adapter_registry,
                 data_dir.to_path_buf(),
                 Arc::clone(shared_cache),
-                Some(skill_provider),
+                providers,
             ),
         ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
         session_manager

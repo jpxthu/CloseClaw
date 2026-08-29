@@ -9,16 +9,19 @@ use async_trait::async_trait;
 use closeclaw_agent::lookup::AgentLookup;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::system_prompt::PromptOverrides;
-use closeclaw_common::{
-    BootstrapMode, PromptFragmentProvider, SkillListingProvider, SystemPromptBuilder,
-};
+use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SystemPromptBuilder};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::builder::WorkspaceBuildConfig;
-use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::sections::SectionCache;
+
+#[cfg(test)]
+use crate::providers::bootstrap::BootstrapFragmentProvider;
+#[cfg(test)]
+use closeclaw_common::SkillListingProvider;
+#[cfg(test)]
 use closeclaw_tools::ToolRegistry;
 
 /// Production implementation of [`SystemPromptBuilder`].
@@ -79,10 +82,8 @@ impl SystemPromptBuilderAdapter {
         }
     }
 
-    /// Legacy constructor — kept for backward compatibility with daemon (Step 1.5).
-    ///
-    /// Constructs providers internally from the given parameters.
-    /// Will be removed in Step 1.5 when daemon switches to `new_with_providers`.
+    /// Legacy constructor — kept for test convenience.
+    #[cfg(test)]
     pub fn new_with_cache(
         tool_registry: Arc<ToolRegistry>,
         agent_registry: Arc<RwLock<AgentRegistry>>,
