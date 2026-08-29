@@ -37,7 +37,6 @@ impl Daemon {
             session_config_provider,
             llm_registry,
             fallback_client,
-            skill_rescan_handle,
             permission_engine,
             plan_archive_sweeper,
         ) = Self::init_phase_2_registries(config_dir, &config_manager, &audit_logger).await?;
@@ -158,7 +157,6 @@ impl Daemon {
             &skill_registry,
             &config_manager,
             config_dir,
-            skill_rescan_handle,
             admin_restart_tx,
         )
         .await;

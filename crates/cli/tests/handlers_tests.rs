@@ -386,7 +386,6 @@ async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHa
         ))),
         config_manager,
         config_dir: config_dir.clone(),
-        skill_rescan: None,
         restart_tx: None,
     };
     let server = closeclaw_cli::admin::AdminServer::new(sock_path, context);
