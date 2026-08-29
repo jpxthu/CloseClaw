@@ -32,6 +32,9 @@ Session 层构建请求
     → GLM Plugin 注入 extra_body.thinking 参数
     → Protocol 层（OpenAI）序列化请求
     → Provider 层发送至 GLM API
+
+← 非流式响应：Provider 返回 JSON → Protocol 层解析为内部响应结构 → ModelInterpreter 归一化为统一响应
+← 流式响应（SSE）：Provider 以 SSE 流读取原始数据块 → Protocol 层解析为统一流式事件 → ModelInterpreter 额外归一化，推理以 reasoning_content 承载
 ```
 
 ## 模块关系
