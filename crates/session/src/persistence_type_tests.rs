@@ -777,4 +777,89 @@ mod tests {
             "new checkpoint should have last_user_activity_at = None"
         );
     }
+
+    // ── Step 1.5: plan_file_path restore sync ─────────────────────────
+
+    /// Restoring from a checkpoint with plan_state.plan_file_path set
+    /// yields the path for sync into ConversationSession.
+    #[test]
+    fn test_checkpoint_plan_state_plan_file_path_present() {
+        use crate::persistence::PlanState;
+
+        let mut cp = SessionCheckpoint::new("s-pfp".into());
+        cp.plan_state = Some(PlanState {
+            phase: closeclaw_common::PlanPhase::Research,
+            pending_steps: vec![],
+            plan_file_path: "/workspace/plan.md".into(),
+        });
+
+        let synced = cp.plan_state.as_ref().and_then(|ps| {
+            if ps.plan_file_path.is_empty() {
+                None
+            } else {
+                Some(ps.plan_file_path.clone())
+            }
+        });
+        assert_eq!(synced.as_deref(), Some("/workspace/plan.md"));
+    }
+
+    /// Restoring from a checkpoint without plan_state yields no sync.
+    #[test]
+    fn test_checkpoint_no_plan_state_no_sync() {
+        let cp = SessionCheckpoint::new("s-nops".into());
+        assert!(cp.plan_state.is_none());
+
+        let synced = cp.plan_state.as_ref().and_then(|ps| {
+            if ps.plan_file_path.is_empty() {
+                None
+            } else {
+                Some(ps.plan_file_path.clone())
+            }
+        });
+        assert!(synced.is_none(), "no plan_state → no sync");
+    }
+
+    /// Restoring from a checkpoint with plan_state but empty plan_file_path
+    /// yields no sync.
+    #[test]
+    fn test_checkpoint_empty_plan_file_path_no_sync() {
+        use crate::persistence::PlanState;
+
+        let mut cp = SessionCheckpoint::new("s-epfp".into());
+        cp.plan_state = Some(PlanState {
+            phase: closeclaw_common::PlanPhase::Research,
+            pending_steps: vec![],
+            plan_file_path: String::new(),
+        });
+
+        let synced = cp.plan_state.as_ref().and_then(|ps| {
+            if ps.plan_file_path.is_empty() {
+                None
+            } else {
+                Some(ps.plan_file_path.clone())
+            }
+        });
+        assert!(synced.is_none(), "empty plan_file_path → no sync");
+    }
+
+    /// ConversationSession::set_plan_file_path round-trips correctly.
+    #[tokio::test]
+    async fn test_conversation_session_plan_file_path_roundtrip() {
+        use crate::llm_session::ConversationSession;
+        use std::path::PathBuf;
+
+        let mut cs = ConversationSession::new(
+            "s-roundtrip".into(),
+            "test-model".into(),
+            PathBuf::from("/tmp"),
+        );
+
+        assert!(cs.plan_file_path().is_none());
+
+        cs.set_plan_file_path(Some("/workspace/plan.md".into()));
+        assert_eq!(cs.plan_file_path(), Some("/workspace/plan.md"));
+
+        cs.set_plan_file_path(None);
+        assert!(cs.plan_file_path().is_none());
+    }
 }

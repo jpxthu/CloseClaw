@@ -616,11 +616,11 @@ impl ConversationSession {
         self.system_prompt.as_deref()
     }
 
-    /// Rebuild the system prompt using the session's own builder and overrides.
-    ///
-    /// * `bootstrap_mode_override` — optional override for the bootstrap mode.
-    ///   Pass `None` for standard rebuilds; spawn callers should pass the
-    ///   child's bootstrap mode.
+    /// Rebuild the system prompt via the injected [`SystemPromptBuilder`].
+    /// * `session_id` / `agent_id` — per-session and agent identifiers.
+    /// * `bootstrap_mode_override` — `None` for standard rebuilds;
+    ///   child's mode for spawn callers.
+    /// Returns the rebuilt prompt, or empty when no builder is injected.
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,

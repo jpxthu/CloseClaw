@@ -289,6 +289,7 @@ impl SessionManager {
                                 if let Some(ref comm_config) = cp.communication_config {
                                     cs.set_communication_config(comm_config.clone());
                                 }
+                                Self::sync_plan_file_path_from_checkpoint(&mut cs, &cp);
                                 // Restore transcript from checkpoint ("transcript is the
                                 // single source of truth" per design doc).
                                 if !cp.pending_messages.is_empty() {
@@ -666,6 +667,7 @@ impl SessionManager {
                                 if let Some(ref comm_config) = cp.communication_config {
                                     cs.set_communication_config(comm_config.clone());
                                 }
+                                Self::sync_plan_file_path_from_checkpoint(&mut cs, &cp);
                                 // Restore transcript from checkpoint.
                                 if !cp.pending_messages.is_empty() {
                                     cs.apply_transcript_op(
@@ -944,25 +946,17 @@ impl SessionManager {
             if let Some(builder) = self.get_system_prompt_builder().await {
                 cs.set_system_prompt_builder(builder);
             }
-            // Inject prompt overrides (missing — added for parity with new session path).
             cs.set_prompt_overrides(self.get_prompt_overrides().await);
-            // Inject dynamic prompt builder for per-request dynamic-layer injection.
             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
                 cs.set_dynamic_prompt_builder(dpb);
             }
-            // Inject skill listing provider and agent-level skills whitelist.
             self.wire_skill_listing_deps(&mut cs, &agent_id_for_rebuild)
                 .await;
-            // Cache bootstrap mode on the session (was only queried, not cached).
             *cs = cs.clone().with_bootstrap_mode(bootstrap_mode);
-            // Rebuild the system prompt (existing behavior).
             cs.rebuild_system_prompt(session_id, &agent_id_for_rebuild, Some(bootstrap_mode))
                 .await;
-            // Inject snapshot meta store for persistence.
             self.inject_snapshot_meta_store(session_id, &mut cs).await;
-            // Inject checkpoint storage for pending-operation persistence.
             self.inject_checkpoint_storage(&mut cs).await;
-            // Apply session config (git_status switch).
             if let Some(cfg) = self
                 .get_session_config_for_agent(&agent_id_for_rebuild)
                 .await
@@ -986,6 +980,16 @@ impl SessionManager {
         if let Some(config) = self.get_agent_config(agent_id).await {
             if let Some(skills) = config.effective_skills() {
                 conv.set_agent_skills(skills);
+            }
+        }
+    }
+
+    /// Sync `plan_file_path` from checkpoint into ConversationSession
+    /// so Auto Mode plan injection survives process restarts.
+    fn sync_plan_file_path_from_checkpoint(conv: &mut ConversationSession, cp: &SessionCheckpoint) {
+        if let Some(ref ps) = cp.plan_state {
+            if !ps.plan_file_path.is_empty() {
+                conv.set_plan_file_path(Some(ps.plan_file_path.clone()));
             }
         }
     }
