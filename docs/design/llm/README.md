@@ -8,6 +8,8 @@ LLM 模块为 CloseClaw 提供统一的多供应商、多协议、多模型 LLM 
 
 LLM 模块采用五层分离架构，每层只做一件事，层间通过标准类型传递。模块支持两种协议：OpenAI 协议（内容以纯文本字符串承载，推理过程通过独立字段承载）和 Anthropic 协议（内容以类型化结构数组承载，推理过程和工具调用为独立内容块）。Protocol 层负责屏蔽两种协议的序列化差异，ModelInterpreter 按 [protocol-mapping](protocol-mapping.md) 将协议原生字段归一化为统一内容块和 [StreamEvent](../common/shared-types.md#streamevent) 流式事件。
 
+**模型与凭据的生效机制**：模型定义与供应商凭据配置（[models.json / credentials](../config/README.md)，见 [config §F1](../../requirements/config.md)）属**重启生效类**——变更后须重启 Gateway 方可生效，重启前各会话按旧模型与旧凭据运行。变更确认与重启触发由配置模块承担（见 [config 热重载](../config/hot-reload.md)「重启类变更确认与触发」），LLM 运行时引用的是启动时固化的模型注册表与凭据。需求见 [config §F7](../../requirements/config.md)（生效机制与重启类判定）。
+
 **前缀稳定性原则**：同一 session 内连续多次 API 调用之间，请求的前缀部分（静态 system prompt + 历史消息）必须完全相同，只有尾部新增内容变化——这是前缀缓存生效的前提。任何在请求前缀中注入可变内容的做法都会系统性破坏 KV cache，导致所有 token 按全价计费。此原则贯穿 system prompt 静态/动态分离（上游 system_prompt 模块负责）、消息历史尾部缓存标记（Protocol 层在请求序列化时完成）、以及 cache adapter 的缓存控制参数注入（CacheAdapter 层负责）。
 
 > **模块边界**：LLM 模块以 LLM Client 为对外边界。图上方的 Session 层属于上层应用模块，不在 LLM 模块范围内，此处画出是为了展示 LLM Client 的调用上下文。模型发现（model-discovery）通过独立的旁路子系统绕过 LLM Client 直接消费 Provider 能力，不走对话调用链路。消息渲染（Rendering Layer，内部包含 processor_chain）完全在 LLM 模块之外，通过 Session 层间接消费 LLM 的响应内容。

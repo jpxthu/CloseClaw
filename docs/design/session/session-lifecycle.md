@@ -102,6 +102,8 @@ SessionConfigProvider
 
 子 agent 的 session 有独立的 session_id、独立的生命周期配置，不与主 agent session 混淆。
 
+**配置生效时机**：会话生命周期配置属边界生效类，分两类边界——**会话实体参数**（如 mode 等随会话创建而定的状态）新会话创建时使用当次配置，已在运行的 Session 沿用创建时的实体参数、不随配置变更而变；**Sweeper 扫描参数**（`sweeperIntervalSeconds`、`idleMinutes`、`purgeAfterMinutes` 等）不按会话快照，由 Sweeper 在每次扫描时按 agent_id 从 [config SessionConfigProvider](../config/README.md) 现读（见上文 Sweeper 机制），因此变更后自下一次扫描起对同一 agent 下所有会话（含运行中）统一生效。配置重载机制详见 [config 热重载](../config/hot-reload.md)，需求见 [session §F6](../../requirements/session.md)（会话归档与清理）。
+
 ## 数据流
 
 ### Active → Archived 转换
