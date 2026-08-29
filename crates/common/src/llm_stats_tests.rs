@@ -592,12 +592,58 @@ fn detect_cache_break_rate_only_no_token_break() {
     // Current call: 3001/10000 = 0.3001 hit rate
     // Token drop: 5000 - 3001 = 1999 < min_drop_tokens(2000) → no token break
     // Rate drop: 0.5 - 0.3001 = 0.1999 > drop_ratio_threshold(0.05) → rate break
-    let info = stats
-        .detect_cache_break_and_update(Some(3001), Some(10000))
-        .expect("rate-only break should trigger");
-    assert_eq!(info.previous_cache_read, 5000);
-    assert_eq!(info.current_cache_read, 3001);
-    assert_eq!(info.drop_tokens, 1999);
-    assert!((info.previous_hit_rate - 0.5).abs() < 1e-6);
-    assert!((info.current_hit_rate - 0.3001).abs() < 1e-6);
+    assert!(
+        stats
+            .detect_cache_break_and_update(Some(3001), Some(10000))
+            .is_none(),
+        "rate-only break should NOT trigger when drop_tokens < min_drop_tokens"
+    );
+}
+
+#[test]
+fn cache_read_zero_skips_detection() {
+    // When current_cache_read is Some(0), detection is skipped entirely
+    // (provider always returns 0 — not using caching at all).
+    // State should be updated but no break reported.
+    let mut stats = RunningStats::new();
+    // Previous call: 10000 cache_read
+    stats.detect_cache_break_and_update(Some(10000), Some(20000));
+    assert_eq!(stats.last_cache_read_tokens, Some(10000));
+    // Current call: cache_read=0 → skip detection
+    let result = stats.detect_cache_break_and_update(Some(0), Some(20000));
+    assert!(
+        result.is_none(),
+        "cache_read=0 should not trigger detection"
+    );
+    // State should be updated to reflect the new call
+    assert_eq!(stats.last_cache_read_tokens, Some(0));
+    let expected_rate = 0.0_f64 / 20000.0_f64;
+    assert!(
+        (stats.last_cache_hit_rate.unwrap() - expected_rate).abs() < f64::EPSILON,
+        "hit rate should be updated even when detection is skipped"
+    );
+}
+
+#[test]
+fn rate_break_respects_min_drop_tokens() {
+    // Rate drop exceeds threshold but token drop is below min_drop_tokens.
+    // Break should NOT be triggered because both conditions must be met.
+    let mut stats = RunningStats::new();
+    // Previous: 5000/10000 = 0.5
+    stats.detect_cache_break_and_update(Some(5000), Some(10000));
+    // Current: 4001/10000 = 0.4001
+    // Token drop: 5000 - 4001 = 999 < min_drop_tokens(2000)
+    // Rate drop: 0.5 - 0.4001 = 0.0999 > drop_ratio_threshold(0.05)
+    assert!(
+        stats
+            .detect_cache_break_and_update(Some(4001), Some(10000))
+            .is_none(),
+        "should not trigger when drop_tokens < min_drop_tokens"
+    );
+    // Verify hit rate is still tracked
+    let expected_rate = 4001.0 / 10000.0;
+    assert!(
+        (stats.last_cache_hit_rate.unwrap() - expected_rate).abs() < 1e-6,
+        "hit rate should be updated"
+    );
 }
