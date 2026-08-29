@@ -69,6 +69,8 @@ System Prompt 的组装触发时机是固定的，组装之间内容不变，利
 - 组装之间不响应数据源变更——文件修改、工具或技能注册中心变更均在下次组装时反映
 - 组装结果写入 ConversationSession 运行时字段，每次 API 调用直接取出，不重复构建
 
+> **交叉引用**：bootstrap 文件等数据源变更的生效机制即本节组装边界规则；配置重载机制详见 [config §F4](config.md)（配置重载）。
+
 > **交叉引用**：重建触发的外部事件来源——新会话创建见 [session §F1](session.md)（对话持久化与恢复），归档恢复见 [session §F2](session.md)（恢复时的 System Prompt 重建），上下文压缩行为见 [session §F3](session.md)。`Owner 清空会话指令` 的事件来源见 [slash §F3](slash.md)（`/new` 指令），`Owner 清除动态指令` 见 [slash §F6](slash.md)（`/system clear`）。
 
 ### F7. API 前缀缓存利用

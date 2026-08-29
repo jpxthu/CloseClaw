@@ -27,6 +27,8 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同 IM 平台的消
 
 - 经类型识别后且不以 `/` 开头的文本消息进入 LLM 对话流程
 - 消息路由到接收该消息的机器人所绑定的 Agent——机器人与 Agent 的绑定关系由配置定义
+
+> **交叉引用**：机器人与 Agent 的绑定配置详见 [config §F1](config.md)（多文件配置结构）；绑定变更的生效机制（重启生效类）详见 [config §F4](config.md)（配置重载）。
 - 在命中 Agent 后，Session 查找、创建与归档恢复由 Session 模块负责（含向 User 展示的提示语），Gateway 不参与查找与创建，命中 Session 后进入 LLM 对话流程
 
 > **交叉引用**：会话查找、创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复）。
