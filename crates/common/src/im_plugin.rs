@@ -157,6 +157,17 @@ pub struct NormalizedMessage {
     #[serde(default)]
     pub trace_id: String,
 
+    /// Outbound定向引用，可选。插件按平台语义填入、出站时原样消费的平台引用
+    /// （如话题根消息标识），用于把回复投递回原会话位置。
+    /// 不参与 session 路由。
+    #[serde(default)]
+    pub reply_ref: Option<String>,
+
+    /// 不可得媒体资源标识列表（下载失败或超出大小上限）。
+    /// 由 Adapter 在入站解析时填充；失败媒体不进入 media_refs、仅记录于此。
+    #[serde(default)]
+    pub unavailable_media: Vec<String>,
+
     /// Platform-specific message identifier, or empty.
     #[serde(default)]
     pub message_id: String,

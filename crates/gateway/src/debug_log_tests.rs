@@ -583,6 +583,8 @@ impl closeclaw_common::IMPlugin for FeishuMockPlugin {
             timestamp: chrono::Utc::now().timestamp_millis(),
             thread_id: None,
             media_refs: vec![],
+            reply_ref: None,
+            unavailable_media: Vec::new(),
             ..Default::default()
         }))
     }

@@ -53,6 +53,8 @@ fn full_chain_input() -> NormalizedMessage {
         account_id: "acct_foo".into(),
         chat_name: String::new(),
         trace_id: String::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         message_id: "msg_001".into(),
     }
 }
@@ -71,6 +73,8 @@ fn default_chain_input() -> NormalizedMessage {
         account_id: "acct_foo".into(),
         chat_name: String::new(),
         trace_id: String::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         message_id: "msg_002".into(),
     }
 }
@@ -92,6 +96,8 @@ fn image_chain_input() -> NormalizedMessage {
         account_id: "acct_foo".into(),
         chat_name: String::new(),
         trace_id: String::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         message_id: "msg_003".into(),
     }
 }
@@ -113,6 +119,8 @@ fn file_chain_input() -> NormalizedMessage {
         account_id: "acct_foo".into(),
         chat_name: String::new(),
         trace_id: String::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         message_id: "msg_004".into(),
     }
 }
@@ -134,6 +142,8 @@ fn audio_chain_input() -> NormalizedMessage {
         account_id: "acct_foo".into(),
         chat_name: String::new(),
         trace_id: String::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         message_id: "msg_005".into(),
     }
 }

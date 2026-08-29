@@ -12,6 +12,8 @@ fn make_normalized(account_id: &str) -> NormalizedMessage {
         timestamp: 1700000000000,
         message_type: MessageType::Text,
         media_refs: vec![],
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         thread_id: None,
         account_id: account_id.into(),
         ..Default::default()
