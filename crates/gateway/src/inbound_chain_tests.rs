@@ -529,6 +529,8 @@ async fn test_process_inbound_chain_accepts_normalized_message_ref() {
         account_id: String::new(),
         chat_name: String::new(),
         trace_id: String::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         message_id: String::new(),
     };
     // This call proves the signature: &NormalizedMessage, not InboundChainInput.
