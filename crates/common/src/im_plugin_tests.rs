@@ -374,3 +374,94 @@ fn test_streaming_renderer_returns_some_when_overridden() {
     let plugin = DelegatingPlugin::new();
     assert!(plugin.streaming_renderer().is_some());
 }
+
+// ===========================================================================
+// Step 1.2: reply_ref & unavailable_media serde / round-trip tests
+// ===========================================================================
+
+/// Backward compat: JSON missing both new fields → defaults applied.
+#[test]
+fn test_reply_ref_unavailable_media_missing_fields_defaults() {
+    let json = r#"{
+        "platform": "feishu",
+        "sender_id": "u1",
+        "peer_id": "p1",
+        "content": "hi",
+        "timestamp": 1000
+    }"#;
+    let msg: NormalizedMessage = serde_json::from_str(json).unwrap();
+    assert_eq!(msg.reply_ref, None);
+    assert!(msg.unavailable_media.is_empty());
+}
+
+/// Backward compat: JSON with null reply_ref → None.
+#[test]
+fn test_reply_ref_null_deserializes_to_none() {
+    let json = r#"{
+        "platform": "feishu",
+        "sender_id": "u1",
+        "peer_id": "p1",
+        "content": "hi",
+        "timestamp": 1000,
+        "reply_ref": null
+    }"#;
+    let msg: NormalizedMessage = serde_json::from_str(json).unwrap();
+    assert_eq!(msg.reply_ref, None);
+}
+
+/// Backward compat: JSON with empty array unavailable_media → empty vec.
+#[test]
+fn test_unavailable_media_empty_array_deserializes_to_empty_vec() {
+    let json = r#"{
+        "platform": "feishu",
+        "sender_id": "u1",
+        "peer_id": "p1",
+        "content": "hi",
+        "timestamp": 1000,
+        "unavailable_media": []
+    }"#;
+    let msg: NormalizedMessage = serde_json::from_str(json).unwrap();
+    assert!(msg.unavailable_media.is_empty());
+}
+
+/// Round-trip: reply_ref set to Some, unavailable_media non-empty → preserved.
+#[test]
+fn test_reply_ref_unavailable_media_roundtrip_with_values() {
+    let mut msg = make_normalized("t1");
+    msg.reply_ref = Some("ref_abc".into());
+    msg.unavailable_media = vec!["img_1".into(), "file_2".into()];
+
+    let json = serde_json::to_string(&msg).unwrap();
+    let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(de.reply_ref.as_deref(), Some("ref_abc"));
+    assert_eq!(de.unavailable_media, vec!["img_1", "file_2"]);
+}
+
+/// Round-trip: reply_ref None, unavailable_media empty → preserved.
+#[test]
+fn test_reply_ref_unavailable_media_roundtrip_empty() {
+    let msg = make_normalized("t2");
+    assert_eq!(msg.reply_ref, None);
+    assert!(msg.unavailable_media.is_empty());
+
+    let json = serde_json::to_string(&msg).unwrap();
+    let de: NormalizedMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(de.reply_ref, None);
+    assert!(de.unavailable_media.is_empty());
+}
+
+/// Default trait: reply_ref is None, unavailable_media is empty.
+#[test]
+fn test_normalized_default_reply_ref_and_unavailable_media() {
+    let msg = NormalizedMessage::default();
+    assert_eq!(msg.reply_ref, None);
+    assert!(msg.unavailable_media.is_empty());
+}
+
+/// make_normalized helper: explicitly assigned defaults are correct.
+#[test]
+fn test_make_normalized_reply_ref_and_unavailable_media_defaults() {
+    let msg = make_normalized("tenant_x");
+    assert_eq!(msg.reply_ref, None);
+    assert!(msg.unavailable_media.is_empty());
+}
