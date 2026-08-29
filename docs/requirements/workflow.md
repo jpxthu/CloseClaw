@@ -12,9 +12,11 @@ User 可以定义工作流，描述一个多步骤流程的结构化信息：包
 
 定义放在 agent workspace 的 `workflows/` 目录下，与 skill 共用目录结构但独立管理。每个 workflow 是一个 SKILL.md 文件——正文部分给 agent 阅读（原则和注意事项），YAML frontmatter 给 Engine 读取（步骤、验收、跳转规则）。
 
-> **交叉引用**：目录层级与查找优先级详见 [skills §F2](skills.md)（技能目录层级）。workflow 定义文件变更后，自下一次 workflow 启动时生效；配置重载机制详见 [config §F4](config.md)（配置重载）。
+> **交叉引用**：目录层级与查找优先级详见 [skills §F2](skills.md)（技能目录层级）。
 
-User 通过 create-workflow skill 创建和修改 workflow 定义。定义产出时需通过内置校验——至少覆盖：步骤编号合法性、跳转规则合法性（无重复条件、有兜底分支、目标步骤存在）、验收清单完整性、枚举选项规范性。
+User 通过 create-workflow skill 创建和修改 workflow 定义。定义产出时需通过内置校验——至少覆盖：步骤编号合法性、跳转规则合法性（无重复条件、有兜底分支、目标步骤存在）、验收清单完整性、枚举选项规范性。workflow 定义文件变更后，自下一次 workflow 启动时生效。
+
+> **交叉引用**：配置重载机制详见 [config §F4](config.md)（配置重载）。
 
 ### F2. workflow 启动
 

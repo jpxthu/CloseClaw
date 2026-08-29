@@ -58,7 +58,7 @@ Agent 的能力（行为边界）由其配置字段的组合决定，不依赖�
 
 系统运行时，各模块通过 Agent ID 查询 Agent 的完整配置。查询为只读操作，返回该 Agent 的完整能力定义（模型、工具集、技能列表、子 Agent 控制参数等）。
 
-配置文件变更检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。修改权限配置不影响 Agent 配置，反之亦然。运行中的 Session 沿用创建时的配置，创建新 Session 时使用最新配置；注册清单与 Agent 配置变更后注册表全量替换，已运行 Session 是否感知由各消费模块定义。
+配置文件变更检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。修改权限配置不影响 Agent 配置，反之亦然。注册清单与 Agent 配置变更后注册表全量替换，已运行 Session 是否感知由各消费模块定义；运行中 Session 沿用创建时配置、新 Session 使用最新配置，该运行时规则由 Session 模块定义，详见 [session §F6](session.md)（会话归档与清理）。
 
 ### F7. 子 Agent 创建（Spawn）
 
