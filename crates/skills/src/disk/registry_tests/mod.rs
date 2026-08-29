@@ -1,4 +1,4 @@
-use super::super::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
+use super::super::types::{ScanConfig, SkillContext, SkillEffort, SkillManifest, SkillSource};
 use super::DiskSkill;
 use super::DiskSkillRegistry;
 use std::path::{Path, PathBuf};
@@ -461,6 +461,68 @@ fn test_find_matching_skills_priority_dedup_mixed() {
     let m3 = r3.find_matching_skills(&[Path::new("a.rs"), Path::new("a.md")]);
     let names3: Vec<&str> = m3.iter().map(|s| s.manifest.name.as_str()).collect();
     assert_eq!(names3, ["rs", "md"]);
+}
+
+// ---- Rescan tests ----
+fn rescan_registry(dir: &std::path::Path) -> DiskSkillRegistry {
+    let mut reg = DiskSkillRegistry::new(vec![]);
+    reg.set_scan_config(ScanConfig {
+        global_dir: Some(dir.to_path_buf()),
+        ..Default::default()
+    });
+    reg
+}
+fn create_skill_file(dir: &std::path::Path, name: &str, desc: &str) {
+    let d = dir.join(name);
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(
+        d.join("SKILL.md"),
+        format!("---\ndescription: {}\n---\n# {}\n", desc, name),
+    )
+    .unwrap();
+}
+#[test]
+fn test_rescan_picks_up_new_skill_from_disk() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "existing", "existing skill");
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    assert_eq!(reg.len(), 1);
+    assert!(reg.contains("existing"));
+    create_skill_file(dir, "new-skill", "brand new skill");
+    reg.rescan();
+    assert_eq!(reg.len(), 2);
+    assert!(reg.contains("new-skill"));
+    assert!(reg.contains("existing"));
+}
+#[test]
+fn test_rescan_removes_deleted_skill() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "keep", "keep this");
+    create_skill_file(dir, "remove", "delete this");
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    assert_eq!(reg.len(), 2);
+    assert!(reg.contains("keep"));
+    assert!(reg.contains("remove"));
+    std::fs::remove_dir_all(dir.join("remove")).unwrap();
+    reg.rescan();
+    assert_eq!(reg.len(), 1);
+    assert!(reg.contains("keep"));
+    assert!(!reg.contains("remove"));
+}
+#[test]
+fn test_rescan_no_scan_config_is_noop() {
+    let mut reg = DiskSkillRegistry::new(vec![
+        skill("a", SkillSource::Bundled),
+        skill("b", SkillSource::Bundled),
+    ]);
+    reg.rescan();
+    assert_eq!(reg.len(), 2);
+    assert!(reg.contains("a"));
+    assert!(reg.contains("b"));
 }
 
 // ---- AgentSkillsQuery mock tests ----
