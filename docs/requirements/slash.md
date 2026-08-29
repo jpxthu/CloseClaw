@@ -4,6 +4,8 @@
 
 Owner 和 User 可以通过以 `/` 开头的消息发送系统控制指令，这些指令不进入 LLM 对话流程，由 Gateway 拦截并分派给对应的指令处理器执行。部分指令标记为 Immediate，可绕过排队条件，立即受理；非 Immediate 指令不绕过排队条件，Session 忙碌时排队等待，空闲后响应。
 
+Slash 模块仅提供指令入口与分派机制；跨模块指令的业务功能由对应功能模块定义，本文档以交叉引用指向权威定义，不重复定义。
+
 排队条件定义详见 [session §F10](session.md)（消息排队），Session 忙碌与空闲的判定详见 [session §F11](session.md)（Session 活跃维度）。
 
 ## 功能需求
@@ -108,9 +110,9 @@ Owner 和 User 可以查询和设置当前会话的 LLM 推理强度。
 
 **指令**：
 - `/reasoning`（无参数）：查询当前推理强度档位（Immediate）
-- `/reasoning low|medium|high|max|off`：设置推理强度档位，或请求关闭推理输出（Immediate）
+- `/reasoning low|medium|high|max|off`：设置推理强度档位（Immediate）
 
-> **交叉引用**：推理强度的等级定义、默认值、优先级、降级策略及关闭推理输出的行为（按供应商能力）见 [llm §F4](llm.md)（推理强度控制）。
+> **交叉引用**：推理强度的等级定义、默认值、优先级、降级策略及 `off` 的行为见 [llm §F4](llm.md)（推理强度控制）。
 
 ### F11. 展示等级
 
