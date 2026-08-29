@@ -100,13 +100,10 @@ fn scan_layer(
         };
 
         let skill_dir = entry_path;
-        let manifest = if parsed.manifest.name.is_empty() {
-            let mut m = parsed.manifest;
-            m.name = name.clone();
-            m
-        } else {
-            parsed.manifest
-        };
+        let mut manifest = parsed.manifest;
+        // Always use the directory name as the skill registry name,
+        // regardless of any `name` field in frontmatter.
+        manifest.name = name.clone();
 
         let disk_skill = DiskSkill {
             source,
@@ -578,10 +575,9 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn test_custom_manifest_name_lookup() {
+    fn test_custom_manifest_name_ignored() {
         // Directory is "my-dir-skill" but frontmatter declares
-        // name: "my-custom-name". The registry get() must resolve by
-        // manifest.name, not directory name.
+        // name: "my-custom-name". The directory name always wins.
         let temp = tempfile::tempdir().unwrap();
         create_file(
             &temp.path().join("my-dir-skill").join("SKILL.md"),
@@ -593,12 +589,12 @@ mod tests {
         };
         let skills = scan_all_skills(&config);
         assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].manifest.name, "my-custom-name");
+        assert_eq!(skills[0].manifest.name, "my-dir-skill");
 
-        // DiskSkillRegistry::get must resolve by manifest.name
+        // DiskSkillRegistry::get must resolve by directory name
         let registry = super::super::registry::DiskSkillRegistry::new(skills);
-        assert!(registry.get("my-custom-name").is_some());
-        assert!(registry.get("my-dir-skill").is_none());
+        assert!(registry.get("my-dir-skill").is_some());
+        assert!(registry.get("my-custom-name").is_none());
     }
 
     #[test]
@@ -623,9 +619,37 @@ mod tests {
     }
 
     #[test]
-    fn test_priority_override_same_manifest_name() {
-        // Two directories with different directory names but same
-        // manifest.name should be deduplicated by priority.
+    fn test_priority_override_same_dir_name() {
+        // Two directories with the same directory name at different
+        // priority levels: higher priority should win.
+        let temp = tempfile::tempdir().unwrap();
+        let global_dir = temp.path().join("global");
+        let project_dir = temp.path().join("project");
+
+        create_file(
+            &global_dir.join("shared-skill").join("SKILL.md"),
+            "---\ndescription: Global version\n---\n",
+        );
+        create_file(
+            &project_dir.join("shared-skill").join("SKILL.md"),
+            "---\ndescription: Project version\n---\n",
+        );
+
+        let config = ScanConfig {
+            global_dir: Some(global_dir),
+            project_root: Some(project_dir),
+            ..Default::default()
+        };
+        let skills = scan_all_skills(&config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].manifest.name, "shared-skill");
+        assert_eq!(skills[0].manifest.description, "Project version");
+    }
+
+    #[test]
+    fn test_different_dir_names_not_deduplicated() {
+        // Two directories with different names at different priority
+        // levels are NOT the same skill, even if frontmatter name matches.
         let temp = tempfile::tempdir().unwrap();
         let global_dir = temp.path().join("global");
         let project_dir = temp.path().join("project");
@@ -645,8 +669,9 @@ mod tests {
             ..Default::default()
         };
         let skills = scan_all_skills(&config);
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].manifest.name, "shared");
-        assert_eq!(skills[0].manifest.description, "Project version");
+        assert_eq!(skills.len(), 2);
+        let names: Vec<&str> = skills.iter().map(|s| s.manifest.name.as_str()).collect();
+        assert!(names.contains(&"dir-a"));
+        assert!(names.contains(&"dir-b"));
     }
 }

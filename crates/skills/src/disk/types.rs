@@ -72,7 +72,8 @@ impl fmt::Display for SkillEffort {
 /// registry entry; this one is persisted in skill definition files.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillManifest {
-    /// Skill name. Used as the directory name on disk.
+    /// Skill name. Always filled with the directory name on disk,
+    /// regardless of any `name` value in the SKILL.md frontmatter.
     #[serde(default)]
     pub name: String,
     /// Human-readable description.
