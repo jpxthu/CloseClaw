@@ -12,6 +12,8 @@ fn make_normalized() -> NormalizedMessage {
         timestamp: chrono::Utc::now().timestamp_millis(),
         message_type: Default::default(),
         media_refs: Vec::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
         thread_id: None,
         account_id: String::new(),
         ..Default::default()
