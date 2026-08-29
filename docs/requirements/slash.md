@@ -40,11 +40,11 @@ Owner 和 User 可以创建新会话，以及终止当前会话运行。
 Owner 和 User 可以随时查看当前会话的运行状态。
 
 **指令**：
-- `/status`：查询会话状态（模式、模型、推理深度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、system prompt 追加指令列表）（Immediate）
+- `/status`：查询会话状态（模式、模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、system prompt 追加指令列表）（Immediate）
 
 > **交叉引用**：模式见 [mode §F1](mode.md)（运行模式）。
 > **交叉引用**：当前模型见 [llm §F1](llm.md)（多供应商统一对话）。
-> **交叉引用**：推理深度见 [llm §F4](llm.md)（推理强度控制）。
+> **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
 > **交叉引用**：上下文用量、缓存命中率与 token 累计量见 [llm §F9](llm.md)（用量统计）。
 > **交叉引用**：子 Session 见 [session §F4](session.md)（子 Session 委托与协调）。
 > **交叉引用**：工作目录见 [session §F8](session.md)（工作目录）。
@@ -102,15 +102,15 @@ Owner 和 User 可以查看所有当前可用的斜杠指令及其说明。帮�
 **指令**：
 - `/help`：查看帮助（Immediate）
 
-### F10. 推理深度控制
+### F10. 推理强度控制
 
-Owner 和 User 可以查询和设置当前会话的 LLM 推理深度。
+Owner 和 User 可以查询和设置当前会话的 LLM 推理强度。
 
 **指令**：
-- `/reasoning`（无参数）：查询当前推理深度（Immediate）
-- `/reasoning low|medium|high|max|off`：设置推理深度，off 是 low 的别名（Immediate）
+- `/reasoning`（无参数）：查询当前推理强度档位（Immediate）
+- `/reasoning low|medium|high|max|off`：设置推理强度档位，或请求关闭推理输出（Immediate）
 
-> **交叉引用**：推理深度的等级定义、默认值、优先级和降级策略见 [llm §F4](llm.md)（推理强度控制）。
+> **交叉引用**：推理强度的等级定义、默认值、优先级、降级策略及关闭推理输出的行为（按供应商能力）见 [llm §F4](llm.md)（推理强度控制）。
 
 ### F11. 展示等级
 
