@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use closeclaw_common::BootstrapMode;
-use closeclaw_session::bootstrap::loader::load_bootstrap_files;
+use closeclaw_session::bootstrap::loader::{bootstrap_file_list, load_bootstrap_files};
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 
@@ -53,13 +53,19 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
         let mode = self.resolve_mode(ctx);
         let files = load_bootstrap_files(&bootstrap_dir, mode).ok()?;
 
-        // Filter out MEMORY.md (handled by MemoryFragmentProvider) and sort by
-        // filename for deterministic output.
-        let mut entries: Vec<_> = files
-            .into_iter()
-            .filter(|(name, _)| name != "MEMORY.md")
-            .collect();
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        // Traverse files in the doc-defined fixed order from
+        // `bootstrap_file_list`. Skip MEMORY.md (handled by
+        // MemoryFragmentProvider) and any missing files.
+        let ordered_names = bootstrap_file_list(mode);
+        let mut entries: Vec<(&str, &String)> = Vec::new();
+        for name in ordered_names {
+            if name == "MEMORY.md" {
+                continue;
+            }
+            if let Some(body) = files.get(name) {
+                entries.push((name, body));
+            }
+        }
 
         if entries.is_empty() {
             return None;
@@ -211,7 +217,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_multi_files_sorted_by_name() {
+    async fn test_generate_multi_files_fixed_order() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("SOUL.md"), "soul content").unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
@@ -225,14 +231,10 @@ mod tests {
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await.unwrap();
-        // Files sorted by name: AGENTS.md, IDENTITY.md, SOUL.md
-        // Each file gets its own ## header.
-        assert!(fragment.content.starts_with("## AGENTS.md\nagents content"));
-        assert!(fragment
-            .content
-            .contains("## IDENTITY.md\nidentity content"));
-        assert!(fragment.content.contains("## SOUL.md\nsoul content"));
-        assert_eq!(fragment.content.matches("\n\n").count(), 2);
+        // Fixed order per docs: AGENTS.md → SOUL.md → IDENTITY.md
+        // (USER.md, TOOLS.md absent in test dir)
+        let expected = "## AGENTS.md\nagents content\n\n## SOUL.md\nsoul content\n\n## IDENTITY.md\nidentity content";
+        assert_eq!(fragment.content, expected);
     }
 
     #[tokio::test]
