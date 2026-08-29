@@ -109,6 +109,10 @@ fn resolve_effective_reasoning_level(
                         // enabled injection, Max → downgraded to High then enabled.
                         if requested == ReasoningLevel::Max {
                             ReasoningLevel::High
+                        } else if requested == ReasoningLevel::Off && params.reasoning_always {
+                            // Models that always produce reasoning output (e.g. MiMo)
+                            // cannot truly disable it — downgrade Off to Low.
+                            ReasoningLevel::Low
                         } else {
                             requested
                         }
@@ -949,6 +953,7 @@ pub(crate) mod tests {
             default_temperature: 0.7,
             reasoning: true,
             reasoning_levels: closeclaw_llm::knowledge::ReasoningLevels::Toggle { on: false },
+            reasoning_always: false,
             input_types: vec![closeclaw_llm::model_info::InputType::Text],
             recommended_protocol: closeclaw_llm::types::ProtocolId::from("openai"),
         };
