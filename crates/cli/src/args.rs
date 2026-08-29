@@ -58,8 +58,6 @@ pub enum SkillAction {
         /// Skill name
         name: String,
     },
-    /// Trigger an immediate skill directory rescan
-    Rescan,
 }
 
 /// Interactive chat with an agent via the terminal.
@@ -80,13 +78,6 @@ mod tests {
     struct TestCli {
         #[command(subcommand)]
         action: SkillAction,
-    }
-
-    /// Normal path: `skill rescan` parses to SkillAction::Rescan.
-    #[test]
-    fn test_skill_rescan_arg_parsing() {
-        let cli = TestCli::try_parse_from(["test", "rescan"]).unwrap();
-        assert!(matches!(cli.action, SkillAction::Rescan));
     }
 
     /// Normal path: `skill list` parses to SkillAction::List.
