@@ -32,7 +32,7 @@
 | 3 | DreamingScheduler | Storage, SessionConfigProvider |
 | 3 | ApprovalFlow | Permission Engine, AgentRegistry |
 | 4 | Session Manager | LLM Registry, Storage, AgentRegistry, Skills Registry, Tools Registry, SessionConfigProvider |
-| 4 | SpawnController | AgentRegistry, Tools Registry |
+| 4 | SpawnController | ConfigManager, AgentRegistry, Permission Engine |
 | 4 | System Prompt 构建器 | AgentRegistry, Skills Registry, Tools Registry |
 | 5 | Gateway | Session Manager, IM Adapters, Permission Engine, ApprovalFlow, Renderers / Plugins |
 | 6 | Admin RPC Server | Gateway |
@@ -87,7 +87,7 @@ Daemon 持有 AgentRegistry、Session Manager、Gateway、ApprovalFlow、SpawnCo
    - ApprovalFlow（注入 Permission Engine、AgentRegistry）
 4. **层 4**（依赖层 3）：
    - Session Manager（注入 LLM Registry 构造的 LLM Client、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider，初始化完成后执行启动恢复扫描）
-   - SpawnController（创建并管理子 session，持有 Tools Registry 引用）
+   - SpawnController（创建并管理子 session；spawn 前置校验与权限判定经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播）、Agent 配置（深度/并发/超时阈值），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)；子 session 所需能力经 Session Manager 提供的 spawn 上下文获取（运行时引用，Session Manager 就绪后接线，不构成启动依赖））
    - System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
 5. **层 5**（依赖层 4）：Gateway（注入 adapters、session manager、permission、renderers；安装 SlashDispatcher（详见 [slash/README.md](../slash/README.md)）；注入 ApprovalFlow）
 6. **层 6**（依赖层 5）：Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
@@ -144,7 +144,7 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider；归档前查询 SessionManager 四维活跃状态（运行时引用，Session Manager 就绪后接线），详见 [session/session-lifecycle.md](../session/session-lifecycle.md)） |
 | AnnounceSweeper | 启动时 spawn 后台任务，定时扫描 spawn_tree 补推完成通知与僵死检测（扫描经 Session Manager 进行，运行时引用，详见 [session/run-health.md](../session/run-health.md)） |
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
-| SpawnController | 启动时创建，负责创建并管理子 session，持有 Tools Registry 引用。由 Session Manager 在处理 spawn 请求时调用 |
+| SpawnController | 启动时创建，负责创建并管理子 session，依赖 ConfigManager、AgentRegistry 与 Permission Engine。spawn 前置校验（深度/并发/白名单）与权限判定在此完成，深度/并发/超时阈值来自 Agent 配置，权限经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)。子 session 所需能力经 Session Manager 提供的 spawn 上下文获取（运行时引用，Session Manager 就绪后接线）。由 Session 模块在处理 spawn 请求时调用 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发增量重载；重载校验失败时保留旧配置运行并经 IM 通知 Owner（出站通道为运行时引用，IM Adapters 就绪后接线，不构成启动依赖，详见 [config/hot-reload.md](../config/hot-reload.md)）。变更确认为重启类时触发 Daemon 择机网关重启（见「配置触发的网关重启」） |
 | DreamingScheduler | 启动时 spawn 后台任务（依赖 Storage 与 SessionConfigProvider），定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
