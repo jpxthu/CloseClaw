@@ -38,6 +38,10 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        // Re-scan disk skill directories at every SP assembly boundary
+        // so the listing reflects the latest on-disk skill files.
+        self.listing.rescan();
+
         let content = self
             .listing
             .generate_listing_excluding_conditional(Some(&ctx.agent_id), None);
