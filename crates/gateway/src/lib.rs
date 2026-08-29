@@ -935,6 +935,8 @@ pub mod notification_tests;
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
 #[cfg(test)]
+pub mod session_handler_announce_reasoning_always_tests;
+#[cfg(test)]
 pub mod session_handler_circuit_breaker_tests;
 #[cfg(test)]
 pub mod session_handler_compact_config_tests;

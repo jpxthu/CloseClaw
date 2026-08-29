@@ -10,7 +10,7 @@ mod tests {
     #[test]
     fn test_reasoning_level_basics() {
         assert_eq!(ReasoningLevel::default(), ReasoningLevel::High);
-        assert_eq!(ReasoningLevel::Off.to_string(), "Off");
+        assert_eq!(ReasoningLevel::Off.to_string(), "已关闭");
         assert_eq!(ReasoningLevel::Low.to_string(), "Low");
         assert_eq!(ReasoningLevel::Medium.to_string(), "Medium");
         assert_eq!(ReasoningLevel::High.to_string(), "High");
