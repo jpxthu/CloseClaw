@@ -217,11 +217,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_multi_files_fixed_order() {
+    async fn test_generate_multi_files_fixed_order_full_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        fs::write(tmp.path().join("SOUL.md"), "soul content").unwrap();
+        // Create all Full-mode files (except MEMORY.md which is filtered)
         fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul content").unwrap();
         fs::write(tmp.path().join("IDENTITY.md"), "identity content").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user content").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools content").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap content").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Full,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        // Full mode fixed order: AGENTS → SOUL → IDENTITY → USER → TOOLS → BOOTSTRAP
+        // BOOTSTRAP.md must be last; SOUL.md must be second.
+        let expected = concat!(
+            "## AGENTS.md\nagents content\n\n",
+            "## SOUL.md\nsoul content\n\n",
+            "## IDENTITY.md\nidentity content\n\n",
+            "## USER.md\nuser content\n\n",
+            "## TOOLS.md\ntools content\n\n",
+            "## BOOTSTRAP.md\nbootstrap content",
+        );
+        assert_eq!(fragment.content, expected);
+    }
+
+    #[tokio::test]
+    async fn test_generate_multi_files_fixed_order_minimal_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Create all Minimal-mode files (5 files, no BOOTSTRAP.md)
+        fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul content").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity content").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user content").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools content").unwrap();
 
         let provider = BootstrapFragmentProvider::new();
 
@@ -231,10 +266,44 @@ mod tests {
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await.unwrap();
-        // Fixed order per docs: AGENTS.md → SOUL.md → IDENTITY.md
-        // (USER.md, TOOLS.md absent in test dir)
-        let expected = "## AGENTS.md\nagents content\n\n## SOUL.md\nsoul content\n\n## IDENTITY.md\nidentity content";
+        // Minimal mode fixed order: AGENTS → SOUL → IDENTITY → USER → TOOLS
+        let expected = concat!(
+            "## AGENTS.md\nagents content\n\n",
+            "## SOUL.md\nsoul content\n\n",
+            "## IDENTITY.md\nidentity content\n\n",
+            "## USER.md\nuser content\n\n",
+            "## TOOLS.md\ntools content",
+        );
         assert_eq!(fragment.content, expected);
+    }
+
+    #[tokio::test]
+    async fn test_generate_partial_files_preserve_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Only SOUL.md and TOOLS.md exist — missing files are skipped,
+        // relative order of remaining files must match doc-defined order.
+        fs::write(tmp.path().join("SOUL.md"), "soul content").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools content").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        // SOUL.md (index 1) must come before TOOLS.md (index 4)
+        let soul_pos = fragment.content.find("## SOUL.md").unwrap();
+        let tools_pos = fragment.content.find("## TOOLS.md").unwrap();
+        assert!(
+            soul_pos < tools_pos,
+            "SOUL.md should appear before TOOLS.md"
+        );
+        assert_eq!(
+            fragment.content,
+            "## SOUL.md\nsoul content\n\n## TOOLS.md\ntools content"
+        );
     }
 
     #[tokio::test]
