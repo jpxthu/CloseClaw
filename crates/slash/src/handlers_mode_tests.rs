@@ -223,6 +223,13 @@ fn test_mode_handler_is_immediate_when_no_args() {
     assert!(h.immediate("mode", "   "));
 }
 
+#[test]
+fn test_mode_handler_is_not_immediate_with_invalid_args() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    assert!(!h.immediate("mode", "invalid"));
+}
+
 #[tokio::test]
 async fn test_mode_handler_set_plan() {
     let sm = make_session_manager();
