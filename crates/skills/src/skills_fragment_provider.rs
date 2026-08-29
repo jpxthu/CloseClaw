@@ -63,8 +63,8 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
         })
     }
 
-    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
-        Some("skill_listing".to_string())
+    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+        Some(format!("skill_listing:{}", ctx.agent_id))
     }
 }
 
@@ -119,13 +119,29 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key() {
+    fn test_cache_key_includes_agent_id() {
         let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
             output: String::new(),
             rescan_called: Arc::new(AtomicBool::new(false)),
         }));
-        let ctx = FragmentContext::test_default();
-        assert_eq!(provider.cache_key(&ctx).unwrap(), "skill_listing");
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-xyz".to_string();
+        assert_eq!(provider.cache_key(&ctx).unwrap(), "skill_listing:agent-xyz");
+    }
+
+    #[test]
+    fn test_cache_key_varies_with_agent_id() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+
+        let mut ctx_a = FragmentContext::test_default();
+        ctx_a.agent_id = "agent-a".to_string();
+        let mut ctx_b = FragmentContext::test_default();
+        ctx_b.agent_id = "agent-b".to_string();
+
+        assert_ne!(provider.cache_key(&ctx_a), provider.cache_key(&ctx_b));
     }
 
     #[tokio::test]

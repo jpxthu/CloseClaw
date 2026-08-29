@@ -124,9 +124,10 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
     /// Cache key for the Tools section.
     ///
     /// Returns a stable key so that `PromptBuilder::build()` can cache
-    /// the generated tools listing across repeated builds.
-    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
-        Some("tools".to_string())
+    /// the generated tools listing across repeated builds. Includes the
+    /// agent id to avoid cross-agent cache pollution.
+    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+        Some(format!("tools:{}", ctx.agent_id))
     }
 }
 
@@ -145,11 +146,28 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key_returns_tools() {
+    fn test_cache_key_includes_agent_id() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None);
-        let ctx = FragmentContext::test_default();
-        assert_eq!(provider.cache_key(&ctx), Some("tools".to_string()));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-abc".to_string();
+        assert_eq!(
+            provider.cache_key(&ctx),
+            Some("tools:agent-abc".to_string())
+        );
+    }
+
+    #[test]
+    fn test_cache_key_varies_with_agent_id() {
+        let registry = Arc::new(ToolRegistry::new());
+        let provider = ToolsFragmentProvider::new(registry, None, None);
+
+        let mut ctx_a = FragmentContext::test_default();
+        ctx_a.agent_id = "agent-a".to_string();
+        let mut ctx_b = FragmentContext::test_default();
+        ctx_b.agent_id = "agent-b".to_string();
+
+        assert_ne!(provider.cache_key(&ctx_a), provider.cache_key(&ctx_b));
     }
 
     #[tokio::test]
