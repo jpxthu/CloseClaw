@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::active_searcher::ActiveSearcherError;
 use crate::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
-use crate::active_searcher_llm::{build_concept_extraction_prompt, LlmCaller};
+use crate::active_searcher_llm::{build_concept_extraction_prompt, ActiveSearchLlm};
 use chrono::Utc;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::SessionMessage;
@@ -48,7 +48,7 @@ async fn test_run_timeout_zero_returns_none() {
 
     struct ImmediateTimeoutLlm;
     #[async_trait::async_trait]
-    impl LlmCaller for ImmediateTimeoutLlm {
+    impl ActiveSearchLlm for ImmediateTimeoutLlm {
         async fn complete(&self, _prompt: &str) -> Result<String, ActiveSearcherError> {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             Ok("[]".into())

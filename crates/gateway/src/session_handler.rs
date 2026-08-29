@@ -86,7 +86,7 @@ pub struct SessionMessageHandler {
     pub(super) compaction_service: Arc<tokio::sync::Mutex<CompactionService>>,
     /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
     ///
-    /// The active-searcher uses its own [`LlmCaller`][closeclaw_memory::active_searcher_llm::LlmCaller]
+    /// The active-searcher uses its own narrow [`ActiveSearchLlm`][closeclaw_memory::active_searcher_llm::ActiveSearchLlm]
     /// trait (with `complete()`) rather than the main
     /// [`closeclaw_common::LlmCaller`] trait. This field provides the
     /// concrete wrapper needed by the searcher pipeline without
@@ -336,28 +336,28 @@ impl SessionMessageHandler {
     }
 }
 
-/// LlmCaller adapter for `UnifiedFallbackClient`.
+/// LlmCaller adapter for the active-searcher pipeline.
 ///
-/// Wraps the unified fallback client so it can be used as a trait object
-/// by the active-searcher pipeline.
+/// Wraps a [`closeclaw_common::LlmCaller`] so it can be used as a trait
+/// object by the active-searcher pipeline in the memory crate.
 pub struct ActiveSearcherLlmCaller {
-    #[allow(dead_code)]
-    pub client: Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
-    #[allow(dead_code)]
+    /// The common LLM caller used for prompt completion.
+    pub caller: Arc<dyn closeclaw_common::LlmCaller>,
+    /// Model identifier passed in the [`InternalRequest`].
     pub model: String,
 }
 
 #[async_trait::async_trait]
-impl crate::memory::active_searcher_llm::LlmCaller for ActiveSearcherLlmCaller {
+impl crate::memory::active_searcher_llm::ActiveSearchLlm for ActiveSearcherLlmCaller {
     async fn complete(
         &self,
         prompt: &str,
     ) -> Result<String, crate::memory::active_searcher::ActiveSearcherError> {
-        use closeclaw_llm::types::InternalRequest;
+        use closeclaw_common::llm_types::{InternalMessage, InternalRequest};
 
         let request = InternalRequest {
             model: self.model.clone(),
-            messages: vec![closeclaw_llm::types::InternalMessage {
+            messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content: prompt.to_string(),
                 tool_call_id: None,
@@ -371,17 +371,17 @@ impl crate::memory::active_searcher_llm::LlmCaller for ActiveSearcherLlmCaller {
             system_blocks: None,
             tools: None,
             session_id: None,
-            reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
+            reasoning_level: closeclaw_common::ReasoningLevel::default(),
             turn_count: None,
         };
 
-        match self.client.chat(request).await {
+        match self.caller.call(request).await {
             Ok(response) => {
                 let text = response
                     .content_blocks
                     .iter()
                     .filter_map(|b| match b {
-                        closeclaw_llm::types::ContentBlock::Text(t) => Some(t.as_str()),
+                        closeclaw_common::processor::ContentBlock::Text(t) => Some(t.as_str()),
                         _ => None,
                     })
                     .collect::<Vec<_>>()
