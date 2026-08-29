@@ -1,11 +1,14 @@
 //! Tools section builder for the system prompt.
 //!
-//! Owns the `build_tools_section` function and its tests. Extracted from
-//! `builder.rs` to keep that file under the 500-line limit.
+//! Owns the `build_tools_section` function and its tests. Migrated from
+//! `system_prompt::tools_section` to keep tool-related domain logic in
+//! the `closeclaw-tools` crate.
+//!
+//! Returns a plain `String` (not `Section`) so the caller can wrap it
+//! into a `PromptFragment` without depending on system_prompt internals.
 
-use crate::sections::Section;
+use crate::{PromptGenerationContext, ToolContext, ToolRegistry};
 use closeclaw_common::SessionMode;
-use closeclaw_tools::{PromptGenerationContext, ToolContext, ToolRegistry};
 
 /// Parameters for [`build_tools_section`].
 ///
@@ -72,13 +75,16 @@ const PARALLEL_TOOL_CALLS_GUIDANCE: &str = concat!(
 /// `list_descriptors`, release it, and then call the registry's
 /// `build_tools_section` with the freshly-built context. This keeps locks
 /// non-overlapping.
+///
+/// Returns the rendered tools section as a plain `String`. An empty string
+/// signals that there is no content to contribute.
 pub async fn build_tools_section(
     registry: &ToolRegistry,
     ctx: &ToolContext,
     params: &ToolsSectionParams,
-) -> Section {
+) -> String {
     // 1. Independent lock: get available tool names, then drop the lock.
-    let descriptors = registry.list_descriptors(ctx).await;
+    let descriptors: Vec<crate::ToolSummary> = registry.list_descriptors(ctx).await;
     let available_tool_names: Vec<String> = descriptors.into_iter().map(|d| d.name).collect();
 
     // 2. Resolve agent-level tool filtering.
@@ -139,13 +145,15 @@ pub async fn build_tools_section(
         content
     };
 
-    Section::ToolsSection(content)
+    content
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtin::SkillTool;
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
+    use crate::{CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
     use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_common::PlanState;
     use closeclaw_config::ConfigManager;
@@ -159,10 +167,6 @@ mod tests {
     use closeclaw_session::tools::SessionToolsRegistrar;
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
-    use closeclaw_tools::builtin::SkillTool;
-    use closeclaw_tools::{
-        CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar,
-    };
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
 
@@ -244,7 +248,7 @@ mod tests {
                 approval_flow.clone(),
             )),
             Box::new(SessionToolsRegistrar::new(
-                spawn_controller.clone() as Arc<dyn closeclaw_tools::SpawnValidator>,
+                spawn_controller.clone() as Arc<dyn crate::SpawnValidator>,
                 session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
                 agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
                 Arc::new(PermissionEngineAdapter(permission_engine)),
@@ -265,7 +269,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_tools_section_returns_tools_section() {
+    async fn test_build_tools_section_returns_string() {
         let registry = ToolRegistry::new();
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
@@ -281,7 +285,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -290,7 +294,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -302,10 +306,7 @@ mod tests {
             },
         )
         .await;
-        match section {
-            Section::ToolsSection(_) => {}
-            _ => panic!("expected ToolsSection, got {:?}", section),
-        }
+        assert!(!content.is_empty());
     }
 
     #[tokio::test]
@@ -325,7 +326,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -334,7 +335,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -346,10 +347,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.contains("file_ops"),
             "missing file_ops group: {}",
@@ -375,7 +372,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -384,7 +381,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -396,10 +393,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         for name in &[
             "Read",
             "Write",
@@ -435,7 +428,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -444,7 +437,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -456,10 +449,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.chars().count() <= 15000,
             "section too long: {}",
@@ -470,7 +459,7 @@ mod tests {
     #[tokio::test]
     async fn test_build_tools_section_empty_registry() {
         let registry = ToolRegistry::new();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -479,7 +468,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -491,10 +480,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.is_empty(),
             "expected empty content, got: {}",
@@ -519,7 +504,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -528,7 +513,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -540,10 +525,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.contains("smart colleague"),
             "missing 'smart colleague' in guidance: {}",
@@ -563,7 +544,7 @@ mod tests {
     async fn test_task_writing_guidance_absent_when_spawn_unavailable() {
         // Empty registry → sessions_spawn is not in available_tool_names
         let registry = ToolRegistry::new();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -572,7 +553,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -584,10 +565,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             !content.contains("smart colleague"),
             "task writing guidance should NOT appear without sessions_spawn, got: {}",
@@ -620,7 +597,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -629,7 +606,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -641,10 +618,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.contains("Background Task Guidance"),
             "missing 'Background Task Guidance' header in: {}",
@@ -668,7 +641,7 @@ mod tests {
     async fn test_background_task_guidance_absent_when_bash_unavailable() {
         // Empty registry → Bash is not in available_tool_names
         let registry = ToolRegistry::new();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -677,7 +650,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -689,10 +662,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             !content.contains("Background Task Guidance"),
             "background task guidance should NOT appear without Bash, got: {}",
@@ -721,7 +690,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -732,7 +701,7 @@ mod tests {
         };
         // sessions_spawn is always visible in the tools section
         // (budget filtering is now handled at session creation time).
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -744,10 +713,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.contains("sessions_spawn"),
             "sessions_spawn should always be present in tools section, got: {}",
@@ -777,7 +742,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -787,7 +752,7 @@ mod tests {
             manual_background_signal: None,
         };
         // Budget = 1 → sessions_spawn should be present.
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -799,10 +764,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.contains("sessions_spawn"),
             "sessions_spawn should be present when budget = 1, got: {}",
@@ -827,7 +788,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -836,7 +797,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -848,10 +809,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             content.contains("Parallel Tool Calls"),
             "missing 'Parallel Tool Calls' header in: {}",
@@ -874,7 +831,7 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_tool_calls_guidance_absent_empty_registry() {
         let registry = ToolRegistry::new();
-        let ctx = closeclaw_tools::ToolContext {
+        let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
             session_id: None,
@@ -883,7 +840,7 @@ mod tests {
             session_mode: None,
             manual_background_signal: None,
         };
-        let section = build_tools_section(
+        let content = build_tools_section(
             &registry,
             &ctx,
             &ToolsSectionParams {
@@ -895,10 +852,6 @@ mod tests {
             },
         )
         .await;
-        let content = match section {
-            Section::ToolsSection(c) => c,
-            _ => panic!("expected ToolsSection"),
-        };
         assert!(
             !content.contains("Parallel Tool Calls"),
             "parallel guidance should NOT appear with empty registry, got: {}",

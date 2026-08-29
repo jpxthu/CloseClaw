@@ -2,7 +2,7 @@
 //!
 //! Re-exports the canonical trait from `closeclaw-memory`.
 
-pub use closeclaw_memory::active_searcher_llm::LlmCaller;
+pub use closeclaw_memory::active_searcher_llm::ActiveSearchLlm;
 
 /// Session roles that should NOT trigger the active-searcher.
 const EXCLUDED_ROLES: &[&str] = &["memory-miner", "dreaming"];

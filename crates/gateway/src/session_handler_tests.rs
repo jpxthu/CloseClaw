@@ -28,7 +28,8 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
     // Set LLM caller on SessionManager so ConversationSession gets it at creation.
     sm.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        client: Arc::clone(&ufc),
+        caller: Arc::new(llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
+            as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
     SessionMessageHandler::new_no_output(
@@ -765,7 +766,8 @@ fn handler_with_channel(
         Arc::clone(&ufc),
         tx,
         Arc::new(ActiveSearcherLlmCaller {
-            client: ufc,
+            caller: Arc::new(llm_caller_impl::FallbackLlmCaller(ufc))
+                as Arc<dyn closeclaw_common::LlmCaller>,
             model: String::new(),
         }),
         closeclaw_session::compaction::CompactConfig::default(),

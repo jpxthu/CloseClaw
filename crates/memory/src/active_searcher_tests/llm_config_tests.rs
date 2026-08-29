@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::active_searcher::{ActiveSearcher, ActiveSearcherConfig, ActiveSearcherError};
-use crate::active_searcher_llm::LlmCaller;
+use crate::active_searcher_llm::ActiveSearchLlm;
 use closeclaw_session::llm_session::InjectionPosition;
 
 use super::{create_test_db, insert_entity, insert_event, link_event_entity};
@@ -11,7 +11,7 @@ use super::{create_test_db, insert_entity, insert_event, link_event_entity};
 struct SlowLlmCaller;
 
 #[async_trait::async_trait]
-impl LlmCaller for SlowLlmCaller {
+impl ActiveSearchLlm for SlowLlmCaller {
     async fn complete(&self, _prompt: &str) -> Result<String, ActiveSearcherError> {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         Ok("[]".into())
@@ -47,7 +47,7 @@ struct MockConceptLlm {
 }
 
 #[async_trait::async_trait]
-impl LlmCaller for MockConceptLlm {
+impl ActiveSearchLlm for MockConceptLlm {
     async fn complete(&self, _prompt: &str) -> Result<String, ActiveSearcherError> {
         let json = serde_json::to_string(&self.concepts).unwrap();
         Ok(json)

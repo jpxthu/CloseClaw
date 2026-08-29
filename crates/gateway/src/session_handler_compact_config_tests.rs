@@ -43,10 +43,9 @@ fn make_fallback_client() -> Arc<UnifiedFallbackClient> {
 
 fn make_active_searcher_caller() -> Arc<ActiveSearcherLlmCaller> {
     Arc::new(ActiveSearcherLlmCaller {
-        client: Arc::new(UnifiedFallbackClient::new(
-            vec![],
-            Arc::new(CooldownManager::new()),
-        )),
+        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::new(
+            UnifiedFallbackClient::new(vec![], Arc::new(CooldownManager::new())),
+        ))) as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     })
 }

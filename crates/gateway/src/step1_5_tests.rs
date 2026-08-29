@@ -409,7 +409,8 @@ async fn test_gateway_delegates_llm_to_session_layer() {
     // Set LLM caller on SessionManager so ConversationSession gets it at creation.
     sm.set_llm_caller(llm_caller).await;
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
-        client: Arc::clone(&ufc),
+        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
+            as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
     let handler = Arc::new(

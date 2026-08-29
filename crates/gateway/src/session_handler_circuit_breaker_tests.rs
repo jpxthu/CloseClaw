@@ -68,7 +68,8 @@ fn handler_with_channel(
         ufc.clone(),
         tx,
         Arc::new(ActiveSearcherLlmCaller {
-            client: ufc,
+            caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc))
+                as Arc<dyn closeclaw_common::LlmCaller>,
             model: String::new(),
         }),
         closeclaw_session::compaction::CompactConfig::default(),

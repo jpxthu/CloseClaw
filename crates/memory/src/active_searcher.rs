@@ -11,7 +11,7 @@ use thiserror::Error;
 use tokio::time::timeout;
 
 use super::active_searcher_llm::{
-    extract_concepts_llm, should_trigger_role, summarize_events_llm, LlmCaller,
+    extract_concepts_llm, should_trigger_role, summarize_events_llm, ActiveSearchLlm,
 };
 use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
@@ -425,7 +425,7 @@ impl ActiveSearcher {
         current_message: &str,
         context_messages: &[closeclaw_session::llm_session::SessionMessage],
         injected_event_ids: &HashSet<i64>,
-        llm: &dyn LlmCaller,
+        llm: &dyn ActiveSearchLlm,
     ) -> Option<MemoryInjection> {
         if !should_trigger_role(session_role) {
             return None;

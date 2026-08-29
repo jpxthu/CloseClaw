@@ -111,21 +111,20 @@ impl Daemon {
         let fallback_llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
             Arc::clone(&fallback_client),
         ));
+        // Create SessionMessageHandler for busy/pending state machine.
+        let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
+        let active_searcher_llm_caller = Arc::new(
+            closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
+                caller: fallback_llm_caller.clone() as Arc<dyn closeclaw_common::LlmCaller>,
+                model: String::new(),
+            },
+        );
         session_manager
             .set_llm_caller(fallback_llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
             .await;
         info!(
             chain_len = fallback_client.chain().len(),
             "LLM call chain injected into SessionManager (layer 4)"
-        );
-
-        // Create SessionMessageHandler for busy/pending state machine.
-        let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
-        let active_searcher_llm_caller = Arc::new(
-            closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-                client: Arc::clone(&fallback_client),
-                model: String::new(),
-            },
         );
         let session_handler = Arc::new(closeclaw_gateway::SessionMessageHandler::new(
             Arc::clone(&session_manager),

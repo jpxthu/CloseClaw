@@ -84,7 +84,9 @@ async fn build_gateway(
 
     let active_searcher_llm_caller = Arc::new(
         closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-            client: Arc::clone(fallback_client),
+            caller: Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
+                Arc::clone(fallback_client),
+            )) as Arc<dyn closeclaw_common::LlmCaller>,
             model: String::new(),
         },
     );

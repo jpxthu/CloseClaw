@@ -9,14 +9,20 @@ use async_trait::async_trait;
 use closeclaw_agent::lookup::AgentLookup;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::system_prompt::PromptOverrides;
-use closeclaw_common::{BootstrapMode, SystemPromptBuilder};
-use closeclaw_tools::ToolRegistry;
+use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SystemPromptBuilder};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::builder::WorkspaceBuildConfig;
 use crate::sections::SectionCache;
+
+#[cfg(test)]
+use crate::providers::bootstrap::BootstrapFragmentProvider;
+#[cfg(test)]
+use closeclaw_common::SkillListingProvider;
+#[cfg(test)]
+use closeclaw_tools::ToolRegistry;
 
 /// Production implementation of [`SystemPromptBuilder`].
 ///
@@ -27,53 +33,84 @@ use crate::sections::SectionCache;
 /// site (slash handler, compaction callback) reaches
 /// all session builders.
 pub struct SystemPromptBuilderAdapter {
-    tool_registry: Arc<ToolRegistry>,
     agent_registry: Arc<RwLock<AgentRegistry>>,
     workspace_dir: PathBuf,
     shared_cache: Arc<std::sync::RwLock<SectionCache>>,
-    skill_listing_provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
+    /// Pre-constructed providers for each build call.
+    /// The caller (daemon) is responsible for building this list from
+    /// the domain crates (tools, skills, memory) and BootstrapFragmentProvider.
+    providers: Vec<Arc<dyn PromptFragmentProvider>>,
 }
 
 impl SystemPromptBuilderAdapter {
-    /// Create a new adapter instance.
+    /// Create a new adapter with pre-constructed providers.
     ///
     /// # Arguments
-    /// * `tool_registry` — shared tool registry for ToolsSection generation
     /// * `agent_registry` — shared agent config registry for bootstrap_mode lookup
     /// * `workspace_dir` — root workspace directory; per-agent paths are
     ///   derived as `{workspace_dir}/agents/{agent_id}`
+    /// * `providers` — pre-constructed provider list (will be sorted by priority)
     #[cfg(test)]
     pub fn new(
-        tool_registry: Arc<ToolRegistry>,
         agent_registry: Arc<RwLock<AgentRegistry>>,
         workspace_dir: PathBuf,
+        providers: Vec<Arc<dyn PromptFragmentProvider>>,
     ) -> Self {
         Self {
-            tool_registry,
             agent_registry,
             workspace_dir,
             shared_cache: Arc::new(std::sync::RwLock::new(SectionCache::new())),
-            skill_listing_provider: None,
+            providers,
         }
     }
 
-    /// Create a new adapter with a shared cache instance.
+    /// Create a new adapter with pre-constructed providers and a shared cache.
     ///
     /// Used when the caller needs to share the cache across multiple
     /// components (e.g. daemon).
+    pub fn new_with_providers(
+        agent_registry: Arc<RwLock<AgentRegistry>>,
+        workspace_dir: PathBuf,
+        shared_cache: Arc<std::sync::RwLock<SectionCache>>,
+        providers: Vec<Arc<dyn PromptFragmentProvider>>,
+    ) -> Self {
+        Self {
+            agent_registry,
+            workspace_dir,
+            shared_cache,
+            providers,
+        }
+    }
+
+    /// Legacy constructor — kept for test convenience.
+    #[cfg(test)]
     pub fn new_with_cache(
         tool_registry: Arc<ToolRegistry>,
         agent_registry: Arc<RwLock<AgentRegistry>>,
         workspace_dir: PathBuf,
         shared_cache: Arc<std::sync::RwLock<SectionCache>>,
-        skill_listing_provider: Option<Arc<dyn closeclaw_common::SkillListingProvider>>,
+        skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
     ) -> Self {
-        Self {
+        let mut providers: Vec<Arc<dyn PromptFragmentProvider>> =
+            vec![Arc::new(BootstrapFragmentProvider::new())];
+        if let Some(listing) = skill_listing_provider {
+            providers.push(Arc::new(closeclaw_skills::SkillsFragmentProvider::new(
+                listing,
+            )));
+        }
+        providers.push(Arc::new(closeclaw_memory::MemoryFragmentProvider::new()));
+        providers.push(Arc::new(closeclaw_tools::ToolsFragmentProvider::new(
             tool_registry,
+            None,
+            None,
+        )));
+        providers.sort_by_key(|p| p.priority());
+
+        Self {
             agent_registry,
             workspace_dir,
             shared_cache,
-            skill_listing_provider,
+            providers,
         }
     }
 
@@ -84,33 +121,42 @@ impl SystemPromptBuilderAdapter {
     pub fn shared_cache(&self) -> &Arc<std::sync::RwLock<SectionCache>> {
         &self.shared_cache
     }
+}
 
-    /// Resolve the agent-level tools config from the registry.
-    ///
-    /// Returns `(agent_tools, agent_disallowed_tools)` suitable for
-    /// [`WorkspaceBuildConfig`]. Filters out the catch-all `"*"` sentinel
-    /// and empty lists, normalising them to `None`.
-    async fn resolve_agent_tools(
+/// Wrapper that adapts an `Arc<dyn PromptFragmentProvider>` into a
+/// `Box<dyn PromptFragmentProvider>` by delegating all trait methods.
+///
+/// This allows the adapter to share providers via `Arc` while still
+/// providing `Box`-based providers to `PromptBuilder`.
+struct ArcProviderAdapter {
+    inner: Arc<dyn PromptFragmentProvider>,
+}
+
+impl ArcProviderAdapter {
+    fn new(inner: Arc<dyn PromptFragmentProvider>) -> Self {
+        Self { inner }
+    }
+}
+
+#[async_trait]
+impl PromptFragmentProvider for ArcProviderAdapter {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn priority(&self) -> u32 {
+        self.inner.priority()
+    }
+
+    async fn generate(
         &self,
-        agent_id: &str,
-    ) -> (Option<Vec<String>>, Option<Vec<String>>) {
-        let guard = self.agent_registry.read().await;
-        guard
-            .get(agent_id)
-            .map(|cfg| {
-                let tools = if cfg.tools.is_empty() || cfg.tools == ["*"] {
-                    None
-                } else {
-                    Some(cfg.tools.clone())
-                };
-                let disallowed = if cfg.disallowed_tools.is_empty() {
-                    None
-                } else {
-                    Some(cfg.disallowed_tools.clone())
-                };
-                (tools, disallowed)
-            })
-            .unwrap_or((None, None))
+        ctx: &closeclaw_common::FragmentContext,
+    ) -> Option<closeclaw_common::PromptFragment> {
+        self.inner.generate(ctx).await
+    }
+
+    fn cache_key(&self, ctx: &closeclaw_common::FragmentContext) -> Option<String> {
+        self.inner.cache_key(ctx)
     }
 }
 
@@ -147,20 +193,22 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         // Step 2: Construct workspace path.
         let workspace_path = self.workspace_dir.join("agents").join(agent_id);
 
-        // Step 3: Fetch agent-level tool config for PromptBuilder.
-        let (agent_tools, agent_disallowed_tools) = self.resolve_agent_tools(agent_id).await;
+        // Step 3: Build static layer via Provider pipeline.
+        // Wrap Arc providers into Box for PromptBuilder.
+        let providers: Vec<Box<dyn PromptFragmentProvider>> = self
+            .providers
+            .iter()
+            .map(|p| {
+                Box::new(ArcProviderAdapter::new(Arc::clone(p))) as Box<dyn PromptFragmentProvider>
+            })
+            .collect();
 
-        // Step 4: Build static layer via Provider pipeline.
         let config = WorkspaceBuildConfig {
-            tool_registry: Some(Arc::clone(&self.tool_registry)),
-            agent_id: Some(agent_id.to_string()),
-            agent_tools,
-            agent_disallowed_tools,
+            providers,
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: Some(bootstrap_mode),
-            session_mode: None,
-            skill_listing_provider: self.skill_listing_provider.clone(),
+            agent_id: Some(agent_id.to_string()),
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(
@@ -170,7 +218,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         )
         .await;
 
-        // Step 5: Apply PromptOverrides (override > agent > custom).
+        // Step 4: Apply PromptOverrides (override > agent > custom).
         apply_overrides(&static_layer, overrides)
     }
 

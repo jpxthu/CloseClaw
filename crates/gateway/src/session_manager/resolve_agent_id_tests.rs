@@ -38,7 +38,8 @@ fn build_handler(sm: Arc<SessionManager>) -> SessionMessageHandler {
         Arc::new(CooldownManager::new()),
     ));
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
-        client: Arc::clone(&ufc),
+        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
+            as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
     SessionMessageHandler::new_no_output(

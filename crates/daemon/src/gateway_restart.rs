@@ -329,7 +329,9 @@ impl crate::Daemon {
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
         let active_searcher = Arc::new(
             closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-                client: Arc::clone(&self.fallback_client),
+                caller: Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
+                    Arc::clone(&self.fallback_client),
+                )) as Arc<dyn closeclaw_common::LlmCaller>,
                 model: String::new(),
             },
         );
