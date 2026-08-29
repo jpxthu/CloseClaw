@@ -144,7 +144,7 @@ impl SkillListingProviderWrapper {
         });
         let resolved_ref = resolved_whitelist.as_deref();
 
-        let disk = self.collect_disk_listings(agent_id, resolved_ref, exclude_conditional);
+        let disk = self.collect_disk_listings(resolved_ref, exclude_conditional);
         let builtin = self.collect_builtin_listings(resolved_ref, exclude_conditional);
         Self::merge_and_sort_listings(disk, builtin)
     }
@@ -158,11 +158,9 @@ impl SkillListingProviderWrapper {
     /// excluded. When `false`, all qualifying skills are included.
     fn collect_disk_listings(
         &self,
-        agent_id: Option<&str>,
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
     ) -> Vec<(String, u8)> {
-        let _ = agent_id; // retained for API symmetry; whitelist already resolved by caller
         self.disk
             .read()
             .ok()
