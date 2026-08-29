@@ -445,7 +445,133 @@ async fn test_tools_section_cache_invalidated() {
 // Skills provider priority ordering
 // ---------------------------------------------------------------------------
 
-/// Verify that registering all 4 providers yields priorities sorted as [1, 2, 3, 4].
+// ---------------------------------------------------------------------------
+// Provider without cache_key → always regenerates
+// ---------------------------------------------------------------------------
+
+/// Provider returning None for cache_key should always call generate().
+#[tokio::test]
+async fn test_provider_no_cache_key_always_regenerates() {
+    let mut cache = SectionCache::new();
+
+    // First build.
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+        MockProvider::with_fragment("no_cache", 1, "fresh content"),
+    )];
+    let result1 = build_from_mocks_with_cache(providers, &mut cache).await;
+    assert!(result1.contains("fresh content"));
+
+    // Build again — should regenerate since no cache key.
+    let providers2: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(
+        MockProvider::with_fragment("no_cache", 1, "fresh content"),
+    )];
+    let result2 = build_from_mocks_with_cache(providers2, &mut cache).await;
+    assert_eq!(result1, result2);
+}
+
+// ---------------------------------------------------------------------------
+// Multiple providers with independent cache keys
+// ---------------------------------------------------------------------------
+
+/// Two providers with different cache keys cache independently.
+#[tokio::test]
+async fn test_independent_cache_keys() {
+    let mut cache = SectionCache::new();
+
+    // First build: both providers generate fresh.
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(MockProvider::with_fragment("a", 1, "content-a").with_cache_key("key-a")),
+        Box::new(MockProvider::with_fragment("b", 2, "content-b").with_cache_key("key-b")),
+    ];
+    let result1 = build_from_mocks_with_cache(providers, &mut cache).await;
+    assert!(result1.contains("content-a"));
+    assert!(result1.contains("content-b"));
+
+    // Invalidate only key-a → key-b should still be cached.
+    cache.invalidate("key-a");
+    let providers2: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(MockProvider::with_fragment("a", 1, "new-a").with_cache_key("key-a")),
+        Box::new(MockProvider::with_fragment("b", 2, "content-b").with_cache_key("key-b")),
+    ];
+    let result2 = build_from_mocks_with_cache(providers2, &mut cache).await;
+    assert!(
+        result2.contains("new-a"),
+        "provider-a should regenerate after invalidation"
+    );
+    assert!(
+        result2.contains("content-b"),
+        "provider-b should still use cache"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Mixed cache key and no-cache-key providers
+// ---------------------------------------------------------------------------
+
+/// Providers with and without cache keys coexist correctly.
+#[tokio::test]
+async fn test_mixed_cache_key_and_no_cache_key() {
+    let mut cache = SectionCache::new();
+
+    // First build.
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(
+            MockProvider::with_fragment("cached", 1, "cached-content").with_cache_key("my-key"),
+        ),
+        Box::new(MockProvider::with_fragment(
+            "uncached",
+            2,
+            "uncached-content",
+        )),
+    ];
+    let result1 = build_from_mocks_with_cache(providers, &mut cache).await;
+    assert!(result1.contains("cached-content"));
+    assert!(result1.contains("uncached-content"));
+
+    // Second build: cached provider hits cache, uncached always regenerates.
+    let providers2: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(
+            MockProvider::with_fragment("cached", 1, "new-cached-content").with_cache_key("my-key"),
+        ),
+        Box::new(MockProvider::with_fragment(
+            "uncached",
+            2,
+            "new-uncached-content",
+        )),
+    ];
+    let result2 = build_from_mocks_with_cache(providers2, &mut cache).await;
+    // Cached provider should still show old content from cache.
+    assert!(result2.contains("cached-content"));
+    assert!(!result2.contains("new-cached-content"));
+    // Uncached provider should show new content.
+    assert!(result2.contains("new-uncached-content"));
+}
+
+// ---------------------------------------------------------------------------
+// Empty title rendering
+// ---------------------------------------------------------------------------
+
+/// Provider with empty section_title renders content without heading.
+#[tokio::test]
+async fn test_empty_section_title_renders_without_heading() {
+    let provider = MockProvider {
+        name: "no_title".to_string(),
+        priority: 1,
+        fragment: Some(PromptFragment {
+            section_title: String::new(),
+            section_type: SectionType::Bootstrap,
+            content: "bare content".to_string(),
+        }),
+        cache_key_val: None,
+    };
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(provider)];
+    let result = build_from_mocks(providers).await;
+    assert!(result.contains("bare content"));
+    assert!(!result.contains("## no_title"));
+}
+
+// ---------------------------------------------------------------------------
+// Verify that registering all 4 providers yields priorities sorted as [1, 2, 3, 4].
 #[test]
 fn test_prompt_builder_with_skills_provider() {
     let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
