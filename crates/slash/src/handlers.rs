@@ -27,7 +27,7 @@ impl SlashHandler for CompactHandler {
         "手动压缩对话历史"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -72,7 +72,7 @@ impl SlashHandler for ClearHandler {
         "清除 system prompt 静态层缓存并触发重建"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 
@@ -114,7 +114,7 @@ impl SlashHandler for HelpHandler {
         "显示所有可用指令"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 
@@ -182,7 +182,7 @@ impl SlashHandler for ReasoningHandler {
         "查询或设置推理深度"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 
@@ -244,7 +244,7 @@ impl SlashHandler for ExecHandler {
         "以 owner 身份执行 shell 命令（需权限审批）"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -293,7 +293,7 @@ impl SlashHandler for SystemHandler {
         "管理 system prompt 追加区"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -463,7 +463,7 @@ impl SlashHandler for WorkdirHandler {
         "工作目录操作"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 

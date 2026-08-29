@@ -31,7 +31,7 @@ impl SlashHandler for NewSessionHandler {
         "创建新会话"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
@@ -63,7 +63,7 @@ impl SlashHandler for StopHandler {
         "终止当前运行的任务"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 
@@ -119,7 +119,7 @@ impl SlashHandler for VerboseHandler {
         "查询或设置输出详细度"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 
@@ -180,7 +180,7 @@ impl SlashHandler for StatusHandler {
         "查看当前会话状态"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
 

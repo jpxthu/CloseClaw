@@ -123,10 +123,10 @@ async fn test_handler_registry() {
 async fn test_slash_handler_immediate_default() {
     // Default is false
     let safe = EchoHandler;
-    assert!(!safe.immediate("echo"));
+    assert!(!safe.immediate("echo", ""));
 
     let risky = RiskyHandler;
-    assert!(!risky.immediate("exec"));
+    assert!(!risky.immediate("exec", ""));
 }
 
 // ── parse_slash edge cases ──────────────────────────────────────────────────
@@ -298,7 +298,7 @@ fn test_exec_handler_commands_and_description() {
         h.description(),
         "以 owner 身份执行 shell 命令（需权限审批）"
     );
-    assert!(!h.immediate("exec"));
+    assert!(!h.immediate("exec", ""));
 }
 
 #[tokio::test]
