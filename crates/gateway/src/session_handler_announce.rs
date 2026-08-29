@@ -93,7 +93,7 @@ fn is_anthropic_model(model: &str) -> bool {
 /// Provider identification is done via model name heuristic ("claude"
 /// or "anthropic" prefix) since `provider_id` is not available at
 /// the session level.
-fn resolve_effective_reasoning_level(
+pub(crate) fn resolve_effective_reasoning_level(
     model: &str,
     requested: ReasoningLevel,
     knowledge: &closeclaw_llm::ProviderModelKnowledge,
