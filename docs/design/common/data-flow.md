@@ -17,26 +17,25 @@
 ### 入站方向
 
 ```
-IM 平台 webhook / terminal stdin
+IM 平台事件 / terminal stdin
   ↓
 [IM Adapter 入站解析]
-  平台格式 → NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, message_type, media_refs, timestamp }
+  平台格式 → NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, content, message_type, media_refs, unavailable_media, timestamp }
   ↓
 [Processor Chain 入站]
   RawLog → SessionRouter → ContentNormalizer
   ↓
-ProcessedMessage { content_blocks: [ContentBlock::Text], metadata: { session_key, message_type } }
+ProcessedMessage { content_blocks: [ContentBlock::Text], metadata: { session_key, message_type, unavailable_media } }
   ↓
 [Gateway 路由决策]
-  非 text → 构造错误回复（简化出站，跳过 Verbosity/DslParser）
-  / 开头 → SlashDispatcher
-  普通 → Session → LLM
+  含媒体且不可得 → 提示「该消息内容无法获取」（简化出站）
+  其余（含媒体可得消息）→ / 开头 → SlashDispatcher；普通 → Session → LLM
 ```
 
 入站方向涉及两种共享类型：
 
-- **[NormalizedMessage](shared-types.md#normalizedmessage)**：IM Adapter 产出 → Processor Chain 消费。各平台 Adapter 在入站解析时填充全部字段。消息过滤在 Adapter 解析阶段完成（空 text 丢弃，非 text 正常产出 NormalizedMessage）。
-- **[ProcessedMessage](shared-types.md#processedmessage)**（入站形态）：Processor Chain 入站产出 → Gateway 消费。content_blocks 为单个 ContentBlock::Text，metadata 含 session_key。生命周期止于 Gateway 完成路由决策。
+- **[NormalizedMessage](shared-types.md#normalizedmessage)**：IM Adapter 产出 → Processor Chain 消费。各平台 Adapter 在入站解析时填充全部字段。消息过滤在 Adapter 解析阶段完成（空 text 丢弃、post 双空丢弃，其余正常产出 NormalizedMessage，规则见 [shared-types](shared-types.md#normalizedmessage)）。
+- **[ProcessedMessage](shared-types.md#processedmessage)**（入站形态）：Processor Chain 入站产出 → Gateway 消费。content_blocks 为单个 ContentBlock::Text，metadata 含 session_key、message_type、unavailable_media。生命周期止于 Gateway 完成路由决策。
 
 ### 出站方向
 

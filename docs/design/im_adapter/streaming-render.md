@@ -33,7 +33,7 @@
 4. 流式渲染器逐事件消费，按事件类型处理：
    - Text 块（BlockStart → BlockDelta... → BlockEnd）→ BlockDelta 到达即追加文本到行缓冲区 → 检测代码块边界标记（```）切换代码/文本模式 → 检测句末标点或换行（文本模式）、换行（代码模式）或完整代码块结束（平台需要完整代码块时）。完整输出单元立即渲染输出，不完整则继续缓冲，缓冲区超过阈值（约 100 字符）或 200ms 超时则强制输出——不等待 BlockEnd
    - Thinking/Tool 块（BlockStart → BlockDelta... → BlockEnd）→ BlockDelta 累积内容，BlockEnd 到达即全块就绪，一次交付平台格式渲染器（如飞书的折叠推理区、工具操作卡片）
-   - Image/Audio/File 块 → 不以流式事件形式出现（LLM 流式不产出媒体块），非流式路径中直接交由平台格式渲染器处理
+   - Image/Audio/File 块 → 不以流式事件形式出现（LLM 流式不产出媒体块），非流式路径中直接交由平台格式渲染器处理（图片内容的上下文/引用区分见 [im_adapter media-store](media-store.md)）
    - Error → 不产生增量输出，流错误的统一降级处理由 Gateway 负责（详见 [Gateway 出站流程](../gateway/outbound-flow.md)）
 5. MessageEnd → 刷新所有缓冲 → 输出剩余内容 → 清空块状态和行缓冲上下文
 6. 增量输出通过 IMPlugin 发送到 IM 平台（流式模式下 Gateway 的审计、频率限制等中间件在增量阶段开始前执行一次 pre-flight 检查，非逐片插入，详见 [Gateway 出站中间件](../gateway/outbound-flow.md)）

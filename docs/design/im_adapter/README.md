@@ -25,8 +25,8 @@ IM Adapter 模块不包含业务逻辑，由三类组件组成：
 ```
 platforms/<平台名>/
 ├── mod.rs         — 插件注册（实现 IMPlugin trait）
-├── adapter.rs     — 入站：webhook 解析 → NormalizedMessage
-│                  — 出站：API 调用发送消息
+├── adapter.rs     — 入站：平台事件解析 → NormalizedMessage（含媒体落盘）
+│                  — 出站：平台 API 发送消息
 │                  — token 管理与刷新
 ├── renderer.rs    — ContentBlock[] + DSL → 平台原生格式
 
@@ -48,6 +48,7 @@ im_adapter/
 ├── README.md               ← 本文件（插件架构+通用能力索引）
 ├── code-render.md           ← 代码块语法高亮（平台无关）
 ├── streaming-render.md      ← 流式增量渲染（平台无关）
+├── media-store.md           ← 媒体落盘与生命周期（平台无关）
 └── platforms/
     └── feishu.md            ← 飞书插件
 ```
@@ -56,13 +57,13 @@ im_adapter/
 
 IMPlugin trait 的完整接口契约定义见 [common/core-traits](../common/core-traits.md#implugin)。本文档聚焦 IM Adapter 模块对插件实现和注册编排的具体职责。
 
-每个消息平台插件实现 IMPlugin trait，包含入站解析、渲染、发送、生命周期四组方法。渲染和发送拆为两步——渲染结果是数据，发送是副作用——Gateway 在两步之间可插入审计、频率限制等中间件（详见 [Gateway 出站中间件](../gateway/outbound-flow.md#出站中间件)）。
+每个消息平台插件实现 IMPlugin trait，包含入站解析、渲染、发送、生命周期四组方法。平台凭证（token 等）的管理与刷新内聚在插件的 Adapter 内、随生命周期方法初始化与续期，不跨模块传递。渲染和发送拆为两步——渲染结果是数据，发送是副作用——Gateway 在两步之间可插入审计、频率限制等中间件（详见 [Gateway 出站中间件](../gateway/outbound-flow.md#出站中间件)）。
 
 NormalizedMessage 是插件产出的统一中间结构，屏蔽各平台差异。完整字段定义及身份映射规则见 [common 共享类型](../common/shared-types.md)。
 
 IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段——各平台插件将原生格式转为统一结构，Processor Chain 和 Gateway 下游消费时不感知平台差异。归一化以 NormalizedMessage 字段集为完整边界：各平台特有的元数据（API 字段名、租户标识等）不进入归一化结构，在插件内消化。
 
-**引用/回复消息的处理**：若 IM 平台支持消息引用/回复功能，Adapter 在解析时取出被引用消息的文本内容，截断至 500 字符（超出追加 `...`），渲染为 markdown blockquote 格式（`> 引用内容`），拼接在 `content` 字段之前。不传递独立的引用消息字段。
+**引用/回复消息的处理**：若 IM 平台支持消息引用/回复功能，Adapter 按 [common 共享类型](../common/shared-types.md) 的引用/回复消息处理规则解析——被引用内容截断至 500 字符、以 markdown blockquote 拼接在 content 字段之前，不传递独立的引用消息字段（此处仅指被引用内容不单独立字段；出站定向投递使用的 reply_ref 是独立的回复目标标识，见出站路径）。
 
 ### 子功能索引
 
@@ -70,7 +71,8 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 |------|------|
 | [代码块渲染](code-render.md) | 代码块语法高亮，按平台选择渲染策略 |
 | [流式渲染](streaming-render.md) | 流式增量输出，行缓冲 + 块类型路由 |
-| [飞书插件](platforms/feishu.md) | 飞书平台完整插件实现 |
+| [媒体存储](media-store.md) | 媒体落盘、上下文形态、出站读取约束与生命周期 |
+| [飞书插件](platforms/feishu.md) | 飞书平台完整插件实现（基于 lark-cli） |
 
 ### 平台渲染选择
 
@@ -88,8 +90,8 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 ### 入站路径
 
 ```
-1. IM 平台 webhook 到达。
-2. IMPlugin 入站：平台格式解析 → NormalizedMessage { platform, sender_id, account_id, peer_id, content, ... }（account_id 经 Config 身份映射得到，见「模块关系-上游」）。← 日志：入站解析（平台、消息类型、解析耗时）
+1. IM 平台事件到达。
+2. IMPlugin 入站：平台格式解析 → NormalizedMessage { platform, sender_id, account_id, peer_id, content, ... }（account_id 经 Config 身份映射得到，见「模块关系-上游」）；消息携带媒体时立即下载落盘并填入 media_refs（见 [媒体存储](media-store.md)）。← 日志：入站解析（平台、消息类型、解析耗时）
 3. Processor Chain 入站依次执行 RawLog → SessionRouter → ContentNormalizer。
 4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage) → Gateway 路由决策。
 ```
@@ -100,18 +102,27 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 1. LLM 输出 ContentBlock[]。
 2. Processor Chain 出站依次执行（Verbosity 过滤 → DSL 解析 → 出站日志，见 [Processor Chain 出站链路](../processor_chain/README.md)）。
 3. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)。
-4. IMPlugin 渲染：渲染接口接收 ContentBlock[] 与 DSL 解析结果（定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
+4. IMPlugin 渲染：渲染接口消费 Step 3 的 ProcessedMessage（内含 ContentBlock[] 与 DSL 解析结果，定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
 5. 中间件插入点：Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件（流式模式下在增量阶段开始前执行一次 pre-flight 检查，非逐片插入，见[流式渲染](streaming-render.md)）。
-6. IMPlugin 发送：发送接口将渲染结果按 peer_id、thread_id 投递到平台。← 日志：平台 API 发送（平台、目标、耗时）
+6. IMPlugin 发送：发送接口将渲染结果按 peer_id、reply_ref 投递到平台。← 日志：平台 API 发送（平台、目标、耗时）
 ```
 
 出站路径中，Renderer 不属 Processor Chain——渲染是终结操作，输出后无后续处理器接力。Gateway 根据目标 platform 选择对应插件，调用插件内部的 Renderer 完成渲染，再通过 Adapter 发送。
 
-peer_id 和 thread_id 来源于入站时 IM Adapter 填入 NormalizedMessage 的对应字段，经 Session 上下文存储后在出站时取出，由 Gateway 传递给 IMPlugin 的发送方法。
+peer_id 和 reply_ref 来源于入站时 IM Adapter 填入 NormalizedMessage 的对应字段，经 Session 上下文存储后在出站时取出，由 Gateway 传递给 IMPlugin 的发送方法。
 
 ## 模块关系
 
 - **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）、Config（accounts.json：入站解析时查询身份映射表，将 sender_id 转为 account_id）
 - **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）、debug_log（入站解析、出站渲染、平台发送各环节记录调试日志）
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、IMPlugin、StreamingRenderer；消费：IdentityResolver）
-- **无关**：Session（IMPlugin 不直接参与 session 生命周期管理；peer_id/thread_id 经 Session 上下文存储后由 Gateway 在出站时取出传入）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）
+- **无关**：Session（IMPlugin 不直接参与 session 生命周期管理；peer_id/reply_ref 经 Session 上下文存储后由 Gateway 在出站时取出传入）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）
+
+### 平台接口真实性验证
+
+IM 平台接口行为可能随平台侧变更而漂移（事件结构、字段语义、接口可用性）。每个平台插件提供一套真实性验证手段，用于发现此类漂移：
+
+- **离线对照**：单元测试与解析逻辑以已采集的真实事件样本（fixture）为权威输入，样本存于 `tests/fixtures/<平台>/`
+- **真实收发验证**：平台插件附带验证脚本，向平台发起真实收发，核对接口行为与已采集样本仍一致；脚本由维护者不定期手动触发，不进入自动化流程（不进 cargo test）
+- **凭证安全**：验证使用真实平台账号，凭证与身份信息不落在代码库内（飞书平台经 lark-cli profile 提供，见 [飞书插件](platforms/feishu.md)）
+- 验证产出的新样本用于更新 fixture，接口行为变化时同步修订设计与解析实现

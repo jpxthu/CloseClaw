@@ -18,36 +18,40 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 |------|------|------|
 | `platform` | string | 平台标识，如 `"feishu"`、`"terminal"` |
 | `sender_id` | string | 发送者的平台内 ID |
-| `peer_id` | string | 会话对端（群聊 chat_id 或私聊对方 ID） |
-| `thread_id` | string? | 话题 ID，可选。不参与 session key 计算，仅用于出站定向回复。出站传递机制：入站填入后经 Session 上下文存储，出站时由 Gateway 取出传给 IMPlugin 发送，见 [session-lifecycle 出站定向字段](../session/session-lifecycle.md) |
-| `account_id` | string | CloseClaw 本地账号标识，由 sender_id 通过身份映射得到。参与 session 路由 |
-| `content` | string | 消息文本内容。非文本消息时可为空 |
-| `message_type` | enum | 消息类型：text / image / file / audio |
-| `media_refs` | list(MediaRef) | 图片/文件/音频的引用列表，每个元素为 MediaRef 结构（含 `key` 资源标识和 `url` 访问地址）。由 Adapter 负责下载到本地临时路径 |
+| `peer_id` | string | 会话对端——会话上下文锚点，由插件按平台语义构造，同一会话内取值稳定、不同会话间互不相同（如私聊的「对方用户 + 话题」组合、群聊的群 ID） |
+| `reply_ref` | string? | 出站定向引用，可选。插件按平台语义填入、出站时原样消费的平台引用（如话题根消息标识），用于把回复投递回原会话位置。不参与 session 路由。出站传递机制：入站填入后经 Session 上下文存储，出站时由 Gateway 取出传给 IMPlugin 发送，见 [session-lifecycle 出站定向字段](../session/session-lifecycle.md) |
+| `account_id` | string | CloseClaw 本地账号标识，由「平台 + 接收方机器人应用 + sender_id」经身份映射得到。参与 session 路由 |
+| `content` | string | 消息文本内容。纯媒体消息时可为空 |
+| `message_type` | enum | 消息类型：text / image / file / audio / post。post 为含内嵌媒体的富文本消息——展开文本入 content，内嵌媒体入 media_refs |
+| `media_refs` | list(MediaRef) | 消息携带的媒体引用列表。Adapter 在入站解析时完成媒体落盘并填充，下游一律以引用消费，不接触平台下载地址与凭证。落盘与消费机制见 [im_adapter media-store](../im_adapter/media-store.md) |
+| `unavailable_media` | list(string) | 消息引用但未能获得的媒体资源标识列表（下载失败或超出大小上限）。由 Adapter 在入站解析时填充；失败媒体不进入 media_refs、仅记录于此。非空时 Gateway 按媒体不可得处理（提示用户、不进入对话），见 [im_adapter media-store](../im_adapter/media-store.md) |
 | `timestamp` | int | 消息发送时间（毫秒级 Unix 时间戳） |
 
 **机器人身份（app_id）**：机器人自身标识（app_id）不属于 NormalizedMessage 字段。IM Adapter 在入站解析时单独提取 app_id，不经归一化结构传递，直接交给 Gateway 用于 Agent 路由（选择处理该机器人消息的 Agent）。
 
-**引用/回复消息处理**：IM Adapter 在解析被引用的消息时，将其内容渲染为 markdown blockquote（`> 引用内容`），截断至 500 字符（超出追加 `...`），拼接在 `content` 字段之前。不传递独立的引用消息字段——LLM 在对话文本中直接看到 blockquote。
+**引用/回复消息处理**：IM Adapter 在解析被引用的消息时，将其内容渲染为 markdown blockquote（`> 引用内容`），截断至 500 字符（超出追加 `...`），拼接在 `content` 字段之前（对 text 与 post 消息均适用）。不传递独立的引用消息字段——LLM 在对话文本中直接看到 blockquote。
 
-**消息过滤规则**：text 类型空 content 消息在解析阶段丢弃，不产生 NormalizedMessage。非文本消息（image/file/audio）正常产 NormalizedMessage（message_type 标记类型，media_refs 存储引用，content 可为空），由下游 Gateway 统一处理。当前多模态未支持，所有非文本消息由 Gateway 构造错误回复并经简化出站路径发送（跳过 VerbosityFilter 和 DslParser，直接打包 ProcessedMessage 后出站）。
+**消息过滤规则**：text 类型空 content 消息在解析阶段丢弃，不产生 NormalizedMessage；post 类型 content 与 media_refs 均为空时同样丢弃。其余消息正常产 NormalizedMessage（message_type 标记类型，media_refs 承载已落盘的媒体引用，纯媒体消息 content 可为空），由 Gateway 分型处理——媒体可得时按上下文形态进入对话，不可得时提示用户（详见 [im_adapter media-store](../im_adapter/media-store.md) 与 [gateway 入站流程](../gateway/inbound-flow.md)）。
 
-**身份映射**：`account_id` 由 IM Adapter 在解析入站消息时填入。与其他字段（platform、sender_id 等直接从消息 payload 提取）不同，account_id 需通过 sender_id 查询账户绑定表获取，非直接取值。映射规则：以 sender_id 为键查询账户绑定表，找到对应的 CloseClaw 账户 ID。一个账户可绑定多个平台的 sender_id。terminal 平台恒为 "owner"，无需查表。详见 [config 模块 accounts.json](../config/README.md)。
+**身份映射**：`account_id` 由 IM Adapter 在解析入站消息时填入。与其他字段（platform、sender_id 等直接从消息 payload 提取）不同，account_id 需查询账户绑定表获取，非直接取值。映射规则：以「平台 + 接收方机器人应用 + sender_id」为键查询账户绑定表，找到对应的 CloseClaw 账户 ID——IM 平台的发送者标识按「应用 × 发送者」隔离，跨应用标识不可直接互换，故映射键必须包含接收方机器人应用。一个账户可绑定多个平台的多个发送者标识。terminal 平台恒为 "owner"，无需查表。详见 [config 模块 accounts.json](../config/README.md)。
 
 **字段填充职责**：各字段由 IM Adapter 入站解析时填充。Processor Chain 不修改 NormalizedMessage 字段——ContentNormalizer 读取 message_type 判断消息类型，仅对 text 类型做 content 文本标准化；SessionRouter 读取 platform/sender_id/peer_id/account_id 计算 session_key。Processor Chain 各 Processor 通过共享的可变 ProcessedMessage 上下文传递数据：SessionRouter 计算 session_key 后直接写入 ProcessedMessage.metadata，ContentNormalizer 随后从同一 NormalizedMessage 读取 content 做标准化后写入 ProcessedMessage.content_blocks。session_key 不写入 NormalizedMessage。
 
-**message_type 与 media_refs**：message_type 由 ContentNormalizer 消费（非 text 跳过标准化）。media_refs 为多模态支持预留，入站链路不消费。
+**message_type 与 media_refs**：message_type 由 ContentNormalizer 消费（非 text 跳过标准化）。media_refs 在入站链路仅透传——媒体已由 Adapter 落盘，上下文形态决策由 Gateway 在路由阶段完成（见 [gateway 入站流程](../gateway/inbound-flow.md)）。
 
 NormalizedMessage 引用的子结构：
 
-**MediaRef**：图片/文件/音频的资源引用，由 IM Adapter 下载到本地临时路径后填充。
+**MediaRef**：媒体资源的本地存储引用，由 IM Adapter 在入站解析落盘后填充，是下游消费媒体的唯一形态。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `key` | string | 资源标识，平台内的唯一 key |
-| `url` | string | 资源访问地址，Adapter 据此下载到本地临时路径 |
+| `key` | string | 平台内资源标识（如飞书 image_key / file_key），用于关联与幂等 |
+| `path` | string | 媒体存储中的本地文件路径（相对媒体存储根目录），文件名经安全净化并附加唯一后缀 |
+| `media_type` | enum | image / file / audio |
+| `size` | int | 文件大小（字节） |
+| `mime` | string | MIME 类型 |
 
-`key` 与出站 [ContentBlock](#contentblock) 非文本变体的 `name` 均表示资源标识，语义等价——命名差异源于入站（MediaRef）与出站（ContentBlock）两套独立结构。
+`key` 与出站 [ContentBlock](#contentblock) 非文本变体的 `name` 均表示资源标识，语义等价——命名差异源于入站（MediaRef）与出站（ContentBlock）两套独立结构。落盘、上下文形态与生命周期机制见 [im_adapter media-store](../im_adapter/media-store.md)。
 
 **建模边界**：NormalizedMessage 建模用户主动发送的消息（文本、图片、文件、音频）。卡片交互事件——用户点击消息中嵌入的按钮、选择器等交互控件——属于工具调用的回执，走 tool_result 通道注入对话，不经过 NormalizedMessage 入站通路。各 IM 平台在 Adapter 解析阶段须区分消息事件和交互事件，仅将消息事件转为 NormalizedMessage。卡片交互事件的载荷结构为 [CardActionEvent](#cardactionevent)，平台解析阶段的识别规则见 [im_adapter feishu](../im_adapter/platforms/feishu.md)（事件区分段落）。
 
@@ -237,8 +241,8 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `content_blocks` | ContentBlock[] | 处理后的内容块数组。入站方向为单个 ContentBlock::Text（ContentNormalizer 标准化后的文本；非 text 消息跳过标准化，此格为原样内容的 Text 包装，随后由 Gateway 构造错误回复走简化出站路径），出站方向为经 DslParser 处理后的 ContentBlock[]（Text 块已剥离 DSL 行，其余块透传） |
-| `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识）和 `message_type`（来自原始 NormalizedMessage，由 Processor Chain 在构建 ProcessedMessage 时从 NormalizedMessage 复制，供 Gateway 做非文本路由判断），出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化） |
+| `content_blocks` | ContentBlock[] | 处理后的内容块数组。入站方向为单个 ContentBlock::Text（ContentNormalizer 标准化后的文本；非 text 消息跳过标准化，此格为原样内容的 Text 包装，后续由 Gateway 按媒体可得性分型路由，见下方数据流），出站方向为经 DslParser 处理后的 ContentBlock[]（Text 块已剥离 DSL 行，其余块透传） |
+| `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识）、`message_type`（来自原始 NormalizedMessage，由 Processor Chain 在构建 ProcessedMessage 时从 NormalizedMessage 复制，供 Gateway 做分型路由判断）和 `unavailable_media`（不可得媒体资源标识列表，JSON 序列化，同样复制，供 Gateway 做媒体可得性判断）；出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化）。metadata 字段的复制均发生在链调度构建 ProcessedMessage 时——各 Processor 不修改 NormalizedMessage 字段，复制不构成对消息的修改 |
 
 入站和出站不区分类型——同一个 ProcessedMessage 结构，内容形态和 metadata 字段按方向不同而不同。
 
@@ -376,10 +380,10 @@ PlanState 描述当前规划的阶段和未完成步骤列表：
 NormalizedMessage 的全系统流动路径：
 
 ```
-IM 平台 webhook / terminal stdin
+IM 平台事件 / terminal stdin
   ↓
 IM Adapter 入站解析（各平台插件）
-  → 平台格式转 NormalizedMessage { platform, sender_id, peer_id, thread_id?, account_id, content, message_type, media_refs, timestamp }
+  → 平台格式转 NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, content, message_type, media_refs, unavailable_media, timestamp }
   ↓
 Processor Chain 入站
   → RawLog（记录日志）→ SessionRouter（计算 session_key）→ ContentNormalizer（文本标准化）
@@ -464,7 +468,7 @@ ProcessedMessage {
   metadata: { session_key: "{timestamp}-{hash}", message_type: "<原始 message_type>" }
 }
   ↓
-Gateway — 先检查 message_type：非 text（image/file/audio）构造错误回复经简化出站路径发送（跳过 VerbosityFilter 和 DslParser，由 OutboundRawLog 打包 ProcessedMessage 出站）；text 消息从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话），从 metadata 取 session_key 传给 SessionManager
+Gateway — 先检查 message_type：含媒体消息做媒体可得性校验（不可得 → 提示「该消息内容无法获取」经简化出站路径发送、流程结束；可得 → 按类型构造上下文形态后与文本同链路继续，形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）；对话消息从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话），从 metadata 取 session_key 传给 SessionManager
 ```
 
 出站方向：
@@ -526,7 +530,7 @@ IMPlugin.render() → RenderedOutput { msg_type, payload }
   ↓
 [Gateway 中间件插入点] — 审计、频率限制等
   ↓
-IMPlugin.send(rendered_output, peer_id, thread_id) → 平台发送 API
+IMPlugin.send(rendered_output, peer_id, reply_ref) → 平台发送 API
 ```
 
 RenderedOutput 的生命周期：IMPlugin 渲染产出 → Gateway 中间件 → IMPlugin 发送后销毁。
@@ -676,7 +680,7 @@ Plan Mode 结束时销毁 PlanState
 ### ProcessedMessage
 
 - **生产者**：Processor Chain 入站（ContentNormalizer 包装标准化文本为 ContentBlock::Text + SessionRouter 写 session_key 到 metadata）、Processor Chain 出站（DslParser 处理 ContentBlock[] + 写 dsl_result 到 metadata）
-- **消费者**：Gateway（入站：消费 content_blocks + metadata.session_key 做路由决策 + metadata.message_type 做非文本判断；出站：消费 content_blocks + metadata.dsl_result 做出站日志后传给 IM Adapter）、IM Adapter（消费 content_blocks + metadata.dsl_result 渲染为平台格式并发送）、CLI TerminalRenderer（同 IM Adapter，渲染为 ANSI 终端文本）
+- **消费者**：Gateway（入站：消费 content_blocks + metadata.session_key 做路由决策 + metadata.message_type 做分型路由判断；出站：消费 content_blocks + metadata.dsl_result 做出站日志后传给 IM Adapter）、IM Adapter（消费 content_blocks + metadata.dsl_result 渲染为平台格式并发送）、CLI TerminalRenderer（同 IM Adapter，渲染为 ANSI 终端文本）
 - **无关**：NormalizedMessage（入站方向的上游产物，经 Processor Chain 处理后产出 ProcessedMessage，两者是不同的两个结构）、Session（Gateway 通过 ProcessedMessage 中的 session_key 找到 Session，但 Session 不直接操作 ProcessedMessage）、LLM Provider（不接触 ProcessedMessage，只产出 ContentBlock[]）
 
 ### SlashResult
