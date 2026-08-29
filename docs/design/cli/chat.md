@@ -36,7 +36,7 @@ terminal 渠道 NormalizedMessage 取值：
 - content = 原始输入文本
 - message_type = text
 
-其余字段（thread_id、media_refs、timestamp）按默认值：thread_id 为空，media_refs 为空列表，timestamp 取系统时间。
+其余字段（reply_ref、media_refs、unavailable_media、timestamp）按默认值：reply_ref 为空，media_refs 为空列表，unavailable_media 为空列表，timestamp 取系统时间。
 
 消息过滤规则与其他渠道一致：空内容不产出 NormalizedMessage。
 

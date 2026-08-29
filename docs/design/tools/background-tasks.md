@@ -45,7 +45,7 @@ agent 提交后台命令
 
 状态变迁不可逆。正常路径由进程退出事件驱动（exit 0 → completed，非 0 → failed）；killed 是外部触发的终态（agent 主动终止或系统清理），不等待退出事件——一旦进入 killed 状态，后续进程退出通知被忽略。
 
-任务启动及每次进入终态（completed / failed / killed）时，通过调试日志框架记录关键事件（含任务标识、命令文本、新状态）。后台任务属非 webhook 内部事件，追踪标识由本模块自行生成（见 [debug_log/README.md](../debug_log/README.md)）。
+任务启动及每次进入终态（completed / failed / killed）时，通过调试日志框架记录关键事件（含任务标识、命令文本、新状态）。后台任务属非消息内部事件，追踪标识由本模块自行生成（见 [debug_log/README.md](../debug_log/README.md)）。
 
 ### 两种后台化路径
 

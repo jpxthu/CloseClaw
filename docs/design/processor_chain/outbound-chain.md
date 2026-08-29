@@ -62,7 +62,7 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
           → 输出平台原生格式
         → [中间件插入点] — Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件
         → IM Adapter 发送
-        → 根据 (peer_id, thread_id) 发送到对应会话/话题
+        → 根据 (peer_id, reply_ref) 发送到对应会话/话题位置
 ```
 
 Verbosity 过滤等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)。
