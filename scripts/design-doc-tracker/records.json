@@ -609,9 +609,9 @@
   },
   {
     "path": "docs/design/slash/README.md",
-    "commit": "35d5e2c9b3df16e2f40b01c1479ceda875db5551",
-    "commit_time": "2026-07-29T02:39:12+08:00",
-    "confirmed_time": "2026-07-29T02:49:16.883032+08:00",
+    "commit": "370d382ab48abab75208f2fa153db021b93ad3ca",
+    "commit_time": "2026-08-29T20:34:03+08:00",
+    "confirmed_time": "2026-08-29T21:02:51.354213+08:00",
     "comment": "",
     "blocked_reason": ""
   },
