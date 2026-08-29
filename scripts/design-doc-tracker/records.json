@@ -57,9 +57,9 @@
   },
   {
     "path": "docs/design/cli/chat.md",
-    "commit": "1bd6b96409b4ed80b88e751aa1e80cd3e2394d70",
-    "commit_time": "2026-08-24T06:31:59+08:00",
-    "confirmed_time": "2026-08-24T06:56:10.162110+08:00",
+    "commit": "1f1d7c6af62cc7de04fb23b1bdd3fffdf3f829d0",
+    "commit_time": "2026-08-30T04:29:31+08:00",
+    "confirmed_time": "2026-08-30T04:53:52.100728+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -369,11 +369,11 @@
   },
   {
     "path": "docs/design/mode/README.md",
-    "commit": "5f25783ad418ae179d827f07bb19196160f0e8ff",
-    "commit_time": "2026-08-27T17:19:59+08:00",
-    "confirmed_time": "2026-08-27T18:06:23.800067+08:00",
+    "commit": "1f1d7c6af62cc7de04fb23b1bdd3fffdf3f829d0",
+    "commit_time": "2026-08-30T04:29:31+08:00",
+    "confirmed_time": "2026-08-30T04:33:00.622230+08:00",
     "comment": "",
-    "blocked_reason": "docs/design/slash/mode-switching.md 内部矛盾：数据流确认 Auto 模式存在，但 /mode 非法参数提示仅列出 normal, plan。代码接受 auto。红线禁止修改 docs/design/* 下文件，无法修正文档。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/mode/execution.md",
