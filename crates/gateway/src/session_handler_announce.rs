@@ -817,16 +817,18 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_resolve_effective_level_levels_all_enabled() {
-        // deepseek-v4-flash: off=true, base=true, reasoner=true
+    fn test_resolve_effective_level_levels_flash() {
+        // deepseek-v4-flash: off=true, base=true, reasoner=false
+        // Max→High (no reasoner), High→Medium (base), Medium→Medium,
+        // Low→Low, Off→Off.
         let kb = ProviderModelKnowledge::new();
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Max, &kb),
-            ReasoningLevel::Max,
+            ReasoningLevel::High,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::High, &kb),
-            ReasoningLevel::High,
+            ReasoningLevel::Medium,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Medium, &kb),
@@ -836,20 +838,25 @@ pub(crate) mod tests {
             resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Low, &kb),
             ReasoningLevel::Low,
         );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-flash", ReasoningLevel::Off, &kb),
+            ReasoningLevel::Off,
+        );
     }
 
     #[test]
-    fn test_resolve_effective_level_levels_no_off() {
-        // deepseek-v4-pro: off=false, base=true, reasoner=true
-        // Medium+ supported directly; Low falls through to Low (no off support).
+    fn test_resolve_effective_level_levels_pro() {
+        // deepseek-v4-pro: off=false, base=true, reasoner=false
+        // Max→High (no reasoner), High→Medium (base), Medium→Medium,
+        // Low→Low, Off→Low (no off support).
         let kb = ProviderModelKnowledge::new();
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Max, &kb),
-            ReasoningLevel::Max,
+            ReasoningLevel::High,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::High, &kb),
-            ReasoningLevel::High,
+            ReasoningLevel::Medium,
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Medium, &kb),
@@ -857,6 +864,10 @@ pub(crate) mod tests {
         );
         assert_eq!(
             resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Low, &kb),
+            ReasoningLevel::Low,
+        );
+        assert_eq!(
+            resolve_effective_reasoning_level("deepseek-v4-pro", ReasoningLevel::Off, &kb),
             ReasoningLevel::Low,
         );
     }
