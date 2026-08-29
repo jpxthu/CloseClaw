@@ -132,16 +132,26 @@ impl SkillListingProviderWrapper {
         agent_skills: Option<&[String]>,
         exclude_conditional: bool,
     ) -> String {
-        let disk = self.collect_disk_listings(agent_id, agent_skills, exclude_conditional);
-        let builtin = self.collect_builtin_listings(agent_skills, exclude_conditional);
+        // Unified whitelist resolution: explicit agent_skills takes priority,
+        // falling back to agent_skills_query from the disk registry.
+        let resolved_whitelist = agent_skills.map(|w| w.to_vec()).or_else(|| {
+            self.disk.read().ok().and_then(|g| {
+                g.as_ref().and_then(|r| {
+                    r.agent_skills_query()
+                        .and_then(|q| q.get_agent_skills(agent_id.unwrap_or("")))
+                })
+            })
+        });
+        let resolved_ref = resolved_whitelist.as_deref();
+
+        let disk = self.collect_disk_listings(agent_id, resolved_ref, exclude_conditional);
+        let builtin = self.collect_builtin_listings(resolved_ref, exclude_conditional);
         Self::merge_and_sort_listings(disk, builtin)
     }
 
     /// Collect listing entries from the disk skill registry.
     ///
-    /// Resolves the effective whitelist (explicit `agent_skills` override,
-    /// falling back to the agent skills query) and delegates to
-    /// [`DiskSkillRegistry::listing_entries`] which handles
+    /// Delegates to [`DiskSkillRegistry::listing_entries`] which handles
     /// `user_invocable` / whitelist filtering and `(source, name)` sorting.
     ///
     /// When `exclude_conditional` is `true`, conditional skills are
@@ -149,20 +159,16 @@ impl SkillListingProviderWrapper {
     fn collect_disk_listings(
         &self,
         agent_id: Option<&str>,
-        agent_skills: Option<&[String]>,
+        resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
     ) -> Vec<(String, u8)> {
+        let _ = agent_id; // retained for API symmetry; whitelist already resolved by caller
         self.disk
             .read()
             .ok()
             .and_then(|g| {
                 g.as_ref().map(|r| {
-                    let resolved_whitelist = agent_skills.map(|w| w.to_vec()).or_else(|| {
-                        r.agent_skills_query()
-                            .and_then(|q| q.get_agent_skills(agent_id.unwrap_or("")))
-                    });
-                    let resolved_ref = resolved_whitelist.as_deref();
-                    r.listing_entries(resolved_ref, exclude_conditional)
+                    r.listing_entries(resolved_whitelist, exclude_conditional)
                         .into_iter()
                         .map(|(line, source)| (line, source as u8))
                         .collect()
@@ -173,30 +179,18 @@ impl SkillListingProviderWrapper {
 
     /// Collect listing entries from the builtin skill registry.
     ///
-    /// Filters by `user_invocable` and whitelist membership. When
-    /// `exclude_conditional` is `true`, also excludes skills with
-    /// non-empty `paths`.
+    /// Delegates to [`BuiltinSkillRegistry::listing_entries`] for
+    /// `user_invocable` / whitelist filtering and sorted output.
     fn collect_builtin_listings(
         &self,
-        agent_skills: Option<&[String]>,
+        resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
     ) -> Vec<(String, u8)> {
         let rt = tokio::runtime::Handle::current();
-        let entries = rt.block_on(self.builtin.sorted_skills());
-        entries
-            .into_iter()
-            .filter(|(m, meta)| {
-                meta.user_invocable
-                    && (meta.paths.is_empty() || !exclude_conditional)
-                    && agent_skills.map_or(true, |w| {
-                        w == ["*"] || w.iter().any(|s| s.as_str() == m.name.as_str())
-                    })
-            })
-            .map(|(m, meta)| {
-                let line = BuiltinSkillRegistry::render_single_listing(&m, &meta);
-                (line, 4u8) // Bundled priority
-            })
-            .collect()
+        rt.block_on(
+            self.builtin
+                .listing_entries(resolved_whitelist, exclude_conditional),
+        )
     }
 
     /// Merge two sorted listing vectors, deduplicating by skill name.
