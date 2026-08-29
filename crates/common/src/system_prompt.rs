@@ -108,6 +108,12 @@ pub struct DynamicPromptContext<'a> {
     /// When `Some`, a mode transition prompt from design doc §6 is
     /// injected. `None` means no transition occurred on this request.
     pub mode_transition: Option<ModeTransition>,
+    /// Plan file path for Auto Mode prompt injection.
+    ///
+    /// When `Some`, the dynamic builder reads the plan file content
+    /// and injects it as a `## Plan File` section after the Mode
+    /// Instruction in Auto Mode. `None` means no plan file context.
+    pub plan_file_path: Option<&'a str>,
 }
 
 /// Builder for the dynamic portion of the system prompt.

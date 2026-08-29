@@ -43,6 +43,11 @@ pub struct DynamicSectionsParams<'a> {
     /// corresponding design doc §6 prompt. `None` means no transition
     /// occurred on this request.
     pub mode_transition: Option<ModeTransition>,
+    /// Plan file path for Auto Mode prompt injection.
+    ///
+    /// When `Some`, the plan file content is read and injected as a
+    /// `## Plan File` section after the Mode Instruction in Auto Mode.
+    pub plan_file_path: Option<&'a str>,
 }
 
 /// Build dynamic sections from metadata and session state.
@@ -95,7 +100,30 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
         sections.push(Section::ModeTransition(transition));
     }
 
-    // 4. GitStatus (when enabled and workdir is a git repo)
+    // 4. PlanFile (Auto Mode + plan file path provided)
+    //    Reads plan file content and injects as a section.
+    //    File read failure → warn and skip; never blocks prompt build.
+    if params.session_mode == SessionMode::Auto {
+        if let Some(path) = params.plan_file_path {
+            match std::fs::read_to_string(path) {
+                Ok(content) => {
+                    sections.push(Section::PlanFile {
+                        path: path.to_string(),
+                        content,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        plan_path = %path,
+                        error = %e,
+                        "failed to read plan file for Auto Mode prompt injection, skipping"
+                    );
+                }
+            }
+        }
+    }
+
+    // 5. GitStatus (when enabled and workdir is a git repo)
     if let Some(path) = params.workdir_path {
         if params.is_git_status_enabled {
             if let Some(status) = workdir::build_git_status_for(path) {
@@ -267,6 +295,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             is_sub_agent: context.is_sub_agent,
             is_git_status_enabled: context.is_git_status_enabled,
             mode_transition: context.mode_transition,
+            plan_file_path: context.plan_file_path,
         });
         let mut dynamic_rendered: String = sections.iter().map(|s| s.render()).collect();
         // Append the appends section directly (independent of dynamic sections)

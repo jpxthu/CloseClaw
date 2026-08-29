@@ -215,6 +215,7 @@ pub struct ConversationSession {
     workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
     /// Workflow handler for tool result processing and engine state.
     workflow_handler: Option<crate::workflow_handler::WorkflowHandler>,
+    plan_file_path: Option<String>,
 }
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
@@ -277,6 +278,7 @@ impl ConversationSession {
             llm_caller: None,
             system_prompt_builder: None,
             prompt_overrides: None,
+            plan_file_path: None,
             dynamic_prompt_builder: None,
             manual_background_signal: Arc::new(tokio::sync::Notify::new()),
             checkpoint_storage: None,
@@ -530,6 +532,12 @@ impl ConversationSession {
     pub fn request_context(&self) -> closeclaw_common::RequestContext {
         self.request_context.lock().expect("rc poisoned").clone()
     }
+    pub fn plan_file_path(&self) -> Option<&str> {
+        self.plan_file_path.as_deref()
+    }
+    pub fn set_plan_file_path(&mut self, path: Option<String>) {
+        self.plan_file_path = path;
+    }
     /// Returns a reference to the memory-injection Arc.
     pub fn memory_injection_arc(&self) -> &Arc<Mutex<Option<MemoryInjection>>> {
         &self.memory_injection
@@ -610,16 +618,9 @@ impl ConversationSession {
 
     /// Rebuild the system prompt using the session's own builder and overrides.
     ///
-    /// This is the session-side entry point for prompt rebuilds after
-    /// compaction or config changes. The session owns the builder and
-    /// overrides; no external references are needed.
-    ///
-    /// * `bootstrap_mode_override` — optional override for the bootstrap mode
-    ///   used when building the prompt. Pass `None` for standard rebuilds;
-    ///   spawn callers should pass the child's bootstrap mode.
-    ///
-    /// Returns the rebuilt prompt string for callers that need it
-    /// (e.g. initial session creation in `resolve.rs`).
+    /// * `bootstrap_mode_override` — optional override for the bootstrap mode.
+    ///   Pass `None` for standard rebuilds; spawn callers should pass the
+    ///   child's bootstrap mode.
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,
@@ -711,9 +712,7 @@ impl ConversationSession {
     /// blocks from assistant messages, and returns the first match.
     /// Returns `None` if no matching assistant message is found.
     ///
-    /// Used by `drain_outbound_pending_for_session` to look up message
-    /// content from the transcript (authoritative source) instead of
-    /// relying on the outbound_pending cache.
+    /// Look up assistant message content from the transcript.
     pub fn find_assistant_text_by_content(
         messages: &[SessionMessage],
         target: &str,
