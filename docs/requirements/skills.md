@@ -24,6 +24,8 @@ User 将 SKILL.md 文件放入技能目录后，Agent 在下次 session 启动�
 
 User 通过在不同层级放置同名技能来实现覆盖——例如用项目级技能覆盖全局同名技能。外部复用层级允许 User 指定外部目录（如其他工具链的技能目录），直接复用其中的技能。
 
+> **交叉引用**：外部复用目录属于技能配置，目录变更后自下次 System Prompt 组装时生效（见 F5）；配置重载机制详见 [config §F4](config.md)（配置重载）。
+
 ### F3. 技能配置
 
 每个技能通过 SKILL.md 文件头部的 frontmatter 配置其行为，User 无需编写代码即可控制技能的各项属性：
@@ -54,7 +56,7 @@ System Prompt 每次组装时，系统从技能注册中心读取当前可用技
 
 User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更不会在当前 session 自动生效。文件系统中的技能定义仅在下次 System Prompt 组装时反映。
 
-> **交叉引用**：System Prompt 组装触发时机和数据源变更的生效规则见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：System Prompt 组装触发时机和数据源变更的生效规则见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）；配置重载机制见 [config §F4](config.md)（配置重载）。
 
 ### F6. 条件激活
 
