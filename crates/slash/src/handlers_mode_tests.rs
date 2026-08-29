@@ -82,7 +82,7 @@ fn test_plan_mode_handler_commands_and_description() {
 #[test]
 fn test_plan_mode_handler_not_immediate() {
     let h = make_plan_handler();
-    assert!(!h.immediate("plan"));
+    assert!(!h.immediate("plan", ""));
 }
 
 #[tokio::test]
@@ -207,10 +207,27 @@ fn test_mode_handler_commands_and_description() {
 }
 
 #[test]
-fn test_mode_handler_is_not_immediate() {
+fn test_mode_handler_is_not_immediate_with_args() {
     let sm = make_session_manager();
     let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    assert!(!h.immediate("mode"));
+    assert!(!h.immediate("mode", "plan"));
+    assert!(!h.immediate("mode", "normal"));
+    assert!(!h.immediate("mode", "auto"));
+}
+
+#[test]
+fn test_mode_handler_is_immediate_when_no_args() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    assert!(h.immediate("mode", ""));
+    assert!(h.immediate("mode", "   "));
+}
+
+#[test]
+fn test_mode_handler_is_not_immediate_with_invalid_args() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    assert!(!h.immediate("mode", "invalid"));
 }
 
 #[tokio::test]
@@ -436,7 +453,7 @@ fn test_execute_handler_commands_and_description() {
 fn test_execute_handler_not_immediate() {
     let sm = make_session_manager();
     let h = ExecuteHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    assert!(!h.immediate("execute"));
+    assert!(!h.immediate("execute", ""));
 }
 
 #[tokio::test]
@@ -690,7 +707,7 @@ fn test_auto_mode_handler_commands_and_description() {
 #[test]
 fn test_auto_mode_handler_not_immediate() {
     let h = make_auto_handler();
-    assert!(!h.immediate("auto"));
+    assert!(!h.immediate("auto", ""));
 }
 
 #[tokio::test]

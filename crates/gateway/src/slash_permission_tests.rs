@@ -628,7 +628,7 @@ impl SlashHandler for StopResultHandler {
     fn description(&self) -> &str {
         "stop handler"
     }
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         true
     }
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {

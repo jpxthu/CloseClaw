@@ -133,7 +133,9 @@ impl Gateway {
         };
 
         // Non-immediate commands: if session is busy, enqueue for later.
-        if !dispatcher.is_immediate(cmd) && self.session_manager.is_session_busy(session_id).await {
+        if !dispatcher.is_immediate(content)
+            && self.session_manager.is_session_busy(session_id).await
+        {
             self.enqueue_pending_slash(session_id, content, peer_id.unwrap_or(""), channel)
                 .await;
             return Some(HandleResult::SlashHandled);

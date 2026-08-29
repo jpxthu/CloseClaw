@@ -149,7 +149,7 @@ fn test_pause_handler_commands_and_description() {
 fn test_pause_handler_not_immediate() {
     let sm = make_session_manager();
     let h = PauseHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    assert!(!h.immediate("pause"));
+    assert!(!h.immediate("pause", ""));
 }
 
 #[tokio::test]

@@ -75,7 +75,7 @@ impl SlashHandler for SkillSlashHandler {
         "调用技能"
     }
 
-    fn immediate(&self, _cmd: &str) -> bool {
+    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
         false
     }
 
