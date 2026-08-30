@@ -58,6 +58,10 @@ impl CredentialsProvider {
     ///
     /// The file should contain a single credentials object.
     /// Returns an empty provider if the file does not exist.
+    ///
+    /// **Note:** Parse/validation failures are silently swallowed and
+    /// return an empty provider. For hot-reload paths that must surface
+    /// errors, use [`load_from_file_strict`](Self::load_from_file_strict).
     pub fn load_from_file(file: &Path) -> Result<Self, ConfigError> {
         let mut provider = CredentialsProvider::default();
         if !file.exists() {
@@ -78,11 +82,60 @@ impl CredentialsProvider {
         Ok(provider)
     }
 
+    /// Strict variant of [`load_from_file`](Self::load_from_file) that
+    /// returns `Err` on parse or validation failure.
+    ///
+    /// Used by the hot-reload path to ensure credential_path references
+    /// with invalid files abort the entire load rather than being silently
+    /// skipped.
+    pub fn load_from_file_strict(file: &Path) -> Result<Self, ConfigError> {
+        if !file.exists() {
+            return Err(ConfigError::ParseError {
+                path: file.to_path_buf(),
+                error: "credential_path file does not exist".to_string(),
+            });
+        }
+        let content = fs::read_to_string(file)?;
+        let value: serde_json::Value = serde_json::from_str(&content)?;
+        if let Err(e) = crate::validators::validate_credentials(&value) {
+            return Err(ConfigError::ValidationError {
+                path: file.to_path_buf(),
+                message: e,
+            });
+        }
+        let creds: AnyProviderCredentials = serde_json::from_value(value)?;
+        let mut provider = CredentialsProvider::default();
+        let name = match &creds {
+            AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
+            AnyProviderCredentials::Feishu(c) => c.provider.clone(),
+        };
+        provider.providers.insert(name, creds);
+        Ok(provider)
+    }
+
     /// Load all credentials from a directory containing JSON files.
     ///
     /// Each file should contain a single credentials object.
     /// Returns an empty provider if the directory does not exist.
+    ///
+    /// When `strict` is `true`, the first parsing or validation failure
+    /// aborts the entire load and returns an error. This is used by the
+    /// hot-reload path so that validation failures are surfaced to the
+    /// caller (which triggers `on_validation_failed` and prevents staging).
     pub fn load_from_dir(dir: &Path) -> Result<Self, ConfigError> {
+        Self::load_from_dir_with_mode(dir, false)
+    }
+
+    /// Strict variant of [`load_from_dir`](Self::load_from_dir) that
+    /// fails on the first invalid credential file.
+    ///
+    /// Used by the hot-reload path to ensure validation failures are
+    /// not silently swallowed.
+    pub fn load_from_dir_strict(dir: &Path) -> Result<Self, ConfigError> {
+        Self::load_from_dir_with_mode(dir, true)
+    }
+
+    fn load_from_dir_with_mode(dir: &Path, strict: bool) -> Result<Self, ConfigError> {
         if !dir.exists() {
             return Ok(Self::default());
         }
@@ -97,47 +150,75 @@ impl CredentialsProvider {
             if path.extension().and_then(|s| s.to_str()) != Some("json") {
                 continue;
             }
-            let content = fs::read_to_string(&path)?;
-            let value: serde_json::Value = match serde_json::from_str(&content) {
-                Ok(v) => v,
-                Err(_) => {
-                    // skip malformed files silently
-                    continue;
-                }
-            };
-            // Validate credential file structure before deserializing
-            if let Err(e) = crate::validators::validate_credentials(&value) {
-                warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "credential file failed validation, skipping"
-                );
-                continue;
+            if let Some((name, creds)) = Self::parse_credential_file(&path, strict)? {
+                ensure_owner_only_permissions(&path).unwrap_or_else(|e| {
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "failed to set credential file permissions"
+                    );
+                });
+                provider.providers.insert(name, creds);
             }
-            let creds: AnyProviderCredentials = match serde_json::from_value(value) {
-                Ok(c) => c,
-                Err(_) => {
-                    // skip files that don't match known credential shapes
-                    continue;
-                }
-            };
-            let name = match &creds {
-                AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
-                AnyProviderCredentials::Feishu(c) => c.provider.clone(),
-            };
-
-            // Ensure credential file has restrictive permissions (owner-only read/write).
-            if let Err(e) = ensure_owner_only_permissions(&path) {
-                warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "failed to set credential file permissions"
-                );
-            }
-
-            provider.providers.insert(name, creds);
         }
         Ok(provider)
+    }
+
+    /// Parse, validate, and deserialize a single credential file.
+    ///
+    /// Returns `Ok(Some((name, creds)))` on success, `Ok(None)` when the file
+    /// should be skipped (non-strict mode parse/validation failure), or
+    /// `Err` in strict mode when the first failure aborts the entire load.
+    fn parse_credential_file(
+        path: &Path,
+        strict: bool,
+    ) -> Result<Option<(String, AnyProviderCredentials)>, ConfigError> {
+        let content = fs::read_to_string(path)?;
+        let value: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                if strict {
+                    return Err(ConfigError::ParseError {
+                        path: path.to_path_buf(),
+                        error: e.to_string(),
+                    });
+                }
+                return Ok(None);
+            }
+        };
+        // Validate credential file structure before deserializing
+        if let Err(e) = crate::validators::validate_credentials(&value) {
+            if strict {
+                return Err(ConfigError::ValidationError {
+                    path: path.to_path_buf(),
+                    message: e,
+                });
+            }
+            warn!(
+                path = %path.display(),
+                error = %e,
+                "credential file failed validation, skipping"
+            );
+            return Ok(None);
+        }
+        let creds: AnyProviderCredentials = match serde_json::from_value(value) {
+            Ok(c) => c,
+            Err(_) => {
+                if strict {
+                    return Err(ConfigError::ParseError {
+                        path: path.to_path_buf(),
+                        error: "credential file does not match any known credential shape"
+                            .to_string(),
+                    });
+                }
+                return Ok(None);
+            }
+        };
+        let name = match &creds {
+            AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
+            AnyProviderCredentials::Feishu(c) => c.provider.clone(),
+        };
+        Ok(Some((name, creds)))
     }
 
     /// Parse from a JSON string (useful for tests).
@@ -393,6 +474,46 @@ mod tests {
         assert_eq!(provider.providers.len(), 2);
         assert_eq!(provider.get_api_key("openai").unwrap(), "sk-openai");
         assert_eq!(provider.get_api_key("anthropic").unwrap(), "sk-ant");
+    }
+
+    // -------------------------------------------------------------------------
+    // load_from_file_strict tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_load_from_file_strict_success() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("openai.json");
+        fs::write(&file, r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
+        let provider = CredentialsProvider::load_from_file_strict(&file).unwrap();
+        assert_eq!(provider.providers.len(), 1);
+        assert_eq!(provider.get_api_key("openai").unwrap(), "sk-test");
+    }
+
+    #[test]
+    fn test_load_from_file_strict_nonexistent_file() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("nonexistent.json");
+        let result = CredentialsProvider::load_from_file_strict(&file);
+        assert!(result.is_err(), "should fail for nonexistent file");
+    }
+
+    #[test]
+    fn test_load_from_file_strict_parse_error() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("bad.json");
+        fs::write(&file, r#"{not valid json"#).unwrap();
+        let result = CredentialsProvider::load_from_file_strict(&file);
+        assert!(result.is_err(), "should fail for malformed JSON");
+    }
+
+    #[test]
+    fn test_load_from_file_strict_validation_error() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("invalid.json");
+        fs::write(&file, r#"{"provider":"openai","apiKey":""}"#).unwrap();
+        let result = CredentialsProvider::load_from_file_strict(&file);
+        assert!(result.is_err(), "should fail for validation error");
     }
 
     // -------------------------------------------------------------------------
