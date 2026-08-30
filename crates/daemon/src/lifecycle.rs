@@ -177,7 +177,7 @@ impl Daemon {
             skill_registry,
             builtin_skill_registry,
             slash_registry,
-            _config_watcher: config_watcher,
+            _config_watcher: Some(config_watcher),
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
