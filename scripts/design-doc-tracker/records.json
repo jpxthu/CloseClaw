@@ -81,9 +81,9 @@
   },
   {
     "path": "docs/design/common/core-traits.md",
-    "commit": "f2f2e82ea6b88c9e08b1c7ce7e7b1e6bfe0c22ec",
-    "commit_time": "2026-08-30T08:08:57+08:00",
-    "confirmed_time": "2026-08-30T08:20:15.163036+08:00",
+    "commit": "825b7ba483252dbe1de8179706420a5650a49495",
+    "commit_time": "2026-08-30T23:22:10+08:00",
+    "confirmed_time": "2026-08-30T23:36:52.884666+08:00",
     "comment": "",
     "blocked_reason": ""
   },
