@@ -97,11 +97,11 @@
   },
   {
     "path": "docs/design/common/shared-types.md",
-    "commit": "d0f06093921ef2a12b2b5d1eed0f8af623657505",
-    "commit_time": "2026-08-27T23:13:14+08:00",
-    "confirmed_time": "2026-08-30T12:09:14.577415+08:00",
+    "commit": "4109513935ee65a885cbc34cb6cb45223c0669ff",
+    "commit_time": "2026-08-30T12:11:30+08:00",
+    "confirmed_time": "2026-08-30T12:25:09.758444+08:00",
     "comment": "",
-    "blocked_reason": "文档内部矛盾：SideEffectContext 字段类型表中 session_manager 类型标注为 SessionLookup，但正文中多处引用 SessionManager 称谓，术语不一致导致读者混淆实际接口名称"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/config/README.md",
