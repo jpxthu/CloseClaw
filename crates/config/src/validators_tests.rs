@@ -4,9 +4,9 @@ use std::collections::HashSet;
 
 use crate::manager::ConfigSection;
 use crate::validators::{
-    for_section, validate_channels, validate_channels_with_refs, validate_gateway, validate_models,
-    validate_models_with_refs, validate_plugins, validate_session, validate_system,
-    CredentialProviderSet, CrossRefData,
+    for_section, validate_channels, validate_channels_with_refs, validate_gateway, validate_media,
+    validate_models, validate_models_with_refs, validate_plugins, validate_session,
+    validate_system, CredentialProviderSet, CrossRefData,
 };
 
 // ---------------------------------------------------------------------------
@@ -714,6 +714,32 @@ fn test_validate_plugins_pass_empty_collections() {
     assert!(validate_plugins(&v2).is_ok());
     let v3: serde_json::Value = serde_json::from_str(r#"{"installs":{}}"#).unwrap();
     assert!(validate_plugins(&v3).is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// validate_media
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_media_pass_variants() {
+    for json in [
+        r#"{}"#,
+        r#"{"storageDir":"/data/media","retentionDays":14,"imageContentThresholdBytes":2097152}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_media(&v).is_ok(), "json={}", json);
+    }
+}
+
+#[test]
+fn test_validate_media_fail_not_object() {
+    for json in [r#"[1]"#, r#""string""#, r#"null"#] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_media(&v).unwrap_err();
+        assert!(err.contains("JSON object"), "json={}: error: {}", json, err);
+        // Also check via default_validator path
+        assert!(ConfigSection::Media.default_validator()(&v).is_err());
+    }
 }
 
 // ---------------------------------------------------------------------------
