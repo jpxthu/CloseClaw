@@ -201,6 +201,14 @@ impl ConfigSection {
     pub fn path(&self, config_dir: &Path) -> PathBuf {
         config_dir.join(self.filename())
     }
+
+    /// Returns `true` if this section requires a gateway restart to take effect.
+    pub fn is_restart_class(&self) -> bool {
+        matches!(
+            self,
+            ConfigSection::Models | ConfigSection::Channels | ConfigSection::Gateway
+        )
+    }
 }
 
 impl std::fmt::Display for ConfigSection {
@@ -247,31 +255,30 @@ pub struct ConfigManager {
     pub backup_manager: SafeBackupManager,
     /// In-memory cache of all loaded config sections.
     pub(crate) sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
-    /// Loaded credentials provider (from config/credentials/ directory).
+    /// Loaded credentials provider (from config/credentials/).
     credentials_provider: RwLock<CredentialsProvider>,
     /// Loaded session config provider (from config/session.json).
     pub session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
-    /// Resolved agent configurations (loaded from two-level directories).
+    /// Resolved agent configurations (from two-level directories).
     pub agents: RwLock<HashMap<String, crate::agents::ResolvedAgentConfig>>,
     /// Lazy-loaded agent permissions (accessed on demand via get()).
     pub agent_permissions: Arc<LazyAgentPermissions>,
-    /// Optional project root for loading project-level agents.json.
+    /// Optional project root for loading agents.json.
     pub(crate) repo_root: RwLock<Option<PathBuf>>,
     /// Broadcast channel for config change events.
     event_broadcaster: ConfigChangeBroadcaster,
-    /// Broadcast channel for config snapshots after each successful reload.
+    /// Broadcast channel for config snapshots after each reload.
     snapshot_tx: broadcast::Sender<ConfigSnapshot>,
-    /// Sections that are blocked because they had no previous value
-    /// and the initial load/reload failed. Blocked sections return
-    /// `None` from `get_section_value` and are unblocked on next
-    /// successful reload.
+    /// Sections that had no previous value and reload failed.
+    /// `get_section_value` returns `None` for blocked sections.
     blocked_sections: RwLock<HashSet<ConfigSection>>,
+    /// Staged values for restart-class sections (Models/Channels/Gateway).
+    /// Applied to runtime cache only after gateway restart completes.
+    pending_restart: RwLock<HashMap<ConfigSection, serde_json::Value>>,
 }
 
 impl ConfigManager {
-    /// Create a new ConfigManager for the given config directory.
-    ///
-    /// The backup manager will store backups in `<config_dir>/.backups/`.
+    /// Create a new ConfigManager. Backups stored in `<config_dir>/.backups/`.
     pub fn new(config_dir: PathBuf) -> io::Result<Self> {
         let backup_dir = config_dir.join(".backups");
         let backup_manager =
@@ -290,13 +297,12 @@ impl ConfigManager {
             event_broadcaster: ConfigChangeBroadcaster::new(),
             snapshot_tx: broadcast::channel(16).0,
             blocked_sections: RwLock::new(HashSet::new()),
+            pending_restart: RwLock::new(HashMap::new()),
         })
     }
 
     /// Get a reference to the shared backup manager.
-    ///
-    /// Used by `ConfigReloadManager` to backup/rollback agent config files
-    /// without creating a separate `BackupManager` instance.
+    /// Used by `ConfigReloadManager` to backup/rollback agent config files.
     pub fn backup_manager(&self) -> &SafeBackupManager {
         &self.backup_manager
     }
@@ -312,10 +318,7 @@ impl ConfigManager {
     }
 
     /// Load all configuration sections from disk into memory.
-    ///
-    /// Returns `Ok(())` if all mandatory config files are loaded successfully.
-    /// Returns `Err(ConfigLoadError::ConfigFileNotFound)` if a mandatory file is missing.
-    /// Returns `Err(ConfigLoadError::ConfigDirNotFound)` if the config directory doesn't exist.
+    /// Returns `Err` if a mandatory file is missing or config dir doesn't exist.
     pub fn load(&self) -> Result<(), ConfigLoadError> {
         if !self.config_dir.exists() {
             return Err(ConfigLoadError::ConfigDirNotFound(self.config_dir.clone()));
@@ -562,8 +565,6 @@ impl ConfigManager {
     }
 
     /// Attempt to rollback a corrupted config file and retry loading.
-    /// Returns Ok(()) if rollback succeeded and retry loading worked.
-    /// Returns Err(ConfigLoadError::ParseError) if rollback failed or retry still fails.
     fn try_rollback_and_retry(
         &self,
         path: &Path,
@@ -604,11 +605,7 @@ impl ConfigManager {
     }
 
     /// Update a configuration section.
-    ///
-    /// Flow: validate → backup current content → atomic write → update in-memory cache.
-    ///
-    /// If validation fails, no file is written.
-    /// If backup fails, no file is written (write_atomically is not called).
+    /// Flow: validate → backup → atomic write → update in-memory cache.
     pub fn update(
         &self,
         section: ConfigSection,
@@ -618,10 +615,7 @@ impl ConfigManager {
         self.update_with_cross_ref(section, new_value, None, validator)
     }
 
-    /// Update a configuration section with optional cross-reference data.
-    ///
-    /// Same as [`update`] but also accepts [`CrossRefData`] for cross-section
-    /// validation (e.g., verifying that channel binding targets exist).
+    /// Update with optional cross-reference data for cross-section validation.
     pub fn update_with_cross_ref(
         &self,
         section: ConfigSection,
@@ -731,16 +725,13 @@ impl ConfigManager {
         Ok(())
     }
 
-    /// Get a read-only clone of a configuration section's JSON value.
-    ///
-    /// Returns `None` if the section has not been loaded.
+    /// Get a read-only clone of a section's JSON value. Returns `None` if not loaded.
     pub fn section(&self, section: ConfigSection) -> Option<serde_json::Value> {
         self.get_section_value(section)
     }
 
     /// Get a single section value from the in-memory cache.
-    ///
-    /// Returns `None` if the section has not been loaded or is blocked.
+    /// Returns `None` if not loaded or blocked.
     pub fn get_section_value(&self, section: ConfigSection) -> Option<serde_json::Value> {
         if self.is_blocked(section) {
             return None;
@@ -760,10 +751,7 @@ impl ConfigManager {
             .contains(&section)
     }
 
-    /// Block a section because it had no old value and the reload failed.
-    ///
-    /// A blocked section's `get_section_value` returns `None`, which
-    /// signals downstream components that the config is unavailable.
+    /// Block a section (no old value + failed load). Returns None from get_section_value.
     pub fn block_section(&self, section: ConfigSection) {
         warn!(
             section = %section,
@@ -787,11 +775,7 @@ impl ConfigManager {
         }
     }
 
-    /// Build cross-reference data for channels binding validation.
-    ///
-    /// Extracts registered agent IDs from the agents registry and
-    /// account IDs from the in-memory Accounts section. Returns `None`
-    /// only if the resulting sets are both empty (unlikely in practice).
+    /// Build cross-ref data for channels binding validation.
     pub fn build_channels_cross_ref(&self) -> Option<CrossRefData> {
         let agent_ids: HashSet<String> = self
             .agents
@@ -903,6 +887,53 @@ impl ConfigManager {
     /// Publish a config change event to all active subscribers.
     pub fn notify_change(&self, event: ConfigChangeEvent) {
         self.event_broadcaster.send(event);
+    }
+
+    /// Stage a validated value for a restart-class config section.
+    ///
+    /// Writes to the pending-restart area without updating the in-memory
+    /// cache. Emits `ConfigChangeEvent::Reloaded` so downstream consumers
+    /// can react (e.g. trigger a restart).
+    pub fn stage_restart_value(
+        &self,
+        section: ConfigSection,
+        path: PathBuf,
+        value: serde_json::Value,
+    ) {
+        self.pending_restart
+            .write()
+            .expect("RwLock for pending_restart was poisoned")
+            .insert(section, value);
+        self.notify_change(ConfigChangeEvent::Reloaded { section, path });
+        info!(section = %section, "staged restart-class config value");
+    }
+
+    /// Apply all staged restart-class values to the runtime cache.
+    ///
+    /// Called after a gateway restart completes. Moves each staged value
+    /// into the in-memory cache via `update_section_cache()` and clears
+    /// the pending-restart map.
+    pub fn apply_pending_restart(&self) {
+        let staged: Vec<(ConfigSection, serde_json::Value)> = {
+            self.pending_restart
+                .write()
+                .expect("RwLock for pending_restart was poisoned")
+                .drain()
+                .collect()
+        };
+        for (section, value) in staged {
+            let path = section.path(&self.config_dir);
+            self.update_section_cache(section, path, value);
+        }
+    }
+
+    /// Query a staged restart-class value without consuming it.
+    pub fn pending_restart_value(&self, section: ConfigSection) -> Option<serde_json::Value> {
+        self.pending_restart
+            .read()
+            .expect("RwLock for pending_restart was poisoned")
+            .get(&section)
+            .cloned()
     }
 
     /// List metadata about all configuration files.
