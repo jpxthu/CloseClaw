@@ -339,6 +339,7 @@ fn register_watched_paths(
         }
     }
     register_agents_watch(watcher, config_path)?;
+    register_credentials_watch(watcher, config_path)?;
     Ok(())
 }
 
@@ -360,6 +361,21 @@ fn register_agents_watch(
             .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
             .map_err(|e| {
                 crate::ConfigError::SchemaError(format!("Failed to watch agents/: {}", e))
+            })?;
+    }
+    Ok(())
+}
+
+fn register_credentials_watch(
+    watcher: &mut RecommendedWatcher,
+    config_path: &Path,
+) -> Result<(), crate::ConfigError> {
+    let creds_dir = config_path.join("credentials");
+    if creds_dir.exists() {
+        watcher
+            .watch(creds_dir.as_ref(), RecursiveMode::Recursive)
+            .map_err(|e| {
+                crate::ConfigError::SchemaError(format!("Failed to watch credentials/: {}", e))
             })?;
     }
     Ok(())
@@ -446,6 +462,12 @@ pub fn is_agents_path(path: &Path) -> bool {
     s.contains("/agents/") || s.contains("\\agents\\")
 }
 
+/// Determine whether a path belongs to the credentials directory.
+pub fn is_credentials_path(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    s.contains("/credentials/") || s.contains("\\credentials\\")
+}
+
 /// Determine whether a path is a `permissions.json` file.
 pub fn is_permissions_path(path: &Path) -> bool {
     path.file_name()
@@ -473,6 +495,23 @@ pub fn filename_to_section(filename: &str) -> Option<ConfigSection> {
 
 /// Dispatch a single changed path to the appropriate reload method.
 pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
+    // credentials/ directory → Credentials section reload
+    if is_credentials_path(path) {
+        info!(
+            path = %path.display(),
+            section = %ConfigSection::Credentials,
+            "credentials file changed, reloading section"
+        );
+        if let Err(e) = manager.reload_section(ConfigSection::Credentials) {
+            warn!(
+                error = %e,
+                section = %ConfigSection::Credentials,
+                "failed to reload credentials section"
+            );
+        }
+        return;
+    }
+
     // permissions.json → lightweight permissions-only reload
     if is_agents_path(path) && is_permissions_path(path) {
         manager

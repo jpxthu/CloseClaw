@@ -2,8 +2,8 @@
 mod tests {
     use crate::manager::{ConfigManager, ConfigSection};
     use crate::reload_manager::{
-        dispatch_change, filename_to_section, is_agents_path, is_permissions_path,
-        ConfigReloadManager, ReloadCallback, DEFAULT_DEBOUNCE,
+        dispatch_change, filename_to_section, is_agents_path, is_credentials_path,
+        is_permissions_path, ConfigReloadManager, ReloadCallback, DEFAULT_DEBOUNCE,
     };
     use std::path::Path;
     use std::sync::{mpsc, Arc};
@@ -183,6 +183,30 @@ mod tests {
         assert!(!is_permissions_path(Path::new("/config/models.json")));
     }
 
+    #[test]
+    fn test_is_credentials_path() {
+        // Forward slash
+        assert!(is_credentials_path(Path::new(
+            "/config/credentials/openai.json"
+        )));
+        assert!(is_credentials_path(Path::new(
+            "/config/credentials/feishu.json"
+        )));
+        assert!(is_credentials_path(Path::new(
+            "/config/credentials/sub/deep.json"
+        )));
+        // Backslash (Windows)
+        assert!(is_credentials_path(Path::new(
+            "/config\\credentials\\openai.json"
+        )));
+        // Negative cases
+        assert!(!is_credentials_path(Path::new("/config/models.json")));
+        assert!(!is_credentials_path(Path::new("/config/agents/test.json")));
+        assert!(!is_credentials_path(Path::new(
+            "/config/credentials备份/test.json"
+        )));
+    }
+
     // ------------------------------------------------------------------
     // Dispatch tests — callback invocation
     // ------------------------------------------------------------------
@@ -239,6 +263,51 @@ mod tests {
         assert!(
             !cb.was_permissions_called(),
             "permissions callback should NOT be invoked for unknown files"
+        );
+    }
+
+    #[test]
+    fn test_watch_with_credentials_dir() {
+        let d = TempDir::new().unwrap();
+        std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+        let cm = make_config_manager(d.path());
+        let cb = Arc::new(MockCallback::new());
+        let mut mgr = ConfigReloadManager::with_defaults(cm, cb);
+        let handle = mgr.watch(d.path().to_str().unwrap());
+        assert!(
+            handle.is_ok(),
+            "watcher should start successfully with credentials dir"
+        );
+        drop(handle.unwrap());
+    }
+
+    #[test]
+    fn test_dispatch_credentials_file_change_reloads_section() {
+        let d = TempDir::new().unwrap();
+        let cm = make_config_manager(d.path());
+        let cb = Arc::new(MockCallback::new());
+        let mgr = ConfigReloadManager::with_defaults(cm, cb.clone());
+
+        // Create credentials directory and file
+        std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+        std::fs::write(
+            d.path().join("credentials/openai.json"),
+            r#"{"provider":"openai","apiKey":"sk-test"}"#,
+        )
+        .unwrap();
+
+        let path = d.path().join("credentials/openai.json");
+        dispatch_change(&path, &mgr);
+
+        // Credentials path should not trigger agents or permissions callbacks
+        // (it goes through reload_section path)
+        assert!(
+            !cb.was_agents_called(),
+            "agents callback should NOT be invoked for credentials changes"
+        );
+        assert!(
+            !cb.was_permissions_called(),
+            "permissions callback should NOT be invoked for credentials changes"
         );
     }
 
