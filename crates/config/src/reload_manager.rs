@@ -736,3 +736,7 @@ mod tests;
 #[cfg(test)]
 #[path = "reload_staging_tests.rs"]
 mod reload_staging_tests;
+
+#[cfg(test)]
+#[path = "reload_credentials_tests.rs"]
+mod reload_credentials_tests;
