@@ -325,7 +325,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### LlmCaller
 
-**用途**：LLM 调用抽象接口。LlmCaller 的具体实现由 gateway 提供（FallbackLlmCaller 桥接 UnifiedFallbackClient / UnifiedChatClient，因 session 不能依赖 llm 的循环依赖），daemon 启动时构造并经 SessionManager 注入会话，session、memory 消费——发起流式/非流式 LLM 请求。
+**用途**：LLM 调用抽象接口。具体实现由 gateway 提供，daemon 启动时经 SessionManager 注入会话，session、daemon、memory 消费——发起流式/非流式 LLM 请求。
 
 **接口契约**：
 

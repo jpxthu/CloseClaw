@@ -86,14 +86,14 @@ Daemon 持有 AgentRegistry、Session Manager、Gateway、ApprovalFlow、SpawnCo
    - DreamingScheduler（spawn 后台任务，定时扫描 archived 会话，触发记忆挖掘与升格）
    - ApprovalFlow（注入 Permission Engine、AgentRegistry）
 4. **层 4**（依赖层 3）：
-   - Session Manager（注入 Daemon 构造的 LLM 调用器（LlmCaller，桥接 LLM Registry 的统一客户端）、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider，初始化完成后执行启动恢复扫描）。LlmCaller 的接线是纯 DI 行为，分两层职责：具体实现类型由 gateway 域提供（[FallbackLlmCaller](../common/core-traits.md#llmcaller)，桥接 LLM 模块统一客户端的抽象包装），Daemon 作为胶水层在启动时从 LLM Registry 取得统一客户端、实例化该实现并经 Session Manager 注入会话，各 ConversationSession 通过该调用器泛用发起请求（真实 Provider 调用仍由 LLM 模块完成）
+   - Session Manager（注入 Daemon 构造的 LLM 调用器（LlmCaller）、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider，初始化完成后执行启动恢复扫描）。LlmCaller 是 [common/core-traits](../common/core-traits.md#llmcaller) 定义的 LLM 调用接口，其具体实现（FallbackLlmCaller，桥接 LLM 模块统一客户端）由 gateway 域提供；Daemon 作为胶水层从 LLM Registry 取得统一客户端、实例化该调用器并经 Session Manager 注入会话，各 ConversationSession 经其发起请求（真实 Provider 调用仍由 LLM 模块完成）
    - SpawnController（创建并管理子 session；spawn 前置校验与权限判定经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播）、Agent 配置（深度/并发/超时阈值），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)；子 session 所需能力经 Session Manager 提供的 spawn 上下文获取（运行时引用，Session Manager 就绪后接线，不构成启动依赖））
    - System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
 5. **层 5**（依赖层 4）：Gateway（注入 adapters、session manager、permission、renderers；安装 SlashDispatcher（详见 [slash/README.md](../slash/README.md)）；注入 ApprovalFlow）
 6. **层 6**（依赖层 5）：Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
 7. 全部完成后**进入消息循环**
 
-**LLM 能力缺失时的行为**：若启动时 LLM 能力不可用（如 models.json 缺失、未配置任何可用模型/供应商，导致无法组装 LlmCaller），系统仍正常启动，不进入静默丢弃状态——SessionManager 无法为会话注入 LLM 调用器时，收到需 LLM 处理的消息以明确错误回复告知用户 LLM 未就绪，而非假装处理或丢失消息。LlmCaller 经 SessionManager 在启动层完成接线，补齐 LLM 配置后恢复该能力需重启系统以重走启动路径（模型/凭据为[重启生效类](../config/README.md)，见[config 热重载](../config/hot-reload.md)）。
+**LLM 能力缺失时的行为**：若启动时 LLM 能力不可用（如 models.json 缺失、未配置任何可用模型/供应商，导致无法组装 LlmCaller），系统仍正常启动，不静默丢弃用户消息——SessionManager 无法为会话注入 LlmCaller 时，收到需 LLM 处理的消息以明确错误回复告知用户 LLM 未就绪，而非假装处理或丢失消息。LlmCaller 的接线发生在启动层 SessionManager 初始化，补齐 LLM 配置后恢复该能力需完整重启系统以重走启动路径；配置触发的网关重启仅重建 Gateway 层、会话层不动，无法重新完成会话层的 LlmCaller 接线。
 
 ### 关闭路径
 
