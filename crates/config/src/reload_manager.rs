@@ -89,9 +89,10 @@ impl WatcherHandle {
 
 /// Config hot-reload manager.
 ///
-/// Watches a set of config JSON files and the `agents/` directory.
-/// On change, dispatches to `ConfigManager::reload_section()` or the
-/// configured [`ReloadCallback`] with debounce protection.
+/// Watches a set of config JSON files, the `agents/` directory, and
+/// the `credentials/` directory. On change, dispatches to
+/// [`ConfigReloadManager::reload_section()`] or the configured
+/// [`ReloadCallback`] with debounce protection.
 pub struct ConfigReloadManager {
     config_manager: Arc<ConfigManager>,
     callback: Arc<dyn ReloadCallback>,
