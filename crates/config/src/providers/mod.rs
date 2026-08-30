@@ -19,7 +19,7 @@ pub use memory::MemoryConfigData;
 pub use models::ModelsConfigData;
 pub use plugins::PluginsConfigData;
 pub use skills::{SkillsConfig, SkillsConfigData};
-pub use system::{PlanArchiveConfig, RejectionLogConfig, SystemConfigData};
+pub use system::{AuditLogConfig, PlanArchiveConfig, RejectionLogConfig, SystemConfigData};
 
 /// Configuration provider trait for extensible config management
 pub trait ConfigProvider {
