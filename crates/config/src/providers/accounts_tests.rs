@@ -2,7 +2,7 @@
 
 use crate::identity::IdentityMapping;
 use crate::manager::ConfigSection;
-use crate::providers::accounts::AccountsConfigData;
+use crate::providers::accounts::{AccountsConfigData, BotAgentBinding};
 use crate::providers::ConfigProvider;
 use crate::validators::for_section;
 
@@ -40,6 +40,7 @@ fn sample_accounts_data() -> AccountsConfigData {
             make_account("discord", "12345", "local_user_2"),
             make_account("telegram", "@user1", "local_user_3"),
         ],
+        bindings: vec![],
     }
 }
 
@@ -113,6 +114,7 @@ fn test_config_path() {
 #[test]
 fn test_validate_fail_empty_account_id() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![make_account("feishu", "ou_aaa", "")],
     };
     let err = data.validate().unwrap_err();
@@ -122,6 +124,7 @@ fn test_validate_fail_empty_account_id() {
 #[test]
 fn test_validate_fail_empty_sender_id() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![make_account("feishu", "", "local_user_1")],
     };
     let err = data.validate().unwrap_err();
@@ -131,6 +134,7 @@ fn test_validate_fail_empty_sender_id() {
 #[test]
 fn test_validate_fail_duplicate_account_id() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account("feishu", "ou_aaa", "user1"),
             make_account("discord", "12345", "user1"),
@@ -147,6 +151,7 @@ fn test_validate_fail_duplicate_account_id() {
 #[test]
 fn test_validate_fail_duplicate_reported_index() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account("feishu", "ou_aaa", "user1"),
             make_account("discord", "12345", "user1"),
@@ -170,7 +175,10 @@ fn test_load_invalid_json() {
 
 #[test]
 fn test_empty_accounts_list_is_default() {
-    let data = AccountsConfigData { accounts: vec![] };
+    let data = AccountsConfigData {
+        bindings: vec![],
+        accounts: vec![],
+    };
     assert!(data.is_default());
     assert!(data.validate().is_ok());
 }
@@ -185,6 +193,7 @@ fn test_empty_accounts_json_is_default() {
 #[test]
 fn test_single_account() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![make_account("feishu", "ou_123", "acc_1")],
     };
     assert!(!data.is_default());
@@ -194,6 +203,7 @@ fn test_single_account() {
 #[test]
 fn test_multiple_accounts() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account("feishu", "ou_1", "acc_1"),
             make_account("discord", "d_1", "acc_2"),
@@ -362,6 +372,139 @@ fn test_default_validator_accounts_rejects_non_object() {
     assert!(validator(&v).is_err());
 }
 
+fn make_binding(bot_app_id: &str, agent_id: &str) -> BotAgentBinding {
+    BotAgentBinding {
+        bot_app_id: bot_app_id.to_string(),
+        agent_id: agent_id.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BotAgentBinding — normal path
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_load_with_bindings() {
+    let json = r#"{
+        "accounts": [
+            {"platform":"feishu","sender_id":"ou_a","account_id":"a1"}
+        ],
+        "bindings": [
+            {"bot_app_id":"app1","agent_id":"eda"}
+        ]
+    }"#;
+    let data = AccountsConfigData::from_json_str(json).unwrap();
+    assert_eq!(data.bindings.len(), 1);
+    assert_eq!(data.bindings[0].bot_app_id, "app1");
+    assert_eq!(data.bindings[0].agent_id, "eda");
+}
+
+#[test]
+fn test_load_empty_bindings_defaults_empty() {
+    let json = r#"{ "accounts": [] }"#;
+    let data = AccountsConfigData::from_json_str(json).unwrap();
+    assert!(data.bindings.is_empty());
+}
+
+#[test]
+fn test_load_missing_bindings_key_defaults_empty() {
+    let json = r#"{}"#;
+    let data = AccountsConfigData::from_json_str(json).unwrap();
+    assert!(data.bindings.is_empty());
+}
+
+#[test]
+fn test_get_binding_hit() {
+    let data = AccountsConfigData {
+        accounts: vec![],
+        bindings: vec![make_binding("app1", "eda")],
+    };
+    let b = data.get_binding("app1").unwrap();
+    assert_eq!(b.agent_id, "eda");
+}
+
+#[test]
+fn test_get_binding_miss() {
+    let data = AccountsConfigData {
+        accounts: vec![],
+        bindings: vec![make_binding("app1", "eda")],
+    };
+    assert!(data.get_binding("app_unknown").is_none());
+}
+
+#[test]
+fn test_get_binding_empty_bindings() {
+    let data = AccountsConfigData {
+        accounts: vec![],
+        bindings: vec![],
+    };
+    assert!(data.get_binding("app1").is_none());
+}
+
+#[test]
+fn test_bindings_serde_roundtrip() {
+    let data = AccountsConfigData {
+        accounts: vec![],
+        bindings: vec![make_binding("app1", "eda"), make_binding("app2", "ghost")],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let restored: AccountsConfigData = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.bindings.len(), 2);
+    assert_eq!(restored.bindings[0], data.bindings[0]);
+    assert_eq!(restored.bindings[1], data.bindings[1]);
+}
+
+#[test]
+fn test_is_default_empty_bindings() {
+    let data = AccountsConfigData {
+        accounts: vec![],
+        bindings: vec![],
+    };
+    assert!(data.is_default());
+}
+
+#[test]
+fn test_is_default_with_bindings() {
+    let data = AccountsConfigData {
+        accounts: vec![],
+        bindings: vec![make_binding("app1", "eda")],
+    };
+    assert!(!data.is_default());
+}
+
+#[test]
+fn test_is_default_with_accounts_only() {
+    let data = AccountsConfigData {
+        accounts: vec![make_account("feishu", "ou_aaa", "u1")],
+        bindings: vec![],
+    };
+    assert!(!data.is_default());
+}
+
+// ---------------------------------------------------------------------------
+// Validator integration — bindings via for_section
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_accounts_validator_pass_with_bindings() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[{"platform":"feishu","senderId":"ou_a","accountId":"a1"}],
+            "bindings":[{"bot_app_id":"app1","agent_id":"eda"}]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+#[test]
+fn test_accounts_validator_pass_empty_bindings() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(r#"{"accounts":[],"bindings":[]}"#).unwrap();
+    assert!(validator(&v).is_ok());
+}
+
 // ---------------------------------------------------------------------------
 // Bot app ID × sender_id uniqueness constraint
 // ---------------------------------------------------------------------------
@@ -369,6 +512,7 @@ fn test_default_validator_accounts_rejects_non_object() {
 #[test]
 fn test_validate_fail_duplicate_platform_binding() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account("feishu", "ou_aaa", "user1"),
             make_account("feishu", "ou_aaa", "user2"),
@@ -385,6 +529,7 @@ fn test_validate_fail_duplicate_platform_binding() {
 #[test]
 fn test_validate_fail_duplicate_platform_binding_with_bot_app_id() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account_with_bot("feishu", "app1", "ou_aaa", "user1"),
             make_account_with_bot("feishu", "app1", "ou_aaa", "user2"),
@@ -401,6 +546,7 @@ fn test_validate_fail_duplicate_platform_binding_with_bot_app_id() {
 #[test]
 fn test_validate_pass_different_bot_app_id_same_sender() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account_with_bot("feishu", "app1", "ou_aaa", "user1"),
             make_account_with_bot("feishu", "app2", "ou_aaa", "user2"),
@@ -412,6 +558,7 @@ fn test_validate_pass_different_bot_app_id_same_sender() {
 #[test]
 fn test_validate_pass_same_sender_different_platform() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account("feishu", "ou_aaa", "user1"),
             make_account("discord", "ou_aaa", "user2"),
@@ -423,6 +570,7 @@ fn test_validate_pass_same_sender_different_platform() {
 #[test]
 fn test_validate_fail_duplicate_binding_error_contains_index() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account("feishu", "ou_aaa", "user1"),
             make_account("feishu", "ou_aaa", "user2"),
@@ -436,6 +584,7 @@ fn test_validate_fail_duplicate_binding_error_contains_index() {
 #[test]
 fn test_validate_pass_unique_bindings() {
     let data = AccountsConfigData {
+        bindings: vec![],
         accounts: vec![
             make_account_with_bot("feishu", "app1", "ou_aaa", "user1"),
             make_account_with_bot("feishu", "app1", "ou_bbb", "user2"),

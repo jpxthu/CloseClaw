@@ -10,7 +10,7 @@ pub mod models;
 pub mod plugins;
 pub mod skills;
 pub mod system;
-pub use accounts::AccountsConfigData;
+pub use accounts::{AccountsConfigData, BotAgentBinding};
 pub use channels::ChannelsConfigData;
 pub use credentials::CredentialsProvider;
 pub use gateway::GatewayConfigData;
