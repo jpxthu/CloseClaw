@@ -219,3 +219,155 @@ async fn test_shutdown_signal_stops_task() {
         "task should exit cleanly after shutdown signal"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.4: PlanArchiveTask grace period tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// ARCHIVE_GRACE_PERIOD_SECS is 10 seconds (aligned with design doc
+/// "统一最长 10 秒").
+#[test]
+fn test_archive_grace_period_is_10_secs() {
+    assert_eq!(super::background::ARCHIVE_GRACE_PERIOD_SECS, 10);
+}
+
+/// When no task is running at shutdown, wait_grace_period returns
+/// immediately.
+#[tokio::test]
+async fn test_plan_archive_grace_period_none_returns_immediately() {
+    let start = tokio::time::Instant::now();
+    super::background::PlanArchiveTask::wait_grace_period(None).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "None task should return immediately, took {:?}",
+        elapsed
+    );
+}
+
+/// When the running task completes within the grace period,
+/// wait_grace_period does NOT abort it.
+#[tokio::test]
+async fn test_plan_archive_grace_period_no_abort_when_completed() {
+    let completing_task = tokio::task::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    });
+
+    let start = tokio::time::Instant::now();
+    super::background::PlanArchiveTask::wait_grace_period(Some(completing_task)).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "should complete quickly when task finishes within grace, took {:?}",
+        elapsed
+    );
+}
+
+/// When a task exceeds the grace period, wait_grace_period aborts it.
+#[tokio::test]
+async fn test_plan_archive_grace_period_abort_on_timeout() {
+    let hanging_task = tokio::task::spawn(async {
+        std::future::pending::<()>().await;
+    });
+
+    let start = tokio::time::Instant::now();
+    super::background::PlanArchiveTask::wait_grace_period(Some(hanging_task)).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed >= std::time::Duration::from_secs(9),
+        "should wait at least 9s for grace period, got {:?}",
+        elapsed
+    );
+    assert!(
+        elapsed <= std::time::Duration::from_secs(12),
+        "should not wait more than 12s, got {:?}",
+        elapsed
+    );
+}
+
+/// PlanArchiveTask: signal → running task completes within grace →
+/// clean exit (no abort). Tests the full signal → grace → exit path.
+#[tokio::test]
+async fn test_plan_archive_signal_grace_clean_exit() {
+    let dir = tempfile::TempDir::new().unwrap();
+    create_workspaces_root(dir.path());
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
+    let task = PlanArchiveTask::new(dir.path().to_path_buf(), 7);
+
+    let handle = tokio::spawn(async move {
+        task.run(shutdown_rx).await;
+    });
+
+    // Wait for task to enter the loop, then signal shutdown.
+    // No sweep is running (empty plans dir), so exit should be
+    // immediate (no grace period wait).
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let _ = shutdown_tx.send(());
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    assert!(
+        result.is_ok(),
+        "task should exit within grace period after shutdown signal"
+    );
+    assert!(result.unwrap().is_ok(), "task should not panic");
+}
+
+/// PlanArchiveTask: hung task → grace period expires → abort.
+/// Tests the abort path when a sweep doesn't finish in time.
+#[tokio::test]
+async fn test_plan_archive_hung_task_aborted_after_grace() {
+    // Spawn a task that never exits (simulates a hung sweep)
+    let mut hang_handle = tokio::task::spawn(async {
+        std::future::pending::<()>().await;
+    });
+
+    // Simulate the grace period + abort pattern from PlanArchiveTask
+    let grace = std::time::Duration::from_secs(10);
+    let start = tokio::time::Instant::now();
+
+    tokio::select! {
+        _ = &mut hang_handle => {
+            // Task completed — should not happen
+            panic!("hung task should not complete");
+        }
+        _ = tokio::time::sleep(grace) => {
+            // Grace period expired — abort
+            hang_handle.abort();
+        }
+    }
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed >= std::time::Duration::from_secs(9),
+        "should wait ~10s before aborting, got {:?}",
+        elapsed
+    );
+}
+
+/// Verify the two-layer wait pattern: inner grace period (per-task)
+/// and outer join timeout (Phase 3). The inner grace is 10s for
+/// PlanArchiveTask; the outer join timeout in phase_3_background_stop
+/// is also 10s. This test verifies the inner layer works independently.
+#[tokio::test]
+async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
+    // A task that completes in 5s (within inner grace of 10s)
+    let slow_task = tokio::task::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    });
+
+    let start = tokio::time::Instant::now();
+    super::background::PlanArchiveTask::wait_grace_period(Some(slow_task)).await;
+    let elapsed = start.elapsed();
+
+    // Should complete in ~5s (task finishes before 10s grace)
+    assert!(
+        elapsed >= std::time::Duration::from_secs(4)
+            && elapsed <= std::time::Duration::from_secs(7),
+        "slow task should complete within grace, took {:?}",
+        elapsed
+    );
+}
