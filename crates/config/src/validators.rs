@@ -568,6 +568,26 @@ fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     }
     validate_non_negative_field(value, "idleMinutes")?;
     validate_non_negative_field(value, "purgeAfterMinutes")?;
+    // planArchive: if present, must be an object; thresholdDays must be non-negative
+    if let Some(plan_archive) = value.get("planArchive") {
+        if !plan_archive.is_object() {
+            return Err(format!(
+                "session.planArchive must be a JSON object, got {}",
+                type_name(plan_archive)
+            ));
+        }
+        validate_non_negative_field(plan_archive, "thresholdDays")?;
+    }
+    // auditLog: if present, must be an object; maxEntries must be non-negative
+    if let Some(audit_log) = value.get("auditLog") {
+        if !audit_log.is_object() {
+            return Err(format!(
+                "session.auditLog must be a JSON object, got {}",
+                type_name(audit_log)
+            ));
+        }
+        validate_non_negative_field(audit_log, "maxEntries")?;
+    }
     Ok(())
 }
 
@@ -932,3 +952,7 @@ mod tests;
 #[cfg(test)]
 #[path = "validators_cron_tests.rs"]
 mod validators_cron_tests;
+
+#[cfg(test)]
+#[path = "validators_session_archive_audit_tests.rs"]
+mod validators_session_archive_audit_tests;
