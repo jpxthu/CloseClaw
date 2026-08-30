@@ -168,8 +168,8 @@ fn test_plugins_is_not_restart_class() {
 }
 
 #[test]
-fn test_accounts_is_not_restart_class() {
-    assert!(!ConfigSection::Accounts.is_restart_class());
+fn test_accounts_is_restart_class() {
+    assert!(ConfigSection::Accounts.is_restart_class());
 }
 
 #[test]

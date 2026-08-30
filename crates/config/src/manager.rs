@@ -212,6 +212,7 @@ impl ConfigSection {
                 | ConfigSection::Channels
                 | ConfigSection::Gateway
                 | ConfigSection::Credentials
+                | ConfigSection::Accounts
         )
     }
 }
