@@ -667,3 +667,94 @@ async fn test_missing_account_id_defaults_to_none() {
 
     assert!(result.is_none(), "no handler configured -> None");
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 8. Step 1.4 — unavailable_media interception
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Build a `ProcessedMessage` with explicit `unavailable_media` in metadata.
+fn make_processed_with_unavailable_media(
+    msg: &Message,
+    channel: &str,
+    content: &str,
+    unavailable: Vec<String>,
+) -> ProcessedMessage {
+    let session_key = compute_session_key(channel, &msg.from, &msg.to, None, msg.timestamp);
+    let mut metadata = HashMap::new();
+    metadata.insert("session_key".to_string(), session_key);
+    metadata.insert("peer_id".to_string(), msg.to.clone());
+    metadata.insert("sender_id".to_string(), msg.from.clone());
+    metadata.insert(
+        "message_type".to_string(),
+        serde_json::to_string(&MessageType::Text).unwrap(),
+    );
+    if !unavailable.is_empty() {
+        metadata.insert(
+            "unavailable_media".to_string(),
+            serde_json::to_string(&unavailable).unwrap(),
+        );
+    }
+    ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(content.to_string())],
+        metadata,
+    }
+}
+
+/// Text message with non-empty `unavailable_media` is intercepted:
+/// returns None and sends the "该消息内容无法获取" reply.
+/// Interception happens before session resolution.
+#[tokio::test]
+async fn test_unavailable_media_non_empty_intercepted() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "hello");
+
+    let processed =
+        make_processed_with_unavailable_media(&msg, "mock", "hello", vec!["img_key_1".to_string()]);
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(processed, Some("ou_sender"), "mock")
+        .await;
+
+    assert!(
+        result.is_none(),
+        "message with unavailable_media should return None"
+    );
+    assert_eq!(
+        plugin.send_count(),
+        1,
+        "error reply should be sent for unavailable media"
+    );
+
+    // Verify the reply text matches design doc.
+    let (output, peer_id, _thread_id) = plugin.last_send().unwrap();
+    assert_eq!(output.msg_type, "text");
+    assert_eq!(peer_id, "agent-1");
+    let text = output.payload["content"]["text"].as_str().unwrap();
+    assert_eq!(
+        text, "该消息内容无法获取",
+        "reply must match design doc: got {text}"
+    );
+}
+
+/// Text message with empty `unavailable_media` (or missing key) passes
+/// through the interception check and reaches normal routing.
+/// No session registration needed — returns None only because no
+/// SessionMessageHandler is configured.
+#[tokio::test]
+async fn test_unavailable_media_empty_passes_through() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "hello");
+    register_session(gw.session_manager(), "mock", &msg).await;
+
+    let processed = make_processed_with_unavailable_media(&msg, "mock", "hello", Vec::new());
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(processed, Some("ou_sender"), "mock")
+        .await;
+
+    // Returns None because no handler is configured — NOT because of interception.
+    assert!(result.is_none(), "no handler configured -> None");
+    assert_eq!(
+        plugin.send_count(),
+        0,
+        "no error reply for message with empty unavailable_media"
+    );
+}
