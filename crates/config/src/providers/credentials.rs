@@ -82,7 +82,25 @@ impl CredentialsProvider {
     ///
     /// Each file should contain a single credentials object.
     /// Returns an empty provider if the directory does not exist.
+    ///
+    /// When `strict` is `true`, the first parsing or validation failure
+    /// aborts the entire load and returns an error. This is used by the
+    /// hot-reload path so that validation failures are surfaced to the
+    /// caller (which triggers `on_validation_failed` and prevents staging).
     pub fn load_from_dir(dir: &Path) -> Result<Self, ConfigError> {
+        Self::load_from_dir_with_mode(dir, false)
+    }
+
+    /// Strict variant of [`load_from_dir`](Self::load_from_dir) that
+    /// fails on the first invalid credential file.
+    ///
+    /// Used by the hot-reload path to ensure validation failures are
+    /// not silently swallowed.
+    pub fn load_from_dir_strict(dir: &Path) -> Result<Self, ConfigError> {
+        Self::load_from_dir_with_mode(dir, true)
+    }
+
+    fn load_from_dir_with_mode(dir: &Path, strict: bool) -> Result<Self, ConfigError> {
         if !dir.exists() {
             return Ok(Self::default());
         }
@@ -100,13 +118,21 @@ impl CredentialsProvider {
             let content = fs::read_to_string(&path)?;
             let value: serde_json::Value = match serde_json::from_str(&content) {
                 Ok(v) => v,
-                Err(_) => {
-                    // skip malformed files silently
+                Err(e) => {
+                    if strict {
+                        return Err(ConfigError::ParseError {
+                            path,
+                            error: e.to_string(),
+                        });
+                    }
                     continue;
                 }
             };
             // Validate credential file structure before deserializing
             if let Err(e) = crate::validators::validate_credentials(&value) {
+                if strict {
+                    return Err(ConfigError::ValidationError { path, message: e });
+                }
                 warn!(
                     path = %path.display(),
                     error = %e,
@@ -117,7 +143,13 @@ impl CredentialsProvider {
             let creds: AnyProviderCredentials = match serde_json::from_value(value) {
                 Ok(c) => c,
                 Err(_) => {
-                    // skip files that don't match known credential shapes
+                    if strict {
+                        return Err(ConfigError::ParseError {
+                            path,
+                            error: "credential file does not match any known credential shape"
+                                .to_string(),
+                        });
+                    }
                     continue;
                 }
             };

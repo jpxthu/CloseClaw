@@ -6,10 +6,12 @@ use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-/// Mock callback that records reload invocations.
+/// Mock callback that records reload and validation-failure invocations.
 struct MockCallback {
     agents_called: std::sync::atomic::AtomicBool,
     permissions_called: std::sync::atomic::AtomicBool,
+    validation_failed: std::sync::atomic::AtomicBool,
+    last_validation_error: std::sync::Mutex<Option<String>>,
 }
 
 impl MockCallback {
@@ -17,6 +19,8 @@ impl MockCallback {
         Self {
             agents_called: std::sync::atomic::AtomicBool::new(false),
             permissions_called: std::sync::atomic::AtomicBool::new(false),
+            validation_failed: std::sync::atomic::AtomicBool::new(false),
+            last_validation_error: std::sync::Mutex::new(None),
         }
     }
 
@@ -27,6 +31,11 @@ impl MockCallback {
 
     fn was_permissions_called(&self) -> bool {
         self.permissions_called
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn was_validation_failed_called(&self) -> bool {
+        self.validation_failed
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
@@ -43,6 +52,18 @@ impl ReloadCallback for MockCallback {
     }
 
     fn on_session_reloaded(&self, _cm: &ConfigManager) {}
+
+    fn on_validation_failed(
+        &self,
+        _section: ConfigSection,
+        _path: &Path,
+        error: &str,
+        _config_manager: &ConfigManager,
+    ) {
+        self.validation_failed
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        *self.last_validation_error.lock().unwrap() = Some(error.to_string());
+    }
 }
 
 fn make_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
@@ -212,30 +233,302 @@ fn test_credentials_no_old_value_first_load_success_stages() {
     assert_eq!(staged["providers"]["anthropic"]["apiKey"], "sk-ant");
 }
 
-/// When no previous value exists and credentials validation fails
-/// (no valid credentials in directory), the staged value should be
-/// empty and runtime remains None.
+/// When no previous value exists and credentials parsing fails
+/// (malformed JSON), the load should fail, no value should be staged,
+/// and the validation-failed callback should be invoked.
 #[test]
-fn test_credentials_no_old_value_empty_dir_stages_empty() {
+fn test_credentials_no_old_value_parse_failure_blocks_load() {
     let d = TempDir::new().unwrap();
     let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
     let cb = Arc::new(MockCallback::new());
-    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
     std::fs::create_dir_all(d.path().join("credentials")).unwrap();
-    // Write a malformed file that will be skipped by load_from_dir
     std::fs::write(d.path().join("credentials/bad.json"), r#"not valid json"#).unwrap();
 
-    mgr.reload_credentials().unwrap();
+    let result = mgr.reload_credentials();
+    assert!(result.is_err(), "should fail on malformed JSON");
+    assert!(
+        cb.was_validation_failed_called(),
+        "on_validation_failed should be called"
+    );
 
-    // Runtime remains None
+    // Runtime remains None — no value staged
     assert!(cm.get_section_value(ConfigSection::Credentials).is_none());
+    assert!(
+        cm.pending_restart_value(ConfigSection::Credentials)
+            .is_none(),
+        "no value should be staged on failure"
+    );
+}
 
-    // Staged value should be empty providers
-    let staged = cm
+/// When credentials exist with a valid old value and reload encounters
+/// a parse failure, runtime must retain the old value and no new
+/// value should be staged.
+#[test]
+fn test_credentials_old_value_retained_on_parse_failure() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
+
+    let creds_dir = d.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+    std::fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":"sk-old"}"#,
+    )
+    .unwrap();
+
+    // Establish runtime value
+    mgr.reload_credentials().unwrap();
+    cm.apply_pending_restart();
+    let runtime_before = cm.section(ConfigSection::Credentials).unwrap();
+    assert_eq!(runtime_before["providers"]["openai"]["apiKey"], "sk-old");
+
+    // Now write a malformed file
+    std::fs::write(creds_dir.join("openai.json"), r#"{broken"#).unwrap();
+
+    let result = mgr.reload_credentials();
+    assert!(result.is_err(), "should fail on malformed JSON");
+    assert!(cb.was_validation_failed_called());
+
+    // Runtime must still expose old value
+    let runtime_after = cm.section(ConfigSection::Credentials).unwrap();
+    assert_eq!(
+        runtime_after["providers"]["openai"]["apiKey"], "sk-old",
+        "runtime must retain old value after parse failure"
+    );
+    // No new value staged
+    assert!(
+        cm.pending_restart_value(ConfigSection::Credentials)
+            .is_none(),
+        "no value should be staged on parse failure"
+    );
+}
+
+/// Validation failure (valid JSON but structurally invalid credential)
+/// should trigger callback, retain old runtime value, and not stage.
+#[test]
+fn test_credentials_validation_failure_retains_old_value() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
+
+    let creds_dir = d.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+    std::fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":"sk-old"}"#,
+    )
+    .unwrap();
+
+    // Establish runtime value
+    mgr.reload_credentials().unwrap();
+    cm.apply_pending_restart();
+
+    // Write a structurally invalid credential (empty apiKey)
+    std::fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":""}"#,
+    )
+    .unwrap();
+
+    let result = mgr.reload_credentials();
+    assert!(result.is_err(), "should fail on validation error");
+    assert!(cb.was_validation_failed_called());
+
+    // Runtime must still expose old value
+    let runtime_after = cm.section(ConfigSection::Credentials).unwrap();
+    assert_eq!(
+        runtime_after["providers"]["openai"]["apiKey"], "sk-old",
+        "runtime must retain old value after validation failure"
+    );
+    assert!(cm
         .pending_restart_value(ConfigSection::Credentials)
-        .expect("should stage empty providers");
-    assert_eq!(staged["providers"].as_object().unwrap().len(), 0);
+        .is_none());
+}
+
+/// When no old value exists and credential validation fails (e.g.,
+/// empty apiKey), the load should be blocked per the design-doc
+/// "no old value → block" semantics.
+#[test]
+fn test_credentials_no_old_value_validation_failure_blocks() {
+    let d = TempDir::new().unwrap();
+    let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
+
+    let creds_dir = d.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+    std::fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":""}"#,
+    )
+    .unwrap();
+
+    let result = mgr.reload_credentials();
+    assert!(result.is_err(), "should fail on validation error");
+    assert!(cb.was_validation_failed_called());
+    assert!(cm.get_section_value(ConfigSection::Credentials).is_none());
+    assert!(cm
+        .pending_restart_value(ConfigSection::Credentials)
+        .is_none());
+}
+
+/// credential_path reference in models.json that points to a file
+/// with a parse error should abort the load (file exists but invalid).
+#[test]
+fn test_credentials_credential_path_parse_error_aborts_load() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
+
+    let creds_dir = d.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+
+    // Create valid credential file first so models.json validation passes.
+    // Use absolute path because models validator resolves credentialPath
+    // relative to CWD, not config_dir.
+    let cred_file = creds_dir.join("openai.json");
+    std::fs::write(
+        &cred_file,
+        r#"{"provider":"openai","apiKey":"sk-placeholder"}"#,
+    )
+    .unwrap();
+    let abs_cred_path = cred_file.to_string_lossy();
+    let models_json = format!(
+        r#"{{"providers":{{"openai":{{"credentialPath":"{}","models":[]}}}}}}"#,
+        abs_cred_path
+    );
+    std::fs::write(d.path().join("models.json"), &models_json).unwrap();
+    mgr.reload_section(ConfigSection::Models).unwrap();
+
+    // Now overwrite with malformed JSON
+    std::fs::write(&cred_file, r#"{broken json"#).unwrap();
+
+    let result = mgr.reload_credentials();
+    assert!(
+        result.is_err(),
+        "should fail when credential_path file has parse error"
+    );
+    assert!(cb.was_validation_failed_called());
+    assert!(cm
+        .pending_restart_value(ConfigSection::Credentials)
+        .is_none());
+}
+
+/// credential_path reference in models.json that points to a file
+/// with validation error (empty apiKey) should abort the load.
+#[test]
+fn test_credentials_credential_path_validation_error_aborts_load() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
+
+    let creds_dir = d.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+
+    let cred_file = creds_dir.join("openai.json");
+    std::fs::write(
+        &cred_file,
+        r#"{"provider":"openai","apiKey":"sk-placeholder"}"#,
+    )
+    .unwrap();
+    let abs_cred_path = cred_file.to_string_lossy();
+    let models_json = format!(
+        r#"{{"providers":{{"openai":{{"credentialPath":"{}","models":[]}}}}}}"#,
+        abs_cred_path
+    );
+    std::fs::write(d.path().join("models.json"), &models_json).unwrap();
+    mgr.reload_section(ConfigSection::Models).unwrap();
+
+    // Now overwrite with valid JSON but invalid credential
+    std::fs::write(&cred_file, r#"{"provider":"openai","apiKey":""}"#).unwrap();
+
+    let result = mgr.reload_credentials();
+    assert!(
+        result.is_err(),
+        "should fail when credential_path file has validation error"
+    );
+    assert!(cb.was_validation_failed_called());
+    assert!(cm
+        .pending_restart_value(ConfigSection::Credentials)
+        .is_none());
+}
+
+/// credential_path reference to a missing file should warn but not
+/// abort the load (missing ≠ invalid per design doc).
+#[test]
+fn test_credentials_credential_path_missing_file_warns_only() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
+
+    let creds_dir = d.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+
+    // Create valid credential file first so models.json validation passes.
+    let cred_file = creds_dir.join("openai.json");
+    std::fs::write(
+        &cred_file,
+        r#"{"provider":"openai","apiKey":"sk-placeholder"}"#,
+    )
+    .unwrap();
+    let abs_cred_path = cred_file.to_string_lossy();
+    let models_json = format!(
+        r#"{{"providers":{{"openai":{{"credentialPath":"{}","models":[]}}}}}}"#,
+        abs_cred_path
+    );
+    std::fs::write(d.path().join("models.json"), &models_json).unwrap();
+    mgr.reload_section(ConfigSection::Models).unwrap();
+
+    // Now delete the referenced file (simulating runtime deletion)
+    std::fs::remove_file(&cred_file).unwrap();
+
+    // Reload credentials — missing file should be warned-only
+    let result = mgr.reload_credentials();
+    assert!(
+        result.is_ok(),
+        "missing credential_path file should not abort"
+    );
+    assert!(!cb.was_validation_failed_called());
+}
+
+/// Mixed scenario: valid file + malformed file in credentials/ →
+/// entire batch fails, first valid file is NOT staged.
+#[test]
+fn test_credentials_mixed_valid_and_invalid_batch_fails() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
+
+    let creds_dir = d.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+
+    // One valid file
+    std::fs::write(
+        creds_dir.join("openai.json"),
+        r#"{"provider":"openai","apiKey":"sk-good"}"#,
+    )
+    .unwrap();
+    // One malformed file
+    std::fs::write(creds_dir.join("bad.json"), r#"{broken"#).unwrap();
+
+    let result = mgr.reload_credentials();
+    assert!(
+        result.is_err(),
+        "batch should fail when any file is invalid"
+    );
+    assert!(cb.was_validation_failed_called());
+    assert!(cm
+        .pending_restart_value(ConfigSection::Credentials)
+        .is_none());
 }
 
 // -- Regression: non-credentials sections unaffected --

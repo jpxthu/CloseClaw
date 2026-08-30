@@ -17,7 +17,6 @@ use tracing::{debug, info, warn};
 use crate::events::ConfigChangeEvent;
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
-use crate::validators::validate_credentials;
 
 /// Default debounce duration for file change events.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -281,27 +280,27 @@ impl ConfigReloadManager {
 
     /// Reload credentials from the credentials directory.
     ///
-    /// Re-reads the entire `credentials/` directory, merges in any
-    /// `credential_path` references from models.json, validates each
-    /// provider credential, and stages the result for restart-class
+    /// Re-reads the entire `credentials/` directory (strict mode: first
+    /// invalid file aborts the entire load), merges in any `credential_path`
+    /// references from models.json, and stages the result for restart-class
     /// effect (gateway restart required).
     ///
-    /// On validation failure, the old in-memory value is retained, an
-    /// IM notification is sent via the callback, and a `Failed` event
-    /// is emitted.
+    /// On validation or parsing failure, the old in-memory value is retained,
+    /// an IM notification is sent via the callback, and a `Failed` event
+    /// is emitted. This ensures the design-doc "validation failure" path is
+    /// reachable during hot-reload (unlike the non-strict startup path where
+    /// invalid files are silently skipped).
     pub fn reload_credentials(&self) -> Result<(), ConfigLoadError> {
         let creds_dir = self
             .config_manager
             .config_dir()
             .join(CredentialsProvider::config_path());
 
-        // Step 1+2: load from directory and merge credential_path references
+        // Step 1+2: load from directory (strict) and merge credential_path
+        // references
         let creds_provider = self.load_and_merge_credentials(&creds_dir)?;
 
-        // Step 3: validate each provider credential
-        self.validate_all_credentials(&creds_provider, &creds_dir)?;
-
-        // Step 4: stage for restart-class effect (gateway restart required)
+        // Step 3: stage for restart-class effect (gateway restart required)
         let value = serde_json::to_value(&creds_provider).map_err(|e| {
             ConfigLoadError::ValidationError {
                 path: creds_dir.clone(),
@@ -316,14 +315,20 @@ impl ConfigReloadManager {
     /// Load credentials from the `credentials/` directory and merge any
     /// `credential_path` references found in `models.json`.
     ///
+    /// Uses strict loading: the first parsing or validation failure in
+    /// `credentials/` aborts the entire load. `credential_path` references
+    /// that point to files with parse/validation errors also abort the load
+    /// (missing files are warned-only, matching the design-doc distinction
+    /// between "missing" and "invalid").
+    ///
     /// Returns the merged [`CredentialsProvider`] on success. On I/O
     /// failure the error is propagated after notifying via the callback.
     fn load_and_merge_credentials(
         &self,
         creds_dir: &Path,
     ) -> Result<CredentialsProvider, ConfigLoadError> {
-        // Re-read the entire credentials directory
-        let mut creds_provider = match CredentialsProvider::load_from_dir(creds_dir) {
+        // Re-read the entire credentials directory (strict mode)
+        let mut creds_provider = match CredentialsProvider::load_from_dir_strict(creds_dir) {
             Ok(cp) => cp,
             Err(e) => {
                 self.config_manager
@@ -353,6 +358,15 @@ impl ConfigReloadManager {
                 for (provider_id, provider_cfg) in &models_config.providers {
                     if let Some(ref rel_path) = provider_cfg.credential_path {
                         let abs_path = self.config_manager.config_dir().join(rel_path);
+                        if !abs_path.exists() {
+                            // Missing file → warn only (doc says "silent" for missing)
+                            warn!(
+                                provider = %provider_id,
+                                path = %abs_path.display(),
+                                "credential_path file missing for provider"
+                            );
+                            continue;
+                        }
                         match CredentialsProvider::load_from_file(&abs_path) {
                             Ok(extra) => {
                                 for (name, cred) in extra.providers {
@@ -360,12 +374,29 @@ impl ConfigReloadManager {
                                 }
                             }
                             Err(e) => {
-                                warn!(
-                                    provider = %provider_id,
-                                    path = %abs_path.display(),
-                                    error = %e,
-                                    "failed to load credential_path for provider"
+                                // File exists but failed parse/validation → abort
+                                self.config_manager
+                                    .notify_change(ConfigChangeEvent::Failed {
+                                        section: ConfigSection::Credentials,
+                                        path: abs_path.clone(),
+                                        error: format!(
+                                            "credential_path '{}' failed to load: {}",
+                                            rel_path, e
+                                        ),
+                                    });
+                                self.callback.on_validation_failed(
+                                    ConfigSection::Credentials,
+                                    &abs_path,
+                                    &format!(
+                                        "credential_path '{}' failed to load: {}",
+                                        rel_path, e
+                                    ),
+                                    &self.config_manager,
                                 );
+                                return Err(ConfigLoadError::IoError {
+                                    path: abs_path,
+                                    error: e.to_string(),
+                                });
                             }
                         }
                     }
@@ -374,44 +405,6 @@ impl ConfigReloadManager {
         }
 
         Ok(creds_provider)
-    }
-
-    /// Validate every provider credential in the given [`CredentialsProvider`].
-    ///
-    /// Each credential is serialized and passed through [`validate_credentials`].
-    /// On the first validation failure the error is propagated after notifying
-    /// via the callback.
-    fn validate_all_credentials(
-        &self,
-        creds_provider: &CredentialsProvider,
-        creds_dir: &Path,
-    ) -> Result<(), ConfigLoadError> {
-        for (name, creds) in &creds_provider.providers {
-            let value =
-                serde_json::to_value(creds).map_err(|e| ConfigLoadError::ValidationError {
-                    path: creds_dir.to_path_buf(),
-                    message: format!("failed to serialize credential '{}': {}", name, e),
-                })?;
-            if let Err(msg) = validate_credentials(&value) {
-                self.config_manager
-                    .notify_change(ConfigChangeEvent::Failed {
-                        section: ConfigSection::Credentials,
-                        path: creds_dir.to_path_buf(),
-                        error: format!("credential '{}' failed validation: {}", name, msg),
-                    });
-                self.callback.on_validation_failed(
-                    ConfigSection::Credentials,
-                    creds_dir,
-                    &format!("credential '{}' failed validation: {}", name, msg),
-                    &self.config_manager,
-                );
-                return Err(ConfigLoadError::ValidationError {
-                    path: creds_dir.to_path_buf(),
-                    message: msg,
-                });
-            }
-        }
-        Ok(())
     }
 
     /// Start watching config files under `config_dir`.
