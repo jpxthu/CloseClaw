@@ -58,6 +58,7 @@ impl ConfigProvider for AccountsConfigData {
 
     fn validate(&self) -> Result<(), ConfigError> {
         let mut seen_ids = HashSet::new();
+        let mut seen_platform_bindings: HashSet<(String, String, String)> = HashSet::new();
 
         for (i, account) in self.accounts.iter().enumerate() {
             if account.account_id.is_empty() {
@@ -80,6 +81,25 @@ impl ConfigProvider for AccountsConfigData {
                     message: format!(
                         "duplicate account_id '{}' at index {}",
                         account.account_id, i
+                    ),
+                });
+            }
+
+            // Within the same platform, the (bot_app_id, sender_id)
+            // combination must be unique.
+            let binding_key = (
+                account.platform.clone(),
+                account.bot_app_id.clone(),
+                account.sender_id.clone(),
+            );
+            if !seen_platform_bindings.insert(binding_key) {
+                return Err(ConfigError::ValueError {
+                    field: format!("accounts[{}]", i),
+                    message: format!(
+                        "duplicate binding: platform='{}', \
+                         bot_app_id='{}', sender_id='{}' \
+                         at index {}",
+                        account.platform, account.bot_app_id, account.sender_id, i
                     ),
                 });
             }

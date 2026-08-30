@@ -13,6 +13,21 @@ use crate::validators::for_section;
 fn make_account(platform: &str, sender_id: &str, account_id: &str) -> IdentityMapping {
     IdentityMapping {
         platform: platform.to_string(),
+        bot_app_id: String::new(),
+        sender_id: sender_id.to_string(),
+        account_id: account_id.to_string(),
+    }
+}
+
+fn make_account_with_bot(
+    platform: &str,
+    bot_app_id: &str,
+    sender_id: &str,
+    account_id: &str,
+) -> IdentityMapping {
+    IdentityMapping {
+        platform: platform.to_string(),
+        bot_app_id: bot_app_id.to_string(),
         sender_id: sender_id.to_string(),
         account_id: account_id.to_string(),
     }
@@ -345,4 +360,133 @@ fn test_default_validator_accounts_rejects_non_object() {
     let v: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
     let validator = ConfigSection::Accounts.default_validator();
     assert!(validator(&v).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Bot app ID × sender_id uniqueness constraint
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_validate_fail_duplicate_platform_binding() {
+    let data = AccountsConfigData {
+        accounts: vec![
+            make_account("feishu", "ou_aaa", "user1"),
+            make_account("feishu", "ou_aaa", "user2"),
+        ],
+    };
+    let err = data.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("duplicate binding"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_fail_duplicate_platform_binding_with_bot_app_id() {
+    let data = AccountsConfigData {
+        accounts: vec![
+            make_account_with_bot("feishu", "app1", "ou_aaa", "user1"),
+            make_account_with_bot("feishu", "app1", "ou_aaa", "user2"),
+        ],
+    };
+    let err = data.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("duplicate binding"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_pass_different_bot_app_id_same_sender() {
+    let data = AccountsConfigData {
+        accounts: vec![
+            make_account_with_bot("feishu", "app1", "ou_aaa", "user1"),
+            make_account_with_bot("feishu", "app2", "ou_aaa", "user2"),
+        ],
+    };
+    assert!(data.validate().is_ok());
+}
+
+#[test]
+fn test_validate_pass_same_sender_different_platform() {
+    let data = AccountsConfigData {
+        accounts: vec![
+            make_account("feishu", "ou_aaa", "user1"),
+            make_account("discord", "ou_aaa", "user2"),
+        ],
+    };
+    assert!(data.validate().is_ok());
+}
+
+#[test]
+fn test_validate_fail_duplicate_binding_error_contains_index() {
+    let data = AccountsConfigData {
+        accounts: vec![
+            make_account("feishu", "ou_aaa", "user1"),
+            make_account("feishu", "ou_aaa", "user2"),
+            make_account("feishu", "ou_bbb", "user3"),
+        ],
+    };
+    let err = data.validate().unwrap_err();
+    assert!(err.to_string().contains("at index 1"), "error: {}", err);
+}
+
+#[test]
+fn test_validate_pass_unique_bindings() {
+    let data = AccountsConfigData {
+        accounts: vec![
+            make_account_with_bot("feishu", "app1", "ou_aaa", "user1"),
+            make_account_with_bot("feishu", "app1", "ou_bbb", "user2"),
+            make_account_with_bot("feishu", "app2", "ou_aaa", "user3"),
+            make_account("discord", "d_1", "user4"),
+        ],
+    };
+    assert!(data.validate().is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Validator integration — binding uniqueness via for_section
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_accounts_validator_fail_duplicate_binding() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"accounts":[
+            {"platform":"feishu","senderId":"ou_a","accountId":"a1"},
+            {"platform":"feishu","senderId":"ou_a","accountId":"a2"}
+        ]}"#,
+    )
+    .unwrap();
+    let err = validator(&v).unwrap_err();
+    assert!(err.contains("duplicate binding"), "error: {}", err);
+}
+
+#[test]
+fn test_accounts_validator_pass_different_bot_app_id_same_sender() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"accounts":[
+            {"platform":"feishu","botAppId":"app1","senderId":"ou_a","accountId":"a1"},
+            {"platform":"feishu","botAppId":"app2","senderId":"ou_a","accountId":"a2"}
+        ]}"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+#[test]
+fn test_accounts_validator_fail_duplicate_with_bot_app_id() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"accounts":[
+            {"platform":"feishu","botAppId":"app1","senderId":"ou_a","accountId":"a1"},
+            {"platform":"feishu","botAppId":"app1","senderId":"ou_a","accountId":"a2"}
+        ]}"#,
+    )
+    .unwrap();
+    let err = validator(&v).unwrap_err();
+    assert!(err.contains("duplicate binding"), "error: {}", err);
 }

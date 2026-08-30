@@ -22,6 +22,8 @@ mod events_tests;
 mod feishu_adapter_tests;
 #[cfg(test)]
 mod feishu_tests;
+#[cfg(test)]
+mod identity_isolation_tests;
 mod post_expand;
 pub mod renderer;
 #[cfg(test)]
@@ -54,7 +56,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::PlatformEntry;
 
@@ -375,12 +377,31 @@ impl FeishuPlugin {
     }
 
     /// Normalize content and apply identity mapping to an inbound message.
+    ///
+    /// `bot_app_id` is resolved with priority:
+    /// 1. `header_app_id` from `last_metadata` (the event header's app_id)
+    /// 2. The adapter's own `app_id` (fallback for legacy flows)
     fn normalize_inbound_message(&self, msg: &mut NormalizedMessage) {
         msg.content = normalize_urls(&msg.content);
         msg.content = add_code_block_language_hint(&msg.content);
         if let Some(resolver) = self.identity_resolver() {
+            let bot_app_id = match self.adapter.last_metadata.try_lock() {
+                Ok(guard) => guard
+                    .get("header_app_id")
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| self.adapter.app_id.clone()),
+                Err(_) => {
+                    debug!(
+                        platform = %msg.platform,
+                        sender_id = %msg.sender_id,
+                        "try_lock failed, falling back to adapter.app_id"
+                    );
+                    self.adapter.app_id.clone()
+                }
+            };
             msg.account_id = resolver
-                .resolve(&msg.platform, &msg.sender_id)
+                .resolve(&msg.platform, &bot_app_id, &msg.sender_id)
                 .unwrap_or(std::mem::take(&mut msg.account_id));
         }
     }
