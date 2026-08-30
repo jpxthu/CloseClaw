@@ -178,6 +178,7 @@ pub enum ConfigSection {
     Accounts,
     Memory,
     Skills,
+    Media,
 }
 
 impl ConfigSection {
@@ -194,6 +195,7 @@ impl ConfigSection {
             ConfigSection::Accounts => "accounts.json",
             ConfigSection::Memory => "memory.json",
             ConfigSection::Skills => "skills.json",
+            ConfigSection::Media => "media.json",
         }
     }
 
@@ -538,6 +540,19 @@ impl ConfigManager {
             }
         } else {
             info!("skills.json not found, using defaults");
+        }
+
+        // Load global media config (optional — absent file uses defaults).
+        let media_path = ConfigSection::Media.path(&self.config_dir);
+        if media_path.exists() {
+            if let Ok(content) = fs::read_to_string(&media_path) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                    sections.insert(ConfigSection::Media, value);
+                    info!(path = %media_path.display(), "global media config loaded");
+                }
+            }
+        } else {
+            info!("media.json not found, using defaults");
         }
 
         // Cross-validate credentials against models.json references.
@@ -921,6 +936,7 @@ impl ConfigManager {
             ConfigSection::Session,
             ConfigSection::Memory,
             ConfigSection::Skills,
+            ConfigSection::Media,
         ];
 
         let mut infos = Vec::new();
