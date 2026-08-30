@@ -15,69 +15,65 @@ use crate::session::{JsonSessionConfigProvider, SessionConfig, SessionConfigProv
 use crate::validators::{for_section, validate_credentials};
 
 // =========================================================================
-// Step 1.1 — SessionConfig plan_archive / audit_log deserialization + defaults
+// Step 1.1 — SessionConfig plan_archive_days / audit_log_limit deserialization + defaults
 // =========================================================================
 
 #[test]
-fn test_session_config_deserializes_plan_archive_and_audit_log() {
+fn test_session_config_deserializes_plan_archive_days_and_audit_log_limit() {
     let json = r#"{
         "defaults": {},
         "agents": {},
         "sweeperIntervalSeconds": 300,
-        "planArchive": { "thresholdDays": 14 },
-        "auditLog": { "maxEntries": 2000 }
+        "planArchiveDays": 14,
+        "auditLogLimit": 2000
     }"#;
     let config: SessionConfig = serde_json::from_str(json).unwrap();
-    let pa = config.plan_archive.unwrap();
-    assert_eq!(pa.threshold_days, 14);
-    let al = config.audit_log.unwrap();
-    assert_eq!(al.max_entries, Some(2000));
+    assert_eq!(config.plan_archive_days, 14);
+    assert_eq!(config.audit_log_limit, 2000);
 }
 
 #[test]
-fn test_session_config_defaults_contain_plan_archive_and_audit_log() {
+fn test_session_config_defaults_contain_plan_archive_days_and_audit_log_limit() {
     let config = SessionConfig::default();
-    let pa = config.plan_archive.unwrap();
-    assert_eq!(pa.threshold_days, 7); // default_plan_archive_threshold_days
-    let al = config.audit_log.unwrap();
-    assert_eq!(al.max_entries, Some(1000)); // default
+    assert_eq!(config.plan_archive_days, 7);
+    assert_eq!(config.audit_log_limit, 1000);
 }
 
 #[test]
-fn test_session_config_missing_plan_archive_and_audit_log_uses_defaults() {
+fn test_session_config_missing_plan_archive_days_and_audit_log_limit_uses_defaults() {
     let json = r#"{"defaults": {}, "agents": {}, "sweeperIntervalSeconds": 300}"#;
     let config: SessionConfig = serde_json::from_str(json).unwrap();
-    // Missing fields → Option::None (serde default for Option<T>)
-    assert!(config.plan_archive.is_none());
-    assert!(config.audit_log.is_none());
+    // Missing fields → serde default (7 for u64, 1000 for usize)
+    assert_eq!(config.plan_archive_days, 7);
+    assert_eq!(config.audit_log_limit, 1000);
 }
 
 #[test]
-fn test_session_config_plan_archive_zero_is_valid() {
+fn test_session_config_plan_archive_days_zero_is_valid() {
     let json = r#"{
         "defaults": {},
         "agents": {},
         "sweeperIntervalSeconds": 300,
-        "planArchive": { "thresholdDays": 0 }
+        "planArchiveDays": 0
     }"#;
     let config: SessionConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(config.plan_archive.unwrap().threshold_days, 0);
+    assert_eq!(config.plan_archive_days, 0);
 }
 
 #[test]
-fn test_session_config_audit_log_null_max_entries_is_valid() {
+fn test_session_config_audit_log_limit_zero_is_valid() {
     let json = r#"{
         "defaults": {},
         "agents": {},
         "sweeperIntervalSeconds": 300,
-        "auditLog": { "maxEntries": null }
+        "auditLogLimit": 0
     }"#;
     let config: SessionConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(config.audit_log.unwrap().max_entries, None);
+    assert_eq!(config.audit_log_limit, 0);
 }
 
 #[test]
-fn test_session_config_provider_returns_plan_archive_config() {
+fn test_session_config_provider_returns_plan_archive_days() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("session.json");
     fs::write(
@@ -86,16 +82,16 @@ fn test_session_config_provider_returns_plan_archive_config() {
             "defaults": {},
             "agents": {},
             "sweeperIntervalSeconds": 300,
-            "planArchive": { "thresholdDays": 30 }
+            "planArchiveDays": 30
         }"#,
     )
     .unwrap();
     let provider = JsonSessionConfigProvider::new(&path).unwrap();
-    assert_eq!(provider.plan_archive_config().threshold_days, 30);
+    assert_eq!(provider.plan_archive_days(), 30);
 }
 
 #[test]
-fn test_session_config_provider_returns_audit_log_config() {
+fn test_session_config_provider_returns_audit_log_limit() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("session.json");
     fs::write(
@@ -104,12 +100,12 @@ fn test_session_config_provider_returns_audit_log_config() {
             "defaults": {},
             "agents": {},
             "sweeperIntervalSeconds": 300,
-            "auditLog": { "maxEntries": 500 }
+            "auditLogLimit": 500
         }"#,
     )
     .unwrap();
     let provider = JsonSessionConfigProvider::new(&path).unwrap();
-    assert_eq!(provider.audit_log_config().max_entries, Some(500));
+    assert_eq!(provider.audit_log_limit(), 500);
 }
 
 #[test]
@@ -118,8 +114,8 @@ fn test_session_config_provider_defaults_when_file_absent() {
     let path = tmp.path().join("nonexistent.json");
     let provider = JsonSessionConfigProvider::new(&path).unwrap();
     // File absent → defaults
-    assert_eq!(provider.plan_archive_config().threshold_days, 7);
-    assert_eq!(provider.audit_log_config().max_entries, Some(1000));
+    assert_eq!(provider.plan_archive_days(), 7);
+    assert_eq!(provider.audit_log_limit(), 1000);
 }
 
 // =========================================================================

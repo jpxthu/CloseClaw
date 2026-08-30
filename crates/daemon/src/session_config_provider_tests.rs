@@ -81,6 +81,14 @@ impl SessionConfigProvider for MockSessionConfigProvider {
     fn compact_config(&self) -> closeclaw_common::CompactConfig {
         closeclaw_common::CompactConfig::default()
     }
+
+    fn plan_archive_days(&self) -> u64 {
+        7
+    }
+
+    fn audit_log_limit(&self) -> usize {
+        1000
+    }
 }
 
 /// Build a ConfigManager whose config/ subdir contains the given files.

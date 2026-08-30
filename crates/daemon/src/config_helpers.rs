@@ -123,14 +123,17 @@ impl Daemon {
         };
         match serde_json::from_str::<SessionConfig>(&content) {
             Ok(session_cfg) => {
-                if let Some(audit_cfg) = session_cfg.audit_log {
+                if session_cfg.audit_log_limit > 0 {
                     let log_path = std::path::Path::new(config_dir)
                         .join("logs")
                         .join("audit.log");
-                    match FileAuditLogger::new_with_limit(log_path, audit_cfg.max_entries) {
+                    match FileAuditLogger::new_with_limit(
+                        log_path,
+                        Some(session_cfg.audit_log_limit),
+                    ) {
                         Ok(logger) => {
                             info!(
-                                max_entries = ?audit_cfg.max_entries,
+                                max_entries = ?session_cfg.audit_log_limit,
                                 "Audit log logger configured"
                             );
                             Some(Arc::new(logger))
