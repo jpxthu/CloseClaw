@@ -96,8 +96,10 @@ impl ConfigProvider for AccountsConfigData {
                 return Err(ConfigError::ValueError {
                     field: format!("accounts[{}]", i),
                     message: format!(
-                        "duplicate (bot_app_id, sender_id) '{}' in platform '{}' at index {}",
-                        account.sender_id, account.platform, i
+                        "duplicate binding: platform='{}', \
+                         bot_app_id='{}', sender_id='{}' \
+                         at index {}",
+                        account.platform, account.bot_app_id, account.sender_id, i
                     ),
                 });
             }

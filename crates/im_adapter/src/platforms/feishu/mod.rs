@@ -395,7 +395,7 @@ impl FeishuPlugin {
                     debug!(
                         platform = %msg.platform,
                         sender_id = %msg.sender_id,
-                        "normalize_inbound_message: try_lock failed — falling back to adapter.app_id"
+                        "try_lock failed, falling back to adapter.app_id"
                     );
                     self.adapter.app_id.clone()
                 }

@@ -679,11 +679,13 @@ fn check_platform_binding_unique(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let key = (platform.clone(), bot_app_id, sender_id.clone());
+    let key = (platform.clone(), bot_app_id.clone(), sender_id.clone());
     if !seen_bindings.insert(key) {
         return Err(format!(
-            "accounts.accounts[{}].(botAppId, senderId) '{}' in platform '{}' is not unique",
-            index, sender_id, platform
+            "accounts.accounts[{}]. duplicate binding: \
+             platform='{}', bot_app_id='{}', \
+             sender_id='{}'",
+            index, platform, bot_app_id, sender_id
         ));
     }
     Ok(())

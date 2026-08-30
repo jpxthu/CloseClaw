@@ -376,8 +376,7 @@ fn test_validate_fail_duplicate_platform_binding() {
     };
     let err = data.validate().unwrap_err();
     assert!(
-        err.to_string()
-            .contains("duplicate (bot_app_id, sender_id)"),
+        err.to_string().contains("duplicate binding"),
         "error: {}",
         err
     );
@@ -393,8 +392,7 @@ fn test_validate_fail_duplicate_platform_binding_with_bot_app_id() {
     };
     let err = data.validate().unwrap_err();
     assert!(
-        err.to_string()
-            .contains("duplicate (bot_app_id, sender_id)"),
+        err.to_string().contains("duplicate binding"),
         "error: {}",
         err
     );
@@ -463,7 +461,7 @@ fn test_accounts_validator_fail_duplicate_binding() {
     )
     .unwrap();
     let err = validator(&v).unwrap_err();
-    assert!(err.contains("is not unique"), "error: {}", err);
+    assert!(err.contains("duplicate binding"), "error: {}", err);
 }
 
 #[test]
@@ -490,5 +488,5 @@ fn test_accounts_validator_fail_duplicate_with_bot_app_id() {
     )
     .unwrap();
     let err = validator(&v).unwrap_err();
-    assert!(err.contains("is not unique"), "error: {}", err);
+    assert!(err.contains("duplicate binding"), "error: {}", err);
 }
