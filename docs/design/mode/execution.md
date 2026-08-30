@@ -39,8 +39,10 @@ Agent 在 Auto Mode 下以连续自主方式执行 plan 步骤。行为原则：
 执行进度由 Agent 自行管理——Agent 在 plan 文件中以约定的格式标记步骤完成状态。系统不介入进度判断，Agent 是步骤完成与否的唯一判断者。
 
 - Agent 按 plan 文件的 Tasks 节顺序执行步骤
+- Tasks 节每个步骤以序号（Tasks 节顺序）与标题共同标识；User 可通过 /execute 附加指令或自然语言以此标识指定步骤或步骤子集
 - 每步完成后 Agent 在 plan 文件中更新对应步骤标记
 - 步骤状态由 Agent 自行判断：未开始 → 进行中 → 已完成 / 失败 / 已跳过
+- 部分执行时本次执行范围（步骤子集）以步骤标识随进度一并记录在 plan 文件，供中断/压缩后恢复重建，子集外步骤不纳入执行
 
 ### 步骤状态
 
@@ -64,7 +66,7 @@ Agent 在 Auto Mode 下以连续自主方式执行 plan 步骤。行为原则：
 
 ### 中断恢复
 
-执行过程中的中断可无缝恢复：
+执行过程中的中断可无缝恢复，且暂停/恢复均通过自然语言触发，无专用斜杠指令：
 
 - User 可随时暂停执行，当前进度被保存
 - User 恢复执行时，Agent 从暂停时的当前步骤继续，不重复已完成步骤
@@ -93,10 +95,10 @@ Auto Mode 下触发审批的危险操作会生成审计日志，User 可查看�
 
 ### 同 session 执行（斜杠指令）
 
-1. User `/execute`
+1. User `/execute <plan名称> [附加指令]`
 2. 若处于 Plan Mode → 退出 Plan Mode
 3. session 标记 Auto Mode（切换不立即生效，下一条用户消息前才应用约束）
-4. 注入 Auto Mode 指令 + plan 文件内容
+4. 注入 Auto Mode 指令 + plan 文件内容；若含附加指令，其内容作为一条用户消息注入 Auto Mode 初始对话
 5. Agent 按 plan Tasks 节顺序逐步执行
 6. 每步完成后 Agent 更新 plan 文件步骤标记
 7. 全部步骤完成 → session 退出 Auto Mode → 恢复默认模式
@@ -115,11 +117,25 @@ Auto Mode 下触发审批的危险操作会生成审计日志，User 可查看�
 ### 新 session 执行
 
 1. User 指定新 session 执行（通过 /execute 或自然语言）
-2. 创建新 session，直接进入 Auto Mode
-3. 注入 plan 文件内容作为初始上下文
-4. Agent 按 plan Tasks 节顺序逐步执行
-5. 每步完成后 Agent 更新 plan 文件步骤标记
-6. 全部步骤完成 → session 退出 Auto Mode → 恢复默认模式
+2. 创建新 session
+3. 注入 plan 文件内容作为初始上下文；若含附加指令，其内容一并注入
+4. 注入 Auto Mode 指令
+5. 新 session 直接进入 Auto Mode
+6. Agent 按 plan Tasks 节顺序逐步执行（若为部分执行，界定并持久化执行范围，见「部分步骤执行」）
+7. 每步完成后 Agent 更新 plan 文件步骤标记
+8. 全部步骤完成 → session 退出 Auto Mode → 恢复默认模式
+
+### 部分步骤执行
+
+1. User 指定只执行 Tasks 节中部分步骤（通过 /execute 或自然语言）
+2. 若处于 Plan Mode → 退出 Plan Mode
+3. session 标记 Auto Mode（切换不立即生效，下一条用户消息前才应用约束）
+4. 注入 Auto Mode 指令 + plan 文件内容；若通过 /execute 指定，附加指令（含步骤子集）作为一条用户消息注入
+5. Agent 界定执行范围：User 指定的步骤子集（按 Tasks 节标识，见「进度管理」），该子集随进度一并写入 plan 文件，供中断/压缩后恢复重建
+6. Agent 按序执行该子集内步骤，每步完成后更新 plan 文件对应步骤标记
+7. 子集内全部步骤完成 → session 退出 Auto Mode → 恢复默认模式；子集外步骤保持原状态不变
+
+> 本流程的执行范围界定与持久化同样适用于新 session 执行部分步骤的场景（见「新 session 执行」步骤 6）；执行范围以步骤标识记录于 plan 文件，见「进度管理」。
 
 ### Spawn 子 Agent 执行
 
@@ -131,15 +147,15 @@ Auto Mode 下触发审批的危险操作会生成审计日志，User 可查看�
 
 ### 中断恢复
 
-1. User 暂停 → Agent 停止当前步骤，记录进度到 plan 文件
+1. User 以自然语言暂停（如「停一下」「暂停」）→ Agent 停止当前步骤，记录进度（含本次执行范围，若为部分执行）到 plan 文件
 2. session 标记保持 Auto Mode
-3. User 恢复 → Agent 从当前步骤继续执行
+3. User 以自然语言恢复（如「继续」「继续执行」） → Agent 按记录的进度与执行范围，从当前步骤继续执行
 
 ### session 压缩后恢复
 
 1. compaction 触发 → plan 文件不受压缩影响，独立于 session 持久化
 2. session 续活时重新读取 plan 文件 Tasks 节
-3. Agent 识别最后完成的步骤，从下一步继续
+3. Agent 识别最后完成的步骤（或仍处于进行中的未完成步骤）与记录的本次执行范围，从相应步骤继续，不越出原执行范围
 
 ### 失败处理
 
