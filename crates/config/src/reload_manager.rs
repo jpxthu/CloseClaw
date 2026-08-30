@@ -16,7 +16,39 @@ use tracing::{debug, info, warn};
 
 use crate::events::ConfigChangeEvent;
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
-use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
+use crate::providers::{ConfigError, ConfigProvider, CredentialsProvider, ModelsConfigData};
+
+impl From<ConfigError> for ConfigLoadError {
+    fn from(e: ConfigError) -> Self {
+        let empty = std::path::PathBuf::new();
+        match e {
+            ConfigError::ParseError { path, error } => ConfigLoadError::ParseError { path, error },
+            ConfigError::ValidationError { path, message } => {
+                ConfigLoadError::ValidationError { path, message }
+            }
+            ConfigError::IoError(e) => ConfigLoadError::IoError {
+                path: empty,
+                error: e.to_string(),
+            },
+            ConfigError::JsonError(e) => ConfigLoadError::ParseError {
+                path: empty,
+                error: e.to_string(),
+            },
+            ConfigError::SchemaError(msg) => ConfigLoadError::ParseError {
+                path: empty,
+                error: msg,
+            },
+            ConfigError::ValueError { field, message } => ConfigLoadError::ValidationError {
+                path: empty,
+                message: format!("field '{}': {}", field, message),
+            },
+            ConfigError::MissingId { path } => ConfigLoadError::ParseError {
+                path: empty,
+                error: format!("missing id in {}", path),
+            },
+        }
+    }
+}
 
 /// Default debounce duration for file change events.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -352,10 +384,7 @@ impl ConfigReloadManager {
                     &e.to_string(),
                     &self.config_manager,
                 );
-                return Err(ConfigLoadError::IoError {
-                    path: creds_dir.to_path_buf(),
-                    error: e.to_string(),
-                });
+                return Err(e.into());
             }
         };
 
@@ -416,10 +445,7 @@ impl ConfigReloadManager {
                         &format!("credential_path '{}' failed to load: {}", rel_path, e),
                         &self.config_manager,
                     );
-                    return Err(ConfigLoadError::IoError {
-                        path: abs_path,
-                        error: e.to_string(),
-                    });
+                    return Err(e.into());
                 }
             }
         }
@@ -647,32 +673,13 @@ pub fn filename_to_section(filename: &str) -> Option<ConfigSection> {
 pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
     // credentials/ directory → reload credentials and stage for restart
     if is_credentials_path(path) {
-        info!(
-            path = %path.display(),
-            "credentials file changed, triggering credentials reload"
-        );
-        if let Err(e) = manager.reload_credentials() {
-            warn!(
-                error = %e,
-                "failed to reload credentials"
-            );
-        }
+        dispatch_credentials_change(path, manager);
         return;
     }
 
-    // permissions.json → lightweight permissions-only reload
-    if is_agents_path(path) && is_permissions_path(path) {
-        manager
-            .callback
-            .on_permissions_changed(path, &manager.config_manager);
-        return;
-    }
-
-    // Agent-related changes → full agent reload + registry sync
+    // Agent-related changes (permissions, agents dir, agents.json)
     if is_agents_path(path) {
-        manager
-            .callback
-            .on_agents_changed(path, &manager.config_manager);
+        dispatch_agents_change(path, manager);
         return;
     }
 
@@ -681,44 +688,59 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
         None => return,
     };
 
-    // agents.json: standard section reload + agent directory reload
-    if filename == "agents.json" {
-        if let Some(section) = filename_to_section(filename) {
-            info!(
-                path = %path.display(),
-                section = %section,
-                "agents.json changed, reloading section"
-            );
-            if let Err(e) = manager.reload_section(section) {
-                warn!(error = %e, section = %section, "failed to reload agents section");
-            }
-            // Also trigger agent directory reload for the AgentDirectoryProvider.
-            manager
-                .callback
-                .on_agents_changed(path, &manager.config_manager);
-        }
-        return;
-    }
-
-    // Regular config section file
     if let Some(section) = filename_to_section(filename) {
+        let is_agents = filename == "agents.json";
         info!(
             path = %path.display(),
             section = %section,
-            "config file changed, reloading section"
+            "{} changed, reloading section",
+            if is_agents { "agents.json" } else { "config file" }
         );
         if let Err(e) = manager.reload_section(section) {
             warn!(error = %e, section = %section, "failed to reload config section");
+        }
+        if is_agents {
+            manager
+                .callback
+                .on_agents_changed(path, &manager.config_manager);
         } else if section == ConfigSection::Session {
             manager
                 .callback
                 .on_session_reloaded(&manager.config_manager);
         }
-        // Notify the callback about any config file change so it can
-        // detect restart-class changes (e.g. gateway, models).
         manager
             .callback
             .on_config_file_changed(path, section, &manager.config_manager);
+    }
+}
+
+/// Dispatch agent directory changes (permissions, agent directory files).
+fn dispatch_agents_change(path: &Path, manager: &ConfigReloadManager) {
+    // permissions.json → lightweight permissions-only reload
+    if is_permissions_path(path) {
+        manager
+            .callback
+            .on_permissions_changed(path, &manager.config_manager);
+        return;
+    }
+
+    // Other agent directory changes
+    manager
+        .callback
+        .on_agents_changed(path, &manager.config_manager);
+}
+
+/// Dispatch credentials directory changes to the credentials reload handler.
+fn dispatch_credentials_change(path: &Path, manager: &ConfigReloadManager) {
+    info!(
+        path = %path.display(),
+        "credentials file changed, triggering credentials reload"
+    );
+    if let Err(e) = manager.reload_credentials() {
+        warn!(
+            error = %e,
+            "failed to reload credentials"
+        );
     }
 }
 
