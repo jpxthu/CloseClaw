@@ -58,6 +58,10 @@ impl CredentialsProvider {
     ///
     /// The file should contain a single credentials object.
     /// Returns an empty provider if the file does not exist.
+    ///
+    /// **Note:** Parse/validation failures are silently swallowed and
+    /// return an empty provider. For hot-reload paths that must surface
+    /// errors, use [`load_from_file_strict`](Self::load_from_file_strict).
     pub fn load_from_file(file: &Path) -> Result<Self, ConfigError> {
         let mut provider = CredentialsProvider::default();
         if !file.exists() {
@@ -70,6 +74,37 @@ impl CredentialsProvider {
                 return Ok(provider);
             }
         };
+        let name = match &creds {
+            AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
+            AnyProviderCredentials::Feishu(c) => c.provider.clone(),
+        };
+        provider.providers.insert(name, creds);
+        Ok(provider)
+    }
+
+    /// Strict variant of [`load_from_file`](Self::load_from_file) that
+    /// returns `Err` on parse or validation failure.
+    ///
+    /// Used by the hot-reload path to ensure credential_path references
+    /// with invalid files abort the entire load rather than being silently
+    /// skipped.
+    pub fn load_from_file_strict(file: &Path) -> Result<Self, ConfigError> {
+        if !file.exists() {
+            return Err(ConfigError::ParseError {
+                path: file.to_path_buf(),
+                error: "credential_path file does not exist".to_string(),
+            });
+        }
+        let content = fs::read_to_string(file)?;
+        let value: serde_json::Value = serde_json::from_str(&content)?;
+        if let Err(e) = crate::validators::validate_credentials(&value) {
+            return Err(ConfigError::ValidationError {
+                path: file.to_path_buf(),
+                message: e,
+            });
+        }
+        let creds: AnyProviderCredentials = serde_json::from_value(value)?;
+        let mut provider = CredentialsProvider::default();
         let name = match &creds {
             AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
             AnyProviderCredentials::Feishu(c) => c.provider.clone(),
@@ -425,6 +460,46 @@ mod tests {
         assert_eq!(provider.providers.len(), 2);
         assert_eq!(provider.get_api_key("openai").unwrap(), "sk-openai");
         assert_eq!(provider.get_api_key("anthropic").unwrap(), "sk-ant");
+    }
+
+    // -------------------------------------------------------------------------
+    // load_from_file_strict tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_load_from_file_strict_success() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("openai.json");
+        fs::write(&file, r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
+        let provider = CredentialsProvider::load_from_file_strict(&file).unwrap();
+        assert_eq!(provider.providers.len(), 1);
+        assert_eq!(provider.get_api_key("openai").unwrap(), "sk-test");
+    }
+
+    #[test]
+    fn test_load_from_file_strict_nonexistent_file() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("nonexistent.json");
+        let result = CredentialsProvider::load_from_file_strict(&file);
+        assert!(result.is_err(), "should fail for nonexistent file");
+    }
+
+    #[test]
+    fn test_load_from_file_strict_parse_error() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("bad.json");
+        fs::write(&file, r#"{not valid json"#).unwrap();
+        let result = CredentialsProvider::load_from_file_strict(&file);
+        assert!(result.is_err(), "should fail for malformed JSON");
+    }
+
+    #[test]
+    fn test_load_from_file_strict_validation_error() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("invalid.json");
+        fs::write(&file, r#"{"provider":"openai","apiKey":""}"#).unwrap();
+        let result = CredentialsProvider::load_from_file_strict(&file);
+        assert!(result.is_err(), "should fail for validation error");
     }
 
     // -------------------------------------------------------------------------

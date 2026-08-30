@@ -379,6 +379,8 @@ fn test_credentials_no_old_value_validation_failure_blocks() {
 
 /// credential_path reference in models.json that points to a file
 /// with a parse error should abort the load (file exists but invalid).
+/// The bad file must be outside credentials/ so that load_from_dir_strict
+/// does not catch it first — only the credential_path reference path is tested.
 #[test]
 fn test_credentials_credential_path_parse_error_aborts_load() {
     let d = TempDir::new().unwrap();
@@ -386,13 +388,16 @@ fn test_credentials_credential_path_parse_error_aborts_load() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    // credentials/ dir exists but is empty (no files inside to trigger
+    // load_from_dir_strict failure — we only test the credential_path path)
+    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
 
-    // Create valid credential file first so models.json validation passes.
-    // Use absolute path because models validator resolves credentialPath
-    // relative to CWD, not config_dir.
-    let cred_file = creds_dir.join("openai.json");
+    // Place a valid credential file OUTSIDE credentials/, referenced via
+    // models.json credentialPath. Use an absolute path because the models
+    // validator resolves credentialPath relative to CWD.
+    let external_dir = d.path().join("external_creds");
+    std::fs::create_dir_all(&external_dir).unwrap();
+    let cred_file = external_dir.join("openai.json");
     std::fs::write(
         &cred_file,
         r#"{"provider":"openai","apiKey":"sk-placeholder"}"#,
@@ -405,8 +410,12 @@ fn test_credentials_credential_path_parse_error_aborts_load() {
     );
     std::fs::write(d.path().join("models.json"), &models_json).unwrap();
     mgr.reload_section(ConfigSection::Models).unwrap();
+    // Apply pending restart so in-memory cache has the new models.json
+    // with credentialPath (otherwise merge_credential_path_references
+    // reads the old value without credentialPath).
+    cm.apply_pending_restart();
 
-    // Now overwrite with malformed JSON
+    // Now overwrite the external file with malformed JSON
     std::fs::write(&cred_file, r#"{broken json"#).unwrap();
 
     let result = mgr.reload_credentials();
@@ -422,6 +431,8 @@ fn test_credentials_credential_path_parse_error_aborts_load() {
 
 /// credential_path reference in models.json that points to a file
 /// with validation error (empty apiKey) should abort the load.
+/// The bad file must be outside credentials/ so that load_from_dir_strict
+/// does not catch it first — only the credential_path reference path is tested.
 #[test]
 fn test_credentials_credential_path_validation_error_aborts_load() {
     let d = TempDir::new().unwrap();
@@ -429,10 +440,15 @@ fn test_credentials_credential_path_validation_error_aborts_load() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    // credentials/ dir exists but is empty
+    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
 
-    let cred_file = creds_dir.join("openai.json");
+    // Place a valid credential file OUTSIDE credentials/, referenced via
+    // models.json credentialPath. Use an absolute path because the models
+    // validator resolves credentialPath relative to CWD.
+    let external_dir = d.path().join("external_creds");
+    std::fs::create_dir_all(&external_dir).unwrap();
+    let cred_file = external_dir.join("openai.json");
     std::fs::write(
         &cred_file,
         r#"{"provider":"openai","apiKey":"sk-placeholder"}"#,
@@ -445,8 +461,11 @@ fn test_credentials_credential_path_validation_error_aborts_load() {
     );
     std::fs::write(d.path().join("models.json"), &models_json).unwrap();
     mgr.reload_section(ConfigSection::Models).unwrap();
+    // Apply pending restart so in-memory cache has the new models.json
+    // with credentialPath.
+    cm.apply_pending_restart();
 
-    // Now overwrite with valid JSON but invalid credential
+    // Now overwrite with valid JSON but invalid credential (empty apiKey)
     std::fs::write(&cred_file, r#"{"provider":"openai","apiKey":""}"#).unwrap();
 
     let result = mgr.reload_credentials();

@@ -331,6 +331,15 @@ impl ConfigReloadManager {
         let mut creds_provider = match CredentialsProvider::load_from_dir_strict(creds_dir) {
             Ok(cp) => cp,
             Err(e) => {
+                // No old value → block section per design doc semantics
+                if self
+                    .config_manager
+                    .get_section_value(ConfigSection::Credentials)
+                    .is_none()
+                {
+                    self.config_manager
+                        .block_section(ConfigSection::Credentials);
+                }
                 self.config_manager
                     .notify_change(ConfigChangeEvent::Failed {
                         section: ConfigSection::Credentials,
@@ -351,60 +360,70 @@ impl ConfigReloadManager {
         };
 
         // Merge credential_path references from models.json
-        if let Some(models_value) = self.config_manager.get_section_value(ConfigSection::Models) {
-            if let Ok(models_config) =
-                serde_json::from_value::<ModelsConfigData>(models_value.clone())
-            {
-                for (provider_id, provider_cfg) in &models_config.providers {
-                    if let Some(ref rel_path) = provider_cfg.credential_path {
-                        let abs_path = self.config_manager.config_dir().join(rel_path);
-                        if !abs_path.exists() {
-                            // Missing file → warn only (doc says "silent" for missing)
-                            warn!(
-                                provider = %provider_id,
-                                path = %abs_path.display(),
-                                "credential_path file missing for provider"
-                            );
-                            continue;
-                        }
-                        match CredentialsProvider::load_from_file(&abs_path) {
-                            Ok(extra) => {
-                                for (name, cred) in extra.providers {
-                                    creds_provider.providers.insert(name, cred);
-                                }
-                            }
-                            Err(e) => {
-                                // File exists but failed parse/validation → abort
-                                self.config_manager
-                                    .notify_change(ConfigChangeEvent::Failed {
-                                        section: ConfigSection::Credentials,
-                                        path: abs_path.clone(),
-                                        error: format!(
-                                            "credential_path '{}' failed to load: {}",
-                                            rel_path, e
-                                        ),
-                                    });
-                                self.callback.on_validation_failed(
-                                    ConfigSection::Credentials,
-                                    &abs_path,
-                                    &format!(
-                                        "credential_path '{}' failed to load: {}",
-                                        rel_path, e
-                                    ),
-                                    &self.config_manager,
-                                );
-                                return Err(ConfigLoadError::IoError {
-                                    path: abs_path,
-                                    error: e.to_string(),
-                                });
-                            }
-                        }
+        self.merge_credential_path_references(&mut creds_provider)?;
+
+        Ok(creds_provider)
+    }
+
+    /// Merge credential_path references from models.json into the
+    /// loaded credentials provider.
+    ///
+    /// For each provider in models.json that has a `credentialPath`:
+    /// - Missing files are warned-only (design-doc: missing ≠ invalid)
+    /// - Existing files with parse/validation errors abort the entire load
+    fn merge_credential_path_references(
+        &self,
+        creds_provider: &mut CredentialsProvider,
+    ) -> Result<(), ConfigLoadError> {
+        let models_value = match self.config_manager.get_section_value(ConfigSection::Models) {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+        let models_config = match serde_json::from_value::<ModelsConfigData>(models_value) {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
+        for (provider_id, provider_cfg) in &models_config.providers {
+            let rel_path = match provider_cfg.credential_path {
+                Some(ref p) => p,
+                None => continue,
+            };
+            let abs_path = self.config_manager.config_dir().join(rel_path);
+            if !abs_path.exists() {
+                warn!(
+                    provider = %provider_id,
+                    path = %abs_path.display(),
+                    "credential_path file missing for provider"
+                );
+                continue;
+            }
+            match CredentialsProvider::load_from_file_strict(&abs_path) {
+                Ok(extra) => {
+                    for (name, cred) in extra.providers {
+                        creds_provider.providers.insert(name, cred);
                     }
+                }
+                Err(e) => {
+                    self.config_manager
+                        .notify_change(ConfigChangeEvent::Failed {
+                            section: ConfigSection::Credentials,
+                            path: abs_path.clone(),
+                            error: format!("credential_path '{}' failed to load: {}", rel_path, e),
+                        });
+                    self.callback.on_validation_failed(
+                        ConfigSection::Credentials,
+                        &abs_path,
+                        &format!("credential_path '{}' failed to load: {}", rel_path, e),
+                        &self.config_manager,
+                    );
+                    return Err(ConfigLoadError::IoError {
+                        path: abs_path,
+                        error: e.to_string(),
+                    });
                 }
             }
         }
-
-        Ok(creds_provider)
+        Ok(())
     }
 
     /// Start watching config files under `config_dir`.
