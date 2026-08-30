@@ -38,7 +38,8 @@ impl Daemon {
             llm_registry,
             fallback_client,
             permission_engine,
-            plan_archive_sweeper,
+            plan_archive_shutdown_tx,
+            plan_archive_sweeper_handle,
         ) = Self::init_phase_2_registries(config_dir, &config_manager, &audit_logger).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
@@ -186,7 +187,8 @@ impl Daemon {
             archive_sweeper_handle: Some(sweeper_handle),
             announce_sweeper_handle: Some(announce_sweeper_handle),
             dreaming_scheduler_handle: Some(dreaming_handle),
-            _plan_archive_sweeper: plan_archive_sweeper,
+            plan_archive_shutdown_tx,
+            plan_archive_sweeper_handle: Some(plan_archive_sweeper_handle),
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
@@ -530,101 +532,155 @@ impl Daemon {
     /// - Clears pending approval requests
     async fn phase_3_background_stop(&mut self) {
         // ConfigWatcher is RAII — stop on drop.
-        // Explicitly take() and drop here to match Phase 3 ordering
-        // in the design doc, rather than waiting for Daemon destruction.
         if let Some(watcher) = self._config_watcher.take() {
             drop(watcher);
             tracing::info!("ConfigWatcher dropped in Phase 3");
         }
 
-        // Signal ArchiveSweeper to stop
+        // Signal all background tasks to stop
         let _ = self.sweeper_shutdown_tx.send(());
-        // Signal AnnounceSweeper to stop
         let _ = self.announce_shutdown_tx.send(());
-        // Signal DreamingScheduler to stop
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
-        // PlanArchiveSweeper is RAII — stop on drop.
-        if self._plan_archive_sweeper.take().is_some() {
-            tracing::info!("PlanArchiveSweeper dropped in Phase 3");
-        }
+        let _ = self.plan_archive_shutdown_tx.send(());
 
-        // Wait for all background tasks to exit, aborting on timeout.
-        let join_timeout = std::time::Duration::from_secs(10);
-        let abort_grace = std::time::Duration::from_secs(3);
-        let mut heartbeat = ShutdownHeartbeat::new();
-
-        if let Some(handle) = self.archive_sweeper_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "ArchiveSweeper",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-            self.try_send_heartbeat(&mut heartbeat).await;
-        }
-
-        if let Some(handle) = self.announce_sweeper_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "AnnounceSweeper",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-            self.try_send_heartbeat(&mut heartbeat).await;
-        }
-
-        if let Some(handle) = self.dreaming_scheduler_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "DreamingScheduler",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-            self.try_send_heartbeat(&mut heartbeat).await;
-        }
+        let task_results = self.wait_all_bg_tasks().await;
+        Self::log_phase3_stop_confirmation(&task_results);
 
         // Clear pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
     }
 
-    /// Wait for a background task to exit within `timeout`.
+    /// Wait for all background tasks to exit, sending periodic heartbeats.
+    async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
+        let join_timeout = std::time::Duration::from_secs(10);
+        let abort_grace = std::time::Duration::from_secs(3);
+        let mut heartbeat = ShutdownHeartbeat::new();
+        let mut results: Vec<(&str, TaskStopStatus)> = Vec::new();
+        let tasks: Vec<(&str, Option<tokio::task::JoinHandle<()>>)> = vec![
+            ("ArchiveSweeper", self.archive_sweeper_handle.take()),
+            ("AnnounceSweeper", self.announce_sweeper_handle.take()),
+            ("DreamingScheduler", self.dreaming_scheduler_handle.take()),
+            (
+                "PlanArchiveSweeper",
+                self.plan_archive_sweeper_handle.take(),
+            ),
+        ];
+        for (name, handle) in tasks {
+            if let Some(h) = handle {
+                let status = self
+                    .wait_for_background_task_with_heartbeat(
+                        h,
+                        name,
+                        join_timeout,
+                        abort_grace,
+                        &mut heartbeat,
+                    )
+                    .await;
+                results.push((name, status));
+            }
+        }
+        results
+    }
+
+    /// Summarize Phase 3 background task stop results.
+    fn log_phase3_stop_confirmation(results: &[(&str, TaskStopStatus)]) {
+        let clean = results
+            .iter()
+            .filter(|(_, s)| matches!(s, TaskStopStatus::Clean))
+            .count();
+        let panicked = results
+            .iter()
+            .filter(|(_, s)| matches!(s, TaskStopStatus::Panicked))
+            .count();
+        let aborted = results
+            .iter()
+            .filter(|(_, s)| matches!(s, TaskStopStatus::Aborted))
+            .count();
+        info!(
+            clean,
+            panicked, aborted, "phase 3 background tasks stopped — confirmation"
+        );
+        for (name, status) in results {
+            match status {
+                TaskStopStatus::Clean => info!(task = %name, "stopped: clean exit"),
+                TaskStopStatus::Panicked => warn!(task = %name, "stopped: panicked"),
+                TaskStopStatus::Aborted => {
+                    warn!(task = %name, "stopped: aborted (timeout)")
+                }
+            }
+        }
+    }
+
+    /// Wait for a background task to exit, sending periodic shutdown
+    /// heartbeats during the wait.
     ///
-    /// If the task does not exit in time, it is aborted and a short
-    /// `abort_grace` is given to confirm termination.  A final log is
-    /// emitted if the task is still alive after abort (theoretically
-    /// impossible, but logged defensively at error level).
-    async fn abort_and_join_background_task(
+    /// Uses `tokio::select!` with `ShutdownHeartbeat::next_deadline()`
+    /// to send heartbeat notifications every 30s while waiting for the
+    /// task to finish.  Ref: design doc § "心跳在存在等待的停止阶段
+    /// 生效" — Phase 3 后台任务停止.
+    async fn wait_for_background_task_with_heartbeat(
+        &self,
         mut handle: tokio::task::JoinHandle<()>,
         name: &str,
         timeout: std::time::Duration,
         abort_grace: std::time::Duration,
-    ) {
-        match tokio::time::timeout(timeout, &mut handle).await {
-            Ok(Ok(())) => {
-                info!("{} exited cleanly", name);
-            }
-            Ok(Err(e)) => {
-                warn!(error = %e, "{} task panicked", name);
-            }
-            Err(_) => {
-                warn!("{} did not exit within {:?}, aborting", name, timeout);
-                handle.abort();
-                match tokio::time::timeout(abort_grace, handle).await {
-                    Ok(Ok(())) => {
-                        info!("{} terminated after abort", name);
-                    }
-                    Ok(Err(_)) => {
-                        info!("{} task panicked on abort join — terminated", name);
-                    }
-                    Err(_) => {
-                        error!("{} still alive after abort — possible resource leak", name);
+        heartbeat: &mut ShutdownHeartbeat,
+    ) -> TaskStopStatus {
+        let wait_with_heartbeats = async {
+            loop {
+                tokio::select! {
+                    result = &mut handle => return result,
+                    _ = tokio::time::sleep_until(heartbeat.next_deadline()) => {
+                        self.try_send_heartbeat(heartbeat).await;
                     }
                 }
             }
+        };
+
+        match tokio::time::timeout(timeout, wait_with_heartbeats).await {
+            Ok(join_result) => Self::classify_task_result(name, join_result, heartbeat),
+            Err(_) => Self::abort_task_with_grace(handle, name, abort_grace, heartbeat).await,
         }
+    }
+
+    /// Classify a completed task's join result into a stop status.
+    fn classify_task_result(
+        name: &str,
+        result: Result<(), tokio::task::JoinError>,
+        heartbeat: &mut ShutdownHeartbeat,
+    ) -> TaskStopStatus {
+        match result {
+            Ok(()) => {
+                info!("{} exited cleanly", name);
+                heartbeat.record_event();
+                TaskStopStatus::Clean
+            }
+            Err(e) => {
+                warn!(error = %e, "{} task panicked", name);
+                heartbeat.record_event();
+                TaskStopStatus::Panicked
+            }
+        }
+    }
+
+    /// Abort a task and wait with a grace period for termination.
+    async fn abort_task_with_grace(
+        handle: tokio::task::JoinHandle<()>,
+        name: &str,
+        abort_grace: std::time::Duration,
+        heartbeat: &mut ShutdownHeartbeat,
+    ) -> TaskStopStatus {
+        warn!("{} did not exit within timeout, aborting", name);
+        handle.abort();
+        match tokio::time::timeout(abort_grace, handle).await {
+            Ok(Ok(())) => info!("{} terminated after abort", name),
+            Ok(Err(_)) => info!("{} task panicked on abort join — terminated", name),
+            Err(_) => {
+                error!("{} still alive after abort — possible resource leak", name)
+            }
+        }
+        heartbeat.record_event();
+        TaskStopStatus::Aborted
     }
     /// Phase 4: Final persistence — flush checkpoints and sync WAL.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
@@ -694,6 +750,17 @@ impl Daemon {
         // Clean up chat socket file
         let _ = tokio::fs::remove_file(&self.chat_socket_path).await;
     }
+}
+
+/// Stop status of a background task.
+#[derive(Debug)]
+pub(crate) enum TaskStopStatus {
+    /// Task exited cleanly before the join timeout.
+    Clean,
+    /// Task panicked.
+    Panicked,
+    /// Task was aborted due to timeout.
+    Aborted,
 }
 
 // --- Config loading helpers ---

@@ -19,29 +19,6 @@ use tokio::sync::watch;
 use crate::config_watcher;
 use crate::gateway_restart::RestartHandle;
 
-/// RAII handle for the PlanArchiveSweeper background task.
-///
-/// Dropping this sends a shutdown signal and aborts the task,
-/// consistent with the ConfigWatcher RAII pattern.
-pub(crate) struct PlanArchiveSweeperHandle {
-    // Implicit drop closes the channel, signaling the background task.
-    #[allow(dead_code)]
-    shutdown_tx: watch::Sender<()>,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl Drop for PlanArchiveSweeperHandle {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
-impl PlanArchiveSweeperHandle {
-    pub(crate) fn new(shutdown_tx: watch::Sender<()>, task: tokio::task::JoinHandle<()>) -> Self {
-        Self { shutdown_tx, task }
-    }
-}
-
 /// Global daemon state
 pub struct Daemon {
     /// Gateway instance — wrapped in Mutex for restart-time swap.
@@ -89,8 +66,10 @@ pub struct Daemon {
     pub(crate) announce_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
     /// Join handle for DreamingScheduler background task
     pub(crate) dreaming_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
-    /// PlanArchiveSweeper background task handle (RAII: stops on drop)
-    pub(crate) _plan_archive_sweeper: Option<PlanArchiveSweeperHandle>,
+    /// Shutdown sender for PlanArchiveSweeper
+    pub(crate) plan_archive_shutdown_tx: watch::Sender<()>,
+    /// Join handle for PlanArchiveSweeper background task
+    pub(crate) plan_archive_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
     /// SpawnController reference — manages sub-agent lifecycle
     pub spawn_controller: Option<Arc<SpawnController>>,
     /// SystemPromptBuilder reference — static-layer prompt construction

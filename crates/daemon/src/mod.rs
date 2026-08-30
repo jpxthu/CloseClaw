@@ -192,7 +192,8 @@ impl Daemon {
         Arc<closeclaw_llm::LLMRegistry>,
         Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
         Arc<tokio::sync::RwLock<PermissionEngine>>,
-        Option<crate::daemon_struct::PlanArchiveSweeperHandle>,
+        tokio::sync::watch::Sender<()>,
+        tokio::task::JoinHandle<()>,
     )> {
         // Synchronous components: no async work, create directly.
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
@@ -209,7 +210,7 @@ impl Daemon {
                 )
             });
         let data_dir = std::path::PathBuf::from(config_dir);
-        let plan_archive_sweeper =
+        let (plan_archive_shutdown_tx, plan_archive_sweeper_handle) =
             registries::spawn_plan_archive_sweeper(config_manager, &data_dir);
 
         // Parallel async components: skill_registry and llm_registry are
@@ -230,7 +231,8 @@ impl Daemon {
             llm_registry,
             fallback_client,
             permission_engine,
-            plan_archive_sweeper,
+            plan_archive_shutdown_tx,
+            plan_archive_sweeper_handle,
         ))
     }
 
@@ -934,6 +936,8 @@ mod gateway_restart_checkpoint_tests;
 mod lifecycle_abort_tests;
 #[cfg(test)]
 mod lifecycle_assembly_tests;
+#[cfg(test)]
+mod lifecycle_phase3_heartbeat_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
