@@ -472,10 +472,14 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(5))
             .expect("reload loop should have completed at least one dispatch cycle");
 
-        let gw = cm.section(ConfigSection::Gateway).unwrap();
+        // Gateway is restart-class, so the value is staged in pending_restart
+        // rather than the runtime cache.
+        let gw_pending = cm
+            .pending_restart_value(ConfigSection::Gateway)
+            .expect("gateway should have a staged restart value");
         assert_eq!(
-            gw["port"], 8020,
-            "gateway port should reflect the last write after dedup"
+            gw_pending["port"], 8020,
+            "gateway port should reflect the last write after dedup (staged)"
         );
     }
 

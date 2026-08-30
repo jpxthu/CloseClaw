@@ -7,7 +7,9 @@ use std::path::Path;
 
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::manager::ConfigManager;
+use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::ReloadCallback;
+use closeclaw_gateway::Gateway;
 use tokio::sync::mpsc;
 use tracing::info;
 use tracing::warn;
@@ -21,14 +23,26 @@ pub struct DaemonReloadCallback {
     /// Channel to signal a restart-class config change to the Daemon.
     /// `String` is a human-readable change summary.
     daemon_restart_tx: Option<mpsc::Sender<String>>,
+    /// Gateway reference for sending IM notifications on config
+    /// validation failures. `None` in unit tests where Gateway
+    /// construction is not practical.
+    gateway: Option<std::sync::Arc<Gateway>>,
+    /// Tokio runtime handle for spawning async IM notification tasks.
+    /// Reused across calls to avoid creating a new runtime each time.
+    runtime_handle: tokio::runtime::Handle,
 }
 
 impl DaemonReloadCallback {
     /// Create a new daemon reload callback.
-    pub fn new(agent_registry: std::sync::Arc<AgentRegistry>) -> Self {
+    pub fn new(
+        agent_registry: std::sync::Arc<AgentRegistry>,
+        gateway: std::sync::Arc<Gateway>,
+    ) -> Self {
         Self {
             agent_registry,
             daemon_restart_tx: None,
+            gateway: Some(gateway),
+            runtime_handle: tokio::runtime::Handle::current(),
         }
     }
 
@@ -36,38 +50,13 @@ impl DaemonReloadCallback {
     pub fn with_restart_tx(
         agent_registry: std::sync::Arc<AgentRegistry>,
         daemon_restart_tx: mpsc::Sender<String>,
+        gateway: std::sync::Arc<Gateway>,
     ) -> Self {
         Self {
             agent_registry,
             daemon_restart_tx: Some(daemon_restart_tx),
-        }
-    }
-
-    /// Determine whether a config file change requires a gateway restart.
-    ///
-    /// Returns `true` for restart-class files:
-    /// - `channels.json` — IM Adapter configuration
-    /// - `gateway.json` — Gateway configuration
-    /// - `models.json` — LLM Provider configuration
-    pub(crate) fn is_restart_class(path: &Path) -> bool {
-        let filename = match path.file_name().and_then(|n| n.to_str()) {
-            Some(f) => f,
-            None => return false,
-        };
-        matches!(filename, "channels.json" | "gateway.json" | "models.json")
-    }
-
-    /// Build a human-readable change summary for a restart-class config.
-    fn describe_restart_class(path: &Path) -> String {
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-        match filename {
-            "channels.json" => "IM Adapter config changed".to_string(),
-            "gateway.json" => "Gateway config changed".to_string(),
-            "models.json" => "LLM Provider config changed".to_string(),
-            _ => format!("config changed: {}", filename),
+            gateway: Some(gateway),
+            runtime_handle: tokio::runtime::Handle::current(),
         }
     }
 
@@ -107,26 +96,40 @@ impl DaemonReloadCallback {
         let configs: Vec<_> = config_manager.agents().into_values().collect();
         self.agent_registry.reload(configs);
     }
+}
 
-    /// Reload permissions for a single agent.
-    ///
-    /// With lazy loading, `LazyAgentPermissions` detects mtime changes
-    /// and reloads on next access. This method only logs for observability.
-    fn reload_permissions_with_log(&self, path: &Path, _config_manager: &ConfigManager) {
-        let Some(agent_id) = extract_agent_id_from_permissions_path(path) else {
-            warn!(
-                path = %path.display(),
-                "cannot determine agent_id from permissions path, skipping reload"
-            );
-            return;
-        };
-
-        info!(
-            agent_id = %agent_id,
-            path = %path.display(),
-            "permissions change detected — lazy loader will pick up changes on next access"
-        );
+/// Build a human-readable change summary for a restart-class config.
+fn describe_restart_class(path: &Path) -> String {
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    match filename {
+        "channels.json" => "IM Adapter config changed".to_string(),
+        "gateway.json" => "Gateway config changed".to_string(),
+        "models.json" => "LLM Provider config changed".to_string(),
+        _ => format!("config changed: {}", filename),
     }
+}
+
+/// Reload permissions for a single agent.
+///
+/// With lazy loading, `LazyAgentPermissions` detects mtime changes
+/// and reloads on next access. This method only logs for observability.
+fn reload_permissions_with_log(path: &Path) {
+    let Some(agent_id) = extract_agent_id_from_permissions_path(path) else {
+        warn!(
+            path = %path.display(),
+            "cannot determine agent_id from permissions path, skipping reload"
+        );
+        return;
+    };
+
+    info!(
+        agent_id = %agent_id,
+        path = %path.display(),
+        "permissions change detected — lazy loader will pick up changes on next access"
+    );
 }
 
 impl ReloadCallback for DaemonReloadCallback {
@@ -134,19 +137,24 @@ impl ReloadCallback for DaemonReloadCallback {
         self.reload_agents_with_log(path, config_manager);
     }
 
-    fn on_permissions_changed(&self, path: &Path, config_manager: &ConfigManager) {
-        self.reload_permissions_with_log(path, config_manager);
+    fn on_permissions_changed(&self, path: &Path, _config_manager: &ConfigManager) {
+        reload_permissions_with_log(path);
     }
 
     fn on_session_reloaded(&self, config_manager: &ConfigManager) {
         config_manager.reload_session_provider();
     }
 
-    fn on_config_file_changed(&self, path: &Path, _config_manager: &ConfigManager) {
-        if !Self::is_restart_class(path) {
+    fn on_config_file_changed(
+        &self,
+        path: &Path,
+        section: closeclaw_config::ConfigSection,
+        _config_manager: &ConfigManager,
+    ) {
+        if !section.is_restart_class() {
             return;
         }
-        let summary = Self::describe_restart_class(path);
+        let summary = describe_restart_class(path);
         info!(
             path = %path.display(),
             summary = %summary,
@@ -161,6 +169,73 @@ impl ReloadCallback for DaemonReloadCallback {
             }
         }
     }
+
+    fn on_validation_failed(
+        &self,
+        section: closeclaw_config::ConfigSection,
+        path: &Path,
+        error: &str,
+        config_manager: &ConfigManager,
+    ) {
+        warn!(
+            section = %section,
+            path = %path.display(),
+            error = %error,
+            "config validation failed, sending IM notification to owner"
+        );
+        let Some(ref gateway) = self.gateway else {
+            warn!(
+                section = %section,
+                "no gateway available — skipping IM notification"
+            );
+            return;
+        };
+        if let Some((channel, chat_id)) = parse_owner_target(config_manager) {
+            let msg = format!(
+                "⚠️ Config reload failed for section `{}`: {}",
+                section, error
+            );
+            // Spawn async IM notification on the reused runtime handle.
+            // This avoids creating a new tokio runtime on every call.
+            let gateway = std::sync::Arc::clone(gateway);
+            self.runtime_handle.spawn(async move {
+                if let Err(e) = gateway
+                    .send_outbound_simplified(&chat_id, &channel, &msg)
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        "failed to send config validation failure IM notification"
+                    );
+                }
+            });
+        } else {
+            warn!(
+                section = %section,
+                "owner_display not configured — skipping IM notification"
+            );
+        }
+    }
+}
+
+/// Parse the owner notification target from `SystemConfigData.commands.owner_display`.
+///
+/// Expects format `"platform:chat_id"`.
+fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
+    let raw = config_manager
+        .get_section_value(closeclaw_config::ConfigSection::System)
+        .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())?
+        .commands?
+        .owner_display?;
+    let parts: Vec<&str> = raw.splitn(2, ':').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        warn!(
+            owner_display = %raw,
+            "invalid owner_display format, expected 'platform:chat_id'"
+        );
+        return None;
+    }
+    Some((parts[0].to_string(), parts[1].to_string()))
 }
 
 /// Extract agent_id from a permissions.json path.
@@ -186,6 +261,60 @@ where
             if path.is_file() && path.extension().is_some_and(|e| e == "json") {
                 f(&path);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+impl DaemonReloadCallback {
+    /// Create a daemon reload callback without a gateway reference.
+    ///
+    /// Used in unit tests where constructing a full Gateway is not
+    /// practical.  `on_validation_failed` will log a warning but
+    /// skip the IM notification.
+    pub fn new_for_test(agent_registry: std::sync::Arc<AgentRegistry>) -> Self {
+        Self {
+            agent_registry,
+            daemon_restart_tx: None,
+            gateway: None,
+            runtime_handle: test_runtime_handle(),
+        }
+    }
+
+    pub fn with_restart_tx_for_test(
+        agent_registry: std::sync::Arc<AgentRegistry>,
+        daemon_restart_tx: mpsc::Sender<String>,
+    ) -> Self {
+        Self {
+            agent_registry,
+            daemon_restart_tx: Some(daemon_restart_tx),
+            gateway: None,
+            runtime_handle: test_runtime_handle(),
+        }
+    }
+}
+
+/// Return a tokio runtime handle for unit tests.
+///
+/// Tries `Handle::current()` first (works inside `#[tokio::test]`).
+/// Falls back to creating a small multi-threaded runtime so tests
+/// that run outside a tokio context still get a valid handle.
+/// In production `on_validation_failed` the gateway is always `None`,
+/// so the handle is never actually used — this just satisfies the
+/// type requirement.
+#[cfg(test)]
+fn test_runtime_handle() -> tokio::runtime::Handle {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle,
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .expect("failed to create test tokio runtime");
+            // Leak the runtime so the handle remains valid.
+            // This is fine for unit tests.
+            Box::leak(Box::new(rt)).handle().clone()
         }
     }
 }

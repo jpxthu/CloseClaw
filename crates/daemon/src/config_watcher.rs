@@ -126,8 +126,12 @@ pub(crate) fn init_config_hot_reload(
         Some(tx) => Arc::new(DaemonReloadCallback::with_restart_tx(
             Arc::clone(&agent_registry),
             tx,
+            Arc::clone(&gateway),
         )),
-        None => Arc::new(DaemonReloadCallback::new(Arc::clone(&agent_registry))),
+        None => Arc::new(DaemonReloadCallback::new(
+            Arc::clone(&agent_registry),
+            Arc::clone(&gateway),
+        )),
     };
     let mut manager = ConfigReloadManager::with_defaults(Arc::clone(&config_manager), callback);
 
