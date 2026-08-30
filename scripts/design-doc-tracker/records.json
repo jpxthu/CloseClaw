@@ -89,11 +89,11 @@
   },
   {
     "path": "docs/design/common/data-flow.md",
-    "commit": "7674e66155c5130d9a5fe6aa749caa97dae105a2",
-    "commit_time": "2026-08-26T05:08:10+08:00",
-    "confirmed_time": "2026-08-30T10:13:21.802690+08:00",
+    "commit": "c258e06543ca15a56340b7a6cd54d151bb2f0745",
+    "commit_time": "2026-08-30T11:17:35+08:00",
+    "confirmed_time": "2026-08-30T11:47:50.603194+08:00",
     "comment": "",
-    "blocked_reason": "F2b反向对比发现3个doc_problem：(1)入站Processor Chain执行顺序由priority决定，文档描述为固定顺序RawLog→SessionRouter→ContentNormalizer；(2)ProcessedMessage.metadata为HashMap无类型约束，文档描述的字段仅为约定；(3)Permission模块链接指向../permission/README.md但该文件不存在（404）"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/common/shared-types.md",
