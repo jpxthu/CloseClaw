@@ -501,7 +501,6 @@ impl Gateway {
         }
     }
 
-    /// Handle an inbound message through the busy/pending state machine.
     /// Send a simplified rejection reply and return `None`.
     ///
     /// Shared helper for pre-session-resolution gates (non-text,
@@ -520,6 +519,7 @@ impl Gateway {
         None
     }
 
+    /// Handle an inbound message through the busy/pending state machine.
     ///
     /// Resolution flow: extract `session_key` → resolve `session_id` →
     /// dispatch slash commands or route to LLM. Slash commands are intercepted
@@ -642,7 +642,13 @@ impl Gateway {
             }
             None => {
                 tracing::warn!("session_key missing or resolve failed — message not processed");
-                return self.reject_with_reply(peer_id, channel, "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}").await;
+                return self
+                    .reject_with_reply(
+                        peer_id,
+                        channel,
+                        "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}",
+                    )
+                    .await;
             }
         };
 

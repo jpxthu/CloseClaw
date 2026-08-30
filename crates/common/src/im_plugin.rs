@@ -134,7 +134,13 @@ impl From<&str> for MediaType {
             "image" => MediaType::Image,
             "file" => MediaType::File,
             "audio" => MediaType::Audio,
-            _ => MediaType::File,
+            other => {
+                tracing::warn!(
+                    media_type_str = other,
+                    "unknown media type string, defaulting to File"
+                );
+                MediaType::File
+            }
         }
     }
 }
