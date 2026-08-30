@@ -44,3 +44,7 @@ pub use session::{
     IdentifierFormat, JsonSessionConfigProvider, PerAgentSessionConfig, PlanConfig, SessionConfig,
     SessionConfigProvider,
 };
+
+#[cfg(test)]
+#[path = "step_1_8_tests.rs"]
+mod step_1_8_tests;
