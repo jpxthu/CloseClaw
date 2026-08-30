@@ -275,7 +275,7 @@ SlashResult 共 10 种变体：
 |------|------|------|
 | `session_id` | string | 斜杠指令所在的会话 ID |
 | `channel` | string | 渠道标识（如 `"feishu"`、`"terminal"`） |
-| `session_manager` | SessionLookup | 会话状态查询接口（见 [core-traits SessionLookup](core-traits.md#sessionlookup)） |
+| `session_lookup` | SessionLookup | 会话状态查询接口（见 [core-traits SessionLookup](core-traits.md#sessionlookup)） |
 | `reply_tx` | 回复通道 | ReplyAction 通道，SlashResult 执行时回发回复内容 |
 | `executor` | SlashEffectExecutor | 斜杠指令副作用执行接口（见 [core-traits SlashEffectExecutor](core-traits.md#slasheffectexecutor)） |
 
@@ -465,7 +465,7 @@ NormalizedMessage → Processor Chain 入站（RawLog → SessionRouter → Cont
   ↓
 ProcessedMessage {
   content_blocks: [ContentBlock::Text("标准化后文本")],
-  metadata: { session_key: "{timestamp}-{hash}", message_type: "<原始 message_type>" }
+  metadata: { session_key: "{timestamp}-{hash}", message_type: "<原始 message_type>", unavailable_media: "<不可得媒体资源标识列表 JSON>" }
 }
   ↓
 Gateway — 先检查 message_type：含媒体消息做媒体可得性校验（不可得 → 提示「该消息内容无法获取」经简化出站路径发送、流程结束；可得 → 按类型构造上下文形态后与文本同链路继续，形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）；对话消息从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话），从 metadata 取 session_key 传给 SessionManager
