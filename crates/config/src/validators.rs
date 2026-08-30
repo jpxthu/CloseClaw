@@ -787,45 +787,32 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
 pub fn validate_credentials(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "credentials")?;
     require_non_empty(value, "provider", "credentials.provider")?;
-    // ApiKey variant: apiKey must be non-empty if present
-    if let Some(api_key) = value.get("apiKey") {
-        match api_key {
-            serde_json::Value::String(s) if s.is_empty() => {
-                return Err("credentials.apiKey cannot be empty".to_string());
-            }
-            serde_json::Value::String(_) => {}
-            serde_json::Value::Null => {}
-            _ => {
-                return Err("credentials.apiKey must be a string".to_string());
-            }
-        }
-    }
-    // Feishu variant: appId and appSecret must be non-empty if present
-    if let Some(app_id) = value.get("appId") {
-        match app_id {
-            serde_json::Value::String(s) if s.is_empty() => {
-                return Err("credentials.appId cannot be empty".to_string());
-            }
-            serde_json::Value::String(_) => {}
-            serde_json::Value::Null => {}
-            _ => {
-                return Err("credentials.appId must be a string".to_string());
-            }
-        }
-    }
-    if let Some(app_secret) = value.get("appSecret") {
-        match app_secret {
-            serde_json::Value::String(s) if s.is_empty() => {
-                return Err("credentials.appSecret cannot be empty".to_string());
-            }
-            serde_json::Value::String(_) => {}
-            serde_json::Value::Null => {}
-            _ => {
-                return Err("credentials.appSecret must be a string".to_string());
-            }
-        }
-    }
+    validate_optional_non_empty_string(value, "apiKey", "credentials.apiKey")?;
+    validate_optional_non_empty_string(value, "appId", "credentials.appId")?;
+    validate_optional_non_empty_string(value, "appSecret", "credentials.appSecret")?;
     Ok(())
+}
+
+/// Validate that an optional string field, if present, is non-empty.
+///
+/// - If absent or null: OK (optional field).
+/// - If present and a string: must be non-empty.
+/// - If present but not a string: error.
+fn validate_optional_non_empty_string(
+    value: &serde_json::Value,
+    field: &str,
+    path: &str,
+) -> Result<(), String> {
+    if let Some(v) = value.get(field) {
+        match v {
+            serde_json::Value::String(s) if s.is_empty() => Err(format!("{path} cannot be empty")),
+            serde_json::Value::String(_) => Ok(()),
+            serde_json::Value::Null => Ok(()),
+            _ => Err(format!("{path} must be a string")),
+        }
+    } else {
+        Ok(())
+    }
 }
 
 /// Validate the **media** config section.
