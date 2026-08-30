@@ -776,7 +776,7 @@ mod tests {
     fn on_config_file_changed_sends_restart_signal() {
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
         let ar = Arc::new(AgentRegistry::new());
-        let cb = DaemonReloadCallback::with_restart_tx(ar, tx);
+        let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
         let cm = make_test_config_manager();
 
         cb.on_config_file_changed(Path::new("models.json"), &cm);
@@ -788,7 +788,7 @@ mod tests {
     fn on_config_file_changed_ignores_non_restart_class() {
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
         let ar = Arc::new(AgentRegistry::new());
-        let cb = DaemonReloadCallback::with_restart_tx(ar, tx);
+        let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
         let cm = make_test_config_manager();
 
         cb.on_config_file_changed(Path::new("agents.json"), &cm);
@@ -801,7 +801,7 @@ mod tests {
     #[test]
     fn on_config_file_changed_no_signal_without_tx() {
         let ar = Arc::new(AgentRegistry::new());
-        let cb = DaemonReloadCallback::new(ar);
+        let cb = DaemonReloadCallback::new_for_test(ar);
         let cm = make_test_config_manager();
         // Should not panic even without a restart_tx
         cb.on_config_file_changed(Path::new("models.json"), &cm);

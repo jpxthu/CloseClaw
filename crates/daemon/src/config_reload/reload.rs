@@ -7,7 +7,9 @@ use std::path::Path;
 
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::manager::ConfigManager;
+use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::ReloadCallback;
+use closeclaw_gateway::Gateway;
 use tokio::sync::mpsc;
 use tracing::info;
 use tracing::warn;
@@ -21,14 +23,22 @@ pub struct DaemonReloadCallback {
     /// Channel to signal a restart-class config change to the Daemon.
     /// `String` is a human-readable change summary.
     daemon_restart_tx: Option<mpsc::Sender<String>>,
+    /// Gateway reference for sending IM notifications on config
+    /// validation failures. `None` in unit tests where Gateway
+    /// construction is not practical.
+    gateway: Option<std::sync::Arc<Gateway>>,
 }
 
 impl DaemonReloadCallback {
     /// Create a new daemon reload callback.
-    pub fn new(agent_registry: std::sync::Arc<AgentRegistry>) -> Self {
+    pub fn new(
+        agent_registry: std::sync::Arc<AgentRegistry>,
+        gateway: std::sync::Arc<Gateway>,
+    ) -> Self {
         Self {
             agent_registry,
             daemon_restart_tx: None,
+            gateway: Some(gateway),
         }
     }
 
@@ -36,10 +46,38 @@ impl DaemonReloadCallback {
     pub fn with_restart_tx(
         agent_registry: std::sync::Arc<AgentRegistry>,
         daemon_restart_tx: mpsc::Sender<String>,
+        gateway: std::sync::Arc<Gateway>,
     ) -> Self {
         Self {
             agent_registry,
             daemon_restart_tx: Some(daemon_restart_tx),
+            gateway: Some(gateway),
+        }
+    }
+
+    /// Create a daemon reload callback without a gateway reference.
+    ///
+    /// Used in unit tests where constructing a full Gateway is not
+    /// practical.  `on_validation_failed` will log a warning but
+    /// skip the IM notification.
+    #[cfg(test)]
+    pub fn new_for_test(agent_registry: std::sync::Arc<AgentRegistry>) -> Self {
+        Self {
+            agent_registry,
+            daemon_restart_tx: None,
+            gateway: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_restart_tx_for_test(
+        agent_registry: std::sync::Arc<AgentRegistry>,
+        daemon_restart_tx: mpsc::Sender<String>,
+    ) -> Self {
+        Self {
+            agent_registry,
+            daemon_restart_tx: Some(daemon_restart_tx),
+            gateway: None,
         }
     }
 
@@ -161,6 +199,71 @@ impl ReloadCallback for DaemonReloadCallback {
             }
         }
     }
+
+    fn on_validation_failed(
+        &self,
+        section: closeclaw_config::ConfigSection,
+        path: &Path,
+        error: &str,
+        config_manager: &ConfigManager,
+    ) {
+        warn!(
+            section = %section,
+            path = %path.display(),
+            error = %error,
+            "config validation failed, sending IM notification to owner"
+        );
+        let Some(ref gateway) = self.gateway else {
+            warn!(
+                section = %section,
+                "no gateway available — skipping IM notification"
+            );
+            return;
+        };
+        if let Some((channel, chat_id)) = parse_owner_target(config_manager) {
+            let msg = format!(
+                "⚠️ Config reload failed for section `{}`: {}",
+                section, error
+            );
+            let gateway = std::sync::Arc::clone(gateway);
+            tokio::spawn(async move {
+                if let Err(e) = gateway
+                    .send_outbound_simplified(&chat_id, &channel, &msg)
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        "failed to send config validation failure IM notification"
+                    );
+                }
+            });
+        } else {
+            warn!(
+                section = %section,
+                "owner_display not configured — skipping IM notification"
+            );
+        }
+    }
+}
+
+/// Parse the owner notification target from `SystemConfigData.commands.owner_display`.
+///
+/// Expects format `"platform:chat_id"`.
+fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
+    let raw = config_manager
+        .get_section_value(closeclaw_config::ConfigSection::System)
+        .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())?
+        .commands?
+        .owner_display?;
+    let parts: Vec<&str> = raw.splitn(2, ':').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        warn!(
+            owner_display = %raw,
+            "invalid owner_display format, expected 'platform:chat_id'"
+        );
+        return None;
+    }
+    Some((parts[0].to_string(), parts[1].to_string()))
 }
 
 /// Extract agent_id from a permissions.json path.

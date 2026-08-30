@@ -48,6 +48,19 @@ pub trait ReloadCallback: Send + Sync + 'static {
     /// the change requires a restart-class action (e.g., gateway
     /// rebuild).  Default implementation is a no-op.
     fn on_config_file_changed(&self, _path: &Path, _config_manager: &ConfigManager) {}
+
+    /// Called when config validation or parsing fails.
+    ///
+    /// The implementor should send an IM notification to the owner
+    /// with the failure details.  Default implementation is a no-op.
+    fn on_validation_failed(
+        &self,
+        _section: ConfigSection,
+        _path: &Path,
+        _error: &str,
+        _config_manager: &ConfigManager,
+    ) {
+    }
 }
 
 /// RAII handle that keeps the filesystem watcher alive.
@@ -137,6 +150,12 @@ impl ConfigReloadManager {
                         path: path.clone(),
                         error: e.to_string(),
                     });
+                self.callback.on_validation_failed(
+                    section,
+                    &path,
+                    &e.to_string(),
+                    &self.config_manager,
+                );
                 return Err(ConfigLoadError::IoError {
                     path,
                     error: e.to_string(),
@@ -157,6 +176,12 @@ impl ConfigReloadManager {
                         path: path.clone(),
                         error: e.to_string(),
                     });
+                self.callback.on_validation_failed(
+                    section,
+                    &path,
+                    &e.to_string(),
+                    &self.config_manager,
+                );
                 return Err(ConfigLoadError::ParseError {
                     path,
                     error: e.to_string(),
@@ -195,6 +220,8 @@ impl ConfigReloadManager {
                     path: path.clone(),
                     error: msg.clone(),
                 });
+            self.callback
+                .on_validation_failed(section, &path, &msg, &self.config_manager);
             return Err(ConfigLoadError::ValidationError { path, message: msg });
         }
 
