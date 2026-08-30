@@ -573,6 +573,8 @@ impl ConfigManager {
     }
 
     /// Attempt to rollback a corrupted config file and retry loading.
+    /// Returns Ok(()) if rollback succeeded and retry loading worked.
+    /// Returns Err(ConfigLoadError::ParseError) if rollback failed or retry still fails.
     fn try_rollback_and_retry(
         &self,
         path: &Path,
@@ -736,13 +738,16 @@ impl ConfigManager {
         Ok(())
     }
 
-    /// Get a read-only clone of a section's JSON value. Returns `None` if not loaded.
+    /// Get a read-only clone of a configuration section's JSON value.
+    ///
+    /// Returns `None` if the section has not been loaded.
     pub fn section(&self, section: ConfigSection) -> Option<serde_json::Value> {
         self.get_section_value(section)
     }
 
     /// Get a single section value from the in-memory cache.
-    /// Returns `None` if not loaded or blocked.
+    ///
+    /// Returns `None` if the section has not been loaded or is blocked.
     pub fn get_section_value(&self, section: ConfigSection) -> Option<serde_json::Value> {
         if self.is_blocked(section) {
             return None;
@@ -762,7 +767,10 @@ impl ConfigManager {
             .contains(&section)
     }
 
-    /// Block a section (no old value + failed load). Returns None from get_section_value.
+    /// Block a section because it had no old value and the reload failed.
+    ///
+    /// A blocked section's `get_section_value` returns `None`, which
+    /// signals downstream components that the config is unavailable.
     pub fn block_section(&self, section: ConfigSection) {
         warn!(
             section = %section,
