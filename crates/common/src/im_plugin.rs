@@ -91,16 +91,75 @@ pub enum AdapterError {
 }
 
 // ---------------------------------------------------------------------------
+// MediaType
+// ---------------------------------------------------------------------------
+
+/// Normalized media type for attachments in a message.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MediaType {
+    /// Image attachment.
+    Image,
+    /// File attachment.
+    File,
+    /// Audio attachment.
+    Audio,
+}
+
+impl Serialize for MediaType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            MediaType::Image => serializer.serialize_str("image"),
+            MediaType::File => serializer.serialize_str("file"),
+            MediaType::Audio => serializer.serialize_str("audio"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MediaType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(MediaType::from(s.as_str()))
+    }
+}
+
+impl From<&str> for MediaType {
+    fn from(s: &str) -> Self {
+        match s {
+            "image" => MediaType::Image,
+            "file" => MediaType::File,
+            "audio" => MediaType::Audio,
+            _ => MediaType::File,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MediaRef
 // ---------------------------------------------------------------------------
 
 /// Reference to a media attachment (image, file, audio) in a message.
+///
+/// Fields align with `docs/design/common/shared-types.md` — the
+/// local-persisted media reference model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaRef {
-    /// Platform-specific media key for downloading the resource.
+    /// Platform-specific media key for idempotent correlation.
     pub key: String,
-    /// URL pointing to the media resource.
-    pub url: String,
+    /// Local file path (relative to media-store root) where the asset is
+    /// persisted on disk.
+    pub path: String,
+    /// Media type classification.
+    pub media_type: MediaType,
+    /// File size in bytes.
+    pub size: i64,
+    /// MIME type, e.g. `"image/png"`.
+    pub mime: String,
 }
 
 // ---------------------------------------------------------------------------
