@@ -115,9 +115,9 @@
     "path": "docs/design/config/hot-reload.md",
     "commit": "63793645b9000801d117f3b784c7666b4f64405a",
     "commit_time": "2026-07-11T02:39:19+08:00",
-    "confirmed_time": "2026-07-11T02:46:13.668677+08:00",
+    "confirmed_time": "2026-08-30T22:04:03.479997+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "F2b裁决超轮次上限：文档描述凭据变更走热重载重启生效流程（监听→校验→暂存→触发重启），代码stage_restart_value机制完整但register_watched_paths未监听credentials/目录（触发路径运行时不可达）。主脑判must_fix，反向对比确认该事实但归属正向维度职责，正向对比报告无差异，4轮无法形式收敛。文档本身或无矛盾，凭据监听缺失为代码gap，建议Owner仲裁（上轮feat/credentials-hot-reload分支已含实现）"
   },
   {
     "path": "docs/design/daemon/README.md",
