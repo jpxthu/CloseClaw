@@ -779,6 +779,7 @@ impl Daemon {
 }
 
 /// Stop status of a background task.
+#[derive(Debug)]
 pub(crate) enum TaskStopStatus {
     /// Task exited cleanly before the join timeout.
     Clean,
