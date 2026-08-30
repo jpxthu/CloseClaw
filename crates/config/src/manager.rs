@@ -990,3 +990,7 @@ impl ConfigManager {
 #[cfg(test)]
 #[path = "manager_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "restart_staging_tests.rs"]
+mod restart_staging_tests;

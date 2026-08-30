@@ -503,3 +503,7 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
 #[cfg(test)]
 #[path = "reload_manager_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "reload_staging_tests.rs"]
+mod reload_staging_tests;
