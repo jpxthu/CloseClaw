@@ -233,6 +233,17 @@ impl crate::Daemon {
         let new_gw = self.build_new_gateway(&config_dir).await;
         self.install_handlers(&new_gw).await;
         self.swap_and_notify(new_gw, changes).await;
+
+        // Apply pending restart-class config values after the gateway rebuild
+        // completes. This moves staged values from the pending_restart staging
+        // area into the runtime cache, making them visible to new sessions and
+        // API queries.
+        if let Some(config_manager) = self.session_manager.get_config_manager().await {
+            config_manager.apply_pending_restart();
+            info!("applied pending restart-class config values after gateway restart");
+        } else {
+            warn!("no config_manager available — skipped apply_pending_restart");
+        }
     }
 
     /// Load GatewayConfig from `{config_dir}/gateway.json`.
