@@ -252,7 +252,21 @@ impl ConfigReloadManager {
         // Restart-class sections (Models/Channels/Gateway) are staged
         // in the pending-restart area so the runtime cache retains the
         // old value until a gateway restart completes.
-        if section.is_restart_class() {
+        //
+        // Accounts is a special case: IM user→user ID mappings take
+        // effect immediately, but bot→Agent bindings require restart.
+        // When only accounts change, update the cache directly. When
+        // bindings change, stage the entire new value for restart.
+        if section == ConfigSection::Accounts {
+            let bindings_changed = bindings_differ(&old_value, &value);
+            if bindings_changed {
+                self.config_manager
+                    .stage_restart_value(section, path, value);
+            } else {
+                self.config_manager
+                    .update_section_cache(section, path, value);
+            }
+        } else if section.is_restart_class() {
             self.config_manager
                 .stage_restart_value(section, path, value);
         } else {
@@ -308,6 +322,7 @@ fn register_watched_paths(
         "plugins.json",
         "system.json",
         "accounts.json",
+        "agents.json",
         "session.json",
         "memory.json",
         "skills.json",
@@ -448,6 +463,7 @@ pub fn filename_to_section(filename: &str) -> Option<ConfigSection> {
         "system.json" => Some(ConfigSection::System),
         "session.json" => Some(ConfigSection::Session),
         "accounts.json" => Some(ConfigSection::Accounts),
+        "agents.json" => Some(ConfigSection::Agents),
         "memory.json" => Some(ConfigSection::Memory),
         "skills.json" => Some(ConfigSection::Skills),
         "media.json" => Some(ConfigSection::Media),
@@ -478,11 +494,22 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
         None => return,
     };
 
-    // agents.json triggers the same agent reload path
+    // agents.json: standard section reload + agent directory reload
     if filename == "agents.json" {
-        manager
-            .callback
-            .on_agents_changed(path, &manager.config_manager);
+        if let Some(section) = filename_to_section(filename) {
+            info!(
+                path = %path.display(),
+                section = %section,
+                "agents.json changed, reloading section"
+            );
+            if let Err(e) = manager.reload_section(section) {
+                warn!(error = %e, section = %section, "failed to reload agents section");
+            }
+            // Also trigger agent directory reload for the AgentDirectoryProvider.
+            manager
+                .callback
+                .on_agents_changed(path, &manager.config_manager);
+        }
         return;
     }
 
@@ -506,6 +533,25 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
             .callback
             .on_config_file_changed(path, section, &manager.config_manager);
     }
+}
+
+/// Check whether the bot→Agent bindings differ between old and new
+/// accounts config values.
+///
+/// Compares the `bindings` JSON array. If either side is missing the
+/// field, it is treated as an empty list. Returns `true` when the
+/// binding lists differ, indicating the change requires a gateway restart.
+fn bindings_differ(old: &Option<serde_json::Value>, new: &serde_json::Value) -> bool {
+    let old_bindings = old
+        .as_ref()
+        .and_then(|v| v.get("bindings"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let new_bindings = new
+        .get("bindings")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    old_bindings != new_bindings
 }
 
 #[cfg(test)]

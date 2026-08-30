@@ -178,7 +178,7 @@ pub(crate) fn spawn_plan_archive_sweeper(
 ) -> Option<PlanArchiveSweeperHandle> {
     let threshold_days = config_manager
         .session_config_provider()
-        .map(|p| p.plan_archive_config().threshold_days)
+        .map(|p| p.plan_archive_days())
         .unwrap_or(closeclaw_session::plan_archive::DEFAULT_THRESHOLD_DAYS);
     let plan_archive_task =
         closeclaw_session::background::PlanArchiveTask::new(data_dir.to_path_buf(), threshold_days);

@@ -14,11 +14,30 @@ use crate::agents::{
     strip_jsonc_comments, AgentDirectoryProvider, AgentsConfig, LazyAgentPermissions,
     ResolvedAgentConfig,
 };
-use crate::manager::{ConfigLoadError, ConfigManager};
+use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 
 impl ConfigManager {
     /// Load an agents.json file and return parsed agent IDs.
+    ///
+    /// If the path matches the user-level agents.json and the value is
+    /// already cached in the sections map (loaded via the standard
+    /// ConfigManager loading loop), returns the cached agent IDs directly.
+    /// Otherwise reads and parses the file.
     pub fn load_agents_json(&self, path: &Path) -> Result<Vec<String>, ConfigLoadError> {
+        // For user-level agents.json, prefer the cached value from sections.
+        let user_agents_path = ConfigSection::Agents.path(&self.config_dir);
+        if path == user_agents_path {
+            if let Some(value) = self.get_section_value(ConfigSection::Agents) {
+                let cfg: AgentsConfig =
+                    serde_json::from_value(value).map_err(|e| ConfigLoadError::ParseError {
+                        path: path.to_path_buf(),
+                        error: e.to_string(),
+                    })?;
+                return Ok(cfg.agents);
+            }
+        }
+
+        // Fallback: read from disk (project-level agents.json or first load).
         if !path.exists() {
             return Ok(Vec::new());
         }

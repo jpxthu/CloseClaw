@@ -151,7 +151,10 @@ mod tests {
             filename_to_section("memory.json"),
             Some(ConfigSection::Memory)
         );
-        assert_eq!(filename_to_section("agents.json"), None);
+        assert_eq!(
+            filename_to_section("agents.json"),
+            Some(ConfigSection::Agents)
+        );
         assert_eq!(filename_to_section("unknown.json"), None);
     }
 

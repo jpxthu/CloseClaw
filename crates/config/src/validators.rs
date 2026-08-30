@@ -16,11 +16,6 @@ use crate::SectionValidator;
 // ---------------------------------------------------------------------------
 
 /// Cross-reference data for validating binding targets.
-///
-/// Carries the set of registered agent IDs and account IDs so that
-/// channel binding validators can verify that referenced agents and
-/// accounts actually exist.  Used by `validate_channels` in the
-/// hot-reload and update paths where cross-section data is available.
 pub struct CrossRefData {
     /// Set of registered agent IDs.
     pub agent_ids: HashSet<String>,
@@ -28,12 +23,7 @@ pub struct CrossRefData {
     pub account_ids: HashSet<String>,
 }
 
-/// Set of credential provider names loaded from `config/credentials/`.
-///
-/// Used by `validate_models` to cross-validate that providers in
-/// `models.json` that declare an `apiKey` have a corresponding
-/// credentials provider entry.  Carried by the hot-reload and update
-/// paths where the in-memory credential set is available.
+/// Set of credential provider names for cross-validation.
 pub struct CredentialProviderSet {
     /// Set of credential provider names (map keys from credentials config).
     pub names: HashSet<String>,
@@ -44,9 +34,6 @@ pub struct CredentialProviderSet {
 // ---------------------------------------------------------------------------
 
 /// Build the default `SectionValidator` for a given config section.
-///
-/// Returns a boxed `dyn Fn` that can be passed directly to
-/// `reload_section()`.
 pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
     match section {
         ConfigSection::Models => Box::new(validate_models),
@@ -57,6 +44,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Session => Box::new(validate_session),
         ConfigSection::Credentials => Box::new(validate_credentials),
         ConfigSection::Accounts => Box::new(|v| validate_accounts(v, None)),
+        ConfigSection::Agents => Box::new(validate_agents),
         ConfigSection::Memory => Box::new(validate_memory),
         ConfigSection::Skills => Box::new(validate_skills),
         ConfigSection::Media => Box::new(validate_media),
@@ -67,29 +55,12 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
 // Section validators
 // ---------------------------------------------------------------------------
 
-/// Validate the **models** config section.
-///
-/// - Top-level must be a JSON object.
-/// - If a `models` key is present, it must be an array.
-/// - Each provider ID (map key) must be non-empty.
-/// - Each model ID must be non-empty.
-/// - `baseUrl`, if present, must start with `http://` or `https://` (or be
-///   empty/absent).
-///
-/// This is the basic structural validator without cross-section data.
-/// Use [`validate_models_with_refs`] in the hot-reload and update paths
-/// where credential provider names are available for cross-validation.
+/// Validate the **models** config section (basic structural checks).
 fn validate_models(value: &serde_json::Value) -> Result<(), String> {
     validate_models_with_refs(value, None)
 }
 
-/// Validate the **models** config section with optional credential
-/// cross-reference data.
-///
-/// When `credential_providers` is provided, providers that declare an
-/// `apiKey` field are validated against the loaded credential provider
-/// names — the provider must either have a matching credential entry or
-/// a valid `credentialPath`.
+/// Validate the **models** config section with optional credential cross-ref.
 pub fn validate_models_with_refs(
     value: &serde_json::Value,
     credential_providers: Option<&CredentialProviderSet>,
@@ -113,10 +84,6 @@ pub fn validate_models_with_refs(
 }
 
 /// Validate a single provider entry within the models section.
-///
-/// When `credential_providers` is provided and the provider declares an
-/// `apiKey` field, validates that a matching credential entry exists
-/// (either a loaded provider name or a resolvable `credentialPath`).
 fn validate_provider(
     provider_id: &str,
     provider: &serde_json::Value,
@@ -568,26 +535,10 @@ fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     }
     validate_non_negative_field(value, "idleMinutes")?;
     validate_non_negative_field(value, "purgeAfterMinutes")?;
-    // planArchive: if present, must be an object; thresholdDays must be non-negative
-    if let Some(plan_archive) = value.get("planArchive") {
-        if !plan_archive.is_object() {
-            return Err(format!(
-                "session.planArchive must be a JSON object, got {}",
-                type_name(plan_archive)
-            ));
-        }
-        validate_non_negative_field(plan_archive, "thresholdDays")?;
-    }
-    // auditLog: if present, must be an object; maxEntries must be non-negative
-    if let Some(audit_log) = value.get("auditLog") {
-        if !audit_log.is_object() {
-            return Err(format!(
-                "session.auditLog must be a JSON object, got {}",
-                type_name(audit_log)
-            ));
-        }
-        validate_non_negative_field(audit_log, "maxEntries")?;
-    }
+    // planArchiveDays: if present, must be a non-negative number
+    validate_non_negative_field(value, "planArchiveDays")?;
+    // auditLogLimit: if present, must be a non-negative number
+    validate_non_negative_field(value, "auditLogLimit")?;
     Ok(())
 }
 
@@ -813,10 +764,8 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
         if !v.is_number() {
             return Err(format!("session.{} must be a number", field));
         }
-        if let Some(n) = v.as_f64() {
-            if n < 0.0 {
-                return Err(format!("session.{} must be non-negative", field));
-            }
+        if v.as_f64().unwrap_or(0.0) < 0.0 {
+            return Err(format!("session.{} must be non-negative", field));
         }
     }
     Ok(())
@@ -827,12 +776,6 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
 // ---------------------------------------------------------------------------
 
 /// Validate a single **credentials** file.
-///
-/// Each credential file contains a single credential object.
-/// - `provider` must be a non-empty string.
-/// - `apiKey`, if present, must be a non-empty string.
-/// - `appId`, if present, must be a non-empty string (Feishu variant).
-/// - `appSecret`, if present, must be a non-empty string (Feishu variant).
 pub fn validate_credentials(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "credentials")?;
     require_non_empty(value, "provider", "credentials.provider")?;
@@ -843,10 +786,6 @@ pub fn validate_credentials(value: &serde_json::Value) -> Result<(), String> {
 }
 
 /// Validate that an optional string field, if present, is non-empty.
-///
-/// - If absent or null: OK (optional field).
-/// - If present and a string: must be non-empty.
-/// - If present but not a string: error.
 fn validate_optional_non_empty_string(
     value: &serde_json::Value,
     field: &str,
@@ -862,6 +801,41 @@ fn validate_optional_non_empty_string(
     } else {
         Ok(())
     }
+}
+
+/// Validate the **agents** config section.
+///
+/// - Top-level must be a JSON object.
+/// - `agents` field, if present, must be a JSON array.
+/// - Each agent ID must be non-empty.
+/// - No duplicate agent IDs.
+fn validate_agents(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "agents")?;
+    if let Some(arr) = value.get("agents").and_then(|a| a.as_array()) {
+        let mut seen = HashSet::new();
+        for (i, entry) in arr.iter().enumerate() {
+            let s = match entry {
+                serde_json::Value::String(s) if !s.is_empty() => s,
+                serde_json::Value::String(_) => {
+                    return Err(format!("agents.agents[{}] cannot be empty", i));
+                }
+                _ => {
+                    return Err(format!(
+                        "agents.agents[{}] must be a string, got {}",
+                        i,
+                        type_name(entry)
+                    ));
+                }
+            };
+            if !seen.insert(s.clone()) {
+                return Err(format!(
+                    "duplicate agent ID '{}' at agents.agents[{}]",
+                    s, i
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Validate the **media** config section.

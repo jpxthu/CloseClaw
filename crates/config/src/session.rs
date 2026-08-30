@@ -10,7 +10,6 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::providers::system::{AuditLogConfig, PlanArchiveConfig};
 use crate::providers::ConfigError;
 use closeclaw_common::AgentRole;
 use closeclaw_common::CompactConfig;
@@ -88,12 +87,12 @@ pub struct SessionConfig {
     /// Compaction configuration (optional, falls back to CompactConfig::default())
     #[serde(default)]
     pub compact: Option<CompactConfig>,
-    /// Plan archive configuration (migrated from system.json)
-    #[serde(default)]
-    pub plan_archive: Option<PlanArchiveConfig>,
-    /// Audit log configuration (migrated from system.json)
-    #[serde(default)]
-    pub audit_log: Option<AuditLogConfig>,
+    /// Plan archive threshold in days (flat field, default: 7)
+    #[serde(default = "default_plan_archive_days")]
+    pub plan_archive_days: u64,
+    /// Audit log max entries limit (flat field, default: 1000)
+    #[serde(default = "default_audit_log_limit")]
+    pub audit_log_limit: usize,
 }
 
 fn default_sweeper_interval() -> u64 {
@@ -108,6 +107,14 @@ fn default_consistency_check_interval() -> u64 {
     DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS
 }
 
+fn default_plan_archive_days() -> u64 {
+    7
+}
+
+fn default_audit_log_limit() -> usize {
+    1000
+}
+
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
@@ -117,8 +124,8 @@ impl Default for SessionConfig {
             dreaming_interval_secs: DEFAULT_DREAMING_INTERVAL_SECS,
             consistency_check_interval_secs: DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS,
             compact: None,
-            plan_archive: Some(PlanArchiveConfig::default()),
-            audit_log: Some(AuditLogConfig::default()),
+            plan_archive_days: 7,
+            audit_log_limit: 1000,
         }
     }
 }
@@ -143,11 +150,11 @@ pub trait SessionConfigProvider: Send + Sync {
     /// Get compaction configuration
     fn compact_config(&self) -> CompactConfig;
 
-    /// Get plan archive configuration
-    fn plan_archive_config(&self) -> PlanArchiveConfig;
+    /// Get plan archive threshold in days
+    fn plan_archive_days(&self) -> u64;
 
-    /// Get audit log configuration
-    fn audit_log_config(&self) -> AuditLogConfig;
+    /// Get audit log max entries limit
+    fn audit_log_limit(&self) -> usize;
 }
 
 /// JSON-based session configuration provider
@@ -241,11 +248,11 @@ impl JsonSessionConfigProvider {
                 }
             }
 
-            // Validate plan_archive
-            // threshold_days is u64, always non-negative by type
+            // Validate plan_archive_days
+            // u64 is always non-negative by type
 
-            // Validate audit_log
-            // max_entries is Option<usize>, always non-negative by type
+            // Validate audit_log_limit
+            // usize is always non-negative by type
         }
 
         Ok(())
@@ -309,18 +316,18 @@ impl SessionConfigProvider for JsonSessionConfigProvider {
             .unwrap_or_default()
     }
 
-    fn plan_archive_config(&self) -> PlanArchiveConfig {
+    fn plan_archive_days(&self) -> u64 {
         self.config
             .as_ref()
-            .and_then(|c| c.plan_archive.clone())
-            .unwrap_or_default()
+            .map(|c| c.plan_archive_days)
+            .unwrap_or(7)
     }
 
-    fn audit_log_config(&self) -> AuditLogConfig {
+    fn audit_log_limit(&self) -> usize {
         self.config
             .as_ref()
-            .and_then(|c| c.audit_log.clone())
-            .unwrap_or_default()
+            .map(|c| c.audit_log_limit)
+            .unwrap_or(1000)
     }
 }
 
