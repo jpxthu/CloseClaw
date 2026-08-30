@@ -567,7 +567,7 @@ impl Gateway {
             .get("message_type")
             .and_then(|s| serde_json::from_str::<MessageType>(s).ok())
             .unwrap_or_default();
-        if !matches!(message_type, MessageType::Text) {
+        if !matches!(message_type, MessageType::Text | MessageType::Post) {
             tracing::info!(message_type = ?message_type, "rejecting non-text message");
             // Non-text rejection sends directly via send_outbound_simplified
             // without peer_id guard — matches original plugin.send() behavior.

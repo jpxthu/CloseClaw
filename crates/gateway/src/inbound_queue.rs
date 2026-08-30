@@ -278,6 +278,7 @@ fn emit_inbound_parsed_log(
         closeclaw_common::MessageType::Image => "image",
         closeclaw_common::MessageType::File => "file",
         closeclaw_common::MessageType::Audio => "audio",
+        closeclaw_common::MessageType::Post => "post",
     };
     super::debug_log_emitter::emit_debug_event(
         guard.as_ref(),
