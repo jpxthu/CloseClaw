@@ -1,11 +1,16 @@
 //! Tests for daemon config hot-reload module.
 
 use super::*;
+use crate::registries::RegistryContext;
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
+use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::PermissionEngine;
 use closeclaw_session::persistence::ReasoningLevel;
-use std::sync::Arc;
+use closeclaw_session::tools::LateBoundSessionManagerOps;
+use closeclaw_tools::ToolRegistry;
+use std::sync::{Arc, RwLock};
 use tempfile::TempDir;
 
 /// Helper: create a ConfigManager backed by a temp directory.
@@ -344,4 +349,221 @@ async fn test_subscriber_failed_event_with_owner_display() {
     })
     .await
     .ok();
+}
+
+// ===========================================================================
+// Step 1.2 — Hot-reload error propagation tests
+// ===========================================================================
+
+/// Shared test harness owning all dependencies required to build a
+/// [`RegistryContext`]. Eliminates duplicated setup across tests.
+#[cfg(test)]
+struct RegistryHarness {
+    tmp: TempDir,
+    config_mgr: Arc<ConfigManager>,
+    skill_registry: Arc<RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+    tool_registry: Arc<ToolRegistry>,
+    session_mgr: Arc<SessionManager>,
+    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    gateway: Arc<Gateway>,
+    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    builtin_registry: Arc<closeclaw_skills::BuiltinSkillRegistry>,
+    agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
+    spawn_controller: Arc<closeclaw_gateway::SpawnController>,
+    late_bound: Arc<LateBoundSessionManagerOps>,
+}
+
+#[cfg(test)]
+impl RegistryHarness {
+    /// Create a harness with default empty skill registry (None).
+    fn new() -> Self {
+        let tmp = TempDir::new().unwrap();
+        let config_mgr = Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap());
+        let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
+        let skill_registry: Arc<RwLock<Option<closeclaw_skills::DiskSkillRegistry>>> =
+            Arc::new(RwLock::new(None));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let session_mgr = Arc::new(SessionManager::new(
+            &GatewayConfig::default(),
+            None,
+            None,
+            ReasoningLevel::default(),
+        ));
+        let permission_engine = Arc::new(tokio::sync::RwLock::new(
+            closeclaw_permission::PermissionEngine::new(
+                closeclaw_permission::RuleSet::default(),
+                tmp.path().to_path_buf(),
+            ),
+        ));
+        let gateway = make_gateway();
+        let approval_flow = Arc::new(tokio::sync::Mutex::new(
+            closeclaw_permission::approval_flow::ApprovalFlow::new(
+                Arc::clone(&session_mgr) as Arc<dyn closeclaw_common::SessionLookup>,
+                Arc::new(|_| {}),
+                Arc::new(|_: &str| {}),
+                tokio::runtime::Handle::current(),
+                closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
+                tmp.path().to_path_buf(),
+                closeclaw_permission::RuleSet::default(),
+            ),
+        ));
+        let builtin_registry = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
+            Arc::clone(&agent_registry),
+            Arc::clone(&config_mgr),
+            Arc::clone(&session_mgr),
+            Arc::clone(&permission_engine),
+        ));
+        let late_bound = Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
+
+        Self {
+            tmp,
+            config_mgr,
+            skill_registry,
+            tool_registry,
+            session_mgr,
+            permission_engine,
+            gateway,
+            approval_flow,
+            builtin_registry,
+            agent_registry,
+            spawn_controller,
+            late_bound,
+        }
+    }
+
+    /// Replace the ConfigManager (e.g. after writing mandatory config files
+    /// to the temp directory so ConfigManager sees them).
+    fn set_config_mgr(&mut self, cm: Arc<ConfigManager>) {
+        self.config_mgr = cm;
+    }
+
+    /// Build a [`RegistryContext`] borrowing from the harness.
+    fn ctx(&self) -> RegistryContext<'_> {
+        RegistryContext {
+            config_manager: &self.config_mgr,
+            agent_registry: &self.agent_registry,
+            skill_registry: &self.skill_registry,
+            builtin_registry: &self.builtin_registry,
+            tool_registry: &self.tool_registry,
+            session_manager: &self.session_mgr,
+            permission_engine: &self.permission_engine,
+            spawn_controller: Arc::clone(&self.spawn_controller),
+            approval_flow: &self.approval_flow,
+            late_bound_session_manager: Arc::clone(&self.late_bound),
+            config_subdir: self.tmp.path(),
+            data_dir: self.tmp.path(),
+            gateway: &self.gateway,
+            restart_tx: None,
+        }
+    }
+}
+
+/// Normal path: `init_config_hot_reload` returns Ok with a valid config dir
+/// that contains mandatory config files.
+#[tokio::test]
+async fn test_hot_reload_init_success_with_valid_config_dir() {
+    let tmp = TempDir::new().unwrap();
+    // Write mandatory config files so the watcher has something to watch.
+    for name in &[
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+        "accounts.json",
+    ] {
+        std::fs::write(
+            tmp.path().join(name),
+            serde_json::json!({"version": "1.0"}).to_string(),
+        )
+        .unwrap();
+    }
+    let config_mgr = Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap());
+    let session_mgr = make_session_manager();
+    let gateway = make_gateway();
+    let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
+
+    let result = super::init_config_hot_reload(
+        tmp.path().to_str().unwrap(),
+        config_mgr,
+        agent_registry,
+        session_mgr,
+        gateway,
+        None,
+    );
+    assert!(
+        result.is_ok(),
+        "init_config_hot_reload should succeed with valid config dir: {:?}",
+        result.err()
+    );
+}
+
+/// Error path: `populate_registries` returns Err when DiskSkillRegistry is
+/// not available, proving the error propagation chain works (Err is returned,
+/// not None or silent success).
+/// NOTE: This test verifies the DiskSkillRegistry unavailability branch in
+/// `populate_registries`. It does NOT test the config hot-reload initialization
+/// failure path because `ConfigReloadManager::watch()` is inherently resilient —
+/// it only watches files that exist and gracefully skips missing paths, making
+/// it impossible to trigger a real watcher failure in a test environment.
+#[tokio::test]
+async fn test_populate_registries_fails_without_disk_skill_registry() {
+    use crate::registries::populate_registries;
+
+    let harness = RegistryHarness::new();
+    // skill_registry remains None — no DiskSkillRegistry available.
+    let ctx = harness.ctx();
+
+    let result = populate_registries(&ctx).await;
+    assert!(
+        result.is_err(),
+        "populate_registries should fail when DiskSkillRegistry is not available"
+    );
+    let err_msg = match result {
+        Err(e) => e.to_string(),
+        Ok(_) => unreachable!(),
+    };
+    assert!(
+        err_msg.contains("DiskSkillRegistry"),
+        "error message should mention DiskSkillRegistry: {err_msg}"
+    );
+}
+
+/// Normal path: `populate_registries` returns Ok with a valid config dir
+/// and all required registries available.
+#[tokio::test]
+async fn test_populate_registries_success_with_valid_setup() {
+    use crate::registries::populate_registries;
+
+    let mut harness = RegistryHarness::new();
+    let disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
+    *harness.skill_registry.write().unwrap() = Some(disk_reg);
+
+    // Write mandatory config files so the watcher and ConfigManager load correctly.
+    for name in &[
+        "models.json",
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+        "accounts.json",
+    ] {
+        std::fs::write(
+            harness.tmp.path().join(name),
+            serde_json::json!({"version": "1.0"}).to_string(),
+        )
+        .unwrap();
+    }
+    harness.set_config_mgr(Arc::new(
+        ConfigManager::new(harness.tmp.path().to_path_buf()).unwrap(),
+    ));
+
+    let ctx = harness.ctx();
+    let result = populate_registries(&ctx).await;
+    assert!(
+        result.is_ok(),
+        "populate_registries should succeed with valid setup: {:?}",
+        result.err()
+    );
 }
