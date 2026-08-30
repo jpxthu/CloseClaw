@@ -123,9 +123,9 @@
     "path": "docs/design/daemon/README.md",
     "commit": "8966f63a1b443a4cba19f1ab11bd904a5ad67485",
     "commit_time": "2026-08-29T06:19:24+08:00",
-    "confirmed_time": "2026-08-31T05:47:59.415871+08:00",
+    "confirmed_time": "2026-08-31T06:02:54.293710+08:00",
     "comment": "",
-    "blocked_reason": "SpawnController 依赖表行内部矛盾未解（PR #2658 修正依赖列后层列未同步）：依赖列 ConfigManager(层1)+AgentRegistry(层2)+Permission Engine(层2) 按文档自身『层由声明自动推导』规则推导为层3，层列却标为4，无自洽实现；F2b 三轮正反向对比均确认。另：网关重启节『如 Admin RPC Server』示例与代码不重建行为相反（AdminContext 不持有 Gateway 引用，代码侧可修，待文档澄清后处理）"
+    "blocked_reason": "SpawnController 依赖表行内部矛盾仍未解（连续第3轮 F2b 确认）：依赖列 ConfigManager(层1)+AgentRegistry(层2)+Permission Engine(层2) 按文档自身『层由声明自动推导』规则推导为层3，层列却标4；Session Manager 为运行时引用不构成启动依赖，无合法升层途径；其余表行均自洽仅此行矛盾。代码 deps()=[AgentRegistry,ToolsRegistry] 可自洽推导到 Wiring(层4) 但与文档依赖列矛盾——任何对齐方式都无法同时满足依赖列+层列+推导规则+StartupPhase 分组校验。历史：PR #2658 修正依赖列后层列未同步（#2692/#2696 两轮 blocked 后文档未改）"
   },
   {
     "path": "docs/design/daemon/shutdown.md",
