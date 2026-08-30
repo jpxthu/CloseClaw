@@ -54,9 +54,8 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Gateway => Box::new(validate_gateway),
         ConfigSection::Plugins => Box::new(validate_plugins),
         ConfigSection::System => Box::new(validate_system),
-        // Credentials is a directory, not a JSON section — no validator needed.
         ConfigSection::Session => Box::new(validate_session),
-        ConfigSection::Credentials => Box::new(|_| Ok(())),
+        ConfigSection::Credentials => Box::new(validate_credentials),
         ConfigSection::Accounts => Box::new(|v| validate_accounts(v, None)),
         ConfigSection::Memory => Box::new(validate_memory),
         ConfigSection::Skills => Box::new(validate_skills),
@@ -757,6 +756,57 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Validate a single **credentials** file.
+///
+/// Each credential file contains a single credential object.
+/// - `provider` must be a non-empty string.
+/// - `apiKey`, if present, must be a non-empty string.
+/// - `appId`, if present, must be a non-empty string (Feishu variant).
+/// - `appSecret`, if present, must be a non-empty string (Feishu variant).
+pub fn validate_credentials(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "credentials")?;
+    require_non_empty(value, "provider", "credentials.provider")?;
+    // ApiKey variant: apiKey must be non-empty if present
+    if let Some(api_key) = value.get("apiKey") {
+        match api_key {
+            serde_json::Value::String(s) if s.is_empty() => {
+                return Err("credentials.apiKey cannot be empty".to_string());
+            }
+            serde_json::Value::String(_) => {}
+            serde_json::Value::Null => {}
+            _ => {
+                return Err("credentials.apiKey must be a string".to_string());
+            }
+        }
+    }
+    // Feishu variant: appId and appSecret must be non-empty if present
+    if let Some(app_id) = value.get("appId") {
+        match app_id {
+            serde_json::Value::String(s) if s.is_empty() => {
+                return Err("credentials.appId cannot be empty".to_string());
+            }
+            serde_json::Value::String(_) => {}
+            serde_json::Value::Null => {}
+            _ => {
+                return Err("credentials.appId must be a string".to_string());
+            }
+        }
+    }
+    if let Some(app_secret) = value.get("appSecret") {
+        match app_secret {
+            serde_json::Value::String(s) if s.is_empty() => {
+                return Err("credentials.appSecret cannot be empty".to_string());
+            }
+            serde_json::Value::String(_) => {}
+            serde_json::Value::Null => {}
+            _ => {
+                return Err("credentials.appSecret must be a string".to_string());
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Validate the **media** config section.
 ///

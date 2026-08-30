@@ -98,10 +98,26 @@ impl CredentialsProvider {
                 continue;
             }
             let content = fs::read_to_string(&path)?;
-            let creds: AnyProviderCredentials = match serde_json::from_str(&content) {
-                Ok(c) => c,
+            let value: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
                 Err(_) => {
                     // skip malformed files silently
+                    continue;
+                }
+            };
+            // Validate credential file structure before deserializing
+            if let Err(e) = crate::validators::validate_credentials(&value) {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "credential file failed validation, skipping"
+                );
+                continue;
+            }
+            let creds: AnyProviderCredentials = match serde_json::from_value(value) {
+                Ok(c) => c,
+                Err(_) => {
+                    // skip files that don't match known credential shapes
                     continue;
                 }
             };
