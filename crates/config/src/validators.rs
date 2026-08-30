@@ -832,6 +832,7 @@ fn validate_memory(value: &serde_json::Value) -> Result<(), String> {
 ///
 /// - Top-level must be a JSON object.
 /// - `extraDirs`, if present, must be a JSON array of strings.
+/// - Each path must be non-empty and must not contain null bytes.
 /// - Empty/absent `extraDirs` is valid (uses defaults).
 fn validate_skills(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "skills")?;
@@ -839,12 +840,22 @@ fn validate_skills(value: &serde_json::Value) -> Result<(), String> {
         ensure_array(extra_dirs, "skills.extraDirs")?;
         if let Some(arr) = extra_dirs.as_array() {
             for (i, item) in arr.iter().enumerate() {
-                if !item.is_string() {
-                    return Err(format!(
-                        "skills.extraDirs[{}] must be a string, got {}",
-                        i,
-                        type_name(item)
-                    ));
+                match item {
+                    serde_json::Value::String(s) => {
+                        if s.is_empty() {
+                            return Err(format!("skills.extraDirs[{}] cannot be an empty path", i));
+                        }
+                        if s.contains('\0') {
+                            return Err(format!("skills.extraDirs[{}] contains a null byte", i));
+                        }
+                    }
+                    _ => {
+                        return Err(format!(
+                            "skills.extraDirs[{}] must be a string, got {}",
+                            i,
+                            type_name(item)
+                        ));
+                    }
                 }
             }
         }
