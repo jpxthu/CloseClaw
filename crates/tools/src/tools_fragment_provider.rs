@@ -63,7 +63,7 @@ impl ToolsFragmentProvider {
 
     /// Build a [`ToolContext`] from a [`FragmentContext`].
     fn tool_context(ctx: &FragmentContext, session_mode: Option<SessionMode>) -> ToolContext {
-        let path_str = ctx.bootstrap_dir.to_string_lossy().to_string();
+        let path_str = ctx.bootstrap_dir.clone();
         let workdir = Some(crate::build_workdir_context(&path_str));
         ToolContext {
             agent_id: ctx.agent_id.clone(),

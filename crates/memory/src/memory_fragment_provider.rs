@@ -49,8 +49,8 @@ impl MemoryFragmentProvider {
     fn resolve_path(&self, ctx: &FragmentContext) -> PathBuf {
         match &self.memory_md_path {
             Some(p) if p.is_absolute() => p.clone(),
-            Some(p) => ctx.bootstrap_dir.join(p),
-            None => ctx.bootstrap_dir.join("MEMORY.md"),
+            Some(p) => PathBuf::from(&ctx.bootstrap_dir).join(p),
+            None => PathBuf::from(&ctx.bootstrap_dir).join("MEMORY.md"),
         }
     }
 }
@@ -142,7 +142,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());
@@ -155,7 +155,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());
@@ -168,7 +168,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "Remember X and Y").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
@@ -184,7 +184,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         assert!(provider.cache_key(&ctx).is_none());
@@ -196,7 +196,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         let key = provider.cache_key(&ctx).unwrap();
@@ -214,11 +214,11 @@ mod tests {
         fs::write(tmp2.path().join("MEMORY.md"), "same content").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx1 = FragmentContext {
-            bootstrap_dir: tmp1.path().to_path_buf(),
+            bootstrap_dir: tmp1.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         let ctx2 = FragmentContext {
-            bootstrap_dir: tmp2.path().to_path_buf(),
+            bootstrap_dir: tmp2.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         let key1 = provider.cache_key(&ctx1).unwrap();
@@ -246,7 +246,7 @@ mod tests {
         fs::write(custom_dir.join("MEMORY.md"), "Custom path content").unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
@@ -262,7 +262,7 @@ mod tests {
         fs::write(&abs_path, "Absolute path content").unwrap();
         let provider = MemoryFragmentProvider::with_path(&abs_path);
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
@@ -278,7 +278,7 @@ mod tests {
         fs::write(custom_dir.join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         let key = provider.cache_key(&ctx).unwrap();
@@ -292,7 +292,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
         assert!(provider.cache_key(&ctx).is_none());
@@ -307,7 +307,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "Remember something").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
@@ -321,7 +321,7 @@ mod tests {
         fs::write(tmp.path().join("MEMORY.md"), "Full mode memory").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Full,
             ..FragmentContext::test_default()
         };
@@ -337,7 +337,7 @@ mod tests {
     async fn test_generate_no_workspace_dir_returns_none() {
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
-            bootstrap_dir: PathBuf::from("/nonexistent/path/to/workspace"),
+            bootstrap_dir: "/nonexistent/path/to/workspace".to_string(),
             ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());
@@ -351,7 +351,7 @@ mod tests {
         fs::write(&abs_path, "Should not be read").unwrap();
         let provider = MemoryFragmentProvider::with_path(&abs_path);
         let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_path_buf(),
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };

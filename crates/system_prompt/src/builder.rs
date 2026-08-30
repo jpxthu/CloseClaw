@@ -202,7 +202,7 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
     let ctx = FragmentContext {
         agent_id: config.agent_id.clone().unwrap_or_default(),
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
-        bootstrap_dir: root.to_path_buf(),
+        bootstrap_dir: root.to_string_lossy().to_string(),
     };
 
     let builder = match shared_cache {
