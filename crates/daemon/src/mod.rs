@@ -566,7 +566,7 @@ impl Daemon {
         watch::Sender<()>,
         watch::Sender<()>,
         watch::Sender<()>,
-        Option<config_watcher::ConfigWatcherHandle>,
+        config_watcher::ConfigWatcherHandle,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
@@ -634,7 +634,7 @@ impl Daemon {
             gateway,
             restart_tx: Some(restart_tx),
         };
-        let config_watcher = registries::populate_registries(&ctx).await;
+        let config_watcher = registries::populate_registries(&ctx).await?;
 
         // Create SystemPromptBuilderAdapter and inject into SessionManager.
         // This bridges the SystemPromptBuilder trait (used by ConversationSession

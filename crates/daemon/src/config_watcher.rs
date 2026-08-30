@@ -4,6 +4,7 @@
 //! Delegates file watching and event dispatch to [`ConfigReloadManager`].
 
 use crate::config_reload::DaemonReloadCallback;
+use anyhow::Context;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::events::ConfigChangeEvent;
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
@@ -137,7 +138,7 @@ pub(crate) fn init_config_hot_reload(
 
     let watcher = manager
         .watch(config_dir)
-        .map_err(|e| anyhow::anyhow!("failed to start config hot-reload watcher: {}", e))?;
+        .context("failed to start config hot-reload watcher")?;
 
     spawn_config_change_subscriber(config_manager, session_manager, gateway);
 

@@ -4,6 +4,7 @@
 use crate::config_watcher;
 use crate::daemon_struct::PlanArchiveSweeperHandle;
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
+use anyhow::Context;
 use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::PlanState;
 use closeclaw_config::ConfigManager;
@@ -65,21 +66,26 @@ pub(crate) struct RegistryContext<'a> {
 ///    session tools via `SessionToolsRegistrar`) via the Registrar
 ///    pattern and freezes the registry via `register_all`.
 ///
-/// Returns an optional [`ConfigWatcherHandle`] for config hot-reload.
+/// Returns a [`ConfigWatcherHandle`] for config hot-reload.
+/// Propagates errors when hot-reload initialization fails.
 pub(crate) async fn populate_registries(
     ctx: &RegistryContext<'_>,
-) -> Option<config_watcher::ConfigWatcherHandle> {
+) -> anyhow::Result<config_watcher::ConfigWatcherHandle> {
     let disk_reg = match acquire_disk_registry(ctx.skill_registry) {
         Some(dr) => dr,
-        None => return None,
+        None => {
+            return Err(anyhow::anyhow!(
+                "populate_registries: DiskSkillRegistry not available"
+            ));
+        }
     };
     load_and_populate_agents(ctx, &disk_reg);
     inject_agent_registry_into_skill_registry(ctx.skill_registry, ctx.agent_registry);
     inject_agent_registry_into_tool_registry(ctx.tool_registry, ctx.agent_registry);
     wire_session_manager(ctx).await;
-    let config_watcher = init_config_hot_reload(ctx);
+    let config_watcher = init_config_hot_reload(ctx)?;
     spawn_builtin_tools(ctx, &disk_reg).await;
-    config_watcher
+    Ok(config_watcher)
 }
 
 /// Acquire the DiskSkillRegistry from the shared handle, if available.
@@ -144,27 +150,21 @@ async fn wire_session_manager(ctx: &RegistryContext<'_>) {
 }
 
 /// Initialize config hot-reload watcher.
+///
+/// Propagates errors when the watcher cannot be created, preventing
+/// the daemon from entering a running state without hot-reload.
 fn init_config_hot_reload(
     ctx: &RegistryContext<'_>,
-) -> Option<config_watcher::ConfigWatcherHandle> {
-    match config_watcher::init_config_hot_reload(
+) -> anyhow::Result<config_watcher::ConfigWatcherHandle> {
+    config_watcher::init_config_hot_reload(
         &ctx.config_subdir.to_string_lossy(),
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.agent_registry),
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.gateway),
         ctx.restart_tx.clone(),
-    ) {
-        Ok(handle) => Some(handle),
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "failed to initialize config hot-reload — \
-                 config changes will require restart"
-            );
-            None
-        }
-    }
+    )
+    .context("config hot-reload initialization failed")
 }
 
 /// Spawn PlanArchiveSweeper as a Layer 2 background task.
