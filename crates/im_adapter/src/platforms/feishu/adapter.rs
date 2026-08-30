@@ -668,7 +668,9 @@ impl FeishuAdapter {
         // Fetch the chat name for the group chat.
         let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
 
-        // Store chat_name in last_metadata for gateway to retrieve.
+        // Store chat_name and header app_id in last_metadata.
+        // header_app_id is used by normalize_inbound_message as the
+        // bot_app_id for identity resolution (priority over adapter.app_id).
         {
             let mut meta = self.last_metadata.lock().await;
             meta.clear();
@@ -676,6 +678,7 @@ impl FeishuAdapter {
             if !name.is_empty() {
                 meta.insert("chat_name".to_string(), name);
             }
+            meta.insert("header_app_id".to_string(), event.header.app_id.clone());
         }
 
         Ok(Some(NormalizedMessage {
