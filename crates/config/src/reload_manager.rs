@@ -216,8 +216,16 @@ impl ConfigReloadManager {
         }
 
         // Step 5: success — update cache and broadcast snapshot
-        self.config_manager
-            .update_section_cache(section, path, value);
+        // Restart-class sections (Models/Channels/Gateway) are staged
+        // in the pending-restart area so the runtime cache retains the
+        // old value until a gateway restart completes.
+        if section.is_restart_class() {
+            self.config_manager
+                .stage_restart_value(section, path, value);
+        } else {
+            self.config_manager
+                .update_section_cache(section, path, value);
+        }
         Ok(())
     }
 
