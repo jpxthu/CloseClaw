@@ -325,7 +325,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### LlmCaller
 
-**用途**：LLM 调用抽象接口。gateway 实现（FallbackLlmCaller 桥接 UnifiedFallbackClient / UnifiedChatClient，因 session 不能依赖 llm 的循环依赖），gateway、daemon、memory 消费——发起流式/非流式 LLM 请求。
+**用途**：LLM 调用抽象接口。具体实现由 gateway 提供，daemon 启动时经 SessionManager 注入会话，session、daemon、memory 消费——发起流式/非流式 LLM 请求。
 
 **接口契约**：
 
@@ -476,7 +476,7 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；System Prompt Builder 收集所有 Provider 并触发生成）
   - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费 ToolSession、AgentToolsConfigQuery）
-  - **session**（实现 ToolRegistrar、SessionModeQuery；消费 PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink）
+  - **session**（实现 ToolRegistrar、SessionModeQuery；消费 PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）

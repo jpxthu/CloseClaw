@@ -140,7 +140,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 2. 检查 memory_injection 槽位，按模式插入记忆摘要到消息列表
 3. ConversationSession 将 system_prompt + messages + reasoning level 组装为 LLM 请求
 4. LLM 状态设为 Requesting
-5. LLM provider 调用
+5. LLM provider 调用（经 LlmCaller 抽象发出，见下游）
    - 流式模式：Session 层接收 LLM 的 [StreamEvent](../common/shared-types.md#streamevent) 流式事件，逐事件转发统一出站路径（Verbosity → Processor Chain → 出站日志）实时推送至 IM Adapter 渲染发送，完整 ContentBlock[] 按 BlockEnd 边界组装用于消息历史
    - 非流式：返回完整响应
 6. Thinking 内容作为独立 block 保留在消息历史中，展示层默认过滤（不输出给用户）
@@ -222,12 +222,12 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
   | 推理控制 | `/reasoning` 设置推理深度档位或请求关闭推理输出 |
   | 展示控制 | `/verbose` 设置信息展示等级 |
   | 上下文管理 | `/compact` 压缩对话历史、`/system` 管理 system prompt 追加区 |
-- **Daemon**：启动时初始化 SqliteStorage 和 SessionConfigProvider，spawn Sweeper 后台任务；系统关闭时委托 SessionManager 统一停止所有 session（详见 [daemon/README.md](../daemon/README.md) 关闭路径）；启动时创建 SessionManager，SessionManager 在其初始化过程中自动执行恢复扫描（详见 session-recovery.md）
+- **Daemon**：启动时初始化 SqliteStorage 和 SessionConfigProvider，spawn Sweeper 后台任务；系统关闭时委托 SessionManager 统一停止所有 session（详见 [daemon/README.md](../daemon/README.md) 关闭路径）；启动时创建 SessionManager 并注入 LlmCaller（见 [daemon/README.md](../daemon/README.md) 启动路径），SessionManager 在其初始化过程中自动执行恢复扫描（详见 session-recovery.md）
 
 ### 下游
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap、工具列表的组装。
-- **LLM Client（UnifiedChatClient）**：ConversationSession 构建 API 请求发送给 LLM Client，经内部链路（CacheAdapter → Plugin → Protocol → Provider）完成调用；stop 时通过 cancel token 取消进行中的请求。
+- **LLM 调用器（LlmCaller）**：ConversationSession 构建 API 请求经 LlmCaller 抽象发出，由 Daemon 启动时接线注入（桥接 LLM Registry 的统一客户端，见 [daemon/README.md](../daemon/README.md)）；stop 时通过 cancel token 取消进行中的请求。接口契约见 [common/core-traits.md](../common/core-traits.md#llmcaller)。
 - **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表（ToolsSection）。技能清单的基础部分由 System Prompt 模块在组装时注入 SkillsSection，Session 仅在条件激活时负责 per-turn 增量消息注入（详见 [session-injection.md](session-injection.md)）。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
@@ -239,7 +239,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 
 ### 共享类型 / 核心 trait
 
-- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery；消费：PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink）
+- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery；消费：PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
 
 ### 无关
 

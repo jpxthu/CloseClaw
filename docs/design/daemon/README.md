@@ -74,7 +74,7 @@ Daemon 持有 AgentRegistry、Session Manager、Gateway、ApprovalFlow、SpawnCo
    - AgentRegistry（创建空注册表 → ConfigManager 加载 agent 配置 → populate 填充）
    - Config Hot Reload（spawn 后台任务，监听配置文件变更，触发增量重载；重载校验失败时经 IM 通知 Owner——出站通道为运行时引用，IM Adapters 就绪后接线，不构成启动依赖，详见 [config/hot-reload.md](../config/hot-reload.md)）
    - Skills Registry（创建注册表骨架，加载 bundled skills）
-   - LLM Registry（读取 models.json 供应商定义与凭据，构造 LLM Client（UnifiedChatClient）实例，内部链路详见 [llm/README.md](../llm/README.md)）
+   - LLM Registry（读取 models.json 供应商定义与凭据，构造统一 LLM Client 实例；无可用模型/供应商时构造为空、不阻塞启动，内部链路详见 [llm/README.md](../llm/README.md)）
    - Renderers / Plugins（各平台 Renderer 封装为 Plugin 并注册）
    - Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
    - PlanArchiveSweeper（spawn 后台任务，定时扫描「全部步骤终态」的 plan，将最后访问超过配置天数的自动归档；终态定义与归档规则详见 [mode/README.md](../mode/README.md)）
@@ -86,12 +86,14 @@ Daemon 持有 AgentRegistry、Session Manager、Gateway、ApprovalFlow、SpawnCo
    - DreamingScheduler（spawn 后台任务，定时扫描 archived 会话，触发记忆挖掘与升格）
    - ApprovalFlow（注入 Permission Engine、AgentRegistry）
 4. **层 4**（依赖层 3）：
-   - Session Manager（注入 LLM Registry 构造的 LLM Client、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider，初始化完成后执行启动恢复扫描）
+   - Session Manager（注入 Daemon 构造的 LLM 调用器（LlmCaller）、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider，初始化完成后执行启动恢复扫描）。LlmCaller 是 [common/core-traits](../common/core-traits.md#llmcaller) 定义的 LLM 调用接口，其具体实现（FallbackLlmCaller，桥接 LLM 模块统一客户端）由 gateway 域提供；Daemon 作为胶水层从 LLM Registry 取得统一客户端、实例化该调用器并经 Session Manager 注入会话，各 ConversationSession 经其发起请求（真实 Provider 调用仍由 LLM 模块完成）
    - SpawnController（创建并管理子 session；spawn 前置校验与权限判定经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播）、Agent 配置（深度/并发/超时阈值），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)；子 session 所需能力经 Session Manager 提供的 spawn 上下文获取（运行时引用，Session Manager 就绪后接线，不构成启动依赖））
    - System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
 5. **层 5**（依赖层 4）：Gateway（注入 adapters、session manager、permission、renderers；安装 SlashDispatcher（详见 [slash/README.md](../slash/README.md)）；注入 ApprovalFlow）
 6. **层 6**（依赖层 5）：Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
 7. 全部完成后**进入消息循环**
+
+**LLM 能力缺失时的行为**：若启动时 LLM 能力不可用（如 models.json 缺失、未配置任何可用模型/供应商，导致无法组装 LlmCaller），系统仍正常启动，不静默丢弃用户消息——SessionManager 无法为会话注入 LlmCaller 时，收到需 LLM 处理的消息以明确错误回复告知用户 LLM 未就绪，而非假装处理或丢失消息。LlmCaller 的接线发生在启动层 SessionManager 初始化，补齐 LLM 配置后恢复该能力需完整重启系统以重走启动路径；配置触发的网关重启仅重建 Gateway 层、会话层不动，无法重新完成会话层的 LlmCaller 接线。
 
 ### 关闭路径
 
@@ -134,8 +136,8 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | AgentRegistry | 启动时创建 agent 注册表，从 ConfigManager 加载结果填充。Daemon 持有其所有权 |
 | Tools Registry | 启动时注册所有工具 |
 | Skills Registry | 启动时创建注册表骨架，加载 bundled skills |
-| LLM Registry | 启动时读取 models.json 供应商定义与凭据文件，构造 LLM Client（UnifiedChatClient）并注入 Session Manager，由 Session Manager 传递给各 ConversationSession 使用（LLM 模块内部架构详见 [llm/README.md](../llm/README.md)） |
-| Session Manager | 启动时创建并注入依赖（LLM Registry 构造的 LLM Client、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider），Daemon 持有其所有权 |
+| LLM Registry | 启动时读取 models.json 供应商定义与凭据文件，构造统一 LLM Client（LLM 模块内部架构详见 [llm/README.md](../llm/README.md)），供 Daemon 组装 LlmCaller 使用 |
+| Session Manager | 启动时创建并注入依赖（Daemon 构造的 LLM 调用器 LlmCaller、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider），Daemon 持有其所有权 |
 | System Prompt 构建器 | SessionManager 触发构建系统 prompt，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md) |
 | Renderers / Plugins | 启动时注册各平台 Renderer |
 | IM Adapters | 启动时创建各平台适配器 |
