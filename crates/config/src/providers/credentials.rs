@@ -150,61 +150,75 @@ impl CredentialsProvider {
             if path.extension().and_then(|s| s.to_str()) != Some("json") {
                 continue;
             }
-            let content = fs::read_to_string(&path)?;
-            let value: serde_json::Value = match serde_json::from_str(&content) {
-                Ok(v) => v,
-                Err(e) => {
-                    if strict {
-                        return Err(ConfigError::ParseError {
-                            path,
-                            error: e.to_string(),
-                        });
-                    }
-                    continue;
-                }
-            };
-            // Validate credential file structure before deserializing
-            if let Err(e) = crate::validators::validate_credentials(&value) {
-                if strict {
-                    return Err(ConfigError::ValidationError { path, message: e });
-                }
-                warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "credential file failed validation, skipping"
-                );
-                continue;
+            if let Some((name, creds)) = Self::parse_credential_file(&path, strict)? {
+                ensure_owner_only_permissions(&path).unwrap_or_else(|e| {
+                    warn!(
+                        path = %path.display(),
+                        error = %e,
+                        "failed to set credential file permissions"
+                    );
+                });
+                provider.providers.insert(name, creds);
             }
-            let creds: AnyProviderCredentials = match serde_json::from_value(value) {
-                Ok(c) => c,
-                Err(_) => {
-                    if strict {
-                        return Err(ConfigError::ParseError {
-                            path,
-                            error: "credential file does not match any known credential shape"
-                                .to_string(),
-                        });
-                    }
-                    continue;
-                }
-            };
-            let name = match &creds {
-                AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
-                AnyProviderCredentials::Feishu(c) => c.provider.clone(),
-            };
-
-            // Ensure credential file has restrictive permissions (owner-only read/write).
-            if let Err(e) = ensure_owner_only_permissions(&path) {
-                warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "failed to set credential file permissions"
-                );
-            }
-
-            provider.providers.insert(name, creds);
         }
         Ok(provider)
+    }
+
+    /// Parse, validate, and deserialize a single credential file.
+    ///
+    /// Returns `Ok(Some((name, creds)))` on success, `Ok(None)` when the file
+    /// should be skipped (non-strict mode parse/validation failure), or
+    /// `Err` in strict mode when the first failure aborts the entire load.
+    fn parse_credential_file(
+        path: &Path,
+        strict: bool,
+    ) -> Result<Option<(String, AnyProviderCredentials)>, ConfigError> {
+        let content = fs::read_to_string(path)?;
+        let value: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                if strict {
+                    return Err(ConfigError::ParseError {
+                        path: path.to_path_buf(),
+                        error: e.to_string(),
+                    });
+                }
+                return Ok(None);
+            }
+        };
+        // Validate credential file structure before deserializing
+        if let Err(e) = crate::validators::validate_credentials(&value) {
+            if strict {
+                return Err(ConfigError::ValidationError {
+                    path: path.to_path_buf(),
+                    message: e,
+                });
+            }
+            warn!(
+                path = %path.display(),
+                error = %e,
+                "credential file failed validation, skipping"
+            );
+            return Ok(None);
+        }
+        let creds: AnyProviderCredentials = match serde_json::from_value(value) {
+            Ok(c) => c,
+            Err(_) => {
+                if strict {
+                    return Err(ConfigError::ParseError {
+                        path: path.to_path_buf(),
+                        error: "credential file does not match any known credential shape"
+                            .to_string(),
+                    });
+                }
+                return Ok(None);
+            }
+        };
+        let name = match &creds {
+            AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
+            AnyProviderCredentials::Feishu(c) => c.provider.clone(),
+        };
+        Ok(Some((name, creds)))
     }
 
     /// Parse from a JSON string (useful for tests).
