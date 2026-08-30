@@ -176,6 +176,7 @@ pub enum ConfigSection {
     Session,
     Credentials,
     Accounts,
+    Agents,
     Memory,
     Skills,
     Media,
@@ -193,6 +194,7 @@ impl ConfigSection {
             ConfigSection::Session => "session.json",
             ConfigSection::Credentials => "credentials/",
             ConfigSection::Accounts => "accounts.json",
+            ConfigSection::Agents => "agents.json",
             ConfigSection::Memory => "memory.json",
             ConfigSection::Skills => "skills.json",
             ConfigSection::Media => "media.json",
@@ -489,6 +491,20 @@ impl ConfigManager {
             sections.insert(ConfigSection::Credentials, json);
         }
 
+        // Load agents.json (optional — absent file uses defaults, agents
+        // directory scanning is handled separately by load_agents()).
+        let agents_path = ConfigSection::Agents.path(&self.config_dir);
+        if let Ok(content) = fs::read_to_string(&agents_path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                sections.insert(ConfigSection::Agents, value);
+                info!(path = %agents_path.display(), "agents.json loaded");
+            } else {
+                warn!(path = %agents_path.display(), "failed to parse agents.json");
+            }
+        } else {
+            info!("agents.json not found, using empty list");
+        }
+
         // Load global memory config (optional — absent file uses defaults).
         let memory_path = ConfigSection::Memory.path(&self.config_dir);
         if memory_path.exists() {
@@ -516,31 +532,12 @@ impl ConfigManager {
 
         // Load global skills config (optional — absent file uses defaults).
         let skills_path = ConfigSection::Skills.path(&self.config_dir);
-        if skills_path.exists() {
-            match fs::read_to_string(&skills_path) {
-                Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
-                    Ok(value) => {
-                        sections.insert(ConfigSection::Skills, value);
-                        info!(
-                            path = %skills_path.display(),
-                            "global skills config loaded"
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            path = %skills_path.display(),
-                            error = %e,
-                            "failed to parse skills.json, using defaults"
-                        );
-                    }
-                },
-                Err(e) => {
-                    warn!(
-                        path = %skills_path.display(),
-                        error = %e,
-                        "failed to read skills.json, using defaults"
-                    );
-                }
+        if let Ok(content) = fs::read_to_string(&skills_path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                sections.insert(ConfigSection::Skills, value);
+                info!(path = %skills_path.display(), "global skills config loaded");
+            } else {
+                warn!(path = %skills_path.display(), "failed to parse skills.json");
             }
         } else {
             info!("skills.json not found, using defaults");
@@ -938,6 +935,7 @@ impl ConfigManager {
             ConfigSection::Plugins,
             ConfigSection::System,
             ConfigSection::Session,
+            ConfigSection::Agents,
             ConfigSection::Memory,
             ConfigSection::Skills,
             ConfigSection::Media,

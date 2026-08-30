@@ -308,6 +308,7 @@ fn register_watched_paths(
         "plugins.json",
         "system.json",
         "accounts.json",
+        "agents.json",
         "session.json",
         "memory.json",
         "skills.json",
@@ -448,6 +449,7 @@ pub fn filename_to_section(filename: &str) -> Option<ConfigSection> {
         "system.json" => Some(ConfigSection::System),
         "session.json" => Some(ConfigSection::Session),
         "accounts.json" => Some(ConfigSection::Accounts),
+        "agents.json" => Some(ConfigSection::Agents),
         "memory.json" => Some(ConfigSection::Memory),
         "skills.json" => Some(ConfigSection::Skills),
         "media.json" => Some(ConfigSection::Media),
@@ -478,11 +480,22 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
         None => return,
     };
 
-    // agents.json triggers the same agent reload path
+    // agents.json: standard section reload + agent directory reload
     if filename == "agents.json" {
-        manager
-            .callback
-            .on_agents_changed(path, &manager.config_manager);
+        if let Some(section) = filename_to_section(filename) {
+            info!(
+                path = %path.display(),
+                section = %section,
+                "agents.json changed, reloading section"
+            );
+            if let Err(e) = manager.reload_section(section) {
+                warn!(error = %e, section = %section, "failed to reload agents section");
+            }
+            // Also trigger agent directory reload for the AgentDirectoryProvider.
+            manager
+                .callback
+                .on_agents_changed(path, &manager.config_manager);
+        }
         return;
     }
 
