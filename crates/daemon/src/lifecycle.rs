@@ -38,7 +38,8 @@ impl Daemon {
             llm_registry,
             fallback_client,
             permission_engine,
-            plan_archive_sweeper,
+            plan_archive_shutdown_tx,
+            plan_archive_sweeper_handle,
         ) = Self::init_phase_2_registries(config_dir, &config_manager, &audit_logger).await?;
         let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
             Self::init_phase_3_core_services(
@@ -186,7 +187,8 @@ impl Daemon {
             archive_sweeper_handle: Some(sweeper_handle),
             announce_sweeper_handle: Some(announce_sweeper_handle),
             dreaming_scheduler_handle: Some(dreaming_handle),
-            _plan_archive_sweeper: plan_archive_sweeper,
+            plan_archive_shutdown_tx,
+            plan_archive_sweeper_handle: Some(plan_archive_sweeper_handle),
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
@@ -543,10 +545,8 @@ impl Daemon {
         let _ = self.announce_shutdown_tx.send(());
         // Signal DreamingScheduler to stop
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
-        // PlanArchiveSweeper is RAII — stop on drop.
-        if self._plan_archive_sweeper.take().is_some() {
-            tracing::info!("PlanArchiveSweeper dropped in Phase 3");
-        }
+        // Signal PlanArchiveSweeper to stop
+        let _ = self.plan_archive_shutdown_tx.send(());
 
         // Wait for all background tasks to exit, aborting on timeout.
         let join_timeout = std::time::Duration::from_secs(10);
@@ -579,6 +579,17 @@ impl Daemon {
             Self::abort_and_join_background_task(
                 handle,
                 "DreamingScheduler",
+                join_timeout,
+                abort_grace,
+            )
+            .await;
+            self.try_send_heartbeat(&mut heartbeat).await;
+        }
+
+        if let Some(handle) = self.plan_archive_sweeper_handle.take() {
+            Self::abort_and_join_background_task(
+                handle,
+                "PlanArchiveSweeper",
                 join_timeout,
                 abort_grace,
             )

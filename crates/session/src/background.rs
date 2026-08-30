@@ -16,7 +16,7 @@ const DEFAULT_ARCHIVE_INTERVAL_SECS: u64 = 3600;
 
 /// Grace period (seconds) to wait for a running archive sweep to finish
 /// before aborting on shutdown.
-const ARCHIVE_GRACE_PERIOD_SECS: u64 = 5;
+const ARCHIVE_GRACE_PERIOD_SECS: u64 = 10;
 
 /// Background task that periodically archives completed plan files.
 pub struct PlanArchiveTask {

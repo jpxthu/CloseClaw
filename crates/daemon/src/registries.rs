@@ -2,7 +2,6 @@
 //! and ConfigHotReload during daemon startup.
 
 use crate::config_watcher;
-use crate::daemon_struct::PlanArchiveSweeperHandle;
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
 use closeclaw_agent::AgentConfigLookup;
@@ -20,6 +19,7 @@ use closeclaw_tools::{
 };
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::watch;
 
 /// Bundles all references needed by [`populate_registries`].
 ///
@@ -171,11 +171,11 @@ fn init_config_hot_reload(
 ///
 /// Reads the `plan_archive.threshold_days` config from ConfigManager,
 /// creates a `PlanArchiveTask`, and spawns it with a shutdown channel.
-/// Returns an RAII handle that stops the task on drop.
+/// Returns the shutdown sender and JoinHandle for use in Phase 3.
 pub(crate) fn spawn_plan_archive_sweeper(
     config_manager: &ConfigManager,
     data_dir: &Path,
-) -> Option<PlanArchiveSweeperHandle> {
+) -> (watch::Sender<()>, tokio::task::JoinHandle<()>) {
     let threshold_days = config_manager
         .session_config_provider()
         .map(|p| p.plan_archive_days())
@@ -191,7 +191,7 @@ pub(crate) fn spawn_plan_archive_sweeper(
         threshold_days,
         "PlanArchiveSweeper spawned in Layer 2"
     );
-    Some(PlanArchiveSweeperHandle::new(shutdown_tx, task))
+    (shutdown_tx, task)
 }
 
 /// Register builtin tools via the Registrar pattern.
