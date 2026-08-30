@@ -55,32 +55,6 @@ impl DaemonReloadCallback {
         }
     }
 
-    /// Create a daemon reload callback without a gateway reference.
-    ///
-    /// Used in unit tests where constructing a full Gateway is not
-    /// practical.  `on_validation_failed` will log a warning but
-    /// skip the IM notification.
-    #[cfg(test)]
-    pub fn new_for_test(agent_registry: std::sync::Arc<AgentRegistry>) -> Self {
-        Self {
-            agent_registry,
-            daemon_restart_tx: None,
-            gateway: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn with_restart_tx_for_test(
-        agent_registry: std::sync::Arc<AgentRegistry>,
-        daemon_restart_tx: mpsc::Sender<String>,
-    ) -> Self {
-        Self {
-            agent_registry,
-            daemon_restart_tx: Some(daemon_restart_tx),
-            gateway: None,
-        }
-    }
-
     /// Determine whether a config file change requires a gateway restart.
     ///
     /// Returns `true` for restart-class files:
@@ -93,20 +67,6 @@ impl DaemonReloadCallback {
             None => return false,
         };
         matches!(filename, "channels.json" | "gateway.json" | "models.json")
-    }
-
-    /// Build a human-readable change summary for a restart-class config.
-    fn describe_restart_class(path: &Path) -> String {
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-        match filename {
-            "channels.json" => "IM Adapter config changed".to_string(),
-            "gateway.json" => "Gateway config changed".to_string(),
-            "models.json" => "LLM Provider config changed".to_string(),
-            _ => format!("config changed: {}", filename),
-        }
     }
 
     /// Reload agent configs and sync the `AgentRegistry`.
@@ -145,26 +105,40 @@ impl DaemonReloadCallback {
         let configs: Vec<_> = config_manager.agents().into_values().collect();
         self.agent_registry.reload(configs);
     }
+}
 
-    /// Reload permissions for a single agent.
-    ///
-    /// With lazy loading, `LazyAgentPermissions` detects mtime changes
-    /// and reloads on next access. This method only logs for observability.
-    fn reload_permissions_with_log(&self, path: &Path, _config_manager: &ConfigManager) {
-        let Some(agent_id) = extract_agent_id_from_permissions_path(path) else {
-            warn!(
-                path = %path.display(),
-                "cannot determine agent_id from permissions path, skipping reload"
-            );
-            return;
-        };
-
-        info!(
-            agent_id = %agent_id,
-            path = %path.display(),
-            "permissions change detected — lazy loader will pick up changes on next access"
-        );
+/// Build a human-readable change summary for a restart-class config.
+fn describe_restart_class(path: &Path) -> String {
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    match filename {
+        "channels.json" => "IM Adapter config changed".to_string(),
+        "gateway.json" => "Gateway config changed".to_string(),
+        "models.json" => "LLM Provider config changed".to_string(),
+        _ => format!("config changed: {}", filename),
     }
+}
+
+/// Reload permissions for a single agent.
+///
+/// With lazy loading, `LazyAgentPermissions` detects mtime changes
+/// and reloads on next access. This method only logs for observability.
+fn reload_permissions_with_log(path: &Path) {
+    let Some(agent_id) = extract_agent_id_from_permissions_path(path) else {
+        warn!(
+            path = %path.display(),
+            "cannot determine agent_id from permissions path, skipping reload"
+        );
+        return;
+    };
+
+    info!(
+        agent_id = %agent_id,
+        path = %path.display(),
+        "permissions change detected — lazy loader will pick up changes on next access"
+    );
 }
 
 impl ReloadCallback for DaemonReloadCallback {
@@ -172,8 +146,8 @@ impl ReloadCallback for DaemonReloadCallback {
         self.reload_agents_with_log(path, config_manager);
     }
 
-    fn on_permissions_changed(&self, path: &Path, config_manager: &ConfigManager) {
-        self.reload_permissions_with_log(path, config_manager);
+    fn on_permissions_changed(&self, path: &Path, _config_manager: &ConfigManager) {
+        reload_permissions_with_log(path);
     }
 
     fn on_session_reloaded(&self, config_manager: &ConfigManager) {
@@ -184,7 +158,7 @@ impl ReloadCallback for DaemonReloadCallback {
         if !Self::is_restart_class(path) {
             return;
         }
-        let summary = Self::describe_restart_class(path);
+        let summary = describe_restart_class(path);
         info!(
             path = %path.display(),
             summary = %summary,
@@ -289,6 +263,33 @@ where
             if path.is_file() && path.extension().is_some_and(|e| e == "json") {
                 f(&path);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+impl DaemonReloadCallback {
+    /// Create a daemon reload callback without a gateway reference.
+    ///
+    /// Used in unit tests where constructing a full Gateway is not
+    /// practical.  `on_validation_failed` will log a warning but
+    /// skip the IM notification.
+    pub fn new_for_test(agent_registry: std::sync::Arc<AgentRegistry>) -> Self {
+        Self {
+            agent_registry,
+            daemon_restart_tx: None,
+            gateway: None,
+        }
+    }
+
+    pub fn with_restart_tx_for_test(
+        agent_registry: std::sync::Arc<AgentRegistry>,
+        daemon_restart_tx: mpsc::Sender<String>,
+    ) -> Self {
+        Self {
+            agent_registry,
+            daemon_restart_tx: Some(daemon_restart_tx),
+            gateway: None,
         }
     }
 }
