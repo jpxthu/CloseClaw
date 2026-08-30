@@ -280,6 +280,7 @@ async fn test_image_message_type_propagated() {
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "img_k_99");
+    assert_eq!(refs[0].media_type, MediaType::Image);
 
     // thread_id propagated.
     assert_eq!(
@@ -309,6 +310,7 @@ async fn test_file_message_type_propagated() {
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "file_k_10");
+    assert_eq!(refs[0].media_type, MediaType::File);
 
     assert!(
         !result.metadata.contains_key("thread_id"),
@@ -333,7 +335,8 @@ async fn test_audio_message_type_propagated() {
     let mr = result.metadata.get("media_refs").unwrap();
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs.len(), 1);
-    assert_eq!(refs[0].url, "https://example.com/voice.m4a");
+    assert_eq!(refs[0].mime, "audio/mp4");
+    assert_eq!(refs[0].media_type, MediaType::Audio);
 
     assert_eq!(
         result.metadata.get("thread_id").map(|s| s.as_str()),
@@ -420,6 +423,7 @@ async fn test_with_registry_text_message_full_chain() {
     let refs: Vec<MediaRef> = serde_json::from_str(mr.unwrap()).unwrap();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "img_key_1");
+    assert_eq!(refs[0].media_type, MediaType::Image);
 }
 
 /// WITH-registry: Image message — message_type=Image, media_refs propagated.
@@ -449,6 +453,7 @@ async fn test_with_registry_image_message_full_chain() {
     let mr = result.metadata.get("media_refs").unwrap();
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs[0].key, "img_k_99");
+    assert_eq!(refs[0].media_type, MediaType::Image);
 }
 
 /// WITH-registry: File message — message_type=File.

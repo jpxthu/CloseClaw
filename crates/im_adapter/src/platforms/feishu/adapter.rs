@@ -3,7 +3,7 @@
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
-use closeclaw_common::{CardActionEvent, MediaRef, MessageType, NormalizedMessage};
+use closeclaw_common::{CardActionEvent, MediaRef, MediaType, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -638,13 +638,18 @@ impl FeishuAdapter {
             };
 
         // Populate media download URLs (non-text messages).
+        // After Step 1.1 the MediaRef uses `path` (local) instead of `url`
+        // (remote). For now the adapter does not perform local persistence,
+        // so we leave `path` empty. The platform key (`r.key`) is already
+        // set by `make_media_ref`.
         let mut media_refs = media_refs;
         for r in &mut media_refs {
             let msg_id = event.event.message_id.as_deref().unwrap_or("");
-            r.url = self
+            let _url = self
                 .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
                 .await
                 .unwrap_or_default();
+            // TODO(media-store): download to local path, set r.path, r.size, r.mime
         }
 
         // Discard empty text content (only for text/post;
@@ -700,15 +705,28 @@ impl FeishuAdapter {
     }
 
     /// Build a `MediaRef` from content JSON using the given key field.
-    fn make_media_ref(content: &serde_json::Value, key_field: &str) -> MediaRef {
+    ///
+    /// The `path` field is temporarily set to the platform key (placeholder)
+    /// until the media-store implementation provides local persistence.
+    /// `media_type` is inferred from the `message_type` parameter.
+    /// `size` and `mime` use defaults until download completes.
+    fn make_media_ref(
+        content: &serde_json::Value,
+        key_field: &str,
+        message_type: &str,
+    ) -> MediaRef {
         let key = content
             .get(key_field)
             .and_then(|k| k.as_str())
             .unwrap_or("")
             .to_string();
+        let media_type = MediaType::from(message_type);
         MediaRef {
             key,
-            url: String::new(),
+            path: String::new(),
+            media_type,
+            size: 0,
+            mime: String::new(),
         }
     }
 
@@ -729,11 +747,11 @@ impl FeishuAdapter {
             "post" => Ok((expand_post_content(content), vec![])),
             "image" => Ok((
                 String::new(),
-                vec![Self::make_media_ref(content, "image_key")],
+                vec![Self::make_media_ref(content, "image_key", message_type)],
             )),
             "file" | "audio" => Ok((
                 String::new(),
-                vec![Self::make_media_ref(content, "file_key")],
+                vec![Self::make_media_ref(content, "file_key", message_type)],
             )),
             "sticker" => {
                 let emoji_type = content
