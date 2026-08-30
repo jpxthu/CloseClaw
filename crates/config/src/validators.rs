@@ -60,6 +60,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Accounts => Box::new(|v| validate_accounts(v, None)),
         ConfigSection::Memory => Box::new(validate_memory),
         ConfigSection::Skills => Box::new(validate_skills),
+        ConfigSection::Media => Box::new(|_| Ok(())),
     }
 }
 

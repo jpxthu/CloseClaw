@@ -178,6 +178,7 @@ pub enum ConfigSection {
     Accounts,
     Memory,
     Skills,
+    Media,
 }
 
 impl ConfigSection {
@@ -194,6 +195,7 @@ impl ConfigSection {
             ConfigSection::Accounts => "accounts.json",
             ConfigSection::Memory => "memory.json",
             ConfigSection::Skills => "skills.json",
+            ConfigSection::Media => "media.json",
         }
     }
 
