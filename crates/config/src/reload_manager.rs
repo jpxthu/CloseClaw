@@ -44,10 +44,29 @@ pub trait ReloadCallback: Send + Sync + 'static {
 
     /// Called after any config file change is processed.
     ///
-    /// The implementor can inspect the `path` to determine whether
+    /// The implementor can inspect the `section` to determine whether
     /// the change requires a restart-class action (e.g., gateway
     /// rebuild).  Default implementation is a no-op.
-    fn on_config_file_changed(&self, _path: &Path, _config_manager: &ConfigManager) {}
+    fn on_config_file_changed(
+        &self,
+        _path: &Path,
+        _section: ConfigSection,
+        _config_manager: &ConfigManager,
+    ) {
+    }
+
+    /// Called when config validation or parsing fails.
+    ///
+    /// The implementor should send an IM notification to the owner
+    /// with the failure details.  Default implementation is a no-op.
+    fn on_validation_failed(
+        &self,
+        _section: ConfigSection,
+        _path: &Path,
+        _error: &str,
+        _config_manager: &ConfigManager,
+    ) {
+    }
 }
 
 /// RAII handle that keeps the filesystem watcher alive.
@@ -137,6 +156,12 @@ impl ConfigReloadManager {
                         path: path.clone(),
                         error: e.to_string(),
                     });
+                self.callback.on_validation_failed(
+                    section,
+                    &path,
+                    &e.to_string(),
+                    &self.config_manager,
+                );
                 return Err(ConfigLoadError::IoError {
                     path,
                     error: e.to_string(),
@@ -157,6 +182,12 @@ impl ConfigReloadManager {
                         path: path.clone(),
                         error: e.to_string(),
                     });
+                self.callback.on_validation_failed(
+                    section,
+                    &path,
+                    &e.to_string(),
+                    &self.config_manager,
+                );
                 return Err(ConfigLoadError::ParseError {
                     path,
                     error: e.to_string(),
@@ -195,6 +226,8 @@ impl ConfigReloadManager {
                     path: path.clone(),
                     error: msg.clone(),
                 });
+            self.callback
+                .on_validation_failed(section, &path, &msg, &self.config_manager);
             return Err(ConfigLoadError::ValidationError { path, message: msg });
         }
 
@@ -216,8 +249,16 @@ impl ConfigReloadManager {
         }
 
         // Step 5: success — update cache and broadcast snapshot
-        self.config_manager
-            .update_section_cache(section, path, value);
+        // Restart-class sections (Models/Channels/Gateway) are staged
+        // in the pending-restart area so the runtime cache retains the
+        // old value until a gateway restart completes.
+        if section.is_restart_class() {
+            self.config_manager
+                .stage_restart_value(section, path, value);
+        } else {
+            self.config_manager
+                .update_section_cache(section, path, value);
+        }
         Ok(())
     }
 
@@ -461,10 +502,14 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
         // detect restart-class changes (e.g. gateway, models).
         manager
             .callback
-            .on_config_file_changed(path, &manager.config_manager);
+            .on_config_file_changed(path, section, &manager.config_manager);
     }
 }
 
 #[cfg(test)]
 #[path = "reload_manager_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "reload_staging_tests.rs"]
+mod reload_staging_tests;

@@ -67,7 +67,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new(ar.clone());
+        let callback = DaemonReloadCallback::new_for_test(ar.clone());
 
         let agents_json_path = d.path().join("agents.json");
         std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
@@ -95,7 +95,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new(ar);
+        let callback = DaemonReloadCallback::new_for_test(ar);
 
         let agents_json_path = d.path().join("agents.json");
         std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
@@ -149,7 +149,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new(ar);
+        let callback = DaemonReloadCallback::new_for_test(ar);
 
         let root_dir = d.path().parent().unwrap().to_path_buf();
         let agents_dir = root_dir.join("agents").join("epsilon");
@@ -209,7 +209,7 @@ mod reload_tests {
         let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
         cm.load().unwrap();
         let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new(ar);
+        let callback = DaemonReloadCallback::new_for_test(ar);
 
         let provider = cm.session_config_provider().unwrap();
         assert_eq!(provider.sweeper_interval_secs(), 600);
@@ -235,7 +235,7 @@ mod reload_tests {
         let d = TempDir::new().unwrap();
         let cm = make_config_manager(d.path());
         let ar = make_agent_registry();
-        let callback = Arc::new(DaemonReloadCallback::new(ar));
+        let callback = Arc::new(DaemonReloadCallback::new_for_test(ar));
         let _mgr = closeclaw_config::ConfigReloadManager::with_defaults(cm, callback);
     }
 }

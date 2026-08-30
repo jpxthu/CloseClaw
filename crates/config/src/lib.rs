@@ -11,6 +11,7 @@ pub mod backup;
 pub mod events;
 pub mod identity;
 pub mod manager;
+pub mod manager_pending_restart;
 pub mod manager_reload;
 pub mod migration;
 pub mod providers;
