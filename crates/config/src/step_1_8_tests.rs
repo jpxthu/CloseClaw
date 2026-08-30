@@ -233,36 +233,32 @@ fn test_credential_file_permission_already_correct() {
     assert_eq!(mode, 0o600, "permission should remain 0o600");
 }
 
-/// Permission correction failure does not block credential loading.
+/// Verify auto-correct from 0o777 → 0o600 on load.
+///
+/// NOTE: A true `set_permissions` failure scenario (e.g. immutable flag)
+/// requires CAP_LINUX_IMMUTABLE which is unavailable in this test
+/// environment. The `load_from_dir` implementation emits a WARN but
+/// continues loading; that failure path cannot be exercised here.
 #[test]
-fn test_credential_file_permission_failure_does_not_block() {
+fn test_credential_file_permission_auto_correct_from_0o777() {
     let tmp = TempDir::new().unwrap();
     let creds_dir = tmp.path().join("credentials");
     fs::create_dir_all(&creds_dir).unwrap();
     let cred_file = creds_dir.join("openai.json");
     fs::write(&cred_file, r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
 
-    // Make the file immutable (Linux-specific) — set_permissions will fail.
-    // Note: This test runs as non-root, so setting immutable flag requires
-    // CAP_LINUX_IMMUTABLE which we don't have. Instead, we verify that
-    // the load function doesn't panic and still loads the credential
-    // even if the file has unexpected permissions.
-    // We test the logical path: the warn! is emitted but the credential
-    // is still loaded regardless of the permission fix outcome.
-    //
-    // To verify the "does not block" behavior, we load a credential
-    // file that exists and confirm it's loaded even with 0o777 permissions.
+    // Set file to 0o777 (world-readable+executable) and verify auto-correct.
     fs::set_permissions(&cred_file, fs::Permissions::from_mode(0o777)).unwrap();
+    let mode_before = fs::metadata(&cred_file).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode_before, 0o777, "setup: should be 0o777 before load");
 
-    // The load_from_dir function should still load the credential
-    // even though permission fix will fail (warn emitted, not error).
     let provider = CredentialsProvider::load_from_dir(&creds_dir).unwrap();
-    assert_eq!(
-        provider.providers.len(),
-        1,
-        "credential should be loaded despite permission fix failure"
-    );
+    assert_eq!(provider.providers.len(), 1, "credential should be loaded");
     assert!(provider.get_api_key("openai").is_some());
+
+    // After load, permissions should be corrected to 0o600.
+    let mode_after = fs::metadata(&cred_file).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode_after, 0o600, "permission should be corrected to 0o600");
 }
 
 /// Multiple credential files: mixed permissions all get corrected.
