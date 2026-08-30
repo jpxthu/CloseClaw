@@ -28,7 +28,7 @@ Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [s
 6. 按序拼接所有 Fragment 的内容
 7. 产出静态层完整文本
 
-构建在异步运行时上下文内完成：各 Provider（含从 SkillRegistry 提取技能元数据、从 ToolRegistry 生成工具索引）的调用均在异步任务中执行，不在同步阻塞上下文中跨运行时阻塞发起。
+构建在异步执行环境中完成：各 Provider 的调用（含从 SkillRegistry 提取技能元数据、从 ToolRegistry 生成工具索引）均在异步任务中执行，不同步阻塞运行时。
 
 ### 四个标准 Provider
 
