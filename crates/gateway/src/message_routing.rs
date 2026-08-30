@@ -249,7 +249,7 @@ fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_common::im_plugin::{MediaRef, MessageType};
+    use closeclaw_common::im_plugin::{MediaRef, MediaType, MessageType};
 
     fn make_normalized(overrides: impl FnOnce(&mut NormalizedMessage)) -> NormalizedMessage {
         let mut msg = NormalizedMessage {
@@ -297,13 +297,17 @@ mod tests {
         let normalized = make_normalized(|n| {
             n.media_refs = vec![MediaRef {
                 key: "ref_a".into(),
-                url: "https://example.com/a".into(),
+                path: "/media/a".into(),
+                media_type: MediaType::Image,
+                size: 100,
+                mime: "image/png".into(),
             }];
         });
         let meta = build_extra_metadata(&normalized);
         let parsed: Vec<MediaRef> = serde_json::from_str(meta.get("media_refs").unwrap()).unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].key, "ref_a");
+        assert_eq!(parsed[0].media_type, MediaType::Image);
     }
 
     #[test]
@@ -362,7 +366,10 @@ mod tests {
             n.thread_id = Some("t_1".into());
             n.media_refs = vec![MediaRef {
                 key: "r1".into(),
-                url: "https://example.com/r1".into(),
+                path: "/media/r1".into(),
+                media_type: MediaType::Image,
+                size: 500,
+                mime: "image/jpeg".into(),
             }];
             n.unavailable_media = vec!["u1".into(), "u2".into()];
             n.account_id = "a1".into();

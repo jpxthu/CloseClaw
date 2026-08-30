@@ -501,6 +501,24 @@ impl Gateway {
         }
     }
 
+    /// Send a simplified rejection reply and return `None`.
+    ///
+    /// Shared helper for pre-session-resolution gates (non-text,
+    /// unavailable_media, max_message_size, session routing failure).
+    async fn reject_with_reply(
+        &self,
+        peer_id: &str,
+        channel: &str,
+        msg: &str,
+    ) -> Option<HandleResult> {
+        if !peer_id.is_empty() {
+            if let Err(e) = self.send_outbound_simplified(peer_id, channel, msg).await {
+                tracing::warn!(error = %e, "failed to send rejection reply");
+            }
+        }
+        None
+    }
+
     /// Handle an inbound message through the busy/pending state machine.
     ///
     /// Resolution flow: extract `session_key` → resolve `session_id` →
@@ -550,23 +568,16 @@ impl Gateway {
             .and_then(|s| serde_json::from_str::<MessageType>(s).ok())
             .unwrap_or_default();
         if !matches!(message_type, MessageType::Text) {
-            tracing::info!(
-                message_type = ?message_type,
-                "rejecting non-text message"
-            );
-            if let Err(e) = self
+            tracing::info!(message_type = ?message_type, "rejecting non-text message");
+            // Non-text rejection sends directly via send_outbound_simplified
+            // without peer_id guard — matches original plugin.send() behavior.
+            let _ = self
                 .send_outbound_simplified(
                     peer_id,
                     channel,
                     "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",
                 )
-                .await
-            {
-                tracing::warn!(
-                    error = %e,
-                    "failed to send non-text rejection reply"
-                );
-            }
+                .await;
             return None;
         }
 
@@ -582,20 +593,29 @@ impl Gateway {
                 peer_id = %peer_id,
                 size = content.len(),
                 limit = self.config.max_message_size,
-                "inbound message exceeds max_message_size"
+                "inbound message exceeds max_message_size",
             );
-            if !peer_id.is_empty() {
-                if let Err(e) = self
-                    .send_outbound_simplified(peer_id, channel, "消息过长，请缩短后重试")
-                    .await
-                {
-                    tracing::warn!(
-                        error = %e,
-                        "failed to send max_message_size rejection reply"
-                    );
-                }
-            }
-            return None;
+            return self
+                .reject_with_reply(peer_id, channel, "消息过长，请缩短后重试")
+                .await;
+        }
+
+        // ── unavailable_media interception ──────────────────────────
+        // Per design doc: when a message contains media that could not
+        // be fetched, send a simplified reply and skip session resolution.
+        let unavailable_media: Vec<String> = processed
+            .metadata
+            .get("unavailable_media")
+            .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+            .unwrap_or_default();
+        if !unavailable_media.is_empty() {
+            tracing::info!(
+                unavailable_count = unavailable_media.len(),
+                "rejecting message with unavailable media",
+            );
+            return self
+                .reject_with_reply(peer_id, channel, "该消息内容无法获取")
+                .await;
         }
 
         // ── Resolve session_key → session_id ────────────────────────
@@ -622,18 +642,13 @@ impl Gateway {
             }
             None => {
                 tracing::warn!("session_key missing or resolve failed — message not processed");
-                if !peer_id.is_empty() {
-                    if let Err(e) = self
-                        .send_outbound_simplified(peer_id, channel, "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}")
-                        .await
-                    {
-                        tracing::warn!(
-                            error = %e,
-                            "failed to send session routing failure reply"
-                        );
-                    }
-                }
-                return None;
+                return self
+                    .reject_with_reply(
+                        peer_id,
+                        channel,
+                        "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}",
+                    )
+                    .await;
             }
         };
 

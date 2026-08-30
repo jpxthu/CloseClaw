@@ -11,6 +11,7 @@
 
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::im_plugin::{MediaRef, MessageType, NormalizedMessage};
+use closeclaw_common::MediaType;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
@@ -47,7 +48,10 @@ fn full_chain_input() -> NormalizedMessage {
         message_type: MessageType::Text,
         media_refs: vec![MediaRef {
             key: "img_key_1".into(),
-            url: "https://example.com/img1.png".into(),
+            path: "img1.png".into(),
+            media_type: MediaType::Image,
+            size: 0,
+            mime: "image/png".into(),
         }],
         thread_id: Some("ot_thread_abc".into()),
         account_id: "acct_foo".into(),
@@ -90,7 +94,10 @@ fn image_chain_input() -> NormalizedMessage {
         message_type: MessageType::Image,
         media_refs: vec![MediaRef {
             key: "img_k_99".into(),
-            url: "https://example.com/img99.png".into(),
+            path: "img99.png".into(),
+            media_type: MediaType::Image,
+            size: 0,
+            mime: "image/png".into(),
         }],
         thread_id: Some("ot_thread_img".into()),
         account_id: "acct_foo".into(),
@@ -113,7 +120,10 @@ fn file_chain_input() -> NormalizedMessage {
         message_type: MessageType::File,
         media_refs: vec![MediaRef {
             key: "file_k_10".into(),
-            url: "https://example.com/file10.pdf".into(),
+            path: "file10.pdf".into(),
+            media_type: MediaType::File,
+            size: 0,
+            mime: "application/pdf".into(),
         }],
         thread_id: None,
         account_id: "acct_foo".into(),
@@ -136,7 +146,10 @@ fn audio_chain_input() -> NormalizedMessage {
         message_type: MessageType::Audio,
         media_refs: vec![MediaRef {
             key: "audio_k_5".into(),
-            url: "https://example.com/voice.m4a".into(),
+            path: "voice.m4a".into(),
+            media_type: MediaType::Audio,
+            size: 0,
+            mime: "audio/mp4".into(),
         }],
         thread_id: Some("ot_audio_thread".into()),
         account_id: "acct_foo".into(),
@@ -179,7 +192,7 @@ async fn test_all_fields_propagated_no_registry() {
     let refs: Vec<MediaRef> = serde_json::from_str(mr.unwrap()).unwrap();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "img_key_1");
-    assert_eq!(refs[0].url, "https://example.com/img1.png");
+    assert_eq!(refs[0].path, "img1.png");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -280,6 +293,7 @@ async fn test_image_message_type_propagated() {
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "img_k_99");
+    assert_eq!(refs[0].media_type, MediaType::Image);
 
     // thread_id propagated.
     assert_eq!(
@@ -309,6 +323,7 @@ async fn test_file_message_type_propagated() {
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "file_k_10");
+    assert_eq!(refs[0].media_type, MediaType::File);
 
     assert!(
         !result.metadata.contains_key("thread_id"),
@@ -333,7 +348,8 @@ async fn test_audio_message_type_propagated() {
     let mr = result.metadata.get("media_refs").unwrap();
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs.len(), 1);
-    assert_eq!(refs[0].url, "https://example.com/voice.m4a");
+    assert_eq!(refs[0].mime, "audio/mp4");
+    assert_eq!(refs[0].media_type, MediaType::Audio);
 
     assert_eq!(
         result.metadata.get("thread_id").map(|s| s.as_str()),
@@ -420,6 +436,7 @@ async fn test_with_registry_text_message_full_chain() {
     let refs: Vec<MediaRef> = serde_json::from_str(mr.unwrap()).unwrap();
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].key, "img_key_1");
+    assert_eq!(refs[0].media_type, MediaType::Image);
 }
 
 /// WITH-registry: Image message — message_type=Image, media_refs propagated.
@@ -449,6 +466,7 @@ async fn test_with_registry_image_message_full_chain() {
     let mr = result.metadata.get("media_refs").unwrap();
     let refs: Vec<MediaRef> = serde_json::from_str(mr).unwrap();
     assert_eq!(refs[0].key, "img_k_99");
+    assert_eq!(refs[0].media_type, MediaType::Image);
 }
 
 /// WITH-registry: File message — message_type=File.
