@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 // MessageType
 // ---------------------------------------------------------------------------
 
-/// Normalized message type, matching the four variants defined in
+/// Normalized message type, matching the five variants defined in
 /// `docs/design/common/shared-types.md`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum MessageType {
@@ -26,6 +26,11 @@ pub enum MessageType {
     File,
     /// Audio message.
     Audio,
+    /// Rich-text post with inline media.
+    ///
+    /// The text body is expanded into `content` and inline media
+    /// references are placed into `media_refs`.
+    Post,
 }
 
 impl Serialize for MessageType {
@@ -38,6 +43,7 @@ impl Serialize for MessageType {
             MessageType::Image => serializer.serialize_str("image"),
             MessageType::File => serializer.serialize_str("file"),
             MessageType::Audio => serializer.serialize_str("audio"),
+            MessageType::Post => serializer.serialize_str("post"),
         }
     }
 }
@@ -59,6 +65,7 @@ impl From<&str> for MessageType {
             "image" => MessageType::Image,
             "file" => MessageType::File,
             "audio" => MessageType::Audio,
+            "post" => MessageType::Post,
             _ => MessageType::Text,
         }
     }
@@ -530,6 +537,77 @@ pub trait IMPlugin: Send + Sync {
                 .check_timeout()
         } else {
             StreamingOutput::default()
+        }
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_post_variant_from_str() {
+        assert_eq!(MessageType::from("post"), MessageType::Post);
+    }
+
+    #[test]
+    fn test_post_variant_from_str_is_not_text() {
+        let mt = MessageType::from("post");
+        assert_ne!(mt, MessageType::Text);
+    }
+
+    #[test]
+    fn test_post_variant_serialize() {
+        let json = serde_json::to_string(&MessageType::Post).unwrap();
+        assert_eq!(json, "\"post\"");
+    }
+
+    #[test]
+    fn test_post_variant_deserialize() {
+        let mt: MessageType = serde_json::from_str("\"post\"").unwrap();
+        assert_eq!(mt, MessageType::Post);
+    }
+
+    #[test]
+    fn test_post_variant_roundtrip() {
+        let original = MessageType::Post;
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: MessageType = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_all_variants_from_str() {
+        assert_eq!(MessageType::from("text"), MessageType::Text);
+        assert_eq!(MessageType::from("image"), MessageType::Image);
+        assert_eq!(MessageType::from("file"), MessageType::File);
+        assert_eq!(MessageType::from("audio"), MessageType::Audio);
+        assert_eq!(MessageType::from("post"), MessageType::Post);
+    }
+
+    #[test]
+    fn test_unknown_from_str_defaults_to_text() {
+        assert_eq!(MessageType::from("sticker"), MessageType::Text);
+        assert_eq!(MessageType::from(""), MessageType::Text);
+    }
+
+    #[test]
+    fn test_all_variants_serialize_roundtrip() {
+        let variants = [
+            MessageType::Text,
+            MessageType::Image,
+            MessageType::File,
+            MessageType::Audio,
+            MessageType::Post,
+        ];
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let restored: MessageType = serde_json::from_str(&json).unwrap();
+            assert_eq!(variant, restored, "roundtrip failed for {variant:?}");
         }
     }
 }

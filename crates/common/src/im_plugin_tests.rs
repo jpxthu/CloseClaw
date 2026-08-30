@@ -127,13 +127,6 @@ fn test_message_type_from_str_unknown_maps_to_text() {
         MessageType::Text,
         "unknown type 'sticker' should map to Text"
     );
-
-    let mt3: MessageType = "post".into();
-    assert_eq!(
-        mt3,
-        MessageType::Text,
-        "'post' (Feishu rich text) should map to Text"
-    );
 }
 
 /// Known strings map to their respective variants.
@@ -150,6 +143,9 @@ fn test_message_type_from_str_known_variants() {
 
     let mt_audio: MessageType = "audio".into();
     assert_eq!(mt_audio, MessageType::Audio);
+
+    let mt_post: MessageType = "post".into();
+    assert_eq!(mt_post, MessageType::Post);
 }
 
 #[test]

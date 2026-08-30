@@ -185,6 +185,28 @@ async fn test_process_audio_skips_normalization() {
 }
 
 #[tokio::test]
+async fn test_process_post_skips_normalization() {
+    let processor = ContentNormalizer::new();
+    let meta = sample_metadata();
+    let ctx = make_ctx_with_metadata_and_type("post content  ", meta, MessageType::Post);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // Content returned as-is, no trimming applied (Post is non-text)
+    assert_eq!(result.text_content(), Some("post content  "));
+    // Metadata preserved from input context
+    assert!(result.metadata.contains_key("session_key"));
+}
+
+#[tokio::test]
+async fn test_process_post_with_ansi_preserved() {
+    let processor = ContentNormalizer::new();
+    let msg = make_normalized_with_type("\x1b[31mRich\x1b[0m", MessageType::Post);
+    let ctx = MessageContext::from_normalized(msg);
+    let result = processor.process(&ctx).await.unwrap().unwrap();
+    // ANSI escape is NOT stripped for Post messages
+    assert_eq!(result.text_content(), Some("\x1b[31mRich\x1b[0m"));
+}
+
+#[tokio::test]
 async fn test_process_unknown_type_skips_normalization() {
     let processor = ContentNormalizer::new();
     let meta = sample_metadata();

@@ -746,3 +746,33 @@ async fn test_message_type_audio_injected() {
         "message_type metadata should be serialized MessageType::Audio"
     );
 }
+
+#[tokio::test]
+async fn test_message_type_post_injected() {
+    use closeclaw_common::im_plugin::MessageType;
+
+    let router = make_router();
+    let msg = NormalizedMessage {
+        platform: "feishu".to_string(),
+        sender_id: "ou_user".to_string(),
+        peer_id: "oc_chat".to_string(),
+        content: "rich post content".to_string(),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        message_type: MessageType::Post,
+        media_refs: Vec::new(),
+        thread_id: None,
+        account_id: String::new(),
+        ..Default::default()
+    };
+    let ctx = make_ctx(msg);
+    let result = router.process(&ctx).await.unwrap().unwrap();
+    let mt = result
+        .metadata
+        .get("message_type")
+        .map(|s| s.as_str())
+        .unwrap();
+    assert_eq!(
+        mt, "\"post\"",
+        "message_type metadata should be serialized MessageType::Post"
+    );
+}

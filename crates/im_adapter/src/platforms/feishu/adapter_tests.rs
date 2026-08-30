@@ -310,7 +310,7 @@ async fn test_parse_message_event_post_type() {
     let event = make_message_event("post", &content.to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "T\nbody");
-    assert_eq!(msg.message_type, MessageType::Text);
+    assert_eq!(msg.message_type, MessageType::Post);
     assert!(msg.media_refs.is_empty());
 }
 #[tokio::test]
@@ -641,7 +641,7 @@ async fn test_parse_inbound_post_type() {
     });
     let payload = make_webhook_payload("post", &content.to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, MessageType::Text);
+    assert_eq!(msg.message_type, MessageType::Post);
     assert_eq!(msg.content, "Post\nbody");
 }
 #[tokio::test]
