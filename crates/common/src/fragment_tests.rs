@@ -12,7 +12,7 @@ fn test_fragment_context_test_default() {
     let ctx = FragmentContext::test_default();
     assert_eq!(ctx.agent_id, "");
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
-    assert!(ctx.bootstrap_dir.is_dir());
+    assert!(std::path::Path::new(&ctx.bootstrap_dir).is_dir());
 }
 
 #[test]
@@ -36,13 +36,10 @@ fn test_fragment_context_bootstrap_mode() {
 #[test]
 fn test_fragment_context_workdir() {
     let ctx = FragmentContext {
-        bootstrap_dir: std::path::PathBuf::from("/tmp/workspace"),
+        bootstrap_dir: String::from("/tmp/workspace"),
         ..FragmentContext::test_default()
     };
-    assert_eq!(
-        ctx.bootstrap_dir,
-        std::path::PathBuf::from("/tmp/workspace")
-    );
+    assert_eq!(ctx.bootstrap_dir, String::from("/tmp/workspace"));
 }
 
 #[test]
@@ -50,14 +47,11 @@ fn test_fragment_context_all_fields() {
     let ctx = FragmentContext {
         agent_id: "my-agent".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
-        bootstrap_dir: std::path::PathBuf::from("/home/user/project"),
+        bootstrap_dir: String::from("/home/user/project"),
     };
     assert_eq!(ctx.agent_id, "my-agent");
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
-    assert_eq!(
-        ctx.bootstrap_dir,
-        std::path::PathBuf::from("/home/user/project")
-    );
+    assert_eq!(ctx.bootstrap_dir, String::from("/home/user/project"));
     // Verify struct has exactly 3 fields — adding or removing a field here
     // will cause a compile error, enforcing alignment with design doc.
     let FragmentContext {
@@ -72,7 +66,7 @@ fn test_fragment_context_clone() {
     let ctx = FragmentContext {
         agent_id: "clone-test".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
-        bootstrap_dir: std::path::PathBuf::from("/clone"),
+        bootstrap_dir: String::from("/clone"),
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
@@ -141,11 +135,7 @@ impl PromptFragmentProvider for MockFragmentProvider {
         Some(PromptFragment {
             section_title: format!("## Agent: {}", ctx.agent_id),
             section_type: SectionType::Bootstrap,
-            content: format!(
-                "mode={:?} dir={}",
-                ctx.bootstrap_mode,
-                ctx.bootstrap_dir.display()
-            ),
+            content: format!("mode={:?} dir={}", ctx.bootstrap_mode, ctx.bootstrap_dir),
         })
     }
 
@@ -167,7 +157,7 @@ async fn test_mock_provider_generates_with_valid_fields() {
     let ctx = FragmentContext {
         agent_id: "test-agent".into(),
         bootstrap_mode: BootstrapMode::Minimal,
-        bootstrap_dir: std::path::PathBuf::from("/workspace"),
+        bootstrap_dir: String::from("/workspace"),
     };
     let frag = provider.generate(&ctx).await.unwrap();
     assert_eq!(frag.section_type, SectionType::Bootstrap);
