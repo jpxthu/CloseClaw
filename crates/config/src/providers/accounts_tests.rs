@@ -380,6 +380,97 @@ fn make_binding(bot_app_id: &str, agent_id: &str) -> BotAgentBinding {
 }
 
 // ---------------------------------------------------------------------------
+// BotAgentBinding validation — via validator (Step 1.11)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_accounts_validator_pass_with_valid_bindings() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[{"platform":"feishu","senderId":"ou_a","accountId":"a1"}],
+            "bindings":[{"bot_app_id":"app1","agent_id":"eda"}]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+#[test]
+fn test_accounts_validator_pass_multiple_unique_bindings() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"},
+                {"bot_app_id":"app2","agent_id":"ghost"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+#[test]
+fn test_accounts_validator_fail_empty_bot_app_id_in_binding() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[{"bot_app_id":"","agent_id":"eda"}]
+        }"#,
+    )
+    .unwrap();
+    let err = validator(&v).unwrap_err();
+    assert!(err.contains("bot_app_id cannot be empty"), "error: {}", err);
+}
+
+#[test]
+fn test_accounts_validator_fail_empty_agent_id_in_binding() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[{"bot_app_id":"app1","agent_id":""}]
+        }"#,
+    )
+    .unwrap();
+    let err = validator(&v).unwrap_err();
+    assert!(err.contains("agent_id cannot be empty"), "error: {}", err);
+}
+
+#[test]
+fn test_accounts_validator_fail_duplicate_bot_app_id() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"},
+                {"bot_app_id":"app1","agent_id":"ghost"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let err = validator(&v).unwrap_err();
+    assert!(
+        err.contains("bot_app_id 'app1' is not unique"),
+        "error: {}",
+        err
+    );
+}
+
+#[test]
+fn test_accounts_validator_fail_bindings_not_array() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"accounts":[],"bindings":"invalid"}"#).unwrap();
+    let err = validator(&v).unwrap_err();
+    assert!(err.contains("must be a JSON array"), "error: {}", err);
+}
+
+// ---------------------------------------------------------------------------
 // BotAgentBinding — normal path
 // ---------------------------------------------------------------------------
 

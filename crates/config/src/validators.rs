@@ -655,6 +655,9 @@ pub fn validate_accounts(
         }
     }
 
+    // Validate bindings array
+    validate_account_bindings(value)?;
+
     Ok(())
 }
 
@@ -752,6 +755,52 @@ fn validate_account_channel_reference(
                 index,
                 platform,
                 defined.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate the `bindings` array in accounts config.
+///
+/// - `bindings`, if present, must be a JSON array.
+/// - Each binding must have non-empty `bot_app_id` and `agent_id`.
+/// - `bot_app_id` must be globally unique.
+fn validate_account_bindings(value: &serde_json::Value) -> Result<(), String> {
+    let bindings = match value.get("bindings") {
+        Some(arr) if arr.is_array() => arr.as_array().unwrap(),
+        Some(_) => {
+            return Err(format!(
+                "accounts.bindings must be a JSON array, got {}",
+                type_name(value.get("bindings").unwrap())
+            ));
+        }
+        None => return Ok(()),
+    };
+    let mut seen_bot_ids = std::collections::HashSet::new();
+    for (i, entry) in bindings.iter().enumerate() {
+        if !entry.is_object() {
+            return Err(format!("accounts.bindings[{}] must be a JSON object", i));
+        }
+        require_non_empty(
+            entry,
+            "bot_app_id",
+            &format!("accounts.bindings[{}].bot_app_id", i),
+        )?;
+        require_non_empty(
+            entry,
+            "agent_id",
+            &format!("accounts.bindings[{}].agent_id", i),
+        )?;
+        let bot_id = entry
+            .get("bot_app_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !seen_bot_ids.insert(bot_id.to_string()) {
+            return Err(format!(
+                "accounts.bindings[{}].bot_app_id '{}' is not unique; \
+                 each bot_app_id must map to exactly one agent_id",
+                i, bot_id
             ));
         }
     }
