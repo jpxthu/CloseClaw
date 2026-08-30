@@ -539,101 +539,172 @@ impl Daemon {
             tracing::info!("ConfigWatcher dropped in Phase 3");
         }
 
-        // Signal ArchiveSweeper to stop
+        // Signal all background tasks to stop
         let _ = self.sweeper_shutdown_tx.send(());
-        // Signal AnnounceSweeper to stop
         let _ = self.announce_shutdown_tx.send(());
-        // Signal DreamingScheduler to stop
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
-        // Signal PlanArchiveSweeper to stop
         let _ = self.plan_archive_shutdown_tx.send(());
 
-        // Wait for all background tasks to exit, aborting on timeout.
+        // Wait for all background tasks to exit, sending periodic
+        // heartbeats during the wait. Ref: design doc § "心跳在存在等待
+        // 的停止阶段生效" — Phase 3 后台任务停止.
         let join_timeout = std::time::Duration::from_secs(10);
         let abort_grace = std::time::Duration::from_secs(3);
         let mut heartbeat = ShutdownHeartbeat::new();
+        let mut task_results: Vec<(&str, TaskStopStatus)> = Vec::new();
 
         if let Some(handle) = self.archive_sweeper_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "ArchiveSweeper",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-            self.try_send_heartbeat(&mut heartbeat).await;
+            let status = self
+                .wait_for_background_task_with_heartbeat(
+                    handle,
+                    "ArchiveSweeper",
+                    join_timeout,
+                    abort_grace,
+                    &mut heartbeat,
+                )
+                .await;
+            task_results.push(("ArchiveSweeper", status));
         }
 
         if let Some(handle) = self.announce_sweeper_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "AnnounceSweeper",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-            self.try_send_heartbeat(&mut heartbeat).await;
+            let status = self
+                .wait_for_background_task_with_heartbeat(
+                    handle,
+                    "AnnounceSweeper",
+                    join_timeout,
+                    abort_grace,
+                    &mut heartbeat,
+                )
+                .await;
+            task_results.push(("AnnounceSweeper", status));
         }
 
         if let Some(handle) = self.dreaming_scheduler_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "DreamingScheduler",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-            self.try_send_heartbeat(&mut heartbeat).await;
+            let status = self
+                .wait_for_background_task_with_heartbeat(
+                    handle,
+                    "DreamingScheduler",
+                    join_timeout,
+                    abort_grace,
+                    &mut heartbeat,
+                )
+                .await;
+            task_results.push(("DreamingScheduler", status));
         }
 
         if let Some(handle) = self.plan_archive_sweeper_handle.take() {
-            Self::abort_and_join_background_task(
-                handle,
-                "PlanArchiveSweeper",
-                join_timeout,
-                abort_grace,
-            )
-            .await;
-            self.try_send_heartbeat(&mut heartbeat).await;
+            let status = self
+                .wait_for_background_task_with_heartbeat(
+                    handle,
+                    "PlanArchiveSweeper",
+                    join_timeout,
+                    abort_grace,
+                    &mut heartbeat,
+                )
+                .await;
+            task_results.push(("PlanArchiveSweeper", status));
+        }
+
+        // Phase 3 confirmation: summarize all task stop results.
+        // Ref: design doc § "停止确认" — "确认全部后台任务的同步停止流程
+        // 执行完毕、遗留项已按上表移交启动恢复或下次巡检后进入下一阶段".
+        let clean = task_results
+            .iter()
+            .filter(|(_, s)| matches!(s, TaskStopStatus::Clean))
+            .count();
+        let panicked = task_results
+            .iter()
+            .filter(|(_, s)| matches!(s, TaskStopStatus::Panicked))
+            .count();
+        let aborted = task_results
+            .iter()
+            .filter(|(_, s)| matches!(s, TaskStopStatus::Aborted))
+            .count();
+        info!(
+            clean,
+            panicked, aborted, "phase 3 background tasks stopped — confirmation"
+        );
+        for (name, status) in &task_results {
+            match status {
+                TaskStopStatus::Clean => {
+                    info!(task = %name, "stopped: clean exit");
+                }
+                TaskStopStatus::Panicked => {
+                    warn!(task = %name, "stopped: panicked");
+                }
+                TaskStopStatus::Aborted => {
+                    warn!(task = %name, "stopped: aborted (timeout)");
+                }
+            }
         }
 
         // Clear pending approval requests (denied with callbacks triggered)
         self.approval_flow.lock().await.clear();
     }
 
-    /// Wait for a background task to exit within `timeout`.
+    /// Wait for a background task to exit, sending periodic shutdown
+    /// heartbeats during the wait.
     ///
-    /// If the task does not exit in time, it is aborted and a short
-    /// `abort_grace` is given to confirm termination.  A final log is
-    /// emitted if the task is still alive after abort (theoretically
-    /// impossible, but logged defensively at error level).
-    async fn abort_and_join_background_task(
+    /// Uses `tokio::select!` with `ShutdownHeartbeat::next_deadline()`
+    /// to send heartbeat notifications every 30s while waiting for the
+    /// task to finish.  Ref: design doc § "心跳在存在等待的停止阶段
+    /// 生效" — Phase 3 后台任务停止.
+    async fn wait_for_background_task_with_heartbeat(
+        &self,
         mut handle: tokio::task::JoinHandle<()>,
         name: &str,
         timeout: std::time::Duration,
         abort_grace: std::time::Duration,
-    ) {
-        match tokio::time::timeout(timeout, &mut handle).await {
+        heartbeat: &mut ShutdownHeartbeat,
+    ) -> TaskStopStatus {
+        // Inner future: wait for the task with periodic heartbeats.
+        let wait_with_heartbeats = async {
+            loop {
+                tokio::select! {
+                    result = &mut handle => {
+                        return result;
+                    }
+                    _ = tokio::time::sleep_until(
+                        heartbeat.next_deadline(),
+                    ) => {
+                        self.try_send_heartbeat(heartbeat).await;
+                    }
+                }
+            }
+        };
+
+        // Outer timeout wraps the heartbeat loop.
+        match tokio::time::timeout(timeout, wait_with_heartbeats).await {
             Ok(Ok(())) => {
                 info!("{} exited cleanly", name);
+                heartbeat.record_event();
+                TaskStopStatus::Clean
             }
             Ok(Err(e)) => {
                 warn!(error = %e, "{} task panicked", name);
+                heartbeat.record_event();
+                TaskStopStatus::Panicked
             }
             Err(_) => {
-                warn!("{} did not exit within {:?}, aborting", name, timeout);
+                warn!("{} did not exit within {:?}, aborting", name, timeout,);
                 handle.abort();
                 match tokio::time::timeout(abort_grace, handle).await {
                     Ok(Ok(())) => {
                         info!("{} terminated after abort", name);
                     }
                     Ok(Err(_)) => {
-                        info!("{} task panicked on abort join — terminated", name);
+                        info!("{} task panicked on abort join — terminated", name,);
                     }
                     Err(_) => {
-                        error!("{} still alive after abort — possible resource leak", name);
+                        error!(
+                            "{} still alive after abort — \
+                             possible resource leak",
+                            name,
+                        );
                     }
                 }
+                heartbeat.record_event();
+                TaskStopStatus::Aborted
             }
         }
     }
@@ -705,6 +776,16 @@ impl Daemon {
         // Clean up chat socket file
         let _ = tokio::fs::remove_file(&self.chat_socket_path).await;
     }
+}
+
+/// Stop status of a background task.
+enum TaskStopStatus {
+    /// Task exited cleanly before the join timeout.
+    Clean,
+    /// Task panicked.
+    Panicked,
+    /// Task was aborted due to timeout.
+    Aborted,
 }
 
 // --- Config loading helpers ---
