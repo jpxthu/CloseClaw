@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -108,6 +109,16 @@ impl CredentialsProvider {
                 AnyProviderCredentials::ApiKey(c) => c.provider.clone(),
                 AnyProviderCredentials::Feishu(c) => c.provider.clone(),
             };
+
+            // Ensure credential file has restrictive permissions (owner-only read/write).
+            if let Err(e) = ensure_owner_only_permissions(&path) {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to set credential file permissions"
+                );
+            }
+
             provider.providers.insert(name, creds);
         }
         Ok(provider)
@@ -205,6 +216,24 @@ impl CredentialsProvider {
 
         Ok(())
     }
+}
+
+/// Ensure the credential file has owner-only permissions (0o600).
+///
+/// Returns Ok(()) if the permissions are already correct or were successfully
+/// updated. Returns Err with the OS error if the permission check or update
+/// fails.
+fn ensure_owner_only_permissions(path: &Path) -> Result<(), std::io::Error> {
+    const OWNER_ONLY: u32 = 0o600;
+
+    let metadata = fs::metadata(path)?;
+    let current_mode = metadata.permissions().mode() & 0o777;
+
+    if current_mode == OWNER_ONLY {
+        return Ok(());
+    }
+
+    fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY))
 }
 
 impl ConfigProvider for CredentialsProvider {
