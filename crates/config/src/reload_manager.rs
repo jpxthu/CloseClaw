@@ -16,6 +16,39 @@ use tracing::{debug, info, warn};
 
 use crate::events::ConfigChangeEvent;
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
+use crate::providers::{ConfigError, ConfigProvider, CredentialsProvider, ModelsConfigData};
+
+impl From<ConfigError> for ConfigLoadError {
+    fn from(e: ConfigError) -> Self {
+        let empty = std::path::PathBuf::new();
+        match e {
+            ConfigError::ParseError { path, error } => ConfigLoadError::ParseError { path, error },
+            ConfigError::ValidationError { path, message } => {
+                ConfigLoadError::ValidationError { path, message }
+            }
+            ConfigError::IoError(e) => ConfigLoadError::IoError {
+                path: empty,
+                error: e.to_string(),
+            },
+            ConfigError::JsonError(e) => ConfigLoadError::ParseError {
+                path: empty,
+                error: e.to_string(),
+            },
+            ConfigError::SchemaError(msg) => ConfigLoadError::ParseError {
+                path: empty,
+                error: msg,
+            },
+            ConfigError::ValueError { field, message } => ConfigLoadError::ValidationError {
+                path: empty,
+                message: format!("field '{}': {}", field, message),
+            },
+            ConfigError::MissingId { path } => ConfigLoadError::ParseError {
+                path: empty,
+                error: format!("missing id in {}", path),
+            },
+        }
+    }
+}
 
 /// Default debounce duration for file change events.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -87,9 +120,10 @@ impl WatcherHandle {
 
 /// Config hot-reload manager.
 ///
-/// Watches a set of config JSON files and the `agents/` directory.
-/// On change, dispatches to `ConfigManager::reload_section()` or the
-/// configured [`ReloadCallback`] with debounce protection.
+/// Watches a set of config JSON files, the `agents/` directory, and
+/// the `credentials/` directory. On change, dispatches to
+/// [`ConfigReloadManager::reload_section()`] or the configured
+/// [`ReloadCallback`] with debounce protection.
 pub struct ConfigReloadManager {
     config_manager: Arc<ConfigManager>,
     callback: Arc<dyn ReloadCallback>,
@@ -276,6 +310,148 @@ impl ConfigReloadManager {
         Ok(())
     }
 
+    /// Reload credentials from the credentials directory.
+    ///
+    /// Re-reads the entire `credentials/` directory (strict mode: first
+    /// invalid file aborts the entire load), merges in any `credential_path`
+    /// references from models.json, and stages the result for restart-class
+    /// effect (gateway restart required).
+    ///
+    /// On validation or parsing failure, the old in-memory value is retained,
+    /// an IM notification is sent via the callback, and a `Failed` event
+    /// is emitted. This ensures the design-doc "validation failure" path is
+    /// reachable during hot-reload (unlike the non-strict startup path where
+    /// invalid files are silently skipped).
+    pub fn reload_credentials(&self) -> Result<(), ConfigLoadError> {
+        let creds_dir = self
+            .config_manager
+            .config_dir()
+            .join(CredentialsProvider::config_path());
+
+        // Step 1+2: load from directory (strict) and merge credential_path
+        // references
+        let creds_provider = self.load_and_merge_credentials(&creds_dir)?;
+
+        // Step 3: stage for restart-class effect (gateway restart required)
+        let value = serde_json::to_value(&creds_provider).map_err(|e| {
+            ConfigLoadError::ValidationError {
+                path: creds_dir.clone(),
+                message: format!("failed to serialize credentials: {}", e),
+            }
+        })?;
+        self.config_manager
+            .stage_restart_value(ConfigSection::Credentials, creds_dir, value);
+        Ok(())
+    }
+
+    /// Load credentials from the `credentials/` directory and merge any
+    /// `credential_path` references found in `models.json`.
+    ///
+    /// Uses strict loading: the first parsing or validation failure in
+    /// `credentials/` aborts the entire load. `credential_path` references
+    /// that point to files with parse/validation errors also abort the load
+    /// (missing files are warned-only, matching the design-doc distinction
+    /// between "missing" and "invalid").
+    ///
+    /// Returns the merged [`CredentialsProvider`] on success. On I/O
+    /// failure the error is propagated after notifying via the callback.
+    fn load_and_merge_credentials(
+        &self,
+        creds_dir: &Path,
+    ) -> Result<CredentialsProvider, ConfigLoadError> {
+        // Re-read the entire credentials directory (strict mode)
+        let mut creds_provider = match CredentialsProvider::load_from_dir_strict(creds_dir) {
+            Ok(cp) => cp,
+            Err(e) => {
+                // No old value → block section per design doc semantics
+                if self
+                    .config_manager
+                    .get_section_value(ConfigSection::Credentials)
+                    .is_none()
+                {
+                    self.config_manager
+                        .block_section(ConfigSection::Credentials);
+                }
+                self.config_manager
+                    .notify_change(ConfigChangeEvent::Failed {
+                        section: ConfigSection::Credentials,
+                        path: creds_dir.to_path_buf(),
+                        error: e.to_string(),
+                    });
+                self.callback.on_validation_failed(
+                    ConfigSection::Credentials,
+                    creds_dir,
+                    &e.to_string(),
+                    &self.config_manager,
+                );
+                return Err(e.into());
+            }
+        };
+
+        // Merge credential_path references from models.json
+        self.merge_credential_path_references(&mut creds_provider)?;
+
+        Ok(creds_provider)
+    }
+
+    /// Merge credential_path references from models.json into the
+    /// loaded credentials provider.
+    ///
+    /// For each provider in models.json that has a `credentialPath`:
+    /// - Missing files are warned-only (design-doc: missing ≠ invalid)
+    /// - Existing files with parse/validation errors abort the entire load
+    fn merge_credential_path_references(
+        &self,
+        creds_provider: &mut CredentialsProvider,
+    ) -> Result<(), ConfigLoadError> {
+        let models_value = match self.config_manager.get_section_value(ConfigSection::Models) {
+            Some(v) => v,
+            None => return Ok(()),
+        };
+        let models_config = match serde_json::from_value::<ModelsConfigData>(models_value) {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
+        for (provider_id, provider_cfg) in &models_config.providers {
+            let rel_path = match provider_cfg.credential_path {
+                Some(ref p) => p,
+                None => continue,
+            };
+            let abs_path = self.config_manager.config_dir().join(rel_path);
+            if !abs_path.exists() {
+                warn!(
+                    provider = %provider_id,
+                    path = %abs_path.display(),
+                    "credential_path file missing for provider"
+                );
+                continue;
+            }
+            match CredentialsProvider::load_from_file_strict(&abs_path) {
+                Ok(extra) => {
+                    for (name, cred) in extra.providers {
+                        creds_provider.providers.insert(name, cred);
+                    }
+                }
+                Err(e) => {
+                    self.config_manager
+                        .notify_change(ConfigChangeEvent::Failed {
+                            section: ConfigSection::Credentials,
+                            path: abs_path.clone(),
+                            error: format!("credential_path '{}' failed to load: {}", rel_path, e),
+                        });
+                    self.callback.on_validation_failed(
+                        ConfigSection::Credentials,
+                        &abs_path,
+                        &format!("credential_path '{}' failed to load: {}", rel_path, e),
+                        &self.config_manager,
+                    );
+                    return Err(e.into());
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Start watching config files under `config_dir`.
     pub fn watch(&mut self, config_dir: &str) -> Result<WatcherHandle, crate::ConfigError> {
         let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
@@ -339,6 +515,7 @@ fn register_watched_paths(
         }
     }
     register_agents_watch(watcher, config_path)?;
+    register_credentials_watch(watcher, config_path)?;
     Ok(())
 }
 
@@ -360,6 +537,21 @@ fn register_agents_watch(
             .watch(agents_dir.as_ref(), RecursiveMode::Recursive)
             .map_err(|e| {
                 crate::ConfigError::SchemaError(format!("Failed to watch agents/: {}", e))
+            })?;
+    }
+    Ok(())
+}
+
+fn register_credentials_watch(
+    watcher: &mut RecommendedWatcher,
+    config_path: &Path,
+) -> Result<(), crate::ConfigError> {
+    let creds_dir = config_path.join("credentials");
+    if creds_dir.exists() {
+        watcher
+            .watch(creds_dir.as_ref(), RecursiveMode::Recursive)
+            .map_err(|e| {
+                crate::ConfigError::SchemaError(format!("Failed to watch credentials/: {}", e))
             })?;
     }
     Ok(())
@@ -446,6 +638,12 @@ pub fn is_agents_path(path: &Path) -> bool {
     s.contains("/agents/") || s.contains("\\agents\\")
 }
 
+/// Determine whether a path belongs to the credentials directory.
+pub fn is_credentials_path(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    s.contains("/credentials/") || s.contains("\\credentials\\")
+}
+
 /// Determine whether a path is a `permissions.json` file.
 pub fn is_permissions_path(path: &Path) -> bool {
     path.file_name()
@@ -473,19 +671,15 @@ pub fn filename_to_section(filename: &str) -> Option<ConfigSection> {
 
 /// Dispatch a single changed path to the appropriate reload method.
 pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
-    // permissions.json → lightweight permissions-only reload
-    if is_agents_path(path) && is_permissions_path(path) {
-        manager
-            .callback
-            .on_permissions_changed(path, &manager.config_manager);
+    // credentials/ directory → reload credentials and stage for restart
+    if is_credentials_path(path) {
+        dispatch_credentials_change(path, manager);
         return;
     }
 
-    // Agent-related changes → full agent reload + registry sync
+    // Agent-related changes (permissions, agents dir, agents.json)
     if is_agents_path(path) {
-        manager
-            .callback
-            .on_agents_changed(path, &manager.config_manager);
+        dispatch_agents_change(path, manager);
         return;
     }
 
@@ -494,44 +688,59 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
         None => return,
     };
 
-    // agents.json: standard section reload + agent directory reload
-    if filename == "agents.json" {
-        if let Some(section) = filename_to_section(filename) {
-            info!(
-                path = %path.display(),
-                section = %section,
-                "agents.json changed, reloading section"
-            );
-            if let Err(e) = manager.reload_section(section) {
-                warn!(error = %e, section = %section, "failed to reload agents section");
-            }
-            // Also trigger agent directory reload for the AgentDirectoryProvider.
-            manager
-                .callback
-                .on_agents_changed(path, &manager.config_manager);
-        }
-        return;
-    }
-
-    // Regular config section file
     if let Some(section) = filename_to_section(filename) {
+        let is_agents = filename == "agents.json";
         info!(
             path = %path.display(),
             section = %section,
-            "config file changed, reloading section"
+            "{} changed, reloading section",
+            if is_agents { "agents.json" } else { "config file" }
         );
         if let Err(e) = manager.reload_section(section) {
             warn!(error = %e, section = %section, "failed to reload config section");
+        }
+        if is_agents {
+            manager
+                .callback
+                .on_agents_changed(path, &manager.config_manager);
         } else if section == ConfigSection::Session {
             manager
                 .callback
                 .on_session_reloaded(&manager.config_manager);
         }
-        // Notify the callback about any config file change so it can
-        // detect restart-class changes (e.g. gateway, models).
         manager
             .callback
             .on_config_file_changed(path, section, &manager.config_manager);
+    }
+}
+
+/// Dispatch agent directory changes (permissions, agent directory files).
+fn dispatch_agents_change(path: &Path, manager: &ConfigReloadManager) {
+    // permissions.json → lightweight permissions-only reload
+    if is_permissions_path(path) {
+        manager
+            .callback
+            .on_permissions_changed(path, &manager.config_manager);
+        return;
+    }
+
+    // Other agent directory changes
+    manager
+        .callback
+        .on_agents_changed(path, &manager.config_manager);
+}
+
+/// Dispatch credentials directory changes to the credentials reload handler.
+fn dispatch_credentials_change(path: &Path, manager: &ConfigReloadManager) {
+    info!(
+        path = %path.display(),
+        "credentials file changed, triggering credentials reload"
+    );
+    if let Err(e) = manager.reload_credentials() {
+        warn!(
+            error = %e,
+            "failed to reload credentials"
+        );
     }
 }
 
@@ -561,3 +770,7 @@ mod tests;
 #[cfg(test)]
 #[path = "reload_staging_tests.rs"]
 mod reload_staging_tests;
+
+#[cfg(test)]
+#[path = "reload_credentials_tests.rs"]
+mod reload_credentials_tests;

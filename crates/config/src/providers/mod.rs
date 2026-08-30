@@ -54,4 +54,16 @@ pub enum ConfigError {
 
     #[error("Missing required agent id in {path}")]
     MissingId { path: String },
+
+    #[error("failed to parse credential file {path}: {error}")]
+    ParseError {
+        path: std::path::PathBuf,
+        error: String,
+    },
+
+    #[error("credential validation failed for {path}: {message}")]
+    ValidationError {
+        path: std::path::PathBuf,
+        message: String,
+    },
 }
