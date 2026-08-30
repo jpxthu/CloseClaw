@@ -512,8 +512,10 @@ impl Gateway {
         channel: &str,
         msg: &str,
     ) -> Option<HandleResult> {
-        if let Err(e) = self.send_outbound_simplified(peer_id, channel, msg).await {
-            tracing::warn!(error = %e, "failed to send rejection reply");
+        if !peer_id.is_empty() {
+            if let Err(e) = self.send_outbound_simplified(peer_id, channel, msg).await {
+                tracing::warn!(error = %e, "failed to send rejection reply");
+            }
         }
         None
     }
@@ -567,13 +569,16 @@ impl Gateway {
             .unwrap_or_default();
         if !matches!(message_type, MessageType::Text) {
             tracing::info!(message_type = ?message_type, "rejecting non-text message");
-            return self
-                .reject_with_reply(
+            // Non-text rejection sends directly via send_outbound_simplified
+            // without peer_id guard — matches original plugin.send() behavior.
+            let _ = self
+                .send_outbound_simplified(
                     peer_id,
                     channel,
                     "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",
                 )
                 .await;
+            return None;
         }
 
         // ── Extract content early for size check and downstream use ─
