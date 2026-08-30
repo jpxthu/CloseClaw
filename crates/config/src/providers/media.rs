@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::providers::ConfigError;
 use crate::ConfigProvider;
 
+/// Current config version for media configuration.
+pub const CURRENT_VERSION: &str = "1.0.0";
+
 /// Default storage directory for media files.
 const DEFAULT_STORAGE_DIR: &str = "~/.closeclaw/media";
 /// Default retention period in days (7 days).
@@ -48,7 +51,7 @@ pub struct MediaConfigData {
 }
 
 fn default_version() -> String {
-    "1.0.0".to_string()
+    CURRENT_VERSION.to_string()
 }
 
 fn default_storage_dir() -> String {
@@ -90,11 +93,11 @@ impl MediaConfigData {
 
 impl ConfigProvider for MediaConfigData {
     fn version(&self) -> &'static str {
-        "1.0.0"
+        CURRENT_VERSION
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
-        if self.storage_dir.is_empty() {
+        if self.storage_dir.trim().is_empty() {
             return Err(ConfigError::ValueError {
                 field: "storage_dir".to_string(),
                 message: "storage_dir must not be empty".to_string(),
@@ -147,6 +150,18 @@ mod tests {
     fn test_validate_empty_storage_dir() {
         let mut config = MediaConfigData::default();
         config.storage_dir = String::new();
+        let result = config.validate();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::ValueError { field, .. } => assert_eq!(field, "storage_dir"),
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_validate_whitespace_only_storage_dir() {
+        let mut config = MediaConfigData::default();
+        config.storage_dir = "   ".to_string();
         let result = config.validate();
         assert!(result.is_err());
         match result.unwrap_err() {
