@@ -7,7 +7,7 @@
 //! - MediaRef independent roundtrip
 //! - edge cases: empty media_refs
 
-use closeclaw_common::{MediaRef, MessageType, NormalizedMessage};
+use closeclaw_common::{MediaRef, MediaType, MessageType, NormalizedMessage};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,25 +95,31 @@ fn test_roundtrip_message_type_non_default() {
 fn test_media_ref_roundtrip() {
     let r = MediaRef {
         key: "img_v2_abc".into(),
-        url: "https://example.com/img.png".into(),
+        path: "/data/img.png".into(),
+        media_type: MediaType::Image,
+        size: 1024,
+        mime: "image/png".into(),
     };
     let json = serde_json::to_string(&r).unwrap();
     let back: MediaRef = serde_json::from_str(&json).unwrap();
     assert_eq!(back.key, r.key);
-    assert_eq!(back.url, r.url);
+    assert_eq!(back.path, r.path);
+    assert_eq!(back.media_type, r.media_type);
+    assert_eq!(back.size, r.size);
+    assert_eq!(back.mime, r.mime);
 }
 
 #[test]
 fn test_deserialize_media_refs_present() {
     let mut json = make_minimal_json();
     json["media_refs"] = serde_json::json!([
-        {"key": "k1", "url": "http://a.com/1"},
-        {"key": "k2", "url": "http://a.com/2"}
+        {"key": "k1", "path": "/a/1", "media_type": "image", "size": 100, "mime": "image/png"},
+        {"key": "k2", "path": "/a/2", "media_type": "file", "size": 200, "mime": "application/pdf"}
     ]);
     let msg: NormalizedMessage = serde_json::from_value(json).expect("deserialization failed");
     assert_eq!(msg.media_refs.len(), 2);
     assert_eq!(msg.media_refs[0].key, "k1");
-    assert_eq!(msg.media_refs[1].url, "http://a.com/2");
+    assert_eq!(msg.media_refs[1].path, "/a/2");
 }
 
 #[test]
@@ -128,11 +134,17 @@ fn test_roundtrip_message_with_media_refs() {
         media_refs: vec![
             MediaRef {
                 key: "k1".into(),
-                url: "http://a.com/1".into(),
+                path: "/d/1".into(),
+                media_type: MediaType::Image,
+                size: 100,
+                mime: "image/png".into(),
             },
             MediaRef {
                 key: "k2".into(),
-                url: "http://a.com/2".into(),
+                path: "/d/2".into(),
+                media_type: MediaType::File,
+                size: 200,
+                mime: "application/pdf".into(),
             },
         ],
         thread_id: None,
@@ -143,7 +155,7 @@ fn test_roundtrip_message_with_media_refs() {
     let back: NormalizedMessage = serde_json::from_str(&json).unwrap();
     assert_eq!(back.media_refs.len(), 2);
     assert_eq!(back.media_refs[0].key, "k1");
-    assert_eq!(back.media_refs[1].url, "http://a.com/2");
+    assert_eq!(back.media_refs[1].path, "/d/2");
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +173,10 @@ fn test_roundtrip_all_new_fields_populated() {
         message_type: MessageType::Image,
         media_refs: vec![MediaRef {
             key: "img_key_001".into(),
-            url: "https://cdn.feishu.cn/img.png".into(),
+            path: "/media/img.png".into(),
+            media_type: MediaType::Image,
+            size: 51200,
+            mime: "image/png".into(),
         }],
         thread_id: Some("omt_123".into()),
         account_id: "tenant_999".into(),
@@ -173,7 +188,10 @@ fn test_roundtrip_all_new_fields_populated() {
     assert_eq!(back.message_type, MessageType::Image);
     assert_eq!(back.media_refs.len(), 1);
     assert_eq!(back.media_refs[0].key, "img_key_001");
-    assert_eq!(back.media_refs[0].url, "https://cdn.feishu.cn/img.png");
+    assert_eq!(back.media_refs[0].path, "/media/img.png");
+    assert_eq!(back.media_refs[0].media_type, MediaType::Image);
+    assert_eq!(back.media_refs[0].size, 51200);
+    assert_eq!(back.media_refs[0].mime, "image/png");
     assert_eq!(back.thread_id.as_deref(), Some("omt_123"));
     assert_eq!(back.account_id, "tenant_999");
 }
@@ -235,7 +253,10 @@ fn test_normalized_message_clone() {
         message_type: MessageType::Image,
         media_refs: vec![MediaRef {
             key: "k".into(),
-            url: "u".into(),
+            path: "/p".into(),
+            media_type: MediaType::Image,
+            size: 0,
+            mime: "image/png".into(),
         }],
         thread_id: Some("t".into()),
         account_id: "a".into(),

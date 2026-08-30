@@ -1,6 +1,6 @@
 //! Unit tests for NormalizedMessage and related IM plugin types.
 
-use crate::im_plugin::{MediaRef, MessageType, NormalizedMessage};
+use crate::im_plugin::{MediaRef, MediaType, MessageType, NormalizedMessage};
 use serde_json;
 
 fn make_normalized(account_id: &str) -> NormalizedMessage {
@@ -66,7 +66,10 @@ fn test_normalized_roundtrip() {
     msg.message_type = MessageType::Image;
     msg.media_refs = vec![MediaRef {
         key: "file_abc".into(),
-        url: "https://example.com/file_abc".into(),
+        path: "/media/file_abc".into(),
+        media_type: MediaType::Image,
+        size: 0,
+        mime: "image/png".into(),
     }];
     msg.thread_id = Some("t_99".into());
 

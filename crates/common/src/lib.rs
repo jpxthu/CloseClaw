@@ -81,7 +81,7 @@ pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, Sect
 pub use hook_config::{HookConfig, HookParams, HookType};
 pub use identity::IdentityResolver;
 pub use im_plugin::{
-    AdapterError, CardActionEvent, IMPlugin, MediaRef, MessageType, NormalizedMessage,
+    AdapterError, CardActionEvent, IMPlugin, MediaRef, MediaType, MessageType, NormalizedMessage,
     RenderedOutput, StreamingOutput,
 };
 pub use llm_caller::LlmCaller;
