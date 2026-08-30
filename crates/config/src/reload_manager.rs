@@ -44,10 +44,16 @@ pub trait ReloadCallback: Send + Sync + 'static {
 
     /// Called after any config file change is processed.
     ///
-    /// The implementor can inspect the `path` to determine whether
+    /// The implementor can inspect the `section` to determine whether
     /// the change requires a restart-class action (e.g., gateway
     /// rebuild).  Default implementation is a no-op.
-    fn on_config_file_changed(&self, _path: &Path, _config_manager: &ConfigManager) {}
+    fn on_config_file_changed(
+        &self,
+        _path: &Path,
+        _section: ConfigSection,
+        _config_manager: &ConfigManager,
+    ) {
+    }
 
     /// Called when config validation or parsing fails.
     ///
@@ -496,7 +502,7 @@ pub fn dispatch_change(path: &Path, manager: &ConfigReloadManager) {
         // detect restart-class changes (e.g. gateway, models).
         manager
             .callback
-            .on_config_file_changed(path, &manager.config_manager);
+            .on_config_file_changed(path, section, &manager.config_manager);
     }
 }
 

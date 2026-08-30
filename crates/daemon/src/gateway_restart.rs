@@ -703,55 +703,8 @@ mod tests {
     }
 
     // -- DaemonReloadCallback restart-class classification -----------------
-
-    #[test]
-    fn restart_class_channels_json() {
-        assert!(DaemonReloadCallback::is_restart_class(Path::new(
-            "config/platforms/channels.json"
-        )));
-    }
-
-    #[test]
-    fn restart_class_gateway_json() {
-        assert!(DaemonReloadCallback::is_restart_class(Path::new(
-            "gateway.json"
-        )));
-    }
-
-    #[test]
-    fn restart_class_models_json() {
-        assert!(DaemonReloadCallback::is_restart_class(Path::new(
-            "models.json"
-        )));
-    }
-
-    #[test]
-    fn not_restart_class_agents_json() {
-        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
-            "config/agents.json"
-        )));
-    }
-
-    #[test]
-    fn not_restart_class_permissions_json() {
-        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
-            "agents/epsilon/permissions.json"
-        )));
-    }
-
-    #[test]
-    fn not_restart_class_session_json() {
-        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
-            "session.json"
-        )));
-    }
-
-    #[test]
-    fn not_restart_class_unknown_file() {
-        assert!(!DaemonReloadCallback::is_restart_class(Path::new(
-            "some_plugin.json"
-        )));
-    }
+    // is_restart_class is now unified on ConfigSection::is_restart_class()
+    // (tested in config crate: restart_staging_tests.rs).
 
     // -- DaemonReloadCallback restart signal delivery ----------------------
 
@@ -779,7 +732,11 @@ mod tests {
         let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
         let cm = make_test_config_manager();
 
-        cb.on_config_file_changed(Path::new("models.json"), &cm);
+        cb.on_config_file_changed(
+            Path::new("models.json"),
+            closeclaw_config::ConfigSection::Models,
+            &cm,
+        );
         let summary = rx.try_recv().unwrap();
         assert!(summary.contains("LLM Provider"), "summary: {summary}");
     }
@@ -791,7 +748,11 @@ mod tests {
         let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
         let cm = make_test_config_manager();
 
-        cb.on_config_file_changed(Path::new("agents.json"), &cm);
+        cb.on_config_file_changed(
+            Path::new("agents.json"),
+            closeclaw_config::ConfigSection::Session,
+            &cm,
+        );
         assert!(
             rx.try_recv().is_err(),
             "non-restart-class should not send restart signal"
@@ -804,7 +765,11 @@ mod tests {
         let cb = DaemonReloadCallback::new_for_test(ar);
         let cm = make_test_config_manager();
         // Should not panic even without a restart_tx
-        cb.on_config_file_changed(Path::new("models.json"), &cm);
+        cb.on_config_file_changed(
+            Path::new("models.json"),
+            closeclaw_config::ConfigSection::Models,
+            &cm,
+        );
     }
 
     // ── Step 1.3: Gateway restart rebuild UTs ──────────────────────────

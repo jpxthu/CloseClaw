@@ -55,20 +55,6 @@ impl DaemonReloadCallback {
         }
     }
 
-    /// Determine whether a config file change requires a gateway restart.
-    ///
-    /// Returns `true` for restart-class files:
-    /// - `channels.json` — IM Adapter configuration
-    /// - `gateway.json` — Gateway configuration
-    /// - `models.json` — LLM Provider configuration
-    pub(crate) fn is_restart_class(path: &Path) -> bool {
-        let filename = match path.file_name().and_then(|n| n.to_str()) {
-            Some(f) => f,
-            None => return false,
-        };
-        matches!(filename, "channels.json" | "gateway.json" | "models.json")
-    }
-
     /// Reload agent configs and sync the `AgentRegistry`.
     ///
     /// Snapshots before reload; on failure, restores the previous
@@ -154,8 +140,13 @@ impl ReloadCallback for DaemonReloadCallback {
         config_manager.reload_session_provider();
     }
 
-    fn on_config_file_changed(&self, path: &Path, _config_manager: &ConfigManager) {
-        if !Self::is_restart_class(path) {
+    fn on_config_file_changed(
+        &self,
+        path: &Path,
+        section: closeclaw_config::ConfigSection,
+        _config_manager: &ConfigManager,
+    ) {
+        if !section.is_restart_class() {
             return;
         }
         let summary = describe_restart_class(path);
@@ -199,18 +190,34 @@ impl ReloadCallback for DaemonReloadCallback {
                 "⚠️ Config reload failed for section `{}`: {}",
                 section, error
             );
+            // This method is called from a std::thread (config reload watcher)
+            // that has no tokio runtime context. Create a dedicated runtime
+            // to execute the async IM send without panicking.
             let gateway = std::sync::Arc::clone(gateway);
-            tokio::spawn(async move {
-                if let Err(e) = gateway
-                    .send_outbound_simplified(&chat_id, &channel, &msg)
-                    .await
-                {
+            match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => {
+                    rt.block_on(async move {
+                        if let Err(e) = gateway
+                            .send_outbound_simplified(&chat_id, &channel, &msg)
+                            .await
+                        {
+                            warn!(
+                                error = %e,
+                                "failed to send config validation failure IM notification"
+                            );
+                        }
+                    });
+                }
+                Err(e) => {
                     warn!(
                         error = %e,
-                        "failed to send config validation failure IM notification"
+                        "failed to create tokio runtime for IM notification"
                     );
                 }
-            });
+            }
         } else {
             warn!(
                 section = %section,
