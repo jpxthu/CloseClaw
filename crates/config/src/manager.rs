@@ -302,7 +302,11 @@ impl ConfigManager {
     }
 
     /// Get a reference to the shared backup manager.
-    /// Used by `ConfigReloadManager` to backup/rollback agent config files.
+    ///
+    /// This returns a shared reference because both `ConfigManager` (for
+    /// write-time backups during `update()`) and `ConfigReloadManager` (for
+    /// rollback of agent config files) need access to the same backup
+    /// directory and coordination logic.
     pub fn backup_manager(&self) -> &SafeBackupManager {
         &self.backup_manager
     }
@@ -318,7 +322,11 @@ impl ConfigManager {
     }
 
     /// Load all configuration sections from disk into memory.
-    /// Returns `Err` if a mandatory file is missing or config dir doesn't exist.
+    ///
+    /// Returns [`ConfigLoadError::ConfigDirNotFound`] if the config directory
+    /// does not exist, or [`ConfigLoadError::ConfigFileNotFound`] when a
+    /// mandatory configuration file is missing. Other errors may be returned
+    /// for I/O failures, parse errors, or validation failures during loading.
     pub fn load(&self) -> Result<(), ConfigLoadError> {
         if !self.config_dir.exists() {
             return Err(ConfigLoadError::ConfigDirNotFound(self.config_dir.clone()));
@@ -605,7 +613,10 @@ impl ConfigManager {
     }
 
     /// Update a configuration section.
+    ///
     /// Flow: validate → backup → atomic write → update in-memory cache.
+    /// If the backup step fails (e.g. the current file cannot be backed up),
+    /// the update is aborted and no changes are written to disk.
     pub fn update(
         &self,
         section: ConfigSection,
