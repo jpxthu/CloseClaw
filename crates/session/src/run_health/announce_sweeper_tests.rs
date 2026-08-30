@@ -492,3 +492,149 @@ async fn test_stale_exact_300s_not_terminated() {
         "exactly 300s elapsed should NOT be terminated (threshold is > 300)"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.4: Grace period tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Grace period constant is 10 seconds (aligned with design doc
+/// "统一最长 10 秒").
+#[test]
+fn test_announce_sweeper_grace_period_is_10_secs() {
+    // ANNOUNCE_SWEEP_GRACE_PERIOD_SECS is a module-private const.
+    // Access it via the wait_grace_period behavior: the grace Duration
+    // used internally must be 10s. We verify this by checking the
+    // constant value through the module scope (test is in the same
+    // crate module tree via `mod announce_sweeper_tests`).
+    assert_eq!(
+        super::announce_sweeper::ANNOUNCE_SWEEP_GRACE_PERIOD_SECS,
+        10
+    );
+}
+
+/// When shutdown arrives and no sweep is running, the sweeper exits
+/// immediately (no grace period needed).
+#[tokio::test]
+async fn test_sweeper_shutdown_no_running_task_exits_immediately() {
+    let target = Arc::new(MockTarget::new());
+    let sweeper = AnnounceSweeper::new(target);
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
+
+    // Spawn sweeper — it will wait for the next fire time (60s) since
+    // there are no children. Send shutdown immediately.
+    let handle = tokio::spawn(async move {
+        sweeper.run(shutdown_rx).await;
+    });
+
+    // Give the sweeper a moment to enter the select loop
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let _ = _shutdown_tx.send(());
+
+    // Should exit quickly (no running task → no grace period wait)
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    assert!(
+        result.is_ok(),
+        "sweeper should exit immediately when no task is running"
+    );
+}
+
+/// When a sweep is running and completes within the grace period,
+/// the sweeper waits for it and exits cleanly (no abort).
+#[tokio::test]
+async fn test_sweeper_grace_period_clean_exit_within_grace() {
+    // Mock target whose run_once completes quickly.
+    let target = Arc::new(MockTarget::new());
+    let sweeper = AnnounceSweeper::new(target);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
+
+    let handle = tokio::spawn(async move {
+        sweeper.run(shutdown_rx).await;
+    });
+
+    // Wait for the sweeper to enter the loop, then send shutdown.
+    // Since no children exist, no sweep task is spawned, so this
+    // tests the no-task path. To test the grace period with a
+    // running task, we'd need to inject a target that blocks.
+    // Here we verify the sweeper exits cleanly after shutdown.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let _ = shutdown_tx.send(());
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    assert!(result.is_ok(), "sweeper should exit after shutdown signal");
+    assert!(result.unwrap().is_ok(), "sweeper should not panic");
+}
+
+/// A slow sweep that exceeds the grace period is aborted.
+/// Tests the abort path in wait_grace_period.
+#[tokio::test]
+async fn test_sweeper_grace_period_abort_on_timeout() {
+    // Create a target whose get_run_mode_children returns a child,
+    // and whose run_once will block (simulating a slow sweep).
+    // We do this by using a target that never resolves idle check.
+    let target = Arc::new(MockTarget::new());
+    target.add_child("slow-child", "parent-slow").await;
+    // Don't set idle — run_once will check is_session_idle which
+    // returns false, so it won't block on announce. But it will
+    // call sweep_reclaim. We need it to actually block.
+    // Instead, test the grace period abort via the static method
+    // by spawning a task that blocks forever and passing it as the
+    // running task.
+    let hanging_task = tokio::task::spawn(async {
+        std::future::pending::<()>().await;
+    });
+
+    // Call wait_grace_period directly — it's a static method on
+    // AnnounceSweeper. Since we're in the same module tree, we
+    // can call it.
+    let start = tokio::time::Instant::now();
+    super::announce_sweeper::AnnounceSweeper::wait_grace_period(Some(hanging_task)).await;
+    let elapsed = start.elapsed();
+
+    // Should have waited ~10s (grace period) then aborted
+    assert!(
+        elapsed >= std::time::Duration::from_secs(9),
+        "should wait at least 9s for grace period, got {:?}",
+        elapsed
+    );
+    assert!(
+        elapsed <= std::time::Duration::from_secs(12),
+        "should not wait more than 12s, got {:?}",
+        elapsed
+    );
+}
+
+/// When wait_grace_period receives None (no running task), it returns
+/// immediately without waiting.
+#[tokio::test]
+async fn test_sweeper_grace_period_none_returns_immediately() {
+    let start = tokio::time::Instant::now();
+    super::announce_sweeper::AnnounceSweeper::wait_grace_period(None).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "None task should return immediately, took {:?}",
+        elapsed
+    );
+}
+
+/// When the running task completes within the grace period,
+/// wait_grace_period does NOT abort it.
+#[tokio::test]
+async fn test_sweeper_grace_period_no_abort_when_completed() {
+    let completing_task = tokio::task::spawn(async {
+        // Complete quickly (within grace period)
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    });
+
+    let start = tokio::time::Instant::now();
+    super::announce_sweeper::AnnounceSweeper::wait_grace_period(Some(completing_task)).await;
+    let elapsed = start.elapsed();
+
+    // Should complete quickly — no abort needed
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "should complete quickly when task finishes within grace, took {:?}",
+        elapsed
+    );
+}

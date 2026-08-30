@@ -16,7 +16,7 @@ const DEFAULT_ARCHIVE_INTERVAL_SECS: u64 = 3600;
 
 /// Grace period (seconds) to wait for a running archive sweep to finish
 /// before aborting on shutdown.
-const ARCHIVE_GRACE_PERIOD_SECS: u64 = 10;
+pub(crate) const ARCHIVE_GRACE_PERIOD_SECS: u64 = 10;
 
 /// Background task that periodically archives completed plan files.
 pub struct PlanArchiveTask {
@@ -185,7 +185,7 @@ impl PlanArchiveTask {
     }
 
     /// Wait up to [`ARCHIVE_GRACE_PERIOD_SECS`] for a running sweep to finish.
-    async fn wait_grace_period(task: Option<tokio::task::JoinHandle<()>>) {
+    pub(crate) async fn wait_grace_period(task: Option<tokio::task::JoinHandle<()>>) {
         let Some(mut task) = task else {
             return;
         };

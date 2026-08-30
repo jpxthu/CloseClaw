@@ -30,7 +30,7 @@ const ANNOUNCE_SWEEP_INTERVAL_SECS: u64 = 60;
 
 /// Grace period (in seconds) to wait for a running sweep to finish
 /// before forcibly aborting it on shutdown.
-const ANNOUNCE_SWEEP_GRACE_PERIOD_SECS: u64 = 10;
+pub(crate) const ANNOUNCE_SWEEP_GRACE_PERIOD_SECS: u64 = 10;
 
 /// Threshold in seconds: a non-idle child session with no new output
 /// for longer than this is considered stale (僵死).
@@ -159,7 +159,7 @@ impl AnnounceSweeper {
 
     /// Wait up to [`ANNOUNCE_SWEEP_GRACE_PERIOD_SECS`] for a running
     /// sweep to finish, then abort it if it does not complete in time.
-    async fn wait_grace_period(task: Option<tokio::task::JoinHandle<()>>) {
+    pub(crate) async fn wait_grace_period(task: Option<tokio::task::JoinHandle<()>>) {
         let Some(mut task) = task else {
             return;
         };

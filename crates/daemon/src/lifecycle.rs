@@ -779,7 +779,7 @@ impl Daemon {
 }
 
 /// Stop status of a background task.
-enum TaskStopStatus {
+pub(crate) enum TaskStopStatus {
     /// Task exited cleanly before the join timeout.
     Clean,
     /// Task panicked.

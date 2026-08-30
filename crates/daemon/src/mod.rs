@@ -937,6 +937,8 @@ mod lifecycle_abort_tests;
 #[cfg(test)]
 mod lifecycle_assembly_tests;
 #[cfg(test)]
+mod lifecycle_phase3_heartbeat_tests;
+#[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod session_config_provider_tests;
