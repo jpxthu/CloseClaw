@@ -30,7 +30,7 @@ const ANNOUNCE_SWEEP_INTERVAL_SECS: u64 = 60;
 
 /// Grace period (in seconds) to wait for a running sweep to finish
 /// before forcibly aborting it on shutdown.
-const ANNOUNCE_SWEEP_GRACE_PERIOD_SECS: u64 = 5;
+const ANNOUNCE_SWEEP_GRACE_PERIOD_SECS: u64 = 10;
 
 /// Threshold in seconds: a non-idle child session with no new output
 /// for longer than this is considered stale (僵死).
