@@ -27,6 +27,9 @@ pub struct DaemonReloadCallback {
     /// validation failures. `None` in unit tests where Gateway
     /// construction is not practical.
     gateway: Option<std::sync::Arc<Gateway>>,
+    /// Tokio runtime handle for spawning async IM notification tasks.
+    /// Reused across calls to avoid creating a new runtime each time.
+    runtime_handle: tokio::runtime::Handle,
 }
 
 impl DaemonReloadCallback {
@@ -39,6 +42,7 @@ impl DaemonReloadCallback {
             agent_registry,
             daemon_restart_tx: None,
             gateway: Some(gateway),
+            runtime_handle: tokio::runtime::Handle::current(),
         }
     }
 
@@ -52,6 +56,7 @@ impl DaemonReloadCallback {
             agent_registry,
             daemon_restart_tx: Some(daemon_restart_tx),
             gateway: Some(gateway),
+            runtime_handle: tokio::runtime::Handle::current(),
         }
     }
 
@@ -190,34 +195,20 @@ impl ReloadCallback for DaemonReloadCallback {
                 "⚠️ Config reload failed for section `{}`: {}",
                 section, error
             );
-            // This method is called from a std::thread (config reload watcher)
-            // that has no tokio runtime context. Create a dedicated runtime
-            // to execute the async IM send without panicking.
+            // Spawn async IM notification on the reused runtime handle.
+            // This avoids creating a new tokio runtime on every call.
             let gateway = std::sync::Arc::clone(gateway);
-            match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => {
-                    rt.block_on(async move {
-                        if let Err(e) = gateway
-                            .send_outbound_simplified(&chat_id, &channel, &msg)
-                            .await
-                        {
-                            warn!(
-                                error = %e,
-                                "failed to send config validation failure IM notification"
-                            );
-                        }
-                    });
-                }
-                Err(e) => {
+            self.runtime_handle.spawn(async move {
+                if let Err(e) = gateway
+                    .send_outbound_simplified(&chat_id, &channel, &msg)
+                    .await
+                {
                     warn!(
                         error = %e,
-                        "failed to create tokio runtime for IM notification"
+                        "failed to send config validation failure IM notification"
                     );
                 }
-            }
+            });
         } else {
             warn!(
                 section = %section,
@@ -286,6 +277,7 @@ impl DaemonReloadCallback {
             agent_registry,
             daemon_restart_tx: None,
             gateway: None,
+            runtime_handle: test_runtime_handle(),
         }
     }
 
@@ -297,6 +289,32 @@ impl DaemonReloadCallback {
             agent_registry,
             daemon_restart_tx: Some(daemon_restart_tx),
             gateway: None,
+            runtime_handle: test_runtime_handle(),
+        }
+    }
+}
+
+/// Return a tokio runtime handle for unit tests.
+///
+/// Tries `Handle::current()` first (works inside `#[tokio::test]`).
+/// Falls back to creating a small multi-threaded runtime so tests
+/// that run outside a tokio context still get a valid handle.
+/// In production `on_validation_failed` the gateway is always `None`,
+/// so the handle is never actually used — this just satisfies the
+/// type requirement.
+#[cfg(test)]
+fn test_runtime_handle() -> tokio::runtime::Handle {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle,
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .expect("failed to create test tokio runtime");
+            // Leak the runtime so the handle remains valid.
+            // This is fine for unit tests.
+            Box::leak(Box::new(rt)).handle().clone()
         }
     }
 }
