@@ -574,10 +574,13 @@ fn test_default_validator_system_passes_valid_json() {
 }
 
 #[test]
-fn test_default_validator_credentials_always_passes() {
-    let v: serde_json::Value = serde_json::from_str(r#"null"#).unwrap();
+fn test_default_validator_credentials_pass_and_reject() {
+    let valid: serde_json::Value =
+        serde_json::from_str(r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
+    let invalid: serde_json::Value = serde_json::from_str(r#"null"#).unwrap();
     let validator = ConfigSection::Credentials.default_validator();
-    assert!(validator(&v).is_ok());
+    assert!(validator(&valid).is_ok());
+    assert!(validator(&invalid).is_err());
 }
 
 #[test]
@@ -607,13 +610,6 @@ fn test_for_section_returns_correct_validator() {
             section
         );
     }
-}
-
-#[test]
-fn test_for_section_credentials_always_passes() {
-    let v: serde_json::Value = serde_json::from_str(r#""anything""#).unwrap();
-    let validator = for_section(ConfigSection::Credentials);
-    assert!(validator(&v).is_ok());
 }
 
 // ---------------------------------------------------------------------------

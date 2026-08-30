@@ -17,11 +17,28 @@ use crate::ConfigProvider;
 // Data structures
 // ---------------------------------------------------------------------------
 
+/// Bot-to-Agent binding entry.
+///
+/// Maps a bot application ID (`bot_app_id`) on an IM platform to a
+/// local agent ID. Used by `AccountsConfigProvider` to route incoming
+/// messages from a specific bot application to the correct agent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BotAgentBinding {
+    /// Bot application ID on the IM platform.
+    pub bot_app_id: String,
+    /// Local agent identifier that the bot is bound to.
+    pub agent_id: String,
+}
+
 /// Root accounts configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AccountsConfigData {
     #[serde(default)]
     pub accounts: Vec<IdentityMapping>,
+
+    /// Bot-to-Agent bindings: maps `bot_app_id` to `agent_id`.
+    #[serde(default)]
+    pub bindings: Vec<BotAgentBinding>,
 }
 
 impl AccountsConfigData {
@@ -48,6 +65,11 @@ impl AccountsConfigData {
             .iter()
             .filter(|a| a.platform == platform)
             .collect()
+    }
+
+    /// Look up a bot-to-Agent binding by bot application ID.
+    pub fn get_binding(&self, bot_app_id: &str) -> Option<&BotAgentBinding> {
+        self.bindings.iter().find(|b| b.bot_app_id == bot_app_id)
     }
 }
 
@@ -116,7 +138,7 @@ impl ConfigProvider for AccountsConfigData {
     }
 
     fn is_default(&self) -> bool {
-        self.accounts.is_empty()
+        self.accounts.is_empty() && self.bindings.is_empty()
     }
 }
 

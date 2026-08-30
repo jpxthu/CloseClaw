@@ -10,6 +10,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::providers::system::{AuditLogConfig, PlanArchiveConfig};
 use crate::providers::ConfigError;
 use closeclaw_common::AgentRole;
 use closeclaw_common::CompactConfig;
@@ -87,6 +88,12 @@ pub struct SessionConfig {
     /// Compaction configuration (optional, falls back to CompactConfig::default())
     #[serde(default)]
     pub compact: Option<CompactConfig>,
+    /// Plan archive configuration (migrated from system.json)
+    #[serde(default)]
+    pub plan_archive: Option<PlanArchiveConfig>,
+    /// Audit log configuration (migrated from system.json)
+    #[serde(default)]
+    pub audit_log: Option<AuditLogConfig>,
 }
 
 fn default_sweeper_interval() -> u64 {
@@ -110,6 +117,8 @@ impl Default for SessionConfig {
             dreaming_interval_secs: DEFAULT_DREAMING_INTERVAL_SECS,
             consistency_check_interval_secs: DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS,
             compact: None,
+            plan_archive: Some(PlanArchiveConfig::default()),
+            audit_log: Some(AuditLogConfig::default()),
         }
     }
 }
@@ -133,6 +142,12 @@ pub trait SessionConfigProvider: Send + Sync {
 
     /// Get compaction configuration
     fn compact_config(&self) -> CompactConfig;
+
+    /// Get plan archive configuration
+    fn plan_archive_config(&self) -> PlanArchiveConfig;
+
+    /// Get audit log configuration
+    fn audit_log_config(&self) -> AuditLogConfig;
 }
 
 /// JSON-based session configuration provider
@@ -225,6 +240,12 @@ impl JsonSessionConfigProvider {
                     }
                 }
             }
+
+            // Validate plan_archive
+            // threshold_days is u64, always non-negative by type
+
+            // Validate audit_log
+            // max_entries is Option<usize>, always non-negative by type
         }
 
         Ok(())
@@ -285,6 +306,20 @@ impl SessionConfigProvider for JsonSessionConfigProvider {
         self.config
             .as_ref()
             .and_then(|c| c.compact.clone())
+            .unwrap_or_default()
+    }
+
+    fn plan_archive_config(&self) -> PlanArchiveConfig {
+        self.config
+            .as_ref()
+            .and_then(|c| c.plan_archive.clone())
+            .unwrap_or_default()
+    }
+
+    fn audit_log_config(&self) -> AuditLogConfig {
+        self.config
+            .as_ref()
+            .and_then(|c| c.audit_log.clone())
             .unwrap_or_default()
     }
 }

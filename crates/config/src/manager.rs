@@ -208,7 +208,10 @@ impl ConfigSection {
     pub fn is_restart_class(&self) -> bool {
         matches!(
             self,
-            ConfigSection::Models | ConfigSection::Channels | ConfigSection::Gateway
+            ConfigSection::Models
+                | ConfigSection::Channels
+                | ConfigSection::Gateway
+                | ConfigSection::Credentials
         )
     }
 }

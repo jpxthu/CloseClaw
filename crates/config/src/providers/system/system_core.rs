@@ -368,10 +368,6 @@ pub struct SystemConfigData {
     pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub rejection_log: Option<RejectionLogConfig>,
-    #[serde(default)]
-    pub audit_log: Option<AuditLogConfig>,
-    #[serde(default)]
-    pub plan_archive: Option<PlanArchiveConfig>,
 }
 
 impl SystemConfigData {
@@ -449,13 +445,5 @@ impl ConfigProvider for SystemConfigData {
                 .rejection_log
                 .as_ref()
                 .is_none_or(|r| r == &RejectionLogConfig::default())
-            && self
-                .audit_log
-                .as_ref()
-                .is_none_or(|a| a == &AuditLogConfig::default())
-            && self
-                .plan_archive
-                .as_ref()
-                .is_none_or(|p| p == &PlanArchiveConfig::default())
     }
 }

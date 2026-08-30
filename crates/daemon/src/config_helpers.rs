@@ -4,6 +4,7 @@
 //! 1000-line CONTRIBUTING.md limit.
 
 use super::Daemon;
+use closeclaw_config::session::SessionConfig;
 use closeclaw_config::SystemConfigData;
 use closeclaw_permission::engine::audit_log::{AuditLogger, FileAuditLogger};
 use closeclaw_permission::engine::rejection_log::FileRejectionLogger;
@@ -103,16 +104,26 @@ impl Daemon {
 // ── Audit logger construction ───────────────────────────────────────
 
 impl Daemon {
-    /// Read `audit_log` config from `system.json` and create a
+    /// Read `audit_log` config from `session.json` and create a
     /// [`FileAuditLogger`] if configured.
     pub(crate) fn create_audit_logger(config_dir: &str) -> Option<Arc<dyn AuditLogger>> {
-        let system_path = std::path::Path::new(config_dir).join("system.json");
-        if !system_path.exists() {
+        let session_path = std::path::Path::new(config_dir).join("session.json");
+        if !session_path.exists() {
             return None;
         }
-        match SystemConfigData::from_file(&system_path) {
-            Ok(sys_cfg) => {
-                if let Some(audit_cfg) = sys_cfg.audit_log {
+        let content = match std::fs::read_to_string(&session_path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    "session.json not readable — skipping audit log config"
+                );
+                return None;
+            }
+        };
+        match serde_json::from_str::<SessionConfig>(&content) {
+            Ok(session_cfg) => {
+                if let Some(audit_cfg) = session_cfg.audit_log {
                     let log_path = std::path::Path::new(config_dir)
                         .join("logs")
                         .join("audit.log");
@@ -140,8 +151,7 @@ impl Daemon {
             Err(e) => {
                 tracing::debug!(
                     error = %e,
-                    "system.json not found or invalid — skipping \
-                     audit log config"
+                    "session.json invalid — skipping audit log config"
                 );
                 None
             }

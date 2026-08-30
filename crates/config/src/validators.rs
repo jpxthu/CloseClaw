@@ -54,9 +54,8 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Gateway => Box::new(validate_gateway),
         ConfigSection::Plugins => Box::new(validate_plugins),
         ConfigSection::System => Box::new(validate_system),
-        // Credentials is a directory, not a JSON section — no validator needed.
         ConfigSection::Session => Box::new(validate_session),
-        ConfigSection::Credentials => Box::new(|_| Ok(())),
+        ConfigSection::Credentials => Box::new(validate_credentials),
         ConfigSection::Accounts => Box::new(|v| validate_accounts(v, None)),
         ConfigSection::Memory => Box::new(validate_memory),
         ConfigSection::Skills => Box::new(validate_skills),
@@ -569,6 +568,26 @@ fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     }
     validate_non_negative_field(value, "idleMinutes")?;
     validate_non_negative_field(value, "purgeAfterMinutes")?;
+    // planArchive: if present, must be an object; thresholdDays must be non-negative
+    if let Some(plan_archive) = value.get("planArchive") {
+        if !plan_archive.is_object() {
+            return Err(format!(
+                "session.planArchive must be a JSON object, got {}",
+                type_name(plan_archive)
+            ));
+        }
+        validate_non_negative_field(plan_archive, "thresholdDays")?;
+    }
+    // auditLog: if present, must be an object; maxEntries must be non-negative
+    if let Some(audit_log) = value.get("auditLog") {
+        if !audit_log.is_object() {
+            return Err(format!(
+                "session.auditLog must be a JSON object, got {}",
+                type_name(audit_log)
+            ));
+        }
+        validate_non_negative_field(audit_log, "maxEntries")?;
+    }
     Ok(())
 }
 
@@ -635,6 +654,9 @@ pub fn validate_accounts(
             validate_account_channel_reference(entry, i, &configured_channels)?;
         }
     }
+
+    // Validate bindings array
+    validate_account_bindings(value)?;
 
     Ok(())
 }
@@ -739,6 +761,52 @@ fn validate_account_channel_reference(
     Ok(())
 }
 
+/// Validate the `bindings` array in accounts config.
+///
+/// - `bindings`, if present, must be a JSON array.
+/// - Each binding must have non-empty `bot_app_id` and `agent_id`.
+/// - `bot_app_id` must be globally unique.
+fn validate_account_bindings(value: &serde_json::Value) -> Result<(), String> {
+    let bindings = match value.get("bindings") {
+        Some(arr) if arr.is_array() => arr.as_array().unwrap(),
+        Some(_) => {
+            return Err(format!(
+                "accounts.bindings must be a JSON array, got {}",
+                type_name(value.get("bindings").unwrap())
+            ));
+        }
+        None => return Ok(()),
+    };
+    let mut seen_bot_ids = std::collections::HashSet::new();
+    for (i, entry) in bindings.iter().enumerate() {
+        if !entry.is_object() {
+            return Err(format!("accounts.bindings[{}] must be a JSON object", i));
+        }
+        require_non_empty(
+            entry,
+            "bot_app_id",
+            &format!("accounts.bindings[{}].bot_app_id", i),
+        )?;
+        require_non_empty(
+            entry,
+            "agent_id",
+            &format!("accounts.bindings[{}].agent_id", i),
+        )?;
+        let bot_id = entry
+            .get("bot_app_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !seen_bot_ids.insert(bot_id.to_string()) {
+            return Err(format!(
+                "accounts.bindings[{}].bot_app_id '{}' is not unique; \
+                 each bot_app_id must map to exactly one agent_id",
+                i, bot_id
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Validate that a numeric field, if present, is non-negative.
 fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result<(), String> {
     if let Some(v) = value.get(field) {
@@ -757,6 +825,44 @@ fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Validate a single **credentials** file.
+///
+/// Each credential file contains a single credential object.
+/// - `provider` must be a non-empty string.
+/// - `apiKey`, if present, must be a non-empty string.
+/// - `appId`, if present, must be a non-empty string (Feishu variant).
+/// - `appSecret`, if present, must be a non-empty string (Feishu variant).
+pub fn validate_credentials(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "credentials")?;
+    require_non_empty(value, "provider", "credentials.provider")?;
+    validate_optional_non_empty_string(value, "apiKey", "credentials.apiKey")?;
+    validate_optional_non_empty_string(value, "appId", "credentials.appId")?;
+    validate_optional_non_empty_string(value, "appSecret", "credentials.appSecret")?;
+    Ok(())
+}
+
+/// Validate that an optional string field, if present, is non-empty.
+///
+/// - If absent or null: OK (optional field).
+/// - If present and a string: must be non-empty.
+/// - If present but not a string: error.
+fn validate_optional_non_empty_string(
+    value: &serde_json::Value,
+    field: &str,
+    path: &str,
+) -> Result<(), String> {
+    if let Some(v) = value.get(field) {
+        match v {
+            serde_json::Value::String(s) if s.is_empty() => Err(format!("{path} cannot be empty")),
+            serde_json::Value::String(_) => Ok(()),
+            serde_json::Value::Null => Ok(()),
+            _ => Err(format!("{path} must be a string")),
+        }
+    } else {
+        Ok(())
+    }
+}
 
 /// Validate the **media** config section.
 ///
@@ -782,6 +888,7 @@ fn validate_memory(value: &serde_json::Value) -> Result<(), String> {
 ///
 /// - Top-level must be a JSON object.
 /// - `extraDirs`, if present, must be a JSON array of strings.
+/// - Each path must be non-empty and must not contain null bytes.
 /// - Empty/absent `extraDirs` is valid (uses defaults).
 fn validate_skills(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "skills")?;
@@ -789,12 +896,22 @@ fn validate_skills(value: &serde_json::Value) -> Result<(), String> {
         ensure_array(extra_dirs, "skills.extraDirs")?;
         if let Some(arr) = extra_dirs.as_array() {
             for (i, item) in arr.iter().enumerate() {
-                if !item.is_string() {
-                    return Err(format!(
-                        "skills.extraDirs[{}] must be a string, got {}",
-                        i,
-                        type_name(item)
-                    ));
+                match item {
+                    serde_json::Value::String(s) => {
+                        if s.is_empty() {
+                            return Err(format!("skills.extraDirs[{}] cannot be an empty path", i));
+                        }
+                        if s.contains('\0') {
+                            return Err(format!("skills.extraDirs[{}] contains a null byte", i));
+                        }
+                    }
+                    _ => {
+                        return Err(format!(
+                            "skills.extraDirs[{}] must be a string, got {}",
+                            i,
+                            type_name(item)
+                        ));
+                    }
                 }
             }
         }
@@ -871,3 +988,7 @@ mod tests;
 #[cfg(test)]
 #[path = "validators_cron_tests.rs"]
 mod validators_cron_tests;
+
+#[cfg(test)]
+#[path = "validators_session_archive_audit_tests.rs"]
+mod validators_session_archive_audit_tests;
