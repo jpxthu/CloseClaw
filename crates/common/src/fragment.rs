@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use async_trait::async_trait;
 
 use crate::bootstrap::BootstrapMode;
@@ -14,7 +12,7 @@ pub struct FragmentContext {
     pub bootstrap_mode: BootstrapMode,
     /// Directory containing bootstrap files, used by [`BootstrapFragmentProvider`]
     /// to locate bootstrap files.
-    pub bootstrap_dir: PathBuf,
+    pub bootstrap_dir: String,
 }
 
 impl FragmentContext {
@@ -30,7 +28,7 @@ impl FragmentContext {
         Self {
             agent_id: String::new(),
             bootstrap_mode: BootstrapMode::Full,
-            bootstrap_dir: std::env::temp_dir(),
+            bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
         }
     }
 }
