@@ -227,7 +227,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 ### 下游
 
 - **System Prompt Builder**：注入链路依赖此模块完成 bootstrap、工具列表的组装。
-- **LLM Client（UnifiedChatClient）**：ConversationSession 构建 API 请求发送给 LLM Client，经内部链路（CacheAdapter → Plugin → Protocol → Provider）完成调用；stop 时通过 cancel token 取消进行中的请求。
+- **LLM 调用器（LlmCaller）**：ConversationSession 构建 API 请求经 LlmCaller 抽象发出，由 Daemon 启动时接线注入（桥接 LLM Registry 的统一客户端，见 [daemon/README.md](../daemon/README.md)）；stop 时通过 cancel token 取消进行中的请求。接口契约见 [common/core-traits.md](../common/core-traits.md#llmcaller)。
 - **ToolRegistry**：通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) trait 向 ToolRegistry 注册 sessions 分组工具（sessions_spawn / sessions_steer / sessions_kill）；注入时获取工具列表（ToolsSection）。技能清单的基础部分由 System Prompt 模块在组装时注入 SkillsSection，Session 仅在条件激活时负责 per-turn 增量消息注入（详见 [session-injection.md](session-injection.md)）。
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
@@ -239,7 +239,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 
 ### 共享类型 / 核心 trait
 
-- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery；消费：PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink）
+- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery；消费：PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
 
 ### 无关
 

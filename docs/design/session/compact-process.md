@@ -123,7 +123,7 @@ LLM 摘要步骤不修改 system prompt 内容。Compaction 结束后，SessionM
   - **LLM 模块（模型发现）**：提供模型上下文窗口大小等推荐参数，用于阈值判断。
 
 - **下游**：
-  - **LLM Client**：被调用来执行实际的对话摘要生成。
+  - **LlmCaller**：被调用来执行实际的对话摘要生成。
   - **Checkpoint Manager**：压缩完成后触发 checkpoint 保存，持久化压缩后的 transcript（system prompt 的静态层（角色定义、工具与 Skill 清单）为运行时字段，不进入 SessionCheckpoint（system_appends 追加区除外——追加区独立于 compaction 且持久化在 checkpoint 中））。
   - **Session Injection**：压缩完成后通知 SessionManager，由 SessionManager 触发注入流程重建 system prompt（间接下游，详见 [session-injection.md](session-injection.md)）。
 
