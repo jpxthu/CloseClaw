@@ -10,7 +10,7 @@ pub mod models;
 pub mod plugins;
 pub mod skills;
 pub mod system;
-pub use accounts::AccountsConfigData;
+pub use accounts::{AccountsConfigData, BotAgentBinding};
 pub use channels::ChannelsConfigData;
 pub use credentials::CredentialsProvider;
 pub use gateway::GatewayConfigData;
@@ -19,7 +19,7 @@ pub use memory::MemoryConfigData;
 pub use models::ModelsConfigData;
 pub use plugins::PluginsConfigData;
 pub use skills::{SkillsConfig, SkillsConfigData};
-pub use system::{PlanArchiveConfig, RejectionLogConfig, SystemConfigData};
+pub use system::{AuditLogConfig, PlanArchiveConfig, RejectionLogConfig, SystemConfigData};
 
 /// Configuration provider trait for extensible config management
 pub trait ConfigProvider {

@@ -26,6 +26,7 @@ fn test_is_restart_class_true_for_restart_sections() {
     assert!(ConfigSection::Models.is_restart_class());
     assert!(ConfigSection::Channels.is_restart_class());
     assert!(ConfigSection::Gateway.is_restart_class());
+    assert!(ConfigSection::Credentials.is_restart_class());
 }
 
 #[test]
@@ -33,7 +34,6 @@ fn test_is_restart_class_false_for_non_restart_sections() {
     assert!(!ConfigSection::Plugins.is_restart_class());
     assert!(!ConfigSection::System.is_restart_class());
     assert!(!ConfigSection::Session.is_restart_class());
-    assert!(!ConfigSection::Credentials.is_restart_class());
     assert!(!ConfigSection::Accounts.is_restart_class());
     assert!(!ConfigSection::Memory.is_restart_class());
     assert!(!ConfigSection::Skills.is_restart_class());

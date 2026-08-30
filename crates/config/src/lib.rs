@@ -35,12 +35,16 @@ pub use manager::{
 pub use agents::{AgentDirectoryProvider, AgentsConfig, AgentsConfigProvider};
 pub use migration::{migrate_if_needed, ConfigMigrationError};
 pub use providers::{
-    AccountsConfigData, ChannelsConfigData, ConfigError, ConfigProvider, CredentialsProvider,
-    GatewayConfigData, MediaConfigData, ModelsConfigData, PlanArchiveConfig, RejectionLogConfig,
-    SkillsConfigData, SystemConfigData,
+    AccountsConfigData, AuditLogConfig, BotAgentBinding, ChannelsConfigData, ConfigError,
+    ConfigProvider, CredentialsProvider, GatewayConfigData, MediaConfigData, ModelsConfigData,
+    PlanArchiveConfig, RejectionLogConfig, SkillsConfigData, SystemConfigData,
 };
 pub use reload_manager::{ConfigReloadManager, ReloadCallback, WatcherHandle};
 pub use session::{
     IdentifierFormat, JsonSessionConfigProvider, PerAgentSessionConfig, PlanConfig, SessionConfig,
     SessionConfigProvider,
 };
+
+#[cfg(test)]
+#[path = "step_1_8_tests.rs"]
+mod step_1_8_tests;
