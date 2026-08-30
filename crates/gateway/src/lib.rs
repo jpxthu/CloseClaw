@@ -512,10 +512,8 @@ impl Gateway {
         channel: &str,
         msg: &str,
     ) -> Option<HandleResult> {
-        if !peer_id.is_empty() {
-            if let Err(e) = self.send_outbound_simplified(peer_id, channel, msg).await {
-                tracing::warn!(error = %e, "failed to send rejection reply");
-            }
+        if let Err(e) = self.send_outbound_simplified(peer_id, channel, msg).await {
+            tracing::warn!(error = %e, "failed to send rejection reply");
         }
         None
     }
