@@ -123,9 +123,9 @@
     "path": "docs/design/daemon/README.md",
     "commit": "8966f63a1b443a4cba19f1ab11bd904a5ad67485",
     "commit_time": "2026-08-29T06:19:24+08:00",
-    "confirmed_time": "2026-08-29T06:31:49.703138+08:00",
+    "confirmed_time": "2026-08-31T02:35:06.830407+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "启动依赖表 SpawnController 行内部矛盾：依赖列(ConfigManager,AgentRegistry,PermissionEngine)按文档自身『层由声明自动推导』规则应为层3，层列却标为层4，无自洽解读；另文档分层执行模型(逐层推进)与代码 init_phase 函数分组跨层/乱序(层3 ApprovalFlow 晚于层5 Gateway 创建)存在结构性不一致"
   },
   {
     "path": "docs/design/daemon/shutdown.md",
