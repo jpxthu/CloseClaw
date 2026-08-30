@@ -721,9 +721,10 @@ impl FeishuAdapter {
             .unwrap_or("")
             .to_string();
         let media_type = MediaType::from(message_type);
+        let path = key.clone();
         MediaRef {
-            key: key.clone(),
-            path: key,
+            key,
+            path,
             media_type,
             size: 0,
             mime: String::new(),
