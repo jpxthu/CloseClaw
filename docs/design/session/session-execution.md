@@ -256,7 +256,7 @@ Graceful 模式（Daemon 首次 SIGTERM）：
 
 ### 下游
 
-- **LLM Client**：停止时通过取消机制终止进行中的请求
+- **LLM 调用器（LlmCaller）**：停止时通过取消机制终止进行中的请求
 - **工具进程管理**（Session 内部）：停止时遍历并终止当前 session 持有的所有工具进程（前台+后台），进程句柄由 Session 自行管理
 - **Spawn 协调**：子 session 完成时通过消息队列注入结果
 

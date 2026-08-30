@@ -100,7 +100,7 @@ LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发�
 
 LLM 模块以 LLM Client（UnifiedChatClient）为统一入口，对外暴露对话调用能力。模型发现通过独立的旁路子系统（model-discovery）消费 Provider 能力，不走 LLM Client 主链路。
 
-- **上游**：Session 层（通过 LLM Client 发起对话请求、消费统一响应）、system_prompt 模块（为缓存适配器提供静态区和动态区内容）、CLI 配置命令（触发 Provider 配置向导）
+- **上游**：Session 层（经 LlmCaller 抽象发起对话请求、消费统一响应——LlmCaller 由 Daemon 接线、桥接本模块的 UnifiedChatClient，见 [daemon/README.md](../daemon/README.md)）、system_prompt 模块（为缓存适配器提供静态区和动态区内容）、CLI 配置命令（触发 Provider 配置向导）
 - **下游**：各供应商 API（HTTP 调用）、文件系统（凭据文件读写、模型列表缓存）
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（消费：ShutdownSignal；产出共享类型 [StreamEvent](../common/shared-types.md#streamevent)/[ContentDelta](../common/shared-types.md#contentdelta)、[UnifiedResponse](../common/shared-types.md#unifiedresponse--unifiedusage)，映射规则见 protocol-mapping）
 - **无关**：processor_chain（消息处理链，在 Rendering Layer 内部；LLM 模块不直接与之交互，而是通过 Session 层间接传递响应内容）、agent/subagent 调度层（通过 Session 间接调用 LLM，不直接依赖 Provider/Protocol 细节）
