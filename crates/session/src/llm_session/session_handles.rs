@@ -170,11 +170,27 @@ impl ConversationSession {
         session: std::sync::Weak<RwLock<ConversationSession>>,
     ) {
         let id = child_id.into();
+
+        // ── Shutdown gate: reject new child session creation ──────────
+        if let Some(sh) = self.get_shutdown_handle() {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    child_id = %id,
+                    "rejecting child session creation: daemon is shutting down"
+                );
+                return;
+            }
+        }
         let mut map = self
             .child_handles
             .write()
             .expect("child_handles lock poisoned");
         map.insert(id, session);
+
+        // Increment busy count for drain tracking while child runs.
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.increment_busy();
+        }
     }
 
     /// Remove a previously-registered child-session handle.
@@ -188,6 +204,11 @@ impl ConversationSession {
                 child_id = %child_id,
                 "unregister_child_handle: child_id not registered"
             );
+        }
+
+        // Decrement busy count for drain tracking when child exits.
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.decrement_busy();
         }
     }
 
