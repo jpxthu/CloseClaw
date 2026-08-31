@@ -48,10 +48,12 @@ async fn check_and_execute<F>(
 where
     F: std::future::Future<Output = Result<ToolResult, ToolCallError>>,
 {
-    if let Some(r) = permission_check::check_tool_permission(deps, ctx, "file_ops", "call").await? {
+    if let Some(r) =
+        permission_check::check_tool_permission(deps, ctx, "file_ops", "call", None).await?
+    {
         return Ok(r);
     }
-    if let Some(r) = permission_check::check_file_op_permission(deps, ctx, path, op).await? {
+    if let Some(r) = permission_check::check_file_op_permission(deps, ctx, path, op, None).await? {
         return Ok(r);
     }
     if op == "write" && permission_check::is_config_file(deps.2.as_ref(), path) {
