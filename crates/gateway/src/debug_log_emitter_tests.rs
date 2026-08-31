@@ -1,10 +1,11 @@
-//! Unit tests for `debug_log_emitter` (Step 1.2).
+//! Unit tests for `debug_log_emitter` (Step 1.2 + 1.5 refactor).
 //!
 //! Covers:
-//! 1. emit_debug_child_event: child span's parent_span_id matches parent's span_id
-//! 2. emit_debug_event: root span has empty parent_span_id (backward compat)
-//! 3. emit_debug_child_event: None debug_log is no-op
-//! 4. emit_debug_child_event: empty trace_id still emits (parent provides trace_id)
+//! 1. emit_debug_event with parent: child span's parent_span_id matches parent's span_id
+//! 2. emit_debug_event without parent: root span has empty parent_span_id (backward compat)
+//! 3. emit_debug_event: None debug_log is no-op
+//! 4. emit_debug_event: empty trace_id is no-op
+//! 5. Chained child spans: grandchild's parent_span_id matches child's span_id
 
 use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel, TraceContext};
 use tempfile::TempDir;
@@ -53,7 +54,7 @@ async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-/// emit_debug_child_event creates a child span whose parent_span_id
+/// emit_debug_event with parent creates a child span whose parent_span_id
 /// matches the parent's span_id.
 #[tokio::test]
 async fn test_child_event_parent_span_id_matches() {
@@ -63,15 +64,16 @@ async fn test_child_event_parent_span_id_matches() {
     let parent = TraceContext::new_root("trace-child-test".to_string());
     let parent_span_id = parent.span_id.clone();
 
-    crate::debug_log_emitter::emit_debug_child_event(
-        Some(&debug_log),
-        &parent,
-        Some("sess-child-1"),
-        LogLevel::Info,
-        "gateway",
-        "llm.call.start",
-        serde_json::json!({"model": "gpt-4o"}),
-    );
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: Some(&debug_log),
+        trace_id: "trace-child-test",
+        session_key: Some("sess-child-1"),
+        level: LogLevel::Info,
+        source_module: "gateway",
+        event_type: "llm.call.start",
+        payload: serde_json::json!({"model": "gpt-4o"}),
+        parent: Some(&parent),
+    });
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     let child_events: Vec<_> = events
@@ -89,23 +91,23 @@ async fn test_child_event_parent_span_id_matches() {
     assert_eq!(evt.payload["model"].as_str().unwrap(), "gpt-4o");
 }
 
-/// emit_debug_event creates a root span with empty parent_span_id
-/// (backward compatibility).
+/// emit_debug_event without parent creates a root span with empty
+/// parent_span_id (backward compatibility).
 #[tokio::test]
 async fn test_root_event_empty_parent_span_id() {
     let temp_dir = TempDir::new().unwrap();
     let debug_log = make_debug_log(&temp_dir).await;
 
-    crate::debug_log_emitter::emit_debug_event(
-        Some(&debug_log),
-        "trace-root-test",
-        Some("sess-root-1"),
-        LogLevel::Info,
-        "gateway",
-        "message.arrived",
-        serde_json::json!({"channel": "feishu"}),
-        None,
-    );
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: Some(&debug_log),
+        trace_id: "trace-root-test",
+        session_key: Some("sess-root-1"),
+        level: LogLevel::Info,
+        source_module: "gateway",
+        event_type: "message.arrived",
+        payload: serde_json::json!({"channel": "feishu"}),
+        parent: None,
+    });
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     let root_events: Vec<_> = events
@@ -122,24 +124,44 @@ async fn test_root_event_empty_parent_span_id() {
     assert!(!evt.span_id.is_empty(), "root span must have a span_id");
 }
 
-/// emit_debug_child_event with None debug_log is a no-op (no panic).
+/// emit_debug_event with None debug_log is a no-op (no panic).
 #[tokio::test]
-async fn test_child_event_none_debug_log_no_op() {
-    let parent = TraceContext::new_root("trace-noop".to_string());
-    crate::debug_log_emitter::emit_debug_child_event(
-        None,
-        &parent,
-        Some("sess-noop"),
-        LogLevel::Info,
-        "gateway",
-        "llm.call.start",
-        serde_json::json!({}),
-    );
+async fn test_event_none_debug_log_no_op() {
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: None,
+        trace_id: "trace-noop",
+        session_key: Some("sess-noop"),
+        level: LogLevel::Info,
+        source_module: "gateway",
+        event_type: "llm.call.start",
+        payload: serde_json::json!({}),
+        parent: None,
+    });
     // No panic = success.
 }
 
-/// emit_debug_child_event uses parent's trace_id even if called with
-/// minimal info (no session_key).
+/// emit_debug_event with empty trace_id is a no-op (no panic).
+#[tokio::test]
+async fn test_event_empty_trace_id_no_op() {
+    let temp_dir = TempDir::new().unwrap();
+    let debug_log = make_debug_log(&temp_dir).await;
+
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: Some(&debug_log),
+        trace_id: "",
+        session_key: Some("sess-empty"),
+        level: LogLevel::Info,
+        source_module: "gateway",
+        event_type: "test.event",
+        payload: serde_json::json!({}),
+        parent: None,
+    });
+
+    let events = read_events_with_timeout(temp_dir.path()).await;
+    assert!(events.is_empty(), "empty trace_id should produce no events");
+}
+
+/// emit_debug_event with parent uses parent's trace_id.
 #[tokio::test]
 async fn test_child_event_inherits_parent_trace_id() {
     let temp_dir = TempDir::new().unwrap();
@@ -147,15 +169,16 @@ async fn test_child_event_inherits_parent_trace_id() {
 
     let parent = TraceContext::new_root("trace-inherit".to_string());
 
-    crate::debug_log_emitter::emit_debug_child_event(
-        Some(&debug_log),
-        &parent,
-        None,
-        LogLevel::Trace,
-        "tools",
-        "tool.execute",
-        serde_json::json!({"tool": "web_search"}),
-    );
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: Some(&debug_log),
+        trace_id: "trace-inherit",
+        session_key: None,
+        level: LogLevel::Trace,
+        source_module: "tools",
+        event_type: "tool.execute",
+        payload: serde_json::json!({"tool": "web_search"}),
+        parent: Some(&parent),
+    });
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     let tool_events: Vec<_> = events
@@ -179,15 +202,16 @@ async fn test_chained_child_spans() {
     let child = root.child();
     let child_span_id = child.span_id.clone();
 
-    crate::debug_log_emitter::emit_debug_child_event(
-        Some(&debug_log),
-        &child,
-        Some("sess-chain"),
-        LogLevel::Info,
-        "gateway",
-        "tool.execute",
-        serde_json::json!({"depth": 2}),
-    );
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: Some(&debug_log),
+        trace_id: "trace-chain",
+        session_key: Some("sess-chain"),
+        level: LogLevel::Info,
+        source_module: "gateway",
+        event_type: "tool.execute",
+        payload: serde_json::json!({"depth": 2}),
+        parent: Some(&child),
+    });
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     let tool_events: Vec<_> = events

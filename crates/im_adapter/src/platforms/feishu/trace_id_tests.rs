@@ -87,7 +87,7 @@ fn make_plugin() -> FeishuPlugin {
 #[test]
 fn test_generate_trace_id_format() {
     let plugin = make_plugin();
-    let trace_id = plugin.generate_trace_id();
+    let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     assert_eq!(
         parts.len(),
@@ -101,7 +101,7 @@ fn test_generate_trace_id_format() {
 #[test]
 fn test_generate_trace_id_timestamp_is_hex() {
     let plugin = make_plugin();
-    let trace_id = plugin.generate_trace_id();
+    let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     let timestamp_hex = parts[1];
     assert!(
@@ -114,7 +114,7 @@ fn test_generate_trace_id_timestamp_is_hex() {
 #[test]
 fn test_generate_trace_id_uuid_length() {
     let plugin = make_plugin();
-    let trace_id = plugin.generate_trace_id();
+    let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     let uuid_part = parts[2];
     assert_eq!(
@@ -132,7 +132,7 @@ fn test_generate_trace_id_uuid_length() {
 #[test]
 fn test_generate_trace_id_timestamp_reasonable() {
     let plugin = make_plugin();
-    let trace_id = plugin.generate_trace_id();
+    let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     let timestamp_ms = u64::from_str_radix(parts[1], 16).unwrap();
     // Should be after 2020-01-01 (1577836800000 ms) and before 2100-01-01
@@ -150,7 +150,7 @@ fn test_generate_trace_id_timestamp_reasonable() {
 #[test]
 fn test_generate_trace_id_unique() {
     let plugin = make_plugin();
-    let id1 = plugin.generate_trace_id();
-    let id2 = plugin.generate_trace_id();
+    let id1 = plugin.generate_trace_id("feishu");
+    let id2 = plugin.generate_trace_id("feishu");
     assert_ne!(id1, id2, "two consecutive trace_ids must differ");
 }

@@ -345,16 +345,16 @@ impl FeishuPlugin {
 
     /// Generate a trace_id in the format `{platform}_{timestamp_hex}_{uuid_v4}`.
     ///
-    /// - Platform identifier: `feishu`
+    /// - Platform identifier: passed as `platform` parameter
     /// - Timestamp: Unix epoch milliseconds in hex
     /// - Random component: UUID v4 with hyphens removed
     ///
     /// This format allows operators to identify the source platform and approximate
     /// arrival time from the trace_id alone.
-    pub(crate) fn generate_trace_id(&self) -> String {
+    pub(crate) fn generate_trace_id(&self, platform: &str) -> String {
         let timestamp_hex = format!("{:x}", Utc::now().timestamp_millis());
         let uuid_no_hyphens = uuid::Uuid::new_v4().simple().to_string();
-        format!("feishu_{timestamp_hex}_{uuid_no_hyphens}")
+        format!("{platform}_{timestamp_hex}_{uuid_no_hyphens}")
     }
 
     /// Emit a structured debug_log event asynchronously.
@@ -479,7 +479,7 @@ impl IMPlugin for FeishuPlugin {
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, CommonAdapterError> {
         // Generate trace_id at webhook arrival for cross-chain correlation.
-        let trace_id = self.generate_trace_id();
+        let trace_id = self.generate_trace_id(self.platform());
 
         let start = Instant::now();
         let mut msg = self

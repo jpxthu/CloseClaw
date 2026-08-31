@@ -445,19 +445,19 @@ impl Gateway {
     /// Emit a `queue.replayed` debug event for a successfully replayed entry.
     fn emit_replayed_event(&self, trace_id: &str, platform: &str, peer_id: &str) {
         let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-        debug_log_emitter::emit_debug_event(
-            guard.as_ref(),
+        debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
+            debug_log: guard.as_ref(),
             trace_id,
-            None,
-            closeclaw_debug_log::LogLevel::Info,
-            "gateway",
-            "queue.replayed",
-            serde_json::json!({
+            session_key: None,
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "gateway",
+            event_type: "queue.replayed",
+            payload: serde_json::json!({
                 "platform": platform,
                 "peer_id": peer_id,
             }),
-            None, // root event
-        );
+            parent: None,
+        });
     }
 
     /// Enqueue an inbound request into the bounded queue.
@@ -549,20 +549,20 @@ impl Gateway {
         if let Some(trace_id) = processed.metadata.get("trace_id") {
             let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
             let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-            debug_log_emitter::emit_debug_event(
-                guard.as_ref(),
+            debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
+                debug_log: guard.as_ref(),
                 trace_id,
-                processed.metadata.get("session_key").map(|s| s.as_str()),
-                LogLevel::Info,
-                "gateway",
-                "message.arrived",
-                serde_json::json!({
+                session_key: processed.metadata.get("session_key").map(|s| s.as_str()),
+                level: LogLevel::Info,
+                source_module: "gateway",
+                event_type: "message.arrived",
+                payload: serde_json::json!({
                     "sender_id": sender_id.unwrap_or(""),
                     "peer_id": peer_id,
                     "channel": channel,
                 }),
-                parent.as_ref(),
-            );
+                parent: parent.as_ref(),
+            });
         }
 
         // ── Non-text message interception (before session resolution) ─
@@ -632,19 +632,19 @@ impl Gateway {
                 if let Some(tid) = trace_id {
                     let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
                     let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                    debug_log_emitter::emit_debug_event(
-                        guard.as_ref(),
-                        tid,
-                        processed.metadata.get("session_key").map(|s| s.as_str()),
-                        LogLevel::Info,
-                        "gateway",
-                        "session.resolved",
-                        serde_json::json!({
+                    debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
+                        debug_log: guard.as_ref(),
+                        trace_id: tid,
+                        session_key: processed.metadata.get("session_key").map(|s| s.as_str()),
+                        level: LogLevel::Info,
+                        source_module: "gateway",
+                        event_type: "session.resolved",
+                        payload: serde_json::json!({
                             "session_id": id,
                             "channel": channel,
                         }),
-                        parent.as_ref(),
-                    );
+                        parent: parent.as_ref(),
+                    });
                 }
                 id
             }
@@ -733,20 +733,20 @@ impl Gateway {
         if let Some(tid) = trace_id {
             let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
             let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-            debug_log_emitter::emit_debug_event(
-                guard.as_ref(),
-                tid,
-                processed.metadata.get("session_key").map(|s| s.as_str()),
-                LogLevel::Info,
-                "gateway",
-                "route.decision",
-                serde_json::json!({
+            debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
+                debug_log: guard.as_ref(),
+                trace_id: tid,
+                session_key: processed.metadata.get("session_key").map(|s| s.as_str()),
+                level: LogLevel::Info,
+                source_module: "gateway",
+                event_type: "route.decision",
+                payload: serde_json::json!({
                     "session_id": session_id,
                     "decision": if is_slash { "slash" } else { "normal" },
                     "content_prefix": content.chars().take(16).collect::<String>(),
                 }),
-                parent.as_ref(),
-            );
+                parent: parent.as_ref(),
+            });
         }
         if is_slash {
             // ── Slash command dispatch ─────────────────────────────────────

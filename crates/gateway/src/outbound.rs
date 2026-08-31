@@ -316,19 +316,19 @@ impl Gateway {
             return;
         };
         let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-        crate::debug_log_emitter::emit_debug_event(
-            guard.as_ref(),
-            tid,
+        crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+            debug_log: guard.as_ref(),
+            trace_id: tid,
             session_key,
-            closeclaw_debug_log::LogLevel::Info,
-            "gateway",
-            "send.completed",
-            serde_json::json!({
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "gateway",
+            event_type: "send.completed",
+            payload: serde_json::json!({
                 "channel": channel,
                 "peer_id": peer_id,
             }),
             parent,
-        );
+        });
     }
 
     /// Run only the outbound raw-log processor, bypassing the full chain.

@@ -384,19 +384,19 @@ pub(crate) fn emit_feishu_render_event(
         return;
     }
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
-    crate::debug_log_emitter::emit_debug_event(
-        guard.as_ref(),
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: guard.as_ref(),
         trace_id,
         session_key,
-        closeclaw_debug_log::LogLevel::Info,
-        "feishu",
-        "feishu.outbound.rendered",
-        serde_json::json!({
+        level: closeclaw_debug_log::LogLevel::Info,
+        source_module: "feishu",
+        event_type: "feishu.outbound.rendered",
+        payload: serde_json::json!({
             "platform": channel,
             "render_duration_ms": render_duration_ms,
         }),
         parent,
-    );
+    });
 }
 
 /// Emit a `feishu.api.send` debug event.
@@ -413,20 +413,20 @@ pub(crate) fn emit_feishu_send_event(
         return;
     }
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
-    crate::debug_log_emitter::emit_debug_event(
-        guard.as_ref(),
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        debug_log: guard.as_ref(),
         trace_id,
         session_key,
-        closeclaw_debug_log::LogLevel::Info,
-        "feishu",
-        "feishu.api.send",
-        serde_json::json!({
+        level: closeclaw_debug_log::LogLevel::Info,
+        source_module: "feishu",
+        event_type: "feishu.api.send",
+        payload: serde_json::json!({
             "platform": channel,
             "peer_id": peer_id,
             "send_duration_ms": send_duration_ms,
         }),
         parent,
-    );
+    });
 }
 
 // ---------------------------------------------------------------------------

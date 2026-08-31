@@ -214,17 +214,19 @@ pub(crate) fn start_inbound_consumer(
             {
                 let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
                 super::debug_log_emitter::emit_debug_event(
-                    guard.as_ref(),
-                    &req.trace_id,
-                    None,
-                    closeclaw_debug_log::LogLevel::Info,
-                    "gateway",
-                    "queue.dequeued",
-                    serde_json::json!({
-                        "platform": req.platform,
-                        "peer_id": req.peer_id,
-                    }),
-                    None, // root event
+                    super::debug_log_emitter::EmitEventParams {
+                        debug_log: guard.as_ref(),
+                        trace_id: &req.trace_id,
+                        session_key: None,
+                        level: closeclaw_debug_log::LogLevel::Info,
+                        source_module: "gateway",
+                        event_type: "queue.dequeued",
+                        payload: serde_json::json!({
+                            "platform": req.platform,
+                            "peer_id": req.peer_id,
+                        }),
+                        parent: None,
+                    },
                 );
             }
             let Some(plugin) = gateway.get_plugin(&req.platform).await else {
@@ -293,20 +295,20 @@ fn emit_inbound_parsed_log(
         closeclaw_common::MessageType::Audio => "audio",
         closeclaw_common::MessageType::Post => "post",
     };
-    super::debug_log_emitter::emit_debug_event(
-        guard.as_ref(),
+    super::debug_log_emitter::emit_debug_event(super::debug_log_emitter::EmitEventParams {
+        debug_log: guard.as_ref(),
         trace_id,
-        None,
-        closeclaw_debug_log::LogLevel::Info,
-        platform,
-        "feishu.inbound.parsed",
-        serde_json::json!({
+        session_key: None,
+        level: closeclaw_debug_log::LogLevel::Info,
+        source_module: platform,
+        event_type: "feishu.inbound.parsed",
+        payload: serde_json::json!({
             "platform": platform,
             "message_type": msg_type_str,
             "parse_duration_ms": duration_ms,
         }),
-        None, // root event
-    );
+        parent: None,
+    });
 }
 
 /// Emit a `gateway.arrived` debug event for successful enqueue.
@@ -315,38 +317,38 @@ fn emit_inbound_parsed_log(
 /// trace: arrived → dequeued → processed.
 fn emit_arrived_log(gateway: &Gateway, req: &InboundRequest) {
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
-    super::debug_log_emitter::emit_debug_event(
-        guard.as_ref(),
-        &req.trace_id,
-        None,
-        closeclaw_debug_log::LogLevel::Debug,
-        "gateway",
-        "gateway.arrived",
-        serde_json::json!({
+    super::debug_log_emitter::emit_debug_event(super::debug_log_emitter::EmitEventParams {
+        debug_log: guard.as_ref(),
+        trace_id: &req.trace_id,
+        session_key: None,
+        level: closeclaw_debug_log::LogLevel::Debug,
+        source_module: "gateway",
+        event_type: "gateway.arrived",
+        payload: serde_json::json!({
             "platform": req.platform,
             "peer_id": req.peer_id,
         }),
-        None, // root event
-    );
+        parent: None,
+    });
 }
 
 /// Emit a debug event for queue-full rejections.
 fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
-    super::debug_log_emitter::emit_debug_event(
-        guard.as_ref(),
-        &req.trace_id,
-        None,
-        closeclaw_debug_log::LogLevel::Warn,
-        "gateway",
-        "queue.rejected",
-        serde_json::json!({
+    super::debug_log_emitter::emit_debug_event(super::debug_log_emitter::EmitEventParams {
+        debug_log: guard.as_ref(),
+        trace_id: &req.trace_id,
+        session_key: None,
+        level: closeclaw_debug_log::LogLevel::Warn,
+        source_module: "gateway",
+        event_type: "queue.rejected",
+        payload: serde_json::json!({
             "platform": req.platform,
             "peer_id": req.peer_id,
             "reason": "queue_full",
         }),
-        None, // root event
-    );
+        parent: None,
+    });
 }
 
 /// Persist the inbound request to WAL if configured.

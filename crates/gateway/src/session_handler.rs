@@ -23,6 +23,7 @@ use tokio::sync::{mpsc, RwLock};
 use super::OutputTx;
 
 /// Metadata about an inbound message, passed through the handling pipeline.
+#[derive(Clone)]
 pub struct MessageMetadata {
     /// Open ID of the message sender.
     pub sender_id: String,
@@ -52,20 +53,6 @@ impl MessageMetadata {
             session_key: None,
             span_id: None,
         }
-    }
-
-    /// Build a root [`TraceContext`](closeclaw_debug_log::TraceContext)
-    /// from the stored `trace_id` and `span_id`.
-    ///
-    /// Returns `None` when `trace_id` or `span_id` is missing.
-    pub fn root_trace_context(&self) -> Option<closeclaw_debug_log::TraceContext> {
-        let trace_id = self.trace_id.as_deref()?;
-        let span_id = self.span_id.as_deref()?;
-        Some(closeclaw_debug_log::TraceContext {
-            trace_id: trace_id.to_string(),
-            span_id: span_id.to_string(),
-            parent_span_id: String::new(),
-        })
     }
 
     /// Convert into a [`RequestContext`](closeclaw_common::RequestContext)

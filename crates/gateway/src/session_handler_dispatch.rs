@@ -469,6 +469,8 @@ impl SessionMessageHandler {
         }
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();
+        // Clone metadata for debug-log child span inside the spawn task.
+        let meta_for_debug = meta.clone();
         // Clone the gateway/plugin into the spawn (optional). If
         // streaming is enabled for the session but no gateway/plugin
         // is provided we fall back to the non-streaming path.
@@ -499,6 +501,37 @@ impl SessionMessageHandler {
             // Step 1.4: inject Now-priority announces before user message
             // processing so the agent sees urgent notifications first.
             Self::drain_announces_now(&sm, &session_id).await;
+
+            // Emit child span for LLM dispatch.
+            if let Some(tid) = &meta_for_debug.trace_id {
+                if !tid.is_empty() {
+                    let parent = meta_for_debug.span_id.as_ref().map(|sid| {
+                        closeclaw_debug_log::TraceContext {
+                            trace_id: tid.clone(),
+                            span_id: sid.clone(),
+                            parent_span_id: String::new(),
+                        }
+                    });
+                    let debug_log_guard = gw_for_task
+                        .as_ref()
+                        .map(|gw| gw.debug_log.read().unwrap_or_else(|e| e.into_inner()));
+                    super::debug_log_emitter::emit_debug_event(
+                        super::debug_log_emitter::EmitEventParams {
+                            debug_log: debug_log_guard.as_ref().and_then(|g| g.as_ref()),
+                            trace_id: tid,
+                            session_key: meta_for_debug.session_key.as_deref(),
+                            level: closeclaw_debug_log::LogLevel::Info,
+                            source_module: "gateway",
+                            event_type: "llm.dispatch",
+                            payload: serde_json::json!({
+                                "session_id": session_id,
+                                "channel": meta_for_debug.channel,
+                            }),
+                            parent: parent.as_ref(),
+                        },
+                    );
+                }
+            }
 
             // Check if streaming is enabled for this session
             let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {

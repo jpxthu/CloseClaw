@@ -21,7 +21,32 @@ pub fn root_context_from_metadata(
     })
 }
 
-/// Emit a structured debug log event if the [`DebugLog`] is configured.
+/// Parameters for emitting a debug log event.
+///
+/// Aggregates all event fields into a struct to keep
+/// [`emit_debug_event`] within the project's 6-parameter limit.
+pub struct EmitEventParams<'a> {
+    /// Debug log instance; when `None`, the emit is a no-op.
+    pub debug_log: Option<&'a DebugLog>,
+    /// Trace ID for correlation. When empty, the emit is a no-op.
+    pub trace_id: &'a str,
+    /// Optional session key for log correlation.
+    pub session_key: Option<&'a str>,
+    /// Log level for the event.
+    pub level: LogLevel,
+    /// Source module that produced the event.
+    pub source_module: &'a str,
+    /// Event type identifier (e.g. `"message.arrived"`).
+    pub event_type: &'a str,
+    /// Structured event payload.
+    pub payload: serde_json::Value,
+    /// Optional parent [`TraceContext`] for child span derivation.
+    /// When `Some`, creates a child span; when `None`, creates a
+    /// root span from `trace_id`.
+    pub parent: Option<&'a TraceContext>,
+}
+
+/// Emit a structured debug log event.
 ///
 /// When `parent` is `Some`, creates a child [`TraceContext`] derived
 /// from the parent span. When `parent` is `None`, creates a root
@@ -29,67 +54,24 @@ pub fn root_context_from_metadata(
 ///
 /// If `trace_id` is empty or `debug_log` is `None`, the call is a
 /// no-op.
-#[allow(clippy::too_many_arguments)]
-pub fn emit_debug_event(
-    debug_log: Option<&DebugLog>,
-    trace_id: &str,
-    session_key: Option<&str>,
-    level: LogLevel,
-    source_module: &str,
-    event_type: &str,
-    payload: serde_json::Value,
-    parent: Option<&TraceContext>,
-) {
-    if trace_id.is_empty() {
+pub fn emit_debug_event(params: EmitEventParams<'_>) {
+    if params.trace_id.is_empty() {
         return;
     }
-    let Some(debug_log) = debug_log else {
+    let Some(debug_log) = params.debug_log else {
         return;
     };
-    let ctx = match parent {
+    let ctx = match params.parent {
         Some(p) => p.child(),
-        None => TraceContext::new_root(trace_id.to_string()),
+        None => TraceContext::new_root(params.trace_id.to_string()),
     };
     let event = LogEvent::new(
         &ctx,
-        session_key.map(|s| s.to_string()),
-        level,
-        source_module,
-        event_type,
-        payload,
-    );
-    let debug_log = debug_log.clone();
-    tokio::spawn(async move {
-        debug_log.log(event).await;
-    });
-}
-
-/// Emit a child debug log event derived from a parent [`TraceContext`].
-///
-/// Calls `parent.child()` to create a child span, builds a
-/// [`LogEvent`], and spawns an async task to write it. If `debug_log`
-/// is `None`, the call is a no-op.
-#[allow(dead_code)]
-pub fn emit_debug_child_event(
-    debug_log: Option<&DebugLog>,
-    parent: &TraceContext,
-    session_key: Option<&str>,
-    level: LogLevel,
-    source_module: &str,
-    event_type: &str,
-    payload: serde_json::Value,
-) {
-    let Some(debug_log) = debug_log else {
-        return;
-    };
-    let ctx = parent.child();
-    let event = LogEvent::new(
-        &ctx,
-        session_key.map(|s| s.to_string()),
-        level,
-        source_module,
-        event_type,
-        payload,
+        params.session_key.map(|s| s.to_string()),
+        params.level,
+        params.source_module,
+        params.event_type,
+        params.payload,
     );
     let debug_log = debug_log.clone();
     tokio::spawn(async move {
