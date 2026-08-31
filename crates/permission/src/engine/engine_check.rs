@@ -8,7 +8,7 @@ use super::engine_types::{
 use crate::debug_log::{
     emit_permission_event, PermissionDebugLogContext, PermissionEmitEventParams,
 };
-use closeclaw_debug_log::{DebugLog, LogLevel};
+use closeclaw_debug_log::LogLevel;
 
 impl PermissionEngine {
     /// Simplified permission check — evaluates if `agent_id` may
@@ -88,15 +88,13 @@ impl PermissionEngine {
         agent_id: &str,
         action: &str,
         extra_deny_subjects: Option<&[Subject]>,
-        debug_log: Option<&DebugLog>,
-        trace_id: &str,
-        session_key: Option<&str>,
+        ctx: PermissionDebugLogContext<'_>,
     ) -> PermissionResponse {
         let response = self.check(agent_id, action, extra_deny_subjects);
 
         let is_allowed = matches!(response, PermissionResponse::Allowed { .. });
         emit_permission_event(PermissionEmitEventParams {
-            ctx: PermissionDebugLogContext::new(debug_log, trace_id, session_key),
+            ctx,
             level: LogLevel::Info,
             source_module: "permission",
             event_type: "permission.check",

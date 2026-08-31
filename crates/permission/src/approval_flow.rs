@@ -44,7 +44,7 @@ use crate::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse, RuleSet,
 };
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
-use closeclaw_common::{PendingMessage, SessionLookup, SessionMode};
+use closeclaw_common::{generate_trace_id, PendingMessage, SessionLookup, SessionMode};
 use closeclaw_debug_log::{DebugLog, LogLevel};
 
 use super::approval::{
@@ -193,6 +193,12 @@ pub struct ApprovalFlow {
     audit_logger: Option<Arc<dyn AuditLogger>>,
     /// Optional debug-log instance for structured event emission.
     debug_log: Option<Arc<DebugLog>>,
+    /// Trace ID for debug-log event correlation.
+    ///
+    /// Generated once at construction via [`generate_trace_id("permission")`]
+    /// so that all events emitted by this [`ApprovalFlow`] share the same
+    /// trace context.
+    trace_id: String,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -202,6 +208,7 @@ impl std::fmt::Debug for ApprovalFlow {
             .field("heartbeat_mode", &self.heartbeat_mode)
             .field("pending_user_creations", &self.user_creation_requests.len())
             .field("force_deny", &self.force_deny)
+            .field("trace_id", &self.trace_id)
             .finish_non_exhaustive()
     }
 }
@@ -242,6 +249,7 @@ impl ApprovalFlow {
             create_child_session_fn: None,
             audit_logger: None,
             debug_log: None,
+            trace_id: generate_trace_id("permission"),
         }
     }
 
@@ -274,6 +282,7 @@ impl ApprovalFlow {
             create_child_session_fn: None,
             audit_logger: None,
             debug_log: None,
+            trace_id: generate_trace_id("permission"),
         }
     }
 }
@@ -291,6 +300,18 @@ impl ApprovalFlow {
     /// Inject a debug-log instance for structured event emission.
     pub fn with_debug_log(mut self, debug_log: Arc<DebugLog>) -> Self {
         self.debug_log = Some(debug_log);
+        self
+    }
+
+    /// Override the trace ID for debug-log event correlation.
+    ///
+    /// By default, a trace ID is generated at construction via
+    /// [`generate_trace_id("permission")`]. This method allows
+    /// callers to set a specific trace ID (e.g. the inbound message
+    /// trace) so that permission events correlate with the parent
+    /// request.
+    pub fn with_trace_id(mut self, trace_id: String) -> Self {
+        self.trace_id = trace_id;
         self
     }
 }
@@ -505,7 +526,7 @@ impl ApprovalFlow {
             let agent = caller.agent.clone();
             let operation = Self::format_operation_desc(request);
             emit_permission_event(PermissionEmitEventParams {
-                ctx: PermissionDebugLogContext::new(Some(debug_log.as_ref()), "", None),
+                ctx: PermissionDebugLogContext::new(Some(debug_log.as_ref()), &self.trace_id, None),
                 level: LogLevel::Info,
                 source_module: "permission",
                 event_type: "permission.approval",
@@ -659,7 +680,11 @@ impl ApprovalFlow {
                     .map(|(_, caller, _, _, _, _)| caller.agent.clone())
                     .unwrap_or_default();
                 emit_permission_event(PermissionEmitEventParams {
-                    ctx: PermissionDebugLogContext::new(Some(debug_log.as_ref()), "", None),
+                    ctx: PermissionDebugLogContext::new(
+                        Some(debug_log.as_ref()),
+                        &self.trace_id,
+                        None,
+                    ),
                     level: LogLevel::Info,
                     source_module: "permission",
                     event_type: "permission.approval",
@@ -733,7 +758,11 @@ impl ApprovalFlow {
                     .map(|(_, caller, _, _)| caller.agent.clone())
                     .unwrap_or_default();
                 emit_permission_event(PermissionEmitEventParams {
-                    ctx: PermissionDebugLogContext::new(Some(debug_log.as_ref()), "", None),
+                    ctx: PermissionDebugLogContext::new(
+                        Some(debug_log.as_ref()),
+                        &self.trace_id,
+                        None,
+                    ),
                     level: LogLevel::Info,
                     source_module: "permission",
                     event_type: "permission.approval",
