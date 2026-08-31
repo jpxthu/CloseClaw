@@ -48,10 +48,9 @@ fn build_session_status_label(
     } else if matches!(llm_state, LlmState::Requesting | LlmState::Receiving) {
         "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}".to_string()
     } else if child_count > 0 {
-        format!(
-            "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}{} \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}",
-            child_count
-        )
+        let prefix = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}";
+        let suffix = " \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        format!("{}{}{}", prefix, child_count, suffix)
     } else {
         "\u{5df2}\u{5c31}\u{7eea}".to_string()
     }
