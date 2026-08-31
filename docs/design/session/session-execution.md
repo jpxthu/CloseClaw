@@ -45,21 +45,25 @@ Session 的整体状态由四维组合判定：
 
 | llm_active | foreground_tool_active | background_tool_active | child_active | 整体判定 |
 |------------|------------------------|------------------------|--------------|---------|
-| false | false | false | false | **Idle**：完全空闲，等待输入 |
-| false | false | true | false | **Idle**：后台工具不阻塞消息接收，session 可立即处理新输入 |
-| false | false | * | true | **Idle**：子 session 运行中，不阻塞消息接收（详见消息分派规则） |
+| false | false | false | false | **就绪（Idle）**：四维均空闲，可立即接收输入 |
+| false | false | true | false | **就绪（Idle）**：后台工具不阻塞消息接收，可立即处理新输入 |
+| false | false | * | true | **就绪（Idle）**：子 session 运行中，不阻塞消息接收（详见消息分派规则） |
 | true | * | * | * | **Busy**：LLM 正在推理或流式输出 |
 | * | true | * | * | **Busy**：前台工具执行中，session 阻塞等待结果 |
 
+> 整体判定只分 **Busy** 与 **就绪（Idle）** 两态（是否可接收消息）；**inactive（归档判据）** 是复合状态——四维均 false 且距上次用户活动超过 inactive 时长，才由归档判定触发（见下方「复合状态」），不在整体判定表内。
+
 **复合状态**（由四维标志 + 时间条件组合判定）：
 
-- **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息。background_tool_active 或 child_active 为 true 不影响 idle 判定
+- **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息。background_tool_active 或 child_active 为 true 不影响 idle 判定。**Waiting（yield 后）也是 idle 的一种**：Waiting 下两维均为 false，`is_session_busy` 返回 false、消息立即分发不排队（见下方 Yield 机制节）
 - **inactive**：四个活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长——触发归档判定
+
+> idle（消息就绪）与 Workflow 验收闸门是**两个不同概念**：idle 判定不把 child_active / background_tool_active 计入；而 Workflow 验收需要 agent 不再被任何活跃维度占用（含后台任务、子 Session），故验收闸门看四维全 false。二者目的不同，勿混同。
 
 活跃维度由各消费方按需使用：
 - 用户消息分派：idle 时直接分派；非 idle 时按排队规则处理
 - 归档判定：inactive 时触发归档
-- Workflow 验收：任一活跃维度为 true 时不注入验收清单（详见 [workflow/README.md](../workflow/README.md)）
+- Workflow 验收：**四维任一活跃为 true 时不注入验收清单**（验收待 agent 无任何占用，详见 [workflow/README.md](../workflow/README.md)、[workflow/session-integration.md](../workflow/session-integration.md)）。session 是 Workflow 状态机的执行宿主——workflow 工具（workflow_start / workflow_verify / workflow_jump / workflow_blocked）经 ToolRegistry 与运行链路交给 Workflow Engine 推进，引擎按目标 / 验收 / 跳转控制 session 的 turn 结构，详见 [workflow/execution-engine.md](../workflow/execution-engine.md)
 
 ### 级联停止
 
@@ -73,7 +77,7 @@ Session 的整体状态由四维组合判定：
 
 级联采用取消信号链：父 session 的取消信号触发时联动子 session，子 session 单独取消不影响父。
 
-**级联超时保护**：Graceful 模式下，级联停止纳入整体超时范围——若子 session 在上级等待时限内未完成，上级不无限等待，而是向调用方报告该子 session 的标识和已执行时长。调用方自行决定继续等待或升级为 forceful。forceful 模式下无超时概念——直接 kill，不等待。
+**级联超时保护**：Graceful 模式下，级联停止纳入整体超时范围——若子 session 在上级等待时限内未完成，上级不无限等待，而是向调用方报告该子 session 的标识和已执行时长。调用方自行决定继续等待或升级为 Forceful。Forceful 模式下无超时概念——直接 kill，不等待。
 
 ### 停止入口
 
@@ -108,7 +112,9 @@ Session 的整体状态由四维组合判定：
 - **next**：子 session 完成、超时预警通知等需及时响应的内容
 - **later**：普通后台工具完成通知
 
-通知内容为结构化格式，包含任务标识、完成状态、结果或输出路径。带去重保护——同一任务只注入一次。
+通知内容为结构化格式，包含任务标识、完成状态、结果或输出路径。**去重保护**：同一任务/同一子 Session 的结果只注入一次，防止重复消费。会话级去重由 `injected_task_ids` 集合实现，在结果注入（入队）时按任务标识去重——已在集合中则跳过；记忆摘要会话层去重见 [session-injection.md](session-injection.md) §消息级注入（active-searcher 事件级集合 + session 层去重共同构成）。
+
+> 去重**只作用于完成任务的结果通知**（子 Session 完成、后台任务完成）。子 Session 超时预警的**循环注入不受去重影响**——同一未终止子 Session 会按间隔反复收到预警，那是不同的注入意图，不走 `injected_task_ids` 集合（见下节「子 Session 超时通知」）。
 
 ### 子 Session 超时通知
 
@@ -155,6 +161,25 @@ Session 的整体状态由四维组合判定：
 
 Agent 在 spawn 子 Session 后不应主动查询子 Session 状态。子 Session 的完成通知和超时通知是 push-based——系统保证自动推送，Agent 不需要也禁止调用 session 查询工具去轮询。此约束在子 Session 的 system prompt 中明确注入。
 
+### Yield 机制
+
+父 Session spawn 子 Session 后，可通过 `sessions_yield` 工具主动放弃当前 turn 并进入 **Waiting（等待）** 状态，等待子 Session 结果，而不是轮询或阻塞在当前 turn。这是 F4「子 Session 委托与协调」禁止轮询、push-based 交付的具体落地。
+
+**进入 Waiting**：调用 `sessions_yield`（无参数，详见 [session-tools.md](session-tools.md) §sessions_yield）。调用后 session 进入 Waiting 状态并结束当前 turn。
+
+**Waiting 期间的活跃判定**：Waiting 状态下，`llm_active` 与 `foreground_tool_active` 均为 false——因此 `is_session_busy` 返回 false，入站用户消息和子 Session 完成通知走正常路径**立即注入对话历史并分发 LLM，不排队**。Session 在任一消息到达时自动恢复（结束 Waiting），无需额外指定恢复时机。
+
+**Yield 提醒（spawn_guard_reminder）**：若父 Session 当前有活跃子 Session 且未处于 Waiting 状态，系统会在 turn 边界注入一条提醒，建议调用 `sessions_yield` 等待子结果。处于 Waiting 状态时不再重复提醒。
+
+**Yield 超时**：Waiting 不是无限期挂起。进入 Waiting 时启动 yield 超时（默认 600 秒，可按 sessions_spawn 的 timeout / timeout_warning 及通知间隔比例折算整体时限），满超时后 Session 自动恢复，避免因子 Session 长时间不产出而永久停滞。子 Session 自身的超时/僵死兜底见 [run-health.md](run-health.md) §Spawn 静默失败防护。
+
+1. 父 Session 调用 `sessions_yield` → 进入 Waiting，结束当前 turn
+2. Waiting 期间：`llm_active` / `foreground_tool_active` 均为 false → `is_session_busy` 返回 false
+   - 子 Session 完成通知 / 用户消息 → 立即注入历史并分发，不排队；任一消息到达 → 自动恢复（结束 Waiting）
+   - 无消息且 yield 超时（默认 600s）→ 自动恢复
+
+> 全程注记：父 Session spawn 后未 yield 时，turn 边界注入 yield 提醒（spawn_guard_reminder）；进入 Waiting 后不再重复提醒。
+
 ## 数据流
 
 ### 执行状态转换
@@ -193,7 +218,7 @@ Session resume（从 archived 恢复）
 
 Forceful 模式（/stop、Daemon 重复信号）：
   →
-  1. 遍历子 session，对每个递归 force 停止
+  1. 遍历子 session，对每个递归 Forceful 停止
   ↓
   2. 杀工具进程：遍历所有活跃工具调用 → 全部 kill
   ↓
@@ -214,15 +239,15 @@ Graceful 模式（Daemon 首次 SIGTERM）：
   2. 遍历子 session，对每个递归 graceful 停止
   ↓
   3. 等待 in-flight 操作完成：
-      ├─ 当前 LLM stream → 收完
-      └─ 当前工具调用 → 等完成
-      工具结果写入对话记录后持久化，不触发新 LLM turn——下次用户消息自然衔接
+      - 当前 LLM stream → 收完
+      - 当前工具调用 → 等完成
+      两类 in-flight 操作全部完成后，工具结果写入对话记录并持久化，不触发新 LLM turn——下次用户消息自然衔接
   ↓
   4. 超时处理：
       ├─ 超时前全部完成 → 正常结束
       └─ 超时 → 不杀进程，向调用方报告进度
           报告：等待项名称 + 已执行时长
-          调用方决定：继续等 / 升级为 force / 放弃
+          调用方决定：继续等 / 升级为 Forceful / 放弃
   ↓
   5. 清理：清空工具状态、清空子 session 状态、LLM 状态置 Idle
      SessionManager 移除运行时引用 → 持久化对话记录和元数据

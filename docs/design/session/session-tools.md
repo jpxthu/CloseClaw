@@ -13,6 +13,7 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 | sessions_spawn | 创建子 session 执行子任务 | 始终加载 |
 | sessions_steer | 向存活中的子 session 发送新任务 | 始终加载 |
 | sessions_kill | 终止子 session | 始终加载 |
+| sessions_yield | 放弃当前 turn 进入 Waiting，等待子 session 结果 | 始终加载 |
 
 工具注册到 ToolRegistry 的分组 `sessions` 下，由 Session 模块的 ToolRegistrar 实现完成，在 Daemon 启动的 ToolRegistry 初始化阶段执行——此阶段早于 SessionManager 创建（见 [daemon/README.md](../daemon/README.md) 启动层级）。
 
@@ -31,8 +32,8 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 > `mode` 描述子 session 的持久化策略，与 SessionCheckpoint 中的 `mode` 字段（对话模式：normal/plan/auto）含义不同——二者作用于不同数据结构。
 | `fork` | 是否 fork 父 agent 上下文 | 否 | `false` |
 | `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
-| `timeout` | 子 agent 硬超时（秒），达到后系统自动终止。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局默认（48h） |
-| `timeout_warning` | 子 agent 预期执行时长（秒），达到后启动循环预警通知。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout_warning → 全局默认值 |
+| `timeout` | 子 session 硬超时（秒），达到后系统自动终止。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局默认（48h） |
+| `timeout_warning` | 子 session 预期执行时长（秒），达到后启动循环预警通知。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout_warning → 全局默认值 |
 | `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 子 session 默认工作目录（见 [working-directory.md](working-directory.md)）|
 | `label` | 子 session 简短标签 | 否 | 自动生成 |
 | `lightContext` | 是否使用 minimal bootstrap | 否 | `false` |
@@ -79,6 +80,12 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 |------|------|------|
 | `sessionId` | 目标子 session 的 ID | 是 |
 
+### sessions_yield
+
+放弃当前 turn 并进入 **Waiting（等待）** 状态，等待子 session 结果。无参数。它是**结束当前 turn 的信号，不产出任何结果注入**到父 / 调用方队列，也非子 session 操作（区别于 spawn 的 announce 结果注入）——调用后 session 进入 Waiting，Waiting 期间自身视为空闲：`is_session_busy` 返回 false，入站消息和子 Session 完成通知立即注入历史并分发、不排队；任一消息到达时自动恢复。完整状态机与 yield 超时见 [session-execution.md](session-execution.md) §Yield 机制。
+
+参数：无（空 schema）。
+
 ## 数据流
 
 ### 工具调用流程
@@ -103,6 +110,8 @@ sessions_steer / sessions_kill：
   → steer → 注入新 task 到子 session 对话流
   → kill → 级联停止子 session 的执行状态
 ```
+
+> 上面流程图覆盖 spawn / steer / kill 三条执行链路。**sessions_yield 不在其中**——它不进入会话创建 / 结果注入流程，而是结束当前 turn、使 session 转入 Waiting（见 [session-execution.md](session-execution.md) §Yield 机制），因此数据流不为之描述 spawn 式的执行 / 注入路径。
 
 ## 模块关系
 

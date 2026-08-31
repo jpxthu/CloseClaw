@@ -44,15 +44,17 @@ ConversationSession
 
 Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时指令覆盖两级入口生效。
 
-**推理强度档位**：Low、Medium、High、Max 四个档位，High 为各 provider 默认值。不支持的档位自动降级（如 Max 在不支持的模型上降为 High），降级时记录日志但不对用户主动通知。
+**推理强度档位**：Low、Medium、High、Max 四个档位，High 为各 provider 默认值。不支持的档位在网关层解析**实际生效档位**时自动降级（见「实际生效档位」节）。
 
-**关闭推理请求**：档位之外，用户可通过 `off` 请求关闭推理输出。off 不是档位，实际效果取决于供应商能力（需求 [llm §F4](../../requirements/llm.md)）：支持关闭推理的 provider 真正关闭推理输出；不支持关闭的 provider（含设计上总输出推理内容的模型，如 DeepSeek 的 thinking 无法真正关闭、MiMo 在所有场景下均输出推理）不视为错误，仅将推理强度降至最低可用档位。
+**关闭推理请求**：档位之外，用户可通过 `off` 请求关闭推理输出。off 不是档位，实际效果取决于供应商能力（需求 [llm §F4](../../requirements/llm.md)）：支持关闭推理的 provider 真正关闭推理输出；不支持关闭的 provider（含设计上总输出推理内容的模型，如 DeepSeek 的 thinking 无法真正关闭、MiMo 在所有场景下均输出推理）不视为错误，仅将推理强度降至最低可用档位。降级判定同样发生在网关层解析实际生效档位时。
 
 **两级入口**：
 - **Config 配置**：`llm.reasoning_level` 设置全局默认档位
-- **运行时指令**：`/reasoning` 无参数时查询当前实际生效档位（含 provider 降级后的值；关闭请求在支持关闭的 provider 上显示为已关闭，在不支持的 provider 上显示为降级后的最低可用档位），`/reasoning [level|off]` 修改当前 session 的档位或提交关闭请求，覆盖 config 默认值，不回写配置文件。输入非法档位值时忽略输入并回显当前生效的档位
+- **运行时指令**：`/reasoning` 无参数时查询当前实际生效档位（含降级后的值；关闭请求在支持关闭的 provider 上显示为已关闭，在不支持的 provider 上显示为降级后的最低可用档位），`/reasoning [level|off]` 修改当前 session 的档位或提交关闭请求，覆盖 config 默认值，不回写配置文件。输入非法档位值时忽略输入并回显当前生效的档位
 
-**Provider 注入**：各 provider builder 持有自己的参数映射表，将运行时取值（档位或关闭请求）转换为 provider 原生的 reasoning 参数。不同 provider 支持的参数格式不同——有的用 `reasoning_effort` 字段，有的用 `thinking.type` 开关，部分 provider 不支持 reasoning 控制。关闭请求的映射同「关闭推理请求」：支持关闭的 provider 注入关闭参数，不支持的 provider 注入最低可用档位参数。
+**实际生效档位（Effective Reasoning Level）**：请求档位与 provider 能力交织后的最终档位，是**降级判定的唯一权威位置**。会话持有与请求档位分离的**实际生效档位**字段：每次调用前，由网关层将「会话请求档位 / 关闭请求」结合 provider 能力（是否支持该档位、是否支持关闭推理）解析为实际生效档位并写回会话——不支持时自动降级（如 Max 降为 High）并记日志，关闭请求在不支持的 provider 上降为最低可用档位（需求 [llm §F4](../../requirements/llm.md)）；模型不在 provider 能力知识库时按默认启发式回退。该字段存于会话运行时，随每次调用前解析更新，`/reasoning` 无参查询与 `/status` 展示的即是该实际生效档位（含降级）；会话重建 / 结束时重置，回退到请求档位的解析结果。
+
+**Provider 注入**：各 provider builder 持有自己的参数映射表，将**已确定的实际生效档位**转换为 provider 原生的 reasoning 参数——只做档位到参数的格式映射，**不再做档位降级决策**（降级已由网关层完成）。不同 provider 支持的参数格式不同——有的用 `reasoning_effort` 字段，有的用 `thinking.type` 开关，部分 provider 不支持 reasoning 控制；对不支持的 provider，builder 依能力注入关闭参数或最低可用档位参数。
 
 ### 用量统计
 
@@ -114,27 +116,17 @@ LLM 响应中的 Thinking 内容以独立 block 形式保留在消息历史中�
 
 ### Reasoning Level 生效链路
 
-```
-config.yaml: llm.reasoning_level: high（默认档位）
-                │
-                ▼
-        SessionManager 读入默认值
-                │
-    ┌───────────┴───────────┐
-    │                       │
-    ▼                       ▼
-无运行时覆盖               /reasoning medium|off
-    │                       │
-    ▼                       ▼
-使用 config 默认档位      session 运行时覆盖（档位或关闭请求）
-    │                       │
-    └───────────┬───────────┘
-                ▼
-        Provider builder 映射（各 provider 转换为其原生 reasoning 参数；关闭请求按供应商能力映射为关闭参数或最低可用档位）
-                │
-                ▼
-        注入 LLM API 请求体
-```
+#### Reasoning Level 生效链路
+
+生效链路（编号列表）：
+
+1. 入口：config.yaml `llm.reasoning_level: high`（默认档位）由 SessionManager 读入作为会话请求档位基准
+2. 分支判断是否有运行时覆盖：
+   - 无运行时覆盖 → 用 config 默认档位
+   - `/reasoning [level\|off]` → 用 session 运行时覆盖（档位或关闭请求）
+3. 网关层解析**实际生效档位**：结合 provider 能力（是否支持该档位 / 是否支持关闭推理），对不支持做降级（含关闭请求降为最低可用档位）与启发式回退，写回会话
+4. Provider builder 映射：按实际生效档位转换为其原生 reasoning 参数（只做格式映射，不再降级）；关闭请求按供应商能力映射为关闭参数或最低可用档位
+5. 注入 LLM API 请求体
 
 ### Cache Hit 统计链路
 
@@ -162,7 +154,7 @@ RunningStats 累加
 
 - **ConversationSession**：调用增强层构建 LLM 请求、处理响应，提供 Reasoning Level 运行时覆盖（档位或关闭请求）和 RunningStats 存储。
 - **SessionManager**：创建 session 时注入 config 中的默认推理档位。
-- **Slash Command**：`/reasoning` 指令运行时修改 session 的推理档位或提交关闭请求。
+- **Slash Command**：`/reasoning` 指令运行时修改 session 的推理档位或提交关闭请求；`/status` 展示当前实际生效档位（含降级，见「实际生效档位」节）。
 
 ### 下游
 

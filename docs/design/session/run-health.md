@@ -26,7 +26,7 @@ Session 执行循环嵌入 health check：
 
 - **硬规则检测器**：纯代码逻辑，不依赖 LLM。检测超时、空响应、结构异常、重试耗尽。检测到即判 unhealthy。其中「重试耗尽」指可重试/响应无效类别的重试次数达上限（区别于「上下文彻底耗尽」的容量语义）。
 - **Hook 审查器**：可选组件，按 agent 配置决定挂载 0 到 N 个。每个 hook 是固定 prompt 的轻量 LLM 调用，审查当前 turn 的输出质量（如是否只计划未执行、是否陷入工具调用循环）。Hook 调用与主对话隔离，不进入 transcript。
-- **运行快照管理器**：在毁坏性操作前自动创建 transcript 快照，提供回滚能力。每个 session 最多保留 25 个快照，旧的自动淘汰。与持久化层的 CheckpointManager（管理 SessionCheckpoint 的读写缓存和持久化）职责不同。
+- **运行快照管理器**：在毁坏性操作前自动创建 transcript 快照，提供回滚能力。每个 session 最多保留 25 个快照，旧的自动淘汰。与持久化层的 CheckpointManager（管理 SessionCheckpoint 的读写缓存和持久化）职责不同。每个快照携带一份**快照元数据**（快照 ID、触发原因、创建时间、所属 session、完整性状态），元数据经**可注入的持久化接口**存入会话存储供回溯——快照正文（transcript 副本）与快照元数据分离，正文按文件管理、元数据按结构存储。**与 SessionCheckpoint 的边界**：快照元数据是毁坏性操作前的快照私有现场资产（经可注入接口存取、随淘汰回收），其完整性状态属快照自身生命周期；SessionCheckpoint 是会话主链的持久化资产（元数据 + transcript 持久化），两者存储语义与生命周期互不共享、状态机独立。
 - **转录修改分类器**：所有修改 transcript 的代码路径必须声明操作类型。Session 层根据类型决定是否触发运行快照。
 
 ### 转录修改归类
@@ -122,12 +122,10 @@ unhealthy
 
 ```
 1. 毁坏性操作触发（compact、/system、回滚本身）
-2. 创建快照：保存 transcript 文件副本，标记触发原因和时间
+2. 创建快照：生成快照（含快照 ID、所属 session、触发原因、创建时间、初始完整性状态），保存 transcript 文件副本，并经可注入的持久化接口将快照元数据写入会话存储
 3. 执行操作
-   - 操作成功 -> 快照标记为 complete
+   - 操作成功 -> 快照元数据标记为 complete
    - 操作失败 -> 系统检测到异常 -> 可触发回滚（见下方「回滚流程」）
-
-快照可随时加载：加载快照 -> 替换 transcript -> 记录回滚 audit（详见下方「回滚流程」）
 ```
 
 ### 回滚流程
@@ -157,7 +155,7 @@ unhealthy
 | 模块 | 调用关系 |
 |------|---------|
 | Transcript 存储 | 运行快照创建和回滚直接操作 transcript 文件 |
-| Persistence Service | 运行快照元信息（id、原因、时间）存入 session store |
+| Persistence Service | 快照元数据（快照 ID、触发原因、创建时间、所属 session、完整性状态）经可注入的持久化接口存入会话存储 |
 | LLM Provider | Hook 审查调用轻量 LLM（独立于主对话） |
 
 ### 无关
