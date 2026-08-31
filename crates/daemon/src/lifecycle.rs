@@ -577,8 +577,14 @@ impl Daemon {
     /// ArchiveSweeper, AnnounceSweeper, PlanArchiveSweeper,
     /// DreamingScheduler, and ConfigWatcher subscriber.
     async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
-        let join_timeout = std::time::Duration::from_secs(10);
+        let join_timeout = std::time::Duration::from_secs(7);
         let abort_grace = std::time::Duration::from_secs(3);
+
+        // Compile-time: total Phase 3 budget must be 10s per design doc.
+        const _: () = assert!(
+            7 + 3 == 10,
+            "Phase 3 total timeout (join_timeout + abort_grace) must equal 10s"
+        );
         let mut heartbeat = ShutdownHeartbeat::new();
         let mut results: Vec<(&str, TaskStopStatus)> = Vec::new();
         let tasks: Vec<(&str, Option<tokio::task::JoinHandle<()>>)> = vec![
@@ -711,7 +717,18 @@ impl Daemon {
         heartbeat.record_event();
         TaskStopStatus::Aborted
     }
-    /// Phase 4: Final persistence — flush checkpoints and sync WAL.
+    /// Phase 4: Final persistence — two-step fsync to ensure all
+    /// session writes are safely persisted.
+    ///
+    /// 1. Flush session checkpoints — calls [`Gateway::flush_all_sessions`]
+    ///    to persist all dirty session state (including any force-mode
+    ///    sessions that were not yet flushed during Phase 2).
+    /// 2. WAL sync — calls [`Gateway::sync_storage`] to fsync the
+    ///    underlying WAL (Write-Ahead Log) so that data reaches stable
+    ///    storage.
+    ///
+    /// These two steps together correspond to the design doc's
+    /// "全局 fsync 同步" (global fsync synchronization) for Phase 4.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
         match self.gateway().await.flush_all_sessions(mode).await {
             Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),

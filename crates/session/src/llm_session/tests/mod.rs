@@ -6,6 +6,7 @@ use closeclaw_common::{UnifiedResponse, UnifiedUsage};
 mod announce_dedup_tests;
 mod announce_queue_tests;
 mod bootstrap_mode_tests;
+mod child_busy_tracking_tests;
 mod clone_messages_tests;
 mod compaction_protection_tests;
 mod deferred_mode_switch_tests;
