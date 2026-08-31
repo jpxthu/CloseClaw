@@ -371,14 +371,16 @@ impl ConversationSession {
             }
 
             if streaming_seen {
-                let pending = self.extract_pending_tool_calls();
-                if !pending.is_empty() {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    continue;
-                }
                 if !has_running_tools {
+                    // LLM stream ended and no tools are running.
+                    // Pending tool calls (if any) will be extracted
+                    // by the caller via extract_pending_tool_calls()
+                    // and persisted to the checkpoint — matching the
+                    // design doc requirement to record pending ops
+                    // without executing tools.
                     return GracefulStopResult::Completed;
                 }
+                // Tools still running — wait for them.
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             }
