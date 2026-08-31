@@ -84,10 +84,10 @@ Config 模块启动时依次执行以下步骤：
 
 ### Agent 配置加载
 
-1. 读取注册清单（config/agents.json + 项目级 agents.json）。
-2. 取 ID 并集，仅加载清单中列出的 ID。
-3. 对每个注册 ID，优先加载项目级 agents/<id>/config.json（不存在回退用户级）。
-4. 字段级覆盖合并（项目 > 用户）。
+1. 读取注册清单（config/agents.json + 项目级 agents.json），取 ID 并集。
+2. 仅加载清单中列出的 ID。
+3. 对每个注册 ID，从用户级与项目级两层目录扫描并加载 config.json。
+4. 对同 ID 的配置进行字段级覆盖合并（项目 > 用户）。
 5. 补齐所有字段默认值。
 6. 生成 ResolvedAgentConfig，返回给调用方。
 
