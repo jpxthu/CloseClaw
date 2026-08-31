@@ -438,7 +438,7 @@ fn make_gw_with_registry() -> crate::Gateway {
 }
 
 /// WITH-registry: Text message goes through full chain, message_type injected by
-/// SessionRouter, thread_id / media_refs added by Gateway after chain.
+/// chain dispatcher (MessageContext::from_normalized), thread_id / media_refs added by Gateway after chain.
 #[tokio::test]
 async fn test_with_registry_text_message_full_chain() {
     let gw = make_gw_with_registry();
@@ -449,12 +449,12 @@ async fn test_with_registry_text_message_full_chain() {
     // Content preserved.
     assert_eq!(result.text_content(), Some("hello world"));
 
-    // message_type injected by SessionRouter (not Gateway).
+    // message_type injected by chain dispatcher (MessageContext::from_normalized).
     let mt = result.metadata.get("message_type").map(|s| s.as_str());
     assert_eq!(
         mt,
         Some("\"text\""),
-        "message_type should be injected by SessionRouter in full chain"
+        "message_type should be injected by chain dispatcher in full chain"
     );
 
     // session_key computed by SessionRouter.
@@ -501,7 +501,7 @@ async fn test_with_registry_image_message_full_chain() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    // message_type injected by SessionRouter.
+    // message_type injected by chain dispatcher (MessageContext::from_normalized).
     let mt = result.metadata.get("message_type").map(|s| s.as_str());
     assert_eq!(
         mt,
@@ -558,7 +558,7 @@ async fn test_with_registry_audio_message_full_chain() {
 }
 
 /// WITH-registry: Gateway extra metadata does NOT include message_type.
-/// message_type is injected by Processor Chain (SessionRouter), not Gateway.
+/// message_type is injected by Processor Chain (chain dispatcher), not Gateway.
 #[tokio::test]
 async fn test_gateway_does_not_inject_message_type() {
     let gw = make_gw_with_registry();
@@ -610,6 +610,6 @@ async fn test_process_inbound_chain_accepts_normalized_message_ref() {
     assert_eq!(result.text_content(), Some("struct test"));
     assert!(
         result.metadata.contains_key("message_type"),
-        "message_type must be injected by SessionRouter"
+        "message_type must be injected by chain dispatcher"
     );
 }
