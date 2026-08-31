@@ -129,9 +129,9 @@
   },
   {
     "path": "docs/design/daemon/shutdown.md",
-    "commit": "7946f94db35cb040b4a1df0b8c9888372ae29ffd",
-    "commit_time": "2026-08-29T06:32:33+08:00",
-    "confirmed_time": "2026-08-29T06:44:33.164185+08:00",
+    "commit": "900bac32336ab7f66da040929e4798e6c5e65c36",
+    "commit_time": "2026-08-31T14:51:02+08:00",
+    "confirmed_time": "2026-08-31T15:07:03.221241+08:00",
     "comment": "",
     "blocked_reason": ""
   },
