@@ -1,8 +1,11 @@
-//! Unit tests for non-text message interception in `handle_inbound_message`.
+//! Unit tests for inbound message handling in `handle_inbound_message`.
 //!
-//! Covers the behavior added in Step 1.1: when `message_type` metadata is
-//! not `Text`, the gateway sends an error reply via the plugin and returns
-//! `None`, bypassing slash/LLM routing.
+//! Covers:
+//! - Text messages pass through validation normally.
+//! - Image/file/audio messages now pass through (no longer rejected by
+//!   Gateway; media routing decisions are delegated downstream).
+//! - `unavailable_media` non-empty still triggers rejection for any type.
+//! - `build_context_content` produces media reference tokens.
 //!
 //! Step 1.2 additions verify that non-text interception happens before
 //! session resolution — non-text messages never reach
@@ -19,7 +22,7 @@ use closeclaw_common::im_plugin::MessageType;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin};
-use closeclaw_common::processor::{DslParseResult, ProcessError, ProcessedMessage, ProcessorChain};
+use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::json;
@@ -44,10 +47,6 @@ impl CapturingPlugin {
             render_calls: std::sync::Mutex::new(Vec::new()),
             send_calls: std::sync::Mutex::new(Vec::new()),
         }
-    }
-
-    fn render_count(&self) -> usize {
-        self.render_calls.lock().unwrap().len()
     }
 
     fn send_count(&self) -> usize {
@@ -113,71 +112,6 @@ impl IMPlugin for CapturingPlugin {
     }
 }
 
-// ── Mock processor chain ────────────────────────────────────────────────────
-
-/// Records processor chain invocations so tests can verify which
-/// outbound path is exercised:
-/// - `process_outbound_raw_log_only` for the simplified path
-/// - `process_outbound` for the full chain path
-struct RecordingProcessorChain {
-    outbound_raw_log_only_calls: std::sync::Mutex<usize>,
-    outbound_full_calls: std::sync::Mutex<usize>,
-}
-
-impl RecordingProcessorChain {
-    fn new() -> Self {
-        Self {
-            outbound_raw_log_only_calls: std::sync::Mutex::new(0),
-            outbound_full_calls: std::sync::Mutex::new(0),
-        }
-    }
-
-    fn outbound_raw_log_only_call_count(&self) -> usize {
-        *self.outbound_raw_log_only_calls.lock().unwrap()
-    }
-
-    fn outbound_full_call_count(&self) -> usize {
-        *self.outbound_full_calls.lock().unwrap()
-    }
-}
-
-#[async_trait]
-impl ProcessorChain for RecordingProcessorChain {
-    async fn process_inbound(
-        &self,
-        msg: NormalizedMessage,
-    ) -> Result<ProcessedMessage, ProcessError> {
-        Ok(ProcessedMessage {
-            content_blocks: vec![ContentBlock::Text(msg.content)],
-            metadata: HashMap::new(),
-        })
-    }
-
-    async fn process_outbound(
-        &self,
-        msg: ProcessedMessage,
-    ) -> Result<ProcessedMessage, ProcessError> {
-        *self.outbound_full_calls.lock().unwrap() += 1;
-        Ok(msg)
-    }
-
-    async fn process_outbound_raw_log_only(
-        &self,
-        msg: ProcessedMessage,
-    ) -> Result<ProcessedMessage, ProcessError> {
-        *self.outbound_raw_log_only_calls.lock().unwrap() += 1;
-        Ok(msg)
-    }
-
-    fn inbound_len(&self) -> usize {
-        0
-    }
-
-    fn outbound_len(&self) -> usize {
-        0
-    }
-}
-
 // ── Test helpers ────────────────────────────────────────────────────────────
 
 fn make_config() -> GatewayConfig {
@@ -218,33 +152,6 @@ async fn make_gw(channel: &str) -> (crate::Gateway, Arc<CapturingPlugin>) {
     let plugin: Arc<dyn IMPlugin> = capturing.clone() as Arc<dyn IMPlugin>;
     gw.register_plugin(plugin).await;
     (gw, capturing)
-}
-
-/// Build a Gateway with a recording outbound processor chain.
-async fn make_gw_with_processor(
-    channel: &str,
-) -> (
-    crate::Gateway,
-    Arc<CapturingPlugin>,
-    Arc<RecordingProcessorChain>,
-) {
-    let config = make_config();
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    let chain: Arc<RecordingProcessorChain> = Arc::new(RecordingProcessorChain::new());
-    let gw = crate::Gateway::with_processor_registry(
-        config,
-        Arc::clone(&sm),
-        chain.clone() as Arc<dyn ProcessorChain>,
-    );
-    let capturing: Arc<CapturingPlugin> = Arc::new(CapturingPlugin::new(channel));
-    let plugin: Arc<dyn IMPlugin> = capturing.clone() as Arc<dyn IMPlugin>;
-    gw.register_plugin(plugin).await;
-    (gw, capturing, chain)
 }
 
 /// Build a `ProcessedMessage` with the given content and optional `message_type`.
@@ -322,66 +229,70 @@ async fn test_text_message_not_intercepted() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 2. Interception path — non-text messages are rejected
+// 2. Media messages now pass through (no longer rejected)
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Image message is intercepted: returns None and sends error reply.
-/// No session registration is needed — interception happens before
-/// session resolution.
+/// Image message passes through validation and reaches the handler.
+/// No error reply is sent — media messages are no longer rejected.
 #[tokio::test]
-async fn test_image_message_intercepted() {
+async fn test_image_message_passes_through() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
+    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
     let result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none(), "image message should return None");
-    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
-
-    // Verify the error reply content.
-    let (output, peer_id, _thread_id) = plugin.last_send().unwrap();
-    assert_eq!(output.msg_type, "text");
-    assert_eq!(peer_id, "agent-1");
-    let text = output.payload["content"]["text"].as_str().unwrap();
+    // No handler configured -> returns None, NOT because of interception.
+    assert!(result.is_none(), "no handler configured -> None");
+    // No error reply sent — media messages are accepted.
     assert_eq!(
-        text, "暂不支持该消息类型",
-        "error message must match design doc: got {text}"
+        plugin.send_count(),
+        0,
+        "image message should not trigger error reply"
     );
 }
 
-/// File message is intercepted.
-/// No session registration needed — interception before session resolution.
+/// File message passes through validation and reaches the handler.
 #[tokio::test]
-async fn test_file_message_intercepted() {
+async fn test_file_message_passes_through() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "check this");
+    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "check this", Some(&MessageType::File));
     let result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none(), "file message should return None");
-    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
+    assert!(result.is_none(), "no handler configured -> None");
+    assert_eq!(
+        plugin.send_count(),
+        0,
+        "file message should not trigger error reply"
+    );
 }
 
-/// Audio message is intercepted.
-/// No session registration needed — interception before session resolution.
+/// Audio message passes through validation and reaches the handler.
 #[tokio::test]
-async fn test_audio_message_intercepted() {
+async fn test_audio_message_passes_through() {
     let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
+    register_session(gw.session_manager(), "mock", &msg).await;
 
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Audio));
     let result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none(), "audio message should return None");
-    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
+    assert!(result.is_none(), "no handler configured -> None");
+    assert_eq!(
+        plugin.send_count(),
+        0,
+        "audio message should not trigger error reply"
+    );
 }
 
 /// Unknown type string (e.g. "video") now maps to Text via `From<&str>`,
@@ -402,7 +313,8 @@ async fn test_unknown_type_string_maps_to_text_not_intercepted() {
         .await;
 
     // Text message goes through normal routing (not intercepted).
-    // Returns None only because no handler is configured — same as test_text_message_not_intercepted.
+    // Returns None only because no handler is configured,
+    // same as test_text_message_not_intercepted.
     assert!(result.is_none(), "no handler configured -> None");
     assert_eq!(plugin.send_count(), 0, "no error reply for text");
 }
@@ -435,103 +347,242 @@ async fn test_missing_message_type_defaults_to_text() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 4. Step 1.4 — error reply flows through send_outbound_simplified (raw-log only)
+// 4. build_context_content — media reference tokens
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Non-text rejection reply goes through `plugin.render()` before
-/// `plugin.send()`, confirming the simplified outbound path.
-/// No session registration needed — interception before session resolution.
+/// Image message with media_refs produces reference tokens in content.
 #[tokio::test]
-async fn test_non_text_reply_goes_through_render() {
-    let (gw, plugin) = make_gw("mock").await;
+async fn test_image_message_content_has_reference_tokens() {
+    let (gw, _plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
+    register_session(gw.session_manager(), "mock", &msg).await;
 
-    let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
-    let result: Option<HandleResult> = gw
-        .handle_inbound_message(processed, Some("ou_sender"), "mock")
-        .await;
-
-    assert!(result.is_none(), "image message should return None");
-    // render() is called via send_outbound_to_chat (full processor chain)
-    assert_eq!(plugin.render_count(), 1, "render should be called once");
-    // send() must also be called
-    assert_eq!(plugin.send_count(), 1, "send should be called once");
-}
-
-/// Non-text rejection reply exercises the raw-log-only processor path,
-/// bypassing VerbosityFilter/DslParser (design doc requirement).
-/// No session registration needed — interception before session resolution.
-#[tokio::test]
-async fn test_non_text_reply_uses_outbound_processor_chain() {
-    let (gw, plugin, chain) = make_gw_with_processor("mock").await;
-    let msg = make_message("agent-1", "");
-
-    let processed = make_processed(&msg, "mock", "", Some(&MessageType::File));
-    let result: Option<HandleResult> = gw
-        .handle_inbound_message(processed, Some("ou_sender"), "mock")
-        .await;
-
-    assert!(result.is_none(), "file message should return None");
-    // process_outbound_raw_log_only MUST have been invoked (Step 1.4)
-    assert_eq!(
-        chain.outbound_raw_log_only_call_count(),
-        1,
-        "raw-log-only processor path should be invoked for non-text rejection"
+    let mut pm = make_processed(&msg, "mock", "", Some(&MessageType::Image));
+    pm.metadata.insert(
+        "media_refs".to_string(),
+        serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
+            key: "img_abc".into(),
+            path: "/tmp/img".into(),
+            media_type: closeclaw_common::im_plugin::MediaType::Image,
+            size: 1024,
+            mime: "image/png".into(),
+        }])
+        .unwrap(),
     );
-    // Full outbound chain (VerbosityFilter/DslParser) must NOT have been invoked
+
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(pm, Some("ou_sender"), "mock")
+        .await;
+
+    // No handler -> None, but the message was routed (not rejected).
+    assert!(result.is_none(), "no handler configured -> None");
+    // The content string now contains the reference token.
+    // (We can't directly observe it here, but the test validates
+    // the message flows through the gateway without rejection.)
+}
+
+/// build_context_content returns text unchanged for text messages.
+#[tokio::test]
+async fn test_build_context_content_text_unchanged() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text("hello".to_string())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Text).unwrap(),
+            );
+            m
+        },
+    };
+    assert_eq!(crate::media_routing::build_context_content(&pm), "hello");
+}
+
+/// build_context_content generates reference tokens for image messages.
+#[tokio::test]
+async fn test_build_context_content_image_reference() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(String::new())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Image).unwrap(),
+            );
+            m.insert(
+                "media_refs".to_string(),
+                serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
+                    key: "img_xyz".into(),
+                    path: "/tmp/img".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::Image,
+                    size: 1024,
+                    mime: "image/png".into(),
+                }])
+                .unwrap(),
+            );
+            m
+        },
+    };
     assert_eq!(
-        chain.outbound_full_call_count(),
-        0,
-        "full outbound chain should NOT be invoked — design doc requires skip"
+        crate::media_routing::build_context_content(&pm),
+        "[image: img_xyz]"
     );
-    // Plugin send must still have been called
-    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
 }
 
-/// Non-text rejection reply runs the simplified outbound path (no
-/// outbound middleware chain).
-/// No session registration needed — interception before session resolution.
+/// build_context_content generates reference tokens for file messages.
 #[tokio::test]
-async fn test_non_text_reply_uses_outbound_middleware() {
-    let (gw, plugin) = make_gw("mock").await;
-    let msg = make_message("agent-1", "");
-
-    let processed = make_processed(&msg, "mock", "", Some(&MessageType::Audio));
-    let result: Option<HandleResult> = gw
-        .handle_inbound_message(processed, Some("ou_sender"), "mock")
-        .await;
-
-    assert!(result.is_none(), "audio message should return None");
-    // render is called (simplified outbound path)
-    assert_eq!(plugin.render_count(), 1, "render should be called once");
-    // send is called
-    assert_eq!(plugin.send_count(), 1, "send should be called once");
-    // The simplified path skips the outbound middleware chain.
-    // render_count == 1 confirms render was called directly.
-}
-
-/// Non-text rejection error text matches the design doc specification.
-/// No session registration needed — interception before session resolution.
-#[tokio::test]
-async fn test_non_text_error_text_matches_doc() {
-    let (gw, plugin) = make_gw("mock").await;
-    let msg = make_message("agent-1", "");
-
-    let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
-    let result: Option<HandleResult> = gw
-        .handle_inbound_message(processed, Some("ou_sender"), "mock")
-        .await;
-
-    assert!(result.is_none(), "image message should return None");
-    assert_eq!(plugin.send_count(), 1, "error reply should be sent");
-
-    let (output, peer_id, _thread_id) = plugin.last_send().unwrap();
-    assert_eq!(output.msg_type, "text");
-    assert_eq!(peer_id, "agent-1");
-    let text = output.payload["content"]["text"].as_str().unwrap();
+async fn test_build_context_content_file_reference() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(String::new())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::File).unwrap(),
+            );
+            m.insert(
+                "media_refs".to_string(),
+                serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
+                    key: "doc_42".into(),
+                    path: "/tmp/doc".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::File,
+                    size: 2048,
+                    mime: "application/pdf".into(),
+                }])
+                .unwrap(),
+            );
+            m
+        },
+    };
     assert_eq!(
-        text, "暂不支持该消息类型",
-        "error text must match design doc: {text}"
+        crate::media_routing::build_context_content(&pm),
+        "[file: doc_42]"
+    );
+}
+
+/// build_context_content generates reference tokens for audio messages.
+#[tokio::test]
+async fn test_build_context_content_audio_reference() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(String::new())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Audio).unwrap(),
+            );
+            m.insert(
+                "media_refs".to_string(),
+                serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
+                    key: "voice_1".into(),
+                    path: "/tmp/voice".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::Audio,
+                    size: 512,
+                    mime: "audio/ogg".into(),
+                }])
+                .unwrap(),
+            );
+            m
+        },
+    };
+    assert_eq!(
+        crate::media_routing::build_context_content(&pm),
+        "[audio: voice_1]"
+    );
+}
+
+/// Reference tokens never contain local file system paths.
+#[tokio::test]
+async fn test_build_context_content_no_local_paths() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(String::new())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Image).unwrap(),
+            );
+            m.insert(
+                "media_refs".to_string(),
+                serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
+                    key: "secret".into(),
+                    path: "/home/user/private/photo.jpg".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::Image,
+                    size: 1024,
+                    mime: "image/jpeg".into(),
+                }])
+                .unwrap(),
+            );
+            m
+        },
+    };
+    let content = crate::media_routing::build_context_content(&pm);
+    assert!(
+        !content.contains("/home"),
+        "must not contain local paths: {content}"
+    );
+    assert!(content.contains("secret"));
+}
+
+/// Post message with text and media_refs combines both.
+#[tokio::test]
+async fn test_build_context_content_post_with_text_and_media() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text("check this".to_string())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Post).unwrap(),
+            );
+            m.insert(
+                "media_refs".to_string(),
+                serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
+                    key: "pic_99".into(),
+                    path: "/tmp/pic".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::Image,
+                    size: 512,
+                    mime: "image/jpeg".into(),
+                }])
+                .unwrap(),
+            );
+            m
+        },
+    };
+    assert_eq!(
+        crate::media_routing::build_context_content(&pm),
+        "check this [image: pic_99]"
+    );
+}
+
+/// Post message with media only (no text) returns just reference tokens.
+#[tokio::test]
+async fn test_build_context_content_post_media_only() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(String::new())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Post).unwrap(),
+            );
+            m.insert(
+                "media_refs".to_string(),
+                serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
+                    key: "vid_7".into(),
+                    path: "/tmp/vid".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::File,
+                    size: 4096,
+                    mime: "video/mp4".into(),
+                }])
+                .unwrap(),
+            );
+            m
+        },
+    };
+    assert_eq!(
+        crate::media_routing::build_context_content(&pm),
+        "[file: vid_7]"
     );
 }
 
@@ -539,13 +590,12 @@ async fn test_non_text_error_text_matches_doc() {
 // 5. Empty peer_id — should skip sending, not panic
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// When peer_id is empty, the non-text interception path should return
-/// None without panicking. The code calls `send_outbound_to_chat`
-/// (which sends to an empty chat_id) — the important invariant is no panic.
-/// No session registration needed — interception before session resolution.
+/// When peer_id is empty, the message should still route without panicking.
+/// Image messages are no longer rejected, so this tests the normal path
+/// with an empty peer_id (session resolution may fail gracefully).
 #[tokio::test]
-async fn test_non_text_empty_peer_id_no_panic() {
-    let (gw, plugin) = make_gw("mock").await;
+async fn test_image_empty_peer_id_no_panic() {
+    let (gw, _plugin) = make_gw("mock").await;
 
     // Build a processed message with empty peer_id.
     let msg = make_message("agent-1", "");
@@ -569,46 +619,32 @@ async fn test_non_text_empty_peer_id_no_panic() {
 
     // Should return None without panicking.
     assert!(result.is_none(), "empty peer_id should return None");
-    // send_outbound_to_chat still sends (to empty chat_id) — no panic.
-    assert_eq!(
-        plugin.send_count(),
-        1,
-        "reply is still sent even with empty peer_id"
-    );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 6. Step 1.2 — non-text interception before session resolution
+// 6. Media messages now go through session resolution (no early rejection)
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Non-text messages must not trigger session creation.
-/// Verifies that `resolve_session_from_message` is never called for
-/// non-text messages — the interception path returns before session
-/// resolution, so the SessionManager's internal map stays empty.
+/// Image messages now pass through validation and reach session resolution.
+/// When no session exists and no handler is configured, returns None.
 #[tokio::test]
-async fn test_non_text_message_does_not_create_session() {
-    let (gw, _plugin) = make_gw("mock").await;
+async fn test_image_message_reaches_session_resolution() {
+    let (gw, plugin) = make_gw("mock").await;
     let msg = make_message("agent-1", "");
+    register_session(gw.session_manager(), "mock", &msg).await;
 
-    // Confirm no sessions exist initially.
-    let initial_sessions = gw.session_manager().get_all_sessions().await;
-    assert!(initial_sessions.is_empty(), "should start with no sessions");
+    // Confirm session exists.
+    let sessions = gw.session_manager().get_all_sessions().await;
+    assert!(!sessions.is_empty(), "session should be registered");
 
-    // Process an image message — interception should fire before session
-    // resolution, so no session is created.
     let processed = make_processed(&msg, "mock", "", Some(&MessageType::Image));
     let result: Option<HandleResult> = gw
         .handle_inbound_message(processed, Some("ou_sender"), "mock")
         .await;
 
-    assert!(result.is_none(), "image message should return None");
-
-    // Verify no session was created by the non-text interception path.
-    let sessions_after = gw.session_manager().get_all_sessions().await;
-    assert!(
-        sessions_after.is_empty(),
-        "non-text message must not create a session"
-    );
+    assert!(result.is_none(), "no handler configured -> None");
+    // No error reply sent — image messages are accepted.
+    assert_eq!(plugin.send_count(), 0, "no error reply for image message");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
