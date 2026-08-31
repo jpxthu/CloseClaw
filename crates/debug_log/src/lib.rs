@@ -6,6 +6,7 @@
 mod config;
 mod consumer;
 mod debug_log;
+mod emit;
 mod event;
 mod level;
 mod level_filter;
@@ -17,6 +18,7 @@ mod writer;
 pub use config::{DebugLogConfig, DebugLogConfigError};
 pub use consumer::{ConsumerError, JsonlLogConsumer, LogConsumer, NormalizedEvent};
 pub use debug_log::{DebugLog, DebugLogError};
+pub use emit::{emit_event, DebugLogContext, EmitEventParams};
 pub use event::LogEvent;
 pub use level::LogLevel;
 pub use level_filter::LevelFilter;

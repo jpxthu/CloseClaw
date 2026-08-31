@@ -11,7 +11,7 @@
 use closeclaw_common::RunningStats;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::compaction::{
-    ChatFn, CompactionMessage, CompactionResult, CompactionService,
+    ChatFn, CompactParams, CompactionMessage, CompactionResult, CompactionService,
 };
 use closeclaw_session::llm_session::ChatSession;
 use tracing::warn;
@@ -74,14 +74,14 @@ impl SessionManager {
         let snapshot_id = self.save_pre_compaction_snapshot(session_id).await;
 
         let result = compaction_service
-            .compact(
-                &compaction_msgs,
-                &model,
+            .compact(CompactParams {
+                messages: &compaction_msgs,
+                model: &model,
                 instruction,
                 is_auto,
-                Some(&stats),
+                stats: Some(&stats),
                 chat_fn,
-            )
+            })
             .await;
 
         match result {

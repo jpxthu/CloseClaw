@@ -488,7 +488,7 @@ async fn check_command_permission_and_route(
     cmd_args: &[String],
     dangerously_disable_sandbox: bool,
 ) -> Result<(Option<ToolResult>, bool), ToolCallError> {
-    match check_command_permission(deps, ctx, cmd_name, cmd_args).await {
+    match check_command_permission(deps, ctx, cmd_name, cmd_args, None).await {
         CommandPermissionResult::Permitted => Ok((None, false)),
         CommandPermissionResult::PendingApproval(result) => Ok((Some(result), false)),
         CommandPermissionResult::Denied(reason) => {
@@ -681,7 +681,7 @@ async fn execute_bash_call(
     }
 
     // Level 1: ToolCall - verify agent may invoke Bash tool.
-    if let Some(r) = check_tool_permission(deps, ctx, "bash", "call").await? {
+    if let Some(r) = check_tool_permission(deps, ctx, "bash", "call", None).await? {
         return Ok(r);
     }
 

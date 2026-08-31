@@ -70,6 +70,7 @@ pub mod tool_session_tests;
 pub mod tool_trait;
 #[cfg(test)]
 pub mod tool_trait_tests;
+pub mod trace_id;
 pub mod turn;
 pub mod verbosity;
 
@@ -149,4 +150,5 @@ pub use tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult,
     WorkdirContext,
 };
+pub use trace_id::generate_trace_id;
 pub use verbosity::VerbosityLevel;

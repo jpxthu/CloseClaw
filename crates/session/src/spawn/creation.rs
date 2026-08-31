@@ -13,10 +13,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::bootstrap::loader::BootstrapMode;
+use crate::debug_log::{self, SessionDebugLogContext};
 use crate::llm_session::ChatSession;
 use crate::llm_session::ConversationSession;
 use crate::persistence::{PendingMessage, SessionMode};
 use closeclaw_config::agents::ResolvedAgentConfig;
+use closeclaw_debug_log::{DebugLog, LogLevel};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -82,6 +84,12 @@ pub struct ChildSessionCreationParams<'a> {
     /// Interval ratio for cyclic warning notifications (relative to timeout_warning).
     /// Must be >=0.1 and <=2.0, default 0.5. `None` means use default.
     pub timeout_notify_interval_ratio: Option<f64>,
+    /// Optional debug-log instance for emitting session lifecycle events.
+    pub debug_log: Option<&'a DebugLog>,
+    /// Trace ID for debug-log correlation.
+    pub trace_id: &'a str,
+    /// Optional session key for debug-log correlation.
+    pub session_key: Option<&'a str>,
 }
 
 /// Create a child `ConversationSession` for a spawned sub-agent.
@@ -104,6 +112,7 @@ pub async fn create_child_conversation_session(
     let workdir_path =
         resolve_child_workspace(ctx, config, params.workspace, params.parent_session_id).await?;
     let model = resolve_model(params.model_override, params.parent_subagents_model, config);
+    let model_for_log = model.clone();
     let bootstrap_mode = resolve_bootstrap_mode(params.light_context, config);
     let child_token = derive_child_token(ctx, params.parent_session_id).await?;
 
@@ -148,12 +157,47 @@ pub async fn create_child_conversation_session(
 
     let conversation_session = Arc::new(tokio::sync::RwLock::new(cs));
 
-    Ok(ChildSessionCreated {
+    let result = Ok(ChildSessionCreated {
         conversation_session,
-        session_id: child_session_id,
+        session_id: child_session_id.clone(),
         workspace_path: workdir_path,
         communication_config: comm_config,
-    })
+    });
+
+    // Emit debug-log event for child session creation.
+    let ctx = SessionDebugLogContext::new(params.debug_log, params.trace_id, params.session_key);
+    let (level, event_type, payload) = match &result {
+        Ok(created) => (
+            LogLevel::Info,
+            "session.child.created",
+            serde_json::json!({
+                "session_id": created.session_id,
+                "parent_session_id": params.parent_session_id,
+                "agent_id": config.id,
+                "depth": params.depth,
+                "model": model_for_log,
+            }),
+        ),
+        Err(e) => (
+            LogLevel::Error,
+            "session.child.creation_failed",
+            serde_json::json!({
+                "parent_session_id": params.parent_session_id,
+                "agent_id": config.id,
+                "error": e,
+            }),
+        ),
+    };
+    debug_log::emit_session_event(debug_log::SessionEmitEventParams {
+        ctx,
+        level,
+        source_module: "session",
+        event_type,
+        payload,
+        parent: None,
+    });
+
+    result
 }
 
 /// Determine bootstrap mode from the `light_context` flag and agent config.

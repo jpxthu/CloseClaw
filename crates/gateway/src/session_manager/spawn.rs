@@ -264,6 +264,9 @@ impl SessionManager {
             prompt_template_prefix,
             timeout_warning_secs,
             timeout_notify_interval_ratio,
+            debug_log: None,
+            trace_id: "",
+            session_key: None,
         };
         let created = session_spawn::create_child_conversation_session(
             self, // SpawnCreationContext impl

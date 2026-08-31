@@ -11,6 +11,7 @@
 //! If either level returns `Denied`, the denial is routed through
 //! [`ApprovalFlow`] for owner approval.
 
+use crate::debug_log::{emit_tool_event, ToolsDebugLogContext, ToolsEmitEventParams};
 use crate::{ToolCallError, ToolResult};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -212,11 +213,15 @@ pub(crate) fn is_config_file(config_manager: &ConfigManager, path: &str) -> bool
 /// Constructs a `ToolCall` permission request and evaluates it.
 /// Returns `Ok(None)` when allowed, `Ok(Some(result))` on approval-pending,
 /// or `Err` on denial.
+///
+/// When `debug_ctx` is provided, emits a `tool.permission` event at
+/// [`LogLevel::Info`] with the check result.
 pub(crate) async fn check_tool_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,
     skill: &str,
     method: &str,
+    debug_ctx: Option<ToolsDebugLogContext<'_>>,
 ) -> Result<Option<ToolResult>, ToolCallError> {
     let (perm, session_manager, config_manager, approval_flow) = deps;
     let request = PermissionRequest::Bare(PermissionRequestBody::ToolCall {
@@ -232,7 +237,7 @@ pub(crate) async fn check_tool_permission(
         request,
     )
     .await;
-    match response {
+    let result = match response {
         PR::Allowed { .. } => Ok(None),
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
@@ -257,18 +262,38 @@ pub(crate) async fn check_tool_permission(
             )
             .await
         }
+    };
+    if let Some(dc) = debug_ctx {
+        let permitted = result.as_ref().ok().and_then(|r| r.as_ref()).is_none();
+        emit_tool_event(ToolsEmitEventParams {
+            ctx: dc,
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "tools",
+            event_type: "tool.permission",
+            payload: serde_json::json!({
+                "dimension": "tool_call",
+                "skill": skill,
+                "method": method,
+                "permitted": permitted,
+            }),
+            parent: None,
+        });
     }
+    result
 }
 
 /// Second-level check for file operations (FileOp dimension).
 ///
 /// Validates read/write access to the given path.  Callers pass
 /// `op = "read"` or `op = "write"` to distinguish the two cases.
+///
+/// When `debug_ctx` is provided, emits a `tool.permission` event.
 pub(crate) async fn check_file_op_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,
     path: &str,
     op: &str,
+    debug_ctx: Option<ToolsDebugLogContext<'_>>,
 ) -> Result<Option<ToolResult>, ToolCallError> {
     let (perm, session_manager, config_manager, approval_flow) = deps;
     let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
@@ -284,7 +309,7 @@ pub(crate) async fn check_file_op_permission(
         request,
     )
     .await;
-    match response {
+    let result = match response {
         PR::Allowed { .. } => Ok(None),
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
@@ -309,7 +334,24 @@ pub(crate) async fn check_file_op_permission(
             )
             .await
         }
+    };
+    if let Some(dc) = debug_ctx {
+        let permitted = result.as_ref().ok().and_then(|r| r.as_ref()).is_none();
+        emit_tool_event(ToolsEmitEventParams {
+            ctx: dc,
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "tools",
+            event_type: "tool.permission",
+            payload: serde_json::json!({
+                "dimension": "file_op",
+                "path": path,
+                "op": op,
+                "permitted": permitted,
+            }),
+            parent: None,
+        });
     }
+    result
 }
 
 /// Second-level check for message operations (Message dimension).
@@ -476,11 +518,14 @@ pub async fn check_network_permission(
 /// - `Permitted` — command is allowed
 /// - `PendingApproval` — approval flow accepted the request
 /// - `Denied` — permission denied, command should be sandboxed
+///
+/// When `debug_ctx` is provided, emits a `tool.permission` event.
 pub(crate) async fn check_command_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,
     cmd: &str,
     args: &[String],
+    debug_ctx: Option<ToolsDebugLogContext<'_>>,
 ) -> CommandPermissionResult {
     let (perm, session_manager, config_manager, approval_flow) = deps;
     let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
@@ -496,7 +541,7 @@ pub(crate) async fn check_command_permission(
         request,
     )
     .await;
-    match response {
+    let result = match response {
         PR::Allowed { .. } => CommandPermissionResult::Permitted,
         PR::Denied { risk_level, .. } => {
             let caller = Caller {
@@ -521,7 +566,23 @@ pub(crate) async fn check_command_permission(
             )
             .await
         }
+    };
+    if let Some(dc) = debug_ctx {
+        let permitted = matches!(result, CommandPermissionResult::Permitted);
+        emit_tool_event(ToolsEmitEventParams {
+            ctx: dc,
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "tools",
+            event_type: "tool.permission",
+            payload: serde_json::json!({
+                "dimension": "command_exec",
+                "cmd": cmd,
+                "permitted": permitted,
+            }),
+            parent: None,
+        });
     }
+    result
 }
 
 #[cfg(test)]

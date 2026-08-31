@@ -5,6 +5,10 @@ use super::engine_risk::assess_risk_level;
 use super::engine_types::{
     MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse, Subject,
 };
+use crate::debug_log::{
+    emit_permission_event, PermissionDebugLogContext, PermissionEmitEventParams,
+};
+use closeclaw_debug_log::LogLevel;
 
 impl PermissionEngine {
     /// Simplified permission check — evaluates if `agent_id` may
@@ -73,5 +77,35 @@ impl PermissionEngine {
             PermissionRequest::Bare(body),
             extra_deny_subjects.map(|s| s.to_vec()),
         )
+    }
+
+    /// Simplified permission check with debug-log emission.
+    ///
+    /// Same as [`check`](Self::check) but emits a structured debug-log
+    /// event at the permission check result node.
+    pub fn check_with_debug_log(
+        &self,
+        agent_id: &str,
+        action: &str,
+        extra_deny_subjects: Option<&[Subject]>,
+        ctx: PermissionDebugLogContext<'_>,
+    ) -> PermissionResponse {
+        let response = self.check(agent_id, action, extra_deny_subjects);
+
+        let is_allowed = matches!(response, PermissionResponse::Allowed { .. });
+        emit_permission_event(PermissionEmitEventParams {
+            ctx,
+            level: LogLevel::Info,
+            source_module: "permission",
+            event_type: "permission.check",
+            payload: serde_json::json!({
+                "agent_id": agent_id,
+                "action": action,
+                "allowed": is_allowed,
+            }),
+            parent: None,
+        });
+
+        response
     }
 }

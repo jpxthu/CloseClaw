@@ -47,6 +47,7 @@ pub mod volcengine;
 pub mod client;
 #[cfg(test)]
 mod client_test;
+pub mod debug_log;
 pub mod interpreter;
 #[cfg(test)]
 mod interpreter_test;

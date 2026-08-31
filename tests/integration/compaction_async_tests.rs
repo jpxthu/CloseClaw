@@ -10,8 +10,27 @@
 use std::sync::Arc;
 
 use closeclaw_session::compaction::{
-    ChatFn, CompactConfig, CompactionError, CompactionMessage, CompactionService,
+    ChatFn, CompactConfig, CompactParams, CompactionError, CompactionMessage, CompactionService,
 };
+
+/// Helper to build a `CompactParams` for tests.
+fn params<'a>(
+    msgs: &'a [CompactionMessage],
+    model: &'a str,
+    instruction: Option<&'a str>,
+    is_auto: bool,
+    stats: Option<&'a closeclaw_common::RunningStats>,
+    chat_fn: &'a ChatFn,
+) -> CompactParams<'a> {
+    CompactParams {
+        messages: msgs,
+        model,
+        instruction,
+        is_auto,
+        stats,
+        chat_fn,
+    }
+}
 
 /// Build a [`ChatFn`] that returns a successful `<summary>` response.
 fn mock_chat_success(summary: &str) -> ChatFn {
@@ -60,7 +79,14 @@ async fn test_compact_success() {
     let chat_fn = mock_chat_success("Compacted summary content");
 
     let result = svc
-        .compact(&sample_messages(), "glm-5.1", None, false, None, &chat_fn)
+        .compact(params(
+            &sample_messages(),
+            "glm-5.1",
+            None,
+            false,
+            None,
+            &chat_fn,
+        ))
         .await
         .unwrap();
 
@@ -77,7 +103,7 @@ async fn test_compact_empty_messages() {
     let chat_fn = mock_chat_success("content");
 
     let result = svc
-        .compact(&[], "glm-5.1", None, true, None, &chat_fn)
+        .compact(params(&[], "glm-5.1", None, true, None, &chat_fn))
         .await;
 
     assert!(matches!(result, Err(CompactionError::EmptyMessages)));
@@ -89,7 +115,14 @@ async fn test_compact_llm_failure() {
     let chat_fn = mock_chat_failure("rate limit exceeded");
 
     let result = svc
-        .compact(&sample_messages(), "glm-5.1", None, false, None, &chat_fn)
+        .compact(params(
+            &sample_messages(),
+            "glm-5.1",
+            None,
+            false,
+            None,
+            &chat_fn,
+        ))
         .await;
 
     assert!(matches!(result, Err(CompactionError::LLMCallFailed(_))));
@@ -101,7 +134,14 @@ async fn test_compact_no_summary() {
     let chat_fn = mock_chat_no_summary("No summary tag in response");
 
     let result = svc
-        .compact(&sample_messages(), "glm-5.1", None, true, None, &chat_fn)
+        .compact(params(
+            &sample_messages(),
+            "glm-5.1",
+            None,
+            true,
+            None,
+            &chat_fn,
+        ))
         .await;
 
     assert!(matches!(result, Err(CompactionError::SummaryParseFailed)));
@@ -113,14 +153,14 @@ async fn test_compact_with_custom_instructions() {
     let chat_fn = mock_chat_success("Test summary");
 
     let result = svc
-        .compact(
+        .compact(params(
             &sample_messages(),
             "glm-5.1",
             Some("重点保留用户名"),
             true,
             None,
             &chat_fn,
-        )
+        ))
         .await
         .unwrap();
 
@@ -134,7 +174,14 @@ async fn test_compact_auto_trigger() {
     let chat_fn = mock_chat_success("Auto summary");
 
     let result = svc
-        .compact(&sample_messages(), "glm-5.1", None, true, None, &chat_fn)
+        .compact(params(
+            &sample_messages(),
+            "glm-5.1",
+            None,
+            true,
+            None,
+            &chat_fn,
+        ))
         .await
         .unwrap();
 
@@ -177,7 +224,7 @@ async fn test_compact_prepends_system_prompt_and_passes_messages() {
     ];
 
     let result = svc
-        .compact(&messages, "glm-5.1", None, false, None, &chat_fn)
+        .compact(params(&messages, "glm-5.1", None, false, None, &chat_fn))
         .await
         .unwrap();
     assert!(result.performed);
