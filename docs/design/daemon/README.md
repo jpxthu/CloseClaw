@@ -36,7 +36,6 @@
 | 4 | System Prompt 构建器 | AgentRegistry, Skills Registry, Tools Registry |
 | 5 | Gateway | Session Manager, IM Adapters, Permission Engine, ApprovalFlow, Renderers / Plugins |
 | 6 | Admin RPC Server | Gateway |
-| 6 | Chat RPC Server | Gateway |
 
 上表中的后台任务类组件（Config Hot Reload、ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler）构成 Daemon 级后台任务的权威清单；新增后台任务时必须同步更新本表与 [shutdown.md](shutdown.md) 的后台任务清单及停止设计。
 
@@ -49,7 +48,7 @@
 - **待重启状态**：Daemon 进入待重启状态并记录待生效变更，系统正常运行——会话正常处理消息、新消息不受影响，重启执行前继续按旧配置运行
 - **变更合并**：待重启期间新到达的重启类变更并入同一次待执行集合，不重复重启
 - **择机窗口**：Daemon 经 SessionManager 查询全部会话的四维活跃状态（与关闭流程同一套判定，见 [shutdown.md](shutdown.md)），全部为否即满足窗口；无活跃会话时立即执行
-- **执行流程**：会话层完全不动，Daemon 重建 Gateway 及持有其引用的下游组件（如 Chat RPC Server）；执行期间入站消息由 Gateway 暂存、完成后按原到达顺序补投（见 [gateway 需求 §F6](../../requirements/gateway.md)），执行中的出站消息按优雅关闭语义收尾
+- **执行流程**：会话层完全不动，Daemon 重建 Gateway 及持有其引用的下游组件；执行期间入站消息由 Gateway 暂存、完成后按原到达顺序补投（见 [gateway 需求 §F6](../../requirements/gateway.md)），执行中的出站消息按优雅关闭语义收尾
 - **无窗口兜底**：存在活跃会话时持续等待、不强制打断任何会话；Owner 可随时改用强制关闭优先执行（forceful 语义见 [shutdown.md](shutdown.md)）
 - **完成通知**：重启完成后经 IM 通知 Owner，附本次生效的配置变更概要
 
@@ -91,9 +90,7 @@ Daemon 持有 AgentRegistry、Session Manager、Gateway、ApprovalFlow、SpawnCo
    - SpawnController（创建并管理子 session，启动依赖 AgentRegistry、Tools Registry；spawn 前置校验与权限判定经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播）、Agent 配置（深度/并发/超时阈值），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)；ConfigManager、Permission Engine 及子 session 所需能力（经 Session Manager 提供的 spawn 上下文获取）均为构造注入的运行时引用，就绪后接线，不构成启动依赖）
    - System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
 5. **层 5**（依赖层 4）：Gateway（注入 adapters、session manager、permission、renderers；安装 SlashDispatcher（详见 [slash/README.md](../slash/README.md)）；注入 ApprovalFlow）
-6. **层 6**（依赖层 5）：
-   - Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
-   - Chat RPC Server（启动 Unix domain socket 聊天服务，经 Gateway 全链路收发会话消息，持有 Gateway 引用并注册 RpcTerminalPlugin；重启时随 Gateway 重建）
+6. **层 6**（依赖层 5）：Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
 7. 全部完成后**进入消息循环**
 
 **LLM 能力缺失时的行为**：若启动时 LLM 能力不可用（如 models.json 缺失、未配置任何可用模型/供应商，导致无法组装 LlmCaller），系统仍正常启动，不静默丢弃用户消息——SessionManager 无法为会话注入 LlmCaller 时，收到需 LLM 处理的消息以明确错误回复告知用户 LLM 未就绪，而非假装处理或丢失消息。LlmCaller 的接线发生在启动层 SessionManager 初始化，补齐 LLM 配置后恢复该能力需完整重启系统以重走启动路径；配置触发的网关重启仅重建 Gateway 层、会话层不动，无法重新完成会话层的 LlmCaller 接线。
@@ -146,7 +143,6 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | IM Adapters | 启动时创建各平台适配器 |
 | Gateway | 启动时创建并注入依赖，Daemon 持有其所有权 |
 | Admin RPC Server | 启动时创建 Unix domain socket 管理服务，接收 CLI Admin 命令 |
-| Chat RPC Server | 启动时创建 Unix domain socket 聊天服务，经 Gateway 全链路收发会话消息；持有 Gateway 引用并注册 RpcTerminalPlugin，网关重启时随之重建 |
 | ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider；归档前查询 SessionManager 四维活跃状态（运行时引用，Session Manager 就绪后接线），详见 [session/session-lifecycle.md](../session/session-lifecycle.md)） |
 | AnnounceSweeper | 启动时 spawn 后台任务，定时扫描 spawn_tree 补推完成通知与僵死检测（扫描经 Session Manager 进行，运行时引用，详见 [session/run-health.md](../session/run-health.md)） |
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
