@@ -186,10 +186,121 @@ async fn test_post_with_image_not_discarded() {
 #[tokio::test]
 async fn test_post_empty_text_no_media_discarded() {
     let adapter = make_test_adapter();
-    let event = make_message_event("post", &serde_json::json!({"content": []}).to_string());
+    let event = make_message_event(
+        "post",
+        &serde_json::json!({"content": []}).to_string(),
+    );
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
         "post with empty text and no media should be discarded"
+    );
+}
+
+#[tokio::test]
+async fn test_post_empty_text_with_image_produces() {
+    let adapter = make_test_adapter();
+    // Post with only an img tag (no text) → content is "[图片]",
+    // media_refs populated.
+    let content = serde_json::json!({
+        "content": [[{"tag": "img", "image_key": "img_in_post_only"}]]
+    });
+    let event = make_message_event("post", &content.to_string());
+    let msg = adapter
+        .parse_message_event(event)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(msg.message_type, MessageType::Post);
+    assert_eq!(msg.content, "[图片]");
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "img_in_post_only");
+    assert_eq!(
+        msg.media_refs[0].media_type,
+        closeclaw_common::MediaType::Image
+    );
+}
+
+#[tokio::test]
+async fn test_post_with_text_and_embedded_image() {
+    let adapter = make_test_adapter();
+    // Post with text + img tag → content has text, media_refs has image.
+    let content = serde_json::json!({
+        "content": [
+            [{"tag": "text", "text": "Check this: "}],
+            [{"tag": "img", "image_key": "img_mixed"}]
+        ]
+    });
+    let event = make_message_event("post", &content.to_string());
+    let msg = adapter
+        .parse_message_event(event)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(msg.message_type, MessageType::Post);
+    assert!(
+        msg.content.contains("Check this:"),
+        "content should contain the text portion: {}",
+        msg.content
+    );
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "img_mixed");
+}
+
+#[tokio::test]
+async fn test_post_empty_text_with_file_produces() {
+    let adapter = make_test_adapter();
+    // Post with only a file tag (no text) → content is "[文件]",
+    // media_refs populated.
+    let content = serde_json::json!({
+        "content": [
+            [{"tag": "file", "file_key": "file_in_post"}]
+        ]
+    });
+    let event = make_message_event("post", &content.to_string());
+    let msg = adapter
+        .parse_message_event(event)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(msg.message_type, MessageType::Post);
+    assert_eq!(msg.content, "[文件]");
+    assert_eq!(msg.media_refs.len(), 1);
+    assert_eq!(msg.media_refs[0].key, "file_in_post");
+    assert_eq!(
+        msg.media_refs[0].media_type,
+        closeclaw_common::MediaType::File
+    );
+}
+
+#[tokio::test]
+async fn test_post_multiple_media_refs_extracted() {
+    let adapter = make_test_adapter();
+    // Post with img + file + text → media_refs has both, content has text.
+    let content = serde_json::json!({
+        "content": [
+            [{"tag": "text", "text": "Report attached:"}],
+            [{"tag": "img", "image_key": "chart_1"}],
+            [{"tag": "file", "file_key": "report_pdf"}]
+        ]
+    });
+    let event = make_message_event("post", &content.to_string());
+    let msg = adapter
+        .parse_message_event(event)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(msg.message_type, MessageType::Post);
+    assert!(msg.content.contains("Report attached:"));
+    assert_eq!(msg.media_refs.len(), 2);
+    assert_eq!(msg.media_refs[0].key, "chart_1");
+    assert_eq!(
+        msg.media_refs[0].media_type,
+        closeclaw_common::MediaType::Image
+    );
+    assert_eq!(msg.media_refs[1].key, "report_pdf");
+    assert_eq!(
+        msg.media_refs[1].media_type,
+        closeclaw_common::MediaType::File
     );
 }
 

@@ -794,3 +794,172 @@ async fn test_unavailable_media_empty_passes_through() {
         "no error reply for message with empty unavailable_media"
     );
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 9. unavailable_media applies to ALL message types (image/file/audio)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Image message with non-empty `unavailable_media` is intercepted:
+/// returns None and sends the "该消息内容无法获取" reply.
+#[tokio::test]
+async fn test_unavailable_media_image_intercepted() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "");
+
+    let mut pm = make_processed(&msg, "mock", "", Some(&MessageType::Image));
+    pm.metadata.insert(
+        "unavailable_media".to_string(),
+        serde_json::to_string(&["img_key_1".to_string()]).unwrap(),
+    );
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(pm, Some("ou_sender"), "mock")
+        .await;
+
+    assert!(
+        result.is_none(),
+        "image message with unavailable_media should return None"
+    );
+    assert_eq!(
+        plugin.send_count(),
+        1,
+        "error reply should be sent for image with unavailable media"
+    );
+    let last = plugin.last_send().unwrap();
+    assert_eq!(last.0.msg_type, "text");
+    assert_eq!(last.1, "agent-1");
+    let text = last.0.payload["content"]["text"].as_str().unwrap();
+    assert_eq!(
+        text, "该消息内容无法获取",
+        "reply must match design doc: got {text}"
+    );
+}
+
+/// File message with non-empty `unavailable_media` is intercepted.
+#[tokio::test]
+async fn test_unavailable_media_file_intercepted() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "check this");
+
+    let mut pm = make_processed(&msg, "mock", "check this", Some(&MessageType::File));
+    pm.metadata.insert(
+        "unavailable_media".to_string(),
+        serde_json::to_string(&["file_key_1".to_string()]).unwrap(),
+    );
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(pm, Some("ou_sender"), "mock")
+        .await;
+
+    assert!(
+        result.is_none(),
+        "file message with unavailable_media should return None"
+    );
+    assert_eq!(plugin.send_count(), 1);
+    let last = plugin.last_send().unwrap();
+    let text = last.0.payload["content"]["text"].as_str().unwrap();
+    assert_eq!(text, "该消息内容无法获取");
+}
+
+/// Audio message with non-empty `unavailable_media` is intercepted.
+#[tokio::test]
+async fn test_unavailable_media_audio_intercepted() {
+    let (gw, plugin) = make_gw("mock").await;
+    let msg = make_message("agent-1", "");
+
+    let mut pm = make_processed(&msg, "mock", "", Some(&MessageType::Audio));
+    pm.metadata.insert(
+        "unavailable_media".to_string(),
+        serde_json::to_string(&["audio_key_1".to_string()]).unwrap(),
+    );
+    let result: Option<HandleResult> = gw
+        .handle_inbound_message(pm, Some("ou_sender"), "mock")
+        .await;
+
+    assert!(
+        result.is_none(),
+        "audio message with unavailable_media should return None"
+    );
+    assert_eq!(plugin.send_count(), 1);
+    let last = plugin.last_send().unwrap();
+    let text = last.0.payload["content"]["text"].as_str().unwrap();
+    assert_eq!(text, "该消息内容无法获取");
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 10. Post with mixed text+media_refs — content contains both
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Post message with text AND media_refs: `build_context_content`
+/// produces combined output (text + reference tokens).
+#[tokio::test]
+async fn test_build_context_content_post_mixed_text_and_media() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text("check this image".to_string())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Post).unwrap(),
+            );
+            m.insert(
+                "media_refs".to_string(),
+                serde_json::to_string(&vec![
+                    closeclaw_common::im_plugin::MediaRef {
+                        key: "pic_99".into(),
+                        path: "/tmp/pic".into(),
+                        media_type: closeclaw_common::im_plugin::MediaType::Image,
+                        size: 512,
+                        mime: "image/jpeg".into(),
+                    },
+                    closeclaw_common::im_plugin::MediaRef {
+                        key: "doc_1".into(),
+                        path: "/tmp/doc".into(),
+                        media_type: closeclaw_common::im_plugin::MediaType::File,
+                        size: 1024,
+                        mime: "application/pdf".into(),
+                    },
+                ])
+                .unwrap(),
+            );
+            m
+        },
+    };
+    let content = crate::media_routing::build_context_content(&pm);
+    assert!(
+        content.contains("check this image"),
+        "should contain the text portion: {content}"
+    );
+    assert!(
+        content.contains("[image: pic_99]"),
+        "should contain image reference token: {content}"
+    );
+    assert!(
+        content.contains("[file: doc_1]"),
+        "should contain file reference token: {content}"
+    );
+    assert!(
+        !content.contains("/tmp"),
+        "must not contain local paths: {content}"
+    );
+}
+
+/// Image message with empty media_refs (defensive edge case):
+/// `build_context_content` returns empty string.
+#[tokio::test]
+async fn test_build_context_content_image_empty_refs_returns_empty() {
+    let pm = ProcessedMessage {
+        content_blocks: vec![ContentBlock::Text(String::new())],
+        metadata: {
+            let mut m = HashMap::new();
+            m.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&MessageType::Image).unwrap(),
+            );
+            m
+        },
+    };
+    assert_eq!(
+        crate::media_routing::build_context_content(&pm),
+        "",
+        "image with no media_refs should return empty string"
+    );
+}
