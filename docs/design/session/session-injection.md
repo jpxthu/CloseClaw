@@ -2,7 +2,7 @@
 
 ## 概述
 
-描述 session 生命周期中的四类注入机制：system prompt 注入（构建时触发）、动态层注入（每请求即时构建）、条件激活 skill 消息注入（per-turn 增量）、消息级注入（memory_injection 槽位）。此外，后台任务和子 Agent 完成后的结果注入通过优先级消息队列实现，详见 [session-execution.md](session-execution.md) 统一消息队列节。system prompt 的结构定义在 [system_prompt/README](../system_prompt/README.md)，技能清单的生成规则定义在 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。
+描述 session 生命周期中的注入相关机制：system prompt 注入（构建时触发，含 bootstrap 加载模式解析）、动态层注入（每请求即时构建）、条件激活 skill 消息注入（per-turn 增量）、消息级注入（memory_injection 槽位）。此外，后台任务和子 Agent 完成后的结果注入通过优先级消息队列实现，详见 [session-execution.md](session-execution.md) 统一消息队列节；会话级文件状态（file_mtimes / file_read_ranges）供工具读 / 写链路做一致性保护与去重，见下「文件变更检测」节。system prompt 的结构定义在 [system_prompt/README](../system_prompt/README.md)，技能清单的生成规则定义在 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。
 
 ## 架构
 
@@ -18,15 +18,15 @@
 
 ### 三分支决策
 
-SessionManager 在会话查找与创建中对注入的处理分为三个分支：
+SessionManager 在会话查找与创建中对注入的处理分为三个分支（含 spawn 创建的 child session，其 bootstrap 模式由 spawn 的 lightContext 覆盖，见 「Bootstrap 加载模式」节）：
 
 - **命中 active session**：直接返回已有 session，不触发注入。已有 session 的 system prompt 保持不变。
-- **命中 archived session**：从 SessionCheckpoint 恢复 ConversationSession 后，触发完整注入流程——与"新 session"分支相同的 builder 调用，用新构建的 system prompt 替换空值（重建细节详见 [system_prompt/README 恢复](../system_prompt/README.md#恢复)）。
-- **新 session**：触发完整注入流程。builder 内部通过 Bootstrap Loader 加载 bootstrap 文件，注入完成后 system prompt 存入 ConversationSession。
+- **命中 archived session**：从 SessionCheckpoint 恢复 ConversationSession 后，触发全量注入重建——与"新 session"分支相同的 builder 调用，用新构建的 system prompt 替换空值（重建细节详见 [system_prompt/README 恢复](../system_prompt/README.md#恢复)）。
+- **新 session（含 spawn 子 session）**：触发全量注入重建。builder 内部通过 Bootstrap Loader 按解析出的加载模式加载 bootstrap 文件（spawn 子 session 的 bootstrap 模式见下节），注入完成后 system prompt 存入 ConversationSession。
 
 注入链路的参数契约：
-- 入参：agent_id、ToolRegistry 引用
-- bootstrap 文件由 builder 内部通过 Bootstrap Loader 加载，不经过注入链路传递
+- 入参：agent_id、ToolRegistry 引用、bootstrap 加载模式（完整/精简，由普通创建或 spawn lightContext 解析，见「Bootstrap 加载模式」节）
+- bootstrap 文件由 builder 内部通过 Bootstrap Loader 按该模式加载，不经过注入链路传递具体文件
 - 出参：组装完成的 system prompt 文本
 - 结果存储：ConversationSession 的 system prompt 字段（运行时字段，不进 SessionCheckpoint）
 
@@ -37,6 +37,30 @@ SessionManager 在会话查找与创建中对注入的处理分为三个分支�
 AppendSection 是独立于动态层的第三分区（详见 system_prompt/README 架构），由 ConversationSession 从自身运行时字段读取并拼接到 system prompt 末尾。
 
 动态层的 Section 类型和拼接规则在 [system_prompt/dynamic-layer.md](../system_prompt/dynamic-layer.md) 定义。
+
+### Bootstrap 加载模式（bootstrap_mode）
+
+注入链路不直接决定加载哪些 bootstrap 文件，但**解析并传递 bootstrap 加载模式**，由 Bootstrap Loader 按模式选择文件集。模式解析链：
+
+- **new session / archived session 重建**：使用该 agent 配置中的 `bootstrap_mode`（完整 / 精简，详见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) 的 Minimal/Full 文件集与 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程）。
+- **spawn 子 session**：若 spawn 参数 `lightContext: true` → 强制使用精简模式（Minimal），覆盖 agent 配置；否则沿用目标 agent 的 `bootstrap_mode`。
+
+解析流程（编号列表）：
+
+1. spawn 子 session 时判断 lightContext：为 true → 用 Minimal（覆盖）；为 false → 用目标 agent 的 bootstrap_mode
+2. 将 bootstrap 加载模式传给 Bootstrap Loader，按其决定加载的文件集合：完整模式加载全量 bootstrap 文件，精简模式只加载 minimal 文件清单
+3. 精简模式下不注入长期记忆片段（memory 片段仅在完整模式注入，见 system_prompt/static-layer.md 与 fragment-provider）
+
+精简模式下系统 prompt 只含必要的最小身份/工具集，降低 token 占用、加快子任务启动。agent 侧完整/精简的解析语义见 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程。
+
+### 文件变更检测（file_mtimes / file_read_ranges）
+
+Session 持有两份会话级文件状态（运行时时态，仅存在于内存，不进 SessionCheckpoint，随 session 生命周期释放），供工具读 / 写链路消费，实现文件读的一致性保护与同 turn 读取去重。状态由工具链路记录与消费（记录与去重行为详见 [tools/read-tool.md](../tools/read-tool.md)、[tools/write-edit-tool.md](../tools/write-edit-tool.md)）：
+
+- **file_mtimes**：按规范路径记录文件最近读取时的时间戳。
+- **file_read_ranges**：记录同 turn 已读取过的文件及其行范围（offset/limit）。
+
+记录与去重行为（读取记录 mtime/range、同 turn 去重、编辑前 staleness 比对）由工具读 / 写链路实现，详见 [tools/read-tool.md](../tools/read-tool.md)、[tools/write-edit-tool.md](../tools/write-edit-tool.md)——本模块只在会话侧持有这两份状态。
 
 ### 条件激活 skill 消息注入
 
@@ -103,6 +127,7 @@ session 暴露一个 `memory_injection` 槽位，供 memory 模块的 active-sea
 2. SessionManager 调用 System Prompt Builder
    - 传参：agent_id
    - 传参：ToolRegistry 引用
+   - 传参：bootstrap 加载模式（完整/精简，由普通创建或 spawn lightContext 解析）
    - 返回：组装完成的 system prompt 文本
 3. 写入 ConversationSession 的 system prompt 字段
 4. 返回 session 给调用方
