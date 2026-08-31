@@ -417,6 +417,12 @@ impl SystemConfigData {
         let config: SystemConfigData = serde_json::from_str(content)?;
         Ok(config)
     }
+
+    /// Return the effective shutdown configuration, falling back to defaults
+    /// when the `shutdown` section is absent from config.
+    pub fn effective_shutdown(&self) -> ShutdownConfig {
+        self.shutdown.clone().unwrap_or_default()
+    }
 }
 
 impl ConfigProvider for SystemConfigData {

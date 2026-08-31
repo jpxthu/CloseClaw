@@ -611,11 +611,15 @@ async fn test_config_watcher_handle_holds_both_handles() {
     let subscriber = handle.into_subscriber_handle();
     // Subscriber should be joinable
     let result = tokio::time::timeout(std::time::Duration::from_millis(200), subscriber).await;
-    // Task may still be running or already exited — both are valid
-    assert!(
-        result.is_ok() || result.is_err(),
-        "subscriber handle should be joinable"
-    );
+    // Task may still be running (timeout) or already exited cleanly — both valid.
+    // A panicked task would return Ok(Err(join_error)) where join_error.is_panic().
+    match &result {
+        Ok(Ok(())) => {} // clean exit
+        Ok(Err(e)) => {
+            assert!(!e.is_panic(), "subscriber should not have panicked: {e}");
+        }
+        Err(_) => {} // still running — timeout, acceptable
+    }
 }
 
 /// `into_subscriber_handle()` drops the filesystem watcher and returns
@@ -655,11 +659,15 @@ async fn test_config_watcher_handle_into_subscriber_handle() {
 
     let subscriber = handle.into_subscriber_handle();
     let result = tokio::time::timeout(std::time::Duration::from_millis(200), subscriber).await;
-    // Task may still be running or already exited — both are valid
-    assert!(
-        result.is_ok() || result.is_err(),
-        "subscriber should be a valid JoinHandle"
-    );
+    // Task may still be running (timeout) or already exited cleanly — both valid.
+    // A panicked task would return Ok(Err(join_error)) where join_error.is_panic().
+    match &result {
+        Ok(Ok(())) => {} // clean exit
+        Ok(Err(e)) => {
+            assert!(!e.is_panic(), "subscriber should not have panicked: {e}");
+        }
+        Err(_) => {} // still running — timeout, acceptable
+    }
 }
 
 /// Phase 3: ConfigWatcher subscriber is included in the 5-task background

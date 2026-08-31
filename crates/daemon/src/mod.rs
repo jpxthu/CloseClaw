@@ -387,7 +387,7 @@ impl Daemon {
         let drain_timeout = config_manager
             .section(ConfigSection::System)
             .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
-            .and_then(|sys| sys.shutdown.map(|s| s.drain_timeout_secs))
+            .map(|sys| sys.effective_shutdown().drain_timeout_secs)
             .unwrap_or(30);
         let shutdown = shutdown::ShutdownHandle::new()
             .with_drain_timeout(std::time::Duration::from_secs(drain_timeout));

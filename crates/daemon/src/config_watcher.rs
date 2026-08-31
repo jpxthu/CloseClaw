@@ -20,7 +20,7 @@ use tracing::{info, warn};
 /// handle can be used (e.g. in Phase 3) to verify the task has exited.
 pub(crate) struct ConfigWatcherHandle {
     _watcher: WatcherHandle,
-    pub(crate) _subscriber_handle: tokio::task::JoinHandle<()>,
+    _subscriber_handle: tokio::task::JoinHandle<()>,
 }
 
 impl ConfigWatcherHandle {

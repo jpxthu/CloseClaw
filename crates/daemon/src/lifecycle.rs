@@ -423,8 +423,9 @@ impl Daemon {
             self.config_manager
                 .section(ConfigSection::System)
                 .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
-                .and_then(|sys| sys.shutdown.map(|s| s.graceful_timeout_secs))
-                .map(std::time::Duration::from_secs)
+                .map(|sys| {
+                    std::time::Duration::from_secs(sys.effective_shutdown().graceful_timeout_secs)
+                })
                 .unwrap_or(
                     closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT,
                 )
