@@ -24,8 +24,8 @@
 │   ├── system.json          # 系统级配置（定时任务、钩子、消息等）
 │   ├── agents.json          # Agent 注册清单（显式 ID 列表，JSONC）
 │   ├── skills.json          # 全局技能配置（extraDirs 外部复用技能目录）
-│   ├── credentials/         # 凭据子目录（按供应商分文件，与业务配置分开存放）
-│   │   ├── feishu.json
+│   ├── credentials/         # 凭据子目录（按 LLM 供应商分文件，与业务配置分开存放）
+│   │   ├── glm.json
 │   │   ├── minimax.json
 │   │   └── ...
 │   └── .backups/            # 滚动备份目录
@@ -70,54 +70,26 @@
 
 ### 启动加载
 
-```
-Config 模块启动时
-  ↓
-加载 config/ 下所有配置文件（含 agents.json，由 AgentsConfigProvider 加载注册清单）
-  │     │
-  │     ├─ 解析成功 & 校验通过 → 补齐缺失字段默认值 → 加载到内存
-  │     │
-  │     ├─ 解析失败 → BackupManager 查找最近备份
-  │     │     ├─ 备份存在 → 回退到备份文件 → 重试加载
-  │     │     │     ├─ 成功 → 记录 WARN，继续
-  │     │     │     └─ 仍失败 → 返回 Err，拒绝启动
-  │     │     └─ 无备份 → 返回 Err，拒绝启动
-  │     │
-  │     └─ 校验失败 → 同上回退流程
-  │
-  └─ 配置中存在不再支持的旧字段 → 静默忽略，不影响加载
-  ↓
-加载 credentials/ 目录
-  │
-  └─ 加载失败 → 使用空凭据，记录 WARN（不阻塞启动）
-  ↓
-AgentDirectoryProvider 读取注册清单
-  ├─ 扫描 agents/ 目录（用户级 + 项目级）
-  ├─ 对每个注册 ID，加载 config.json
-  ├─ 字段级覆盖合并（项目 > 用户）
-  └─ 补齐默认值 → 生成 ResolvedAgentConfig[]（字段定义见 agent/agent-config.md）
-  ↓
-全部加载成功 → 启动 ConfigReloadManager（注册文件监听、热重载）
-  ↓
-Daemon 正常运行，热重载监听器后台运行
-```
+Config 模块启动时依次执行以下步骤：
+
+1. 加载 `config/` 下所有配置文件（含 agents.json，由 AgentsConfigProvider 加载注册清单）。
+   - 解析成功且校验通过 → 补齐缺失字段默认值 → 加载到内存。
+   - 解析失败 → 由 BackupManager 查找最近备份：备份存在则回退到备份文件后重试加载（成功 → 记录 WARN，继续；仍失败 → 返回 Err，拒绝启动）；无备份 → 返回 Err，拒绝启动。
+   - 校验失败 → 同上回退流程。
+   - 配置中存在不再支持的旧字段 → 静默忽略，不影响加载。
+2. 加载 `credentials/` 目录。加载失败 → 使用空凭据，记录 WARN（不阻塞启动）。
+3. AgentDirectoryProvider 读取注册清单：扫描 agents/ 目录（用户级 + 项目级）→ 对每个注册 ID 加载 config.json → 字段级覆盖合并（项目 > 用户）→ 补齐默认值，生成 ResolvedAgentConfig[]（字段定义见 agent/agent-config.md）。
+4. 全部加载成功 → 启动 ConfigReloadManager（注册文件监听、热重载）。
+5. Daemon 正常运行，热重载监听器后台运行。
 
 ### Agent 配置加载
 
-```
-读取注册清单（config/agents.json + 项目级 agents.json）
-  ↓
-取 ID 并集，仅加载清单中列出的 ID
-  ↓
-对每个注册 ID：
-  └─ 优先加载项目级 agents/<id>/config.json（不存在回退用户级）
-  ↓
-字段级覆盖合并（项目 > 用户）
-  ↓
-补齐所有字段默认值
-  ↓
-生成 ResolvedAgentConfig，返回给调用方
-```
+1. 读取注册清单（config/agents.json + 项目级 agents.json）。
+2. 取 ID 并集，仅加载清单中列出的 ID。
+3. 对每个注册 ID，优先加载项目级 agents/<id>/config.json（不存在回退用户级）。
+4. 字段级覆盖合并（项目 > 用户）。
+5. 补齐所有字段默认值。
+6. 生成 ResolvedAgentConfig，返回给调用方。
 
 完整合并规则和字段语义详见 [agent-config.md](../agent/agent-config.md) 架构节。
 
