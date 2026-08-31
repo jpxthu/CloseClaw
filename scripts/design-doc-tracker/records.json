@@ -113,9 +113,9 @@
   },
   {
     "path": "docs/design/config/hot-reload.md",
-    "commit": "81dc9c9820f0b847cf962a2d3a98790164207c3b",
-    "commit_time": "2026-08-31T01:49:31+08:00",
-    "confirmed_time": "2026-08-31T02:15:10.298743+08:00",
+    "commit": "1dd86772ccf1f464517e341cba578098a9ae0c35",
+    "commit_time": "2026-09-01T03:25:02+08:00",
+    "confirmed_time": "2026-09-01T03:35:37.980304+08:00",
     "comment": "",
     "blocked_reason": ""
   },
