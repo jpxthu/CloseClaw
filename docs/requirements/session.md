@@ -51,9 +51,9 @@ Session 恢复时触发 Agent 的 system prompt 重新注入。
 
 ### F4. 子 Session 委托与协调
 
-Agent 可以将子任务委托给子 Session，并行委托多个子 Session，等待结果后继续决策。
+Agent 可以将子任务委托给子 Session，并行委托多个子 Session，等待结果后继续决策。子 Session 的创建控制由 Agent 模块定义，详见 [agent §F7](agent.md)（子 Session 创建）。
 
-- Agent 可以创建子 Session 来委托子任务。子 Session 的任务描述注入到 system prompt 中，不属于对话消息，压缩时不受影响
+- 子 Session 的任务描述注入到 system prompt 中，不属于对话消息，压缩时不受影响
 - Agent 可以向已有未完成的子 Session 发送新任务
 - Agent 可以终止子 Session，级联终止其所有后代
 - 子 Session 完成后结果通过统一消息队列注入父 Session（带去重保护）。子 Session 完成通知与其他消息类型（User 消息、后台任务结果、系统通知）一视同仁，统一按 F10 的排队规则处理，Agent 不需要轮询
@@ -62,7 +62,7 @@ Agent 可以将子任务委托给子 Session，并行委托多个子 Session，�
   - 子 Session 的运行时长达到设定的超时上限时，系统向父 Session 注入超时通知。通知内容包含：设定的超时时间、实际运行时长、上下文窗口使用情况及 token 用量
   - 若父 Agent 未终止该子 Session，系统在超时时间的 50% 间隔后再次注入通知，循环往复。间隔比例可配置
   - 父 Agent 收到通知后自行决定：终止子 Session、继续等待、或向 User 汇报
-  - 子 Session 的超时时间来源及优先级，详见 [agent §F7](agent.md)（子 Agent 创建）。
+  - 子 Session 的超时时间来源及优先级，详见 [agent §F7](agent.md)（子 Session 创建）。
 - 父 Session 每轮对话开始时，系统注入当前活跃子 Session 摘要：正在执行的子 Session 数量及每个子 Session 的概要信息（Agent 标识、任务简述、已运行时长）
 
 > **交叉引用**：子 Session 结果注入与排队规则详见 [F9](#f9-消息注入)（消息注入）、[F10](#f10-消息排队)（消息排队）。
@@ -115,6 +115,9 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 每个 Session 拥有独立的工作目录，作为该会话文件操作的默认路径，随会话生命周期初始化和重置。
 
 - 工作目录在 Session 创建时初始化为默认值，恢复时重置为默认值
+- 工作目录的解析顺序：spawn 参数指定 > 目标 Agent 配置 > 系统默认工作目录
+
+> **交叉引用**：工作目录的强制授权机制（不受任何 Deny 规则影响）详见 [permission §F3](permission.md)（权限决策模型）。
 
 > **交叉引用**：工作目录的查看与变更由 `/pwd`、`/cd`、`/git` 指令完成，详见 [slash §F7](slash.md)（工作目录操作）。
 
