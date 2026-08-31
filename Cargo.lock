@@ -732,6 +732,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "closeclaw-common",
+ "closeclaw-debug-log",
  "closeclaw-session",
  "futures",
  "glob",

@@ -9,11 +9,13 @@
 //! the same five-layer architecture as the streaming path.
 
 use crate::client::{ClientError, UnifiedChatClient};
+use crate::debug_log::{self, LlmDebugLogContext};
 use crate::protocol::{OutgoingEventStream, ProtocolError};
 use crate::retry::CooldownManager;
 use crate::types::{InternalRequest, UnifiedResponse};
 use crate::LLMError;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+use closeclaw_debug_log::{DebugLog, LogLevel};
 use std::sync::Arc;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +64,8 @@ pub struct UnifiedFallbackClient {
     chain: Vec<ChainEntry>,
     /// Shared cooldown manager (same instance as [`FallbackClient`]).
     cooldown: Arc<CooldownManager>,
+    /// Optional debug-log instance for structured event emission.
+    debug_log: Option<DebugLog>,
 }
 
 impl std::fmt::Debug for UnifiedFallbackClient {
@@ -87,7 +91,29 @@ impl UnifiedFallbackClient {
     /// * `chain` — Ordered list of [`ChainEntry`]s to try.
     /// * `cooldown` — Shared [`CooldownManager`] instance.
     pub fn new(chain: Vec<ChainEntry>, cooldown: Arc<CooldownManager>) -> Self {
-        Self { chain, cooldown }
+        Self {
+            chain,
+            cooldown,
+            debug_log: None,
+        }
+    }
+
+    /// Create a new `UnifiedFallbackClient` with debug-log support.
+    ///
+    /// # Arguments
+    /// * `chain` — Ordered list of [`ChainEntry`]s to try.
+    /// * `cooldown` — Shared [`CooldownManager`] instance.
+    /// * `debug_log` — Optional [`DebugLog`] instance for structured event emission.
+    pub fn with_debug_log(
+        chain: Vec<ChainEntry>,
+        cooldown: Arc<CooldownManager>,
+        debug_log: Option<DebugLog>,
+    ) -> Self {
+        Self {
+            chain,
+            cooldown,
+            debug_log,
+        }
     }
 
     /// Returns a reference to the first client in the chain.
@@ -118,11 +144,35 @@ impl UnifiedFallbackClient {
         &self,
         mut request: InternalRequest,
     ) -> Result<OutgoingEventStream, ClientError> {
+        let trace_id = request.model.clone();
+        // Emit llm.call.start for streaming.
+        debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+            ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
+            level: LogLevel::Info,
+            source_module: "llm",
+            event_type: "llm.call.start",
+            payload: serde_json::json!({
+                "model": request.model,
+                "stream": true,
+            }),
+            parent: None,
+        });
         let mut idx = 0;
         loop {
             match self.chain.get(idx) {
                 None => {
                     // All streaming entries exhausted — degrade to non-streaming.
+                    // Emit llm.failure for streaming exhaustion.
+                    debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+                        ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
+                        level: LogLevel::Error,
+                        source_module: "llm",
+                        event_type: "llm.failure",
+                        payload: serde_json::json!({
+                            "reason": "all streaming entries exhausted, degrading to non-streaming",
+                        }),
+                        parent: None,
+                    });
                     return self.degraded_stream(request).await;
                 }
                 Some(entry) => {
@@ -147,6 +197,22 @@ impl UnifiedFallbackClient {
                             self.cooldown
                                 .record_success(&entry.provider_id, &entry.model_id)
                                 .await;
+                            // Emit llm.call.end on streaming success.
+                            debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+                                ctx: LlmDebugLogContext::new(
+                                    self.debug_log.as_ref(),
+                                    &trace_id,
+                                    None,
+                                ),
+                                level: LogLevel::Info,
+                                source_module: "llm",
+                                event_type: "llm.call.end",
+                                payload: serde_json::json!({
+                                    "model": entry.model_id,
+                                    "provider": entry.provider_id,
+                                }),
+                                parent: None,
+                            });
                             return Ok(stream);
                         }
                         Err(client_err) => {
@@ -159,6 +225,25 @@ impl UnifiedFallbackClient {
                                 kind = ?kind,
                                 "unified fallback streaming call failed"
                             );
+                            // Emit llm.retry on streaming failure.
+                            debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+                                ctx: LlmDebugLogContext::new(
+                                    self.debug_log.as_ref(),
+                                    &trace_id,
+                                    None,
+                                ),
+                                level: LogLevel::Warn,
+                                source_module: "llm",
+                                event_type: "llm.retry",
+                                payload: serde_json::json!({
+                                    "provider": entry.provider_id,
+                                    "model": entry.model_id,
+                                    "error": llm_err.to_string(),
+                                    "error_kind": format!("{:?}", kind),
+                                    "attempt": idx + 1,
+                                }),
+                                parent: None,
+                            });
                             self.cooldown
                                 .record_failure(&entry.provider_id, &entry.model_id, kind)
                                 .await;
@@ -212,9 +297,33 @@ impl UnifiedFallbackClient {
     /// cooldown. Returns the first successful [`UnifiedResponse`], or an error
     /// if all entries are exhausted.
     pub async fn chat(&self, mut request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+        let trace_id = request.model.clone();
+        // Emit llm.call.start
+        debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+            ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
+            level: LogLevel::Info,
+            source_module: "llm",
+            event_type: "llm.call.start",
+            payload: serde_json::json!({
+                "model": request.model,
+                "stream": false,
+            }),
+            parent: None,
+        });
         let mut idx = 0;
         loop {
             let entry = self.chain.get(idx).ok_or_else(|| {
+                // Emit llm.failure when all entries exhausted.
+                debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+                    ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
+                    level: LogLevel::Error,
+                    source_module: "llm",
+                    event_type: "llm.failure",
+                    payload: serde_json::json!({
+                        "reason": "all models in unified fallback chain exhausted",
+                    }),
+                    parent: None,
+                });
                 LLMError::ApiError("all models in unified fallback chain exhausted".to_string())
             })?;
 
@@ -239,6 +348,18 @@ impl UnifiedFallbackClient {
                     self.cooldown
                         .record_success(&entry.provider_id, &entry.model_id)
                         .await;
+                    // Emit llm.call.end on success.
+                    debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+                        ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
+                        level: LogLevel::Info,
+                        source_module: "llm",
+                        event_type: "llm.call.end",
+                        payload: serde_json::json!({
+                            "model": entry.model_id,
+                            "provider": entry.provider_id,
+                        }),
+                        parent: None,
+                    });
                     return Ok(response);
                 }
                 Err(client_err) => {
@@ -251,6 +372,21 @@ impl UnifiedFallbackClient {
                         kind = ?kind,
                         "unified fallback call failed"
                     );
+                    // Emit llm.retry on failure (degraded warning).
+                    debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
+                        ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
+                        level: LogLevel::Warn,
+                        source_module: "llm",
+                        event_type: "llm.retry",
+                        payload: serde_json::json!({
+                            "provider": entry.provider_id,
+                            "model": entry.model_id,
+                            "error": llm_err.to_string(),
+                            "error_kind": format!("{:?}", kind),
+                            "attempt": idx + 1,
+                        }),
+                        parent: None,
+                    });
                     self.cooldown
                         .record_failure(&entry.provider_id, &entry.model_id, kind)
                         .await;
