@@ -164,60 +164,47 @@ fn expand_quote(elem: &serde_json::Value) -> String {
     }
 }
 
+/// Extract media references from a single post content element.
+/// Returns `Some(MediaRef)` for `img`, `media`, and `file` tags with
+/// a non-empty key; `None` for all other tags or missing/empty keys.
+fn media_ref_from_elem(elem: &serde_json::Value) -> Option<MediaRef> {
+    let tag = elem.get("tag").and_then(|t| t.as_str())?;
+    let (key, media_type) = match tag {
+        "img" => (elem.get("image_key")?, MediaType::Image),
+        "media" | "file" => (
+            // Design decision: `media` tag maps to
+            // MediaType::File (not a distinct Video variant)
+            // because the current adapter metadata has no
+            // finer-grained media sub-type for video vs file.
+            // This is consistent with the existing file|audio
+            // handling in the adapter.
+            elem.get("file_key")?,
+            MediaType::File,
+        ),
+        _ => return None,
+    };
+    let key = key.as_str()?.to_string();
+    if key.is_empty() {
+        return None;
+    }
+    Some(MediaRef {
+        key,
+        path: String::new(),
+        media_type,
+        size: 0,
+        mime: String::new(),
+    })
+}
+
 /// Extract media references from a post message's 2D content array.
 /// Scans for `img`, `media`, and `file` tags and builds `MediaRef`
 /// entries for each embedded resource.
 pub(crate) fn extract_post_media_refs(content: &serde_json::Value) -> Vec<MediaRef> {
-    let mut refs = Vec::new();
-    if let Some(rows) = content.get("content").and_then(|c| c.as_array()) {
-        for row in rows {
-            if let Some(elements) = row.as_array() {
-                for elem in elements {
-                    let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
-                    match tag {
-                        "img" => {
-                            let key = elem
-                                .get("image_key")
-                                .and_then(|k| k.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            if !key.is_empty() {
-                                refs.push(MediaRef {
-                                    key,
-                                    path: String::new(),
-                                    media_type: MediaType::Image,
-                                    size: 0,
-                                    mime: String::new(),
-                                });
-                            }
-                        }
-                        "media" | "file" => {
-                            // Design decision: `media` tag maps to
-                            // MediaType::File (not a distinct Video variant)
-                            // because the current adapter metadata has no
-                            // finer-grained media sub-type for video vs file.
-                            // This is consistent with the existing file|audio
-                            // handling in the adapter.
-                            let key = elem
-                                .get("file_key")
-                                .and_then(|k| k.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            if !key.is_empty() {
-                                refs.push(MediaRef {
-                                    key,
-                                    path: String::new(),
-                                    media_type: MediaType::File,
-                                    size: 0,
-                                    mime: String::new(),
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
-    refs
+    let Some(rows) = content.get("content").and_then(|c| c.as_array()) else {
+        return Vec::new();
+    };
+    rows.iter()
+        .flat_map(|row| row.as_array().into_iter().flatten())
+        .filter_map(media_ref_from_elem)
+        .collect()
 }
