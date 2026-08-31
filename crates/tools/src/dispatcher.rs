@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use serde_json::Value;
 
+use crate::debug_log::{emit_tool_event, ToolsDebugLogContext, ToolsEmitEventParams};
 use crate::file_mutex::FileMutexMap;
 use crate::registry::ToolRegistryImpl;
 
@@ -151,9 +152,16 @@ impl ToolCallDispatcher {
 ///
 /// Created per-dispatch batch; holds a base [`ToolContext`] whose
 /// `call_id` is overridden from each [`PendingToolCall::id`].
+///
+/// Optionally holds a [`DebugLog`] context for emitting structured
+/// debug-log events at tool execution start/end and full params.
 pub struct ToolRegistryExecutor {
     registry: Arc<ToolRegistryImpl>,
     base_ctx: crate::ToolContext,
+    debug_log: Option<Arc<closeclaw_debug_log::DebugLog>>,
+    trace_id: String,
+    session_key: Option<String>,
+    parent_span: Option<closeclaw_debug_log::TraceContext>,
 }
 
 impl ToolRegistryExecutor {
@@ -162,7 +170,29 @@ impl ToolRegistryExecutor {
     /// `base_ctx` is cloned for each call; its `call_id` is replaced
     /// with the individual `PendingToolCall::id`.
     pub fn new(registry: Arc<ToolRegistryImpl>, base_ctx: crate::ToolContext) -> Self {
-        Self { registry, base_ctx }
+        Self {
+            registry,
+            base_ctx,
+            debug_log: None,
+            trace_id: String::new(),
+            session_key: None,
+            parent_span: None,
+        }
+    }
+
+    /// Attach a debug-log context for emitting structured events.
+    pub fn with_debug_log(
+        mut self,
+        debug_log: Option<Arc<closeclaw_debug_log::DebugLog>>,
+        trace_id: String,
+        session_key: Option<String>,
+        parent_span: Option<closeclaw_debug_log::TraceContext>,
+    ) -> Self {
+        self.debug_log = debug_log;
+        self.trace_id = trace_id;
+        self.session_key = session_key;
+        self.parent_span = parent_span;
+        self
     }
 }
 
@@ -179,14 +209,75 @@ impl ToolExecutor for ToolRegistryExecutor {
         let mut ctx = self.base_ctx.clone();
         ctx.call_id = Some(call.id.clone());
 
-        match tool.call(call.args.clone(), &ctx).await {
+        // Emit tool.execution.start
+        emit_tool_event(ToolsEmitEventParams {
+            ctx: ToolsDebugLogContext {
+                debug_log: self.debug_log.as_deref(),
+                trace_id: &self.trace_id,
+                session_key: self.session_key.as_deref(),
+            },
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "tools",
+            event_type: "tool.execution.start",
+            payload: serde_json::json!({
+                "tool_name": call.tool_name,
+                "call_id": call.id,
+            }),
+            parent: self.parent_span.as_ref(),
+        });
+
+        let result = match tool.call(call.args.clone(), &ctx).await {
             Ok(result) => result,
             Err(e) => closeclaw_common::tool_trait::ToolResult {
                 data: serde_json::json!({ "error": e.to_string() }),
                 new_messages: vec![],
                 context_modifier: None,
             },
-        }
+        };
+
+        // Emit tool.params (Debug level — full params and return value)
+        emit_tool_event(ToolsEmitEventParams {
+            ctx: ToolsDebugLogContext {
+                debug_log: self.debug_log.as_deref(),
+                trace_id: &self.trace_id,
+                session_key: self.session_key.as_deref(),
+            },
+            level: closeclaw_debug_log::LogLevel::Debug,
+            source_module: "tools",
+            event_type: "tool.params",
+            payload: serde_json::json!({
+                "tool_name": call.tool_name,
+                "call_id": call.id,
+                "params": call.args,
+                "result": result.data,
+            }),
+            parent: self.parent_span.as_ref(),
+        });
+
+        // Emit tool.execution.end
+        let has_error = result.data.get("error").is_some();
+        emit_tool_event(ToolsEmitEventParams {
+            ctx: ToolsDebugLogContext {
+                debug_log: self.debug_log.as_deref(),
+                trace_id: &self.trace_id,
+                session_key: self.session_key.as_deref(),
+            },
+            level: if has_error {
+                closeclaw_debug_log::LogLevel::Warn
+            } else {
+                closeclaw_debug_log::LogLevel::Info
+            },
+            source_module: "tools",
+            event_type: "tool.execution.end",
+            payload: serde_json::json!({
+                "tool_name": call.tool_name,
+                "call_id": call.id,
+                "has_error": has_error,
+            }),
+            parent: self.parent_span.as_ref(),
+        });
+
+        result
     }
 }
 

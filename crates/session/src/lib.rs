@@ -12,6 +12,7 @@ pub mod checkpoint_manager;
 #[cfg(test)]
 mod checkpoint_manager_tests;
 pub mod compaction;
+pub mod debug_log;
 pub mod events;
 pub mod llm_session;
 pub mod pending_operation_detail;

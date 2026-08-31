@@ -330,7 +330,7 @@ fn allow_config_write_rule(agent: &str) -> Rule {
 async fn test_tool_allowed_when_rule_matches() {
     let deps = make_deps(vec![allow_tool_rule("agent-a", "bash")]);
     let ctx = make_ctx("agent-a");
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none(), "allowed → None");
 }
@@ -339,7 +339,7 @@ async fn test_tool_allowed_when_rule_matches() {
 async fn test_tool_denied_when_no_matching_rule() {
     let deps = make_deps_deny(vec![allow_tool_rule("agent-a", "bash")]);
     let ctx = make_ctx("other-agent");
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     match result {
         Err(ToolCallError::PermissionDenied(reason)) => {
             assert!(!reason.is_empty());
@@ -352,7 +352,7 @@ async fn test_tool_denied_when_no_matching_rule() {
 async fn test_tool_denied_when_wrong_skill() {
     let deps = make_deps_deny(vec![allow_tool_rule("agent-a", "file_ops")]);
     let ctx = make_ctx("agent-a");
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     assert!(result.is_err());
 }
 
@@ -364,7 +364,7 @@ async fn test_tool_denied_when_wrong_skill() {
 async fn test_file_op_read_allowed() {
     let deps = make_deps(vec![allow_file_rule("agent-a", "/tmp/**", "read")]);
     let ctx = make_ctx("agent-a");
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read").await;
+    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read", None).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
 }
@@ -373,7 +373,7 @@ async fn test_file_op_read_allowed() {
 async fn test_file_op_write_allowed() {
     let deps = make_deps(vec![allow_file_rule("agent-a", "/tmp/**", "write")]);
     let ctx = make_ctx("agent-a");
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/out.txt", "write").await;
+    let result = check_file_op_permission(&deps, &ctx, "/tmp/out.txt", "write", None).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
 }
@@ -382,7 +382,7 @@ async fn test_file_op_write_allowed() {
 async fn test_file_op_denied_without_rule() {
     let deps = make_deps_deny(vec![]);
     let ctx = make_ctx("agent-a");
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read").await;
+    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read", None).await;
     assert!(result.is_err());
 }
 
@@ -394,7 +394,7 @@ async fn test_file_op_denied_without_rule() {
 async fn test_command_allowed() {
     let deps = make_deps(vec![allow_cmd_rule("agent-a", "echo")]);
     let ctx = make_ctx("agent-a");
-    let result = check_command_permission(&deps, &ctx, "echo", &["hello".to_string()]).await;
+    let result = check_command_permission(&deps, &ctx, "echo", &["hello".to_string()], None).await;
     assert!(matches!(result, CommandPermissionResult::Permitted));
 }
 
@@ -402,8 +402,14 @@ async fn test_command_allowed() {
 async fn test_command_denied_without_rule() {
     let deps = make_deps_deny(vec![]);
     let ctx = make_ctx("agent-a");
-    let result =
-        check_command_permission(&deps, &ctx, "rm", &["-rf".to_string(), "/".to_string()]).await;
+    let result = check_command_permission(
+        &deps,
+        &ctx,
+        "rm",
+        &["-rf".to_string(), "/".to_string()],
+        None,
+    )
+    .await;
     assert!(matches!(result, CommandPermissionResult::Denied(_)));
 }
 
@@ -501,27 +507,15 @@ async fn test_config_write_permission_denied() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_tool_empty_skill_name() {
+async fn test_empty_inputs_are_denied() {
     let deps = make_deps_deny(vec![]);
     let ctx = make_ctx("agent-a");
-    let result = check_tool_permission(&deps, &ctx, "", "call").await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_file_op_empty_path() {
-    let deps = make_deps_deny(vec![]);
-    let ctx = make_ctx("agent-a");
-    let result = check_file_op_permission(&deps, &ctx, "", "read").await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_command_empty_cmd() {
-    let deps = make_deps_deny(vec![]);
-    let ctx = make_ctx("agent-a");
-    let result = check_command_permission(&deps, &ctx, "", &vec![]).await;
-    assert!(matches!(result, CommandPermissionResult::Denied(_)));
+    let tool = check_tool_permission(&deps, &ctx, "", "call", None).await;
+    assert!(tool.is_err());
+    let file = check_file_op_permission(&deps, &ctx, "", "read", None).await;
+    assert!(file.is_err());
+    let cmd = check_command_permission(&deps, &ctx, "", &vec![], None).await;
+    assert!(matches!(cmd, CommandPermissionResult::Denied(_)));
 }
 
 #[tokio::test]
@@ -529,7 +523,7 @@ async fn test_file_op_special_char_path() {
     let deps = make_deps(vec![allow_file_rule("agent-a", "/tmp/**", "read")]);
     let ctx = make_ctx("agent-a");
     let path = "/tmp/file with spaces & special!@#.txt";
-    let result = check_file_op_permission(&deps, &ctx, path, "read").await;
+    let result = check_file_op_permission(&deps, &ctx, path, "read", None).await;
     // Should not panic on special chars
     assert!(result.is_ok() || result.is_err());
 }
@@ -545,7 +539,7 @@ async fn test_level1_block_prevents_level2() {
     let deps = make_deps_deny(vec![allow_file_rule("agent-a", "/tmp/**", "read")]);
     let ctx = make_ctx("agent-a");
 
-    let level1 = check_tool_permission(&deps, &ctx, "file_ops", "call").await;
+    let level1 = check_tool_permission(&deps, &ctx, "file_ops", "call", None).await;
     assert!(level1.is_err(), "Level 1 should deny");
 }
 
@@ -558,11 +552,11 @@ async fn test_level1_pass_level2_pass() {
     ]);
     let ctx = make_ctx("agent-a");
 
-    let level1 = check_tool_permission(&deps, &ctx, "file_ops", "call").await;
+    let level1 = check_tool_permission(&deps, &ctx, "file_ops", "call", None).await;
     assert!(level1.is_ok());
     assert!(level1.unwrap().is_none());
 
-    let level2 = check_file_op_permission(&deps, &ctx, "/tmp/file.txt", "read").await;
+    let level2 = check_file_op_permission(&deps, &ctx, "/tmp/file.txt", "read", None).await;
     assert!(level2.is_ok());
     assert!(level2.unwrap().is_none());
 }
@@ -573,13 +567,13 @@ async fn test_level1_pass_level2_denied() {
     let deps = make_deps(vec![allow_tool_rule("agent-a", "file_ops")]);
     let ctx = make_ctx("agent-a");
 
-    let level1 = check_tool_permission(&deps, &ctx, "file_ops", "call").await;
+    let level1 = check_tool_permission(&deps, &ctx, "file_ops", "call", None).await;
     assert!(level1.is_ok());
     assert!(level1.unwrap().is_none());
 
     // Use deny flow for Level 2 to get a hard denial
     let deps2 = make_deps_deny(vec![allow_tool_rule("agent-a", "file_ops")]);
-    let level2 = check_file_op_permission(&deps2, &ctx, "/tmp/file.txt", "read").await;
+    let level2 = check_file_op_permission(&deps2, &ctx, "/tmp/file.txt", "read", None).await;
     assert!(level2.is_err(), "Level 2 should deny");
 }
 
@@ -667,7 +661,7 @@ async fn test_root_session_denial_goes_through_approval_flow() {
         session_mode: None,
         manual_background_signal: None,
     };
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // Root session → is_sub_agent=false → approval flow enqueues → Ok(Some(...))
     assert!(
         result.is_ok(),
@@ -697,7 +691,7 @@ async fn test_child_session_denial_is_silent() {
         session_mode: None,
         manual_background_signal: None,
     };
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // Child session → is_sub_agent=true → silent deny → PermissionDenied
     match result {
         Err(ToolCallError::PermissionDenied(reason)) => {
@@ -715,7 +709,7 @@ async fn test_none_session_id_not_sub_agent() {
     let deps = make_deps_with_sm(vec![], sm, flow);
     let ctx = make_ctx("agent-a");
     // ctx.session_id is None by default from make_ctx
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // None session → is_sub_agent=false → approval flow enqueues
     assert!(
         result.is_ok(),
@@ -739,7 +733,7 @@ async fn test_empty_session_id_not_sub_agent() {
         session_mode: None,
         manual_background_signal: None,
     };
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // Empty session_id → is_sub_agent=false → approval flow enqueues
     assert!(
         result.is_ok(),
@@ -765,7 +759,7 @@ async fn test_child_session_file_op_denial_is_silent() {
         session_mode: None,
         manual_background_signal: None,
     };
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read").await;
+    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read", None).await;
     // Child session → silent deny → PermissionDenied
     assert!(
         result.is_err(),
@@ -790,7 +784,7 @@ async fn test_child_session_command_denial_is_silent() {
         session_mode: None,
         manual_background_signal: None,
     };
-    let result = check_command_permission(&deps, &ctx, "ls", &["-la".to_string()]).await;
+    let result = check_command_permission(&deps, &ctx, "ls", &["-la".to_string()], None).await;
     // Child session → silent deny → Denied variant
     assert!(
         matches!(result, CommandPermissionResult::Denied(_)),
@@ -910,7 +904,7 @@ async fn test_session_with_sender_uses_real_user_id() {
     let flow = make_af();
     let deps = make_deps_with_shared_sm(rules, sm, flow);
     let ctx = make_ctx_with_session("agent-a", "sess-1");
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     match &result {
         Ok(None) => {} // expected: Allowed
         other => panic!("expected Ok(None) (Allowed), got: {:?}", other),
@@ -940,7 +934,7 @@ async fn test_session_without_sender_falls_back_to_bare() {
     let flow = make_af();
     let deps = make_deps_with_shared_sm(rules, sm, flow);
     let ctx = make_ctx_with_session("agent-a", "sess-2");
-    let result = check_tool_permission(&deps, &ctx, "bash", "call").await;
+    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // Agent dimension Allow → Allowed (user_id is empty, user phase skipped)
     assert!(result.unwrap().is_none());
 }
@@ -955,7 +949,7 @@ async fn test_user_rule_takes_effect_after_write() {
     let flow1 = make_af_deny();
     let deps1 = make_deps_with_shared_sm(empty_rules, sm.clone(), flow1);
     let ctx = make_ctx_with_session("agent-a", "sess-3");
-    let result1 = check_tool_permission(&deps1, &ctx, "bash", "call").await;
+    let result1 = check_tool_permission(&deps1, &ctx, "bash", "call", None).await;
     assert!(result1.is_err(), "Phase 1: no rules → Deny");
     // Phase 2: Write AgentOnly + UserAndAgent Allow rules for bob → Allowed
     let rules_with_allow = vec![
@@ -992,7 +986,7 @@ async fn test_user_rule_takes_effect_after_write() {
     ];
     let flow2 = make_af();
     let deps2 = make_deps_with_shared_sm(rules_with_allow, sm, flow2);
-    let result2 = check_tool_permission(&deps2, &ctx, "bash", "call").await;
+    let result2 = check_tool_permission(&deps2, &ctx, "bash", "call", None).await;
     match &result2 {
         Ok(None) => {}
         other => panic!("Phase 2: expected Ok(None), got: {:?}", other),

@@ -17,6 +17,7 @@ closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-permission = { path = "../permission" }
+closeclaw-debug-log = { path = "../debug_log" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }

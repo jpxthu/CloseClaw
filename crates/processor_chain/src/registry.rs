@@ -9,7 +9,12 @@ use super::processor::{MessageProcessor, ProcessPhase};
 use super::ProcessedMessage;
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::NormalizedMessage;
+use closeclaw_debug_log::DebugLog;
 use closeclaw_llm::types::ContentBlock;
+
+use crate::debug_log::{
+    emit_processor_chain_event, ProcessorChainDebugLogContext, ProcessorChainEmitEventParams,
+};
 
 /// Registry holding inbound and outbound processor chains.
 ///
@@ -19,10 +24,20 @@ use closeclaw_llm::types::ContentBlock;
 /// The two chains are driven independently by
 /// [`process_inbound`](ProcessorRegistry::process_inbound)
 /// and [`process_outbound`](ProcessorRegistry::process_outbound).
-#[derive(Default)]
 pub struct ProcessorRegistry {
     inbound: Vec<Arc<dyn MessageProcessor>>,
     outbound: Vec<Arc<dyn MessageProcessor>>,
+    /// Debug log instance for structured event emission.
+    debug_log: Option<DebugLog>,
+    /// Trace ID for non-message events (empty for message-chain events
+    /// which carry trace_id via message metadata).
+    trace_id: String,
+}
+
+impl Default for ProcessorRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProcessorRegistry {
@@ -31,7 +46,44 @@ impl ProcessorRegistry {
         Self {
             inbound: Vec::new(),
             outbound: Vec::new(),
+            debug_log: None,
+            trace_id: String::new(),
         }
+    }
+
+    /// Set the debug log instance for structured event emission.
+    pub fn with_debug_log(mut self, debug_log: DebugLog) -> Self {
+        self.debug_log = Some(debug_log);
+        self
+    }
+
+    /// Set the trace ID for non-message events.
+    pub fn with_trace_id(mut self, trace_id: String) -> Self {
+        self.trace_id = trace_id;
+        self
+    }
+
+    /// Emit a debug log event with the given parameters.
+    fn emit_event(
+        &self,
+        level: closeclaw_debug_log::LogLevel,
+        event_type: &str,
+        payload: serde_json::Value,
+        session_key: Option<&str>,
+    ) {
+        let ctx = ProcessorChainDebugLogContext::new(
+            self.debug_log.as_ref(),
+            &self.trace_id,
+            session_key,
+        );
+        emit_processor_chain_event(ProcessorChainEmitEventParams {
+            ctx,
+            level,
+            source_module: "processor_chain",
+            event_type,
+            payload,
+            parent: None,
+        });
     }
 
     /// Registers a processor to the chain that matches its [`phase`](MessageProcessor::phase).
@@ -68,6 +120,16 @@ impl ProcessorRegistry {
         if self.inbound.is_empty() {
             return Ok(ProcessedMessage::from_raw_content(msg.content));
         }
+
+        // Emit chain.inbound start event (关键事件).
+        self.emit_event(
+            closeclaw_debug_log::LogLevel::Info,
+            "chain.inbound",
+            serde_json::json!({
+                "processor_count": self.inbound.len(),
+            }),
+            None,
+        );
 
         let mut ctx = MessageContext::from_normalized(msg);
 
@@ -109,6 +171,18 @@ impl ProcessorRegistry {
                 }
             }
         }
+
+        // Emit chain.routing event (中间状态) — routing result after all processors.
+        let session_key = ctx.metadata.get("session_key").map(|s| s.as_str());
+        self.emit_event(
+            closeclaw_debug_log::LogLevel::Debug,
+            "chain.routing",
+            serde_json::json!({
+                "skipped": ctx.skip,
+                "session_key": session_key,
+            }),
+            session_key,
+        );
 
         Ok(ProcessedMessage {
             content_blocks: if ctx.skip {
@@ -163,6 +237,18 @@ impl ProcessorRegistry {
         if self.outbound.is_empty() {
             return Ok(llm_output);
         }
+
+        // Emit chain.outbound start event (关键事件).
+        let session_key = llm_output.metadata.get("session_key").map(|s| s.as_str());
+        self.emit_event(
+            closeclaw_debug_log::LogLevel::Info,
+            "chain.outbound",
+            serde_json::json!({
+                "processor_count": self.outbound.len(),
+                "excluded": exclude,
+            }),
+            session_key,
+        );
 
         let mut ctx = MessageContext::from_normalized(synthetic_from_output(&llm_output));
         ctx.metadata = llm_output.metadata.clone();

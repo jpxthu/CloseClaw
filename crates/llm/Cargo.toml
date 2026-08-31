@@ -12,6 +12,7 @@ test-helpers = []
 [dependencies]
 # Internal crates
 closeclaw-common = { path = "../common" }
+closeclaw-debug-log = { path = "../debug_log" }
 closeclaw-session = { path = "../session" }
 
 # Async runtime

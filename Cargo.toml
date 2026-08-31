@@ -59,6 +59,7 @@ notify = "6.1"
 # Internal crates
 closeclaw-memory = { path = "crates/memory" }
 closeclaw-common = { path = "crates/common" }
+closeclaw-debug-log = { path = "crates/debug_log" }
 closeclaw-config = { path = "crates/config" }
 closeclaw-session = { path = "crates/session" }
 closeclaw-llm = { path = "crates/llm" }

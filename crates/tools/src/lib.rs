@@ -14,6 +14,7 @@
 pub mod bash;
 pub mod build_tools_section;
 pub mod builtin;
+pub mod debug_log;
 pub mod dispatcher;
 pub mod file_mutex;
 pub mod permission_check;
