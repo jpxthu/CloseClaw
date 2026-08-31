@@ -179,6 +179,7 @@ impl Daemon {
             builtin_skill_registry,
             slash_registry,
             _config_watcher: Some(config_watcher),
+            config_watcher_subscriber_handle: None,
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
@@ -526,15 +527,21 @@ impl Daemon {
 
     /// Phase 3: Background task stop.
     ///
-    /// - Drops ConfigWatcher (RAII) via `take()`
+    /// - Drops ConfigWatcher (RAII) via `take()`, extracting the subscriber
+    ///   handle for confirmation
     /// - Signals ArchiveSweeper and DreamingScheduler to stop
-    /// - Verifies all background tasks have exited (abort + confirm)
+    /// - Verifies all 5 background tasks have exited (abort + confirm):
+    ///   ArchiveSweeper, AnnounceSweeper, PlanArchiveSweeper,
+    ///   DreamingScheduler, ConfigWatcher subscriber
     /// - Clears pending approval requests
     async fn phase_3_background_stop(&mut self) {
         // ConfigWatcher is RAII — stop on drop.
+        // Extract the subscriber handle BEFORE dropping so we can
+        // join it in wait_all_bg_tasks (design doc: confirm all 5 tasks).
         if let Some(watcher) = self._config_watcher.take() {
-            drop(watcher);
+            let subscriber = watcher.into_subscriber_handle();
             tracing::info!("ConfigWatcher dropped in Phase 3");
+            self.config_watcher_subscriber_handle = Some(subscriber);
         }
 
         // Signal all background tasks to stop
@@ -551,6 +558,10 @@ impl Daemon {
     }
 
     /// Wait for all background tasks to exit, sending periodic heartbeats.
+    ///
+    /// Waits for all 5 background tasks per the design doc:
+    /// ArchiveSweeper, AnnounceSweeper, PlanArchiveSweeper,
+    /// DreamingScheduler, and ConfigWatcher subscriber.
     async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
         let join_timeout = std::time::Duration::from_secs(10);
         let abort_grace = std::time::Duration::from_secs(3);
@@ -563,6 +574,10 @@ impl Daemon {
             (
                 "PlanArchiveSweeper",
                 self.plan_archive_sweeper_handle.take(),
+            ),
+            (
+                "ConfigWatcherSubscriber",
+                self.config_watcher_subscriber_handle.take(),
             ),
         ];
         for (name, handle) in tasks {

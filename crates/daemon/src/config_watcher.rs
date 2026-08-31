@@ -23,6 +23,22 @@ pub(crate) struct ConfigWatcherHandle {
     pub(crate) _subscriber_handle: tokio::task::JoinHandle<()>,
 }
 
+impl ConfigWatcherHandle {
+    /// Consume self and return the subscriber JoinHandle.
+    ///
+    /// The filesystem watcher is dropped here (RAII stop), and the
+    /// subscriber handle is returned so the caller can join it later
+    /// (e.g. in Phase 3 `wait_all_bg_tasks`).
+    pub(crate) fn into_subscriber_handle(self) -> tokio::task::JoinHandle<()> {
+        let ConfigWatcherHandle {
+            _watcher,
+            _subscriber_handle,
+        } = self;
+        drop(_watcher);
+        _subscriber_handle
+    }
+}
+
 /// Spawn a background task that subscribes to config change events and
 /// notifies the [`SessionManager`].
 ///
