@@ -105,9 +105,9 @@
   },
   {
     "path": "docs/design/config/README.md",
-    "commit": "dfc4bd7b83fdb8412757db3b7e427d9ca4917516",
-    "commit_time": "2026-08-30T20:04:29+08:00",
-    "confirmed_time": "2026-08-30T20:18:58.539970+08:00",
+    "commit": "d784ebd3b4282b7cfcc3b84a0900ef6dc2893b38",
+    "commit_time": "2026-09-01T03:36:24+08:00",
+    "confirmed_time": "2026-09-01T03:49:57.278576+08:00",
     "comment": "",
     "blocked_reason": ""
   },
