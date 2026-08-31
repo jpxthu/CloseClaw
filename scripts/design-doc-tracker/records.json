@@ -121,11 +121,11 @@
   },
   {
     "path": "docs/design/daemon/README.md",
-    "commit": "ad93d0a3665559ddc9e99d8676aa14ac6470d9d9",
-    "commit_time": "2026-08-31T06:32:34+08:00",
-    "confirmed_time": "2026-08-31T06:43:06.723341+08:00",
+    "commit": "713b588363d1a78c4205a3e005ffa0294ef9395b",
+    "commit_time": "2026-09-01T01:13:30+08:00",
+    "confirmed_time": "2026-09-01T01:38:44.701451+08:00",
     "comment": "",
-    "blocked_reason": "SpawnController 依赖表行内部矛盾未解（#2698 Owner 仍未裁决，文档自 #2680 后未再修改）：依赖列 ConfigManager(层1)+AgentRegistry(层2)+Permission Engine(层2) 按『层由声明自动推导』规则推导为层3，层列却标4；代码 deps()=[AgentRegistry,ToolsRegistry] 与依赖列矛盾且无对齐方式可同时满足依赖列+层列+推导规则+StartupPhase 分组。详见 issue #2698 方案A/B"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/daemon/shutdown.md",
