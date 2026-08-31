@@ -20,7 +20,7 @@ spawn_tree 维护一张内存查找表，记录 session 之间的父子关系。
 | depth | 当前层级（根节点为 0） |
 | mode | spawn 模式（run / session），描述子 session 的持久化策略 |
 
-> `mode` 描述 spawn 的持久化策略（run 一次性 / session 持久线程），与 SessionCheckpoint 的 `mode` 字段（对话模式 normal/plan/auto）含义不同，二者作用于不同数据结构。
+> `mode` 描述 spawn 的持久化策略（run 一次性 / session 持久线程），与 SessionCheckpoint 的 `session_mode` 字段（对话模式 normal/plan/auto）含义不同，二者作用于不同数据结构。
 
 spawn 成功时注册新节点；子 session 完成时回收节点（见节点回收节）；kill 时移除节点（见级联 Kill 节）。已完成子任务的持久化记录（checkpoint + transcript）不受回收影响，结果仍保留可查，其归档与清理由 ArchiveSweeper 独立负责（见 session-lifecycle.md）。
 

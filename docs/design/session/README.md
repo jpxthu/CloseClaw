@@ -4,9 +4,10 @@
 
 关联需求文档：[requirements/session.md](../../requirements/session.md)
 
-Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周期。一个 session 代表一次独立的 agent 对话实例，其职责分两层：
+Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周期。一个 session 代表一次独立的 agent 对话实例，其职责分层如下：
 
-- **持久化层**：对话上下文的创建、持久化、归档与清理。Session 持有 system prompt 和对话历史，是 agent 与 LLM 交互的载体。
+- **生命周期协调**：SessionManager 维护会话路由键映射并协调创建/查找/恢复，ArchiveSweeper 后台定时归档 idle 会话与清理过期数据——二者位于持久化层与执行层之上，非持久化职责。
+- **持久化层**：对话上下文的创建与持久化（checkpoint + transcript）。Session 持有 system prompt 和对话历史，是 agent 与 LLM 交互的载体。
 - **执行层**：运行时执行状态跟踪（LLM 交互、工具进程、子 Session）、级联停止协调、后台任务结果注入、对话压缩。一个 agent 可以有多个 session 同时运行，每个 session 独立管理自己的执行状态。
 
 ## 架构
@@ -26,16 +27,17 @@ Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周�
 | [run-health.md](run-health.md) | 运行时安全网：turn 边界健康检测（硬规则 + Hook 审查）、运行快照创建与回滚 |
 | [session-recovery.md](session-recovery.md) | 重启恢复：dirty 检测、恢复通知注入、工具调用失败模拟、出站消息补投、树状恢复策略 |
 
-Session 模块由持久化层和执行层两部分组成：
+Session 模块由生命周期协调、持久化层、执行层三部分组成：
 
 ```
 Gateway / SessionManager  -- 生命周期协调者
   <- 日志：会话创建/查找/归档恢复
 
+  ArchiveSweeper  -- 后台定时任务：idle 归档 + 过期清理（daemon 启动时 spawn，生命周期协调而非持久化）
+
   持久化层
     CheckpointManager  -- 协调 checkpoint 读写缓存 + 持久化
       -> PersistenceService -> SqliteStorage  -- SQLite 元数据 + JSONL transcript
-    ArchiveSweeper  -- 后台定时任务：idle 归档 + 过期清理
 
   执行层
     ConversationSession  -- 运行时对话状态（system_prompt + messages）
@@ -77,14 +79,15 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   - 映射表为纯内存数据结构，不单独持久化——重建依赖 SessionCheckpoint 中的会话路由键字段
   - SessionManager 对每个 agent_id 串行处理请求，确保同一会话路由键的 lookup、恢复、创建操作不会并发竞态
 
+- **生命周期协调**：
+  - **ArchiveSweeper**：daemon 启动时 spawn 的后台定时任务，扫描 idle session 并归档、扫描过期 archive 并清理，属于生命周期协调职责而非持久化层。归档判定通过 SessionManager 暴露的四维活跃维度只读查询（`activity_dimensions()`）读取（任一为 true 即跳过）；默认 idle 30 分钟触发归档、归档数据不立即删除（由独立清理阈值触发删除），各配置项独立回退到系统默认值。完整机制见 [session-lifecycle.md](session-lifecycle.md) §Sweeper 机制。
 - **持久化层组件**：
   - **CheckpointManager**：协调 SessionCheckpoint 的读写缓存和持久化。需要持久化时调用 PersistenceService。
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
-  - **ArchiveSweeper**：定时后台任务，扫描 idle session 并归档，扫描过期 archive 并清理。默认 idle 30 分钟触发归档、归档数据不立即删除（由独立清理阈值触发删除），各配置项独立回退到系统默认值。
 
 - **执行层组件**：
-  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。对话模式（normal/plan/auto）标记持久化在 SessionCheckpoint 的 mode 字段中，/mode 切换时新模式先写入待应用值，下一条用户消息前惰性应用并回写 checkpoint（详见 [session-lifecycle.md](session-lifecycle.md) 模式切换节；压缩保护见 [compact-process.md](compact-process.md)，模式的行为约束详见 [mode/README.md](../mode/README.md)）。
-  - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle；若崩溃前存在未完成操作，恢复扫描会注入恢复通知（详见 [session-recovery.md](session-recovery.md)），未完成操作在后续 turn 中处理。
+  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。对话模式（normal/plan/auto）标记持久化在 SessionCheckpoint 的 `session_mode` 字段中，/mode 切换时新模式先写入内存待应用值，下一条用户消息前惰性应用并回写 checkpoint（详见 [session-lifecycle.md](session-lifecycle.md) 模式切换节；压缩保护见 [compact-process.md](compact-process.md)，模式的行为约束详见 [mode/README.md](../mode/README.md)）。三个模式概念正交、独立存储：`session_mode`（对话模式，SessionMode：normal/plan/auto，行为约束）、`reasoning_mode`（推理呈现模式，ReasoningMode：Direct/Plan/Stream/Hidden）、`mode_state`（推理步骤状态，ReasoningModeState）——`reasoning_mode` 字段带 `#[serde(alias = "mode")]` 兼容旧 checkpoint，设计文档所述的「对话模式」一律指 `session_mode`，与推理相关字段不混用。
+  - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle；若崩溃前存在未完成操作，恢复扫描会注入恢复通知（详见 [session-recovery.md](session-recovery.md)），未完成操作在后续 turn 中处理。由四维派生整体执行状态 `SessionExecStatus`（Idle / Waiting / Busy）：Idle 对应可接收输入（四维中后台工具与子 Session 不计入），Busy 对应 LLM 推理或前台工具执行中，Waiting 仅在通过 `sessions_yield` 主动让出 turn 时出现。完整状态表见 [session-execution.md](session-execution.md) 四维执行状态节。
 
     **idle（输入就绪）**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新输入。background_tool_active 和 child_active 不影响 idle 判定。
 
@@ -234,7 +237,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 - **Permission 模块**：工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
 - **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。sessions_spawn 等工具执行时读取 subagents 配置做前置检查。
-- **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站调试日志在 Processor Chain 内记录，出站历史记录由 Gateway 在消息发送后持久化到 session checkpoint——这是用户可见内容的交付记录（含 Verbosity 过滤后内容与 dsl_result），与 Session 对话历史（messages[]，LLM 上下文，含完整 Thinking 块）用途不同：后者服务于上下文恢复、会随 compaction 演化，前者是交付审计、不随 compaction 改变，二者并存各司其职（详见 [Gateway 出站流程](../gateway/outbound-flow.md)）。非直接调用，属数据流下游依赖。
+- **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站调试日志在 Processor Chain 内记录，出站交付记录由 Gateway 持久化到 session checkpoint 的 `outbound_pending` 字段——记录每条出站消息（含 Verbosity 过滤后内容与 dsl_result，及发送标记 sent），其中未发送成功的条目（sent=false）用于崩溃/停止后重投递（需求 [session F7](../../requirements/session.md)）；与 Session 对话历史（messages[]，LLM 上下文，含完整 Thinking 块）用途不同、并行不悖，也区别于 transcript 层的 `pending_messages` 字段。详见 [Gateway 出站流程](../gateway/outbound-flow.md)。非直接调用，属数据流下游依赖。
 - **IM Adapter（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度和 Processor Chain 处理后，由 IM Adapter 完成出站渲染和发送（含流式推送）。Session 不直接调用 IM Adapter，数据流经 Gateway 中介传递。
 - **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 Session 进行记忆搜索；写入 `memory_injection` 槽位（tool role 记忆摘要），由 Session 在消息组装时消费。
 

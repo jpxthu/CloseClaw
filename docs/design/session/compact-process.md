@@ -58,7 +58,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 
 ### Checkpoint 非对话字段隔离
 
-压缩仅替换 checkpoint 中的对话消息（transcript）。其余持久化字段不参与压缩、跨压缩保持：mode（对话模式）、mode_state（推理步骤状态）、system_appends（追加区）、pending_operations（未完成操作）等运行时快照字段均不受压缩影响。
+压缩仅替换 checkpoint 中的对话消息（transcript）。其余持久化字段不参与压缩、跨压缩保持：session_mode（对话模式）、reasoning_mode（推理呈现模式）、mode_state（推理步骤状态）、reasoning_level、system_appends（追加区）、pending_operations（未完成操作）等运行时快照字段均不受压缩影响。
 
 ## 数据流
 
