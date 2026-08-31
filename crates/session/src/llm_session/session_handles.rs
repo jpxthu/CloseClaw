@@ -693,19 +693,42 @@ impl ConversationSession {
             .expect("child_states lock poisoned")
             .clear();
 
-        // tool_handles and child_handles: drop all entries. The
-        // Arc/Weak counts on the processes/sessions go to zero
-        // here (assuming no other holders), which lets the
-        // underlying process exit and the child session be
-        // reaped.
+        // tool_handles: drop all entries and decrement busy count
+        // for each, so the shutdown drain sees the correct count.
+        let tool_count = {
+            let map = self
+                .tool_handles
+                .read()
+                .expect("tool_handles lock poisoned");
+            map.len()
+        };
         self.tool_handles
             .write()
             .expect("tool_handles lock poisoned")
             .clear();
+        if let Some(sh) = self.get_shutdown_handle() {
+            for _ in 0..tool_count {
+                sh.decrement_busy();
+            }
+        }
+        // child_handles: same pattern — decrement busy count for
+        // each entry before clearing.
+        let child_count = {
+            let map = self
+                .child_handles
+                .read()
+                .expect("child_handles lock poisoned");
+            map.len()
+        };
         self.child_handles
             .write()
             .expect("child_handles lock poisoned")
             .clear();
+        if let Some(sh) = self.get_shutdown_handle() {
+            for _ in 0..child_count {
+                sh.decrement_busy();
+            }
+        }
     }
 }
 

@@ -579,6 +579,12 @@ impl Daemon {
     async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
         let join_timeout = std::time::Duration::from_secs(7);
         let abort_grace = std::time::Duration::from_secs(3);
+
+        // Compile-time: total Phase 3 budget must be 10s per design doc.
+        const _: () = assert!(
+            7 + 3 == 10,
+            "Phase 3 total timeout (join_timeout + abort_grace) must equal 10s"
+        );
         let mut heartbeat = ShutdownHeartbeat::new();
         let mut results: Vec<(&str, TaskStopStatus)> = Vec::new();
         let tasks: Vec<(&str, Option<tokio::task::JoinHandle<()>>)> = vec![
