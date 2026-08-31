@@ -32,7 +32,7 @@
 | 3 | DreamingScheduler | Storage, SessionConfigProvider |
 | 3 | ApprovalFlow | Permission Engine, AgentRegistry |
 | 4 | Session Manager | LLM Registry, Storage, AgentRegistry, Skills Registry, Tools Registry, SessionConfigProvider |
-| 4 | SpawnController | ConfigManager, AgentRegistry, Permission Engine |
+| 4 | SpawnController | AgentRegistry, Tools Registry |
 | 4 | System Prompt 构建器 | AgentRegistry, Skills Registry, Tools Registry |
 | 5 | Gateway | Session Manager, IM Adapters, Permission Engine, ApprovalFlow, Renderers / Plugins |
 | 6 | Admin RPC Server | Gateway |
@@ -48,7 +48,7 @@
 - **待重启状态**：Daemon 进入待重启状态并记录待生效变更，系统正常运行——会话正常处理消息、新消息不受影响，重启执行前继续按旧配置运行
 - **变更合并**：待重启期间新到达的重启类变更并入同一次待执行集合，不重复重启
 - **择机窗口**：Daemon 经 SessionManager 查询全部会话的四维活跃状态（与关闭流程同一套判定，见 [shutdown.md](shutdown.md)），全部为否即满足窗口；无活跃会话时立即执行
-- **执行流程**：会话层完全不动，Daemon 重建 Gateway 及持有其引用的下游组件（如 Admin RPC Server）；执行期间入站消息由 Gateway 暂存、完成后按原到达顺序补投（见 [gateway 需求 §F6](../../requirements/gateway.md)），执行中的出站消息按优雅关闭语义收尾
+- **执行流程**：会话层完全不动，Daemon 重建 Gateway 及持有其引用的下游组件；执行期间入站消息由 Gateway 暂存、完成后按原到达顺序补投（见 [gateway 需求 §F6](../../requirements/gateway.md)），执行中的出站消息按优雅关闭语义收尾
 - **无窗口兜底**：存在活跃会话时持续等待、不强制打断任何会话；Owner 可随时改用强制关闭优先执行（forceful 语义见 [shutdown.md](shutdown.md)）
 - **完成通知**：重启完成后经 IM 通知 Owner，附本次生效的配置变更概要
 
@@ -87,7 +87,7 @@ Daemon 持有 AgentRegistry、Session Manager、Gateway、ApprovalFlow、SpawnCo
    - ApprovalFlow（注入 Permission Engine、AgentRegistry）
 4. **层 4**（依赖层 3）：
    - Session Manager（注入 Daemon 构造的 LLM 调用器（LlmCaller）、Storage、AgentRegistry、Tools Registry、Skills Registry、SessionConfigProvider，初始化完成后执行启动恢复扫描）。LlmCaller 是 [common/core-traits](../common/core-traits.md#llmcaller) 定义的 LLM 调用接口，其具体实现（FallbackLlmCaller，桥接 LLM 模块统一客户端）由 gateway 域提供；Daemon 作为胶水层从 LLM Registry 取得统一客户端、实例化该调用器并经 Session Manager 注入会话，各 ConversationSession 经其发起请求（真实 Provider 调用仍由 LLM 模块完成）
-   - SpawnController（创建并管理子 session；spawn 前置校验与权限判定经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播）、Agent 配置（深度/并发/超时阈值），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)；子 session 所需能力经 Session Manager 提供的 spawn 上下文获取（运行时引用，Session Manager 就绪后接线，不构成启动依赖））
+   - SpawnController（创建并管理子 session，启动依赖 AgentRegistry、Tools Registry；spawn 前置校验与权限判定经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播）、Agent 配置（深度/并发/超时阈值），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)；ConfigManager、Permission Engine 及子 session 所需能力（经 Session Manager 提供的 spawn 上下文获取）均为构造注入的运行时引用，就绪后接线，不构成启动依赖）
    - System Prompt 构建器（SessionManager 触发构建，持有 AgentRegistry、SkillsRegistry、ToolsRegistry 引用，详见 [system_prompt/README.md](../system_prompt/README.md)）
 5. **层 5**（依赖层 4）：Gateway（注入 adapters、session manager、permission、renderers；安装 SlashDispatcher（详见 [slash/README.md](../slash/README.md)）；注入 ApprovalFlow）
 6. **层 6**（依赖层 5）：Admin RPC Server（启动 Unix domain socket 管理服务，接收 CLI Admin 命令）
@@ -146,7 +146,7 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | ArchiveSweeper | 启动时 spawn 后台任务（依赖 Storage + SessionConfigProvider；归档前查询 SessionManager 四维活跃状态（运行时引用，Session Manager 就绪后接线），详见 [session/session-lifecycle.md](../session/session-lifecycle.md)） |
 | AnnounceSweeper | 启动时 spawn 后台任务，定时扫描 spawn_tree 补推完成通知与僵死检测（扫描经 Session Manager 进行，运行时引用，详见 [session/run-health.md](../session/run-health.md)） |
 | ApprovalFlow | 启动时创建并注入到 Gateway，Daemon 持有其所有权 |
-| SpawnController | 启动时创建，负责创建并管理子 session，依赖 ConfigManager、AgentRegistry 与 Permission Engine。spawn 前置校验（深度/并发/白名单）与权限判定在此完成，深度/并发/超时阈值来自 Agent 配置，权限经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)。子 session 所需能力经 Session Manager 提供的 spawn 上下文获取（运行时引用，Session Manager 就绪后接线）。由 Session 模块在处理 spawn 请求时调用 |
+| SpawnController | 启动时创建，负责创建并管理子 session，启动依赖 AgentRegistry、Tools Registry；ConfigManager、Permission Engine 为构造注入的运行时引用。spawn 前置校验（深度/并发/白名单）与权限判定在此完成，深度/并发/超时阈值来自 Agent 配置，权限经 Permission Engine（子 Agent 权限继承、Deny 沿链路传播），详见 [agent/agent-spawn.md](../agent/agent-spawn.md)。子 session 所需能力经 Session Manager 提供的 spawn 上下文获取（运行时引用，Session Manager 就绪后接线）。由 Session 模块在处理 spawn 请求时调用 |
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发增量重载；重载校验失败时保留旧配置运行并经 IM 通知 Owner（出站通道为运行时引用，IM Adapters 就绪后接线，不构成启动依赖，详见 [config/hot-reload.md](../config/hot-reload.md)）。变更确认为重启类时触发 Daemon 择机网关重启（见「配置触发的网关重启」） |
 | DreamingScheduler | 启动时 spawn 后台任务（依赖 Storage 与 SessionConfigProvider），定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
