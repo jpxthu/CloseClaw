@@ -1,13 +1,10 @@
-//! Step 1.2 — Unit tests for NormalizedMessage field propagation.
+//! Unit tests for NormalizedMessage field propagation through
+//! `process_inbound_chain` → ProcessedMessage metadata pipeline.
 //!
-//! Verifies that fields survive the NormalizedMessage →
-//! process_inbound_chain → ProcessedMessage pipeline and are accessible
-//! in Gateway metadata.
-//!
-//! No-registry fallback path: `message_type` and `unavailable_media`
-//! are injected by the chain dispatcher (fallback branches).
-//! With-registry path: `message_type` is injected by the chain dispatcher
-//! (MessageContext::from_normalized); Gateway adds thread_id/media_refs.
+//! `message_type` and `unavailable_media` are injected by the chain
+//! dispatcher (single source of truth: `inject_chain_dispatcher_keys`).
+//! Gateway adds `thread_id`, `media_refs`, `account_id`, `chat_name`,
+//! `trace_id` via `build_extra_metadata`.
 
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::im_plugin::{MediaRef, MessageType, NormalizedMessage};

@@ -41,6 +41,27 @@ pub struct MessageContext {
     pub content_blocks: Vec<ContentBlock>,
 }
 
+/// Injects `message_type` and `unavailable_media` chain dispatcher keys
+/// into a metadata map.
+///
+/// This is the single source of truth for serializing these two fields.
+/// All injection points (chain dispatcher, fallback branches) call this
+/// function to avoid format drift.
+pub fn inject_chain_dispatcher_keys(
+    metadata: &mut HashMap<String, String>,
+    message_type: &closeclaw_common::im_plugin::MessageType,
+    unavailable_media: &[String],
+) {
+    metadata.insert(
+        "message_type".to_string(),
+        serde_json::to_string(message_type).unwrap_or_default(),
+    );
+    metadata.insert(
+        "unavailable_media".to_string(),
+        serde_json::to_string(unavailable_media).unwrap_or_default(),
+    );
+}
+
 impl MessageContext {
     /// Creates a new context from a normalized message.
     ///
@@ -56,16 +77,7 @@ impl MessageContext {
             processor_name: None,
         };
         let mut metadata = HashMap::new();
-        // Design doc: chain dispatcher copies these two keys into metadata
-        // before the chain runs.
-        metadata.insert(
-            "message_type".to_string(),
-            serde_json::to_string(&msg.message_type).unwrap_or_default(),
-        );
-        metadata.insert(
-            "unavailable_media".to_string(),
-            serde_json::to_string(&msg.unavailable_media).unwrap_or_default(),
-        );
+        inject_chain_dispatcher_keys(&mut metadata, &msg.message_type, &msg.unavailable_media);
         Self {
             content: msg.content,
             raw_message_log: vec![raw_log],

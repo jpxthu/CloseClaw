@@ -9,6 +9,7 @@ use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_debug_log::LogLevel;
+use closeclaw_processor_chain::context::inject_chain_dispatcher_keys;
 use std::collections::HashMap;
 
 /// 会话路由失败，请重试
@@ -188,14 +189,10 @@ impl Gateway {
             // No registry — bypass path. Chain dispatcher keys are still
             // required for metadata contract consistency.
             let mut meta = extra_meta;
-            meta.insert(
-                "message_type".to_string(),
-                serde_json::to_string(&normalized.message_type).unwrap_or_default(),
-            );
-            meta.insert(
-                "unavailable_media".to_string(),
-                serde_json::to_string(&normalized.unavailable_media)
-                    .unwrap_or_else(|_| "[]".to_string()),
+            inject_chain_dispatcher_keys(
+                &mut meta,
+                &normalized.message_type,
+                &normalized.unavailable_media,
             );
             return ProcessedMessage {
                 content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
@@ -215,14 +212,10 @@ impl Gateway {
                 // Fallback on error — inject chain dispatcher keys
                 // for metadata contract consistency.
                 let mut meta = extra_meta;
-                meta.insert(
-                    "message_type".to_string(),
-                    serde_json::to_string(&normalized.message_type).unwrap_or_default(),
-                );
-                meta.insert(
-                    "unavailable_media".to_string(),
-                    serde_json::to_string(&normalized.unavailable_media)
-                        .unwrap_or_else(|_| "[]".to_string()),
+                inject_chain_dispatcher_keys(
+                    &mut meta,
+                    &normalized.message_type,
+                    &normalized.unavailable_media,
                 );
                 ProcessedMessage {
                     content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
@@ -241,8 +234,9 @@ impl Gateway {
 /// and `trace_id` so they are available downstream in the Gateway.
 ///
 /// Note: `message_type` and `unavailable_media` are injected by the
-/// Processor Chain (chain dispatcher in `MessageContext::from_normalized`),
-/// not by the Gateway — see design doc `data-flow.md`.
+/// Processor Chain (chain dispatcher in `MessageContext::from_normalized`
+/// or fallback branches in `process_inbound_chain`), not by the Gateway
+/// — see design doc `inbound-flow.md`.
 fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, String> {
     let mut meta = HashMap::new();
     if let Some(ref thread_id) = normalized.thread_id {

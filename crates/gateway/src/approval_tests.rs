@@ -105,6 +105,7 @@ async fn install_approval_flow(gw: &crate::Gateway) {
 }
 
 /// Captures messages sent via IMPlugin::send for assertion.
+/// Used in approval tests to verify outbound notifications and rejection messages.
 struct CapturingPlugin {
     platform: String,
     sent: std::sync::Mutex<Vec<(String, String)>>,
@@ -803,9 +804,9 @@ async fn test_idle_slash_executes() {
     );
 }
 
-/// route.decision debug event emitted for approval (no panic).
+/// Approval command processes without panic (smoke test for route_and_dispatch).
 #[tokio::test]
-async fn test_route_decision_for_approval() {
+async fn test_approval_command_no_panic() {
     let (gw, _) = s13_env("s7", "mock", Arc::new(CapturingPlugin::new("mock"))).await;
     install_approval_flow(&gw).await;
     let r = gw

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::context::MessageContext;
+use super::context::{inject_chain_dispatcher_keys, MessageContext};
 use super::dsl_parser::DslParser;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
@@ -122,14 +122,7 @@ impl ProcessorRegistry {
             // Design doc: chain dispatcher copies message_type and
             // unavailable_media into metadata even for the bypass path.
             let mut metadata = HashMap::new();
-            metadata.insert(
-                "message_type".to_string(),
-                serde_json::to_string(&msg.message_type).unwrap_or_default(),
-            );
-            metadata.insert(
-                "unavailable_media".to_string(),
-                serde_json::to_string(&msg.unavailable_media).unwrap_or_default(),
-            );
+            inject_chain_dispatcher_keys(&mut metadata, &msg.message_type, &msg.unavailable_media);
             return Ok(ProcessedMessage {
                 content_blocks: vec![ContentBlock::Text(msg.content)],
                 metadata,
