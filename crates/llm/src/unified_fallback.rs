@@ -15,6 +15,7 @@ use crate::retry::CooldownManager;
 use crate::types::{InternalRequest, UnifiedResponse};
 use crate::LLMError;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+use closeclaw_common::trace_id::generate_trace_id;
 use closeclaw_debug_log::{DebugLog, LogLevel};
 use std::sync::Arc;
 
@@ -144,7 +145,7 @@ impl UnifiedFallbackClient {
         &self,
         mut request: InternalRequest,
     ) -> Result<OutgoingEventStream, ClientError> {
-        let trace_id = request.model.clone();
+        let trace_id = generate_trace_id("llm");
         // Emit llm.call.start for streaming.
         debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
             ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
@@ -297,7 +298,7 @@ impl UnifiedFallbackClient {
     /// cooldown. Returns the first successful [`UnifiedResponse`], or an error
     /// if all entries are exhausted.
     pub async fn chat(&self, mut request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
-        let trace_id = request.model.clone();
+        let trace_id = generate_trace_id("llm");
         // Emit llm.call.start
         debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
             ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
