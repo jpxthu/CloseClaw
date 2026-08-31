@@ -14,6 +14,7 @@ pub mod content_normalizer;
 pub mod context;
 #[cfg(test)]
 mod context_tests;
+pub mod debug_log;
 pub mod dsl_parser;
 #[cfg(test)]
 mod dsl_parser_tests;
@@ -53,7 +54,8 @@ pub use closeclaw_common::processor::{DslInstruction, DslParseResult, ProcessedM
 pub use context::{MessageContext, RawMessageLog};
 pub use error::ProcessError;
 pub use middleware::{
-    run_middleware_chain, run_pre_flight_check, MiddlewareError, OutboundMiddleware,
+    run_middleware_chain, run_middleware_chain_with_debug, run_pre_flight_check,
+    run_pre_flight_check_with_debug, MiddlewareError, OutboundMiddleware,
 };
 pub use processor::{MessageProcessor, ProcessPhase};
 
