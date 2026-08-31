@@ -11,6 +11,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use closeclaw_common::RunningStats;
+use closeclaw_debug_log::DebugLog;
+
+use crate::debug_log::{self, SessionDebugLogContext};
 
 /// Boxed async chat function for LLM injection.
 ///
@@ -316,9 +319,54 @@ impl CompactionService {
         stats: Option<&RunningStats>,
         chat_fn: &ChatFn,
     ) -> Result<CompactionResult, CompactionError> {
+        self.compact_with_debug_log(
+            messages,
+            model,
+            instruction,
+            is_auto,
+            stats,
+            chat_fn,
+            None,
+            "",
+            None,
+        )
+        .await
+    }
+
+    /// Executes a compaction with optional debug-log emission.
+    ///
+    /// Same as [`compact`](Self::compact) but emits structured debug-log events
+    /// when `debug_log` is `Some` in the params.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn compact_with_debug_log(
+        &mut self,
+        messages: &[CompactionMessage],
+        model: &str,
+        instruction: Option<&str>,
+        is_auto: bool,
+        stats: Option<&RunningStats>,
+        chat_fn: &ChatFn,
+        debug_log: Option<&DebugLog>,
+        trace_id: &str,
+        session_key: Option<&str>,
+    ) -> Result<CompactionResult, CompactionError> {
         if messages.is_empty() {
             return Err(CompactionError::EmptyMessages);
         }
+
+        // Emit debug-log: compaction started.
+        debug_log::emit_session_event(debug_log::SessionEmitEventParams {
+            ctx: SessionDebugLogContext::new(debug_log, trace_id, session_key),
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "session",
+            event_type: "session.compaction.started",
+            payload: serde_json::json!({
+                "model": model,
+                "is_auto": is_auto,
+                "message_count": messages.len(),
+            }),
+            parent: None,
+        });
 
         let prompt = build_compact_prompt(instruction);
         let mut llm_messages = vec![CompactionMessage {
@@ -332,9 +380,25 @@ impl CompactionService {
             });
         }
 
-        let (response_content, _retries) = chat_fn(model.to_string(), llm_messages)
-            .await
-            .map_err(CompactionError::LLMCallFailed)?;
+        let (response_content, _retries) =
+            chat_fn(model.to_string(), llm_messages)
+                .await
+                .map_err(|e| {
+                    // Emit debug-log: compaction failed.
+                    debug_log::emit_session_event(debug_log::SessionEmitEventParams {
+                        ctx: SessionDebugLogContext::new(debug_log, trace_id, session_key),
+                        level: closeclaw_debug_log::LogLevel::Error,
+                        source_module: "session",
+                        event_type: "session.compaction.failed",
+                        payload: serde_json::json!({
+                            "model": model,
+                            "is_auto": is_auto,
+                            "error": e,
+                        }),
+                        parent: None,
+                    });
+                    CompactionError::LLMCallFailed(e)
+                })?;
 
         let summary =
             extract_summary(&response_content).ok_or(CompactionError::SummaryParseFailed)?;
@@ -346,6 +410,23 @@ impl CompactionService {
         let after_chars = boundary.chars().count();
 
         self.record_success();
+
+        // Emit debug-log: compaction completed.
+        debug_log::emit_session_event(debug_log::SessionEmitEventParams {
+            ctx: SessionDebugLogContext::new(debug_log, trace_id, session_key),
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "session",
+            event_type: "session.compaction.completed",
+            payload: serde_json::json!({
+                "model": model,
+                "is_auto": is_auto,
+                "before_tokens": before_tokens,
+                "after_tokens": after_tokens,
+                "before_chars": before_chars,
+                "after_chars": after_chars,
+            }),
+            parent: None,
+        });
 
         Ok(CompactionResult {
             performed: true,
