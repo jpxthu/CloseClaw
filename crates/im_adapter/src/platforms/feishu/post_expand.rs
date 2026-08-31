@@ -1,6 +1,7 @@
 //! Post content expansion — converts Feishu post JSON to plain text.
 
 use super::text_style::apply_text_style;
+use closeclaw_common::{MediaRef, MediaType};
 
 // Post content expansion
 /// Expand a Feishu post-type content JSON value into plain text.
@@ -161,4 +162,56 @@ fn expand_quote(elem: &serde_json::Value) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// Extract media references from a post message's 2D content array.
+/// Scans for `img`, `media`, and `file` tags and builds `MediaRef`
+/// entries for each embedded resource.
+pub(crate) fn extract_post_media_refs(content: &serde_json::Value) -> Vec<MediaRef> {
+    let mut refs = Vec::new();
+    if let Some(rows) = content.get("content").and_then(|c| c.as_array()) {
+        for row in rows {
+            if let Some(elements) = row.as_array() {
+                for elem in elements {
+                    let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+                    match tag {
+                        "img" => {
+                            let key = elem
+                                .get("image_key")
+                                .and_then(|k| k.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if !key.is_empty() {
+                                refs.push(MediaRef {
+                                    key,
+                                    path: String::new(),
+                                    media_type: MediaType::Image,
+                                    size: 0,
+                                    mime: String::new(),
+                                });
+                            }
+                        }
+                        "media" | "file" => {
+                            let key = elem
+                                .get("file_key")
+                                .and_then(|k| k.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if !key.is_empty() {
+                                refs.push(MediaRef {
+                                    key,
+                                    path: String::new(),
+                                    media_type: MediaType::File,
+                                    size: 0,
+                                    mime: String::new(),
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    refs
 }
