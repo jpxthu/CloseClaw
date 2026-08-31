@@ -577,7 +577,7 @@ impl Daemon {
     /// ArchiveSweeper, AnnounceSweeper, PlanArchiveSweeper,
     /// DreamingScheduler, and ConfigWatcher subscriber.
     async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
-        let join_timeout = std::time::Duration::from_secs(10);
+        let join_timeout = std::time::Duration::from_secs(7);
         let abort_grace = std::time::Duration::from_secs(3);
         let mut heartbeat = ShutdownHeartbeat::new();
         let mut results: Vec<(&str, TaskStopStatus)> = Vec::new();
