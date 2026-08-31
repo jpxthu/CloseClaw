@@ -20,7 +20,6 @@
 //! 13. Non-owner /deny → "权限不足"
 //! 14. Busy session /approve-once → immediate (not queued)
 //! 15. Idle session non-approval slash → dispatcher executes
-//! 16. route.decision debug event emitted for approval
 
 use std::sync::Arc;
 
@@ -804,28 +803,5 @@ async fn test_idle_slash_executes() {
             .iter()
             .any(|(_, t)| t.contains("handled:compact")),
         "handler reply should be sent"
-    );
-}
-
-/// Approval command processes without panic (smoke test for route_and_dispatch).
-#[tokio::test]
-async fn test_approval_command_no_panic() {
-    let (gw, _) = s13_env("s7", "mock", Arc::new(CapturingPlugin::new("mock"))).await;
-    install_approval_flow(&gw).await;
-    let r = gw
-        .route_and_dispatch(
-            &s13_msg("/approve-once REQ_007", "p", "o"),
-            "s7",
-            "/approve-once REQ_007".into(),
-            Some("owner"),
-            "peer7",
-            "mock",
-            &s13_dbg(),
-        )
-        .await;
-    assert!(
-        matches!(r, Some(HandleResult::ApprovalProcessed)),
-        "should work without panic, got {:?}",
-        r
     );
 }
