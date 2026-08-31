@@ -3,10 +3,29 @@
 #[cfg(test)]
 mod tests {
     use crate::compaction::{
-        ChatFn, CompactConfig, CompactionError, CompactionMessage, CompactionService,
-        TokenWarningState,
+        ChatFn, CompactConfig, CompactParams, CompactionError, CompactionMessage,
+        CompactionService, TokenWarningState,
     };
     use std::sync::Arc;
+
+    /// Helper to build a `CompactParams` for tests.
+    fn params<'a>(
+        msgs: &'a [CompactionMessage],
+        model: &'a str,
+        instruction: Option<&'a str>,
+        is_auto: bool,
+        stats: Option<&'a closeclaw_common::RunningStats>,
+        chat_fn: &'a ChatFn,
+    ) -> CompactParams<'a> {
+        CompactParams {
+            messages: msgs,
+            model,
+            instruction,
+            is_auto,
+            stats,
+            chat_fn,
+        }
+    }
 
     // ===================================================================
     // CompactionService::compact tests
@@ -57,7 +76,7 @@ mod tests {
 
         // Manual compact
         let result = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap();
 
@@ -74,7 +93,7 @@ mod tests {
 
         // Auto compact
         let result_auto = svc
-            .compact(&msgs, "glm-5", None, true, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, true, None, &chat_fn))
             .await
             .unwrap();
         assert!(result_auto.is_auto);
@@ -108,7 +127,14 @@ mod tests {
         });
 
         let result = svc
-            .compact(&msgs, "glm-5", Some("保留 API 列表"), false, None, &chat_fn)
+            .compact(params(
+                &msgs,
+                "glm-5",
+                Some("保留 API 列表"),
+                false,
+                None,
+                &chat_fn,
+            ))
             .await
             .unwrap();
 
@@ -138,7 +164,7 @@ mod tests {
         let chat_fn = mock_chat_success("unused");
 
         let err = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap_err();
 
@@ -155,7 +181,7 @@ mod tests {
         let chat_fn = mock_chat_failure("rate limit exceeded");
 
         let err = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap_err();
 
@@ -177,7 +203,7 @@ mod tests {
         let chat_fn = mock_chat_no_summary("no summary tag here");
 
         let err = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap_err();
 
@@ -201,7 +227,7 @@ mod tests {
         let chat_fn = mock_chat_success("Brief summary.");
 
         let result = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap();
 
@@ -236,7 +262,7 @@ mod tests {
         let chat_fn = mock_chat_success("ok");
 
         let result = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap();
         assert!(result.performed);
@@ -264,7 +290,7 @@ mod tests {
         let chat_fn = mock_chat_failure("error");
 
         let err = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap_err();
         assert!(matches!(err, CompactionError::LLMCallFailed(_)));
@@ -413,7 +439,7 @@ mod tests {
         let chat_fn = mock_chat_success("Summary.");
 
         let result = svc
-            .compact(&msgs, "glm-5", None, false, None, &chat_fn)
+            .compact(params(&msgs, "glm-5", None, false, None, &chat_fn))
             .await
             .unwrap();
 

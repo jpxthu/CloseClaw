@@ -13,6 +13,7 @@ use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
 ///
 /// Created by callers to pass the guard, trace ID, and session key
 /// together, reducing the field count in [`EmitEventParams`].
+#[derive(Clone, Copy)]
 pub struct SessionDebugLogContext<'a> {
     /// Debug log instance; when `None`, the emit is a no-op.
     pub debug_log: Option<&'a DebugLog>,

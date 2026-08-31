@@ -11,7 +11,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use closeclaw_common::RunningStats;
-use closeclaw_debug_log::DebugLog;
 
 use crate::debug_log::{self, SessionDebugLogContext};
 
@@ -206,6 +205,27 @@ pub fn get_context_window(model: &str, knowledge_context_window: Option<u32>) ->
         .unwrap_or(128_000)
 }
 
+/// Parameters for a compaction operation.
+///
+/// Aggregates the inputs to [`CompactionService::compact`] and
+/// [`compact_with_debug_log`](CompactionService::compact_with_debug_log)
+/// so that the function signatures stay within the project's
+/// 6-parameter limit.
+pub struct CompactParams<'a> {
+    /// Conversation messages to compact.
+    pub messages: &'a [CompactionMessage],
+    /// Model name for the LLM call.
+    pub model: &'a str,
+    /// Optional custom compaction instructions.
+    pub instruction: Option<&'a str>,
+    /// Whether this is an automatic compaction.
+    pub is_auto: bool,
+    /// Optional running stats for precise token counting.
+    pub stats: Option<&'a RunningStats>,
+    /// Chat function injected by the caller.
+    pub chat_fn: &'a ChatFn,
+}
+
 /// Session compaction service with auto-trigger and circuit breaker.
 #[derive(Debug, Clone)]
 pub struct CompactionService {
@@ -312,100 +332,81 @@ impl CompactionService {
     /// to align with the design document's requirement of showing token counts.
     pub async fn compact(
         &mut self,
-        messages: &[CompactionMessage],
-        model: &str,
-        instruction: Option<&str>,
-        is_auto: bool,
-        stats: Option<&RunningStats>,
-        chat_fn: &ChatFn,
+        params: CompactParams<'_>,
     ) -> Result<CompactionResult, CompactionError> {
-        self.compact_with_debug_log(
-            messages,
-            model,
-            instruction,
-            is_auto,
-            stats,
-            chat_fn,
-            None,
-            "",
-            None,
-        )
-        .await
+        self.compact_with_debug_log(params, SessionDebugLogContext::new(None, "", None))
+            .await
     }
 
     /// Executes a compaction with optional debug-log emission.
     ///
     /// Same as [`compact`](Self::compact) but emits structured debug-log events
-    /// when `debug_log` is `Some` in the params.
-    #[allow(clippy::too_many_arguments)]
+    /// when the [`SessionDebugLogContext`] carries a `Some` debug_log.
     pub async fn compact_with_debug_log(
         &mut self,
-        messages: &[CompactionMessage],
-        model: &str,
-        instruction: Option<&str>,
-        is_auto: bool,
-        stats: Option<&RunningStats>,
-        chat_fn: &ChatFn,
-        debug_log: Option<&DebugLog>,
-        trace_id: &str,
-        session_key: Option<&str>,
+        params: CompactParams<'_>,
+        debug_ctx: SessionDebugLogContext<'_>,
     ) -> Result<CompactionResult, CompactionError> {
-        if messages.is_empty() {
+        if params.messages.is_empty() {
             return Err(CompactionError::EmptyMessages);
         }
 
         // Emit debug-log: compaction started.
         debug_log::emit_session_event(debug_log::SessionEmitEventParams {
-            ctx: SessionDebugLogContext::new(debug_log, trace_id, session_key),
+            ctx: debug_ctx,
             level: closeclaw_debug_log::LogLevel::Info,
             source_module: "session",
             event_type: "session.compaction.started",
             payload: serde_json::json!({
-                "model": model,
-                "is_auto": is_auto,
-                "message_count": messages.len(),
+                "model": params.model,
+                "is_auto": params.is_auto,
+                "message_count": params.messages.len(),
             }),
             parent: None,
         });
 
-        let prompt = build_compact_prompt(instruction);
+        let prompt = build_compact_prompt(params.instruction);
         let mut llm_messages = vec![CompactionMessage {
             role: "system".to_string(),
             content: prompt,
         }];
-        for m in messages {
+        for m in params.messages {
             llm_messages.push(CompactionMessage {
                 role: m.role.clone(),
                 content: m.content.clone(),
             });
         }
 
-        let (response_content, _retries) =
-            chat_fn(model.to_string(), llm_messages)
-                .await
-                .map_err(|e| {
-                    // Emit debug-log: compaction failed.
-                    debug_log::emit_session_event(debug_log::SessionEmitEventParams {
-                        ctx: SessionDebugLogContext::new(debug_log, trace_id, session_key),
-                        level: closeclaw_debug_log::LogLevel::Error,
-                        source_module: "session",
-                        event_type: "session.compaction.failed",
-                        payload: serde_json::json!({
-                            "model": model,
-                            "is_auto": is_auto,
-                            "error": e,
-                        }),
-                        parent: None,
-                    });
-                    CompactionError::LLMCallFailed(e)
-                })?;
+        let (response_content, _retries) = (params.chat_fn)(params.model.to_string(), llm_messages)
+            .await
+            .map_err(|e| {
+                // Emit debug-log: compaction failed.
+                debug_log::emit_session_event(debug_log::SessionEmitEventParams {
+                    ctx: debug_ctx,
+                    level: closeclaw_debug_log::LogLevel::Error,
+                    source_module: "session",
+                    event_type: "session.compaction.failed",
+                    payload: serde_json::json!({
+                        "model": params.model,
+                        "is_auto": params.is_auto,
+                        "error": e,
+                    }),
+                    parent: None,
+                });
+                CompactionError::LLMCallFailed(e)
+            })?;
 
         let summary =
             extract_summary(&response_content).ok_or(CompactionError::SummaryParseFailed)?;
 
-        let boundary = format_boundary_message(&summary, is_auto);
-        let before_chars: usize = messages.iter().map(|m| m.content.chars().count()).sum();
-        let before_tokens = compute_before_tokens(messages, stats, self.config.chars_per_token);
+        let boundary = format_boundary_message(&summary, params.is_auto);
+        let before_chars: usize = params
+            .messages
+            .iter()
+            .map(|m| m.content.chars().count())
+            .sum();
+        let before_tokens =
+            compute_before_tokens(params.messages, params.stats, self.config.chars_per_token);
         let after_tokens = estimate_tokens(&boundary, self.config.chars_per_token);
         let after_chars = boundary.chars().count();
 
@@ -413,13 +414,13 @@ impl CompactionService {
 
         // Emit debug-log: compaction completed.
         debug_log::emit_session_event(debug_log::SessionEmitEventParams {
-            ctx: SessionDebugLogContext::new(debug_log, trace_id, session_key),
+            ctx: debug_ctx,
             level: closeclaw_debug_log::LogLevel::Info,
             source_module: "session",
             event_type: "session.compaction.completed",
             payload: serde_json::json!({
-                "model": model,
-                "is_auto": is_auto,
+                "model": params.model,
+                "is_auto": params.is_auto,
                 "before_tokens": before_tokens,
                 "after_tokens": after_tokens,
                 "before_chars": before_chars,
@@ -438,7 +439,7 @@ impl CompactionService {
             before_token_count: before_tokens,
             after_token_count: after_tokens,
             boundary_message: boundary,
-            is_auto,
+            is_auto: params.is_auto,
         })
     }
 

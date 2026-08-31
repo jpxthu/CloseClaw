@@ -445,6 +445,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-daemon",
+ "closeclaw-debug-log",
  "closeclaw-fake-llm",
  "closeclaw-gateway",
  "closeclaw-im-adapter",
