@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use crate::context::SlashContext;
+use crate::debug_log::{emit_slash_event, SlashDebugLogContext, SlashEmitEventParams};
 use crate::handler::SlashHandler;
 use crate::registry::HandlerRegistry;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::slash_router::SlashRouter;
+use closeclaw_debug_log::{DebugLog, LogLevel};
 
 /// Parses a slash command from raw message content.
 ///
@@ -80,6 +82,68 @@ impl SlashDispatcher {
             return SlashResult::Unknown(content.to_owned());
         };
         handler.handle(args, &build_ctx(cmd, ctx)).await
+    }
+
+    /// Dispatch with debug-log emission.
+    ///
+    /// Same as [`dispatch`](Self::dispatch) but emits structured debug-log
+    /// events at command detection and dispatch nodes.
+    pub async fn dispatch_with_debug_log(
+        &self,
+        content: &str,
+        ctx: &SlashContext,
+        debug_log: Option<&DebugLog>,
+        trace_id: &str,
+        session_key: Option<&str>,
+    ) -> SlashResult {
+        let Some((cmd, args)) = parse_slash(content) else {
+            return SlashResult::Unknown(content.to_owned());
+        };
+
+        // slash.command (中间状态): command detected
+        emit_slash_event(SlashEmitEventParams {
+            ctx: SlashDebugLogContext::new(debug_log, trace_id, session_key),
+            level: LogLevel::Info,
+            source_module: "slash",
+            event_type: "slash.command",
+            payload: serde_json::json!({
+                "command": cmd,
+                "args": args,
+            }),
+            parent: None,
+        });
+
+        let Some(handler) = self.registry.get_arc(cmd) else {
+            return SlashResult::Unknown(content.to_owned());
+        };
+        let result = handler.handle(args, &build_ctx(cmd, ctx)).await;
+
+        // slash.dispatch (关键事件): dispatch completed
+        let result_type = match &result {
+            SlashResult::Reply(_) => "reply",
+            SlashResult::Unknown(_) => "unknown",
+            SlashResult::SetMode { .. } => "set_mode",
+            SlashResult::NewSession => "new_session",
+            SlashResult::Stop { .. } => "stop",
+            SlashResult::Compact { .. } => "compact",
+            SlashResult::SystemAppend { .. } => "system_append",
+            SlashResult::Exec { .. } => "exec",
+            SlashResult::SetReasoning { .. } => "set_reasoning",
+            SlashResult::SetVerbosity { .. } => "set_verbosity",
+        };
+        emit_slash_event(SlashEmitEventParams {
+            ctx: SlashDebugLogContext::new(debug_log, trace_id, session_key),
+            level: LogLevel::Info,
+            source_module: "slash",
+            event_type: "slash.dispatch",
+            payload: serde_json::json!({
+                "command": cmd,
+                "result_type": result_type,
+            }),
+            parent: None,
+        });
+
+        result
     }
 
     /// Check whether a command is an Immediate command (responds even when

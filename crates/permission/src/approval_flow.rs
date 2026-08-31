@@ -34,6 +34,9 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::debug_log::{
+    emit_permission_event, PermissionDebugLogContext, PermissionEmitEventParams,
+};
 use crate::engine::audit_log::{build_audit_log, AuditDisposition, AuditLogger};
 use crate::engine::engine_eval::PermissionEngine;
 use crate::engine::engine_risk::RiskLevel;
@@ -42,6 +45,7 @@ use crate::engine::engine_types::{
 };
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
 use closeclaw_common::{PendingMessage, SessionLookup, SessionMode};
+use closeclaw_debug_log::{DebugLog, LogLevel};
 
 use super::approval::{
     ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectWhitelistReason,
@@ -187,6 +191,8 @@ pub struct ApprovalFlow {
     /// Optional audit logger for recording approved and rejected
     /// permission requests in Auto Mode.
     audit_logger: Option<Arc<dyn AuditLogger>>,
+    /// Optional debug-log instance for structured event emission.
+    debug_log: Option<Arc<DebugLog>>,
 }
 
 impl std::fmt::Debug for ApprovalFlow {
@@ -235,6 +241,7 @@ impl ApprovalFlow {
             plan_exec_metadata: HashMap::new(),
             create_child_session_fn: None,
             audit_logger: None,
+            debug_log: None,
         }
     }
 
@@ -266,6 +273,7 @@ impl ApprovalFlow {
             plan_exec_metadata: HashMap::new(),
             create_child_session_fn: None,
             audit_logger: None,
+            debug_log: None,
         }
     }
 }
@@ -277,6 +285,12 @@ impl ApprovalFlow {
     /// permission requests in Auto Mode.
     pub fn with_audit_logger(mut self, logger: Arc<dyn AuditLogger>) -> Self {
         self.audit_logger = Some(logger);
+        self
+    }
+
+    /// Inject a debug-log instance for structured event emission.
+    pub fn with_debug_log(mut self, debug_log: Arc<DebugLog>) -> Self {
+        self.debug_log = Some(debug_log);
         self
     }
 }
@@ -485,6 +499,27 @@ impl ApprovalFlow {
             operation_desc,
             risk_level,
         });
+
+        // permission.approval (关键事件): approval flow triggered
+        if let Some(ref debug_log) = self.debug_log {
+            let agent = caller.agent.clone();
+            let operation = Self::format_operation_desc(request);
+            emit_permission_event(PermissionEmitEventParams {
+                ctx: PermissionDebugLogContext::new(Some(debug_log.as_ref()), "", None),
+                level: LogLevel::Info,
+                source_module: "permission",
+                event_type: "permission.approval",
+                payload: serde_json::json!({
+                    "request_id": &request_id,
+                    "agent": agent,
+                    "operation": operation,
+                    "action": "submitted",
+                    "risk_level": format!("{:?}", risk_level),
+                }),
+                parent: None,
+            });
+        }
+
         Some(request_id)
     }
 }
@@ -616,6 +651,26 @@ impl ApprovalFlow {
                     logger.log(&entry);
                 }
             }
+
+            // permission.approval (关键事件): approval resolved (approved)
+            if let Some(ref debug_log) = self.debug_log {
+                let agent = pending_info
+                    .as_ref()
+                    .map(|(_, caller, _, _, _, _)| caller.agent.clone())
+                    .unwrap_or_default();
+                emit_permission_event(PermissionEmitEventParams {
+                    ctx: PermissionDebugLogContext::new(Some(debug_log.as_ref()), "", None),
+                    level: LogLevel::Info,
+                    source_module: "permission",
+                    event_type: "permission.approval",
+                    payload: serde_json::json!({
+                        "request_id": request_id,
+                        "agent": agent,
+                        "action": "approved",
+                    }),
+                    parent: None,
+                });
+            }
         }
 
         self.persist_whitelist(request_id, &pending_info, final_mode, result);
@@ -669,6 +724,26 @@ impl ApprovalFlow {
                     );
                     logger.log(&entry);
                 }
+            }
+
+            // permission.approval (关键事件): approval resolved (denied)
+            if let Some(ref debug_log) = self.debug_log {
+                let agent = pending_info
+                    .as_ref()
+                    .map(|(_, caller, _, _)| caller.agent.clone())
+                    .unwrap_or_default();
+                emit_permission_event(PermissionEmitEventParams {
+                    ctx: PermissionDebugLogContext::new(Some(debug_log.as_ref()), "", None),
+                    level: LogLevel::Info,
+                    source_module: "permission",
+                    event_type: "permission.approval",
+                    payload: serde_json::json!({
+                        "request_id": request_id,
+                        "agent": agent,
+                        "action": "denied",
+                    }),
+                    parent: None,
+                });
             }
 
             // Push rejection message to session.

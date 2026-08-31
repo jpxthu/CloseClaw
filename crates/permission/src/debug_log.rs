@@ -1,0 +1,137 @@
+//! Debug log helpers for the Permission module.
+//!
+//! Provides structured debug-log emission for permission lifecycle events:
+//! permission checks and approval flow triggers.
+//!
+//! Follows the same pattern as
+//! [`gateway::debug_log_emitter`](closeclaw_gateway::debug_log_emitter),
+//! [`session::debug_log`](closeclaw_session::debug_log),
+//! [`llm::debug_log`](closeclaw_llm::debug_log),
+//! [`tools::debug_log`](closeclaw_tools::debug_log), and
+//! [`slash::debug_log`](closeclaw_slash::debug_log).
+
+use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
+
+/// Bundles a [`DebugLog`] reference, trace ID, and session key
+/// for debug-log emission.
+///
+/// Created by callers to pass the guard, trace ID, and session key
+/// together, reducing the field count in [`PermissionEmitEventParams`].
+pub struct PermissionDebugLogContext<'a> {
+    /// Debug log instance; when `None`, the emit is a no-op.
+    pub debug_log: Option<&'a DebugLog>,
+    /// Trace ID for correlation. When empty, the emit is a no-op.
+    pub trace_id: &'a str,
+    /// Optional session key for log correlation.
+    pub session_key: Option<&'a str>,
+}
+
+impl<'a> PermissionDebugLogContext<'a> {
+    /// Create a new context from a guard, trace ID, and session key.
+    pub fn new(
+        debug_log: Option<&'a DebugLog>,
+        trace_id: &'a str,
+        session_key: Option<&'a str>,
+    ) -> Self {
+        Self {
+            debug_log,
+            trace_id,
+            session_key,
+        }
+    }
+}
+
+/// Parameters for emitting a permission debug log event.
+///
+/// Aggregates all event fields into a struct to keep
+/// [`emit_permission_event`] within the project's 6-parameter limit.
+pub struct PermissionEmitEventParams<'a> {
+    /// Bundled debug-log context (instance, trace ID, and session key).
+    pub ctx: PermissionDebugLogContext<'a>,
+    /// Log level for the event.
+    pub level: LogLevel,
+    /// Source module that produced the event.
+    pub source_module: &'a str,
+    /// Event type identifier (e.g. `"permission.check"`).
+    pub event_type: &'a str,
+    /// Structured event payload.
+    pub payload: serde_json::Value,
+    /// Optional parent [`TraceContext`] for child span derivation.
+    /// When `Some`, creates a child span; when `None`, creates a
+    /// root span from `trace_id`.
+    pub parent: Option<&'a TraceContext>,
+}
+
+/// Emit a structured debug log event for the Permission module.
+///
+/// When `parent` is `Some`, creates a child [`TraceContext`] derived
+/// from the parent span. When `parent` is `None`, creates a root
+/// [`TraceContext`] from `trace_id` (backward compatible).
+///
+/// If `trace_id` is empty or `debug_log` is `None`, the call is a
+/// no-op.
+pub fn emit_permission_event(params: PermissionEmitEventParams<'_>) {
+    if params.ctx.trace_id.is_empty() {
+        return;
+    }
+    let Some(debug_log) = params.ctx.debug_log else {
+        return;
+    };
+    let ctx = match params.parent {
+        Some(p) => p.child(),
+        None => TraceContext::new_root(params.ctx.trace_id.to_string()),
+    };
+    let event = LogEvent::new(
+        &ctx,
+        params.ctx.session_key.map(|s| s.to_string()),
+        params.level,
+        params.source_module,
+        params.event_type,
+        params.payload,
+    );
+    let debug_log = debug_log.clone();
+    tokio::spawn(async move {
+        debug_log.log(event).await;
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_trace_id_is_noop() {
+        // Should not panic when trace_id is empty.
+        let ctx = PermissionDebugLogContext::new(None, "", None);
+        emit_permission_event(PermissionEmitEventParams {
+            ctx,
+            level: LogLevel::Info,
+            source_module: "permission",
+            event_type: "test.event",
+            payload: serde_json::json!({}),
+            parent: None,
+        });
+    }
+
+    #[test]
+    fn none_debug_log_is_noop() {
+        // Should not panic when debug_log is None.
+        let ctx = PermissionDebugLogContext::new(None, "trace-123", None);
+        emit_permission_event(PermissionEmitEventParams {
+            ctx,
+            level: LogLevel::Info,
+            source_module: "permission",
+            event_type: "test.event",
+            payload: serde_json::json!({}),
+            parent: None,
+        });
+    }
+
+    #[test]
+    fn debug_log_context_new_fields() {
+        let ctx = PermissionDebugLogContext::new(None, "tid", Some("skey"));
+        assert_eq!(ctx.trace_id, "tid");
+        assert_eq!(ctx.session_key, Some("skey"));
+        assert!(ctx.debug_log.is_none());
+    }
+}
