@@ -332,6 +332,39 @@ impl Default for PlanArchiveConfig {
     }
 }
 
+/// Daemon shutdown configuration.
+///
+/// Controls timeouts used during graceful daemon shutdown.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShutdownConfig {
+    /// Maximum seconds to wait for in-flight messages to drain.
+    /// Default: 30.
+    #[serde(default = "default_drain_timeout_secs")]
+    pub drain_timeout_secs: u64,
+    /// Maximum seconds to wait per session before force-stopping.
+    /// Default: 30.
+    #[serde(default = "default_graceful_timeout_secs")]
+    pub graceful_timeout_secs: u64,
+}
+
+fn default_drain_timeout_secs() -> u64 {
+    30
+}
+
+fn default_graceful_timeout_secs() -> u64 {
+    30
+}
+
+impl Default for ShutdownConfig {
+    fn default() -> Self {
+        Self {
+            drain_timeout_secs: default_drain_timeout_secs(),
+            graceful_timeout_secs: default_graceful_timeout_secs(),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SystemConfigData
 // ---------------------------------------------------------------------------
@@ -368,6 +401,8 @@ pub struct SystemConfigData {
     pub llm: Option<LlmConfig>,
     #[serde(default)]
     pub rejection_log: Option<RejectionLogConfig>,
+    #[serde(default)]
+    pub shutdown: Option<ShutdownConfig>,
 }
 
 impl SystemConfigData {
@@ -445,5 +480,9 @@ impl ConfigProvider for SystemConfigData {
                 .rejection_log
                 .as_ref()
                 .is_none_or(|r| r == &RejectionLogConfig::default())
+            && self
+                .shutdown
+                .as_ref()
+                .is_none_or(|s| s == &ShutdownConfig::default())
     }
 }

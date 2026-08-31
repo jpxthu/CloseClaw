@@ -3,7 +3,8 @@
 use super::{
     AuthProfileEntryConfig, AuthProfilesConfig, BrowserConfig, CommandsConfig, CronConfig,
     HookEntryConfig, HooksConfig, HooksInternalConfig, LlmConfig, MessagesConfig, MetaConfig,
-    SessionConfig, SessionMaintenanceConfig, SystemConfigData, UpdateConfig, WizardConfig,
+    SessionConfig, SessionMaintenanceConfig, ShutdownConfig, SystemConfigData, UpdateConfig,
+    WizardConfig,
 };
 use crate::ConfigProvider;
 use closeclaw_common::ReasoningLevel;
@@ -79,6 +80,7 @@ fn full_config() -> SystemConfigData {
         auth: Some(AuthProfilesConfig { profiles }),
         llm: None,
         rejection_log: None,
+        shutdown: None,
     }
 }
 
@@ -324,6 +326,7 @@ fn test_is_default_true_when_all_sub_structs_are_default() {
         auth: None,
         llm: None,
         rejection_log: None,
+        shutdown: None,
     };
     assert!(cfg.is_default());
 }
@@ -331,6 +334,13 @@ fn test_is_default_true_when_all_sub_structs_are_default() {
 #[test]
 fn test_is_default_false_when_sub_struct_not_default() {
     let cases: Vec<SystemConfigData> = vec![
+        SystemConfigData {
+            shutdown: Some(ShutdownConfig {
+                drain_timeout_secs: 60,
+                graceful_timeout_secs: 60,
+            }),
+            ..Default::default()
+        },
         SystemConfigData {
             update: Some(UpdateConfig {
                 check_on_start: false,
@@ -455,4 +465,81 @@ fn test_llm_config_serde_roundtrip() {
     let json = serde_json::to_string(&config).unwrap();
     let parsed: LlmConfig = serde_json::from_str(&json).unwrap();
     assert_eq!(config, parsed);
+}
+
+// -----------------------------------------------------------------------
+// ShutdownConfig tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_shutdown_config_default() {
+    let s = ShutdownConfig::default();
+    assert_eq!(s.drain_timeout_secs, 30);
+    assert_eq!(s.graceful_timeout_secs, 30);
+}
+
+#[test]
+fn test_shutdown_config_from_json_empty_object() {
+    let json = r#"{"shutdown": {}}"#;
+    let cfg: SystemConfigData = serde_json::from_str(json).unwrap();
+    let s = cfg.shutdown.unwrap();
+    assert_eq!(s.drain_timeout_secs, 30);
+    assert_eq!(s.graceful_timeout_secs, 30);
+}
+
+#[test]
+fn test_shutdown_config_from_json_partial() {
+    let json = r#"{"shutdown": {"drainTimeoutSecs": 60}}"#;
+    let cfg: SystemConfigData = serde_json::from_str(json).unwrap();
+    let s = cfg.shutdown.unwrap();
+    assert_eq!(s.drain_timeout_secs, 60);
+    assert_eq!(s.graceful_timeout_secs, 30); // default
+}
+
+#[test]
+fn test_shutdown_config_from_json_full() {
+    let json = r#"{"shutdown": {"drainTimeoutSecs": 10, "gracefulTimeoutSecs": 20}}"#;
+    let cfg: SystemConfigData = serde_json::from_str(json).unwrap();
+    let s = cfg.shutdown.unwrap();
+    assert_eq!(s.drain_timeout_secs, 10);
+    assert_eq!(s.graceful_timeout_secs, 20);
+}
+
+#[test]
+fn test_shutdown_config_from_json_missing_field() {
+    let json = r#"{"wizard": {}}"#;
+    let cfg: SystemConfigData = serde_json::from_str(json).unwrap();
+    assert!(cfg.shutdown.is_none());
+}
+
+#[test]
+fn test_shutdown_config_serde_roundtrip() {
+    let config = ShutdownConfig {
+        drain_timeout_secs: 45,
+        graceful_timeout_secs: 90,
+    };
+    let json = serde_json::to_string(&config).unwrap();
+    let parsed: ShutdownConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(config, parsed);
+}
+
+#[test]
+fn test_is_default_true_when_shutdown_is_default() {
+    let cfg = SystemConfigData {
+        shutdown: Some(ShutdownConfig::default()),
+        ..Default::default()
+    };
+    assert!(cfg.is_default());
+}
+
+#[test]
+fn test_is_default_false_when_shutdown_not_default() {
+    let cfg = SystemConfigData {
+        shutdown: Some(ShutdownConfig {
+            drain_timeout_secs: 60,
+            graceful_timeout_secs: 30,
+        }),
+        ..Default::default()
+    };
+    assert!(!cfg.is_default());
 }
