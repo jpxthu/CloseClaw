@@ -625,10 +625,8 @@ mod tests {
     fn test_label_idle_with_active_children() {
         let tool_info: Vec<(String, String)> = Vec::new();
         let label = build_session_status_label(false, &tool_info, LlmState::Idle, 3);
-        assert_eq!(
-            label,
-            "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}3 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}"
-        );
+        let expected = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}3 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        assert_eq!(label, expected);
     }
 
     /// No running tool, idle state, exactly 1 active child.
@@ -636,10 +634,8 @@ mod tests {
     fn test_label_idle_with_one_active_child() {
         let tool_info: Vec<(String, String)> = Vec::new();
         let label = build_session_status_label(false, &tool_info, LlmState::Idle, 1);
-        assert_eq!(
-            label,
-            "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}1 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}"
-        );
+        let expected = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}1 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        assert_eq!(label, expected);
     }
 
     /// Running tool takes precedence over child count.
