@@ -273,7 +273,7 @@ impl ConversationSession {
 
 impl ConversationSession {
     /// Returns the number of child sessions currently in `Running` state.
-    pub(crate) fn count_active_children(&self) -> usize {
+    pub fn count_active_children(&self) -> usize {
         let states = self
             .child_states
             .read()

@@ -180,6 +180,7 @@ impl Daemon {
             slash_registry,
             _config_watcher: Some(config_watcher),
             config_watcher_subscriber_handle: None,
+            config_manager: Arc::clone(&config_manager),
             approval_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
@@ -415,7 +416,19 @@ impl Daemon {
 
         // Spawn session stop as a background task
         let sm = self.gateway().await.session_manager().clone();
-        let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
+        // Read per-session graceful timeout from config; fall back to DEFAULT_GRACEFUL_TIMEOUT.
+        let timeout = {
+            use closeclaw_config::providers::SystemConfigData;
+            use closeclaw_config::ConfigSection;
+            self.config_manager
+                .section(ConfigSection::System)
+                .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+                .and_then(|sys| sys.shutdown.map(|s| s.graceful_timeout_secs))
+                .map(std::time::Duration::from_secs)
+                .unwrap_or(
+                    closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT,
+                )
+        };
         let mut stop_handle = tokio::spawn(async move {
             sm.stop_all_sessions(mode, timeout, Some(&progress_tx))
                 .await
