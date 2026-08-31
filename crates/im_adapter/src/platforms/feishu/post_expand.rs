@@ -1,6 +1,7 @@
 //! Post content expansion — converts Feishu post JSON to plain text.
 
 use super::text_style::apply_text_style;
+use closeclaw_common::{MediaRef, MediaType};
 
 // Post content expansion
 /// Expand a Feishu post-type content JSON value into plain text.
@@ -161,4 +162,49 @@ fn expand_quote(elem: &serde_json::Value) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// Extract media references from a single post content element.
+/// Returns `Some(MediaRef)` for `img`, `media`, and `file` tags with
+/// a non-empty key; `None` for all other tags or missing/empty keys.
+fn media_ref_from_elem(elem: &serde_json::Value) -> Option<MediaRef> {
+    let tag = elem.get("tag").and_then(|t| t.as_str())?;
+    let (key, media_type) = match tag {
+        "img" => (elem.get("image_key")?, MediaType::Image),
+        "media" | "file" => (
+            // Design decision: `media` tag maps to
+            // MediaType::File (not a distinct Video variant)
+            // because the current adapter metadata has no
+            // finer-grained media sub-type for video vs file.
+            // This is consistent with the existing file|audio
+            // handling in the adapter.
+            elem.get("file_key")?,
+            MediaType::File,
+        ),
+        _ => return None,
+    };
+    let key = key.as_str()?.to_string();
+    if key.is_empty() {
+        return None;
+    }
+    Some(MediaRef {
+        key,
+        path: String::new(),
+        media_type,
+        size: 0,
+        mime: String::new(),
+    })
+}
+
+/// Extract media references from a post message's 2D content array.
+/// Scans for `img`, `media`, and `file` tags and builds `MediaRef`
+/// entries for each embedded resource.
+pub(crate) fn extract_post_media_refs(content: &serde_json::Value) -> Vec<MediaRef> {
+    let Some(rows) = content.get("content").and_then(|c| c.as_array()) else {
+        return Vec::new();
+    };
+    rows.iter()
+        .flat_map(|row| row.as_array().into_iter().flatten())
+        .filter_map(media_ref_from_elem)
+        .collect()
 }

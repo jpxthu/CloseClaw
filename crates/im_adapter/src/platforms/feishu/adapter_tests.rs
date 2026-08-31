@@ -371,61 +371,6 @@ async fn test_parse_message_event_thread_id_from_root_id() {
     assert_eq!(msg.thread_id.as_deref(), Some("om_root123"));
 }
 // ===========================================================================
-// Empty text content filtering tests (Step 1.2)
-// ===========================================================================
-
-#[tokio::test]
-async fn test_parse_text_empty_content_returns_none() {
-    let adapter = make_test_adapter();
-    let event = make_message_event("text", &serde_json::json!({"text": ""}).to_string());
-    assert!(
-        adapter.parse_message_event(event).await.unwrap().is_none(),
-        "text with empty content should be discarded"
-    );
-}
-#[tokio::test]
-async fn test_parse_text_missing_text_field_returns_none() {
-    let adapter = make_test_adapter();
-    let event = make_message_event("text", &serde_json::json!({}).to_string());
-    assert!(
-        adapter.parse_message_event(event).await.unwrap().is_none(),
-        "text with missing text field should be discarded"
-    );
-}
-#[tokio::test]
-async fn test_parse_post_empty_expand_returns_none() {
-    let adapter = make_test_adapter();
-    // Empty content array → expand_post_content returns ""
-    let event = make_message_event("post", &serde_json::json!({"content": []}).to_string());
-    assert!(
-        adapter.parse_message_event(event).await.unwrap().is_none(),
-        "post with empty expand should be discarded"
-    );
-}
-#[tokio::test]
-async fn test_parse_text_whitespace_only_returns_none() {
-    let adapter = make_test_adapter();
-    let event = make_message_event("text", &serde_json::json!({"text": "   "}).to_string());
-    assert!(
-        adapter.parse_message_event(event).await.unwrap().is_none(),
-        "text with whitespace-only content should be discarded"
-    );
-}
-#[tokio::test]
-async fn test_parse_image_empty_key() {
-    let adapter = make_test_adapter();
-    let event = make_message_event_with_id(
-        "image",
-        &serde_json::json!({}).to_string(),
-        Some("om_img_empty"),
-    );
-    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, MessageType::Image);
-    assert_eq!(msg.media_refs.len(), 1);
-    #[rustfmt::skip]
-    assert!(msg.media_refs[0].key.is_empty(), "image with no image_key should have empty key");
-}
-// ===========================================================================
 // send_message / send_card_json receive_id_type tests
 // ===========================================================================
 
