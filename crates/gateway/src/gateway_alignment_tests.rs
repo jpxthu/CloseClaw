@@ -213,6 +213,7 @@ async fn test_queue_full_rejection_emits_debug_event() {
                 raw_payload: b"{}".to_vec(),
                 peer_id: "p_fill".to_string(),
                 trace_id: "trace-fill".to_string(),
+                span_id: None,
             },
         })
         .expect("first send should succeed");
@@ -224,6 +225,7 @@ async fn test_queue_full_rejection_emits_debug_event() {
             raw_payload: b"{}".to_vec(),
             peer_id: "p_rejected".to_string(),
             trace_id: "trace-rejected".to_string(),
+            span_id: None,
         })
         .await;
     assert!(result.is_err(), "queue full should return Err");

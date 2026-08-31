@@ -16,6 +16,8 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
         timestamp: ts,
         trace_id: None,
         session_key: None,
+        span_id: None,
+        chat_name: String::new(),
     }
 }
 
