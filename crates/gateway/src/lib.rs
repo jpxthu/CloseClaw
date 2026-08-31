@@ -934,10 +934,8 @@ impl Gateway {
         self.session_manager.get_agent_sessions(agent_id).await
     }
 }
-
 /// Build a [`ProcessorRegistry`] with the standard inbound/outbound chains.
 pub use processor_registry_builder::build_processor_registry;
-
 /// Register the built-in outbound middlewares on a [`Gateway`].
 use processor_registry_builder::register_default_middlewares;
 
@@ -960,6 +958,8 @@ pub mod notification_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
+#[cfg(test)]
+mod rebuild_stash_tests;
 #[cfg(test)]
 pub mod session_handler_announce_reasoning_always_tests;
 #[cfg(test)]
