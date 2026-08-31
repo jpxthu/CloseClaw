@@ -13,6 +13,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::Stream;
+use std::sync::Arc;
 
 use closeclaw_common::processor::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage,
@@ -239,11 +240,18 @@ impl Default for StreamingContentAssembler {
 /// the final `ContentBlock[]`. After the stream is fully consumed,
 /// call [`into_content_blocks`](Self::into_content_blocks) to extract
 /// the assembled result.
+///
+/// When a [`ShutdownSignal`] is provided (via [`SessionStream::with_shutdown_handle`]),
+/// the stream calls [`ShutdownSignal::decrement_busy`] automatically when
+/// it ends (normally or with an error), matching the
+/// `increment_busy` / `decrement_busy` contract from `invoke_llm_streaming`.
 pub struct SessionStream {
     inner: Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>,
     assembler: StreamingContentAssembler,
     /// Whether the inner stream has been fully consumed.
     finished: bool,
+    /// Shutdown handle for automatic busy-count decrement on stream end.
+    shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
 }
 
 impl SessionStream {
@@ -253,7 +261,21 @@ impl SessionStream {
             inner,
             assembler: StreamingContentAssembler::new(),
             finished: false,
+            shutdown_handle: None,
         }
+    }
+
+    /// Attach a shutdown handle for automatic busy-count tracking.
+    ///
+    /// When attached, `decrement_busy()` is called when the stream
+    /// finishes or errors out, pairing with `increment_busy()` in
+    /// `invoke_llm_streaming`.
+    pub fn with_shutdown_handle(
+        mut self,
+        handle: Arc<dyn closeclaw_common::ShutdownSignal>,
+    ) -> Self {
+        self.shutdown_handle = Some(handle);
+        self
     }
 
     /// Consume the stream wrapper and return the accumulated content blocks.
@@ -279,6 +301,13 @@ impl SessionStream {
     pub fn is_finished(&self) -> bool {
         self.finished
     }
+
+    /// Decrement busy count if a shutdown handle is tracked.
+    fn decrement_if_tracked(handle: &mut Option<Arc<dyn closeclaw_common::ShutdownSignal>>) {
+        if let Some(sh) = handle.take() {
+            sh.decrement_busy();
+        }
+    }
 }
 
 impl Stream for SessionStream {
@@ -286,14 +315,36 @@ impl Stream for SessionStream {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = &mut *self;
+
+        // ── Already finished: return None ──
+        if this.finished {
+            return Poll::Ready(None);
+        }
+
+        // ── Forceful shutdown gate: terminate stream immediately ──
+        if let Some(ref sh) = this.shutdown_handle {
+            if sh.is_forceful() {
+                tracing::warn!("forceful shutdown detected during streaming, terminating stream");
+                Self::decrement_if_tracked(&mut this.shutdown_handle);
+                this.finished = true;
+                return Poll::Ready(Some(Err(LLMError::Cancelled)));
+            }
+        }
+
         match this.inner.as_mut().poll_next(cx) {
             Poll::Ready(Some(Ok(event))) => {
                 this.assembler.process_event(&event);
                 Poll::Ready(Some(Ok(event)))
             }
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(Some(Err(e))) => {
+                // Stream errored — decrement busy count before yielding the error.
+                Self::decrement_if_tracked(&mut this.shutdown_handle);
+                Poll::Ready(Some(Err(e)))
+            }
             Poll::Ready(None) => {
                 this.finished = true;
+                // Stream completed — decrement busy count.
+                Self::decrement_if_tracked(&mut this.shutdown_handle);
                 Poll::Ready(None)
             }
             Poll::Pending => Poll::Pending,

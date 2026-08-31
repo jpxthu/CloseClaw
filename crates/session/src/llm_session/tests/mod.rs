@@ -14,6 +14,8 @@ mod dynamic_layer_tests;
 mod exec_state_tests;
 mod extract_pending_tool_calls_tests;
 mod graceful_stop_pending_tool_tests;
+mod llm_busy_count_tests;
+mod llm_gate_check_tests;
 mod manual_background_tests;
 mod memory_injection_dedup_tests;
 mod rebuild_system_prompt_tests;
