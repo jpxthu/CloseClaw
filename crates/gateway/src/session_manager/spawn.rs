@@ -210,11 +210,6 @@ impl SessionManager {
         timeout_warning_secs: Option<u64>,
         timeout_notify_interval_ratio: Option<f64>,
     ) -> Result<String, String> {
-        // ── Increment busy count for drain tracking ────────────────────
-        if let Some(sh) = self.get_shutdown_handle().await {
-            sh.increment_busy();
-        }
-
         // ── Shutdown gate: reject new child session creation ──────────
         if let Some(sh) = self.get_shutdown_handle().await {
             if sh.is_shutting_down() {
@@ -222,7 +217,6 @@ impl SessionManager {
                     parent_session_id = %parent_session_id,
                     "rejecting child session creation: daemon is shutting down"
                 );
-                sh.decrement_busy();
                 return Err("daemon is shutting down".into());
             }
         }
