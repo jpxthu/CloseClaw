@@ -581,6 +581,7 @@ impl Daemon {
         let abort_grace = std::time::Duration::from_secs(3);
 
         // Compile-time: total Phase 3 budget must be 10s per design doc.
+        #[allow(clippy::assertions_on_constants, clippy::eq_op)]
         const _: () = assert!(
             7 + 3 == 10,
             "Phase 3 total timeout (join_timeout + abort_grace) must equal 10s"

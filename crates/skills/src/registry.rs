@@ -156,7 +156,7 @@ impl BuiltinSkillRegistry {
             .into_iter()
             .filter(|(m, meta)| {
                 meta.user_invocable
-                    && !(exclude_conditional && !meta.paths.is_empty())
+                    && (!exclude_conditional || meta.paths.is_empty())
                     && match &use_whitelist {
                         Some(set) => set.contains(m.name.as_str()),
                         None => true,
