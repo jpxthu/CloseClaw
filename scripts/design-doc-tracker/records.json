@@ -209,11 +209,11 @@
   },
   {
     "path": "docs/design/gateway/outbound-flow.md",
-    "commit": "3d458f27492f952c7730460ae04b5802f0320e56",
-    "commit_time": "2026-08-24T10:03:58+08:00",
-    "confirmed_time": "2026-09-01T04:07:13.623469+08:00",
+    "commit": "310ef3d4e0f8f622ec0fd3c40fe43ec20ce0f7cc",
+    "commit_time": "2026-09-01T04:08:07+08:00",
+    "confirmed_time": "2026-09-01T07:10:41.708537+08:00",
     "comment": "",
-    "blocked_reason": "系统通知接口路由定义不清晰：文档将「⏳ 正在排队…」列为 Gateway 通用系统通知接口示例，但代码中该通知实际经 push_system_notification → pending queue → inject_system_message 注入对话历史（role=system，不经 Gateway 简化出站路径投递到 IM）；仅部分通知（「正在恢复会话…」等）走 Gateway 发送通道。文档未定义双路由机制，读者无法判断系统通知的真实流向，设计目标不清晰。正反两轮深度对比分身共识判定 doc_problem。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/README.md",
