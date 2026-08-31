@@ -51,11 +51,11 @@ Session 的整体状态由四维组合判定：
 | true | * | * | * | **Busy**：LLM 正在推理或流式输出 |
 | * | true | * | * | **Busy**：前台工具执行中，session 阻塞等待结果 |
 
-> 整体判定只分 **Busy** 与 **就绪（Idle）** 两态（是否可接收消息）；**inactive（归档判据）** 是复合状态——四维均 false 且距上次用户活动超过 inactive 时长，才由归档判定触发（见下方「复合状态」），不在整体判定表内。
+> 整体状态由四维派生为 `SessionExecStatus`（Idle / Waiting / Busy 三值枚举，见 [README.md](README.md) 四维执行状态节）。其中 Busy（LLM 推理或前台工具执行中）与 Idle/Waiting 是消息分派的关键区分——Busy 时消息排队，Idle/Waiting 时立即分发；**inactive（归档判据）** 是复合状态——四维均 false 且距上次用户活动超过 inactive 时长，才由归档判定触发（见下方「复合状态」），不在整体判定表内。
 
 **复合状态**（由四维标志 + 时间条件组合判定）：
 
-- **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息。background_tool_active 或 child_active 为 true 不影响 idle 判定。**Waiting（yield 后）也是 idle 的一种**：Waiting 下两维均为 false，`is_session_busy` 返回 false、消息立即分发不排队（见下方 Yield 机制节）
+- **idle**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新用户消息。background_tool_active 或 child_active 为 true 不影响 idle 判定。**Waiting（yield 后）是 `SessionExecStatus` 的第三态**：Waiting 下两维均为 false，`is_session_busy` 返回 false、消息立即分发不排队（见下方 Yield 机制节）——即分类上 Waiting 是与 Idle/Busy 平级的枚举值，分派行为上与 idle 一致
 - **inactive**：四个活跃维度均为 false，且距上次用户活动超过配置的 inactive 时长——触发归档判定
 
 > idle（消息就绪）与 Workflow 验收闸门是**两个不同概念**：idle 判定不把 child_active / background_tool_active 计入；而 Workflow 验收需要 agent 不再被任何活跃维度占用（含后台任务、子 Session），故验收闸门看四维全 false。二者目的不同，勿混同。

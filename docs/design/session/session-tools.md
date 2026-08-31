@@ -29,7 +29,7 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 | `task` | 任务描述，注入子 session 的 system prompt（不属于对话消息，压缩时不受影响） | 是 | — |
 | `mode` | `"run"`（一次性）/ `"session"`（持久线程） | 否 | `"run"` |
 
-> `mode` 描述子 session 的持久化策略，与 SessionCheckpoint 中的 `mode` 字段（对话模式：normal/plan/auto）含义不同——二者作用于不同数据结构。
+> `mode` 描述子 session 的持久化策略，与 SessionCheckpoint 中的 `session_mode` 字段（对话模式：normal/plan/auto）含义不同——二者作用于不同数据结构。
 | `fork` | 是否 fork 父 agent 上下文 | 否 | `false` |
 | `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
 | `timeout` | 子 session 硬超时（秒），达到后系统自动终止。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局默认（48h） |
