@@ -16,19 +16,39 @@ use tracing::{info, warn};
 
 /// RAII handle for the config hot-reload system.
 ///
-/// Dropping this stops the underlying filesystem watcher. The config-change
-/// subscriber task runs for the lifetime of the tokio runtime.
+/// Dropping this stops the underlying filesystem watcher. The subscriber
+/// handle can be used (e.g. in Phase 3) to verify the task has exited.
 pub(crate) struct ConfigWatcherHandle {
     _watcher: WatcherHandle,
+    _subscriber_handle: tokio::task::JoinHandle<()>,
+}
+
+impl ConfigWatcherHandle {
+    /// Consume self and return the subscriber JoinHandle.
+    ///
+    /// The filesystem watcher is dropped here (RAII stop), and the
+    /// subscriber handle is returned so the caller can join it later
+    /// (e.g. in Phase 3 `wait_all_bg_tasks`).
+    pub(crate) fn into_subscriber_handle(self) -> tokio::task::JoinHandle<()> {
+        let ConfigWatcherHandle {
+            _watcher,
+            _subscriber_handle,
+        } = self;
+        drop(_watcher);
+        _subscriber_handle
+    }
 }
 
 /// Spawn a background task that subscribes to config change events and
 /// notifies the [`SessionManager`].
+///
+/// Returns the [`JoinHandle`] so the caller can await task completion
+/// (e.g. during Phase 3 background-task shutdown).
 fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
     gateway: Arc<Gateway>,
-) {
+) -> tokio::task::JoinHandle<()> {
     let mut event_rx = config_manager.subscribe_config_changes();
     let mut snapshot_rx = config_manager.subscribe_config_snapshots();
     tokio::spawn(async move {
@@ -92,7 +112,7 @@ fn spawn_config_change_subscriber(
                 }
             }
         }
-    });
+    })
 }
 
 /// Parse the owner notification target from `SystemConfigData.commands.owner_display`.
@@ -140,11 +160,15 @@ pub(crate) fn init_config_hot_reload(
         .watch(config_dir)
         .context("failed to start config hot-reload watcher")?;
 
-    spawn_config_change_subscriber(config_manager, session_manager, gateway);
+    let subscriber_handle =
+        spawn_config_change_subscriber(config_manager, session_manager, gateway);
 
     info!("config hot-reload initialized, delegating to ConfigReloadManager");
 
-    Ok(ConfigWatcherHandle { _watcher: watcher })
+    Ok(ConfigWatcherHandle {
+        _watcher: watcher,
+        _subscriber_handle: subscriber_handle,
+    })
 }
 
 #[cfg(test)]

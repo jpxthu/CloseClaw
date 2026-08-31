@@ -14,12 +14,14 @@ use super::Gateway;
 /// Build the session status label for display in the shutdown progress card.
 ///
 /// When tools are running, displays the tool name and a truncated input
-/// summary (max 30 chars). Falls back to generic labels for LLM streaming
-/// or idle states.
+/// summary (max 30 chars). When there are active child sessions and no
+/// LLM/tool activity, shows "子任务进行中（N 个子 session 未完成）".
+/// Falls back to generic labels for LLM streaming or idle states.
 fn build_session_status_label(
     has_running_tool: bool,
     tool_info: &[(String, String)],
     llm_state: LlmState,
+    child_count: usize,
 ) -> String {
     if has_running_tool {
         if let Some((tool_name, input)) = tool_info.first() {
@@ -45,6 +47,10 @@ fn build_session_status_label(
         }
     } else if matches!(llm_state, LlmState::Requesting | LlmState::Receiving) {
         "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}".to_string()
+    } else if child_count > 0 {
+        let prefix = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}";
+        let suffix = " \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        format!("{}{}{}", prefix, child_count, suffix)
     } else {
         "\u{5df2}\u{5c31}\u{7eea}".to_string()
     }
@@ -212,8 +218,14 @@ impl Gateway {
                         Vec::new()
                     };
 
+                    let child_count = guard.count_active_children();
                     drop(guard);
-                    let label = build_session_status_label(has_running_tool, &tool_info, state);
+                    let label = build_session_status_label(
+                        has_running_tool,
+                        &tool_info,
+                        state,
+                        child_count,
+                    );
                     (label, activity)
                 }
                 None => ("\u{5df2}\u{5c31}\u{7eea}".to_string(), session.created_at),
@@ -543,7 +555,7 @@ mod tests {
     #[test]
     fn test_label_running_tool_with_name_and_input() {
         let tool_info = vec![("make".to_string(), "build --release".to_string())];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert_eq!(
             label,
             "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}make build --release"
@@ -555,7 +567,7 @@ mod tests {
     fn test_label_running_tool_long_input_truncated() {
         let long_input = "a".repeat(50);
         let tool_info = vec![("compile".to_string(), long_input)];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}compile "));
         // Should end with "..."
         assert!(label.ends_with("..."));
@@ -569,7 +581,7 @@ mod tests {
     #[test]
     fn test_label_running_tool_empty_input() {
         let tool_info = vec![("list_files".to_string(), "".to_string())];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert_eq!(
             label,
             "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}list_files"
@@ -580,7 +592,7 @@ mod tests {
     #[test]
     fn test_label_running_tool_no_info_fallback() {
         let tool_info: Vec<(String, String)> = Vec::new();
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert_eq!(label, "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}");
     }
 
@@ -588,7 +600,7 @@ mod tests {
     #[test]
     fn test_label_llm_requesting() {
         let tool_info: Vec<(String, String)> = Vec::new();
-        let label = build_session_status_label(false, &tool_info, LlmState::Requesting);
+        let label = build_session_status_label(false, &tool_info, LlmState::Requesting, 0);
         assert_eq!(label, "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}");
     }
 
@@ -596,15 +608,60 @@ mod tests {
     #[test]
     fn test_label_llm_receiving() {
         let tool_info: Vec<(String, String)> = Vec::new();
-        let label = build_session_status_label(false, &tool_info, LlmState::Receiving);
+        let label = build_session_status_label(false, &tool_info, LlmState::Receiving, 0);
         assert_eq!(label, "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}");
     }
 
-    /// No running tool, idle state.
+    /// No running tool, idle state, no children.
     #[test]
     fn test_label_idle() {
         let tool_info: Vec<(String, String)> = Vec::new();
-        let label = build_session_status_label(false, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(false, &tool_info, LlmState::Idle, 0);
+        assert_eq!(label, "\u{5df2}\u{5c31}\u{7eea}");
+    }
+
+    /// No running tool, idle state, with active children shows child task status.
+    #[test]
+    fn test_label_idle_with_active_children() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Idle, 3);
+        let expected = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}3 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        assert_eq!(label, expected);
+    }
+
+    /// No running tool, idle state, exactly 1 active child.
+    #[test]
+    fn test_label_idle_with_one_active_child() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Idle, 1);
+        let expected = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}1 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        assert_eq!(label, expected);
+    }
+
+    /// Running tool takes precedence over child count.
+    #[test]
+    fn test_label_running_tool_over_child_count() {
+        let tool_info = vec![("exec".to_string(), "cargo test".to_string())];
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 5);
+        assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}"));
+        assert!(label.contains("exec"));
+        assert!(!label.contains("\u{5b50}\u{4efb}\u{52a1}"));
+    }
+
+    /// LLM streaming takes precedence over child count.
+    #[test]
+    fn test_label_llm_streaming_over_child_count() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Receiving, 2);
+        assert_eq!(label, "LLM \u{6d41}\u{5f0f}\u{8f93}\u{51fa}\u{4e2d}");
+        assert!(!label.contains("\u{5b50}\u{4efb}\u{52a1}"));
+    }
+
+    /// Idle state with zero children falls back to 已就绪.
+    #[test]
+    fn test_label_idle_zero_children() {
+        let tool_info: Vec<(String, String)> = Vec::new();
+        let label = build_session_status_label(false, &tool_info, LlmState::Idle, 0);
         assert_eq!(label, "\u{5df2}\u{5c31}\u{7eea}");
     }
 
@@ -612,7 +669,7 @@ mod tests {
     #[test]
     fn test_label_running_tool_over_llm_streaming() {
         let tool_info = vec![("exec".to_string(), "cargo test".to_string())];
-        let label = build_session_status_label(true, &tool_info, LlmState::Receiving);
+        let label = build_session_status_label(true, &tool_info, LlmState::Receiving, 0);
         assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}"));
         assert!(label.contains("exec"));
     }
@@ -622,7 +679,7 @@ mod tests {
     fn test_label_running_tool_multibyte_input() {
         let input = "\u{4e2d}\u{6587}\u{6d4b}\u{8bd5}\u{5de5}\u{5177}\u{540d}\u{79f0}\u{548c}\u{53c2}\u{6570}".repeat(5);
         let tool_info = vec![("tool".to_string(), input)];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}tool "));
         // Should not panic on multi-byte truncation
         assert!(label.len() > 0);
@@ -809,7 +866,7 @@ mod tests {
     #[test]
     fn test_progress_card_tool_display_format() {
         let tool_info = vec![("make".to_string(), "build --release".to_string())];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         // Must match design doc format: "工具执行中：make build --release"
         assert_eq!(
             label,
@@ -822,7 +879,7 @@ mod tests {
     #[test]
     fn test_progress_card_no_tool_shows_idle_not_tool_executing() {
         let tool_info: Vec<(String, String)> = Vec::new();
-        let label = build_session_status_label(false, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(false, &tool_info, LlmState::Idle, 0);
         assert_eq!(label, "\u{5df2}\u{5c31}\u{7eea}");
         assert!(!label.contains("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}"));
     }
@@ -831,7 +888,7 @@ mod tests {
     #[test]
     fn test_progress_card_tool_empty_input_no_trailing_space() {
         let tool_info = vec![("web_search".to_string(), "".to_string())];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert_eq!(
             label,
             "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}web_search"
@@ -845,7 +902,7 @@ mod tests {
     fn test_progress_card_tool_input_exactly_30_chars_no_truncation() {
         let input = "a".repeat(30);
         let tool_info = vec![("exec".to_string(), input.clone())];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert!(label.contains(&input));
         assert!(!label.ends_with("..."));
     }
@@ -855,7 +912,7 @@ mod tests {
     fn test_progress_card_tool_input_31_chars_truncated() {
         let input = "b".repeat(31);
         let tool_info = vec![("exec".to_string(), input)];
-        let label = build_session_status_label(true, &tool_info, LlmState::Idle);
+        let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert!(label.ends_with("..."));
         // The brief part before "..." should be 30 chars
         let suffix = "\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}exec ";

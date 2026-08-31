@@ -383,7 +383,14 @@ impl Daemon {
             Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
         // Start the inbound queue consumer so webhook messages are buffered.
         gateway.start_inbound_queue();
-        let shutdown = shutdown::ShutdownHandle::new();
+        // Read drain timeout from config; fall back to 30s default.
+        let drain_timeout = config_manager
+            .section(ConfigSection::System)
+            .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+            .map(|sys| sys.effective_shutdown().drain_timeout_secs)
+            .unwrap_or(30);
+        let shutdown = shutdown::ShutdownHandle::new()
+            .with_drain_timeout(std::time::Duration::from_secs(drain_timeout));
         // Wire shutdown handle into SessionManager for child-session
         // busy-count tracking during drain.
         session_manager
