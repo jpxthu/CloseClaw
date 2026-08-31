@@ -465,3 +465,101 @@ async fn wait_with_heartbeat_sim(
         }
     }
 }
+
+// =====================================================================
+// Step 1.3: ConfigWatcher subscriber stop confirmation
+// =====================================================================
+
+/// ConfigWatcher subscriber exits cleanly when the broadcast channel
+/// closes (broadcast sender dropped). This is the mechanism by which
+/// Phase 3 confirms the subscriber task has stopped.
+#[tokio::test]
+async fn test_config_watcher_subscriber_exits_on_channel_close() {
+    use closeclaw_config::events::ConfigChangeEvent;
+    use tokio::sync::broadcast;
+
+    // Create a broadcast channel to simulate config change events.
+    let (tx, _rx) = broadcast::channel::<ConfigChangeEvent>(16);
+
+    // Spawn a task that mimics the subscriber loop from
+    // spawn_config_change_subscriber: recv until Closed.
+    let mut rx = tx.subscribe();
+    let subscriber = tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => {
+                    break;
+                }
+            }
+        }
+    });
+
+    // Give the subscriber time to start
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!subscriber.is_finished(), "subscriber should be running");
+
+    // Drop the sender — closes the channel, subscriber should exit
+    drop(tx);
+
+    // Wait for subscriber to exit
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), subscriber).await;
+    assert!(result.is_ok(), "subscriber should exit after channel close");
+    let join_result = result.unwrap();
+    assert!(join_result.is_ok(), "subscriber should not panic");
+}
+
+/// ConfigWatcher subscriber handles broadcast lag without panicking.
+/// This verifies robustness when config events arrive faster than
+/// the subscriber can process them.
+#[tokio::test]
+async fn test_config_watcher_subscriber_handles_lag() {
+    use closeclaw_config::events::ConfigChangeEvent;
+    use tokio::sync::broadcast;
+
+    // Small channel to force lagging
+    let (tx, _rx) = broadcast::channel::<ConfigChangeEvent>(2);
+
+    let mut rx = tx.subscribe();
+    let mut events_received = 0u32;
+    let subscriber = tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(_) => {
+                    events_received += 1;
+                    // Slow consumer — simulate processing delay
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    // Subscriber lagged — skip missed events, keep running
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    break;
+                }
+            }
+        }
+        events_received
+    });
+
+    // Send many events to cause lagging
+    for i in 0..20 {
+        let _ = tx.send(ConfigChangeEvent::Reloaded {
+            section: closeclaw_config::ConfigSection::System,
+            path: std::path::PathBuf::from(format!("test_{}.json", i)),
+        });
+    }
+
+    // Close channel
+    drop(tx);
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), subscriber).await;
+    assert!(result.is_ok(), "subscriber should exit after channel close");
+    // Subscriber should have processed at least some events
+    let count = result.unwrap().unwrap();
+    assert!(
+        count > 0,
+        "subscriber should have processed at least some events, got {}",
+        count
+    );
+}

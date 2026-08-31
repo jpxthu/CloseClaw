@@ -50,6 +50,9 @@ pub struct Daemon {
     pub slash_registry: Arc<closeclaw_slash::registry::HandlerRegistry>,
     /// Config file watcher handle (RAII: stops on drop)
     pub(crate) _config_watcher: Option<config_watcher::ConfigWatcherHandle>,
+    /// ConfigWatcher subscriber task handle — joined in Phase 3
+    /// to confirm all 5 background tasks have stopped.
+    pub(crate) config_watcher_subscriber_handle: Option<tokio::task::JoinHandle<()>>,
     /// Daemon-level approval orchestrator
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     /// Admin RPC server task handle (drop cancels the task)
@@ -70,6 +73,8 @@ pub struct Daemon {
     pub(crate) plan_archive_shutdown_tx: watch::Sender<()>,
     /// Join handle for PlanArchiveSweeper background task
     pub(crate) plan_archive_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
+    /// ConfigManager reference — used to read shutdown timeouts at runtime.
+    pub config_manager: Arc<closeclaw_config::ConfigManager>,
     /// SpawnController reference — manages sub-agent lifecycle
     pub spawn_controller: Option<Arc<SpawnController>>,
     /// SystemPromptBuilder reference — static-layer prompt construction

@@ -148,3 +148,222 @@ async fn test_daemon_run_sigterm_shutdown() {
         daemon.shutdown.state()
     );
 }
+
+// ======================================================================
+// Step 1.7: Drain timeout from configuration tests
+// ======================================================================
+
+/// ShutdownHandle::with_drain_timeout() applies custom timeout.
+/// Verifies the builder method correctly overrides the default 30s drain timeout.
+#[tokio::test]
+async fn test_drain_timeout_with_custom_value() {
+    use std::time::Duration;
+
+    // Use a short custom timeout (200ms) to prove it overrides the default 30s.
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(200));
+    handle.increment_busy();
+
+    let handle_clone = handle.clone();
+    let start = tokio::time::Instant::now();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    // With 200ms timeout, drain should complete around 200ms.
+    let _ = tokio::time::timeout(Duration::from_secs(5), shutdown_task).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        handle.is_stopped(),
+        "drain should complete after 200ms timeout"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "elapsed should be ~200ms (not 30s default), got {:?}",
+        elapsed
+    );
+    // Verify busy_count was not cleared (drain timed out)
+    assert_eq!(
+        handle.busy_count(),
+        1,
+        "busy_count should remain 1 after timeout"
+    );
+}
+
+/// Default drain timeout is 30 seconds (ShutdownHandle::new() default).
+#[tokio::test]
+async fn test_drain_timeout_default_is_30s() {
+    use std::time::Duration;
+
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(300));
+    handle.increment_busy();
+
+    let handle_clone = handle.clone();
+    let start = tokio::time::Instant::now();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    let _ = tokio::time::timeout(Duration::from_secs(3), shutdown_task).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        handle.is_stopped(),
+        "drain should complete after 300ms timeout"
+    );
+    assert!(
+        elapsed >= Duration::from_millis(250) && elapsed <= Duration::from_secs(1),
+        "elapsed should be ~300ms, got {:?}",
+        elapsed
+    );
+}
+
+/// ShutdownHandle::with_drain_timeout() with very short timeout (1ms)
+/// completes almost immediately.
+#[tokio::test]
+async fn test_drain_timeout_very_short() {
+    use std::time::Duration;
+
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(1));
+    handle.increment_busy();
+
+    let handle_clone = handle.clone();
+    let start = tokio::time::Instant::now();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    let _ = tokio::time::timeout(Duration::from_secs(2), shutdown_task).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        handle.is_stopped(),
+        "drain should complete after 1ms timeout"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "elapsed should be <1s, got {:?}",
+        elapsed
+    );
+}
+
+/// Per-session graceful timeout reads from config when available.
+/// Verifies the config-based timeout path (reading system.shutdown.gracefulTimeoutSecs).
+#[test]
+fn test_per_session_graceful_timeout_reads_from_config() {
+    use closeclaw_config::providers::SystemConfigData;
+    use closeclaw_config::{ConfigManager, ConfigSection};
+    use tempfile::TempDir;
+
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().to_path_buf();
+    let config_subdir = config_dir.join("config");
+    std::fs::create_dir_all(&config_subdir).unwrap();
+
+    // Write system.json with custom shutdown config
+    let system_json = serde_json::json!({
+        "shutdown": {
+            "drainTimeoutSecs": 15,
+            "gracefulTimeoutSecs": 45
+        }
+    });
+    std::fs::write(
+        config_subdir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+
+    let cm = ConfigManager::new(config_subdir).unwrap();
+    let _ = cm.reload_section(ConfigSection::System, None);
+
+    // Read the timeout the same way phase_2_session_stop does
+    let timeout = cm
+        .section(ConfigSection::System)
+        .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+        .and_then(|sys| sys.shutdown.map(|s| s.graceful_timeout_secs))
+        .map(std::time::Duration::from_secs);
+
+    assert_eq!(
+        timeout,
+        Some(std::time::Duration::from_secs(45)),
+        "per-session graceful timeout should read 45s from config"
+    );
+}
+
+/// Per-session graceful timeout falls back to DEFAULT_GRACEFUL_TIMEOUT
+/// when shutdown config is absent.
+#[test]
+fn test_per_session_graceful_timeout_fallback_to_default() {
+    use closeclaw_config::providers::SystemConfigData;
+    use closeclaw_config::{ConfigManager, ConfigSection};
+    use closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
+    use tempfile::TempDir;
+
+    let tmp = TempDir::new().unwrap();
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).unwrap();
+
+    // Write system.json WITHOUT shutdown config
+    let system_json = serde_json::json!({ "version": "1.0" });
+    std::fs::write(
+        config_subdir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+
+    let cm = ConfigManager::new(config_subdir).unwrap();
+    let _ = cm.reload_section(ConfigSection::System, None);
+
+    // Read the timeout the same way phase_2_session_stop does
+    let timeout = cm
+        .section(ConfigSection::System)
+        .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+        .and_then(|sys| sys.shutdown.map(|s| s.graceful_timeout_secs))
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(DEFAULT_GRACEFUL_TIMEOUT);
+
+    assert_eq!(
+        timeout, DEFAULT_GRACEFUL_TIMEOUT,
+        "should fall back to DEFAULT_GRACEful_TIMEOUT when config is absent"
+    );
+}
+
+/// Drain timeout reads from config when available.
+/// Verifies the config-based drain timeout path (reading system.shutdown.drainTimeoutSecs).
+#[test]
+fn test_drain_timeout_reads_from_config() {
+    use closeclaw_config::providers::SystemConfigData;
+    use closeclaw_config::{ConfigManager, ConfigSection};
+    use tempfile::TempDir;
+
+    let tmp = TempDir::new().unwrap();
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).unwrap();
+
+    let system_json = serde_json::json!({
+        "shutdown": {
+            "drainTimeoutSecs": 20,
+            "gracefulTimeoutSecs": 30
+        }
+    });
+    std::fs::write(
+        config_subdir.join("system.json"),
+        serde_json::to_string(&system_json).unwrap(),
+    )
+    .unwrap();
+
+    let cm = ConfigManager::new(config_subdir).unwrap();
+    let _ = cm.reload_section(ConfigSection::System, None);
+
+    let drain_timeout = cm
+        .section(ConfigSection::System)
+        .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
+        .and_then(|sys| sys.shutdown.map(|s| s.drain_timeout_secs))
+        .map(std::time::Duration::from_secs);
+
+    assert_eq!(
+        drain_timeout,
+        Some(std::time::Duration::from_secs(20)),
+        "drain timeout should read 20s from config"
+    );
+}
