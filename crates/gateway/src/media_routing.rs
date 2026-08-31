@@ -27,12 +27,23 @@ pub(crate) enum InboundValidation {
 ///
 /// Returns the deserialized [`MessageType`], defaulting to
 /// [`MessageType::Text`] when the key is absent or unparseable.
+/// Logs a warning when deserialization fails (invalid JSON or
+/// unrecognized enum variant).
 pub(crate) fn parse_message_type(processed: &ProcessedMessage) -> MessageType {
-    processed
-        .metadata
-        .get("message_type")
-        .and_then(|s| serde_json::from_str::<MessageType>(s).ok())
-        .unwrap_or_default()
+    let Some(raw) = processed.metadata.get("message_type") else {
+        return MessageType::default();
+    };
+    match serde_json::from_str::<MessageType>(raw) {
+        Ok(mt) => mt,
+        Err(e) => {
+            tracing::warn!(
+                raw_type = %raw,
+                error = %e,
+                "failed to deserialize message_type from metadata, defaulting to Text"
+            );
+            MessageType::default()
+        }
+    }
 }
 
 /// Validate an inbound message against media availability and size limits.
@@ -100,17 +111,12 @@ pub(crate) fn build_context_content(processed: &ProcessedMessage) -> String {
     match message_type {
         MessageType::Text => processed.text_content().unwrap_or("").to_string(),
         MessageType::Post => {
-            // Post messages: text + media reference tokens.
             let text = processed.text_content().unwrap_or("").to_string();
             let media_refs = parse_media_refs(processed);
             if media_refs.is_empty() {
                 return text;
             }
-            let media_part = media_refs
-                .iter()
-                .map(|(mt, key)| format!("[{mt}: {key}]"))
-                .collect::<Vec<_>>()
-                .join(" ");
+            let media_part = format_media_tokens(&media_refs);
             if text.is_empty() {
                 media_part
             } else {
@@ -118,39 +124,45 @@ pub(crate) fn build_context_content(processed: &ProcessedMessage) -> String {
             }
         }
         MessageType::Image | MessageType::File | MessageType::Audio => {
-            // Pure media messages: reference tokens only.
             let media_refs = parse_media_refs(processed);
-            media_refs
-                .iter()
-                .map(|(mt, key)| format!("[{mt}: {key}]"))
-                .collect::<Vec<_>>()
-                .join(" ")
+            format_media_tokens(&media_refs)
         }
     }
 }
 
-/// Parse media references from metadata into `(media_type_label, key)` pairs.
+/// A media reference parsed from metadata, pairing a [`MediaType`] with
+/// its resource key.
+struct MediaRefEntry {
+    media_type: closeclaw_common::im_plugin::MediaType,
+    key: String,
+}
+
+/// Parse media references from metadata into typed entries.
 ///
-/// Uses the `media_refs` JSON array in metadata. Returns a vec of
-/// `(media_type, key)` tuples suitable for reference token generation.
-/// Only the `key` field is used; `path` is intentionally omitted
-/// (design doc: no local paths in context content).
-fn parse_media_refs(processed: &ProcessedMessage) -> Vec<(String, String)> {
+/// Uses the `media_refs` JSON array in metadata. Only the `key` field
+/// is used; `path` is intentionally omitted (design doc: no local
+/// paths in context content).
+fn parse_media_refs(processed: &ProcessedMessage) -> Vec<MediaRefEntry> {
     let Some(refs_json) = processed.metadata.get("media_refs") else {
         return Vec::new();
     };
     let refs: Vec<closeclaw_common::im_plugin::MediaRef> =
         serde_json::from_str(refs_json).unwrap_or_default();
     refs.into_iter()
-        .map(|r| {
-            let label = match r.media_type {
-                closeclaw_common::im_plugin::MediaType::Image => "image",
-                closeclaw_common::im_plugin::MediaType::File => "file",
-                closeclaw_common::im_plugin::MediaType::Audio => "audio",
-            };
-            (label.to_string(), r.key)
+        .map(|r| MediaRefEntry {
+            media_type: r.media_type,
+            key: r.key,
         })
         .collect()
+}
+
+/// Format media reference entries into `[type: key]` token strings,
+/// joined by spaces.
+fn format_media_tokens(refs: &[MediaRefEntry]) -> String {
+    refs.iter()
+        .map(|entry| format!("[{}: {}]", entry.media_type.label(), entry.key))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]

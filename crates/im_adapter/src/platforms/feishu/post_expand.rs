@@ -192,6 +192,12 @@ pub(crate) fn extract_post_media_refs(content: &serde_json::Value) -> Vec<MediaR
                             }
                         }
                         "media" | "file" => {
+                            // Design decision: `media` tag maps to
+                            // MediaType::File (not a distinct Video variant)
+                            // because the current adapter metadata has no
+                            // finer-grained media sub-type for video vs file.
+                            // This is consistent with the existing file|audio
+                            // handling in the adapter.
                             let key = elem
                                 .get("file_key")
                                 .and_then(|k| k.as_str())

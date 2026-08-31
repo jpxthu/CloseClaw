@@ -112,6 +112,19 @@ pub enum MediaType {
     Audio,
 }
 
+impl MediaType {
+    /// Return the canonical lowercase label for this media type.
+    ///
+    /// Used to build media reference tokens (e.g. `[image: key]`).
+    pub fn label(&self) -> &'static str {
+        match self {
+            MediaType::Image => "image",
+            MediaType::File => "file",
+            MediaType::Audio => "audio",
+        }
+    }
+}
+
 impl Serialize for MediaType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
