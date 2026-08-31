@@ -9,6 +9,7 @@ use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_debug_log::LogLevel;
+use closeclaw_processor_chain::context::inject_chain_dispatcher_keys;
 use std::collections::HashMap;
 
 /// 会话路由失败，请重试
@@ -185,11 +186,13 @@ impl Gateway {
         let extra_meta = build_extra_metadata(normalized);
         let registry = self.processor_registry.read().unwrap().clone();
         let Some(registry) = registry else {
+            // No registry — bypass path. Chain dispatcher keys are still
+            // required for metadata contract consistency.
             return ProcessedMessage {
                 content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
                     normalized.content.to_string(),
                 )],
-                metadata: extra_meta,
+                metadata: fallback_metadata(extra_meta, normalized),
             };
         };
 
@@ -200,29 +203,46 @@ impl Gateway {
             }
             Err(e) => {
                 tracing::warn!(?e, "processor chain failed, falling back to raw content");
+                // Fallback on error — inject chain dispatcher keys
+                // for metadata contract consistency.
                 ProcessedMessage {
                     content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
                         normalized.content.to_string(),
                     )],
-                    metadata: extra_meta,
+                    metadata: fallback_metadata(extra_meta, normalized),
                 }
             }
         }
     }
 }
 
+/// Build a metadata map for fallback branches (no-registry or chain error).
+///
+/// Copies `extra_meta` (Gateway-owned keys: thread_id, media_refs, etc.)
+/// and injects chain dispatcher keys (message_type, unavailable_media) so
+/// the metadata contract is consistent regardless of processing path.
+fn fallback_metadata(
+    extra_meta: HashMap<String, String>,
+    normalized: &NormalizedMessage,
+) -> HashMap<String, String> {
+    let mut meta = extra_meta;
+    inject_chain_dispatcher_keys(
+        &mut meta,
+        &normalized.message_type,
+        &normalized.unavailable_media,
+    );
+    meta
+}
+
 /// Build extra metadata map from [`NormalizedMessage`] fields.
 ///
-/// Propagates `thread_id`, `media_refs`, `unavailable_media`, `account_id`,
-/// `chat_name`, and `trace_id` so they are available downstream in the
-/// Gateway.
+/// Propagates `thread_id`, `media_refs`, `account_id`, `chat_name`,
+/// and `trace_id` so they are available downstream in the Gateway.
 ///
-/// `unavailable_media` is unconditionally serialized as a JSON array into
-/// the metadata map — same pattern as `media_refs` — so that downstream
-/// Gateway logic can determine media availability.
-///
-/// Note: `message_type` is injected by the Processor Chain (SessionRouter),
-/// not by the Gateway — see design doc `data-flow.md`.
+/// Note: `message_type` and `unavailable_media` are injected by the
+/// Processor Chain (chain dispatcher in `MessageContext::from_normalized`
+/// or fallback branches in `process_inbound_chain`), not by the Gateway
+/// — see design doc `inbound-flow.md`.
 fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, String> {
     let mut meta = HashMap::new();
     if let Some(ref thread_id) = normalized.thread_id {
@@ -231,10 +251,6 @@ fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, Strin
     meta.insert(
         "media_refs".to_string(),
         serde_json::to_string(&normalized.media_refs).unwrap_or_else(|_| "[]".to_string()),
-    );
-    meta.insert(
-        "unavailable_media".to_string(),
-        serde_json::to_string(&normalized.unavailable_media).unwrap_or_else(|_| "[]".to_string()),
     );
     if !normalized.account_id.is_empty() {
         meta.insert("account_id".to_string(), normalized.account_id.clone());
@@ -267,24 +283,6 @@ mod tests {
         };
         overrides(&mut msg);
         msg
-    }
-
-    #[test]
-    fn unavailable_media_empty_produces_empty_json_array() {
-        let normalized = make_normalized(|_| {});
-        let meta = build_extra_metadata(&normalized);
-        assert_eq!(meta.get("unavailable_media").unwrap(), "[]");
-    }
-
-    #[test]
-    fn unavailable_media_non_empty_serializes_correctly() {
-        let normalized = make_normalized(|n| {
-            n.unavailable_media = vec!["img_001".into(), "file_002".into()];
-        });
-        let meta = build_extra_metadata(&normalized);
-        let val = meta.get("unavailable_media").unwrap();
-        let parsed: Vec<String> = serde_json::from_str(val).unwrap();
-        assert_eq!(parsed, vec!["img_001", "file_002"]);
     }
 
     #[test]
@@ -378,14 +376,27 @@ mod tests {
             n.chat_name = "chat".into();
             n.trace_id = "tr1".into();
         });
+        // build_extra_metadata propagates thread_id, media_refs,
+        // account_id, chat_name, trace_id — but NOT unavailable_media
+        // (which is injected by the chain dispatcher).
         let meta = build_extra_metadata(&normalized);
-        assert_eq!(meta.len(), 6);
+        assert_eq!(meta.len(), 5);
         assert_eq!(meta.get("thread_id").unwrap(), "t_1");
-        let unavailable: Vec<String> =
-            serde_json::from_str(meta.get("unavailable_media").unwrap()).unwrap();
-        assert_eq!(unavailable, vec!["u1", "u2"]);
+        assert!(!meta.contains_key("unavailable_media"));
         assert_eq!(meta.get("account_id").unwrap(), "a1");
         assert_eq!(meta.get("chat_name").unwrap(), "chat");
         assert_eq!(meta.get("trace_id").unwrap(), "tr1");
+    }
+
+    #[test]
+    fn build_extra_metadata_no_unavailable_media() {
+        // After Step 1.2: build_extra_metadata must NOT include unavailable_media
+        // (chain dispatcher is responsible for injecting it).
+        let normalized = make_normalized(|n| {
+            n.unavailable_media = vec!["img_x".into()];
+        });
+        let meta = build_extra_metadata(&normalized);
+        assert!(!meta.contains_key("unavailable_media"),
+            "build_extra_metadata must not include unavailable_media; chain dispatcher is responsible for this key");
     }
 }

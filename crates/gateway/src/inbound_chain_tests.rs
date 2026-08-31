@@ -1,13 +1,10 @@
-//! Step 1.5 — Unit tests for NormalizedMessage field propagation.
+//! Unit tests for NormalizedMessage field propagation through
+//! `process_inbound_chain` → ProcessedMessage metadata pipeline.
 //!
-//! Verifies that fields added in Step 1.1 (thread_id, media_refs)
-//! survive the NormalizedMessage →
-//! process_inbound_chain → ProcessedMessage pipeline and are accessible
-//! in Gateway metadata.
-//!
-//! Note: `message_type` is injected by the Processor Chain (SessionRouter),
-//! not by Gateway's `build_extra_metadata`. These tests use the no-registry
-//! fallback path, so `message_type` is NOT expected in metadata.
+//! `message_type` and `unavailable_media` are injected by the chain
+//! dispatcher (single source of truth: `inject_chain_dispatcher_keys`).
+//! Gateway adds `thread_id`, `media_refs`, `account_id`, `chat_name`,
+//! `trace_id` via `build_extra_metadata`.
 
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::im_plugin::{MediaRef, MessageType, NormalizedMessage};
@@ -181,10 +178,20 @@ async fn test_all_fields_propagated_no_registry() {
     let thread = result.metadata.get("thread_id").map(|s| s.as_str());
     assert_eq!(thread, Some("ot_thread_abc"));
 
-    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
-    assert!(
-        !result.metadata.contains_key("message_type"),
-        "message_type should not be in extra metadata — injected by Processor Chain"
+    // message_type injected by chain dispatcher (no-registry fallback).
+    let mt = result.metadata.get("message_type").map(|s| s.as_str());
+    assert_eq!(
+        mt,
+        Some("\"text\""),
+        "message_type should be injected by chain dispatcher in fallback path"
+    );
+
+    // unavailable_media injected by chain dispatcher (no-registry fallback).
+    let um = result.metadata.get("unavailable_media").map(|s| s.as_str());
+    assert_eq!(
+        um,
+        Some("[]"),
+        "unavailable_media should be injected by chain dispatcher in fallback path"
     );
 
     // media_refs serialized as JSON array.
@@ -247,15 +254,32 @@ async fn test_defaults_thread_id_none() {
 }
 
 #[tokio::test]
-async fn test_defaults_message_type_not_in_extra_metadata() {
+async fn test_defaults_message_type_injected_by_chain_dispatcher() {
     let gw = make_gw();
     let input = default_chain_input();
 
     let result = gw.process_inbound_chain(&input).await;
-    // message_type is injected by Processor Chain (SessionRouter), not Gateway.
-    assert!(
-        !result.metadata.contains_key("message_type"),
-        "message_type should not be in extra metadata — injected by Processor Chain"
+    // message_type is injected by chain dispatcher (no-registry fallback).
+    let mt = result.metadata.get("message_type").map(|s| s.as_str());
+    assert_eq!(
+        mt,
+        Some("\"text\""),
+        "message_type should be injected by chain dispatcher in fallback path"
+    );
+}
+
+#[tokio::test]
+async fn test_defaults_unavailable_media_injected_by_chain_dispatcher() {
+    let gw = make_gw();
+    let input = default_chain_input();
+
+    let result = gw.process_inbound_chain(&input).await;
+    // unavailable_media is injected by chain dispatcher (no-registry fallback).
+    let um = result.metadata.get("unavailable_media").map(|s| s.as_str());
+    assert_eq!(
+        um,
+        Some("[]"),
+        "unavailable_media should be injected by chain dispatcher in fallback path"
     );
 }
 
@@ -282,10 +306,19 @@ async fn test_image_message_type_propagated() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
-    assert!(
-        !result.metadata.contains_key("message_type"),
-        "message_type should not be in extra metadata — injected by Processor Chain"
+    // message_type injected by chain dispatcher (no-registry fallback).
+    let mt = result.metadata.get("message_type").map(|s| s.as_str());
+    assert_eq!(
+        mt,
+        Some("\"image\""),
+        "message_type should be Image in fallback path"
+    );
+
+    // unavailable_media injected by chain dispatcher.
+    assert_eq!(
+        result.metadata.get("unavailable_media").map(|s| s.as_str()),
+        Some("[]"),
+        "unavailable_media should be injected by chain dispatcher"
     );
 
     // media_refs non-empty.
@@ -313,10 +346,19 @@ async fn test_file_message_type_propagated() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
-    assert!(
-        !result.metadata.contains_key("message_type"),
-        "message_type should not be in extra metadata — injected by Processor Chain"
+    // message_type injected by chain dispatcher (no-registry fallback).
+    let mt = result.metadata.get("message_type").map(|s| s.as_str());
+    assert_eq!(
+        mt,
+        Some("\"file\""),
+        "message_type should be File in fallback path"
+    );
+
+    // unavailable_media injected by chain dispatcher.
+    assert_eq!(
+        result.metadata.get("unavailable_media").map(|s| s.as_str()),
+        Some("[]"),
+        "unavailable_media should be injected by chain dispatcher"
     );
 
     let mr = result.metadata.get("media_refs").unwrap();
@@ -339,10 +381,19 @@ async fn test_audio_message_type_propagated() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    // message_type is NOT in extra metadata (injected by Processor Chain, not Gateway).
-    assert!(
-        !result.metadata.contains_key("message_type"),
-        "message_type should not be in extra metadata — injected by Processor Chain"
+    // message_type injected by chain dispatcher (no-registry fallback).
+    let mt = result.metadata.get("message_type").map(|s| s.as_str());
+    assert_eq!(
+        mt,
+        Some("\"audio\""),
+        "message_type should be Audio in fallback path"
+    );
+
+    // unavailable_media injected by chain dispatcher.
+    assert_eq!(
+        result.metadata.get("unavailable_media").map(|s| s.as_str()),
+        Some("[]"),
+        "unavailable_media should be injected by chain dispatcher"
     );
 
     let mr = result.metadata.get("media_refs").unwrap();
@@ -384,7 +435,7 @@ fn make_gw_with_registry() -> crate::Gateway {
 }
 
 /// WITH-registry: Text message goes through full chain, message_type injected by
-/// SessionRouter, thread_id / media_refs added by Gateway after chain.
+/// chain dispatcher (MessageContext::from_normalized), thread_id / media_refs added by Gateway after chain.
 #[tokio::test]
 async fn test_with_registry_text_message_full_chain() {
     let gw = make_gw_with_registry();
@@ -395,12 +446,12 @@ async fn test_with_registry_text_message_full_chain() {
     // Content preserved.
     assert_eq!(result.text_content(), Some("hello world"));
 
-    // message_type injected by SessionRouter (not Gateway).
+    // message_type injected by chain dispatcher (MessageContext::from_normalized).
     let mt = result.metadata.get("message_type").map(|s| s.as_str());
     assert_eq!(
         mt,
         Some("\"text\""),
-        "message_type should be injected by SessionRouter in full chain"
+        "message_type should be injected by chain dispatcher in full chain"
     );
 
     // session_key computed by SessionRouter.
@@ -447,7 +498,7 @@ async fn test_with_registry_image_message_full_chain() {
 
     let result = gw.process_inbound_chain(&input).await;
 
-    // message_type injected by SessionRouter.
+    // message_type injected by chain dispatcher (MessageContext::from_normalized).
     let mt = result.metadata.get("message_type").map(|s| s.as_str());
     assert_eq!(
         mt,
@@ -504,7 +555,7 @@ async fn test_with_registry_audio_message_full_chain() {
 }
 
 /// WITH-registry: Gateway extra metadata does NOT include message_type.
-/// message_type is injected by Processor Chain (SessionRouter), not Gateway.
+/// message_type is injected by Processor Chain (chain dispatcher), not Gateway.
 #[tokio::test]
 async fn test_gateway_does_not_inject_message_type() {
     let gw = make_gw_with_registry();
@@ -556,6 +607,6 @@ async fn test_process_inbound_chain_accepts_normalized_message_ref() {
     assert_eq!(result.text_content(), Some("struct test"));
     assert!(
         result.metadata.contains_key("message_type"),
-        "message_type must be injected by SessionRouter"
+        "message_type must be injected by chain dispatcher"
     );
 }
