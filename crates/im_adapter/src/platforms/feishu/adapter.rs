@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::post_expand::expand_post_content;
+use super::post_expand::{expand_post_content, extract_post_media_refs};
 use tokio::sync::Mutex;
 
 // Webhook event types
@@ -652,16 +652,22 @@ impl FeishuAdapter {
             // TODO(media-store): download to local path, set r.path, r.size, r.mime
         }
 
-        // Discard empty text content (only for text/post;
-        // non-text messages have empty content by design).
-        let is_text_type = matches!(
-            event.event.message_type.as_str(),
-            "text" | "post" | "sticker"
-        );
-        if is_text_type && text.trim().is_empty() {
+        // Discard empty messages per design-doc filtering rules:
+        // - text: empty content → discard
+        // - post: empty content AND no media_refs → discard
+        // - image/file/audio: always produce (content may be empty)
+        // - sticker: keep existing behavior (emoji expansion)
+        let msg_type_str = event.event.message_type.as_str();
+        let should_discard = match msg_type_str {
+            "text" => text.trim().is_empty(),
+            "post" => text.trim().is_empty() && media_refs.is_empty(),
+            "sticker" => false,
+            _ => false,
+        };
+        if should_discard {
             tracing::debug!(
-                message_type = %event.event.message_type,
-                "Discarding empty text content"
+                message_type = %msg_type_str,
+                "Discarding empty message"
             );
             return Ok(None);
         }
@@ -745,7 +751,10 @@ impl FeishuAdapter {
                     .to_string(),
                 vec![],
             )),
-            "post" => Ok((expand_post_content(content), vec![])),
+            "post" => {
+                let media = extract_post_media_refs(content);
+                Ok((expand_post_content(content), media))
+            }
             "image" => Ok((
                 String::new(),
                 vec![Self::make_media_ref(content, "image_key", message_type)],

@@ -24,6 +24,8 @@ mod feishu_adapter_tests;
 mod feishu_tests;
 #[cfg(test)]
 mod identity_isolation_tests;
+#[cfg(test)]
+mod media_filter_tests;
 mod post_expand;
 pub mod renderer;
 #[cfg(test)]

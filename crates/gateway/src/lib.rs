@@ -29,6 +29,7 @@ pub(crate) mod inbound_wal;
 #[cfg(test)]
 mod inbound_wal_tests;
 pub mod llm_caller_impl;
+mod media_routing;
 mod memory;
 pub mod message;
 mod message_routing;
@@ -106,7 +107,6 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 pub use types::*;
 
-use closeclaw_common::im_plugin::MessageType;
 use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::shutdown::ShutdownMode;
@@ -162,14 +162,7 @@ pub struct Gateway {
 }
 
 /// Result of inbound pre-validation gates.
-enum InboundValidation {
-    /// Message passed all checks — continue processing.
-    Continue,
-    /// Message rejected; caller must return this result immediately.
-    Reject(HandleResult),
-    /// Message rejected silently (no user reply); caller must return `None`.
-    RejectSilently,
-}
+pub(crate) use media_routing::InboundValidation;
 
 impl Gateway {
     /// Create a new Gateway with the given config and a shared SessionManager.
@@ -552,60 +545,14 @@ impl Gateway {
         None
     }
 
-    /// Reject non-text, too-long, or broken-media inbound messages.
+    /// Validate inbound message using media routing rules.
     async fn validate_inbound(
         &self,
         processed: &ProcessedMessage,
         peer_id: &str,
         channel: &str,
     ) -> InboundValidation {
-        let message_type: MessageType = processed
-            .metadata
-            .get("message_type")
-            .and_then(|s| serde_json::from_str::<MessageType>(s).ok())
-            .unwrap_or_default();
-        if !matches!(message_type, MessageType::Text | MessageType::Post) {
-            tracing::info!(message_type = ?message_type, "rejecting non-text message");
-            let _ = self
-                .send_outbound_simplified(
-                    peer_id,
-                    channel,
-                    "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",
-                )
-                .await;
-            return InboundValidation::RejectSilently;
-        }
-        let content = processed.text_content().unwrap_or("").to_string();
-        if content.len() > self.config.max_message_size {
-            tracing::warn!(peer_id = %peer_id, size = content.len(),
-                limit = self.config.max_message_size, "inbound message exceeds max_message_size");
-            return match self
-                .reject_with_reply(peer_id, channel, "消息过长，请缩短后重试")
-                .await
-            {
-                Some(r) => InboundValidation::Reject(r),
-                None => InboundValidation::RejectSilently,
-            };
-        }
-        let unavailable_media: Vec<String> = processed
-            .metadata
-            .get("unavailable_media")
-            .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
-            .unwrap_or_default();
-        if !unavailable_media.is_empty() {
-            tracing::info!(
-                unavailable_count = unavailable_media.len(),
-                "rejecting message with unavailable media"
-            );
-            return match self
-                .reject_with_reply(peer_id, channel, "该消息内容无法获取")
-                .await
-            {
-                Some(r) => InboundValidation::Reject(r),
-                None => InboundValidation::RejectSilently,
-            };
-        }
-        InboundValidation::Continue
+        media_routing::validate_inbound(self, processed, peer_id, channel).await
     }
 
     /// Check session gates (restore, shutdown, stopped, new user, approval).
@@ -782,7 +729,7 @@ impl Gateway {
             InboundValidation::Reject(result) => return Some(result),
             InboundValidation::RejectSilently => return None,
         }
-        let content = processed.text_content().unwrap_or("").to_string();
+        let content = media_routing::build_context_content(&processed);
         let session_id = match inbound_queue::resolve_session_with_log(
             self,
             &processed,
