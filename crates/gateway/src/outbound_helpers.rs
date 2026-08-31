@@ -385,9 +385,7 @@ pub(crate) fn emit_feishu_render_event(
     }
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: guard.as_ref(),
-        trace_id,
-        session_key,
+        ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), trace_id, session_key),
         level: closeclaw_debug_log::LogLevel::Info,
         source_module: "feishu",
         event_type: "feishu.outbound.rendered",
@@ -414,9 +412,7 @@ pub(crate) fn emit_feishu_send_event(
     }
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: guard.as_ref(),
-        trace_id,
-        session_key,
+        ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), trace_id, session_key),
         level: closeclaw_debug_log::LogLevel::Info,
         source_module: "feishu",
         event_type: "feishu.api.send",

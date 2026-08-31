@@ -215,9 +215,11 @@ pub(crate) fn start_inbound_consumer(
                 let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
                 super::debug_log_emitter::emit_debug_event(
                     super::debug_log_emitter::EmitEventParams {
-                        debug_log: guard.as_ref(),
-                        trace_id: &req.trace_id,
-                        session_key: None,
+                        ctx: super::debug_log_emitter::DebugLogContext::new(
+                            guard.as_ref(),
+                            &req.trace_id,
+                            None,
+                        ),
                         level: closeclaw_debug_log::LogLevel::Info,
                         source_module: "gateway",
                         event_type: "queue.dequeued",
@@ -296,9 +298,7 @@ fn emit_inbound_parsed_log(
         closeclaw_common::MessageType::Post => "post",
     };
     super::debug_log_emitter::emit_debug_event(super::debug_log_emitter::EmitEventParams {
-        debug_log: guard.as_ref(),
-        trace_id,
-        session_key: None,
+        ctx: super::debug_log_emitter::DebugLogContext::new(guard.as_ref(), trace_id, None),
         level: closeclaw_debug_log::LogLevel::Info,
         source_module: platform,
         event_type: "feishu.inbound.parsed",
@@ -318,9 +318,7 @@ fn emit_inbound_parsed_log(
 fn emit_arrived_log(gateway: &Gateway, req: &InboundRequest) {
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
     super::debug_log_emitter::emit_debug_event(super::debug_log_emitter::EmitEventParams {
-        debug_log: guard.as_ref(),
-        trace_id: &req.trace_id,
-        session_key: None,
+        ctx: super::debug_log_emitter::DebugLogContext::new(guard.as_ref(), &req.trace_id, None),
         level: closeclaw_debug_log::LogLevel::Debug,
         source_module: "gateway",
         event_type: "gateway.arrived",
@@ -336,9 +334,7 @@ fn emit_arrived_log(gateway: &Gateway, req: &InboundRequest) {
 fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
     let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
     super::debug_log_emitter::emit_debug_event(super::debug_log_emitter::EmitEventParams {
-        debug_log: guard.as_ref(),
-        trace_id: &req.trace_id,
-        session_key: None,
+        ctx: super::debug_log_emitter::DebugLogContext::new(guard.as_ref(), &req.trace_id, None),
         level: closeclaw_debug_log::LogLevel::Warn,
         source_module: "gateway",
         event_type: "queue.rejected",
@@ -349,6 +345,89 @@ fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
         }),
         parent: None,
     });
+}
+
+/// Bundled reference context for debug-log emission in inbound processing.
+/// Aggregates trace_id, session_key, and root TraceContext to reduce
+/// parameter counts in downstream helpers.
+pub(crate) struct InboundDebugCtx<'a> {
+    pub(crate) trace_id: Option<&'a str>,
+    pub(crate) session_key: Option<&'a str>,
+    pub(crate) root_ctx: Option<closeclaw_debug_log::TraceContext>,
+}
+
+/// Prepare inbound debug context and emit the `message.arrived` event.
+///
+/// Extracted from [`Gateway::handle_inbound_message`] to keep it within
+/// the 50-line function limit.
+pub(crate) fn prepare_inbound_debug<'a>(
+    gateway: &Gateway,
+    processed: &'a closeclaw_common::processor::ProcessedMessage,
+    sender_id: Option<&str>,
+    channel: &str,
+) -> InboundDebugCtx<'a> {
+    let root_ctx = super::debug_log_emitter::root_context_from_metadata(&processed.metadata);
+    let trace_id = processed.metadata.get("trace_id").map(|s| s.as_str());
+    let session_key_str = processed.metadata.get("session_key").map(|s| s.as_str());
+    if let Some(tid) = trace_id {
+        gateway.emit_gateway_event(
+            tid,
+            session_key_str,
+            "message.arrived",
+            serde_json::json!({
+                "sender_id": sender_id.unwrap_or(""),
+                "peer_id": processed.metadata.get("peer_id").map(|s| s.as_str()).unwrap_or(""),
+                "channel": channel,
+            }),
+            root_ctx.as_ref(),
+        );
+    }
+    InboundDebugCtx {
+        trace_id,
+        session_key: session_key_str,
+        root_ctx,
+    }
+}
+
+/// Resolve the session ID from a processed message and emit a debug log.
+///
+/// Returns `Ok(session_id)` on success, or `Err(Option<HandleResult>)`
+/// to indicate the caller should return early.
+pub(crate) async fn resolve_session_with_log(
+    gateway: &Gateway,
+    processed: &closeclaw_common::processor::ProcessedMessage,
+    channel: &str,
+    peer_id: &str,
+    trace_id: Option<&str>,
+    session_key_str: Option<&str>,
+    root_ctx: &Option<closeclaw_debug_log::TraceContext>,
+) -> Result<String, Option<super::HandleResult>> {
+    match gateway
+        .resolve_session_from_message(processed, channel)
+        .await
+    {
+        Some(id) => {
+            if let Some(tid) = trace_id {
+                gateway.emit_gateway_event(
+                    tid,
+                    session_key_str,
+                    "session.resolved",
+                    serde_json::json!({"session_id": id, "channel": channel}),
+                    root_ctx.as_ref(),
+                );
+            }
+            Ok(id)
+        }
+        None => {
+            tracing::warn!("session_key missing or resolve failed");
+            Err(gateway
+                .reject_with_reply(
+                    peer_id, channel,
+                    "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}",
+                )
+                .await)
+        }
+    }
 }
 
 /// Persist the inbound request to WAL if configured.

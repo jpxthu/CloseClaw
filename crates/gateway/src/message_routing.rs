@@ -71,9 +71,7 @@ impl Gateway {
         if let Some(tid) = trace_id {
             let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
             debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
-                debug_log: guard.as_ref(),
-                trace_id: tid,
-                session_key,
+                ctx: debug_log_emitter::DebugLogContext::new(guard.as_ref(), tid, session_key),
                 level: LogLevel::Info,
                 source_module: "gateway",
                 event_type: "route.decision",

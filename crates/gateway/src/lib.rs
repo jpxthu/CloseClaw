@@ -99,6 +99,7 @@ mod tests_slash_permission;
 mod tests_slash_permission_integration;
 pub mod types;
 pub mod workflow_owner;
+use inbound_queue::InboundDebugCtx;
 pub use outbound::OutboundMeta;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -158,6 +159,16 @@ pub struct Gateway {
     /// WAL persistence for inbound queue durability.
     /// `None` when `inbound_wal_dir` is not configured.
     inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
+}
+
+/// Result of inbound pre-validation gates.
+enum InboundValidation {
+    /// Message passed all checks — continue processing.
+    Continue,
+    /// Message rejected; caller must return this result immediately.
+    Reject(HandleResult),
+    /// Message rejected silently (no user reply); caller must return `None`.
+    RejectSilently,
 }
 
 impl Gateway {
@@ -446,9 +457,7 @@ impl Gateway {
     fn emit_replayed_event(&self, trace_id: &str, platform: &str, peer_id: &str) {
         let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
         debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
-            debug_log: guard.as_ref(),
-            trace_id,
-            session_key: None,
+            ctx: debug_log_emitter::DebugLogContext::new(guard.as_ref(), trace_id, None),
             level: closeclaw_debug_log::LogLevel::Info,
             source_module: "gateway",
             event_type: "queue.replayed",
@@ -505,11 +514,34 @@ impl Gateway {
         }
     }
 
+    /// Emit a gateway debug event with the given context.
+    ///
+    /// Convenience helper that reads the debug-log guard and emits the
+    /// event in one call, reducing boilerplate in callers.
+    pub(crate) fn emit_gateway_event(
+        &self,
+        trace_id: &str,
+        session_key: Option<&str>,
+        event_type: &str,
+        payload: serde_json::Value,
+        parent: Option<&closeclaw_debug_log::TraceContext>,
+    ) {
+        let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
+        debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
+            ctx: debug_log_emitter::DebugLogContext::new(guard.as_ref(), trace_id, session_key),
+            level: LogLevel::Info,
+            source_module: "gateway",
+            event_type,
+            payload,
+            parent,
+        });
+    }
+
     /// Send a simplified rejection reply and return `None`.
     ///
     /// Shared helper for pre-session-resolution gates (non-text,
     /// unavailable_media, max_message_size, session routing failure).
-    async fn reject_with_reply(
+    pub(crate) async fn reject_with_reply(
         &self,
         peer_id: &str,
         channel: &str,
@@ -523,51 +555,13 @@ impl Gateway {
         None
     }
 
-    /// Handle an inbound message through the busy/pending state machine.
-    ///
-    /// Resolution flow: extract `session_key` → resolve `session_id` →
-    /// dispatch slash commands or route to LLM. Slash commands are intercepted
-    /// here and never appended to conversation history.
-    ///
-    /// When a plugin is registered for `channel` AND the self-ref is wired,
-    /// dispatches through `handle_message_with_gateway` for streaming;
-    /// otherwise falls back to non-streaming `handle_message`.
-    pub async fn handle_inbound_message(
+    /// Reject non-text, too-long, or broken-media inbound messages.
+    async fn validate_inbound(
         &self,
-        processed: ProcessedMessage,
-        sender_id: Option<&str>,
+        processed: &ProcessedMessage,
+        peer_id: &str,
         channel: &str,
-    ) -> Option<HandleResult> {
-        // ── Extract peer_id once for reuse ──────────────────────────
-        let peer_id = processed
-            .metadata
-            .get("peer_id")
-            .map(|s| s.as_str())
-            .unwrap_or("");
-
-        // ── Debug log: message.arrived ──────────────────────────────
-        if let Some(trace_id) = processed.metadata.get("trace_id") {
-            let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
-            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-            debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
-                debug_log: guard.as_ref(),
-                trace_id,
-                session_key: processed.metadata.get("session_key").map(|s| s.as_str()),
-                level: LogLevel::Info,
-                source_module: "gateway",
-                event_type: "message.arrived",
-                payload: serde_json::json!({
-                    "sender_id": sender_id.unwrap_or(""),
-                    "peer_id": peer_id,
-                    "channel": channel,
-                }),
-                parent: parent.as_ref(),
-            });
-        }
-
-        // ── Non-text message interception (before session resolution) ─
-        // Per design doc: non-text messages (image/file/audio) get a
-        // simplified outbound reply and must NOT trigger session resolution.
+    ) -> InboundValidation {
         let message_type: MessageType = processed
             .metadata
             .get("message_type")
@@ -575,8 +569,6 @@ impl Gateway {
             .unwrap_or_default();
         if !matches!(message_type, MessageType::Text | MessageType::Post) {
             tracing::info!(message_type = ?message_type, "rejecting non-text message");
-            // Non-text rejection sends directly via send_outbound_simplified
-            // without peer_id guard — matches original plugin.send() behavior.
             let _ = self
                 .send_outbound_simplified(
                     peer_id,
@@ -584,31 +576,20 @@ impl Gateway {
                     "\u{6682}\u{4E0D}\u{652F}\u{6301}\u{8BE5}\u{6D88}\u{606F}\u{7C7B}\u{578B}",
                 )
                 .await;
-            return None;
+            return InboundValidation::RejectSilently;
         }
-
-        // ── Extract content early for size check and downstream use ─
         let content = processed.text_content().unwrap_or("").to_string();
-
-        // ── max_message_size enforcement ────────────────────────────
-        // Per design doc: GatewayConfig includes max_message_size;
-        // messages exceeding the limit are rejected with a simplified
-        // reply before session resolution to protect downstream resources.
         if content.len() > self.config.max_message_size {
-            tracing::warn!(
-                peer_id = %peer_id,
-                size = content.len(),
-                limit = self.config.max_message_size,
-                "inbound message exceeds max_message_size",
-            );
-            return self
+            tracing::warn!(peer_id = %peer_id, size = content.len(),
+                limit = self.config.max_message_size, "inbound message exceeds max_message_size");
+            return match self
                 .reject_with_reply(peer_id, channel, "消息过长，请缩短后重试")
-                .await;
+                .await
+            {
+                Some(r) => InboundValidation::Reject(r),
+                None => InboundValidation::RejectSilently,
+            };
         }
-
-        // ── unavailable_media interception ──────────────────────────
-        // Per design doc: when a message contains media that could not
-        // be fetched, send a simplified reply and skip session resolution.
         let unavailable_media: Vec<String> = processed
             .metadata
             .get("unavailable_media")
@@ -617,164 +598,90 @@ impl Gateway {
         if !unavailable_media.is_empty() {
             tracing::info!(
                 unavailable_count = unavailable_media.len(),
-                "rejecting message with unavailable media",
+                "rejecting message with unavailable media"
             );
-            return self
+            return match self
                 .reject_with_reply(peer_id, channel, "该消息内容无法获取")
-                .await;
+                .await
+            {
+                Some(r) => InboundValidation::Reject(r),
+                None => InboundValidation::RejectSilently,
+            };
         }
+        InboundValidation::Continue
+    }
 
-        // ── Resolve session_key → session_id ────────────────────────
-        let trace_id = processed.metadata.get("trace_id").map(|s| s.as_str());
-        let session_id = match self.resolve_session_from_message(&processed, channel).await {
-            Some(id) => {
-                // ── Debug log: session.resolved ─────────────────────────
-                if let Some(tid) = trace_id {
-                    let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
-                    let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-                    debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
-                        debug_log: guard.as_ref(),
-                        trace_id: tid,
-                        session_key: processed.metadata.get("session_key").map(|s| s.as_str()),
-                        level: LogLevel::Info,
-                        source_module: "gateway",
-                        event_type: "session.resolved",
-                        payload: serde_json::json!({
-                            "session_id": id,
-                            "channel": channel,
-                        }),
-                        parent: parent.as_ref(),
-                    });
-                }
-                id
-            }
-            None => {
-                tracing::warn!("session_key missing or resolve failed — message not processed");
-                return self
-                    .reject_with_reply(
-                        peer_id,
-                        channel,
-                        "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}",
-                    )
-                    .await;
-            }
-        };
-
-        // ── Restore notification for archived sessions ──────────────
-        // Per design doc: when a session is restored from archived state,
-        // send "正在恢复会话..." before processing continues.
-        // When migrating, send the custom archiving notification instead.
+    /// Check session gates (restore, shutdown, stopped, new user, approval).
+    ///
+    /// Returns `Some(HandleResult)` when the message should be rejected
+    /// or handled by a gate; `None` means all gates passed.
+    async fn check_session_gates(
+        &self,
+        session_id: &str,
+        content: &str,
+        sender_id: Option<&str>,
+        peer_id: &str,
+        channel: &str,
+    ) -> Option<HandleResult> {
+        // Restore notification for archived sessions (design doc).
         if let Some((chat_id, custom_msg)) = self
             .session_manager
-            .take_restore_notification(&session_id)
+            .take_restore_notification(session_id)
             .await
         {
             let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
             if let Err(e) = self.send_outbound_simplified(&chat_id, channel, msg).await {
-                tracing::warn!(
-                    session_id = %session_id,
-                    chat_id = %chat_id,
-                    error = %e,
-                    "failed to send restore notification"
-                );
+                tracing::warn!(session_id = %session_id, chat_id = %chat_id,
+                    error = %e, "failed to send restore notification");
             }
         }
-
-        // ── Shutdown gate: reject new operations ──────────────────────
+        // Shutdown gate: reject new operations.
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
-                tracing::warn!(
-                    session_id = %session_id,
-                    "rejecting inbound message: daemon is shutting down"
-                );
-                return None;
+                tracing::warn!(session_id = %session_id, "rejecting inbound: shutting down");
+                return Some(HandleResult::MessageQueued("".to_string()));
             }
         }
-
-        // ── Session stopped gate: reject new messages ─────────────────
-        // Per design doc: during graceful stop the `stopped` flag is set
-        // to prevent new LLM requests. New user messages are rejected
-        // (dropped) so they don't trigger autonomous turns.
+        // Session stopped gate: reject new messages (design doc).
         if let Some(cs) = self
             .session_manager
-            .get_conversation_session(&session_id)
+            .get_conversation_session(session_id)
             .await
         {
             if cs.read().await.is_stopped() {
-                tracing::warn!(
-                    session_id = %session_id,
-                    "rejecting inbound message: session is stopped"
-                );
-                return None;
+                tracing::warn!(session_id = %session_id, "rejecting inbound: session stopped");
+                return Some(HandleResult::MessageQueued("".to_string()));
             }
         }
-
-        // ── New user auto-registration ─────────────────────────────────
-        // Per design doc: when a non-owner, unregistered user sends
-        // their first message, auto-submit a user creation request for
-        // Owner approval. The user is blocked until approved.
+        // New user auto-registration (design doc).
         if let Some(sender) = sender_id {
             if let Some(result) = self.check_new_user_registration(sender, channel).await {
                 return Some(result);
             }
         }
-
-        // ── Approval command interception ──────────────────────────────
+        // Approval command interception.
         if let Some(result) = self
-            .try_handle_approval_command(&session_id, &content, sender_id, peer_id, channel)
+            .try_handle_approval_command(session_id, content, sender_id, peer_id, channel)
             .await
         {
             return Some(result);
         }
+        None
+    }
 
-        // ── Routing decision ────────────────────────────────────────────
-        // Log route.decision before dispatching slash or normal message path.
-        let is_slash = content.starts_with('/');
-        if let Some(tid) = trace_id {
-            let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
-            let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-            debug_log_emitter::emit_debug_event(debug_log_emitter::EmitEventParams {
-                debug_log: guard.as_ref(),
-                trace_id: tid,
-                session_key: processed.metadata.get("session_key").map(|s| s.as_str()),
-                level: LogLevel::Info,
-                source_module: "gateway",
-                event_type: "route.decision",
-                payload: serde_json::json!({
-                    "session_id": session_id,
-                    "decision": if is_slash { "slash" } else { "normal" },
-                    "content_prefix": content.chars().take(16).collect::<String>(),
-                }),
-                parent: parent.as_ref(),
-            });
-        }
-        if is_slash {
-            // ── Slash command dispatch ─────────────────────────────────────
-            // Slash commands are intercepted here and never appended to
-            // conversation history (design doc requirement).
-            if let Some(result) = self
-                .dispatch_slash(&session_id, &content, sender_id, channel, Some(peer_id))
-                .await
-            {
-                return Some(result);
-            }
-        }
-
-        // ── Owner response for blocked workflow (Step 1.6) ──────────
-        // When a workflow is in blocked state, owner messages are
-        // intercepted and routed to the engine for resolve or terminate.
-        if let Some(result) = self
-            .try_handle_workflow_owner_response(&session_id, &content, sender_id)
-            .await
-        {
-            return Some(result);
-        }
-
+    /// Dispatch a message to the session handler (streaming or non-streaming).
+    #[allow(clippy::too_many_arguments)]
+    async fn dispatch_to_handler(
+        &self,
+        processed: &ProcessedMessage,
+        session_id: &str,
+        content: String,
+        sender_id: Option<&str>,
+        peer_id: &str,
+        channel: &str,
+        dbg: &InboundDebugCtx<'_>,
+    ) -> Option<HandleResult> {
         let handler = self.session_handler.get().cloned()?;
-
-        // Streaming path: plugin is registered for this channel AND the
-        // self-ref is wired AND the handler has a back-ref. Falls back
-        // to the non-streaming path otherwise.
         let gw_arc = self
             .self_ref
             .lock()
@@ -791,26 +698,119 @@ impl Gateway {
                 channel: channel.to_string(),
                 timestamp: chrono::Utc::now().timestamp(),
                 chat_name,
-                trace_id: trace_id.map(|s| s.to_string()),
+                trace_id: dbg.trace_id.map(|s: &str| s.to_string()),
                 session_key: processed.metadata.get("session_key").cloned(),
                 span_id: processed.metadata.get("span_id").cloned(),
             };
             let result = handler
-                .handle_message_with_gateway(&session_id, content, meta, &gw, &plugin)
+                .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
                 .await;
-            // NOTE: No decrement_busy here — the handler's spawned task
-            // (finish_llm) is responsible for decrementing on async paths.
             self.maybe_send_notification(&result, peer_id, channel)
                 .await;
             return Some(result);
         }
-
-        let result = handler.handle_message(&session_id, content).await;
-        // NOTE: No decrement_busy here — the handler's spawned task
-        // (finish_llm) is responsible for decrementing on async paths.
+        let result = handler.handle_message(session_id, content).await;
         self.maybe_send_notification(&result, peer_id, channel)
             .await;
         Some(result)
+    }
+
+    /// Route and dispatch an inbound message to slash or LLM handler.
+    #[allow(clippy::too_many_arguments)]
+    async fn route_and_dispatch(
+        &self,
+        processed: &ProcessedMessage,
+        session_id: &str,
+        content: String,
+        sender_id: Option<&str>,
+        peer_id: &str,
+        channel: &str,
+        dbg: &InboundDebugCtx<'_>,
+    ) -> Option<HandleResult> {
+        let is_slash = content.starts_with('/');
+        if let Some(tid) = dbg.trace_id {
+            self.emit_gateway_event(
+                tid,
+                dbg.session_key,
+                "route.decision",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "decision": if is_slash { "slash" } else { "normal" },
+                    "content_prefix": content.chars().take(16).collect::<String>(),
+                }),
+                dbg.root_ctx.as_ref(),
+            );
+        }
+        if is_slash {
+            if let Some(result) = self
+                .dispatch_slash(session_id, &content, sender_id, channel, Some(peer_id))
+                .await
+            {
+                return Some(result);
+            }
+        }
+        if let Some(result) = self
+            .try_handle_workflow_owner_response(session_id, &content, sender_id)
+            .await
+        {
+            return Some(result);
+        }
+        self.dispatch_to_handler(
+            processed, session_id, content, sender_id, peer_id, channel, dbg,
+        )
+        .await
+    }
+
+    /// Handle an inbound message through the busy/pending state machine.
+    pub async fn handle_inbound_message(
+        &self,
+        processed: ProcessedMessage,
+        sender_id: Option<&str>,
+        channel: &str,
+    ) -> Option<HandleResult> {
+        let dbg = inbound_queue::prepare_inbound_debug(self, &processed, sender_id, channel);
+        let peer_id = processed
+            .metadata
+            .get("peer_id")
+            .map(|s| s.as_str())
+            .unwrap_or("");
+        match self.validate_inbound(&processed, peer_id, channel).await {
+            InboundValidation::Continue => {}
+            InboundValidation::Reject(result) => return Some(result),
+            InboundValidation::RejectSilently => return None,
+        }
+        let content = processed.text_content().unwrap_or("").to_string();
+        let session_id = match inbound_queue::resolve_session_with_log(
+            self,
+            &processed,
+            channel,
+            peer_id,
+            dbg.trace_id,
+            dbg.session_key,
+            &dbg.root_ctx,
+        )
+        .await
+        {
+            Ok(id) => id,
+            Err(Some(result)) => return Some(result),
+            Err(None) => return None,
+        };
+        if let Some(result) = self
+            .check_session_gates(&session_id, &content, sender_id, peer_id, channel)
+            .await
+        {
+            return Some(result);
+        }
+        self.route_and_dispatch(
+            &processed,
+            &session_id,
+            content,
+            sender_id,
+            peer_id,
+            channel,
+            &dbg,
+        )
+        .await
     }
 
     /// Send a notification to the user when the result carries a message

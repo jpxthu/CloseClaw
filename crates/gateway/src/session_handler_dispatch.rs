@@ -364,15 +364,6 @@ async fn load_agent_config_with_context_turns(
 
 impl SessionMessageHandler {
     /// Streaming-aware entry point used by [`Gateway::handle_inbound_message`].
-    ///
-    /// Same as [`handle_message_with_meta`](Self::handle_message_with_meta) but
-    /// passes the [`Gateway`] reference and [`IMPlugin`] to the dispatch
-    /// task so streaming LLM output can be routed through
-    /// [`Gateway::send_outbound_streaming`].
-    ///
-    /// During active Waiting (yielding) state, `is_session_busy`
-    /// returns false, so the message flows through the normal path:
-    /// inject into conversation history and dispatch LLM. No queueing.
     pub async fn handle_message_with_gateway(
         &self,
         session_id: &str,
@@ -385,12 +376,8 @@ impl SessionMessageHandler {
             self.enqueue_pending(session_id, content).await;
             return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
         }
-        // Inject active children summary BEFORE the user message
-        // (design-doc position constraint).
         self.inject_active_children_summary_if_needed(session_id)
             .await;
-        // Persist user message before auto-compact so threshold estimation
-        // includes the current message (design-doc data-flow: write → truncate → estimate).
         if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
@@ -398,9 +385,6 @@ impl SessionMessageHandler {
         {
             cs.write().await.append_user_message(&content);
         }
-        // Update last_user_activity_at and last_message_at for the user message.
-        // Only user messages (not LLM responses, tool results, or system messages)
-        // trigger this update (design-doc §Sweeper: last_user_activity_at).
         self.session_manager
             .update_checkpoint_user_activity(session_id)
             .await;
@@ -409,27 +393,9 @@ impl SessionMessageHandler {
             .await
     }
 
-    /// Dispatch an LLM call inside a `tokio::spawn` task.
-    ///
-    /// When both `gateway` and `plugin` are provided AND the session has
-    /// `stream_enabled = true`, the streaming pipeline is used
-    /// ([`Self::call_llm_streaming`]). Otherwise the non-streaming
-    /// pipeline is used ([`Self::call_llm`]).
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn dispatch_llm_call(
-        &self,
-        session_id: &str,
-        content: String,
-        meta: MessageMetadata,
-        gateway: Option<&Arc<Gateway>>,
-        plugin: Option<&Arc<dyn IMPlugin>>,
-    ) -> HandleResult {
-        self.set_busy(session_id, true).await;
-
-        // ── Trigger active-searcher (best-effort, non-blocking) ────
-        // Pre-load agent config once for both user and assistant
-        // triggers, avoiding redundant config loads inside closures.
-        let searcher_deps = SearcherTriggerDeps {
+    /// Trigger active-searcher for a user message (best-effort, non-blocking).
+    async fn trigger_searcher_user(&self, session_id: &str, content: &str) -> SearcherTriggerDeps {
+        let deps = SearcherTriggerDeps {
             session_manager: Arc::clone(&self.session_manager),
             fallback_llm_caller: Arc::clone(&self.fallback_llm_caller),
             memory_db_path: self.memory_db_path.clone(),
@@ -439,152 +405,157 @@ impl SessionMessageHandler {
         if let Some(agent_id) = self.session_manager.get_chat_id(session_id).await {
             let (model, mem_cfg, ctx_turns) =
                 load_agent_config_with_context_turns(&self.session_manager, &agent_id).await;
+            let full_deps = SearcherTriggerDeps {
+                agent_model: model,
+                memory_config: mem_cfg,
+                ..deps.clone()
+            };
+            full_deps.trigger(session_id, &agent_id, content, "user", ctx_turns);
+        }
+        deps
+    }
+
+    /// Validate session exists and has an LLM caller before dispatch.
+    async fn validate_session_for_llm(
+        &self,
+        session_id: &str,
+    ) -> Result<
+        Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        HandleResult,
+    > {
+        let cs = match self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            Some(cs) => cs,
+            None => {
+                tracing::error!(session_id = %session_id, "session not found");
+                self.set_busy(session_id, false).await;
+                return Err(HandleResult::Error("session not found".to_string()));
+            }
+        };
+        if cs.read().await.llm_caller().is_none() {
+            tracing::error!(session_id = %session_id, "no LLM caller configured");
+            self.set_busy(session_id, false).await;
+            return Err(HandleResult::Error("no LLM caller configured".to_string()));
+        }
+        Ok(cs)
+    }
+
+    /// Emit the llm.dispatch debug log event.
+    fn emit_dispatch_log(gw: Option<&Arc<Gateway>>, meta: &MessageMetadata, session_id: &str) {
+        let tid = match meta.trace_id.as_deref() {
+            Some(t) if !t.is_empty() => t,
+            _ => return,
+        };
+        let parent = super::debug_log_emitter::root_context_from_message_metadata(meta);
+        let guard = gw.map(|g| g.debug_log.read().unwrap_or_else(|e| e.into_inner()));
+        super::debug_log_emitter::emit_debug_event(super::debug_log_emitter::EmitEventParams {
+            ctx: super::debug_log_emitter::DebugLogContext::new(
+                guard.as_ref().and_then(|g| g.as_ref()),
+                tid,
+                meta.session_key.as_deref(),
+            ),
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "gateway",
+            event_type: "llm.dispatch",
+            payload: serde_json::json!({"session_id": session_id, "channel": meta.channel}),
+            parent: parent.as_ref(),
+        });
+    }
+
+    /// Execute the LLM call (streaming or non-streaming).
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_llm_call(
+        cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        content: &str,
+        meta: &MessageMetadata,
+        sm: &Arc<SessionManager>,
+        session_id: &str,
+        channel: &str,
+        gw: Option<&Arc<Gateway>>,
+        pl: Option<&Arc<dyn IMPlugin>>,
+    ) -> Result<super::outbound::StreamResult, closeclaw_llm::LLMError> {
+        let stream_enabled = cs.read().await.stream_enabled();
+        if stream_enabled {
+            if let (Some(gw), Some(pl)) = (gw, pl) {
+                Self::call_llm_streaming(cs, content, meta, sm, session_id, channel, gw, pl).await
+            } else {
+                tracing::warn!(session_id = %session_id, "streaming enabled but no gateway/plugin; falling back");
+                cs.write().await.invoke_llm(content).await.map(Into::into)
+            }
+        } else {
+            cs.write().await.invoke_llm(content).await.map(Into::into)
+        }
+    }
+
+    /// Trigger active-searcher for an assistant message.
+    async fn trigger_searcher_assistant(
+        sm: &Arc<SessionManager>,
+        searcher_deps: &SearcherTriggerDeps,
+        session_id: &str,
+        assistant_text: &str,
+    ) {
+        if let Some(agent_id) = sm.get_chat_id(session_id).await {
+            let (model, mem_cfg, ctx_turns) =
+                load_agent_config_with_context_turns(sm, &agent_id).await;
             let deps = SearcherTriggerDeps {
                 agent_model: model,
                 memory_config: mem_cfg,
                 ..searcher_deps.clone()
             };
-            deps.trigger(session_id, &agent_id, &content, "user", ctx_turns);
-        }
-
-        let session_id = session_id.to_string();
-        let content_for_task = content;
-        let sm = Arc::clone(&self.session_manager);
-        // Validate session exists and has an LLM caller before spawning.
-        let cs = match sm.get_conversation_session(&session_id).await {
-            Some(cs) => cs,
-            None => {
-                tracing::error!(session_id = %session_id, "session not found");
-                self.set_busy(&session_id, false).await;
-                return HandleResult::Error("session not found".to_string());
-            }
-        };
-        if cs.read().await.llm_caller().is_none() {
-            tracing::error!(
-                session_id = %session_id,
-                "no LLM caller configured for session"
+            deps.trigger(
+                session_id,
+                &agent_id,
+                assistant_text,
+                "assistant",
+                ctx_turns,
             );
-            self.set_busy(&session_id, false).await;
-            return HandleResult::Error("no LLM caller configured".to_string());
         }
+    }
+
+    /// Spawn and run the LLM dispatch task.
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_dispatch_task(
+        &self,
+        session_id: String,
+        content: String,
+        meta: MessageMetadata,
+        cs: Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+        gw: Option<Arc<Gateway>>,
+        pl: Option<Arc<dyn IMPlugin>>,
+        searcher_deps: SearcherTriggerDeps,
+    ) {
+        let sm = Arc::clone(&self.session_manager);
         let output_tx = Arc::clone(&self.output_tx);
         let channel = meta.channel.clone();
-        // Clone metadata for debug-log child span inside the spawn task.
         let meta_for_debug = meta.clone();
-        // Clone the gateway/plugin into the spawn (optional). If
-        // streaming is enabled for the session but no gateway/plugin
-        // is provided we fall back to the non-streaming path.
-        let gw_for_task = gateway.map(Arc::clone);
-        let plugin_for_task = plugin.map(Arc::clone);
-        // Clone the shutdown handle for busy-count tracking inside
-        // the spawned task. The handle is optional (tests may not
-        // set one).
         let shutdown_handle = self.shutdown_handle.clone();
         let metrics_emitter = self.metrics_emitter.clone();
-        let searcher_deps = searcher_deps;
 
         tokio::spawn(async move {
-            // Increment busy count at message dequeue.
             if let Some(ref h) = shutdown_handle {
                 h.increment_busy();
             }
-
-            // NOTE: User message is already persisted by handle_message_with_meta
-            // before check_and_run_auto_compact (design-doc data-flow requirement).
-            // Do NOT duplicate the append here.
-
-            // NOTE: Active children summary is now injected BEFORE the user
-            // message by inject_active_children_summary_if_needed (position
-            // constraint from design doc). This spawn block no longer handles
-            // summary injection.
-
-            // Step 1.4: inject Now-priority announces before user message
-            // processing so the agent sees urgent notifications first.
             Self::drain_announces_now(&sm, &session_id).await;
-
-            // Emit child span for LLM dispatch.
-            if let Some(tid) = &meta_for_debug.trace_id {
-                if !tid.is_empty() {
-                    let parent = meta_for_debug.span_id.as_ref().map(|sid| {
-                        closeclaw_debug_log::TraceContext {
-                            trace_id: tid.clone(),
-                            span_id: sid.clone(),
-                            parent_span_id: String::new(),
-                        }
-                    });
-                    let debug_log_guard = gw_for_task
-                        .as_ref()
-                        .map(|gw| gw.debug_log.read().unwrap_or_else(|e| e.into_inner()));
-                    super::debug_log_emitter::emit_debug_event(
-                        super::debug_log_emitter::EmitEventParams {
-                            debug_log: debug_log_guard.as_ref().and_then(|g| g.as_ref()),
-                            trace_id: tid,
-                            session_key: meta_for_debug.session_key.as_deref(),
-                            level: closeclaw_debug_log::LogLevel::Info,
-                            source_module: "gateway",
-                            event_type: "llm.dispatch",
-                            payload: serde_json::json!({
-                                "session_id": session_id,
-                                "channel": meta_for_debug.channel,
-                            }),
-                            parent: parent.as_ref(),
-                        },
-                    );
-                }
-            }
-
-            // Check if streaming is enabled for this session
-            let stream_enabled = if let Some(cs) = sm.get_conversation_session(&session_id).await {
-                cs.read().await.stream_enabled()
-            } else {
-                false
-            };
-
+            Self::emit_dispatch_log(gw.as_ref(), &meta_for_debug, &session_id);
             let turn_start = Instant::now();
-
-            // Set per-request context for dynamic-layer injection so
-            // build_system_prompt_parts can construct fresh ChannelContext
-            // with current sender/channel/timestamp.
             let request_ctx = meta.to_request_context();
             if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.set_request_context(request_ctx);
             }
-
-            let result = if stream_enabled {
-                if let (Some(gw), Some(pl)) = (gw_for_task.as_ref(), plugin_for_task.as_ref()) {
-                    Self::call_llm_streaming(
-                        &cs,
-                        &content_for_task,
-                        &meta,
-                        &sm,
-                        &session_id,
-                        &channel,
-                        gw,
-                        pl,
-                    )
-                    .await
-                } else {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        "streaming enabled but no gateway/plugin; \
-                         falling back to non-streaming"
-                    );
-                    cs.write()
-                        .await
-                        .invoke_llm(&content_for_task)
-                        .await
-                        .map(Into::into)
-                }
-            } else {
-                cs.write()
-                    .await
-                    .invoke_llm(&content_for_task)
-                    .await
-                    .map(Into::into)
-            };
-
-            // Extract assistant response text for active-searcher
-            // trigger (BeforeNext mode for assistant messages).
+            let result = Self::execute_llm_call(
+                &cs,
+                &content,
+                &meta,
+                &sm,
+                &session_id,
+                &channel,
+                gw.as_ref(),
+                pl.as_ref(),
+            )
+            .await;
             let assistant_text = match &result {
                 Ok(sr) => sr
                     .content_blocks
@@ -597,7 +568,6 @@ impl SessionMessageHandler {
                     .join(""),
                 Err(_) => String::new(),
             };
-
             Self::finish_llm(
                 &sm,
                 &session_id,
@@ -605,38 +575,43 @@ impl SessionMessageHandler {
                 turn_start,
                 &output_tx,
                 &metrics_emitter,
-                gw_for_task.as_ref(),
+                gw.as_ref(),
             )
             .await;
-
-            // ── Trigger active-searcher for assistant message ───
-            // After the assistant response is stored in the session,
-            // trigger active-searcher with role "assistant" so it
-            // writes to the BeforeNext slot for the next user turn.
-            if let Some(agent_id) = sm.get_chat_id(&session_id).await {
-                let (model, mem_cfg, ctx_turns) =
-                    load_agent_config_with_context_turns(&sm, &agent_id).await;
-                let deps = SearcherTriggerDeps {
-                    agent_model: model,
-                    memory_config: mem_cfg,
-                    ..searcher_deps.clone()
-                };
-                deps.trigger(
-                    &session_id,
-                    &agent_id,
-                    &assistant_text,
-                    "assistant",
-                    ctx_turns,
-                );
-            }
-
-            // Decrement busy count after response sent + pending
-            // drained.
+            Self::trigger_searcher_assistant(&sm, &searcher_deps, &session_id, &assistant_text)
+                .await;
             if let Some(ref h) = shutdown_handle {
                 h.decrement_busy();
             }
         });
+    }
 
+    /// Dispatch an LLM call inside a `tokio::spawn` task.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn dispatch_llm_call(
+        &self,
+        session_id: &str,
+        content: String,
+        meta: MessageMetadata,
+        gateway: Option<&Arc<Gateway>>,
+        plugin: Option<&Arc<dyn IMPlugin>>,
+    ) -> HandleResult {
+        self.set_busy(session_id, true).await;
+        let searcher_deps = self.trigger_searcher_user(session_id, &content).await;
+        let session_id = session_id.to_string();
+        let cs = match self.validate_session_for_llm(&session_id).await {
+            Ok(cs) => cs,
+            Err(result) => return result,
+        };
+        self.spawn_dispatch_task(
+            session_id,
+            content,
+            meta,
+            cs,
+            gateway.map(Arc::clone),
+            plugin.map(Arc::clone),
+            searcher_deps,
+        );
         HandleResult::LlmStarted
     }
 

@@ -65,9 +65,11 @@ async fn test_child_event_parent_span_id_matches() {
     let parent_span_id = parent.span_id.clone();
 
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: Some(&debug_log),
-        trace_id: "trace-child-test",
-        session_key: Some("sess-child-1"),
+        ctx: crate::debug_log_emitter::DebugLogContext::new(
+            Some(&debug_log),
+            "trace-child-test",
+            Some("sess-child-1"),
+        ),
         level: LogLevel::Info,
         source_module: "gateway",
         event_type: "llm.call.start",
@@ -99,9 +101,11 @@ async fn test_root_event_empty_parent_span_id() {
     let debug_log = make_debug_log(&temp_dir).await;
 
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: Some(&debug_log),
-        trace_id: "trace-root-test",
-        session_key: Some("sess-root-1"),
+        ctx: crate::debug_log_emitter::DebugLogContext::new(
+            Some(&debug_log),
+            "trace-root-test",
+            Some("sess-root-1"),
+        ),
         level: LogLevel::Info,
         source_module: "gateway",
         event_type: "message.arrived",
@@ -128,9 +132,7 @@ async fn test_root_event_empty_parent_span_id() {
 #[tokio::test]
 async fn test_event_none_debug_log_no_op() {
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: None,
-        trace_id: "trace-noop",
-        session_key: Some("sess-noop"),
+        ctx: crate::debug_log_emitter::DebugLogContext::new(None, "trace-noop", Some("sess-noop")),
         level: LogLevel::Info,
         source_module: "gateway",
         event_type: "llm.call.start",
@@ -147,9 +149,11 @@ async fn test_event_empty_trace_id_no_op() {
     let debug_log = make_debug_log(&temp_dir).await;
 
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: Some(&debug_log),
-        trace_id: "",
-        session_key: Some("sess-empty"),
+        ctx: crate::debug_log_emitter::DebugLogContext::new(
+            Some(&debug_log),
+            "",
+            Some("sess-empty"),
+        ),
         level: LogLevel::Info,
         source_module: "gateway",
         event_type: "test.event",
@@ -170,9 +174,11 @@ async fn test_child_event_inherits_parent_trace_id() {
     let parent = TraceContext::new_root("trace-inherit".to_string());
 
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: Some(&debug_log),
-        trace_id: "trace-inherit",
-        session_key: None,
+        ctx: crate::debug_log_emitter::DebugLogContext::new(
+            Some(&debug_log),
+            "trace-inherit",
+            None,
+        ),
         level: LogLevel::Trace,
         source_module: "tools",
         event_type: "tool.execute",
@@ -203,9 +209,11 @@ async fn test_chained_child_spans() {
     let child_span_id = child.span_id.clone();
 
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        debug_log: Some(&debug_log),
-        trace_id: "trace-chain",
-        session_key: Some("sess-chain"),
+        ctx: crate::debug_log_emitter::DebugLogContext::new(
+            Some(&debug_log),
+            "trace-chain",
+            Some("sess-chain"),
+        ),
         level: LogLevel::Info,
         source_module: "gateway",
         event_type: "tool.execute",
