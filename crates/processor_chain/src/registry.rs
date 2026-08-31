@@ -1,5 +1,6 @@
 //! Processor registry — holds inbound/outbound processor chains and drives execution.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::context::MessageContext;
@@ -118,7 +119,21 @@ impl ProcessorRegistry {
         msg: NormalizedMessage,
     ) -> Result<ProcessedMessage, ProcessError> {
         if self.inbound.is_empty() {
-            return Ok(ProcessedMessage::from_raw_content(msg.content));
+            // Design doc: chain dispatcher copies message_type and
+            // unavailable_media into metadata even for the bypass path.
+            let mut metadata = HashMap::new();
+            metadata.insert(
+                "message_type".to_string(),
+                serde_json::to_string(&msg.message_type).unwrap_or_default(),
+            );
+            metadata.insert(
+                "unavailable_media".to_string(),
+                serde_json::to_string(&msg.unavailable_media).unwrap_or_default(),
+            );
+            return Ok(ProcessedMessage {
+                content_blocks: vec![ContentBlock::Text(msg.content)],
+                metadata,
+            });
         }
 
         // Emit chain.inbound start event (关键事件).
