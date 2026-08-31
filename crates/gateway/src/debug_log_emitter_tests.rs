@@ -104,6 +104,7 @@ async fn test_root_event_empty_parent_span_id() {
         "gateway",
         "message.arrived",
         serde_json::json!({"channel": "feishu"}),
+        None,
     );
 
     let events = read_events_with_timeout(temp_dir.path()).await;

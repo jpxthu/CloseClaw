@@ -428,6 +428,7 @@ impl Gateway {
             raw_payload: payload,
             peer_id: entry.peer_id,
             trace_id: entry.trace_id,
+            span_id: None,
         };
         let queued = inbound_queue::QueuedInbound { request: req };
         let trace_id = queued.request.trace_id.clone();
@@ -455,6 +456,7 @@ impl Gateway {
                 "platform": platform,
                 "peer_id": peer_id,
             }),
+            None, // root event
         );
     }
 
@@ -545,6 +547,7 @@ impl Gateway {
 
         // ── Debug log: message.arrived ──────────────────────────────
         if let Some(trace_id) = processed.metadata.get("trace_id") {
+            let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
             let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
             debug_log_emitter::emit_debug_event(
                 guard.as_ref(),
@@ -558,6 +561,7 @@ impl Gateway {
                     "peer_id": peer_id,
                     "channel": channel,
                 }),
+                parent.as_ref(),
             );
         }
 
@@ -626,6 +630,7 @@ impl Gateway {
             Some(id) => {
                 // ── Debug log: session.resolved ─────────────────────────
                 if let Some(tid) = trace_id {
+                    let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
                     let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
                     debug_log_emitter::emit_debug_event(
                         guard.as_ref(),
@@ -638,6 +643,7 @@ impl Gateway {
                             "session_id": id,
                             "channel": channel,
                         }),
+                        parent.as_ref(),
                     );
                 }
                 id
@@ -725,6 +731,7 @@ impl Gateway {
         // Log route.decision before dispatching slash or normal message path.
         let is_slash = content.starts_with('/');
         if let Some(tid) = trace_id {
+            let parent = debug_log_emitter::root_context_from_metadata(&processed.metadata);
             let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
             debug_log_emitter::emit_debug_event(
                 guard.as_ref(),
@@ -738,6 +745,7 @@ impl Gateway {
                     "decision": if is_slash { "slash" } else { "normal" },
                     "content_prefix": content.chars().take(16).collect::<String>(),
                 }),
+                parent.as_ref(),
             );
         }
         if is_slash {
@@ -785,6 +793,7 @@ impl Gateway {
                 chat_name,
                 trace_id: trace_id.map(|s| s.to_string()),
                 session_key: processed.metadata.get("session_key").cloned(),
+                span_id: processed.metadata.get("span_id").cloned(),
             };
             let result = handler
                 .handle_message_with_gateway(&session_id, content, meta, &gw, &plugin)

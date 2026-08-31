@@ -66,6 +66,7 @@ impl Gateway {
         trace_id: Option<&str>,
         session_key: Option<&str>,
         session_id: &str,
+        parent: Option<&closeclaw_debug_log::TraceContext>,
     ) {
         if let Some(tid) = trace_id {
             let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
@@ -80,6 +81,7 @@ impl Gateway {
                     "session_key": session_key.unwrap_or_default(),
                     "session_id": session_id,
                 }),
+                parent,
             );
         }
     }
@@ -108,6 +110,7 @@ impl Gateway {
             message.metadata.get("trace_id").map(|s| s.as_str()),
             Some(session_key),
             &session_id,
+            None, // no parent context available in outbound routing path
         );
 
         if let Some((chat_id, custom_msg)) = self
@@ -139,6 +142,7 @@ impl Gateway {
             message.metadata.get("trace_id").map(|s| s.as_str()),
             None,
             session_id,
+            None, // no parent context available in outbound routing path
         );
         self.forward_to_plugin(channel, message, session_id).await
     }

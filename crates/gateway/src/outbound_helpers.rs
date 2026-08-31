@@ -234,6 +234,7 @@ pub(crate) async fn send_render_block(
                     ctx.session_key,
                     ctx.channel,
                     render_duration_ms,
+                    None, // outbound render event
                 );
             }
         }
@@ -259,6 +260,7 @@ pub(crate) async fn send_render_block(
                     ctx.channel,
                     ctx.chat_id,
                     send_duration_ms,
+                    None, // outbound send event
                 );
             }
         }
@@ -376,6 +378,7 @@ pub(crate) fn emit_feishu_render_event(
     session_key: Option<&str>,
     channel: &str,
     render_duration_ms: u64,
+    parent: Option<&closeclaw_debug_log::TraceContext>,
 ) {
     if trace_id.is_empty() {
         return;
@@ -392,6 +395,7 @@ pub(crate) fn emit_feishu_render_event(
             "platform": channel,
             "render_duration_ms": render_duration_ms,
         }),
+        parent,
     );
 }
 
@@ -403,6 +407,7 @@ pub(crate) fn emit_feishu_send_event(
     channel: &str,
     peer_id: &str,
     send_duration_ms: u64,
+    parent: Option<&closeclaw_debug_log::TraceContext>,
 ) {
     if trace_id.is_empty() {
         return;
@@ -420,6 +425,7 @@ pub(crate) fn emit_feishu_send_event(
             "peer_id": peer_id,
             "send_duration_ms": send_duration_ms,
         }),
+        parent,
     );
 }
 

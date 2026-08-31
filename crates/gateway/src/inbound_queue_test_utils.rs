@@ -48,6 +48,7 @@ pub fn make_request(content: &str) -> InboundRequest {
         raw_payload: make_raw_payload(content),
         peer_id: "p1".into(),
         trace_id: String::new(),
+        span_id: None,
     }
 }
 

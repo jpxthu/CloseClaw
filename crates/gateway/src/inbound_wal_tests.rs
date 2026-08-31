@@ -583,6 +583,7 @@ async fn test_consumer_processes_and_cleans_wal() {
             raw_payload: b"{\"test\":\"data\"}".to_vec(),
             peer_id: "p1".into(),
             trace_id: "tr-consumer-e2e".into(),
+            span_id: None,
         })
         .await;
 

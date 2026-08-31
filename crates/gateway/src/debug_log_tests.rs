@@ -96,6 +96,7 @@ fn test_emit_debug_event_empty_trace_id_no_op() {
         "gateway",
         "message.arrived",
         serde_json::json!({}),
+        None,
     );
 }
 
@@ -110,6 +111,7 @@ fn test_emit_debug_event_none_debug_log_no_op() {
         "gateway",
         "message.arrived",
         serde_json::json!({}),
+        None,
     );
 }
 
@@ -135,6 +137,7 @@ fn test_emit_debug_event_with_debug_log_no_panic() {
             "gateway",
             "message.arrived",
             serde_json::json!({"sender_id": "ou_123"}),
+            None,
         );
         // Give the spawned task a moment to complete.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -720,6 +723,7 @@ async fn test_inbound_parsed_event_emitted() {
         raw_payload: serde_json::to_vec(&payload).unwrap(),
         peer_id: "oc_chat".to_string(),
         trace_id: trace_id.to_string(),
+        span_id: None,
     };
 
     // Process via enqueue_inbound (bypass mode — queue not started).
@@ -769,6 +773,7 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
         raw_payload: b"test".to_vec(),
         peer_id: "oc_chat".to_string(),
         trace_id: "trace-no-dl-inbound-001".to_string(),
+        span_id: None,
     };
     gw.enqueue_inbound(request).await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;

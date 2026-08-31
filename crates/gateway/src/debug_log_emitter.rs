@@ -5,11 +5,31 @@
 
 use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
 
+/// Reconstruct a root [`TraceContext`] from metadata fields.
+///
+/// Returns `None` when either `trace_id` or `span_id` is missing from
+/// the metadata map.
+pub fn root_context_from_metadata(
+    metadata: &std::collections::HashMap<String, String>,
+) -> Option<TraceContext> {
+    let trace_id = metadata.get("trace_id")?;
+    let span_id = metadata.get("span_id")?;
+    Some(TraceContext {
+        trace_id: trace_id.clone(),
+        span_id: span_id.clone(),
+        parent_span_id: String::new(),
+    })
+}
+
 /// Emit a structured debug log event if the [`DebugLog`] is configured.
 ///
-/// Creates a root [`TraceContext`] from `trace_id`, builds a
-/// [`LogEvent`], and spawns an async task to write it. If `trace_id`
-/// is empty or `debug_log` is `None`, the call is a no-op.
+/// When `parent` is `Some`, creates a child [`TraceContext`] derived
+/// from the parent span. When `parent` is `None`, creates a root
+/// [`TraceContext`] from `trace_id` (backward compatible).
+///
+/// If `trace_id` is empty or `debug_log` is `None`, the call is a
+/// no-op.
+#[allow(clippy::too_many_arguments)]
 pub fn emit_debug_event(
     debug_log: Option<&DebugLog>,
     trace_id: &str,
@@ -18,6 +38,7 @@ pub fn emit_debug_event(
     source_module: &str,
     event_type: &str,
     payload: serde_json::Value,
+    parent: Option<&TraceContext>,
 ) {
     if trace_id.is_empty() {
         return;
@@ -25,7 +46,10 @@ pub fn emit_debug_event(
     let Some(debug_log) = debug_log else {
         return;
     };
-    let ctx = TraceContext::new_root(trace_id.to_string());
+    let ctx = match parent {
+        Some(p) => p.child(),
+        None => TraceContext::new_root(trace_id.to_string()),
+    };
     let event = LogEvent::new(
         &ctx,
         session_key.map(|s| s.to_string()),

@@ -36,6 +36,9 @@ pub struct MessageMetadata {
     pub trace_id: Option<String>,
     /// Session key for debug-log correlation.
     pub session_key: Option<String>,
+    /// Root span ID for debug-log child span derivation.
+    /// Set by inbound_queue when the root TraceContext is created.
+    pub span_id: Option<String>,
 }
 
 impl MessageMetadata {
@@ -47,7 +50,22 @@ impl MessageMetadata {
             chat_name: String::new(),
             trace_id: None,
             session_key: None,
+            span_id: None,
         }
+    }
+
+    /// Build a root [`TraceContext`](closeclaw_debug_log::TraceContext)
+    /// from the stored `trace_id` and `span_id`.
+    ///
+    /// Returns `None` when `trace_id` or `span_id` is missing.
+    pub fn root_trace_context(&self) -> Option<closeclaw_debug_log::TraceContext> {
+        let trace_id = self.trace_id.as_deref()?;
+        let span_id = self.span_id.as_deref()?;
+        Some(closeclaw_debug_log::TraceContext {
+            trace_id: trace_id.to_string(),
+            span_id: span_id.to_string(),
+            parent_span_id: String::new(),
+        })
     }
 
     /// Convert into a [`RequestContext`](closeclaw_common::RequestContext)

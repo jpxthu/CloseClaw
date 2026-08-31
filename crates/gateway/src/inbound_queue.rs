@@ -30,6 +30,9 @@ pub struct InboundRequest {
     pub peer_id: String,
     /// Trace ID for debug-log correlation, generated at webhook arrival.
     pub trace_id: String,
+    /// Root span ID for debug-log child span derivation.
+    /// Set by the inbound consumer after dequeuing.
+    pub span_id: Option<String>,
 }
 
 /// An inbound request queued for consumer processing.
@@ -124,7 +127,13 @@ async fn handle_normalized_message(
     let mut msg = normalized;
     msg.chat_name = chat_name;
     msg.trace_id = req.trace_id.clone();
-    let processed = gateway.process_inbound_chain(&msg).await;
+    let mut processed = gateway.process_inbound_chain(&msg).await;
+    // Inject span_id into processed metadata for child span derivation.
+    if let Some(ref span_id) = req.span_id {
+        processed
+            .metadata
+            .insert("span_id".to_string(), span_id.clone());
+    }
     gateway
         .handle_inbound_message(processed, Some(&msg.sender_id), &msg.platform)
         .await;
@@ -198,7 +207,10 @@ pub(crate) fn start_inbound_consumer(
     tokio::spawn(async move {
         tracing::info!(capacity, "inbound queue consumer started");
         while let Some(queued) = rx.recv().await {
-            let req = queued.request;
+            let mut req = queued.request;
+            // Create root TraceContext for the message chain.
+            let root_ctx = closeclaw_debug_log::TraceContext::new_root(req.trace_id.clone());
+            req.span_id = Some(root_ctx.span_id.clone());
             {
                 let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
                 super::debug_log_emitter::emit_debug_event(
@@ -212,6 +224,7 @@ pub(crate) fn start_inbound_consumer(
                         "platform": req.platform,
                         "peer_id": req.peer_id,
                     }),
+                    None, // root event
                 );
             }
             let Some(plugin) = gateway.get_plugin(&req.platform).await else {
@@ -292,6 +305,7 @@ fn emit_inbound_parsed_log(
             "message_type": msg_type_str,
             "parse_duration_ms": duration_ms,
         }),
+        None, // root event
     );
 }
 
@@ -312,6 +326,7 @@ fn emit_arrived_log(gateway: &Gateway, req: &InboundRequest) {
             "platform": req.platform,
             "peer_id": req.peer_id,
         }),
+        None, // root event
     );
 }
 
@@ -330,6 +345,7 @@ fn emit_queue_rejected_log(gateway: &Gateway, req: &InboundRequest) {
             "peer_id": req.peer_id,
             "reason": "queue_full",
         }),
+        None, // root event
     );
 }
 
@@ -443,7 +459,13 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
             let mut msg = normalized;
             msg.chat_name = chat_name;
             msg.trace_id = request.trace_id.clone();
-            let processed = gateway.process_inbound_chain(&msg).await;
+            let mut processed = gateway.process_inbound_chain(&msg).await;
+            // Inject span_id for child span derivation (fallback path).
+            // Create root TraceContext for the fallback path (no consumer).
+            let root_ctx = closeclaw_debug_log::TraceContext::new_root(request.trace_id.clone());
+            processed
+                .metadata
+                .insert("span_id".to_string(), root_ctx.span_id);
             gateway
                 .handle_inbound_message(processed, Some(&msg.sender_id), &msg.platform)
                 .await;
@@ -527,6 +549,7 @@ mod tests {
             raw_payload: b"{\"event\":{}}".to_vec(),
             peer_id: "p1".into(),
             trace_id: "feishu-123-tr".into(),
+            span_id: None,
         };
         assert_eq!(req.platform, "feishu");
         assert_eq!(req.raw_payload, b"{\"event\":{}}");
@@ -544,6 +567,7 @@ mod tests {
                 raw_payload: b"hello".to_vec(),
                 peer_id: "p1".into(),
                 trace_id: "tr-1".into(),
+                span_id: None,
             },
         };
         assert!(handle.try_send(queued).is_ok());
@@ -559,6 +583,7 @@ mod tests {
                 raw_payload: b"a".to_vec(),
                 peer_id: "p1".into(),
                 trace_id: "tr-1".into(),
+                span_id: None,
             },
         };
         let queued2 = QueuedInbound {
@@ -567,6 +592,7 @@ mod tests {
                 raw_payload: b"b".to_vec(),
                 peer_id: "p2".into(),
                 trace_id: "tr-2".into(),
+                span_id: None,
             },
         };
         assert!(handle.try_send(queued1).is_ok());
@@ -599,6 +625,7 @@ mod tests {
                     raw_payload: b"fill".to_vec(),
                     peer_id: "p1".into(),
                     trace_id: "tr-fill".into(),
+                    span_id: None,
                 },
             })
             .unwrap();
@@ -610,6 +637,7 @@ mod tests {
                 raw_payload: b"overflow".to_vec(),
                 peer_id: "p2".into(),
                 trace_id: "tr-overflow".into(),
+                span_id: None,
             },
         });
         assert!(err.is_err());

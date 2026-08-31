@@ -82,6 +82,8 @@ pub struct OutboundMeta {
     pub trace_id: Option<String>,
     /// Inbound session key for debug-log event correlation.
     pub session_key: Option<String>,
+    /// Root span ID for debug-log child span derivation.
+    pub span_id: Option<String>,
     /// Session-assembled content blocks (used by `send_outbound_streaming_assembled`).
     pub session_content_blocks: Vec<ContentBlock>,
     /// Session-assembled usage override.
@@ -197,6 +199,7 @@ impl Gateway {
                 session_key.as_deref(),
                 channel,
                 render_duration_ms,
+                None, // outbound render event, no parent context needed
             );
         }
         let thread_id = self.session_manager.get_thread_id(session_id).await;
@@ -262,6 +265,7 @@ impl Gateway {
                 ctx.channel,
                 &ctx.chat_id,
                 send_duration_ms,
+                None, // outbound send event, no parent context needed
             );
         }
         if let Err(e) = send_result {
@@ -289,6 +293,7 @@ impl Gateway {
             &ctx.chat_id,
             ctx.trace_id.as_deref(),
             ctx.session_key.as_deref(),
+            None, // outbound send event, no parent context needed
         );
         Ok(SendOutcome::Sent)
     }
@@ -305,6 +310,7 @@ impl Gateway {
         peer_id: &str,
         trace_id: Option<&str>,
         session_key: Option<&str>,
+        parent: Option<&closeclaw_debug_log::TraceContext>,
     ) {
         let Some(tid) = trace_id else {
             return;
@@ -321,6 +327,7 @@ impl Gateway {
                 "channel": channel,
                 "peer_id": peer_id,
             }),
+            parent,
         );
     }
 
