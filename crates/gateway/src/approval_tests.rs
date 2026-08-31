@@ -25,7 +25,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use closeclaw_common::im_plugin::{AdapterError, NormalizedMessage, RenderedOutput};
+use closeclaw_common::im_plugin::{AdapterError, MessageType, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::{ContentBlock, ProcessedMessage};
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
 use closeclaw_common::{IMPlugin, PendingMessage, PlanState, SessionLookup, SessionMode};
@@ -263,7 +263,10 @@ fn s13_msg(text: &str, peer: &str, sender: &str) -> ProcessedMessage {
     let mut m = std::collections::HashMap::new();
     m.insert("peer_id".into(), peer.into());
     m.insert("sender_id".into(), sender.into());
-    m.insert("message_type".into(), r#""Text""#.into());
+    m.insert(
+        "message_type".into(),
+        serde_json::to_string(&MessageType::Text).unwrap(),
+    );
     m.insert("session_key".into(), "k".into());
     ProcessedMessage {
         content_blocks: vec![ContentBlock::Text(text.into())],

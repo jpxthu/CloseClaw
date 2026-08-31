@@ -90,6 +90,7 @@ mod sweeper_tests;
 pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;
+
 #[cfg(test)]
 mod tests_slash_dispatcher_routing;
 #[cfg(feature = "full-tests")]
@@ -98,6 +99,13 @@ mod tests_slash_permission;
 mod tests_slash_permission_integration;
 pub mod types;
 pub mod workflow_owner;
+use inbound_queue::InboundDebugCtx;
+pub use outbound::OutboundMeta;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+pub use types::*;
+
 use closeclaw_common::im_plugin::MessageType;
 use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
@@ -109,16 +117,11 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
-use inbound_queue::InboundDebugCtx;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
-pub use outbound::OutboundMeta;
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-pub use types::*;
+
 /// Gateway - routes messages between IM plugins and agents
 pub struct Gateway {
     config: GatewayConfig,
@@ -157,6 +160,7 @@ pub struct Gateway {
     /// `None` when `inbound_wal_dir` is not configured.
     inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
 }
+
 /// Result of inbound pre-validation gates.
 enum InboundValidation {
     /// Message passed all checks — continue processing.
@@ -166,6 +170,7 @@ enum InboundValidation {
     /// Message rejected silently (no user reply); caller must return `None`.
     RejectSilently,
 }
+
 impl Gateway {
     /// Create a new Gateway with the given config and a shared SessionManager.
     pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
@@ -192,6 +197,7 @@ impl Gateway {
         register_default_middlewares(&gw, &gw.config);
         gw
     }
+
     /// Create a new Gateway with the given config, SessionManager and ProcessorRegistry.
     pub fn with_processor_registry(
         config: GatewayConfig,
@@ -220,10 +226,12 @@ impl Gateway {
         register_default_middlewares(&gw, &gw.config);
         gw
     }
+
     /// Set config directory for permission rule persistence.
     pub async fn set_config_dir(&self, path: std::path::PathBuf) {
         *self.config_dir.write().await = Some(path);
     }
+
     pub async fn get_config_dir(&self) -> Option<std::path::PathBuf> {
         self.config_dir.read().await.clone()
     }
@@ -303,9 +311,6 @@ impl Gateway {
     ) -> Vec<Arc<dyn closeclaw_common::OutboundMiddleware>> {
         self.outbound_middlewares.read().unwrap().clone()
     }
-
-    // set_slash_dispatcher, set_permission_engine, and set_approval_flow
-    // are defined in slash_permission.rs and approval.rs respectively.
 
     /// Set the metrics emitter for operational metrics.
     pub async fn set_metrics_emitter(&self, emitter: Arc<dyn closeclaw_common::MetricsEmitter>) {
@@ -734,8 +739,6 @@ impl Gateway {
             );
         }
         if is_slash {
-            // Intercept approval commands before SlashDispatcher (design doc:
-            // "先拦截 /approve-once, /approve-whitelist, /deny").
             if let Some(result) = self
                 .try_handle_approval_command(session_id, &content, sender_id, peer_id, channel)
                 .await
@@ -885,19 +888,16 @@ impl Gateway {
                 );
             }
         }
-
         // Clear plugin registry
         {
             let mut plugins = self.plugins.write().await;
             plugins.clear();
         }
-
         // Drop processor chain
         {
             let mut registry = self.processor_registry.write().unwrap();
             *registry = None;
         }
-
         tracing::info!("gateway outbound closed, routing table and processor registry cleared");
     }
 

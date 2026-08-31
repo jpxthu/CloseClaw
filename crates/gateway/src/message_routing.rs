@@ -188,17 +188,11 @@ impl Gateway {
         let Some(registry) = registry else {
             // No registry — bypass path. Chain dispatcher keys are still
             // required for metadata contract consistency.
-            let mut meta = extra_meta;
-            inject_chain_dispatcher_keys(
-                &mut meta,
-                &normalized.message_type,
-                &normalized.unavailable_media,
-            );
             return ProcessedMessage {
                 content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
                     normalized.content.to_string(),
                 )],
-                metadata: meta,
+                metadata: fallback_metadata(extra_meta, normalized),
             };
         };
 
@@ -211,21 +205,33 @@ impl Gateway {
                 tracing::warn!(?e, "processor chain failed, falling back to raw content");
                 // Fallback on error — inject chain dispatcher keys
                 // for metadata contract consistency.
-                let mut meta = extra_meta;
-                inject_chain_dispatcher_keys(
-                    &mut meta,
-                    &normalized.message_type,
-                    &normalized.unavailable_media,
-                );
                 ProcessedMessage {
                     content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(
                         normalized.content.to_string(),
                     )],
-                    metadata: meta,
+                    metadata: fallback_metadata(extra_meta, normalized),
                 }
             }
         }
     }
+}
+
+/// Build a metadata map for fallback branches (no-registry or chain error).
+///
+/// Copies `extra_meta` (Gateway-owned keys: thread_id, media_refs, etc.)
+/// and injects chain dispatcher keys (message_type, unavailable_media) so
+/// the metadata contract is consistent regardless of processing path.
+fn fallback_metadata(
+    extra_meta: HashMap<String, String>,
+    normalized: &NormalizedMessage,
+) -> HashMap<String, String> {
+    let mut meta = extra_meta;
+    inject_chain_dispatcher_keys(
+        &mut meta,
+        &normalized.message_type,
+        &normalized.unavailable_media,
+    );
+    meta
 }
 
 /// Build extra metadata map from [`NormalizedMessage`] fields.
