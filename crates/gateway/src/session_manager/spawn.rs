@@ -436,6 +436,13 @@ impl SessionManager {
             });
         }
 
+        // ── Increment busy count for shutdown drain ──────────────────
+        // Pairs with decrement_busy() in announce.rs when child result
+        // is injected into parent session.
+        if let Some(sh) = self.get_shutdown_handle().await {
+            sh.increment_busy();
+        }
+
         Ok(child_session_id)
     }
 

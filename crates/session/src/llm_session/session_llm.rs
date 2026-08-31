@@ -163,6 +163,17 @@ impl ConversationSession {
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`] has been injected.
     pub async fn invoke_llm(&mut self, content: &str) -> Result<UnifiedResponse, LLMError> {
+        // ── Shutdown gate: reject LLM calls when daemon is shutting down ──
+        if let Some(sh) = self.get_shutdown_handle() {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    session_id = %self.session_id,
+                    "rejecting non-streaming LLM call: daemon is shutting down"
+                );
+                return Err(LLMError::Cancelled);
+            }
+        }
+
         let Some(caller) = self.llm_caller.clone() else {
             return Err(LLMError::InvalidRequest(
                 "no LlmCaller injected into session".to_string(),
@@ -174,7 +185,16 @@ impl ConversationSession {
         self.apply_skill_listing_update(new_snapshot, &newly_activated);
 
         let request = self.build_llm_request(messages, false);
-        caller.call(request).await
+
+        // ── Busy count: increment before LLM call, decrement after ──
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.increment_busy();
+        }
+        let result = caller.call(request).await;
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.decrement_busy();
+        }
+        result
     }
 
     /// Make a streaming LLM call via the injected [`LlmCaller`].
@@ -194,6 +214,17 @@ impl ConversationSession {
     /// for real-time rendering via
     /// [`Gateway::send_outbound_streaming`](crate::Gateway::send_outbound_streaming).
     pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
+        // ── Shutdown gate: reject LLM streaming calls when daemon is shutting down ──
+        if let Some(sh) = self.get_shutdown_handle() {
+            if sh.is_shutting_down() {
+                tracing::warn!(
+                    session_id = %self.session_id,
+                    "rejecting streaming LLM call: daemon is shutting down"
+                );
+                return Err(LLMError::Cancelled);
+            }
+        }
+
         let Some(caller) = self.llm_caller.clone() else {
             return Err(LLMError::InvalidRequest(
                 "no LlmCaller injected into session".to_string(),
@@ -205,8 +236,29 @@ impl ConversationSession {
         self.apply_skill_listing_update(new_snapshot, &newly_activated);
 
         let request = self.build_llm_request(messages, true);
-        let raw_stream = caller.call_streaming(request).await?;
-        Ok(SessionStream::new(raw_stream))
+
+        // ── Busy count: increment before stream, decrement on stream end ──
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.increment_busy();
+        }
+        let raw_stream = match caller.call_streaming(request).await {
+            Ok(s) => s,
+            Err(e) => {
+                // Stream creation failed — decrement busy count immediately.
+                if let Some(sh) = self.get_shutdown_handle() {
+                    sh.decrement_busy();
+                }
+                return Err(e);
+            }
+        };
+        let stream = SessionStream::new(raw_stream);
+
+        // Attach shutdown handle so SessionStream decrements busy count
+        // when the stream finishes or errors.
+        Ok(match self.get_shutdown_handle() {
+            Some(sh) => stream.with_shutdown_handle(sh),
+            None => stream,
+        })
     }
 
     /// Build the messages list for an LLM request, consuming any
