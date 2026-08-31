@@ -5,6 +5,7 @@
 
 use super::adapter::FeishuAdapter;
 use super::adapter::{FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId};
+use super::FeishuPlugin;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -74,4 +75,82 @@ async fn test_parse_message_event_stores_chat_name_in_metadata() {
     // The metadata is populated from fetch_chat_name which will fail in tests,
     // so it's expected to be empty. Just verify no panic.
     drop(meta);
+}
+
+/// Helper to build a FeishuPlugin for testing generate_trace_id.
+fn make_plugin() -> FeishuPlugin {
+    let adapter = Arc::new(make_adapter());
+    FeishuPlugin::new(adapter)
+}
+
+/// generate_trace_id must produce a string in `{platform}_{timestamp_hex}_{uuid}` format.
+#[test]
+fn test_generate_trace_id_format() {
+    let plugin = make_plugin();
+    let trace_id = plugin.generate_trace_id("feishu");
+    let parts: Vec<&str> = trace_id.split('_').collect();
+    assert_eq!(
+        parts.len(),
+        3,
+        "trace_id must have 3 parts separated by '_': {trace_id}"
+    );
+    assert_eq!(parts[0], "feishu", "platform identifier must be 'feishu'");
+}
+
+/// The hex timestamp part must be valid hexadecimal.
+#[test]
+fn test_generate_trace_id_timestamp_is_hex() {
+    let plugin = make_plugin();
+    let trace_id = plugin.generate_trace_id("feishu");
+    let parts: Vec<&str> = trace_id.split('_').collect();
+    let timestamp_hex = parts[1];
+    assert!(
+        u64::from_str_radix(timestamp_hex, 16).is_ok(),
+        "timestamp part must be valid hex: {timestamp_hex}"
+    );
+}
+
+/// The UUID part must be exactly 32 hex characters (UUID v4 without hyphens).
+#[test]
+fn test_generate_trace_id_uuid_length() {
+    let plugin = make_plugin();
+    let trace_id = plugin.generate_trace_id("feishu");
+    let parts: Vec<&str> = trace_id.split('_').collect();
+    let uuid_part = parts[2];
+    assert_eq!(
+        uuid_part.len(),
+        32,
+        "UUID part must be 32 chars: {uuid_part}"
+    );
+    assert!(
+        uuid_part.chars().all(|c| c.is_ascii_hexdigit()),
+        "UUID part must be all hex digits: {uuid_part}"
+    );
+}
+
+/// Timestamp must be reasonable (not in the far past or far future).
+#[test]
+fn test_generate_trace_id_timestamp_reasonable() {
+    let plugin = make_plugin();
+    let trace_id = plugin.generate_trace_id("feishu");
+    let parts: Vec<&str> = trace_id.split('_').collect();
+    let timestamp_ms = u64::from_str_radix(parts[1], 16).unwrap();
+    // Should be after 2020-01-01 (1577836800000 ms) and before 2100-01-01
+    assert!(
+        timestamp_ms > 1_577_836_800_000,
+        "timestamp should be after 2020: {timestamp_ms}"
+    );
+    assert!(
+        timestamp_ms < 4_102_444_800_000,
+        "timestamp should be before 2100: {timestamp_ms}"
+    );
+}
+
+/// Two consecutive calls must produce different trace_ids (randomness check).
+#[test]
+fn test_generate_trace_id_unique() {
+    let plugin = make_plugin();
+    let id1 = plugin.generate_trace_id("feishu");
+    let id2 = plugin.generate_trace_id("feishu");
+    assert_ne!(id1, id2, "two consecutive trace_ids must differ");
 }

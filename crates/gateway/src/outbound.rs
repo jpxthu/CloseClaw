@@ -82,6 +82,8 @@ pub struct OutboundMeta {
     pub trace_id: Option<String>,
     /// Inbound session key for debug-log event correlation.
     pub session_key: Option<String>,
+    /// Root span ID for debug-log child span derivation.
+    pub span_id: Option<String>,
     /// Session-assembled content blocks (used by `send_outbound_streaming_assembled`).
     pub session_content_blocks: Vec<ContentBlock>,
     /// Session-assembled usage override.
@@ -197,6 +199,7 @@ impl Gateway {
                 session_key.as_deref(),
                 channel,
                 render_duration_ms,
+                None, // outbound render event, no parent context needed
             );
         }
         let thread_id = self.session_manager.get_thread_id(session_id).await;
@@ -262,6 +265,7 @@ impl Gateway {
                 ctx.channel,
                 &ctx.chat_id,
                 send_duration_ms,
+                None, // outbound send event, no parent context needed
             );
         }
         if let Err(e) = send_result {
@@ -289,6 +293,7 @@ impl Gateway {
             &ctx.chat_id,
             ctx.trace_id.as_deref(),
             ctx.session_key.as_deref(),
+            None, // outbound send event, no parent context needed
         );
         Ok(SendOutcome::Sent)
     }
@@ -305,23 +310,23 @@ impl Gateway {
         peer_id: &str,
         trace_id: Option<&str>,
         session_key: Option<&str>,
+        parent: Option<&closeclaw_debug_log::TraceContext>,
     ) {
         let Some(tid) = trace_id else {
             return;
         };
         let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-        crate::debug_log_emitter::emit_debug_event(
-            guard.as_ref(),
-            tid,
-            session_key,
-            closeclaw_debug_log::LogLevel::Info,
-            "gateway",
-            "send.completed",
-            serde_json::json!({
+        crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+            ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), tid, session_key),
+            level: closeclaw_debug_log::LogLevel::Info,
+            source_module: "gateway",
+            event_type: "send.completed",
+            payload: serde_json::json!({
                 "channel": channel,
                 "peer_id": peer_id,
             }),
-        );
+            parent,
+        });
     }
 
     /// Run only the outbound raw-log processor, bypassing the full chain.

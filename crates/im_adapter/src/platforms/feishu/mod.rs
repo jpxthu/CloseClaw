@@ -42,6 +42,7 @@ use crate::error::AdapterError;
 use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::IMAdapter;
 use async_trait::async_trait;
+use chrono::Utc;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
 use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer};
@@ -342,6 +343,20 @@ impl FeishuPlugin {
         }
     }
 
+    /// Generate a trace_id in the format `{platform}_{timestamp_hex}_{uuid_v4}`.
+    ///
+    /// - Platform identifier: passed as `platform` parameter
+    /// - Timestamp: Unix epoch milliseconds in hex
+    /// - Random component: UUID v4 with hyphens removed
+    ///
+    /// This format allows operators to identify the source platform and approximate
+    /// arrival time from the trace_id alone.
+    pub(crate) fn generate_trace_id(&self, platform: &str) -> String {
+        let timestamp_hex = format!("{:x}", Utc::now().timestamp_millis());
+        let uuid_no_hyphens = uuid::Uuid::new_v4().simple().to_string();
+        format!("{platform}_{timestamp_hex}_{uuid_no_hyphens}")
+    }
+
     /// Emit a structured debug_log event asynchronously.
     ///
     /// Centralizes the repeated pattern: check debug_log, acquire trace_id,
@@ -464,7 +479,7 @@ impl IMPlugin for FeishuPlugin {
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, CommonAdapterError> {
         // Generate trace_id at webhook arrival for cross-chain correlation.
-        let trace_id = uuid::Uuid::new_v4().to_string();
+        let trace_id = self.generate_trace_id(self.platform());
 
         let start = Instant::now();
         let mut msg = self

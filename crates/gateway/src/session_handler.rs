@@ -23,6 +23,7 @@ use tokio::sync::{mpsc, RwLock};
 use super::OutputTx;
 
 /// Metadata about an inbound message, passed through the handling pipeline.
+#[derive(Clone)]
 pub struct MessageMetadata {
     /// Open ID of the message sender.
     pub sender_id: String,
@@ -36,6 +37,9 @@ pub struct MessageMetadata {
     pub trace_id: Option<String>,
     /// Session key for debug-log correlation.
     pub session_key: Option<String>,
+    /// Root span ID for debug-log child span derivation.
+    /// Set by inbound_queue when the root TraceContext is created.
+    pub span_id: Option<String>,
 }
 
 impl MessageMetadata {
@@ -47,6 +51,7 @@ impl MessageMetadata {
             chat_name: String::new(),
             trace_id: None,
             session_key: None,
+            span_id: None,
         }
     }
 

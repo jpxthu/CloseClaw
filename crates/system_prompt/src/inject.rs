@@ -261,6 +261,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             chat_name: context.ctx.chat_name.clone(),
             trace_id: None,
             session_key: None,
+            span_id: None,
         };
 
         // Check for priority prompt overrides (override > agent > custom).

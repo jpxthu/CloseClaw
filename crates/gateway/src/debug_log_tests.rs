@@ -88,29 +88,31 @@ fn make_processed_no_trace() -> ProcessedMessage {
 #[test]
 fn test_emit_debug_event_empty_trace_id_no_op() {
     // Should not panic or attempt to write.
-    crate::debug_log_emitter::emit_debug_event(
-        None,
-        "",
-        Some("sess-1"),
-        LogLevel::Info,
-        "gateway",
-        "message.arrived",
-        serde_json::json!({}),
-    );
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        ctx: crate::debug_log_emitter::DebugLogContext::new(None, "", Some("sess-1")),
+        level: LogLevel::Info,
+        source_module: "gateway",
+        event_type: "message.arrived",
+        payload: serde_json::json!({}),
+        parent: None,
+    });
 }
 
 /// None DebugLog must be a no-op (no panic).
 #[test]
 fn test_emit_debug_event_none_debug_log_no_op() {
-    crate::debug_log_emitter::emit_debug_event(
-        None,
-        "feishu-123-uuid",
-        Some("sess-1"),
-        LogLevel::Info,
-        "gateway",
-        "message.arrived",
-        serde_json::json!({}),
-    );
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        ctx: crate::debug_log_emitter::DebugLogContext::new(
+            None,
+            "feishu-123-uuid",
+            Some("sess-1"),
+        ),
+        level: LogLevel::Info,
+        source_module: "gateway",
+        event_type: "message.arrived",
+        payload: serde_json::json!({}),
+        parent: None,
+    });
 }
 
 /// With DebugLog present and valid trace_id, emit_debug_event must spawn
@@ -127,15 +129,18 @@ fn test_emit_debug_event_with_debug_log_no_panic() {
             redaction_patterns: vec![],
         };
         let debug_log = DebugLog::new(config).await.unwrap();
-        crate::debug_log_emitter::emit_debug_event(
-            Some(&debug_log),
-            "feishu-123-uuid",
-            Some("sess-1"),
-            LogLevel::Info,
-            "gateway",
-            "message.arrived",
-            serde_json::json!({"sender_id": "ou_123"}),
-        );
+        crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+            ctx: crate::debug_log_emitter::DebugLogContext::new(
+                Some(&debug_log),
+                "feishu-123-uuid",
+                Some("sess-1"),
+            ),
+            level: LogLevel::Info,
+            source_module: "gateway",
+            event_type: "message.arrived",
+            payload: serde_json::json!({"sender_id": "ou_123"}),
+            parent: None,
+        });
         // Give the spawned task a moment to complete.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     });
@@ -720,6 +725,7 @@ async fn test_inbound_parsed_event_emitted() {
         raw_payload: serde_json::to_vec(&payload).unwrap(),
         peer_id: "oc_chat".to_string(),
         trace_id: trace_id.to_string(),
+        span_id: None,
     };
 
     // Process via enqueue_inbound (bypass mode — queue not started).
@@ -769,6 +775,7 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
         raw_payload: b"test".to_vec(),
         peer_id: "oc_chat".to_string(),
         trace_id: "trace-no-dl-inbound-001".to_string(),
+        span_id: None,
     };
     gw.enqueue_inbound(request).await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
