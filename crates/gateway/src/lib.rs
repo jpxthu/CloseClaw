@@ -102,8 +102,9 @@ pub mod types;
 pub mod workflow_owner;
 use inbound_queue::InboundDebugCtx;
 pub use outbound::OutboundMeta;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, RwLock};
 pub use types::*;
 
@@ -118,6 +119,42 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
+
+/// Shared state for config-triggered gateway rebuild stash mode.
+pub struct RebuildStash {
+    rebuild_mode: AtomicBool,
+    stash: Mutex<VecDeque<InboundRequest>>,
+}
+
+impl RebuildStash {
+    pub(crate) fn new() -> Self {
+        Self {
+            rebuild_mode: AtomicBool::new(false),
+            stash: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    pub fn set_rebuild_mode(&self, enabled: bool) {
+        self.rebuild_mode.store(enabled, Ordering::Release);
+    }
+
+    pub fn is_rebuild_mode(&self) -> bool {
+        self.rebuild_mode.load(Ordering::Acquire)
+    }
+
+    pub fn push(&self, request: InboundRequest) {
+        if let Ok(mut guard) = self.stash.lock() {
+            guard.push_back(request);
+        }
+    }
+
+    pub fn take_stashed(&self) -> Vec<InboundRequest> {
+        match self.stash.lock() {
+            Ok(mut guard) => guard.drain(..).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+}
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
@@ -159,6 +196,8 @@ pub struct Gateway {
     /// WAL persistence for inbound queue durability.
     /// `None` when `inbound_wal_dir` is not configured.
     inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
+    /// Shared rebuild-stash for config-triggered gateway restarts.
+    rebuild_stash: Arc<RebuildStash>,
 }
 
 /// Result of inbound pre-validation gates.
@@ -186,6 +225,7 @@ impl Gateway {
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
+            rebuild_stash: Arc::new(RebuildStash::new()),
         };
         register_default_middlewares(&gw, &gw.config);
         gw
@@ -215,9 +255,22 @@ impl Gateway {
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
+            rebuild_stash: Arc::new(RebuildStash::new()),
         };
         register_default_middlewares(&gw, &gw.config);
         gw
+    }
+
+    pub fn rebuild_stash(&self) -> &Arc<RebuildStash> {
+        &self.rebuild_stash
+    }
+
+    pub fn set_rebuild_mode(&self, enabled: bool) {
+        self.rebuild_stash.set_rebuild_mode(enabled);
+    }
+
+    pub fn take_rebuild_stashed(&self) -> Vec<InboundRequest> {
+        self.rebuild_stash.take_stashed()
     }
 
     /// Set config directory for permission rule persistence.

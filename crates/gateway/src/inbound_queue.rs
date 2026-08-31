@@ -490,6 +490,19 @@ pub(crate) async fn enqueue_inbound(
                 tokio::sync::mpsc::error::TrySendError::Full(q)
                 | tokio::sync::mpsc::error::TrySendError::Closed(q) => q.request,
             };
+            // During config-triggered rebuild, stash the message instead of
+            // rejecting it.  WAL was already appended above so the message
+            // is durable even if the process crashes during rebuild.
+            if gateway.rebuild_stash.is_rebuild_mode() {
+                tracing::info!(
+                    trace_id = %req.trace_id,
+                    peer_id = %req.peer_id,
+                    "inbound queue full during rebuild — stashing"
+                );
+                emit_arrived_log(gateway, &req);
+                gateway.rebuild_stash.push(req);
+                return Ok(());
+            }
             emit_queue_rejected_log(gateway, &req);
             tracing::warn!(peer_id = %req.peer_id, "inbound queue full — sending busy reply");
             send_busy_reply(gateway, &req).await;
