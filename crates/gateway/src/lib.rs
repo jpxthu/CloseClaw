@@ -312,9 +312,6 @@ impl Gateway {
         self.outbound_middlewares.read().unwrap().clone()
     }
 
-    // set_slash_dispatcher, set_permission_engine, and set_approval_flow
-    // are defined in slash_permission.rs and approval.rs respectively.
-
     /// Set the metrics emitter for operational metrics.
     pub async fn set_metrics_emitter(&self, emitter: Arc<dyn closeclaw_common::MetricsEmitter>) {
         if let Ok(mut slot) = self.metrics_emitter.write() {
@@ -743,6 +740,12 @@ impl Gateway {
         }
         if is_slash {
             if let Some(result) = self
+                .try_handle_approval_command(session_id, &content, sender_id, peer_id, channel)
+                .await
+            {
+                return Some(result);
+            }
+            if let Some(result) = self
                 .dispatch_slash(session_id, &content, sender_id, channel, Some(peer_id))
                 .await
             {
@@ -885,19 +888,16 @@ impl Gateway {
                 );
             }
         }
-
         // Clear plugin registry
         {
             let mut plugins = self.plugins.write().await;
             plugins.clear();
         }
-
         // Drop processor chain
         {
             let mut registry = self.processor_registry.write().unwrap();
             *registry = None;
         }
-
         tracing::info!("gateway outbound closed, routing table and processor registry cleared");
     }
 

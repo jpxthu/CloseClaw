@@ -41,8 +41,34 @@ pub struct MessageContext {
     pub content_blocks: Vec<ContentBlock>,
 }
 
+/// Injects `message_type` and `unavailable_media` chain dispatcher keys
+/// into a metadata map.
+///
+/// This is the single source of truth for serializing these two fields.
+/// All injection points (chain dispatcher, fallback branches) call this
+/// function to avoid format drift.
+pub fn inject_chain_dispatcher_keys(
+    metadata: &mut HashMap<String, String>,
+    message_type: &closeclaw_common::im_plugin::MessageType,
+    unavailable_media: &[String],
+) {
+    metadata.insert(
+        "message_type".to_string(),
+        serde_json::to_string(message_type).unwrap_or_default(),
+    );
+    metadata.insert(
+        "unavailable_media".to_string(),
+        serde_json::to_string(unavailable_media).unwrap_or_default(),
+    );
+}
+
 impl MessageContext {
     /// Creates a new context from a normalized message.
+    ///
+    /// Copies `message_type` and `unavailable_media` from the normalized
+    /// message into the initial metadata, as specified by the design doc:
+    /// "message_type 与 unavailable_media 由链调度环节在进链时从
+    /// NormalizedMessage 复制到 ProcessedMessage.metadata".
     pub fn from_normalized(msg: NormalizedMessage) -> Self {
         let logged_at = chrono::Utc::now().timestamp_millis();
         let raw_log = RawMessageLog {
@@ -50,7 +76,8 @@ impl MessageContext {
             logged_at,
             processor_name: None,
         };
-        let metadata = HashMap::new();
+        let mut metadata = HashMap::new();
+        inject_chain_dispatcher_keys(&mut metadata, &msg.message_type, &msg.unavailable_media);
         Self {
             content: msg.content,
             raw_message_log: vec![raw_log],
@@ -69,6 +96,7 @@ impl MessageContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::im_plugin::MessageType;
 
     #[test]
     fn test_message_context_from_normalized() {
@@ -78,7 +106,7 @@ mod tests {
             peer_id: "chat_1".to_string(),
             content: "hello".to_string(),
             timestamp: chrono::Utc::now().timestamp_millis(),
-            message_type: Default::default(),
+            message_type: MessageType::Text,
             media_refs: Vec::new(),
             thread_id: None,
             account_id: String::new(),
@@ -87,7 +115,18 @@ mod tests {
         let ctx = MessageContext::from_normalized(msg.clone());
         assert_eq!(ctx.content, "hello");
         assert!(!ctx.skip);
-        assert!(ctx.metadata.is_empty());
+        // Design doc: chain dispatcher copies message_type into metadata
+        assert_eq!(
+            ctx.metadata.get("message_type").map(|s| s.as_str()),
+            Some("\"text\""),
+            "message_type should be copied into metadata by from_normalized"
+        );
+        // unavailable_media defaults to empty array
+        assert_eq!(
+            ctx.metadata.get("unavailable_media").map(|s| s.as_str()),
+            Some("[]"),
+            "unavailable_media should be copied into metadata"
+        );
         assert_eq!(ctx.raw_message_log.len(), 1);
         let initial = ctx.initial_normalized().unwrap();
         assert_eq!(initial.platform, msg.platform);
@@ -96,5 +135,25 @@ mod tests {
         assert_eq!(initial.content, msg.content);
         assert_eq!(initial.timestamp, msg.timestamp);
         assert_eq!(initial.account_id, msg.account_id);
+    }
+
+    #[test]
+    fn test_from_normalized_unavailable_media_copied() {
+        let msg = NormalizedMessage {
+            platform: "feishu".to_string(),
+            sender_id: "u1".to_string(),
+            peer_id: "c1".to_string(),
+            content: "check this".to_string(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            thread_id: None,
+            account_id: String::new(),
+            unavailable_media: vec!["file_a".to_string(), "file_b".to_string()],
+            ..Default::default()
+        };
+        let ctx = MessageContext::from_normalized(msg);
+        let um = ctx.metadata.get("unavailable_media").unwrap();
+        assert_eq!(um, "[\"file_a\",\"file_b\"]");
     }
 }

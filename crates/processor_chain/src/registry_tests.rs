@@ -119,7 +119,12 @@ async fn test_inbound_bypass() {
 
     assert_eq!(result.text_content(), Some("hello world"));
     assert!(!result.content_blocks.is_empty());
-    assert_eq!(result.metadata.len(), 0);
+    // Design doc: chain dispatcher copies message_type + unavailable_media
+    assert_eq!(result.metadata.len(), 2);
+    assert!(result.metadata.contains_key("message_type"));
+    assert!(result.metadata.contains_key("unavailable_media"));
+    assert_eq!(result.metadata.get("message_type").unwrap(), "\"text\"");
+    assert_eq!(result.metadata.get("unavailable_media").unwrap(), "[]");
 }
 
 // ── outbound bypass ──────────────────────────────────────────────────────────
@@ -600,7 +605,12 @@ async fn test_normalized_message_passthrough_no_processors() {
 
     let result = registry.process_inbound(msg).await.unwrap();
     assert_eq!(result.text_content(), Some("direct passthrough"));
-    assert!(result.metadata.is_empty());
+    // Design doc: chain dispatcher copies message_type + unavailable_media
+    // even for empty chain bypass.
+    assert!(result.metadata.contains_key("message_type"));
+    assert!(result.metadata.contains_key("unavailable_media"));
+    assert_eq!(result.metadata.get("message_type").unwrap(), "\"text\"");
+    assert_eq!(result.metadata.get("unavailable_media").unwrap(), "[]");
 }
 
 // ── outbound error tolerance: detailed tests ──────────────────────────────────

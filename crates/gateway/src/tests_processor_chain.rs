@@ -429,7 +429,10 @@ async fn test_process_inbound_chain_no_registry() {
         .await;
     assert_eq!(result.text_content(), Some("hello world"));
     assert!(!result.content_blocks.is_empty());
-    assert!(result.metadata.is_empty());
+    // Step 1.2: no-registry bypass path injects chain dispatcher keys.
+    assert_eq!(result.metadata.len(), 2);
+    assert!(result.metadata.contains_key("message_type"));
+    assert!(result.metadata.contains_key("unavailable_media"));
 }
 
 /// ContentNormalizer registered in the chain strips ANSI control characters
@@ -671,7 +674,11 @@ async fn test_process_inbound_chain_processor_error() {
     // Fallback to original content.
     assert_eq!(result.text_content(), Some("original"));
     assert!(!result.content_blocks.is_empty());
-    assert!(result.metadata.is_empty());
+    // Step 1.2: error fallback branch injects chain dispatcher keys
+    // (message_type + unavailable_media) for metadata contract consistency.
+    assert_eq!(result.metadata.len(), 2);
+    assert!(result.metadata.contains_key("message_type"));
+    assert!(result.metadata.contains_key("unavailable_media"));
 }
 
 // ── End-to-end integration tests ─────────────────────────────────────────────
