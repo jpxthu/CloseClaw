@@ -211,7 +211,7 @@ fn build_message(msg: &InternalMessage) -> serde_json::Value {
 fn parse_data_uri(url: &str) -> Option<(String, String)> {
     let rest = url.strip_prefix("data:")?;
     let (media_type, encoded) = rest.split_once(';')?;
-    let data = encoded.strip_prefix("base64=")?;
+    let data = encoded.strip_prefix("base64,")?;
     Some((media_type.to_string(), data.to_string()))
 }
 

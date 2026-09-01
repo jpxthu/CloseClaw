@@ -968,23 +968,8 @@ mod tests {
             Some("img_abc_photo.png")
         );
     }
-
-    // ── Token format with empty path (no filename annotation) ────────
-
-    #[tokio::test]
-    async fn empty_path_produces_token_without_filename() {
-        let pm = make_processed(
-            "",
-            MessageType::Image,
-            vec![closeclaw_common::im_plugin::MediaRef {
-                key: "k1".into(),
-                path: "".into(),
-                media_type: closeclaw_common::im_plugin::MediaType::Image,
-                size: 100,
-                mime: "image/png".into(),
-            }],
-        );
-        let content = build_context_content(&pm, None, 0).await;
-        assert_eq!(content, "[image: k1]");
-    }
 }
+
+#[cfg(test)]
+#[path = "media_routing_step16_tests.rs"]
+mod step16_tests;

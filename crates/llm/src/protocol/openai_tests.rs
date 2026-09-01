@@ -986,3 +986,5 @@ fn test_parse_response_openai_error_body() {
     assert_eq!(resp.usage.completion_tokens, 0);
     assert!(resp.finish_reason.is_none());
 }
+
+// ── Step 1.6: content_blocks serialization tests ──────────────────────────
