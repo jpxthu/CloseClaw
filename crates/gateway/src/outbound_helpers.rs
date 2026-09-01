@@ -504,7 +504,6 @@ impl Gateway {
 /// Per design doc: fast system responses must complete within 2 seconds
 /// to avoid blocking the Gateway consumer loop. On timeout, the message
 /// is dropped and a warning is logged.
-#[expect(dead_code, reason = "will be used in step 1.2 refactoring")]
 pub(crate) async fn send_simplified_with_timeout(
     gateway: &Gateway,
     peer_id: &str,

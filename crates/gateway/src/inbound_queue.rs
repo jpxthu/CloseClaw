@@ -5,7 +5,7 @@
 //! When the queue is full, new messages are rejected with a busy reply.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 use super::inbound_wal::{InboundWal, InboundWalEntry};
@@ -606,27 +606,21 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
 /// Per design doc: the reply must complete within 2 seconds to avoid
 /// blocking the Gateway. If the send times out, we log and move on.
 async fn send_busy_reply(gateway: &Gateway, request: &InboundRequest) {
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        gateway.send_outbound_simplified(&request.peer_id, &request.platform, BUSY_REPLY_TEXT),
+    match crate::outbound_helpers::send_simplified_with_timeout(
+        gateway,
+        &request.peer_id,
+        &request.platform,
+        BUSY_REPLY_TEXT,
     )
-    .await;
-
-    match result {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
+    .await
+    {
+        Ok(()) => {}
+        Err(e) => {
             tracing::warn!(
                 peer_id = %request.peer_id,
                 platform = %request.platform,
                 error = %e,
                 "failed to send busy reply"
-            );
-        }
-        Err(_elapsed) => {
-            tracing::warn!(
-                peer_id = %request.peer_id,
-                platform = %request.platform,
-                "busy reply timed out after 2s — dropping"
             );
         }
     }

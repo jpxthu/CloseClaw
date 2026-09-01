@@ -573,7 +573,10 @@ impl Gateway {
         msg: &str,
     ) -> Option<HandleResult> {
         if !peer_id.is_empty() {
-            if let Err(e) = self.send_outbound_simplified(peer_id, channel, msg).await {
+            if let Err(e) =
+                crate::outbound_helpers::send_simplified_with_timeout(self, peer_id, channel, msg)
+                    .await
+            {
                 tracing::warn!(error = %e, "failed to send rejection reply");
             }
         }
@@ -609,7 +612,10 @@ impl Gateway {
             .await
         {
             let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-            if let Err(e) = self.send_outbound_simplified(&chat_id, channel, msg).await {
+            if let Err(e) =
+                crate::outbound_helpers::send_simplified_with_timeout(self, &chat_id, channel, msg)
+                    .await
+            {
                 tracing::warn!(session_id = %session_id, chat_id = %chat_id,
                     error = %e, "failed to send restore notification");
             }
