@@ -10,7 +10,6 @@
 use super::*;
 use crate::media_store::MediaStore;
 use closeclaw_common::MessageType;
-use std::collections::HashMap;
 use tempfile::TempDir;
 
 /// Create a test MediaStore rooted in a temp directory.
@@ -21,19 +20,7 @@ fn make_test_media_store() -> Arc<MediaStore> {
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods).
 fn make_test_adapter() -> FeishuAdapter {
-    let http_client = reqwest::Client::new();
-    FeishuAdapter {
-        app_id: "test_app_id".to_string(),
-        app_secret: "test_secret".to_string(),
-        verification_token: "test_token".to_string(),
-        http_client,
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: FEISHU_API_BASE.to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: make_test_media_store(),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
-    }
+    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
 }
 
 /// Build a minimal FeishuEvent for a message event.
