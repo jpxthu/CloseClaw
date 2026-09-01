@@ -18,19 +18,13 @@ fn make_test_media_store() -> Arc<MediaStore> {
 
 #[test]
 fn test_feishu_adapter_name() {
-    let adapter = FeishuAdapter::new(
-        "test_profile".to_string(),
-        make_test_media_store(),
-    );
+    let adapter = FeishuAdapter::new("test_profile".to_string(), make_test_media_store());
     assert_eq!(adapter.name(), "feishu");
 }
 
 #[tokio::test]
 async fn test_validate_signature_correct() {
-    let adapter = FeishuAdapter::new(
-        "test_profile".into(),
-        make_test_media_store(),
-    );
+    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     // lark-cli event consume handles signature verification;
     // validate_signature always returns true.
     assert!(adapter.validate_signature("any", b"test").await);
@@ -85,10 +79,7 @@ async fn test_parse_inbound_empty_text() {
 
 #[tokio::test]
 async fn test_error_cases() {
-    let a = FeishuAdapter::new(
-        "test_profile".into(),
-        make_test_media_store(),
-    );
+    let a = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     let msg = Message {
         id: "1".into(),
         from: "a".into(),

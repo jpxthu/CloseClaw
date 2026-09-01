@@ -24,14 +24,17 @@ fn make_test_media_store() -> Arc<MediaStore> {
 fn make_plugin_with_workspace(workspace: &std::path::Path) -> FeishuPlugin {
     let adapter = Arc::new(
         FeishuAdapter::new("test_profile".into(), make_test_media_store())
-        .with_workspace_dir(Some(workspace.to_path_buf())),
+            .with_workspace_dir(Some(workspace.to_path_buf())),
     );
     FeishuPlugin::new(adapter)
 }
 
 /// Create a FeishuPlugin without a workspace_dir.
 fn make_plugin_no_workspace() -> FeishuPlugin {
-    let adapter = Arc::new(FeishuAdapter::new("test_profile".into(), make_test_media_store()));
+    let adapter = Arc::new(FeishuAdapter::new(
+        "test_profile".into(),
+        make_test_media_store(),
+    ));
     FeishuPlugin::new(adapter)
 }
 
@@ -93,7 +96,10 @@ async fn absolute_path_within_media_store_resolves() {
 
     // Use the adapter's own media_store so its storage_dir matches.
     let media_store = Arc::new(MediaStore::new(media_dir.to_str().unwrap()).unwrap());
-    let adapter = Arc::new(FeishuAdapter::new("test_profile".into(), media_store.clone()));
+    let adapter = Arc::new(FeishuAdapter::new(
+        "test_profile".into(),
+        media_store.clone(),
+    ));
     let plugin = FeishuPlugin::new(adapter);
     let path = media_dir.join("doc.pdf");
 

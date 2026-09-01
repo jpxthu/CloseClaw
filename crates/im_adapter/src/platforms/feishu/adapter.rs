@@ -266,10 +266,9 @@ impl FeishuAdapter {
         )
         .await?;
 
-        let resp: FeishuGetMessageResponse = serde_json::from_str(&output)
-            .map_err(|e| AdapterError::InvalidPayload(format!(
-                "lark-cli messages-get invalid JSON: {e}"
-            )))?;
+        let resp: FeishuGetMessageResponse = serde_json::from_str(&output).map_err(|e| {
+            AdapterError::InvalidPayload(format!("lark-cli messages-get invalid JSON: {e}"))
+        })?;
 
         if resp.code != 0 {
             tracing::warn!(
@@ -324,12 +323,10 @@ impl FeishuAdapter {
     /// Returns `Some(name)` on success, or `None` on failure (which logs
     /// a warning and degrades gracefully — chat_name defaults to empty).
     pub async fn fetch_chat_name(&self, chat_id: &str) -> Option<String> {
-        let output = super::send_helpers::run_cli(
-            self,
-            &["im", "+chats-get", "--chat-id", chat_id],
-        )
-        .await
-        .ok()?;
+        let output =
+            super::send_helpers::run_cli(self, &["im", "+chats-get", "--chat-id", chat_id])
+                .await
+                .ok()?;
 
         let resp: FeishuChatResponse = serde_json::from_str(&output).ok()?;
 
@@ -403,10 +400,9 @@ impl FeishuAdapter {
         )
         .await?;
 
-        let resp: ResourceResp = serde_json::from_str(&output)
-            .map_err(|e| AdapterError::InvalidPayload(format!(
-                "lark-cli resources invalid JSON: {e}"
-            )))?;
+        let resp: ResourceResp = serde_json::from_str(&output).map_err(|e| {
+            AdapterError::InvalidPayload(format!("lark-cli resources invalid JSON: {e}"))
+        })?;
 
         if resp.code != 0 {
             tracing::warn!(

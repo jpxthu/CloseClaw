@@ -297,9 +297,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let mut adapter = FeishuAdapter::new(
             "test_profile".into(),
-            Arc::new(
-                crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).unwrap(),
-            ),
+            Arc::new(crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).unwrap()),
         );
         adapter.cli_command = cli_command.to_string();
         adapter

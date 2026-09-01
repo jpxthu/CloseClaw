@@ -129,20 +129,22 @@ pub(crate) async fn upload_image(
             MAX_IMAGE_SIZE
         )));
     }
-    let path_str = file_path.to_str().ok_or_else(|| {
-        AdapterError::SendFailed("image path is not valid UTF-8".to_string())
-    })?;
-    let output = super::send_helpers::run_cli(
-        adapter,
-        &["im", "+images-upload", "--image", path_str],
-    )
-    .await?;
+    let path_str = file_path
+        .to_str()
+        .ok_or_else(|| AdapterError::SendFailed("image path is not valid UTF-8".to_string()))?;
+    let output =
+        super::send_helpers::run_cli(adapter, &["im", "+images-upload", "--image", path_str])
+            .await?;
 
-    let resp: serde_json::Value = serde_json::from_str(&output)
-        .map_err(|e| AdapterError::InvalidPayload(format!("lark-cli images-upload invalid JSON: {e}")))?;
+    let resp: serde_json::Value = serde_json::from_str(&output).map_err(|e| {
+        AdapterError::InvalidPayload(format!("lark-cli images-upload invalid JSON: {e}"))
+    })?;
     let code = resp.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
     if code != 0 {
-        let msg = resp.get("msg").and_then(|m| m.as_str()).unwrap_or("unknown");
+        let msg = resp
+            .get("msg")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown");
         return Err(AdapterError::SendFailed(format!(
             "Feishu image upload error {code}: {msg}"
         )));
@@ -151,7 +153,9 @@ pub(crate) async fn upload_image(
         .and_then(|d| d.get("image_key"))
         .and_then(|k| k.as_str())
         .map(String::from)
-        .ok_or_else(|| AdapterError::SendFailed("image upload response missing image_key".to_string()))
+        .ok_or_else(|| {
+            AdapterError::SendFailed("image upload response missing image_key".to_string())
+        })
 }
 
 /// Upload a file to Feishu via lark-cli and return the file key.
@@ -170,26 +174,34 @@ pub(crate) async fn upload_file(
             MAX_FILE_SIZE
         )));
     }
-    let path_str = file_path.to_str().ok_or_else(|| {
-        AdapterError::SendFailed("file path is not valid UTF-8".to_string())
-    })?;
+    let path_str = file_path
+        .to_str()
+        .ok_or_else(|| AdapterError::SendFailed("file path is not valid UTF-8".to_string()))?;
     let file_type = detect_file_type(file_path);
     let output = super::send_helpers::run_cli(
         adapter,
         &[
-            "im", "+files-upload",
-            "--file", path_str,
-            "--file-type", file_type,
-            "--file-name", filename,
+            "im",
+            "+files-upload",
+            "--file",
+            path_str,
+            "--file-type",
+            file_type,
+            "--file-name",
+            filename,
         ],
     )
     .await?;
 
-    let resp: serde_json::Value = serde_json::from_str(&output)
-        .map_err(|e| AdapterError::InvalidPayload(format!("lark-cli files-upload invalid JSON: {e}")))?;
+    let resp: serde_json::Value = serde_json::from_str(&output).map_err(|e| {
+        AdapterError::InvalidPayload(format!("lark-cli files-upload invalid JSON: {e}"))
+    })?;
     let code = resp.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
     if code != 0 {
-        let msg = resp.get("msg").and_then(|m| m.as_str()).unwrap_or("unknown");
+        let msg = resp
+            .get("msg")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown");
         return Err(AdapterError::SendFailed(format!(
             "Feishu file upload error {code}: {msg}"
         )));
@@ -198,7 +210,9 @@ pub(crate) async fn upload_file(
         .and_then(|d| d.get("file_key"))
         .and_then(|k| k.as_str())
         .map(String::from)
-        .ok_or_else(|| AdapterError::SendFailed("file upload response missing file_key".to_string()))
+        .ok_or_else(|| {
+            AdapterError::SendFailed("file upload response missing file_key".to_string())
+        })
 }
 
 /// Detect Feishu file type from extension.

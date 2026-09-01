@@ -522,7 +522,6 @@ async fn test_parse_inbound_no_resolver_fallback() {
 }
 // Quote/reference (parent_id) tests
 
-
 /// Create a FeishuAdapter with a mock lark-cli command.
 fn make_adapter_with_mock_cli(mock_cli_path: &str) -> FeishuAdapter {
     let mut adapter = make_test_adapter();
@@ -631,7 +630,8 @@ async fn test_quote_post_type_prepends_expanded_blockquote() {
             "code": 0,
             "msg": "ok",
             "items": [{"msg_type": "post", "body": {"content": post_content.to_string()}}]
-        }).to_string(),
+        })
+        .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
     let adapter = make_adapter_with_mock_cli(&cli);
