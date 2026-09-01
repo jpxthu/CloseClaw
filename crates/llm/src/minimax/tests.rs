@@ -519,6 +519,7 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
             crate::types::InternalMessage {
                 role: "tool".into(),
                 content: "sunny".into(),
+                content_blocks: None,
                 tool_call_id: Some("call_001".into()),
             },
         ],

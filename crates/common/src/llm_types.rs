@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::processor::ContentBlock;
 use crate::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,14 @@ pub struct InternalMessage {
     pub role: String,
     /// The content of the message.
     pub content: String,
+    /// Structured content blocks for multimodal content (images, audio, files).
+    ///
+    /// When present, `content_blocks` takes precedence over the `content` string.
+    /// Protocol layers serialize these blocks into provider-native multimodal
+    /// formats (e.g., Anthropic `image` blocks, OpenAI `image_url` blocks).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub content_blocks: Option<Vec<ContentBlock>>,
     /// Optional tool call ID for tool result messages.
     /// When present, this message represents a tool result that should be
     /// serialized in provider-native format by the protocol layer.

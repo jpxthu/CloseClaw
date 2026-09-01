@@ -311,6 +311,7 @@ async fn test_streaming_path_persists_user_message_before_compact() {
         .handle_message_with_gateway(
             &sid,
             "streaming order check".to_string(),
+            None,
             MessageMetadata::default_meta(),
             &gw,
             &plugin,

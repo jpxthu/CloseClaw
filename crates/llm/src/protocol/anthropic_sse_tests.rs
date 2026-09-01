@@ -341,6 +341,7 @@ fn test_build_message_tool_result() {
     request.messages = vec![InternalMessage {
         role: "tool".to_string(),
         content: "25°C, sunny".to_string(),
+        content_blocks: None,
         tool_call_id: Some("toolu_01A09q90qw90lq917835lq9".to_string()),
     }];
     let body = AnthropicProtocol::new().build_request(&request).unwrap();
@@ -354,4 +355,149 @@ fn test_build_message_tool_result() {
         "toolu_01A09q90qw90lq917835lq9"
     );
     assert_eq!(content[0].get("content").unwrap(), "25°C, sunny");
+}
+
+// ── Step 1.6: content_blocks serialization tests ──────────────────────────
+
+use crate::types::ContentBlock as CBlock;
+
+/// Debug: verify parse_data_uri works for a data URI.
+#[test]
+fn test_parse_data_uri_works() {
+    let url = "data:image/jpeg;base64,/9j/4AAQ";
+    let rest = url.strip_prefix("data:").unwrap();
+    let (media_type, encoded) = rest.split_once(';').unwrap();
+    let data = encoded.strip_prefix("base64,").unwrap();
+    assert_eq!(media_type, "image/jpeg");
+    assert_eq!(data, "/9j/4AAQ");
+}
+
+/// Debug: verify ContentBlock::Image matches in filter_map.
+#[test]
+fn test_content_block_image_matching() {
+    let block = CBlock::Image {
+        name: "test".to_string(),
+        url: "data:image/png;base64,AAAA".to_string(),
+    };
+    let result = match &block {
+        CBlock::Image { url, .. } => {
+            let rest = url.strip_prefix("data:").unwrap();
+            let (mt, encoded) = rest.split_once(';').unwrap();
+            let d = encoded.strip_prefix("base64,").unwrap();
+            Some((mt.to_string(), d.to_string()))
+        }
+        _ => None,
+    };
+    assert!(result.is_some(), "Image block should match");
+    let (mt, d) = result.unwrap();
+    assert_eq!(mt, "image/png");
+    assert_eq!(d, "AAAA");
+}
+
+/// Text + Image blocks → Anthropic content array with image source.
+#[test]
+fn test_build_message_content_blocks_text_and_image() {
+    let msg = InternalMessage {
+        role: "user".to_string(),
+        content: String::new(),
+        content_blocks: Some(vec![
+            CBlock::Text("describe this".to_string()),
+            CBlock::Image {
+                name: "photo.jpg".to_string(),
+                url: "data:image/jpeg;base64,/9j/4AAQ".to_string(),
+            },
+        ]),
+        tool_call_id: None,
+    };
+    let value = super::build_message(&msg);
+    assert_eq!(value["role"], "user");
+    let content = value["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    // Text block
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[0]["text"], "describe this");
+    // Image block
+    assert_eq!(content[1]["type"], "image");
+    let source = &content[1]["source"];
+    assert_eq!(source["type"], "base64");
+    assert_eq!(source["media_type"], "image/jpeg");
+    assert_eq!(source["data"], "/9j/4AAQ");
+}
+
+/// Empty content_blocks → falls back to plain content string.
+#[test]
+fn test_build_message_empty_content_blocks_falls_back() {
+    let msg = InternalMessage {
+        role: "user".to_string(),
+        content: "hello".to_string(),
+        content_blocks: Some(vec![]),
+        tool_call_id: None,
+    };
+    let value = super::build_message(&msg);
+    assert_eq!(value["role"], "user");
+    assert_eq!(value["content"], "hello");
+    // Should be a plain string, not an array
+    assert!(value["content"].is_string());
+}
+
+/// No content_blocks → plain content string (backward compat).
+#[test]
+fn test_build_message_no_content_blocks_plain_string() {
+    let msg = InternalMessage {
+        role: "assistant".to_string(),
+        content: "I can help with that.".to_string(),
+        content_blocks: None,
+        tool_call_id: None,
+    };
+    let value = super::build_message(&msg);
+    assert_eq!(value["role"], "assistant");
+    assert_eq!(value["content"], "I can help with that.");
+    assert!(value["content"].is_string());
+}
+
+/// Multiple images → all serialized as image blocks.
+#[test]
+fn test_build_message_multiple_image_blocks() {
+    let msg = InternalMessage {
+        role: "user".to_string(),
+        content: String::new(),
+        content_blocks: Some(vec![
+            CBlock::Image {
+                name: "a.png".to_string(),
+                url: "data:image/png;base64,AAAA".to_string(),
+            },
+            CBlock::Image {
+                name: "b.png".to_string(),
+                url: "data:image/png;base64,BBBB".to_string(),
+            },
+        ]),
+        tool_call_id: None,
+    };
+    let value = super::build_message(&msg);
+    let content = value["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[0]["type"], "image");
+    assert_eq!(content[0]["source"]["data"], "AAAA");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["source"]["data"], "BBBB");
+}
+
+/// Tool result message ignores content_blocks (uses tool_call_id path).
+#[test]
+fn test_build_message_tool_result_ignores_content_blocks() {
+    let msg = InternalMessage {
+        role: "tool".to_string(),
+        content: "result".to_string(),
+        content_blocks: Some(vec![CBlock::Image {
+            name: "x".to_string(),
+            url: "data:image/png;base64,Y".to_string(),
+        }]),
+        tool_call_id: Some("tc_1".to_string()),
+    };
+    let value = super::build_message(&msg);
+    // Tool result path takes precedence
+    assert_eq!(value["role"], "user");
+    let content = value["content"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "tool_result");
+    assert_eq!(content[0]["content"], "result");
 }

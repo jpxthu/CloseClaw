@@ -39,6 +39,7 @@ fn make_request_with_tools(level: ReasoningLevel, include_tool_result: bool) -> 
         messages.push(InternalMessage {
             role: "tool".into(),
             content: "sunny, 25°C".into(),
+            content_blocks: None,
             tool_call_id: Some("call_001".into()),
         });
     }
@@ -187,6 +188,7 @@ fn test_m2_no_tools_with_tool_result_does_not_inject() {
     req.messages.push(InternalMessage {
         role: "tool".into(),
         content: "some result".into(),
+        content_blocks: None,
         tool_call_id: Some("call_002".into()),
     });
     plugin.before_request(&mut req);

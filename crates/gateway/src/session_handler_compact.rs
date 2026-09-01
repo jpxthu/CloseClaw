@@ -221,6 +221,7 @@ pub(crate) fn build_chat_fn(
                 .map(|m| InternalMessage {
                     role: m.role.clone(),
                     content: m.content.clone(),
+                    content_blocks: None,
                     tool_call_id: None,
                 })
                 .collect();

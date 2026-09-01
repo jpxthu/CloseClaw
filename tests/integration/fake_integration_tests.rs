@@ -221,6 +221,7 @@ mod tests {
                 role: "user".to_string(),
                 content: "hello".to_string(),
                 tool_call_id: None,
+                content_blocks: None,
             }],
             temperature: 0.7,
             max_tokens: Some(100),
