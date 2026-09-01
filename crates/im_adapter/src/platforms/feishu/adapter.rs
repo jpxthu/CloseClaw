@@ -229,7 +229,7 @@ impl FeishuAdapter {
     }
 
     /// Obtain a tenant access token, using a cached token when valid.
-    async fn get_tenant_token(&self) -> Result<String, AdapterError> {
+    pub(crate) async fn get_tenant_token(&self) -> Result<String, AdapterError> {
         let cached = self.cached_token.lock().await;
         if let Some(ref c) = *cached {
             if !c.needs_refresh() {
