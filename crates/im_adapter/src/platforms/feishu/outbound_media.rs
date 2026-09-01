@@ -143,6 +143,20 @@ pub(crate) async fn upload_image(
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| "image.png".to_string());
 
+    let mime_type = match file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .as_str()
+    {
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => "image/png",
+    };
+
     let form = reqwest::multipart::Form::new()
         .part(
             "image_type",
@@ -152,7 +166,7 @@ pub(crate) async fn upload_image(
             "image",
             reqwest::multipart::Part::bytes(file_bytes)
                 .file_name(filename)
-                .mime_str("image/png")
+                .mime_str(mime_type)
                 .map_err(|e| AdapterError::SendFailed(e.to_string()))?,
         );
 

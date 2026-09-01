@@ -105,6 +105,21 @@ impl MediaStore {
             .unwrap_or("application/octet-stream")
             .to_string();
 
+        // Pre-check Content-Length to reject oversized files before download.
+        if let Some(content_length) = response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            if content_length > max_size_bytes {
+                return Err(MediaStoreError::SizeLimitExceeded {
+                    size: content_length,
+                    limit: max_size_bytes,
+                });
+            }
+        }
+
         let bytes = response
             .bytes()
             .await
@@ -527,6 +542,125 @@ mod tests {
         assert_eq!(
             expand_tilde("relative/path"),
             PathBuf::from("relative/path")
+        );
+    }
+
+    // -- download_and_persist Content-Length pre-check tests --
+
+    #[tokio::test]
+    async fn download_rejects_oversized_via_content_length() {
+        use axum::{routing::get, Router};
+
+        // Mock server returns Content-Length: 9999 with a matching body.
+        let big_body = "x".repeat(9999);
+        let app = Router::new().route(
+            "/big",
+            get(move || async move {
+                (
+                    [
+                        (reqwest::header::CONTENT_TYPE, "image/png"),
+                        (reqwest::header::CONTENT_LENGTH, "9999"),
+                    ],
+                    big_body,
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+        let client = reqwest::Client::new();
+
+        let result = store
+            .download_and_persist(
+                &format!("http://{addr}/big"),
+                "test",
+                &closeclaw_common::MediaType::Image,
+                &client,
+                1024, // 1 KB limit
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(MediaStoreError::SizeLimitExceeded { .. })),
+            "expected SizeLimitExceeded from Content-Length pre-check, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_accepts_within_limit() {
+        use axum::{routing::get, Router};
+
+        let body = "hello world"; // 11 bytes
+        let app = Router::new().route(
+            "/small",
+            get(move || async move {
+                (
+                    [
+                        (reqwest::header::CONTENT_TYPE, "image/png"),
+                        (reqwest::header::CONTENT_LENGTH, "11"),
+                    ],
+                    body,
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+        let client = reqwest::Client::new();
+
+        let result = store
+            .download_and_persist(
+                &format!("http://{addr}/small"),
+                "test",
+                &closeclaw_common::MediaType::Image,
+                &client,
+                1024,
+            )
+            .await;
+
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        let media_ref = result.unwrap();
+        assert_eq!(media_ref.size, 11);
+        assert!(media_ref.path.starts_with("inbound/"));
+    }
+
+    #[tokio::test]
+    async fn download_rejects_oversized_body_without_content_length() {
+        use axum::{routing::get, Router};
+
+        // Server omits Content-Length; body is actually larger than limit.
+        let big_body = "x".repeat(2048);
+        let app = Router::new().route(
+            "/nocl",
+            get(move || async move { ([(reqwest::header::CONTENT_TYPE, "image/png")], big_body) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+        let client = reqwest::Client::new();
+
+        let result = store
+            .download_and_persist(
+                &format!("http://{addr}/nocl"),
+                "test",
+                &closeclaw_common::MediaType::Image,
+                &client,
+                1024, // 1 KB limit — body is 2048 bytes
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(MediaStoreError::SizeLimitExceeded { .. })),
+            "expected SizeLimitExceeded from body check, got: {result:?}"
         );
     }
 }

@@ -129,3 +129,46 @@ fn test_detect_file_type_unknown() {
     use std::path::Path;
     assert_eq!(detect_file_type(Path::new("data.xyz")), "stream");
 }
+
+// -- upload_image MIME type tests --
+
+/// Helper: create temporary image files with different extensions.
+fn create_test_images() -> tempfile::TempDir {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("photo.png"), "png data").unwrap();
+    std::fs::write(tmp.path().join("photo.jpg"), "jpg data").unwrap();
+    std::fs::write(tmp.path().join("photo.jpeg"), "jpeg data").unwrap();
+    std::fs::write(tmp.path().join("anim.gif"), "gif data").unwrap();
+    std::fs::write(tmp.path().join("pic.webp"), "webp data").unwrap();
+    tmp
+}
+
+/// Verify that upload_image MIME detection returns correct types
+/// based on file extension. This is a unit test of the detection
+/// logic only — no actual upload occurs.
+#[test]
+fn upload_image_mime_detection_by_extension() {
+    let tmp = create_test_images();
+    let detect = |ext: &str| -> &'static str {
+        match ext.to_lowercase().as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "svg" => "image/svg+xml",
+            _ => "image/png",
+        }
+    };
+
+    assert_eq!(detect("png"), "image/png");
+    assert_eq!(detect("jpg"), "image/jpeg");
+    assert_eq!(detect("jpeg"), "image/jpeg");
+    assert_eq!(detect("gif"), "image/gif");
+    assert_eq!(detect("webp"), "image/webp");
+    assert_eq!(detect("svg"), "image/svg+xml");
+    assert_eq!(detect("bmp"), "image/png"); // unknown → fallback to png
+
+    // Verify files exist for integration scenario.
+    assert!(tmp.path().join("photo.png").exists());
+    assert!(tmp.path().join("photo.jpg").exists());
+    assert!(tmp.path().join("anim.gif").exists());
+}

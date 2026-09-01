@@ -172,13 +172,8 @@ impl Daemon {
         Ok((config_manager, storage, data_dir))
     }
 
-    /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry, LLMRegistry,
-    /// PermissionEngine, PlanArchiveSweeper.
-    ///
-    /// Independent components within the same layer are initialized in parallel
-    /// using `tokio::join!` to improve startup latency. Components with
-    /// sequential dependencies (e.g. skill_registry → shared_cache) maintain
-    /// their ordering.
+    /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry,
+    /// LLMRegistry, PermissionEngine, PlanArchiveSweeper.
     async fn init_phase_2_registries(
         config_dir: &str,
         config_manager: &ConfigManager,
@@ -248,6 +243,7 @@ impl Daemon {
         shutdown::ShutdownHandle,
         Vec<String>,
         Arc<closeclaw_slash::registry::HandlerRegistry>,
+        Option<closeclaw_tasks::media_cleanup::MediaCleanupHandle>,
     )> {
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
@@ -350,40 +346,8 @@ impl Daemon {
             .set_metrics_emitter(Arc::new(NoopMetricsEmitter))
             .await;
         closeclaw_im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
-        // Inject MediaStore and MediaConfigData into Gateway.
-        // Config missing or invalid → Gateway runs without media store.
-        {
-            let media_config_path = std::path::Path::new(config_dir)
-                .join("config")
-                .join("media.json");
-            let media_config =
-                match closeclaw_config::MediaConfigData::from_file(&media_config_path) {
-                    Ok(cfg) => cfg,
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            path = %media_config_path.display(),
-                            "failed to load media.json — using defaults"
-                        );
-                        closeclaw_config::MediaConfigData::default()
-                    }
-                };
-            match closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir) {
-                Ok(store) => {
-                    let store: Arc<dyn closeclaw_common::MediaStoreAccess> = Arc::new(store);
-                    gateway.set_media_store(store);
-                    gateway.set_media_config(media_config);
-                    info!("MediaStore and MediaConfigData injected into Gateway");
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        storage_dir = %media_config.storage_dir,
-                        "failed to create MediaStore — gateway media features disabled"
-                    );
-                }
-            }
-        }
+        // Inject MediaStore, MediaConfigData, and cleanup task into Gateway.
+        let media_cleanup_handle = Self::init_media_store_and_cleanup(&gateway, config_dir);
         // Drain outbound pending messages for dirty sessions recovered earlier.
         // Each session is drained asynchronously via tokio::spawn so startup
         // is not blocked by network I/O.
@@ -425,8 +389,6 @@ impl Daemon {
             .unwrap_or(30);
         let shutdown = shutdown::ShutdownHandle::new()
             .with_drain_timeout(std::time::Duration::from_secs(drain_timeout));
-        // Wire shutdown handle into SessionManager for child-session
-        // busy-count tracking during drain.
         session_manager
             .set_shutdown_handle(crate::bridge::common_shutdown_handle(&shutdown))
             .await;
@@ -437,16 +399,61 @@ impl Daemon {
             shutdown,
             dirty_sessions_for_drain,
             slash_registry,
+            media_cleanup_handle,
         ))
+    }
+
+    /// Inject MediaStore into Gateway and start the periodic cleanup task.
+    fn init_media_store_and_cleanup(
+        gateway: &Arc<Gateway>,
+        config_dir: &str,
+    ) -> Option<closeclaw_tasks::media_cleanup::MediaCleanupHandle> {
+        let media_config_path = std::path::Path::new(config_dir)
+            .join("config")
+            .join("media.json");
+        let media_config = match closeclaw_config::MediaConfigData::from_file(&media_config_path) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %media_config_path.display(),
+                    "failed to load media.json — using defaults");
+                closeclaw_config::MediaConfigData::default()
+            }
+        };
+        match closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir) {
+            Ok(store) => {
+                let retention_days = media_config.retention_days;
+                let store_for_cleanup = Arc::new(store.clone());
+                let cleanup_fn: closeclaw_tasks::media_cleanup::CleanupFn = Arc::new(move |d| {
+                    store_for_cleanup
+                        .cleanup_expired(d)
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
+                });
+                let rp: closeclaw_tasks::media_cleanup::RetentionProvider =
+                    Arc::new(move || retention_days);
+                let handle = closeclaw_tasks::media_cleanup::start_media_cleanup(
+                    std::time::Duration::from_secs(3600),
+                    rp,
+                    cleanup_fn,
+                );
+                tracing::info!(retention_days, "media cleanup task started");
+                gateway.set_media_store(Arc::new(store) as Arc<dyn closeclaw_common::MediaStoreAccess>);
+                gateway.set_media_config(media_config);
+                info!("MediaStore and MediaConfigData injected into Gateway");
+                Some(handle)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, storage_dir = %media_config.storage_dir,
+                    "failed to create MediaStore — gateway media features disabled");
+                None
+            }
+        }
     }
 }
 
 /// Bundled shutdown receivers for background services.
-///
 /// Groups the individual `watch::Receiver<()>` arguments passed to
 /// [`Daemon::spawn_background_services`] into a single struct to
-/// satisfy clippy's `too_many_arguments` limit while keeping the
-/// internal API ergonomic.
+/// satisfy clippy's `too_many_arguments` limit.
 pub(crate) struct ServiceShutdownReceivers {
     /// Receiver for ArchiveSweeper shutdown signal.
     pub sweeper: watch::Receiver<()>,
@@ -459,9 +466,7 @@ pub(crate) struct ServiceShutdownReceivers {
 // --- Phase 4-5 initialization ---
 impl Daemon {
     /// Phase 4: Wiring — ApprovalFlow.
-    ///
-    /// ApprovalFlow and BuiltinSkillRegistry are independent within the
-    /// same layer, so they are initialized in parallel via `tokio::join!`.
+    /// ApprovalFlow and BuiltinSkillRegistry initialized in parallel.
     async fn init_phase_4_wiring(
         gateway: &Arc<Gateway>,
         session_manager: &Arc<SessionManager>,
@@ -473,8 +478,8 @@ impl Daemon {
         Arc<tokio::sync::Mutex<ApprovalFlow>>,
         Arc<BuiltinSkillRegistry>,
     ) {
-        // Build the whitelist-updated callback: invalidate the agent's cached
-        // rules so the next evaluate() lazily re-reads from disk.
+        // Build the whitelist-updated callback: invalidate the agent's
+        // cached rules so the next evaluate() lazily re-reads from disk.
         let pe_clone = Arc::clone(permission_engine);
         let whitelist_cb: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent_id: &str| {
             if let Ok(guard) = pe_clone.try_write() {
@@ -491,8 +496,7 @@ impl Daemon {
             }
         });
 
-        // Build the child-session creation callback for the new-session
-        // execution path.
+        // Build the child-session creation callback.
         let sm_for_spawn = Arc::clone(session_manager);
         let cm_for_spawn = Arc::clone(config_manager);
         let create_child_fn = Self::build_create_child_fn(sm_for_spawn, cm_for_spawn);
@@ -656,10 +660,8 @@ impl Daemon {
         let late_bound_session_manager =
             Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
         let builtin_skill_listing = Arc::clone(builtin_skill_registry);
-        // Create the restart signal channel.  The sender is captured
-        // by the DaemonReloadCallback (via config_watcher) to signal
-        // restart-class config changes; the receiver is consumed by
-        // the daemon main loop to call request_gateway_restart().
+        // Create the restart signal channel. Sender captured by
+        // DaemonReloadCallback; receiver consumed by daemon main loop.
         let (restart_tx, restart_rx) = tokio::sync::mpsc::channel(8);
         let ctx = registries::RegistryContext {
             config_manager,
@@ -680,12 +682,9 @@ impl Daemon {
         let config_watcher = registries::populate_registries(&ctx).await?;
 
         // Create SystemPromptBuilderAdapter and inject into SessionManager.
-        // This bridges the SystemPromptBuilder trait (used by ConversationSession
-        // for static-layer prompt construction) to the Provider-driven pipeline.
-        //
-        // AgentRegistry uses DashMap internally (interior mutability), but the
-        // adapter API requires Arc<tokio::sync::RwLock<AgentRegistry>> — snapshot
-        // the current configs into a new tokio RwLock-wrapped registry.
+        // Bridges SystemPromptBuilder trait to the Provider-driven pipeline.
+        // AgentRegistry uses DashMap (interior mutability), but adapter API
+        // requires Arc<tokio::sync::RwLock<AgentRegistry>>.
         let adapter_registry = {
             let new_reg = closeclaw_agent::registry::AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
@@ -768,8 +767,8 @@ impl Daemon {
             ))
                 as Arc<dyn closeclaw_common::SkillRegistryQuery>)
             .await;
-        // Inject skill listing provider so resolve() can pass it to every
-        // new ConversationSession for per-turn skill attachment injection.
+        // Inject skill listing provider so resolve() can pass it to
+        // every new ConversationSession for per-turn skill attachment.
         session_manager
             .set_skill_listing_provider(Arc::new(crate::bridge::SkillListingProviderWrapper::new(
                 skill_registry.clone(),
@@ -778,8 +777,7 @@ impl Daemon {
                 as Arc<dyn closeclaw_common::SkillListingProvider>)
             .await;
         // Inject static-layer cache invalidation callback so /system clear
-        // can invalidate section caches without gateway depending on
-        // closeclaw-system-prompt directly.
+        // can invalidate section caches.
         session_manager
             .set_cache_invalidator(Arc::new({
                 let shared_cache = Arc::clone(shared_cache);
@@ -790,7 +788,7 @@ impl Daemon {
             .await;
         // Inject dynamic prompt builder so resolve() and
         // force_new_for_channel() can pass it to every new
-        // ConversationSession for per-request dynamic-layer injection.
+        // ConversationSession for dynamic-layer injection.
         session_manager
             .set_dynamic_prompt_builder(Arc::new(
                 closeclaw_system_prompt::SystemPromptDynamicBuilder,
