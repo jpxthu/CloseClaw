@@ -11,7 +11,7 @@ use std::path::Path;
 
 use super::Gateway;
 use closeclaw_common::im_plugin::{MediaType, MessageType};
-use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_common::processor::{ContentBlock, ProcessedMessage};
 use closeclaw_common::MediaStoreAccess;
 
 use crate::HandleResult;
@@ -24,6 +24,90 @@ pub(crate) enum InboundValidation {
     Reject(HandleResult),
     /// Message rejected silently (no user reply); caller must return `None`.
     RejectSilently,
+}
+
+/// Build structured content blocks for an inbound message.
+///
+/// Returns a [`Vec<ContentBlock>`] where:
+/// - Small images (≤ `image_threshold`) → [`ContentBlock::Image`] with
+///   a `data:image/<mime>;base64,<data>` URL.
+/// - Large images / non-image media → [`ContentBlock::Text`] reference
+///   token (e.g. `[image: key] filename`).
+/// - Text messages → single [`ContentBlock::Text`].
+///
+/// This is the structured-content counterpart to [`build_context_content`].
+pub(crate) async fn build_context_content_blocks(
+    processed: &ProcessedMessage,
+    media_store: Option<&dyn MediaStoreAccess>,
+    image_threshold: u64,
+) -> Vec<ContentBlock> {
+    let message_type = parse_message_type(processed);
+    match message_type {
+        MessageType::Text => {
+            let text = processed.text_content().unwrap_or("").to_string();
+            vec![ContentBlock::Text(text)]
+        }
+        MessageType::Post => {
+            let text = processed.text_content().unwrap_or("").to_string();
+            let full_refs = parse_full_media_refs(processed);
+            if full_refs.is_empty() {
+                return vec![ContentBlock::Text(text)];
+            }
+            let mut blocks = format_media_blocks(&full_refs, media_store, image_threshold).await;
+            if !text.is_empty() {
+                blocks.insert(0, ContentBlock::Text(text));
+            }
+            blocks
+        }
+        MessageType::Image | MessageType::File | MessageType::Audio => {
+            let full_refs = parse_full_media_refs(processed);
+            format_media_blocks(&full_refs, media_store, image_threshold).await
+        }
+    }
+}
+
+/// Format media references as structured [`ContentBlock`]s.
+///
+/// Small images (≤ threshold) produce [`ContentBlock::Image`] with a
+/// data URI. All other types produce [`ContentBlock::Text`] reference
+/// tokens.
+async fn format_media_blocks(
+    refs: &[FullMediaRefEntry],
+    media_store: Option<&dyn MediaStoreAccess>,
+    image_threshold: u64,
+) -> Vec<ContentBlock> {
+    let mut blocks = Vec::with_capacity(refs.len());
+    for entry in refs {
+        let filename_suffix = extract_filename(&entry.path)
+            .map(|f| format!(" {f}"))
+            .unwrap_or_default();
+        if entry.media_type == MediaType::Image
+            && entry.size > 0
+            && (entry.size as u64) <= image_threshold
+        {
+            if let Some(data) = try_read_inline_image(media_store, &entry.path).await {
+                let subtype = mime_to_data_uri_subtype(&entry.mime);
+                let url = format!("data:image/{subtype};base64,{data}");
+                blocks.push(ContentBlock::Image {
+                    name: entry.key.clone(),
+                    url,
+                });
+            } else {
+                // Fallback: file not found → text reference token.
+                blocks.push(ContentBlock::Text(format!(
+                    "[image: {}]{filename_suffix}",
+                    entry.key
+                )));
+            }
+        } else {
+            blocks.push(ContentBlock::Text(format!(
+                "[{}: {}]{filename_suffix}",
+                entry.media_type.label(),
+                entry.key
+            )));
+        }
+    }
+    blocks
 }
 
 /// Parse `message_type` from processed message metadata.
@@ -145,6 +229,7 @@ struct FullMediaRefEntry {
     key: String,
     path: String,
     size: i64,
+    mime: String,
 }
 
 /// Parse full media references from the same metadata source.
@@ -160,6 +245,7 @@ fn parse_full_media_refs(processed: &ProcessedMessage) -> Vec<FullMediaRefEntry>
             key: r.key,
             path: r.path,
             size: r.size,
+            mime: r.mime,
         })
         .collect()
 }
@@ -214,6 +300,14 @@ async fn format_media_tokens_with_inline(
         }
     }
     parts.join(" ")
+}
+
+/// Extract the MIME subtype for use in data URIs.
+///
+/// Given `"image/png"`, returns `"png"`. For unknown formats,
+/// falls back to `"png"`.
+fn mime_to_data_uri_subtype(mime: &str) -> &str {
+    mime.strip_prefix("image/").unwrap_or("png")
 }
 
 /// Attempt to read a media file and return its base64-encoded content.
@@ -442,6 +536,176 @@ mod tests {
         assert!(content.contains("secret_key"));
         // Filename annotation is allowed — it is not a filesystem path
         assert!(content.contains("photo.jpg"));
+    }
+
+    // ── build_context_content_blocks tests ─────────────────────────────
+
+    /// Small image (≤ threshold) → ContentBlock::Image with data URI.
+    #[tokio::test]
+    async fn blocks_small_image_produces_image_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("small.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
+        let store = Arc::new(FsStore(tmp.path().to_path_buf()));
+        let pm = make_processed(
+            "",
+            MessageType::Image,
+            vec![closeclaw_common::im_plugin::MediaRef {
+                key: "img_small".into(),
+                path: "small.png".into(),
+                media_type: closeclaw_common::im_plugin::MediaType::Image,
+                size: 4,
+                mime: "image/png".into(),
+            }],
+        );
+        let blocks = build_context_content_blocks(&pm, Some(store.as_ref()), 1024).await;
+        assert_eq!(blocks.len(), 1, "should produce one block: {blocks:?}");
+        match &blocks[0] {
+            ContentBlock::Image { name, url } => {
+                assert_eq!(name, "img_small");
+                assert!(
+                    url.starts_with("data:image/png;base64,"),
+                    "should be a data URI: {url}"
+                );
+            }
+            other => panic!("expected Image block, got {other:?}"),
+        }
+    }
+
+    /// Large image (> threshold) → ContentBlock::Text reference token.
+    #[tokio::test]
+    async fn blocks_large_image_produces_text_block() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("large.png"), &[0u8; 2048]).unwrap();
+        let store = Arc::new(FsStore(tmp.path().to_path_buf()));
+        let pm = make_processed(
+            "",
+            MessageType::Image,
+            vec![closeclaw_common::im_plugin::MediaRef {
+                key: "img_large".into(),
+                path: "large.png".into(),
+                media_type: closeclaw_common::im_plugin::MediaType::Image,
+                size: 2048,
+                mime: "image/png".into(),
+            }],
+        );
+        let blocks = build_context_content_blocks(&pm, Some(store.as_ref()), 1024).await;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(
+            blocks[0],
+            ContentBlock::Text("[image: img_large] large.png".into())
+        );
+    }
+
+    /// File type → always ContentBlock::Text reference token.
+    #[tokio::test]
+    async fn blocks_file_type_produces_text_block() {
+        let pm = make_processed(
+            "",
+            MessageType::File,
+            vec![closeclaw_common::im_plugin::MediaRef {
+                key: "doc1".into(),
+                path: "doc.pdf".into(),
+                media_type: closeclaw_common::im_plugin::MediaType::File,
+                size: 100,
+                mime: "application/pdf".into(),
+            }],
+        );
+        let blocks = build_context_content_blocks(&pm, None, 1024).await;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0], ContentBlock::Text("[file: doc1] doc.pdf".into()));
+    }
+
+    /// Text message → ContentBlock::Text.
+    #[tokio::test]
+    async fn blocks_text_message_produces_text_block() {
+        let pm = make_processed("hello world", MessageType::Text, vec![]);
+        let blocks = build_context_content_blocks(&pm, None, 0).await;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0], ContentBlock::Text("hello world".into()));
+    }
+
+    /// Mixed: text + small image + file → multiple blocks.
+    #[tokio::test]
+    async fn blocks_mixed_content_produces_multiple_blocks() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("pic.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        let store = Arc::new(FsStore(tmp.path().to_path_buf()));
+
+        let pm = make_processed(
+            "check this",
+            MessageType::Post,
+            vec![
+                closeclaw_common::im_plugin::MediaRef {
+                    key: "s".into(),
+                    path: "pic.jpg".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::Image,
+                    size: 4,
+                    mime: "image/jpeg".into(),
+                },
+                closeclaw_common::im_plugin::MediaRef {
+                    key: "f".into(),
+                    path: "doc.pdf".into(),
+                    media_type: closeclaw_common::im_plugin::MediaType::File,
+                    size: 100,
+                    mime: "application/pdf".into(),
+                },
+            ],
+        );
+        let blocks = build_context_content_blocks(&pm, Some(store.as_ref()), 1024).await;
+        assert_eq!(blocks.len(), 3, "text + image + file: {blocks:?}");
+        // First block: text
+        assert_eq!(blocks[0], ContentBlock::Text("check this".into()));
+        // Second block: image
+        match &blocks[1] {
+            ContentBlock::Image { name, url } => {
+                assert_eq!(name, "s");
+                assert!(url.starts_with("data:image/jpeg;base64,"));
+            }
+            other => panic!("expected Image block, got {other:?}"),
+        }
+        // Third block: file reference
+        assert_eq!(blocks[2], ContentBlock::Text("[file: f] doc.pdf".into()));
+    }
+
+    /// No media store → fallback to text reference tokens.
+    #[tokio::test]
+    async fn blocks_no_store_falls_back_to_text() {
+        let pm = make_processed(
+            "",
+            MessageType::Image,
+            vec![closeclaw_common::im_plugin::MediaRef {
+                key: "img_no_store".into(),
+                path: "inbound/img.png".into(),
+                media_type: closeclaw_common::im_plugin::MediaType::Image,
+                size: 100,
+                mime: "image/png".into(),
+            }],
+        );
+        let blocks = build_context_content_blocks(&pm, None, 1024).await;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(
+            blocks[0],
+            ContentBlock::Text("[image: img_no_store] img.png".into())
+        );
+    }
+
+    /// Empty path → token without filename annotation.
+    #[tokio::test]
+    async fn blocks_empty_path_produces_token_without_filename() {
+        let pm = make_processed(
+            "",
+            MessageType::Image,
+            vec![closeclaw_common::im_plugin::MediaRef {
+                key: "k1".into(),
+                path: "".into(),
+                media_type: closeclaw_common::im_plugin::MediaType::Image,
+                size: 100,
+                mime: "image/png".into(),
+            }],
+        );
+        let blocks = build_context_content_blocks(&pm, None, 0).await;
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0], ContentBlock::Text("[image: k1]".into()));
     }
 
     // ── Threshold-based inline image tests ──────────────────────────────

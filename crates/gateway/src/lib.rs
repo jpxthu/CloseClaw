@@ -106,8 +106,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
+use closeclaw_common::processor::{ContentBlock, ProcessedMessage};
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::slash_router::SlashRouter;
 use closeclaw_common::MediaStoreAccess;
@@ -657,6 +657,7 @@ impl Gateway {
         processed: &ProcessedMessage,
         session_id: &str,
         content: String,
+        blocks: Option<Vec<ContentBlock>>,
         sender_id: Option<&str>,
         peer_id: &str,
         channel: &str,
@@ -684,7 +685,7 @@ impl Gateway {
                 span_id: processed.metadata.get("span_id").cloned(),
             };
             let result = handler
-                .handle_message_with_gateway(session_id, content, meta, &gw, &plugin)
+                .handle_message_with_gateway(session_id, content, blocks, meta, &gw, &plugin)
                 .await;
             self.maybe_send_notification(&result, peer_id, channel)
                 .await;
@@ -703,6 +704,7 @@ impl Gateway {
         processed: &ProcessedMessage,
         session_id: &str,
         content: String,
+        blocks: Option<Vec<ContentBlock>>,
         sender_id: Option<&str>,
         peer_id: &str,
         channel: &str,
@@ -743,7 +745,7 @@ impl Gateway {
             return Some(result);
         }
         self.dispatch_to_handler(
-            processed, session_id, content, sender_id, peer_id, channel, dbg,
+            processed, session_id, content, blocks, sender_id, peer_id, channel, dbg,
         )
         .await
     }
@@ -766,12 +768,13 @@ impl Gateway {
             InboundValidation::Reject(result) => return Some(result),
             InboundValidation::RejectSilently => return None,
         }
-        let content = media_routing::build_context_content(
-            &processed,
-            self.get_media_store().as_deref(),
-            self.image_content_threshold(),
-        )
-        .await;
+        let ms = self.get_media_store();
+        let t = self.image_content_threshold();
+        let ms = ms.as_deref();
+        let content = media_routing::build_context_content(&processed, ms, t).await;
+        let b = media_routing::build_context_content_blocks(&processed, ms, t).await;
+        let blocks =
+            Some(b).filter(|v| v.iter().any(|bl| matches!(bl, ContentBlock::Image { .. })));
         let session_id = match inbound_queue::resolve_session_with_log(
             self,
             &processed,
@@ -797,6 +800,7 @@ impl Gateway {
             &processed,
             &session_id,
             content,
+            blocks,
             sender_id,
             peer_id,
             channel,
