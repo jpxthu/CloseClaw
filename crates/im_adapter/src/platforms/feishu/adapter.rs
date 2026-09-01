@@ -1,18 +1,17 @@
-//! Feishu adapter — HTTP I/O, token management, and webhook parsing.
+//! Feishu adapter — lark-cli subprocess I/O and event parsing.
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::{CardActionEvent, MediaRef, MediaType, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::post_expand::{expand_post_content, extract_post_media_refs};
 use crate::media_store::MediaStore;
+use reqwest::Client;
 use tokio::sync::Mutex;
 
 // Webhook event types
@@ -86,8 +85,6 @@ pub(crate) struct FeishuCardAction {
     pub(crate) tag: Option<String>,
 }
 
-pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
-
 /// Default max download size: 50 MB per media resource.
 pub(crate) const DEFAULT_MAX_DOWNLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -118,22 +115,7 @@ pub(crate) fn to_blockquote(text: &str) -> String {
         .join("\n")
 }
 
-// CachedToken
-
-#[derive(Debug, Clone)]
-pub struct CachedToken {
-    pub token: String,
-    pub expires_at: Instant,
-}
-
-impl CachedToken {
-    /// Returns true if token is expired or close to expiry (within 5 minutes).
-    pub fn needs_refresh(&self) -> bool {
-        Instant::now() > self.expires_at - Duration::from_secs(300)
-    }
-}
-
-// Feishu API response types
+// lark-cli response types for message retrieval
 
 #[derive(Deserialize)]
 struct FeishuMsgBody {
@@ -153,17 +135,41 @@ struct FeishuGetMessageResponse {
     items: Option<Vec<FeishuMsgItem>>,
 }
 
+// lark-cli response type for chat info
+
+#[derive(Deserialize)]
+struct FeishuChatResponse {
+    code: i32,
+    msg: String,
+    data: Option<FeishuChatData>,
+}
+
+#[derive(Deserialize)]
+struct FeishuChatData {
+    name: Option<String>,
+}
+
+// lark-cli response type for media download URL
+
+#[derive(Deserialize)]
+struct ResourceResp {
+    code: i32,
+    msg: String,
+    data: Option<serde_json::Value>,
+}
+
 // FeishuAdapter
 
 /// Feishu adapter implementation.
+///
+/// All platform communication goes through lark-cli subprocess commands.
+/// Credentials are managed by lark-cli via profile — the adapter only
+/// stores the profile name and delegates auth to the CLI.
 #[derive(Debug, Clone)]
 pub struct FeishuAdapter {
-    pub(crate) app_id: String,
-    pub(crate) app_secret: String,
-    pub(crate) verification_token: String,
-    pub(crate) http_client: Client,
-    pub(crate) cached_token: Arc<Mutex<Option<CachedToken>>>,
-    pub(crate) base_url: String,
+    /// lark-cli profile name for credential delegation.
+    #[allow(dead_code)]
+    pub(crate) profile: String,
     /// Metadata produced by the last successful `parse_inbound` call.
     /// Used by `last_parsed_metadata()` to surface platform-specific
     /// fields (e.g. `chat_name`) that were removed from NormalizedMessage.
@@ -176,31 +182,24 @@ pub struct FeishuAdapter {
     pub(crate) workspace_dir: Option<std::path::PathBuf>,
     /// lark-cli command name or path for subprocess execution.
     pub(crate) cli_command: String,
+    /// HTTP client for media downloads (media URLs returned by lark-cli).
+    http_client: Client,
 }
 
 impl FeishuAdapter {
-    pub fn new(
-        app_id: String,
-        app_secret: String,
-        verification_token: String,
-        media_store: Arc<MediaStore>,
-    ) -> Self {
+    pub fn new(profile: String, media_store: Arc<MediaStore>) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("FeishuAdapter: failed to build HTTP client");
         Self {
-            app_id,
-            app_secret,
-            verification_token,
-            http_client,
-            cached_token: Arc::new(Mutex::new(None)),
-            base_url: FEISHU_API_BASE.to_string(),
+            profile,
             last_metadata: Arc::new(Mutex::new(HashMap::new())),
             media_store,
             max_download_size_bytes: DEFAULT_MAX_DOWNLOAD_SIZE_BYTES,
             workspace_dir: None,
             cli_command: DEFAULT_CLI_COMMAND.to_string(),
+            http_client,
         }
     }
 
@@ -208,6 +207,19 @@ impl FeishuAdapter {
     pub fn with_workspace_dir(mut self, ws: Option<std::path::PathBuf>) -> Self {
         self.workspace_dir = ws;
         self
+    }
+
+    /// Extract bot_app_id from last_metadata (set by parse_inbound from event header).
+    ///
+    /// Falls back to empty string if not available — identity resolution
+    /// must handle this gracefully.
+    #[allow(dead_code)]
+    pub(crate) fn bot_app_id_from_metadata(&self) -> String {
+        self.last_metadata
+            .try_lock()
+            .ok()
+            .and_then(|guard| guard.get("header_app_id").cloned())
+            .unwrap_or_default()
     }
 
     /// Extract the event_type from a raw JSON payload.
@@ -227,71 +239,7 @@ impl FeishuAdapter {
             .to_string()
     }
 
-    /// Obtain a tenant access token, using a cached token when valid.
-    pub(crate) async fn get_tenant_token(&self) -> Result<String, AdapterError> {
-        let cached = self.cached_token.lock().await;
-        if let Some(ref c) = *cached {
-            if !c.needs_refresh() {
-                return Ok(c.token.clone());
-            }
-        }
-        drop(cached);
-
-        let new_token = self.fetch_tenant_token().await?;
-
-        let mut cached = self.cached_token.lock().await;
-        *cached = Some(CachedToken {
-            expires_at: Instant::now() + Duration::from_secs(7200),
-            token: new_token.clone(),
-        });
-
-        Ok(new_token)
-    }
-
-    /// Fetch a fresh tenant access token from Feishu API (no caching).
-    pub async fn fetch_tenant_token(&self) -> Result<String, AdapterError> {
-        #[derive(Serialize)]
-        struct TokenRequest<'a> {
-            app_id: &'a str,
-            app_secret: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct TokenResponse {
-            code: i32,
-            msg: String,
-            tenant_access_token: Option<String>,
-        }
-
-        let resp: TokenResponse = self
-            .http_client
-            .post(format!(
-                "{}/auth/v3/tenant_access_token/internal",
-                self.base_url
-            ))
-            .json(&TokenRequest {
-                app_id: &self.app_id,
-                app_secret: &self.app_secret,
-            })
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        if resp.code != 0 {
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu token error {}: {}",
-                resp.code, resp.msg
-            )));
-        }
-
-        resp.tenant_access_token
-            .ok_or_else(|| AdapterError::SendFailed("No token in response".to_string()))
-    }
-
-    /// Fetch the content of a message by its ID via Feishu API.
+    /// Fetch the content of a message by its ID via lark-cli.
     ///
     /// Returns `Some(text)` for supported types (text, post), or `None` for
     /// unsupported types or on failure (which logs a warning and degrades
@@ -307,22 +255,21 @@ impl FeishuAdapter {
         self.extract_text_from_message(&msg_type, &raw_content, message_id)
     }
 
-    /// Fetch the raw message item from Feishu API and return (msg_type, content).
+    /// Fetch the raw message item via lark-cli and return (msg_type, content).
     async fn fetch_message_raw(
         &self,
         message_id: &str,
     ) -> Result<Option<(String, String)>, AdapterError> {
-        let token = self.get_tenant_token().await?;
-        let resp: FeishuGetMessageResponse = self
-            .http_client
-            .get(format!("{}/im/v1/messages/{}", self.base_url, message_id))
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        let output = super::send_helpers::run_cli(
+            self,
+            &["im", "+messages-get", "--message-id", message_id],
+        )
+        .await?;
+
+        let resp: FeishuGetMessageResponse = serde_json::from_str(&output)
+            .map_err(|e| AdapterError::InvalidPayload(format!(
+                "lark-cli messages-get invalid JSON: {e}"
+            )))?;
 
         if resp.code != 0 {
             tracing::warn!(
@@ -372,33 +319,19 @@ impl FeishuAdapter {
         })
     }
 
-    /// Fetch the chat (group) name for a given chat_id via Feishu API.
+    /// Fetch the chat (group) name for a given chat_id via lark-cli.
     ///
     /// Returns `Some(name)` on success, or `None` on failure (which logs
     /// a warning and degrades gracefully — chat_name defaults to empty).
     pub async fn fetch_chat_name(&self, chat_id: &str) -> Option<String> {
-        #[derive(Deserialize)]
-        struct FeishuChatResponse {
-            code: i32,
-            msg: String,
-            data: Option<FeishuChatData>,
-        }
-        #[derive(Deserialize)]
-        struct FeishuChatData {
-            name: Option<String>,
-        }
+        let output = super::send_helpers::run_cli(
+            self,
+            &["im", "+chats-get", "--chat-id", chat_id],
+        )
+        .await
+        .ok()?;
 
-        let token = self.get_tenant_token().await.ok()?;
-        let resp: FeishuChatResponse = self
-            .http_client
-            .get(format!("{}/im/v1/chats/{}", self.base_url, chat_id))
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
-            .await
-            .ok()?
-            .json()
-            .await
-            .ok()?;
+        let resp: FeishuChatResponse = serde_json::from_str(&output).ok()?;
 
         if resp.code != 0 {
             tracing::warn!(
@@ -447,45 +380,34 @@ impl FeishuAdapter {
         }
     }
 
-    /// Build the URL for fetching a media resource, percent-encoding path params.
-    fn build_media_resource_url(
-        &self,
-        message_id: &str,
-        file_key: &str,
-        resource_type: &str,
-    ) -> String {
-        let enc_msg: String = url::form_urlencoded::byte_serialize(message_id.as_bytes()).collect();
-        let enc_key: String = url::form_urlencoded::byte_serialize(file_key.as_bytes()).collect();
-        format!(
-            "{}/im/v1/messages/{}/resources/{}?type={}",
-            self.base_url, enc_msg, enc_key, resource_type
-        )
-    }
-
-    /// Fetch a temporary download URL for a media resource (image, file, audio).
+    /// Fetch a temporary download URL for a media resource (image, file, audio)
+    /// via lark-cli.
     pub(crate) async fn fetch_media_download_url(
         &self,
         message_id: &str,
         file_key: &str,
         resource_type: &str,
     ) -> Result<String, AdapterError> {
-        let token = self.get_tenant_token().await?;
-        #[derive(Deserialize)]
-        struct ResourceResp {
-            code: i32,
-            msg: String,
-            data: Option<serde_json::Value>,
-        }
-        let resp: ResourceResp = self
-            .http_client
-            .get(self.build_media_resource_url(message_id, file_key, resource_type))
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        let output = super::send_helpers::run_cli(
+            self,
+            &[
+                "im",
+                "+messages-resources",
+                "--message-id",
+                message_id,
+                "--file-key",
+                file_key,
+                "--type",
+                resource_type,
+            ],
+        )
+        .await?;
+
+        let resp: ResourceResp = serde_json::from_str(&output)
+            .map_err(|e| AdapterError::InvalidPayload(format!(
+                "lark-cli resources invalid JSON: {e}"
+            )))?;
+
         if resp.code != 0 {
             tracing::warn!(
                 code = resp.code, msg = %resp.msg,
@@ -904,12 +826,9 @@ impl IMAdapter for FeishuAdapter {
         }
     }
 
-    async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
-        let mut hasher = Sha256::new();
-        hasher.update(&self.verification_token);
-        hasher.update(payload);
-        let result = hasher.finalize();
-        let expected = format!("{:x}", result);
-        expected == signature
+    async fn validate_signature(&self, _signature: &str, _payload: &[u8]) -> bool {
+        // lark-cli event consume handles signature verification.
+        // All events received from the subprocess are pre-validated.
+        true
     }
 }

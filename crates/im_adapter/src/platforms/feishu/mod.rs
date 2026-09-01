@@ -74,7 +74,6 @@ use tracing::{debug, info, warn};
 
 use super::PlatformEntry;
 
-pub use adapter::CachedToken;
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
 pub use renderer::build_text;
@@ -85,7 +84,6 @@ pub use renderer::should_use_card_for_blocks;
 #[cfg(test)]
 pub(crate) use adapter::{
     truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
-    FEISHU_API_BASE,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
@@ -207,12 +205,8 @@ pub async fn register(
         return;
     }
 
-    let app_id = std::env::var("FEISHU_APP_ID").ok();
-    let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
-    let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
-    if let (Some(app_id), Some(app_secret), Some(verification_token)) =
-        (app_id, app_secret, verification_token)
-    {
+    let profile = std::env::var("FEISHU_PROFILE").ok();
+    if let Some(profile) = profile {
         // Use shared MediaStore from daemon if available, otherwise create one.
         let media_store = shared_media_store.unwrap_or_else(|| {
             let media_config = load_media_config(config_dir);
@@ -221,7 +215,7 @@ pub async fn register(
             )
         });
         let adapter = Arc::new(
-            FeishuAdapter::new(app_id, app_secret, verification_token, media_store)
+            FeishuAdapter::new(profile, media_store)
                 .with_workspace_dir(Some(std::path::PathBuf::from(config_dir))),
         );
 
@@ -240,7 +234,7 @@ pub async fn register(
         gateway.register_plugin(plugin).await;
         info!("Feishu plugin registered");
     } else {
-        warn!("feishu enabled in platforms.json but credentials missing in env — skipping");
+        warn!("feishu enabled in platforms.json but FEISHU_PROFILE not set — skipping");
     }
 }
 
@@ -458,14 +452,14 @@ impl FeishuPlugin {
                     .get("header_app_id")
                     .filter(|s| !s.is_empty())
                     .cloned()
-                    .unwrap_or_else(|| self.adapter.app_id.clone()),
+                    .unwrap_or_default(),
                 Err(_) => {
                     debug!(
                         platform = %msg.platform,
                         sender_id = %msg.sender_id,
-                        "try_lock failed, falling back to adapter.app_id"
+                        "try_lock failed, falling back to empty bot_app_id"
                     );
-                    self.adapter.app_id.clone()
+                    String::new()
                 }
             };
             msg.account_id = resolver
@@ -860,7 +854,7 @@ impl IMPlugin for FeishuPlugin {
     }
 
     async fn shutdown(&self) -> Result<(), CommonAdapterError> {
-        *self.adapter.cached_token.lock().await = None;
+        // lark-cli manages its own credential lifecycle.
         Ok(())
     }
 

@@ -87,21 +87,18 @@ fn create_fail_then_succeed_cli(tmp: &TempDir, fail_count: usize) -> String {
 /// Create a FeishuPlugin with a mock lark-cli.
 fn make_plugin(cli_command: &str) -> FeishuPlugin {
     let tmp = tempfile::TempDir::new().expect("tmp dir");
-    let adapter = Arc::new(FeishuAdapter {
-        app_id: "test".into(),
-        app_secret: "test".into(),
-        verification_token: "test".into(),
-        http_client: reqwest::Client::new(),
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: "https://open.feishu.cn/open-apis".to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: Arc::new(
+    let adapter = Arc::new(FeishuAdapter::new(
+        "test_profile".into(),
+        Arc::new(
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
-        cli_command: cli_command.to_string(),
-    });
+    ));
+    // Override cli_command for mock testing
+    let adapter = {
+        let mut a = (*adapter).clone();
+        a.cli_command = cli_command.to_string();
+        Arc::new(a)
+    };
     FeishuPlugin::new(adapter)
 }
 
@@ -289,22 +286,15 @@ async fn interactive_empty_text_fallback_returns_ok() {
 
 /// Helper: create a FeishuAdapter pointing at a mock CLI.
 fn make_adapter(cli_command: &str) -> FeishuAdapter {
-    let tmp = tempfile::TempDir::new().expect("tmp dir");
-    FeishuAdapter {
-        app_id: "test_app_id".into(),
-        app_secret: "test_secret".into(),
-        verification_token: "test_token".into(),
-        http_client: reqwest::Client::new(),
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: "https://open.feishu.cn/open-apis".to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: Arc::new(
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut adapter = FeishuAdapter::new(
+        "test_profile".into(),
+        Arc::new(
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
-        cli_command: cli_command.to_string(),
-    }
+    );
+    adapter.cli_command = cli_command.to_string();
+    adapter
 }
 
 /// Helper: build a card JSON string with a single markdown element.

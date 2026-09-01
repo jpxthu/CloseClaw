@@ -25,13 +25,15 @@ pub struct ApiKeyCredentials {
     pub api_key: String,
 }
 
-/// Feishu-specific credentials.
+/// Feishu profile — credentials are managed by lark-cli via profile name.
+///
+/// The adapter only needs the profile name; all credential management
+/// (token refresh, secret storage) is handled by lark-cli.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct FeishuCredentials {
+pub struct FeishuProfile {
     pub provider: String,
-    pub app_id: String,
-    pub app_secret: String,
+    pub profile: String,
 
     #[serde(default)]
     pub bot_name: Option<String>,
@@ -42,7 +44,7 @@ pub struct FeishuCredentials {
 #[serde(untagged)]
 pub enum AnyProviderCredentials {
     ApiKey(ApiKeyCredentials),
-    Feishu(FeishuCredentials),
+    Feishu(FeishuProfile),
 }
 
 /// Root credentials provider — holds all loaded credentials by provider name.
@@ -242,8 +244,8 @@ impl CredentialsProvider {
         }
     }
 
-    /// Get Feishu credentials if a feishu provider exists.
-    pub fn feishu_creds(&self) -> Option<&FeishuCredentials> {
+    /// Get Feishu profile if a feishu provider exists.
+    pub fn feishu_profile(&self) -> Option<&FeishuProfile> {
         self.providers.values().find_map(|c| match c {
             AnyProviderCredentials::Feishu(f) => Some(f),
             AnyProviderCredentials::ApiKey(_) => None,
@@ -350,16 +352,10 @@ impl ConfigProvider for CredentialsProvider {
                     }
                 }
                 AnyProviderCredentials::Feishu(f) => {
-                    if f.app_id.is_empty() {
+                    if f.profile.is_empty() {
                         return Err(ConfigError::ValueError {
-                            field: format!("{}.app_id", name),
-                            message: "app_id cannot be empty".to_string(),
-                        });
-                    }
-                    if f.app_secret.is_empty() {
-                        return Err(ConfigError::ValueError {
-                            field: format!("{}.app_secret", name),
-                            message: "app_secret cannot be empty".to_string(),
+                            field: format!("{}.profile", name),
+                            message: "profile cannot be empty".to_string(),
                         });
                     }
                 }
@@ -446,15 +442,13 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let content = r#"{
             "provider": "feishu",
-            "appId": "cli_abc123",
-            "appSecret": "secret_xyz"
+            "profile": "my_feishu_profile"
         }"#;
         fs::write(tmp.path().join("feishu.json"), content).unwrap();
         let provider = CredentialsProvider::load_from_dir(tmp.path()).unwrap();
         assert_eq!(provider.providers.len(), 1);
-        let feishu = provider.feishu_creds().unwrap();
-        assert_eq!(feishu.app_id, "cli_abc123");
-        assert_eq!(feishu.app_secret, "secret_xyz");
+        let feishu = provider.feishu_profile().unwrap();
+        assert_eq!(feishu.profile, "my_feishu_profile");
     }
 
     #[test]
@@ -534,16 +528,16 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_feishu_empty_app_id() {
+    fn test_validate_feishu_empty_profile() {
         let json = r#"{"providers":{
-            "feishu": {"provider":"feishu","appId":"","appSecret":"somesecret"}
+            "feishu": {"provider":"feishu","profile":""}
         }}"#;
         let provider = CredentialsProvider::from_json_str(json).unwrap();
         let result = provider.validate();
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, ConfigError::ValueError { ref field, .. }
-            if field.contains("app_id")));
+            if field.contains("profile")));
     }
 
     #[test]
@@ -558,7 +552,7 @@ mod tests {
     #[test]
     fn test_validate_valid_feishu() {
         let json = r#"{"providers":{
-            "feishu":{"provider":"feishu","appId":"cli_abc","appSecret":"sec","botName":"Bot"}
+            "feishu":{"provider":"feishu","profile":"my_profile","botName":"Bot"}
         }}"#;
         let provider = CredentialsProvider::from_json_str(json).unwrap();
         provider
@@ -583,23 +577,23 @@ mod tests {
     }
 
     #[test]
-    fn test_feishu_creds() {
+    fn test_feishu_profile() {
         let json = r#"{"providers":{
-            "feishu": {"provider":"feishu","appId":"id","appSecret":"secret","botName":"Bot"}
+            "feishu": {"provider":"feishu","profile":"my_profile","botName":"Bot"}
         }}"#;
         let provider = CredentialsProvider::from_json_str(json).unwrap();
-        let feishu = provider.feishu_creds().unwrap();
-        assert_eq!(feishu.app_id, "id");
+        let feishu = provider.feishu_profile().unwrap();
+        assert_eq!(feishu.profile, "my_profile");
         assert_eq!(feishu.bot_name.as_deref(), Some("Bot"));
     }
 
     #[test]
-    fn test_feishu_creds_none_when_missing() {
+    fn test_feishu_profile_none_when_missing() {
         let json = r#"{"providers":{
             "openai": {"provider":"openai","apiKey":"sk-test"}
         }}"#;
         let provider = CredentialsProvider::from_json_str(json).unwrap();
-        assert!(provider.feishu_creds().is_none());
+        assert!(provider.feishu_profile().is_none());
     }
 
     // -------------------------------------------------------------------------

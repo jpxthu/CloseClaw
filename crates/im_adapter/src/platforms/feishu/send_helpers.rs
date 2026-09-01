@@ -295,21 +295,14 @@ mod tests {
 
     fn make_adapter_with_cli(cli_command: &str) -> FeishuAdapter {
         let tmp = tempfile::TempDir::new().unwrap();
-        FeishuAdapter {
-            app_id: "test".into(),
-            app_secret: "test".into(),
-            verification_token: "test".into(),
-            http_client: reqwest::Client::new(),
-            cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-            base_url: "https://open.feishu.cn/open-apis".to_string(),
-            last_metadata: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-            media_store: Arc::new(
+        let mut adapter = FeishuAdapter::new(
+            "test_profile".into(),
+            Arc::new(
                 crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).unwrap(),
             ),
-            max_download_size_bytes: u64::MAX,
-            workspace_dir: None,
-            cli_command: cli_command.to_string(),
-        }
+        );
+        adapter.cli_command = cli_command.to_string();
+        adapter
     }
 
     #[tokio::test]

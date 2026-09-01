@@ -20,21 +20,11 @@ use tempfile::TempDir;
 
 /// Build a FeishuAdapter for tests (no real HTTP).
 fn make_test_adapter() -> FeishuAdapter {
-    let http_client = reqwest::Client::new();
     let tmp = TempDir::new().expect("tmp dir");
-    FeishuAdapter {
-        app_id: "test_app_id".to_string(),
-        app_secret: "test_secret".to_string(),
-        verification_token: "test_token".to_string(),
-        http_client,
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: FEISHU_API_BASE.to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
-        cli_command: "lark-cli".to_string(),
-    }
+    FeishuAdapter::new(
+        "test_profile".to_string(),
+        Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
+    )
 }
 
 /// Build a FeishuEvent with a custom header app_id (simulates different bot

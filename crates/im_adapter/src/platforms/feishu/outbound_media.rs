@@ -114,84 +114,7 @@ pub(crate) async fn copy_to_outbound(
 
     Ok(OutboundMediaResult { outbound_path })
 }
-
-/// Detect MIME type for image upload based on file extension.
-fn detect_image_mime(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase()
-        .as_str()
-    {
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        _ => "image/png",
-    }
-}
-
-/// Parse an upload response JSON and extract the key for the given field.
-fn parse_upload_response(
-    resp: serde_json::Value,
-    key_field: &str,
-    api_name: &str,
-) -> Result<String, AdapterError> {
-    let code = resp.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        let msg = resp
-            .get("msg")
-            .and_then(|m| m.as_str())
-            .unwrap_or("unknown");
-        tracing::warn!(code = code, msg = %msg, "Feishu {api_name} upload error");
-        return Err(AdapterError::SendFailed(format!(
-            "Feishu {api_name} upload error {code}: {msg}"
-        )));
-    }
-    resp.get("data")
-        .and_then(|d| d.get(key_field))
-        .and_then(|k| k.as_str())
-        .map(String::from)
-        .ok_or_else(|| {
-            AdapterError::SendFailed(format!("{api_name} upload response missing {key_field}"))
-        })
-}
-
-/// Generic multipart upload: send form to Feishu API and parse response.
-async fn upload_multipart(
-    adapter: &FeishuAdapter,
-    api_path: &str,
-    form: reqwest::multipart::Form,
-    key_field: &str,
-    api_name: &str,
-) -> Result<String, AdapterError> {
-    let token = adapter.get_tenant_token().await.map_err(|e| {
-        tracing::warn!(error = %e, "token fetch failed for {api_name} upload");
-        e
-    })?;
-    let url = format!("{}/{}", adapter.base_url, api_path);
-    let resp = adapter
-        .http_client
-        .post(&url)
-        .header("Authorization", format!("Bearer {token}"))
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "{api_name} upload request failed");
-            AdapterError::SendFailed(e.to_string())
-        })?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "{api_name} upload response parse failed");
-            AdapterError::SendFailed(e.to_string())
-        })?;
-    parse_upload_response(resp, key_field, api_name)
-}
-
-/// Upload an image file to Feishu and return the image key.
+/// Upload an image file to Feishu via lark-cli and return the image key.
 pub(crate) async fn upload_image(
     adapter: &FeishuAdapter,
     file_path: &Path,
@@ -206,30 +129,32 @@ pub(crate) async fn upload_image(
             MAX_IMAGE_SIZE
         )));
     }
-    let file_bytes = tokio::fs::read(file_path)
-        .await
-        .map_err(|e| AdapterError::SendFailed(format!("cannot read image file: {e}")))?;
-    let filename = file_path
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_else(|| "image.png".to_string());
-    let mime_type = detect_image_mime(file_path);
-    let form = reqwest::multipart::Form::new()
-        .part(
-            "image_type",
-            reqwest::multipart::Part::text("message".to_string()),
-        )
-        .part(
-            "image",
-            reqwest::multipart::Part::bytes(file_bytes)
-                .file_name(filename)
-                .mime_str(mime_type)
-                .map_err(|e| AdapterError::SendFailed(e.to_string()))?,
-        );
-    upload_multipart(adapter, "im/v1/images", form, "image_key", "image").await
+    let path_str = file_path.to_str().ok_or_else(|| {
+        AdapterError::SendFailed("image path is not valid UTF-8".to_string())
+    })?;
+    let output = super::send_helpers::run_cli(
+        adapter,
+        &["im", "+images-upload", "--image", path_str],
+    )
+    .await?;
+
+    let resp: serde_json::Value = serde_json::from_str(&output)
+        .map_err(|e| AdapterError::InvalidPayload(format!("lark-cli images-upload invalid JSON: {e}")))?;
+    let code = resp.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        let msg = resp.get("msg").and_then(|m| m.as_str()).unwrap_or("unknown");
+        return Err(AdapterError::SendFailed(format!(
+            "Feishu image upload error {code}: {msg}"
+        )));
+    }
+    resp.get("data")
+        .and_then(|d| d.get("image_key"))
+        .and_then(|k| k.as_str())
+        .map(String::from)
+        .ok_or_else(|| AdapterError::SendFailed("image upload response missing image_key".to_string()))
 }
 
-/// Upload a file to Feishu and return the file key.
+/// Upload a file to Feishu via lark-cli and return the file key.
 pub(crate) async fn upload_file(
     adapter: &FeishuAdapter,
     file_path: &Path,
@@ -245,27 +170,35 @@ pub(crate) async fn upload_file(
             MAX_FILE_SIZE
         )));
     }
-    let file_bytes = tokio::fs::read(file_path)
-        .await
-        .map_err(|e| AdapterError::SendFailed(format!("cannot read file: {e}")))?;
+    let path_str = file_path.to_str().ok_or_else(|| {
+        AdapterError::SendFailed("file path is not valid UTF-8".to_string())
+    })?;
     let file_type = detect_file_type(file_path);
-    let form = reqwest::multipart::Form::new()
-        .part(
-            "file_type",
-            reqwest::multipart::Part::text(file_type.to_string()),
-        )
-        .part(
-            "file_name",
-            reqwest::multipart::Part::text(filename.to_string()),
-        )
-        .part(
-            "file",
-            reqwest::multipart::Part::bytes(file_bytes)
-                .file_name(filename.to_string())
-                .mime_str("application/octet-stream")
-                .map_err(|e| AdapterError::SendFailed(e.to_string()))?,
-        );
-    upload_multipart(adapter, "im/v1/files", form, "file_key", "file").await
+    let output = super::send_helpers::run_cli(
+        adapter,
+        &[
+            "im", "+files-upload",
+            "--file", path_str,
+            "--file-type", file_type,
+            "--file-name", filename,
+        ],
+    )
+    .await?;
+
+    let resp: serde_json::Value = serde_json::from_str(&output)
+        .map_err(|e| AdapterError::InvalidPayload(format!("lark-cli files-upload invalid JSON: {e}")))?;
+    let code = resp.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        let msg = resp.get("msg").and_then(|m| m.as_str()).unwrap_or("unknown");
+        return Err(AdapterError::SendFailed(format!(
+            "Feishu file upload error {code}: {msg}"
+        )));
+    }
+    resp.get("data")
+        .and_then(|d| d.get("file_key"))
+        .and_then(|k| k.as_str())
+        .map(String::from)
+        .ok_or_else(|| AdapterError::SendFailed("file upload response missing file_key".to_string()))
 }
 
 /// Detect Feishu file type from extension.

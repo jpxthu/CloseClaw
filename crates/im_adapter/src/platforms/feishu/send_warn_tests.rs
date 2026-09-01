@@ -29,21 +29,14 @@ fn create_error_mock_cli(tmp: &TempDir, code: i32) -> String {
 /// Create a FeishuAdapter pointing at a mock CLI script.
 fn make_adapter_with_cli(cli_command: &str) -> FeishuAdapter {
     let tmp = tempfile::TempDir::new().expect("tmp dir");
-    FeishuAdapter {
-        app_id: "test_app_id".into(),
-        app_secret: "test_secret".into(),
-        verification_token: "test_token".into(),
-        http_client: reqwest::Client::new(),
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: "https://open.feishu.cn/open-apis".to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: Arc::new(
+    let mut adapter = FeishuAdapter::new(
+        "test_profile".into(),
+        Arc::new(
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
-        cli_command: cli_command.to_string(),
-    }
+    );
+    adapter.cli_command = cli_command.to_string();
+    adapter
 }
 
 /// Helper: build a card JSON string with a single markdown element.

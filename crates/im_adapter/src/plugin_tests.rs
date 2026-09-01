@@ -186,9 +186,7 @@ mod tests {
     fn make_feishu_plugin() -> FeishuPlugin {
         let tmp = tempfile::TempDir::new().expect("tmp dir");
         let adapter = Arc::new(FeishuAdapter::new(
-            "test_app".into(),
-            "test_secret".into(),
-            "test_token".into(),
+            "test_profile".into(),
             Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
         ));
         FeishuPlugin::new(adapter)

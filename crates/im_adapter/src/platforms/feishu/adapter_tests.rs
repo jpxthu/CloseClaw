@@ -5,17 +5,10 @@ use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
-use axum::{
-    extract::Path,
-    routing::{get, post},
-    Json, Router,
-};
 use closeclaw_common::MessageType;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
-use std::collections::HashMap as StdHashMap;
 use tempfile::TempDir;
-use tokio::net::TcpListener;
 
 /// Create a test MediaStore rooted in a temp directory.
 fn make_test_media_store() -> Arc<MediaStore> {
@@ -25,38 +18,7 @@ fn make_test_media_store() -> Arc<MediaStore> {
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
 fn make_test_adapter() -> FeishuAdapter {
-    let http_client = reqwest::Client::new();
-    FeishuAdapter {
-        app_id: "test_app_id".to_string(),
-        app_secret: "test_secret".to_string(),
-        verification_token: "test_token".to_string(),
-        http_client,
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: FEISHU_API_BASE.to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: make_test_media_store(),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
-        cli_command: "lark-cli".to_string(),
-    }
-}
-
-/// Create a FeishuAdapter pointing at a mock server (for parse/quote tests).
-fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
-    let http_client = reqwest::Client::new();
-    FeishuAdapter {
-        app_id: "test_app_id".to_string(),
-        app_secret: "test_secret".to_string(),
-        verification_token: "test_token".to_string(),
-        http_client,
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: base_url.to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: make_test_media_store(),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
-        cli_command: "lark-cli".to_string(),
-    }
+    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
 }
 
 /// Build a minimal FeishuEvent for a message event.
@@ -560,47 +522,44 @@ async fn test_parse_inbound_no_resolver_fallback() {
 }
 // Quote/reference (parent_id) tests
 
-/// Start a mock server that supports GET /im/v1/messages/{message_id}.
-/// `messages` maps message_id → (msg_type, body_json_string).
-async fn start_quote_mock_server(
-    messages: Arc<tokio::sync::Mutex<StdHashMap<String, (String, String)>>>,
+
+/// Create a FeishuAdapter with a mock lark-cli command.
+fn make_adapter_with_mock_cli(mock_cli_path: &str) -> FeishuAdapter {
+    let mut adapter = make_test_adapter();
+    adapter.cli_command = mock_cli_path.to_string();
+    adapter
+}
+
+/// Create a mock lark-cli script that handles multiple message IDs.
+/// `responses` maps message_id → JSON response string.
+fn create_mock_cli_with_messages(
+    tmp: &TempDir,
+    responses: &std::collections::HashMap<String, String>,
 ) -> String {
-    let msgs = Arc::clone(&messages);
-    let app = Router::new()
-        .route(
-            "/auth/v3/tenant_access_token/internal",
-            post(|Json(_body): Json<serde_json::Value>| async move {
-                Json(serde_json::json!({
-                    "code": 0,
-                    "msg": "ok",
-                    "tenant_access_token": "mock_token"
-                }))
-            }),
-        )
-        .route(
-            "/im/v1/messages/:message_id",
-            get(move |Path(message_id): Path<String>| async move {
-                let msgs = msgs.lock().await;
-                match msgs.get(&message_id) {
-                    Some((msg_type, body)) => Json(serde_json::json!({
-                        "code": 0,
-                        "msg": "ok",
-                        "items": [{
-                            "msg_type": msg_type,
-                            "body": { "content": body }
-                        }]
-                    })),
-                    None => Json(serde_json::json!({
-                        "code": 1,
-                        "msg": "message not found"
-                    })),
-                }
-            }),
-        );
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    format!("http://{}", addr)
+    let script_path = tmp.path().join("mock_lark_cli_msgs");
+    let mut script = String::from("#!/bin/sh\n");
+    script.push_str(&format!("MSG_ID=\"{}\"\n", ""));
+    // Parse --message-id from args
+    script.push_str("while [ $# -gt 0 ]; do\n");
+    script.push_str("  case \"$1\" in\n");
+    script.push_str("    --message-id) MSG_ID=\"$2\"; shift 2;;\n");
+    script.push_str("    *) shift;;\n");
+    script.push_str("  esac\n");
+    script.push_str("done\n");
+    for (msg_id, resp) in responses {
+        script.push_str(&format!(
+            "if [ \"$MSG_ID\" = \"{}\" ]; then echo '{}'; exit 0; fi\n",
+            msg_id, resp
+        ));
+    }
+    script.push_str("echo '{\"code\":1,\"msg\":\"not found\"}'\n");
+    std::fs::write(&script_path, &script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    }
+    script_path.to_str().unwrap().to_string()
 }
 /// Build a FeishuEvent with a parent_id for quote testing.
 fn make_message_event_with_parent(
@@ -626,19 +585,22 @@ fn make_message_event_with_parent_and_root(
     event
 }
 
-// --- Test 1: parent_id + API returns text type → content contains blockquote ---
+// --- Test 1: parent_id + CLI returns text type → content contains blockquote ---
 
 #[tokio::test]
 async fn test_quote_text_type_prepends_blockquote() {
-    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+    let tmp = TempDir::new().unwrap();
+    let mut msgs = std::collections::HashMap::new();
+    msgs.insert(
         "om_parent1".to_string(),
-        (
-            "text".to_string(),
-            serde_json::json!({"text": "quoted text"}).to_string(),
-        ),
-    )])));
-    let base_url = start_quote_mock_server(messages).await;
-    let adapter = make_adapter_with_base(&base_url);
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": "quoted text"}).to_string()}}]
+        }).to_string(),
+    );
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply body"}).to_string(),
@@ -653,20 +615,26 @@ async fn test_quote_text_type_prepends_blockquote() {
     assert!(msg.content.contains("reply body"));
 }
 
-// --- Test 2: parent_id + API returns post type → content contains expanded blockquote ---
+// --- Test 2: parent_id + CLI returns post type → content contains expanded blockquote ---
 
 #[tokio::test]
 async fn test_quote_post_type_prepends_expanded_blockquote() {
+    let tmp = TempDir::new().unwrap();
     let post_content = serde_json::json!({
         "title": "Post Title",
         "content": [[{"tag": "text", "text": "post body"}]]
     });
-    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+    let mut msgs = std::collections::HashMap::new();
+    msgs.insert(
         "om_parent2".to_string(),
-        ("post".to_string(), post_content.to_string()),
-    )])));
-    let base_url = start_quote_mock_server(messages).await;
-    let adapter = make_adapter_with_base(&base_url);
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{"msg_type": "post", "body": {"content": post_content.to_string()}}]
+        }).to_string(),
+    );
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "my reply"}).to_string(),
@@ -682,16 +650,19 @@ async fn test_quote_post_type_prepends_expanded_blockquote() {
 
 #[tokio::test]
 async fn test_quote_truncates_at_500_chars() {
+    let tmp = TempDir::new().unwrap();
     let long_text = "a".repeat(600);
-    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+    let mut msgs = std::collections::HashMap::new();
+    msgs.insert(
         "om_parent3".to_string(),
-        (
-            "text".to_string(),
-            serde_json::json!({"text": &long_text}).to_string(),
-        ),
-    )])));
-    let base_url = start_quote_mock_server(messages).await;
-    let adapter = make_adapter_with_base(&base_url);
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": &long_text}).to_string()}}]
+        }).to_string(),
+    );
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -710,16 +681,19 @@ async fn test_quote_truncates_at_500_chars() {
 
 #[tokio::test]
 async fn test_quote_exactly_500_chars_no_truncation() {
+    let tmp = TempDir::new().unwrap();
     let exact_text = "b".repeat(500);
-    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+    let mut msgs = std::collections::HashMap::new();
+    msgs.insert(
         "om_parent4".to_string(),
-        (
-            "text".to_string(),
-            serde_json::json!({"text": &exact_text}).to_string(),
-        ),
-    )])));
-    let base_url = start_quote_mock_server(messages).await;
-    let adapter = make_adapter_with_base(&base_url);
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": &exact_text}).to_string()}}]
+        }).to_string(),
+    );
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -732,14 +706,14 @@ async fn test_quote_exactly_500_chars_no_truncation() {
     assert!(!quoted_part.ends_with("..."));
 }
 
-// --- Test 5: parent_id exists but API fails → no blockquote ---
+// --- Test 5: parent_id exists but CLI fails → no blockquote ---
 
 #[tokio::test]
 async fn test_quote_api_failure_no_blockquote() {
-    let messages: Arc<tokio::sync::Mutex<StdHashMap<String, (String, String)>>> =
-        Arc::new(tokio::sync::Mutex::new(StdHashMap::new()));
-    let base_url = start_quote_mock_server(messages).await;
-    let adapter = make_adapter_with_base(&base_url);
+    let tmp = TempDir::new().unwrap();
+    let msgs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -753,15 +727,18 @@ async fn test_quote_api_failure_no_blockquote() {
 
 #[tokio::test]
 async fn test_quote_image_type_no_blockquote() {
-    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+    let tmp = TempDir::new().unwrap();
+    let mut msgs = std::collections::HashMap::new();
+    msgs.insert(
         "om_parent6".to_string(),
-        (
-            "image".to_string(),
-            serde_json::json!({"image_key": "img_xxx"}).to_string(),
-        ),
-    )])));
-    let base_url = start_quote_mock_server(messages).await;
-    let adapter = make_adapter_with_base(&base_url);
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{"msg_type": "image", "body": {"content": serde_json::json!({"image_key": "img_xxx"}).to_string()}}]
+        }).to_string(),
+    );
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -786,15 +763,18 @@ async fn test_no_parent_id_unchanged_behavior() {
 
 #[tokio::test]
 async fn test_quote_with_root_id_thread_uses_root_id() {
-    let messages = Arc::new(tokio::sync::Mutex::new(StdHashMap::from([(
+    let tmp = TempDir::new().unwrap();
+    let mut msgs = std::collections::HashMap::new();
+    msgs.insert(
         "om_parent8".to_string(),
-        (
-            "text".to_string(),
-            serde_json::json!({"text": "quoted"}).to_string(),
-        ),
-    )])));
-    let base_url = start_quote_mock_server(messages).await;
-    let adapter = make_adapter_with_base(&base_url);
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": "quoted"}).to_string()}}]
+        }).to_string(),
+    );
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent_and_root(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
