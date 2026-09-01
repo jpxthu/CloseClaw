@@ -10,6 +10,7 @@ mod adapter_emoji_tests;
 mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
+pub(crate) mod card_media_fallback;
 pub(crate) mod cardkit_streaming;
 pub mod cleaner;
 #[cfg(test)]
@@ -81,7 +82,6 @@ use super::PlatformEntry;
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
 pub use renderer::build_text;
-use renderer::extract_card_plain_text;
 pub use renderer::should_use_card_for_blocks;
 
 // Re-export adapter internals for test modules.
@@ -91,6 +91,8 @@ pub(crate) use adapter::{
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
+#[cfg(test)]
+pub(crate) use renderer::extract_card_plain_text;
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
@@ -350,48 +352,27 @@ impl FeishuPlugin {
         self.identity_resolver.as_deref()
     }
 
-    /// Fallback: extract plain text from an interactive card and send
-    /// via text message API.  Logs warnings on failure and always
-    /// returns `Ok(())` so the Agent keeps running.
+    /// Fallback: extract plain text and media from an interactive card
+    /// and send them via text message API and `dispatch_send_media`.
+    /// Logs warnings on failure and always returns so the Agent keeps running.
     async fn send_interactive_fallback(
         &self,
         peer_id: &str,
         output: &RenderedOutput,
         thread_id: Option<&str>,
     ) {
-        let plain_text = extract_card_plain_text(&output.payload);
-        if plain_text.is_empty() {
-            warn!(
-                peer_id = %peer_id,
-                "No extractable text in card payload — returning Ok(())"
-            );
-            return;
-        }
-        let fallback = Self::make_text_message(peer_id, &plain_text);
-        if let Err(e2) = self.adapter.send_message(&fallback, thread_id).await {
-            warn!(
-                peer_id = %peer_id,
-                error = %e2,
-                "Feishu text fallback also failed — returning Ok(()) per design doc"
-            );
-        }
+        card_media_fallback::send_interactive_fallback(
+            &self.adapter,
+            peer_id,
+            output,
+            thread_id,
+        )
+        .await
     }
 
     /// Build a text-mode [`Message`] targeting `peer_id`.
     fn make_text_message(peer_id: &str, text: &str) -> Message {
-        Message {
-            id: String::new(),
-            from: String::new(),
-            to: peer_id.to_string(),
-            content: text.to_string(),
-            channel: "feishu".to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
-            metadata: HashMap::new(),
-            thread_id: None,
-            platform: None,
-            dsl_result: None,
-            content_blocks: None,
-        }
+        card_media_fallback::make_text_message(peer_id, text)
     }
 
     /// Generate a trace_id in the format `{platform}_{timestamp_hex}_{uuid_v4}`.
@@ -513,7 +494,7 @@ impl FeishuPlugin {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         warn!(peer_id = %peer_id, error = %e,
-                            "Feishu interactive card send failed — falling back to plain text");
+                            "Feishu interactive card send failed — falling back to text + media");
                         self.send_interactive_fallback(peer_id, output, thread_id)
                             .await;
                         Ok(())
@@ -521,51 +502,6 @@ impl FeishuPlugin {
                 }
             }
             _ => Err(CommonAdapterError::UnsupportedOperation),
-        }
-    }
-
-    /// Dispatch a standalone media message (image, file, or audio) directly
-    /// via lark-cli, bypassing card rendering.
-    ///
-    /// Used by the streaming renderer and internal code paths that produce
-    /// standalone `ContentBlock::Image`/`Audio`/`File` blocks.
-    #[allow(dead_code)]
-    pub(crate) async fn dispatch_send_media(
-        &self,
-        peer_id: &str,
-        block: &closeclaw_common::processor::ContentBlock,
-        _thread_id: Option<&str>,
-    ) -> Result<(), CommonAdapterError> {
-        use closeclaw_common::processor::ContentBlock;
-        match block {
-            ContentBlock::Image { name, url } => {
-                if url.is_empty() {
-                    warn!(peer_id = %peer_id, name = %name,
-                        "Image block has empty URL, skipping");
-                    return Ok(());
-                }
-                if let Err(e) = self.adapter.send_image(peer_id, url).await {
-                    warn!(peer_id = %peer_id, error = %e, name = %name,
-                        "Failed to send image via lark-cli");
-                }
-                Ok(())
-            }
-            ContentBlock::Audio { name, url } | ContentBlock::File { name, url } => {
-                if url.is_empty() {
-                    warn!(peer_id = %peer_id, name = %name,
-                        "Audio/File block has empty URL, skipping");
-                    return Ok(());
-                }
-                if let Err(e) = self.adapter.send_file(peer_id, url).await {
-                    warn!(peer_id = %peer_id, error = %e, name = %name,
-                        "Failed to send file via lark-cli");
-                }
-                Ok(())
-            }
-            _ => {
-                warn!("dispatch_send_media called with non-media block");
-                Ok(())
-            }
         }
     }
 

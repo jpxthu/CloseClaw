@@ -13,13 +13,6 @@ use super::adapter::FeishuAdapter;
 use super::send_helpers::run_cli;
 use closeclaw_common::streaming::LineBuffer;
 
-#[allow(dead_code)]
-const LINE_THRESHOLD: usize = 100;
-
-/// Default timeout for forced buffer emission.
-#[allow(dead_code)]
-const DEFAULT_TIMEOUT: Duration = Duration::from_millis(200);
-
 /// Cardkit streaming element ID for the main content element.
 pub(crate) const STREAMING_ELEMENT_ID: &str = "streaming_content";
 
@@ -141,7 +134,6 @@ impl CardkitStreamingRenderer {
     ///
     /// Enforces a minimum interval between card updates to avoid
     /// exceeding the platform's update frequency limit.
-    #[allow(dead_code)]
     pub(crate) fn should_update_now(&self) -> bool {
         match self.state.last_update {
             Some(last) => last.elapsed() >= Duration::from_millis(100),
@@ -155,23 +147,21 @@ impl CardkitStreamingRenderer {
     #[allow(dead_code)]
     pub(crate) async fn create_card(adapter: &FeishuAdapter) -> Option<String> {
         let card_json = serde_json::json!({
-            "type": "card_json",
-            "card": {
-                "streaming_mode": true,
-                "body": {
-                    "elements": [{
-                        "tag": "markdown",
-                        "element_id": STREAMING_ELEMENT_ID,
-                        "content": ""
-                    }]
-                }
+            "streaming_mode": true,
+            "body": {
+                "elements": [{
+                    "tag": "markdown",
+                    "element_id": STREAMING_ELEMENT_ID,
+                    "content": ""
+                }]
             }
         });
 
-        let params = serde_json::json!({
-            "card": card_json
-        });
-        let params_str = params.to_string();
+        let data_str = serde_json::json!({
+            "type": "card_json",
+            "data": card_json.to_string()
+        })
+        .to_string();
 
         let args = [
             "api",
@@ -179,8 +169,8 @@ impl CardkitStreamingRenderer {
             "POST",
             "--uri",
             "/open-apis/cardkit/v1/cards",
-            "--params",
-            &params_str,
+            "--data",
+            &data_str,
         ];
 
         match run_cli(adapter, &args).await {
@@ -202,6 +192,9 @@ impl CardkitStreamingRenderer {
     ///
     /// Sends an interactive card message containing a reference to the
     /// streaming card by card_id.
+    ///
+    /// Routes to `--user-id` for P2P (`ou_xxx`) or `--chat-id` for
+    /// group chats (`oc_xxx`).
     #[allow(dead_code)]
     pub(crate) async fn send_card_ref(
         adapter: &FeishuAdapter,
@@ -214,16 +207,15 @@ impl CardkitStreamingRenderer {
             "card_id": card_id
         });
         let content = card_json.to_string();
-        adapter
-            .send_msg(chat_id, "interactive", &content, root_id)
-            .await
+        adapter.send_msg(chat_id, "interactive", &content, root_id).await
     }
 
     /// Update a card element's content via cardkit API.
     ///
     /// Sends a PUT request to update the markdown content of a specific
     /// element within a streaming card. The sequence number must be
-    /// monotonically increasing for idempotent updates.
+    /// monotonically increasing for idempotent updates. A `uuid` field
+    /// (derived from sequence + element_id) ensures deduplication.
     pub(crate) async fn update_element(
         adapter: &FeishuAdapter,
         card_id: &str,
@@ -231,8 +223,11 @@ impl CardkitStreamingRenderer {
         content: &str,
         sequence: u32,
     ) -> Result<(), crate::error::AdapterError> {
+        let uuid = format!("{}_{}", sequence, element_id);
         let update_json = serde_json::json!({
-            "content": content
+            "content": content,
+            "uuid": uuid,
+            "sequence": sequence
         });
         let update_str = update_json.to_string();
 
@@ -240,7 +235,6 @@ impl CardkitStreamingRenderer {
             "/open-apis/cardkit/v1/cards/{}/elements/{}/content",
             card_id, element_id
         );
-        let header = format!("X-Cardkit-Sequence: {}", sequence);
 
         let args = [
             "api",
@@ -248,10 +242,8 @@ impl CardkitStreamingRenderer {
             "PUT",
             "--uri",
             &uri,
-            "--params",
+            "--data",
             &update_str,
-            "--header",
-            &header,
         ];
 
         run_cli(adapter, &args).await?;

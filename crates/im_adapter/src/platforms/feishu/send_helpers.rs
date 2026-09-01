@@ -85,13 +85,19 @@ pub(crate) async fn run_cli(
 /// Build lark-cli arguments for sending a message.
 ///
 /// Returns the argument list (without the command name) for:
-/// `lark-cli im +messages-send --chat-id <chat_id> --<msg_type_flag> <content> --as bot`
+/// - P2P (open_id `ou_xxx`): `lark-cli im +messages-send --user-id <id> --<flag> <content> --as bot`
+/// - Group (chat_id `oc_xxx`): `lark-cli im +messages-send --chat-id <id> --<flag> <content> --as bot`
 fn build_send_args(chat_id: &str, msg_type: &str, content: &str) -> Vec<String> {
+    let (id_flag, id_value) = if chat_id.starts_with("ou_") {
+        ("--user-id".to_string(), chat_id.to_string())
+    } else {
+        ("--chat-id".to_string(), chat_id.to_string())
+    };
     let mut args = vec![
         "im".to_string(),
         "+messages-send".to_string(),
-        "--chat-id".to_string(),
-        chat_id.to_string(),
+        id_flag,
+        id_value,
     ];
 
     match msg_type {
@@ -181,18 +187,23 @@ impl FeishuAdapter {
 
     /// Send an image file via lark-cli.
     ///
-    /// `lark-cli im +messages-send --chat-id <chat_id> --image <path> --as bot`
-    #[allow(dead_code)]
+    /// - P2P (`ou_xxx`): `lark-cli im +messages-send --user-id <id> --image <path> --as bot`
+    /// - Group (`oc_xxx`): `lark-cli im +messages-send --chat-id <id> --image <path> --as bot`
     pub(crate) async fn send_image(
         &self,
-        chat_id: &str,
+        receive_id: &str,
         image_path: &str,
     ) -> Result<(), AdapterError> {
+        let id_flag = if receive_id.starts_with("ou_") {
+            "--user-id"
+        } else {
+            "--chat-id"
+        };
         let args = vec![
             "im",
             "+messages-send",
-            "--chat-id",
-            chat_id,
+            id_flag,
+            receive_id,
             "--image",
             image_path,
             "--as",
@@ -204,18 +215,23 @@ impl FeishuAdapter {
 
     /// Send a file via lark-cli.
     ///
-    /// `lark-cli im +messages-send --chat-id <chat_id> --file <path> --as bot`
-    #[allow(dead_code)]
+    /// - P2P (`ou_xxx`): `lark-cli im +messages-send --user-id <id> --file <path> --as bot`
+    /// - Group (`oc_xxx`): `lark-cli im +messages-send --chat-id <id> --file <path> --as bot`
     pub(crate) async fn send_file(
         &self,
-        chat_id: &str,
+        receive_id: &str,
         file_path: &str,
     ) -> Result<(), AdapterError> {
+        let id_flag = if receive_id.starts_with("ou_") {
+            "--user-id"
+        } else {
+            "--chat-id"
+        };
         let args = vec![
             "im",
             "+messages-send",
-            "--chat-id",
-            chat_id,
+            id_flag,
+            receive_id,
             "--file",
             file_path,
             "--as",
@@ -258,7 +274,6 @@ impl FeishuAdapter {
 /// These are non-fatal errors where a text fallback is appropriate.
 /// For lark-cli, capability errors come through as error codes 230001 or
 /// 230002 in the JSON response.
-#[allow(dead_code)]
 pub(crate) fn is_capability_error(error_msg: &str) -> bool {
     error_msg.contains("230001") || error_msg.contains("230002")
 }
