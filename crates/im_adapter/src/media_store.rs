@@ -214,14 +214,22 @@ impl closeclaw_common::MediaStoreAccess for MediaStore {
         &self,
         media_ref: &closeclaw_common::MediaRef,
     ) -> Result<std::path::PathBuf, closeclaw_common::MediaStoreError> {
-        if media_ref.path.is_empty() {
-            return Err(closeclaw_common::MediaStoreError::NoPath);
+        if !media_ref.path.is_empty() {
+            let full = self.storage_dir.join(&media_ref.path);
+            if !full.exists() {
+                return Err(closeclaw_common::MediaStoreError::FileNotFound(full));
+            }
+            return Ok(full);
         }
-        let full = self.storage_dir.join(&media_ref.path);
-        if !full.exists() {
-            return Err(closeclaw_common::MediaStoreError::FileNotFound(full));
+
+        // Path is empty — search inbound/ and outbound/ by key.
+        if let Some(found) = find_by_key(&self.inbound_dir, &media_ref.key) {
+            return Ok(found);
         }
-        Ok(full)
+        if let Some(found) = find_by_key(&self.outbound_dir, &media_ref.key) {
+            return Ok(found);
+        }
+        Err(closeclaw_common::MediaStoreError::NoPath)
     }
 }
 
@@ -334,6 +342,24 @@ fn mime_to_extension(mime: &str) -> &'static str {
         "text/markdown" => "md",
         _ => "bin",
     }
+}
+
+/// Search `dir` for a file whose name contains `key`.
+///
+/// The key is a platform-specific unique identifier (e.g. `img_abc123`)
+/// embedded in the sanitized filename by [`persist_to_disk`].
+/// Returns the first match, or `None` if no file matches.
+fn find_by_key(dir: &Path, key: &str) -> Option<PathBuf> {
+    let entries = fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if let Some(name_str) = name.to_str() {
+            if name_str.contains(key) {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
 }
 
 /// Delete files in `dir` whose last-modified time is before `cutoff`.
@@ -483,6 +509,59 @@ mod tests {
         assert!(matches!(
             store.resolve_ref(&media_ref),
             Err(CommonMediaStoreError::FileNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn resolve_ref_by_key_in_inbound() {
+        let (_tmp, store) = make_store();
+        let file_path = store.inbound_dir().join("img_abc123.png");
+        fs::write(&file_path, "image data").unwrap();
+
+        let media_ref = MediaRef {
+            key: "img_abc123".into(),
+            path: String::new(),
+            media_type: MediaType::Image,
+            size: 10,
+            mime: "image/png".into(),
+        };
+
+        let resolved = store.resolve_ref(&media_ref).unwrap();
+        assert_eq!(resolved, file_path);
+    }
+
+    #[test]
+    fn resolve_ref_by_key_in_outbound() {
+        let (_tmp, store) = make_store();
+        let file_path = store.outbound_dir().join("file_xyz.pdf");
+        fs::write(&file_path, "pdf data").unwrap();
+
+        let media_ref = MediaRef {
+            key: "xyz".into(),
+            path: String::new(),
+            media_type: MediaType::File,
+            size: 8,
+            mime: "application/pdf".into(),
+        };
+
+        let resolved = store.resolve_ref(&media_ref).unwrap();
+        assert_eq!(resolved, file_path);
+    }
+
+    #[test]
+    fn resolve_ref_by_key_not_found() {
+        let (_tmp, store) = make_store();
+        // No files at all.
+        let media_ref = MediaRef {
+            key: "missing".into(),
+            path: String::new(),
+            media_type: MediaType::Image,
+            size: 0,
+            mime: "image/png".into(),
+        };
+        assert!(matches!(
+            store.resolve_ref(&media_ref),
+            Err(CommonMediaStoreError::NoPath)
         ));
     }
 
