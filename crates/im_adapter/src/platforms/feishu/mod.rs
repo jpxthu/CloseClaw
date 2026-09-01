@@ -15,6 +15,8 @@ pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
 #[cfg(test)]
+mod credential_isolation_tests;
+#[cfg(test)]
 mod debug_log_tests;
 mod events;
 #[cfg(test)]
@@ -27,6 +29,8 @@ mod feishu_tests;
 mod identity_isolation_tests;
 #[cfg(test)]
 mod media_filter_tests;
+#[cfg(test)]
+mod normalize_cli_event_tests;
 mod outbound_media;
 #[cfg(test)]
 mod outbound_media_tests;

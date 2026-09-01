@@ -392,4 +392,217 @@ mod tests {
         r.handle_block_end_text();
         assert!(r.state.pending_text.contains("fn main()"));
     }
+
+    // =========================================================================
+    // Cardkit protocol state tests
+    // =========================================================================
+
+    #[test]
+    fn sequence_starts_at_zero() {
+        let state = FeishuStreamingState::default();
+        assert_eq!(state.sequence, 0);
+    }
+
+    #[test]
+    fn sequence_increments_on_update() {
+        let mut state = FeishuStreamingState::default();
+        state.sequence += 1;
+        assert_eq!(state.sequence, 1);
+        state.sequence += 1;
+        assert_eq!(state.sequence, 2);
+    }
+
+    #[test]
+    fn card_id_set_during_streaming() {
+        let mut state = FeishuStreamingState::default();
+        assert!(state.card_id.is_none());
+        state.card_id = Some("card_abc123".to_string());
+        assert_eq!(state.card_id.as_deref(), Some("card_abc123"));
+    }
+
+    #[test]
+    fn streaming_active_flag_toggled() {
+        let mut state = FeishuStreamingState::default();
+        assert!(!state.is_active);
+        state.is_active = true;
+        assert!(state.is_active);
+        state.is_active = false;
+        assert!(!state.is_active);
+    }
+
+    #[test]
+    fn pending_text_cleared_on_flush() {
+        let mut r = make_renderer();
+        r.handle_text_delta("some content。");
+        assert!(!r.state.pending_text.is_empty());
+        let flushed = r.flush();
+        assert_eq!(flushed, "some content。");
+        assert!(r.state.pending_text.is_empty());
+    }
+
+    // =========================================================================
+    // Multi-block streaming flow tests
+    // =========================================================================
+
+    #[test]
+    fn multiple_blocks_independent_buffering() {
+        let mut r = make_renderer();
+        // First block
+        r.handle_block_start_text();
+        r.handle_text_delta("Block 1。");
+        r.handle_block_end_text();
+        let block1 = r.flush();
+        assert_eq!(block1, "Block 1。");
+        // Second block
+        r.handle_block_start_text();
+        r.handle_text_delta("Block 2。");
+        r.handle_block_end_text();
+        let block2 = r.flush();
+        assert_eq!(block2, "Block 2。");
+    }
+
+    #[test]
+    fn interleaved_block_start_and_delta() {
+        let mut r = make_renderer();
+        r.handle_block_start_text();
+        r.handle_text_delta("partial");
+        // New block start resets buffer
+        r.handle_block_start_text();
+        r.handle_text_delta("fresh。");
+        r.handle_block_end_text();
+        assert_eq!(r.flush(), "fresh。");
+    }
+
+    // =========================================================================
+    // Code block handling tests
+    // =========================================================================
+
+    #[test]
+    fn code_block_with_language_preserves_content() {
+        let mut r = make_renderer();
+        r.handle_text_delta("```python\ndef hello():\n    print(\"world\")\n```\n");
+        r.handle_block_end_text();
+        assert!(r.state.pending_text.contains("def hello():"));
+        assert!(r.state.pending_text.contains("print(\"world\")"));
+    }
+
+    #[test]
+    fn code_block_without_language_preserves_content() {
+        let mut r = make_renderer();
+        r.handle_text_delta("```\nsome code\n```\n");
+        r.handle_block_end_text();
+        assert!(r.state.pending_text.contains("some code"));
+    }
+
+    #[test]
+    fn unclosed_code_block_flushed_on_block_end() {
+        let mut r = make_renderer();
+        r.handle_text_delta("```rust\nlet x = 1;");
+        r.handle_block_end_text();
+        assert!(r.state.pending_text.contains("let x = 1;"));
+    }
+
+    // =========================================================================
+    // Chinese and mixed content tests
+    // =========================================================================
+
+    #[test]
+    fn chinese_sentence_terminator_emits() {
+        let mut r = make_renderer();
+        r.handle_text_delta("你好世界。");
+        assert_eq!(r.state.pending_text, "你好世界。");
+    }
+
+    #[test]
+    fn mixed_chinese_english_content() {
+        let mut r = make_renderer();
+        r.handle_text_delta("Hello 世界！");
+        assert_eq!(r.state.pending_text, "Hello 世界！");
+    }
+
+    // =========================================================================
+    // Empty and boundary tests
+    // =========================================================================
+
+    #[test]
+    fn empty_text_delta_no_change() {
+        let mut r = make_renderer();
+        r.handle_text_delta("");
+        assert!(r.state.pending_text.is_empty());
+    }
+
+    #[test]
+    fn only_whitespace_text_delta() {
+        let mut r = make_renderer();
+        r.handle_text_delta("   ");
+        // Whitespace does not trigger sentence boundary
+        assert!(r.state.pending_text.is_empty());
+    }
+
+    #[test]
+    fn only_newline_text_delta_emits() {
+        let mut r = make_renderer();
+        r.handle_text_delta("\n");
+        assert_eq!(r.state.pending_text, "\n");
+    }
+
+    #[test]
+    fn consecutive_sentence_terminators() {
+        let mut r = make_renderer();
+        r.handle_text_delta("a!b?c。");
+        assert!(r.state.pending_text.contains("a!"));
+        assert!(r.state.pending_text.contains("b?"));
+        assert!(r.state.pending_text.contains("c。"));
+    }
+
+    // =========================================================================
+    // Reset during active streaming
+    // =========================================================================
+
+    #[test]
+    fn reset_during_active_streaming_clears_state() {
+        let mut r = make_renderer();
+        r.handle_text_delta("partial content。");
+        r.state.card_id = Some("active_card".to_string());
+        r.state.sequence = 3;
+        r.state.is_active = true;
+        r.state.reset();
+        assert!(r.state.card_id.is_none());
+        assert_eq!(r.state.sequence, 0);
+        assert!(!r.state.is_active);
+        assert!(r.state.pending_text.is_empty());
+    }
+
+    #[test]
+    fn flush_after_reset_returns_empty() {
+        let mut r = make_renderer();
+        r.handle_text_delta("content。");
+        r.state.reset();
+        assert!(r.flush().is_empty());
+    }
+
+    // =========================================================================
+    // Check timeout edge cases
+    // =========================================================================
+
+    #[test]
+    fn check_timeout_after_flush_returns_none() {
+        let mut r = make_renderer();
+        r.handle_text_delta("done。");
+        r.flush();
+        assert!(r.check_timeout().is_none());
+    }
+
+    #[test]
+    fn check_timeout_with_pending_text_returns_some() {
+        let mut r = make_renderer();
+        // Feed text with a sentence terminator to populate pending_text
+        r.handle_text_delta("partial content。");
+        assert!(!r.state.pending_text.is_empty());
+        // The line buffer's own timeout is still within 200ms, so
+        // check_timeout returns the pending text as-is.
+        let result = r.check_timeout();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("partial content。"));
+    }
 }
