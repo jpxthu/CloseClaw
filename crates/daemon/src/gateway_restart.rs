@@ -265,13 +265,19 @@ impl crate::Daemon {
                     }
                 }
             }
+            let failed_count = failed.len();
             // Push failed messages back to the old gateway's stash buffer
             // so they are not silently lost.  They remain available for
             // subsequent replay attempts or WAL-based recovery.
             for req in failed {
                 old_gw.push_rebuild_stashed(req);
             }
-            tracing::info!(total = count, replayed, "stashed inbound messages replayed");
+            tracing::info!(
+                total = count,
+                replayed,
+                failed = failed_count,
+                "stashed inbound messages replayed"
+            );
         }
 
         // Apply pending restart-class config values after the gateway rebuild

@@ -228,10 +228,12 @@ impl Gateway {
 
     /// Enter or exit rebuild mode on the shared stash buffer.
     ///
-    /// When `enabled` is `true`, inbound queue-full hits stash the
-    /// message instead of rejecting it.  The Daemon calls this with
-    /// `true` before `shutdown_old_gateway` and with `false` (or relies
-    /// on the new Gateway's default `false`) after the rebuild.
+    /// The Daemon calls this with `true` **only on the old Gateway**
+    /// before `shutdown_old_gateway` — from that point on, inbound
+    /// queue-full hits stash the message instead of rejecting it.
+    /// The new Gateway is created with `rebuild_mode` defaulting to
+    /// `false`, so no explicit `set_rebuild_mode(false)` call is needed
+    /// on it.
     pub fn set_rebuild_mode(&self, enabled: bool) {
         self.rebuild_stash.set_rebuild_mode(enabled);
     }
@@ -914,8 +916,10 @@ impl Gateway {
         self.session_manager.get_agent_sessions(agent_id).await
     }
 }
+
 /// Build a [`ProcessorRegistry`] with the standard inbound/outbound chains.
 pub use processor_registry_builder::build_processor_registry;
+
 /// Register the built-in outbound middlewares on a [`Gateway`].
 use processor_registry_builder::register_default_middlewares;
 
