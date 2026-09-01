@@ -233,11 +233,11 @@
   },
   {
     "path": "docs/design/im_adapter/media-store.md",
-    "commit": "",
-    "commit_time": "",
-    "confirmed_time": "2026-09-01T14:54:14.938626+08:00",
+    "commit": "de17bcd8e0868ef74ab078b592fee75355c21419",
+    "commit_time": "2026-09-01T20:04:21+08:00",
+    "confirmed_time": "2026-09-01T20:21:12.751864+08:00",
     "comment": "",
-    "blocked_reason": "大小上限归属矛盾：文档明确标注'大小上限为平台可得性约束、非本模块配置项'，但代码将 max_download_size_bytes 作为 MediaConfigData 字段放在 media.json 中配置。需要 Owner 裁决：大小上限应归属平台约束还是 media 模块配置项。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/im_adapter/platforms/feishu.md",
