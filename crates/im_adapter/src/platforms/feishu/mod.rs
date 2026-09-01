@@ -852,6 +852,12 @@ impl IMPlugin for FeishuPlugin {
                     return Ok(());
                 }
                 state.state.pending_text.push_str(text);
+                // Respect platform frequency limit — if the minimum
+                // interval between card updates has not elapsed, keep
+                // the content buffered for the next send() call.
+                if !state.should_update_now() {
+                    return Ok(());
+                }
                 let content = std::mem::take(&mut state.state.pending_text);
                 state.state.sequence += 1;
                 let card_id = state

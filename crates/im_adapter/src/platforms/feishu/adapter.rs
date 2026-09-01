@@ -222,23 +222,6 @@ impl FeishuAdapter {
             .unwrap_or_default()
     }
 
-    /// Extract the event_type from a raw JSON payload.
-    ///
-    /// Supports both CLI format (top-level `type`) and webhook format
-    /// (`header.event_type`).
-    fn extract_event_type(raw: &serde_json::Value) -> String {
-        // CLI format: top-level "type" field
-        if let Some(t) = raw.get("type").and_then(|v| v.as_str()) {
-            return t.to_string();
-        }
-        // Webhook format: header.event_type
-        raw.get("header")
-            .and_then(|h| h.get("event_type"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string()
-    }
-
     /// Fetch the content of a message by its ID via lark-cli.
     ///
     /// Returns `Some(text)` for supported types (text, post), or `None` for
@@ -732,7 +715,7 @@ impl IMAdapter for FeishuAdapter {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let event_type = Self::extract_event_type(&raw);
+        let event_type = super::process_manager::extract_event_type(&raw);
         if event_type == "card.action.trigger" {
             return Ok(None);
         }
@@ -763,7 +746,7 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<Option<CardActionEvent>, AdapterError> {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-        if Self::extract_event_type(&raw) != "card.action.trigger" {
+        if super::process_manager::extract_event_type(&raw) != "card.action.trigger" {
             return Ok(None);
         }
         let (event_id, app_id) = Self::extract_card_ids(&raw);
@@ -795,7 +778,7 @@ impl IMAdapter for FeishuAdapter {
         {
             Ok(()) => Ok(()),
             Err(AdapterError::SendFailed(ref msg))
-                if msg.contains("230001") || msg.contains("230002") =>
+                if super::send_helpers::is_capability_error(msg) =>
             {
                 tracing::warn!(
                     receive_id = %chat_id,

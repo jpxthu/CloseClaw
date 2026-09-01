@@ -253,14 +253,14 @@ impl FeishuAdapter {
     }
 }
 
-/// Check whether an error is a lark-cli "capability" error.
+/// Check whether an error message is a lark-cli "capability" error.
 ///
 /// These are non-fatal errors where a text fallback is appropriate.
-/// For lark-cli, capability errors may come through as specific error
-/// codes in the JSON response.
+/// For lark-cli, capability errors come through as error codes 230001 or
+/// 230002 in the JSON response.
 #[allow(dead_code)]
-pub(crate) fn is_capability_error(code: i32) -> bool {
-    matches!(code, 230001 | 230002)
+pub(crate) fn is_capability_error(error_msg: &str) -> bool {
+    error_msg.contains("230001") || error_msg.contains("230002")
 }
 
 #[cfg(test)]
@@ -391,11 +391,14 @@ mod tests {
 
     #[test]
     fn test_is_capability_error() {
-        assert!(is_capability_error(230001));
-        assert!(is_capability_error(230002));
-        assert!(!is_capability_error(200));
-        assert!(!is_capability_error(0));
-        assert!(!is_capability_error(99999));
+        assert!(is_capability_error(
+            "lark-cli error 230001: capability not supported"
+        ));
+        assert!(is_capability_error("lark-cli error 230002: unsupported"));
+        assert!(!is_capability_error("lark-cli error 200: ok"));
+        assert!(!is_capability_error("lark-cli error 0: success"));
+        assert!(!is_capability_error("lark-cli error 99999: unknown"));
+        assert!(!is_capability_error("some other error"));
     }
 
     /// Create a mock lark-cli script that echoes all arguments as JSON.
