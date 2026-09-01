@@ -26,6 +26,7 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
         max_download_size_bytes: u64::MAX,
+        workspace_dir: None,
     }
 }
 

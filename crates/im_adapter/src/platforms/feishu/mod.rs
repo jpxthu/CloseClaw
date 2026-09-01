@@ -42,6 +42,8 @@ mod text_style;
 pub mod tools;
 #[cfg(test)]
 mod trace_id_tests;
+#[cfg(test)]
+mod try_resolve_media_path_tests;
 
 use self::outbound_media::{copy_to_outbound, upload_file, upload_image, validate_outbound_path};
 use crate::error::AdapterError;
@@ -214,12 +216,10 @@ pub async fn register(
                 MediaStore::new(&media_config.storage_dir).expect("failed to create media store"),
             )
         });
-        let adapter = Arc::new(FeishuAdapter::new(
-            app_id,
-            app_secret,
-            verification_token,
-            media_store,
-        ));
+        let adapter = Arc::new(
+            FeishuAdapter::new(app_id, app_secret, verification_token, media_store)
+                .with_workspace_dir(Some(std::path::PathBuf::from(config_dir))),
+        );
 
         // Load identity mapping from config file (best-effort).
         let identity_resolver: Option<Arc<dyn IdentityResolver>> =
@@ -621,6 +621,9 @@ impl FeishuPlugin {
     /// Returns `Some(path)` if the string is a local file path that exists
     /// and passes outbound validation. Returns `None` for HTTP URLs or
     /// unresolvable references.
+    ///
+    /// When `reference` is a relative path, it is resolved against
+    /// `workspace_dir` before validation.
     async fn try_resolve_media_path(
         &self,
         reference: &str,
@@ -631,14 +634,29 @@ impl FeishuPlugin {
             return None;
         }
 
-        let path = std::path::PathBuf::from(reference);
+        let raw_path = std::path::PathBuf::from(reference);
+
+        // Resolve relative paths against workspace_dir.
+        let path = if raw_path.is_relative() {
+            if let Some(ref ws) = self.adapter.workspace_dir {
+                ws.join(&raw_path)
+            } else {
+                raw_path
+            }
+        } else {
+            raw_path
+        };
+
         if !path.exists() {
             return None;
         }
 
         // Validate against whitelist (media store + workspace).
         let media_dir = media_store.storage_dir();
-        validate_outbound_path(&path, None, media_dir).await.ok()
+        let workspace_dir = self.adapter.workspace_dir.as_deref();
+        validate_outbound_path(&path, workspace_dir, media_dir)
+            .await
+            .ok()
     }
 }
 

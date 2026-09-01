@@ -32,6 +32,7 @@ fn make_test_adapter() -> FeishuAdapter {
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         media_store: Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
         max_download_size_bytes: u64::MAX,
+        workspace_dir: None,
     }
 }
 
