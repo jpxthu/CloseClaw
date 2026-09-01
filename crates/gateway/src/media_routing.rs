@@ -7,6 +7,8 @@
 //!   rejection for any type)
 //! - Building context content strings with media reference tokens
 
+use std::path::Path;
+
 use super::Gateway;
 use closeclaw_common::im_plugin::{MediaType, MessageType};
 use closeclaw_common::processor::ProcessedMessage;
@@ -162,11 +164,28 @@ fn parse_full_media_refs(processed: &ProcessedMessage) -> Vec<FullMediaRefEntry>
         .collect()
 }
 
+/// Extract the filename component from a path string.
+///
+/// Returns `None` when the path is empty or has no usable filename
+/// component (e.g. ends with `..` or a separator).
+fn extract_filename(path: &str) -> Option<&str> {
+    if path.is_empty() {
+        return None;
+    }
+    Path::new(path).file_name().and_then(|n| n.to_str())
+}
+
 /// Format media tokens with inline base64 for small images.
+///
+/// Token format: `[image: key] filename.ext` (when a filename is
+/// available) or `[image: key]` (when the path is empty or has no
+/// extractable filename). The filename annotation helps the LLM
+/// identify the media without exposing local filesystem paths.
 ///
 /// For Image-type refs whose file size is ≤ `image_threshold`, the
 /// file content is read and base64-encoded inline after the token.
-/// Other types keep the standard `[type: key]` reference token.
+/// Other types keep the standard `[type: key]` reference token with
+/// the filename annotation.
 async fn format_media_tokens_with_inline(
     refs: &[FullMediaRefEntry],
     media_store: Option<&dyn MediaStoreAccess>,
@@ -174,17 +193,24 @@ async fn format_media_tokens_with_inline(
 ) -> String {
     let mut parts = Vec::with_capacity(refs.len());
     for entry in refs {
+        let filename_suffix = extract_filename(&entry.path)
+            .map(|f| format!(" {f}"))
+            .unwrap_or_default();
         if entry.media_type == MediaType::Image
             && entry.size > 0
             && (entry.size as u64) <= image_threshold
         {
             if let Some(data) = try_read_inline_image(media_store, &entry.path).await {
-                parts.push(format!("[image: {}]\n{}", entry.key, data));
+                parts.push(format!("[image: {}]{filename_suffix}\n{data}", entry.key));
             } else {
-                parts.push(format!("[image: {}]", entry.key));
+                parts.push(format!("[image: {}]{filename_suffix}", entry.key));
             }
         } else {
-            parts.push(format!("[{}: {}]", entry.media_type.label(), entry.key));
+            parts.push(format!(
+                "[{}: {}]{filename_suffix}",
+                entry.media_type.label(),
+                entry.key
+            ));
         }
     }
     parts.join(" ")
@@ -263,7 +289,7 @@ mod tests {
             MessageType::Image,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "img_abc123".into(),
-                path: "/tmp/img".into(),
+                path: "/tmp/img.png".into(),
                 media_type: closeclaw_common::im_plugin::MediaType::Image,
                 size: 1024,
                 mime: "image/png".into(),
@@ -271,7 +297,7 @@ mod tests {
         );
         assert_eq!(
             build_context_content(&pm, None, 0).await,
-            "[image: img_abc123]"
+            "[image: img_abc123] img.png"
         );
     }
 
@@ -282,13 +308,16 @@ mod tests {
             MessageType::File,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "doc_xyz".into(),
-                path: "/tmp/doc".into(),
+                path: "/tmp/doc.pdf".into(),
                 media_type: closeclaw_common::im_plugin::MediaType::File,
                 size: 2048,
                 mime: "application/pdf".into(),
             }],
         );
-        assert_eq!(build_context_content(&pm, None, 0).await, "[file: doc_xyz]");
+        assert_eq!(
+            build_context_content(&pm, None, 0).await,
+            "[file: doc_xyz] doc.pdf"
+        );
     }
 
     #[tokio::test]
@@ -298,7 +327,7 @@ mod tests {
             MessageType::Audio,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "voice_001".into(),
-                path: "/tmp/voice".into(),
+                path: "/tmp/voice.ogg".into(),
                 media_type: closeclaw_common::im_plugin::MediaType::Audio,
                 size: 512,
                 mime: "audio/ogg".into(),
@@ -306,7 +335,7 @@ mod tests {
         );
         assert_eq!(
             build_context_content(&pm, None, 0).await,
-            "[audio: voice_001]"
+            "[audio: voice_001] voice.ogg"
         );
     }
 
@@ -323,7 +352,7 @@ mod tests {
             MessageType::Post,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "pic_42".into(),
-                path: "/tmp/pic".into(),
+                path: "/tmp/pic.jpg".into(),
                 media_type: closeclaw_common::im_plugin::MediaType::Image,
                 size: 512,
                 mime: "image/jpeg".into(),
@@ -331,7 +360,7 @@ mod tests {
         );
         assert_eq!(
             build_context_content(&pm, None, 0).await,
-            "check this image [image: pic_42]"
+            "check this image [image: pic_42] pic.jpg"
         );
     }
 
@@ -342,13 +371,16 @@ mod tests {
             MessageType::Post,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "vid_7".into(),
-                path: "/tmp/vid".into(),
+                path: "/tmp/vid.mp4".into(),
                 media_type: closeclaw_common::im_plugin::MediaType::File,
                 size: 4096,
                 mime: "video/mp4".into(),
             }],
         );
-        assert_eq!(build_context_content(&pm, None, 0).await, "[file: vid_7]");
+        assert_eq!(
+            build_context_content(&pm, None, 0).await,
+            "[file: vid_7] vid.mp4"
+        );
     }
 
     #[tokio::test]
@@ -404,10 +436,12 @@ mod tests {
             "context content must not contain local paths: {content}"
         );
         assert!(
-            !content.contains("secret/photo.jpg"),
+            !content.contains("secret/"),
             "context content must not contain path components: {content}"
         );
         assert!(content.contains("secret_key"));
+        // Filename annotation is allowed — it is not a filesystem path
+        assert!(content.contains("photo.jpg"));
     }
 
     // ── Threshold-based inline image tests ──────────────────────────────
@@ -450,7 +484,10 @@ mod tests {
             }],
         );
         let content = build_context_content(&pm, Some(store.as_ref()), 1024).await;
-        assert!(content.contains("[image: img_small]"));
+        assert!(
+            content.starts_with("[image: img_small] small.png"),
+            "token should include filename: {content}"
+        );
         assert!(
             content.contains("iVBOR"),
             "should contain base64 of the PNG data"
@@ -476,7 +513,7 @@ mod tests {
             }],
         );
         let content = build_context_content(&pm, Some(store.as_ref()), 1024).await;
-        assert_eq!(content, "[image: img_large]");
+        assert_eq!(content, "[image: img_large] large.png");
     }
 
     /// File type → always reference token, never inline.
@@ -498,7 +535,7 @@ mod tests {
             }],
         );
         let content = build_context_content(&pm, Some(store.as_ref()), 1024).await;
-        assert_eq!(content, "[file: doc1]");
+        assert_eq!(content, "[file: doc1] doc.pdf");
     }
 
     /// Audio type → always reference token, never inline.
@@ -520,7 +557,7 @@ mod tests {
             }],
         );
         let content = build_context_content(&pm, Some(store.as_ref()), 1024).await;
-        assert_eq!(content, "[audio: aud1]");
+        assert_eq!(content, "[audio: aud1] voice.ogg");
     }
 
     /// No media store → reference token only (graceful fallback).
@@ -538,7 +575,7 @@ mod tests {
             }],
         );
         let content = build_context_content(&pm, None, 1024).await;
-        assert_eq!(content, "[image: img_no_store]");
+        assert_eq!(content, "[image: img_no_store] img.png");
     }
 
     /// File not found on disk → reference token (graceful fallback).
@@ -559,7 +596,7 @@ mod tests {
             }],
         );
         let content = build_context_content(&pm, Some(store.as_ref()), 1024).await;
-        assert_eq!(content, "[image: img_missing]");
+        assert_eq!(content, "[image: img_missing] missing.png");
     }
 
     /// Post with text + small image → text + inline base64.
@@ -581,8 +618,7 @@ mod tests {
             }],
         );
         let content = build_context_content(&pm, Some(store.as_ref()), 1024).await;
-        assert!(content.starts_with("look at this"));
-        assert!(content.contains("[image: pic]"));
+        assert!(content.starts_with("look at this [image: pic] photo.jpg"));
         assert!(content.contains("/9j/"), "should contain base64 JPEG data");
     }
 
@@ -615,11 +651,61 @@ mod tests {
             ],
         );
         let content = build_context_content(&pm, Some(store.as_ref()), 1024).await;
-        assert!(content.contains("[image: s]"));
+        assert!(
+            content.contains("[image: s] small.png"),
+            "small image token should include filename"
+        );
         assert!(content.contains("iVBOR"), "small image should be inlined");
         assert!(
-            content.contains("[file: f]"),
-            "file should remain a reference"
+            content.contains("[file: f] big.pdf"),
+            "file should remain a reference with filename"
         );
+    }
+
+    // ── extract_filename unit tests ──────────────────────────────────
+
+    #[test]
+    fn extract_filename_with_extension() {
+        assert_eq!(extract_filename("small.png"), Some("small.png"));
+        assert_eq!(extract_filename("doc.pdf"), Some("doc.pdf"));
+        assert_eq!(extract_filename("/tmp/my_file.jpg"), Some("my_file.jpg"));
+    }
+
+    #[test]
+    fn extract_filename_without_extension() {
+        assert_eq!(extract_filename("/tmp/img"), Some("img"));
+        assert_eq!(extract_filename("/tmp/voice"), Some("voice"));
+    }
+
+    #[test]
+    fn extract_filename_empty_path() {
+        assert_eq!(extract_filename(""), None);
+    }
+
+    #[test]
+    fn extract_filename_deep_path() {
+        assert_eq!(
+            extract_filename("inbound/img_abc_photo.png"),
+            Some("img_abc_photo.png")
+        );
+    }
+
+    // ── Token format with empty path (no filename annotation) ────────
+
+    #[tokio::test]
+    async fn empty_path_produces_token_without_filename() {
+        let pm = make_processed(
+            "",
+            MessageType::Image,
+            vec![closeclaw_common::im_plugin::MediaRef {
+                key: "k1".into(),
+                path: "".into(),
+                media_type: closeclaw_common::im_plugin::MediaType::Image,
+                size: 100,
+                mime: "image/png".into(),
+            }],
+        );
+        let content = build_context_content(&pm, None, 0).await;
+        assert_eq!(content, "[image: k1]");
     }
 }
