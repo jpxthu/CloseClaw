@@ -119,6 +119,7 @@ fn make_plugin(base_url: &str) -> FeishuPlugin {
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
         max_download_size_bytes: u64::MAX,
+        workspace_dir: None,
     });
     FeishuPlugin::new(adapter)
 }
@@ -312,6 +313,7 @@ fn make_adapter(base_url: &str) -> FeishuAdapter {
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
         max_download_size_bytes: u64::MAX,
+        workspace_dir: None,
     }
 }
 

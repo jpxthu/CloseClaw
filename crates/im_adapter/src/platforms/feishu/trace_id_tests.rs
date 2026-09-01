@@ -30,6 +30,7 @@ fn make_adapter() -> FeishuAdapter {
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         media_store: make_test_media_store(),
         max_download_size_bytes: u64::MAX,
+        workspace_dir: None,
     }
 }
 

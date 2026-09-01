@@ -138,10 +138,7 @@ fn parse_upload_response(
     key_field: &str,
     api_name: &str,
 ) -> Result<String, AdapterError> {
-    let code = resp
-        .get("code")
-        .and_then(|c| c.as_i64())
-        .unwrap_or(-1);
+    let code = resp.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
     if code != 0 {
         let msg = resp
             .get("msg")
@@ -157,9 +154,7 @@ fn parse_upload_response(
         .and_then(|k| k.as_str())
         .map(String::from)
         .ok_or_else(|| {
-            AdapterError::SendFailed(format!(
-                "{api_name} upload response missing {key_field}"
-            ))
+            AdapterError::SendFailed(format!("{api_name} upload response missing {key_field}"))
         })
 }
 
@@ -220,7 +215,10 @@ pub(crate) async fn upload_image(
         .unwrap_or_else(|| "image.png".to_string());
     let mime_type = detect_image_mime(file_path);
     let form = reqwest::multipart::Form::new()
-        .part("image_type", reqwest::multipart::Part::text("message".to_string()))
+        .part(
+            "image_type",
+            reqwest::multipart::Part::text("message".to_string()),
+        )
         .part(
             "image",
             reqwest::multipart::Part::bytes(file_bytes)
@@ -252,8 +250,14 @@ pub(crate) async fn upload_file(
         .map_err(|e| AdapterError::SendFailed(format!("cannot read file: {e}")))?;
     let file_type = detect_file_type(file_path);
     let form = reqwest::multipart::Form::new()
-        .part("file_type", reqwest::multipart::Part::text(file_type.to_string()))
-        .part("file_name", reqwest::multipart::Part::text(filename.to_string()))
+        .part(
+            "file_type",
+            reqwest::multipart::Part::text(file_type.to_string()),
+        )
+        .part(
+            "file_name",
+            reqwest::multipart::Part::text(filename.to_string()),
+        )
         .part(
             "file",
             reqwest::multipart::Part::bytes(file_bytes)

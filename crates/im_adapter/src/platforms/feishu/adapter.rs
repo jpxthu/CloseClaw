@@ -1,5 +1,4 @@
 //! Feishu adapter — HTTP I/O, token management, and webhook parsing.
-
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
@@ -200,6 +199,8 @@ pub struct FeishuAdapter {
     pub(crate) media_store: Arc<MediaStore>,
     /// Max download size in bytes for a single media file.
     pub(crate) max_download_size_bytes: u64,
+    /// Workspace directory for outbound media path resolution.
+    pub(crate) workspace_dir: Option<std::path::PathBuf>,
 }
 
 impl FeishuAdapter {
@@ -223,7 +224,14 @@ impl FeishuAdapter {
             last_metadata: Arc::new(Mutex::new(HashMap::new())),
             media_store,
             max_download_size_bytes: DEFAULT_MAX_DOWNLOAD_SIZE_BYTES,
+            workspace_dir: None,
         }
+    }
+
+    /// Set the workspace directory for outbound media path resolution.
+    pub fn with_workspace_dir(mut self, ws: Option<std::path::PathBuf>) -> Self {
+        self.workspace_dir = ws;
+        self
     }
 
     /// Extract the event_type from a raw webhook JSON payload header.
