@@ -27,6 +27,9 @@ pub struct Message {
     pub metadata: HashMap<String, String>,
     #[serde(default)]
     pub thread_id: Option<String>,
+    /// 出站定向回复引用（IM 渠道定向投递的靶标 ID）
+    #[serde(default)]
+    pub reply_ref: Option<String>,
     /// 出站消息的平台标识（如 "feishu"、"telegram"）
     #[serde(default)]
     pub platform: Option<String>,

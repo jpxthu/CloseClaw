@@ -208,7 +208,7 @@ async fn text_send_failure_returns_ok() {
     let cli = create_failing_mock_cli(&tmp);
     let plugin = make_plugin(&cli);
     let output = text_output("hello");
-    let result = plugin.send(&output, "chat_test", None).await;
+    let result = plugin.send(&output, "chat_test", None, None).await;
     assert!(result.is_ok(), "text send failure should return Ok(())");
 }
 
@@ -220,7 +220,7 @@ async fn interactive_send_failure_falls_back_to_text_success() {
     let cli = create_fail_then_succeed_cli(&tmp, 1);
     let plugin = make_plugin(&cli);
     let output = interactive_output("fallback content");
-    let result = plugin.send(&output, "chat_test", None).await;
+    let result = plugin.send(&output, "chat_test", None, None).await;
     assert!(
         result.is_ok(),
         "interactive failure with text fallback success should return Ok(())"
@@ -234,7 +234,7 @@ async fn interactive_send_failure_text_fallback_also_fails_returns_ok() {
     let cli = create_failing_mock_cli(&tmp);
     let plugin = make_plugin(&cli);
     let output = interactive_output("content to extract");
-    let result = plugin.send(&output, "chat_test", None).await;
+    let result = plugin.send(&output, "chat_test", None, None).await;
     assert!(
         result.is_ok(),
         "both interactive and text fallback failing should return Ok(())"
@@ -251,7 +251,7 @@ async fn unknown_msg_type_returns_err() {
         msg_type: "unknown_type".into(),
         payload: serde_json::json!({}),
     };
-    let result = plugin.send(&output, "chat_test", None).await;
+    let result = plugin.send(&output, "chat_test", None, None).await;
     assert!(result.is_err(), "unknown msg_type should return Err");
     match result.unwrap_err() {
         CommonAdapterError::UnsupportedOperation => {}
@@ -276,7 +276,7 @@ async fn interactive_empty_text_fallback_returns_ok() {
             }
         }),
     };
-    let result = plugin.send(&output, "chat_test", None).await;
+    let result = plugin.send(&output, "chat_test", None, None).await;
     assert!(result.is_ok(), "empty text fallback should return Ok(())");
 }
 

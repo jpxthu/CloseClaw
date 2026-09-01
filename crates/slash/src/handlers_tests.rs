@@ -283,6 +283,7 @@ pub(crate) async fn create_test_session(sm: &SessionManager) -> String {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

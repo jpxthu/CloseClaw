@@ -232,6 +232,7 @@ async fn create_session_and_timestamp(
         timestamp: ts,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -375,6 +376,7 @@ async fn test_session_resolved_event_emitted() {
                 timestamp: msg_timestamp,
                 metadata: std::collections::HashMap::new(),
                 thread_id: None,
+                reply_ref: None,
                 platform: None,
                 dsl_result: None,
                 content_blocks: None,
@@ -619,6 +621,7 @@ impl closeclaw_common::IMPlugin for FeishuMockPlugin {
         _output: &closeclaw_common::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), closeclaw_common::AdapterError> {
         self.send_called
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -666,6 +669,7 @@ impl closeclaw_common::IMPlugin for DiscordMockPlugin {
         _output: &closeclaw_common::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), closeclaw_common::AdapterError> {
         Ok(())
     }

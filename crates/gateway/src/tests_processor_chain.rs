@@ -119,6 +119,7 @@ impl IMPlugin for MockAdapter {
         _output: &closeclaw_common::im_plugin::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
         Ok(())
     }
@@ -270,6 +271,7 @@ async fn test_processor_chain_execution_order_by_priority() {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
     };
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
     msg.metadata.insert("session_id".into(), sid);
@@ -353,6 +355,7 @@ fn make_message(to: &str, content: &str) -> Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
     }
 }
 

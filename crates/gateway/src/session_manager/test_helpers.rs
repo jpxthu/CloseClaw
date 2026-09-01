@@ -30,6 +30,7 @@ pub(crate) fn make_msg() -> crate::Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -309,18 +310,20 @@ use closeclaw_session::persistence::{
 pub struct MockPersistService {
     pub archived_checkpoint: tokio::sync::Mutex<Option<SessionCheckpoint>>,
     pub restore_called: tokio::sync::Mutex<bool>,
+    pub saved_checkpoint: tokio::sync::Mutex<Option<SessionCheckpoint>>,
 }
 
 #[async_trait::async_trait]
 impl PersistenceService for MockPersistService {
-    async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        *self.saved_checkpoint.lock().await = Some(cp.clone());
         Ok(())
     }
     async fn load_checkpoint(
         &self,
         _: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self.archived_checkpoint.lock().await.take())
+        Ok(self.archived_checkpoint.lock().await.clone())
     }
     async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
         Ok(())
@@ -333,7 +336,7 @@ impl PersistenceService for MockPersistService {
         _: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         *self.restore_called.lock().await = true;
-        Ok(self.archived_checkpoint.lock().await.take())
+        Ok(self.archived_checkpoint.lock().await.clone())
     }
     async fn archive_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
         Ok(())

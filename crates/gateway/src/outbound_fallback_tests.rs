@@ -59,6 +59,7 @@ impl closeclaw_common::IMPlugin for SuccessMock {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -110,6 +111,7 @@ impl closeclaw_common::IMPlugin for FailingSendMock {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::SendFailed("send failed".into()))
     }
@@ -152,6 +154,7 @@ impl closeclaw_common::IMPlugin for AlwaysFailMock {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::SendFailed("always fails".into()))
     }

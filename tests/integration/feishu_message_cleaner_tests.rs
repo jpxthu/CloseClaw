@@ -67,6 +67,7 @@ fn webhook_to_normalized_message(webhook: &serde_json::Value) -> NormalizedMessa
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: message_id,
         ..Default::default()
     }

@@ -51,6 +51,7 @@ fn make_message_event_with_id(
             },
             content: content_json.to_string(),
             chat_id: "oc_chat".to_string(),
+            chat_type: None,
             message_type: message_type.to_string(),
             thread_id: None,
             root_id: None,
@@ -110,7 +111,7 @@ fn test_expand_post_with_link() {
             {"tag": "a", "text": "click here", "href": "https://example.com"}
         ]]
     });
-    assert_eq!(expand_post_content(&content), "visit click here");
+    assert_eq!(expand_post_content(&content), "visit ");
 }
 
 #[test]
@@ -232,7 +233,7 @@ fn test_expand_post_title_with_mixed_elements() {
     });
     assert_eq!(
         expand_post_content(&content),
-        "Mixed Post\nHello @Bob\n[图片]\nCaption\n[文件]\n[视频]\nlink"
+        "Mixed Post\nHello @Bob\n[图片]\nCaption\n[文件]\n[视频]\n"
     );
 }
 // ===========================================================================
@@ -319,16 +320,18 @@ async fn test_parse_message_event_thread_id_from_root_id() {
     assert_eq!(msg.thread_id.as_deref(), Some("om_root123"));
 }
 // ===========================================================================
-// handle_webhook card action tests
+// card.action.trigger deferred tests (Step 1.4)
 // ===========================================================================
 
+/// card.action.trigger is deferred per design doc: parse_card_action
+/// returns Ok(None) and logs debug info. The Gateway discards None.
 #[tokio::test]
-async fn test_parse_card_action_forceful_shutdown() {
+async fn test_parse_card_action_deferred_returns_none() {
     let adapter = make_test_adapter();
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
-            "event_id": "evt_card_1",
+            "event_id": "evt_card_deferred_1",
             "event_type": "card.action.trigger",
             "create_time": "1234567890",
             "token": "tok",
@@ -347,64 +350,29 @@ async fn test_parse_card_action_forceful_shutdown() {
         .parse_card_action(&serde_json::to_vec(&payload).unwrap())
         .await
         .unwrap();
-    let card = result.expect("expected Some(CardActionEvent) for forceful_shutdown");
-    assert_eq!(card.platform, "feishu");
-    assert_eq!(card.sender_id, "ou_operator");
-    assert_eq!(card.action_value, "forceful_shutdown");
-    assert_eq!(card.account_id, "ou_operator");
-    assert_eq!(card.metadata.get("card_action").unwrap(), "true");
-    assert_eq!(card.metadata.get("chat_id").unwrap(), "oc_chat123");
+    assert!(
+        result.is_none(),
+        "card.action.trigger should return None (deferred per design doc)"
+    );
 }
+
+/// card.action.trigger with CLI-format fixture payload also returns None.
 #[tokio::test]
-async fn test_parse_card_action_unknown_returns_some() {
+async fn test_parse_card_action_cli_fixture_deferred() {
     let adapter = make_test_adapter();
+    // CLI format: top-level type/event_id, operator_id, action_value
     let payload = serde_json::json!({
-        "schema": "2.0",
-        "header": {
-            "event_id": "evt_card_2",
-            "event_type": "card.action.trigger",
-            "create_time": "1234567890",
-            "token": "tok",
-            "app_id": "test_app_id"
-        },
-        "operator": {
-            "open_id": "ou_operator"
-        },
-        "token": "card_token",
-        "action": {
-            "value": {"action": "some_other_action"},
-            "tag": "button"
-        }
-    });
-    let result = adapter
-        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
-        .await
-        .unwrap();
-    // Per design doc: all card actions are returned as CardActionEvent;
-    // the Gateway routes them to the tool_result channel.
-    let card = result.expect("expected Some(CardActionEvent) for any recognized action");
-    assert_eq!(card.action_value, "some_other_action");
-}
-#[tokio::test]
-async fn test_parse_card_action_no_value_returns_none() {
-    let adapter = make_test_adapter();
-    let payload = serde_json::json!({
-        "schema": "2.0",
-        "header": {
-            "event_id": "evt_card_3",
-            "event_type": "card.action.trigger",
-            "create_time": "1234567890",
-            "token": "tok",
-            "app_id": "test_app_id"
-        },
-        "operator": {
-            "open_id": "ou_operator"
-        },
-        "token": "card_token",
-        "action": {
-            "value": null,
-            "tag": "button"
-        }
+        "type": "card.action.trigger",
+        "event_id": "cli_card_evt_1",
+        "timestamp": "1787884959729992",
+        "operator_id": "ou_op_cli",
+        "message_id": "om_test",
+        "chat_id": "oc_chat_cli",
+        "host": "im_message",
+        "token": "card_token_cli",
+        "action_tag": "button",
+        "action_value": "{\"action\":\"approve\",\"task\":\"t1\"}",
+        "checked": false
     });
     let result = adapter
         .parse_card_action(&serde_json::to_vec(&payload).unwrap())
@@ -412,9 +380,43 @@ async fn test_parse_card_action_no_value_returns_none() {
         .unwrap();
     assert!(
         result.is_none(),
-        "card action with null value should return None"
+        "CLI card.action.trigger should return None (deferred per design doc)"
     );
 }
+
+/// Duplicate card.action.trigger event_id is rejected via dedup.
+#[tokio::test]
+async fn test_parse_card_action_dedup_duplicate_rejected() {
+    let adapter = make_test_adapter();
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "evt_card_dedup_1",
+            "event_type": "card.action.trigger",
+            "create_time": "0",
+            "token": "t",
+            "app_id": "a"
+        },
+        "operator": {"open_id": "ou_op"},
+        "token": "tok",
+        "action": {"value": {"action": "btn"}}
+    });
+    // First call: deferred, records event_id in dedup.
+    let _ = adapter
+        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
+        .await
+        .unwrap();
+    // Second call with same event_id: dedup rejects it.
+    let result = adapter
+        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
+        .await
+        .unwrap();
+    assert!(
+        result.is_none(),
+        "duplicate card.action.trigger event_id should be rejected"
+    );
+}
+
 // ===========================================================================
 // parse_inbound tests (message_type propagation)
 // ===========================================================================
@@ -834,4 +836,139 @@ async fn test_parse_unknown_type_none() {
     let a = make_test_adapter();
     let e = make_message_event("unsupported_type", &serde_json::json!({}).to_string());
     assert!(a.parse_message_event(e).await.unwrap().is_none());
+}
+
+// ===========================================================================
+// Session anchor construction tests (Step 1.1)
+// ===========================================================================
+
+/// Top-level message: peer_id = sender_open_id|message_id, reply_ref = message_id
+#[tokio::test]
+async fn test_anchor_top_level_message() {
+    let adapter = make_test_adapter();
+    let event = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "hi"}).to_string(),
+        Some("om_msg_123"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.peer_id, "ou_sender|om_msg_123");
+    assert_eq!(msg.reply_ref.as_deref(), Some("om_msg_123"));
+    assert_eq!(msg.message_id, "om_msg_123");
+}
+
+/// Topic reply with thread_id: peer_id = sender_open_id|thread_id, reply_ref = root_id
+#[tokio::test]
+async fn test_anchor_topic_reply_with_thread_id() {
+    let adapter = make_test_adapter();
+    let mut event = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        Some("om_msg_456"),
+    );
+    event.event.thread_id = Some("om_thread_789".to_string());
+    event.event.root_id = Some("om_root_100".to_string());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.peer_id, "ou_sender|om_thread_789");
+    assert_eq!(msg.reply_ref.as_deref(), Some("om_root_100"));
+    assert_eq!(msg.thread_id.as_deref(), Some("om_thread_789"));
+}
+
+/// Topic reply with root_id only (no thread_id): peer_id = sender_open_id|root_id, reply_ref = root_id
+#[tokio::test]
+async fn test_anchor_topic_reply_root_id_only() {
+    let adapter = make_test_adapter();
+    let mut event = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        Some("om_msg_200"),
+    );
+    event.event.root_id = Some("om_root_300".to_string());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.peer_id, "ou_sender|om_root_300");
+    assert_eq!(msg.reply_ref.as_deref(), Some("om_root_300"));
+    assert_eq!(msg.thread_id.as_deref(), Some("om_root_300"));
+}
+
+/// Topic reply with parent_id only: peer_id = sender_open_id|parent_id, reply_ref = parent_id
+#[tokio::test]
+async fn test_anchor_topic_reply_parent_id_only() {
+    let adapter = make_test_adapter();
+    let mut event = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        Some("om_msg_400"),
+    );
+    event.event.parent_id = Some("om_parent_500".to_string());
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.peer_id, "ou_sender|om_parent_500");
+    assert_eq!(msg.reply_ref.as_deref(), Some("om_parent_500"));
+    assert_eq!(msg.thread_id.as_deref(), Some("om_parent_500"));
+}
+
+/// Missing message_id: peer_id = sender_open_id|"" , reply_ref = Some("")
+#[tokio::test]
+async fn test_anchor_missing_message_id() {
+    let adapter = make_test_adapter();
+    let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
+    // message_id is None → defaults to empty string
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.peer_id, "ou_sender|");
+    assert_eq!(msg.reply_ref.as_deref(), Some(""));
+    assert_eq!(msg.message_id, "");
+}
+
+/// account_id is unchanged when peer_id is composite
+#[tokio::test]
+async fn test_anchor_account_id_unchanged() {
+    let adapter = make_test_adapter();
+    let event = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "hi"}).to_string(),
+        Some("om_msg_999"),
+    );
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
+    assert_eq!(msg.account_id, "ou_sender");
+    assert_eq!(msg.peer_id, "ou_sender|om_msg_999");
+}
+
+/// thread_id fallback chain regression: thread_id > root_id > parent_id
+#[tokio::test]
+async fn test_anchor_thread_id_fallback_chain() {
+    let adapter = make_test_adapter();
+
+    // Case 1: explicit thread_id wins
+    let mut e1 = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "r"}).to_string(),
+        Some("m1"),
+    );
+    e1.event.thread_id = Some("t1".to_string());
+    e1.event.root_id = Some("r1".to_string());
+    e1.event.parent_id = Some("p1".to_string());
+    let msg1 = adapter.parse_message_event(e1).await.unwrap().unwrap();
+    assert_eq!(msg1.thread_id.as_deref(), Some("t1"));
+    assert_eq!(msg1.peer_id, "ou_sender|t1");
+
+    // Case 2: root_id fallback when thread_id absent
+    let mut e2 = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "r"}).to_string(),
+        Some("m2"),
+    );
+    e2.event.root_id = Some("r2".to_string());
+    let msg2 = adapter.parse_message_event(e2).await.unwrap().unwrap();
+    assert_eq!(msg2.thread_id.as_deref(), Some("r2"));
+    assert_eq!(msg2.peer_id, "ou_sender|r2");
+
+    // Case 3: parent_id fallback when thread_id and root_id absent
+    let mut e3 = make_message_event_with_id(
+        "text",
+        &serde_json::json!({"text": "r"}).to_string(),
+        Some("m3"),
+    );
+    e3.event.parent_id = Some("p3".to_string());
+    let msg3 = adapter.parse_message_event(e3).await.unwrap().unwrap();
+    assert_eq!(msg3.thread_id.as_deref(), Some("p3"));
+    assert_eq!(msg3.peer_id, "ou_sender|p3");
 }

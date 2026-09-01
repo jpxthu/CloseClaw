@@ -324,18 +324,22 @@ impl SessionManager {
         pending.remove(session_id)
     }
 
-    /// Update the thread_id in a session's checkpoint.
-    /// Delegates to `session_helpers::update_checkpoint_thread_id`.
-    async fn update_checkpoint_thread_id(&self, session_id: &str, thread_id: &Option<String>) {
-        let cm_guard = self.checkpoint_manager.read().await;
-        let Some(cm) = cm_guard.as_ref() else {
-            warn!(
-                session_id = %session_id,
-                "storage not available, skipping thread_id update"
-            );
-            return;
-        };
-        session_helpers::update_checkpoint_thread_id(cm.as_ref(), session_id, thread_id).await;
+    /// Update thread_id and reply_ref in a session's checkpoint.
+    async fn update_checkpoint_fields(
+        &self,
+        session_id: &str,
+        thread_id: &Option<String>,
+        reply_ref: &Option<String>,
+    ) {
+        if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
+            session_helpers::update_checkpoint_fields(
+                cm.as_ref(),
+                session_id,
+                thread_id,
+                reply_ref,
+            )
+            .await;
+        }
     }
 
     /// Update `last_user_activity_at` and `last_message_at` for a user message.
@@ -392,7 +396,7 @@ impl SessionManager {
             }
         };
         if let Some(active_id) = &channel_override {
-            self.update_checkpoint_thread_id(active_id, &message.thread_id)
+            self.update_checkpoint_fields(active_id, &message.thread_id, &message.reply_ref)
                 .await;
             return Ok(active_id.clone());
         }
@@ -620,6 +624,7 @@ impl SessionManager {
             timestamp: 0,
             metadata: std::collections::HashMap::new(),
             thread_id: None,
+            reply_ref: None,
             platform: None,
             dsl_result: None,
             content_blocks: None,
@@ -727,6 +732,15 @@ impl SessionManager {
         let cm = cm.as_ref()?;
         match cm.load(session_id).await {
             Ok(Some(cp)) => cp.thread_id,
+            _ => None,
+        }
+    }
+
+    pub async fn get_reply_ref(&self, session_id: &str) -> Option<String> {
+        let cm = self.checkpoint_manager.read().await;
+        let cm = cm.as_ref()?;
+        match cm.load(session_id).await {
+            Ok(Some(cp)) => cp.reply_ref,
             _ => None,
         }
     }

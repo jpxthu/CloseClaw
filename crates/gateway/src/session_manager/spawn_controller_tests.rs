@@ -1,5 +1,4 @@
 #![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
-
 //! Unit tests for SpawnController::validate.
 //!
 //! Covers the 4 rejection scenarios + 2 success scenarios defined in
@@ -110,6 +109,7 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

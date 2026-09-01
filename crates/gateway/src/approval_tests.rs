@@ -151,6 +151,7 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         _: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         let text = output
             .payload

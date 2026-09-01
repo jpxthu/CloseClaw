@@ -839,6 +839,7 @@ async fn test_warning_dedup_resets_after_normal() {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
