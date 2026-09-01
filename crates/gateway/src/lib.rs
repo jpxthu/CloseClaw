@@ -807,7 +807,10 @@ impl Gateway {
     /// Send a notification to the user when the result carries a message
     /// (e.g. queuing, error).
     async fn send_notification(&self, peer_id: &str, channel: &str, text: &str) {
-        if let Err(e) = self.send_outbound_simplified(peer_id, channel, text).await {
+        if let Err(e) =
+            crate::outbound_helpers::send_simplified_with_timeout(self, peer_id, channel, text)
+                .await
+        {
             tracing::warn!(
                 peer_id = %peer_id,
                 error = %e,
