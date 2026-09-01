@@ -20,12 +20,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 impl SessionManager {
-    /// Resolve a session_key to a session_id.
-    ///
-    /// Lookup flow:
-    /// 1. key_registry hit + active session → return session_id
-    /// 2. key_registry hit + archived session → restore → return session_id
-    /// 3. key_registry miss → create new session → register → return session_id
+    /// Resolve session_key → session_id via registry lookup or new creation.
     pub async fn resolve(
         &self,
         session_key: &str,
@@ -55,7 +50,6 @@ impl SessionManager {
             let registry = self.key_registry.read().await;
             registry.get(&routing_key).cloned()
         };
-
         if let Some(session_id) = registry_hit {
             let session_exists = {
                 let sessions = self.sessions.read().await;
@@ -74,8 +68,12 @@ impl SessionManager {
                     match cm.load(&session_id).await {
                         Ok(Some(cp)) => match cp.status {
                             SessionStatus::Active => {
-                                self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                                    .await;
+                                self.update_checkpoint_fields(
+                                    &session_id,
+                                    &message.thread_id,
+                                    &message.reply_ref,
+                                )
+                                .await;
                                 return Ok(session_id);
                             }
                             SessionStatus::Migrating => {
@@ -146,8 +144,12 @@ impl SessionManager {
                         },
                         Ok(None) => {
                             // No checkpoint on disk — treat as active (defensive)
-                            self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                                .await;
+                            self.update_checkpoint_fields(
+                                &session_id,
+                                &message.thread_id,
+                                &message.reply_ref,
+                            )
+                            .await;
                             return Ok(session_id);
                         }
                         Err(e) => {
@@ -158,15 +160,23 @@ impl SessionManager {
                                 error = %e,
                                 "failed to load checkpoint status, falling back to existing session"
                             );
-                            self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                                .await;
+                            self.update_checkpoint_fields(
+                                &session_id,
+                                &message.thread_id,
+                                &message.reply_ref,
+                            )
+                            .await;
                             return Ok(session_id);
                         }
                     }
                 } else {
                     // No checkpoint manager — fall back to original behavior
-                    self.update_checkpoint_thread_id(&session_id, &message.thread_id)
-                        .await;
+                    self.update_checkpoint_fields(
+                        &session_id,
+                        &message.thread_id,
+                        &message.reply_ref,
+                    )
+                    .await;
                     return Ok(session_id);
                 }
             }
@@ -346,10 +356,10 @@ impl SessionManager {
                                 );
                             }
                         }
-
                         // Save checkpoint with updated thread_id
                         let mut cp = cp;
                         cp.thread_id = message.thread_id.clone();
+                        cp.reply_ref = message.reply_ref.clone();
                         if let Err(e) = cm.save_raw(&cp).await {
                             warn!(
                                 session_key = %session_key,
@@ -368,7 +378,7 @@ impl SessionManager {
                     let mut registry = self.key_registry.write().await;
                     registry.insert(routing_key.clone(), session_id.clone());
                 }
-                self.update_checkpoint_thread_id(&session_id, &message.thread_id)
+                self.update_checkpoint_fields(&session_id, &message.thread_id, &message.reply_ref)
                     .await;
                 return Ok(session_id);
             }
@@ -390,8 +400,12 @@ impl SessionManager {
                     sessions.contains_key(&existing_id)
                 };
                 if session_exists {
-                    self.update_checkpoint_thread_id(&existing_id, &message.thread_id)
-                        .await;
+                    self.update_checkpoint_fields(
+                        &existing_id,
+                        &message.thread_id,
+                        &message.reply_ref,
+                    )
+                    .await;
                     return Ok(existing_id);
                 }
                 // Session not yet visible (concurrent creation in progress)
@@ -411,8 +425,12 @@ impl SessionManager {
                         sessions.contains_key(&retry_id)
                     };
                     if session_exists {
-                        self.update_checkpoint_thread_id(&retry_id, &message.thread_id)
-                            .await;
+                        self.update_checkpoint_fields(
+                            &retry_id,
+                            &message.thread_id,
+                            &message.reply_ref,
+                        )
+                        .await;
                         return Ok(retry_id);
                     }
                 }
@@ -452,7 +470,7 @@ impl SessionManager {
                     super::session_helpers::create_new_session(&existing_id, message, channel),
                 );
             }
-            self.update_checkpoint_thread_id(&existing_id, &message.thread_id)
+            self.update_checkpoint_fields(&existing_id, &message.thread_id, &message.reply_ref)
                 .await;
             info!(
                 session_key = %session_key,
@@ -723,6 +741,7 @@ impl SessionManager {
                         // Save checkpoint with updated thread_id
                         let mut cp = cp;
                         cp.thread_id = message.thread_id.clone();
+                        cp.reply_ref = message.reply_ref.clone();
                         if let Err(e) = cm.save_raw(&cp).await {
                             warn!(
                                 session_key = %session_key,
@@ -740,8 +759,7 @@ impl SessionManager {
                     let mut registry = self.key_registry.write().await;
                     registry.insert(routing_key.clone(), archived_id.clone());
                 }
-
-                self.update_checkpoint_thread_id(&archived_id, &message.thread_id)
+                self.update_checkpoint_fields(&archived_id, &message.thread_id, &message.reply_ref)
                     .await;
                 info!(
                     session_key = %session_key,
@@ -880,13 +898,7 @@ impl SessionManager {
         );
         Ok(session_id)
     }
-    /// Bounded poll: wait for a session's checkpoint status to become Archived.
-    ///
-    /// Polls `cm.load(session_id)` every 500 ms for up to 5 s.
-    /// Returns `true` if status reached `Archived`, `false` on timeout.
-    ///
-    /// Used by both registry-hit migrating handling (Step 1.1) and
-    /// registry-miss migrating handling (Step 1.4) to avoid code duplication.
+    /// Poll cm.load(session_id) every 500ms for up to 5s until Archived.
     async fn wait_for_archive_completion(
         cm: &CheckpointManager<dyn PersistenceService>,
         session_id: &str,
@@ -912,17 +924,7 @@ impl SessionManager {
             }
         }
     }
-    /// Rebuild system prompt for an archived session that already has a
-    /// [`ConversationSession`] in memory (`needs_conv = false`).
-    ///
-    /// Extracted from Path 2 and Path 3 of [`Self::resolve`] to avoid
-    /// duplicating the rebuild logic. Performs the full injection chain
-    /// (matching the new session path) so that dynamic prompt builder,
-    /// skill listing, snapshot meta store, checkpoint storage, prompt
-    /// overrides, and session config are all wired up.
-    ///
-    /// Lock-range optimised: clones the `Arc` under a read lock then
-    /// releases it before acquiring the write lock on the inner session.
+    /// Rebuild system prompt for archived session with in-memory ConversationSession.
     async fn rebuild_archived_session_prompt(
         &self,
         session_id: &str,
@@ -971,9 +973,7 @@ impl SessionManager {
             }
         }
     }
-    /// Wire skill listing provider and agent-level skills whitelist
-    /// into a [`ConversationSession`]. Helper to avoid duplicating
-    /// this block across resolve/recovery paths.
+    /// Wire skill listing provider and agent-level skills into ConversationSession.
     pub(crate) async fn wire_skill_listing_deps(
         &self,
         conv: &mut ConversationSession,

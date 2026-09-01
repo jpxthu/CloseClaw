@@ -125,6 +125,7 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         let text = output
             .payload
@@ -178,6 +179,7 @@ impl IMPlugin for FailingPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.send_attempt_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

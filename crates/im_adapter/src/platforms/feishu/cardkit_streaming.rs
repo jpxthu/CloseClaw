@@ -205,7 +205,12 @@ impl CardkitStreamingRenderer {
             "card_id": card_id
         });
         let content = card_json.to_string();
-        adapter.send_msg(chat_id, "interactive", &content, root_id).await
+        let reply_ref = root_id.map(|id| super::send_helpers::ReplyTarget::Thread {
+            root_id: id.to_string(),
+        });
+        adapter
+            .send_msg(chat_id, "interactive", &content, reply_ref.as_ref())
+            .await
     }
 
     /// Update a card element's content via cardkit API.

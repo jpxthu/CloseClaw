@@ -93,6 +93,7 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

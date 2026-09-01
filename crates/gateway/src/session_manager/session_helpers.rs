@@ -84,36 +84,31 @@ pub(super) fn create_new_session(
     }
 }
 
-/// Update the thread_id in a session's checkpoint.
+/// Update thread_id and reply_ref fields in a session's checkpoint.
 ///
-/// Loads the checkpoint from storage, overwrites `thread_id` with the
-/// provided value, and saves it back.
+/// Loads the checkpoint from storage, overwrites `thread_id` and
+/// `reply_ref` with the provided values, and saves it back.
 ///
 /// Silently skips (with warn!) when:
 /// - storage is not available
 /// - checkpoint does not exist
-pub(super) async fn update_checkpoint_thread_id(
+pub(super) async fn update_checkpoint_fields(
     cm: &CheckpointManager<dyn PersistenceService>,
     session_id: &str,
     thread_id: &Option<String>,
+    reply_ref: &Option<String>,
 ) {
     let mut cp = match cm.load(session_id).await {
         Ok(Some(cp)) => cp,
         Ok(None) | Err(_) => {
-            warn!(
-                session_id = %session_id,
-                "checkpoint not found, skipping thread_id update"
-            );
+            warn!(session_id = %session_id, "checkpoint not found, skipping thread_id/reply_ref update");
             return;
         }
     };
     cp.thread_id = thread_id.clone();
+    cp.reply_ref = reply_ref.clone();
     if let Err(e) = cm.save_raw(&cp).await {
-        warn!(
-            session_id = %session_id,
-            error = %e,
-            "failed to save checkpoint with updated thread_id"
-        );
+        warn!(session_id = %session_id, error = %e, "failed to save checkpoint with updated thread_id");
     }
 }
 

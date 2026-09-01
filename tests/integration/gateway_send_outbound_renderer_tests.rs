@@ -125,6 +125,7 @@ impl IMPlugin for TrackingPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         *self.send_called.lock().unwrap() = true;
         Ok(())

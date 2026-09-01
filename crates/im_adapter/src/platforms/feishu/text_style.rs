@@ -1,7 +1,7 @@
 //! Text style helpers for Feishu post content rendering.
 //!
-//! Converts `text_run` style attributes (bold, italic, strikethrough, underline, link)
-//! into markdown-equivalent formatting.
+//! Converts `text_run` style attributes (bold, italic, strikethrough, underline)
+//! into markdown-equivalent formatting. Link styles are intentionally discarded.
 
 /// Check a boolean style flag from the style JSON object.
 pub(crate) fn bool_style(style: &serde_json::Value, key: &str) -> bool {
@@ -30,25 +30,10 @@ pub(crate) fn wrap_inline_styles(text: &str, style: &serde_json::Value) -> Strin
     result
 }
 
-/// Wrap text with a markdown link if the style contains a non-empty URL.
-pub(crate) fn wrap_link(text: &str, style: &serde_json::Value) -> String {
-    if let Some(url) = style
-        .get("link")
-        .and_then(|l| l.get("url"))
-        .and_then(|u| u.as_str())
-        .filter(|u| !u.is_empty())
-    {
-        format!("[{}]({})", text, url)
-    } else {
-        text.to_string()
-    }
-}
-
 /// Apply text styles to a text_run element's content.
 ///
-/// Supported styles: bold, italic, strikethrough, underline, link.
-/// Combination styles are applied in order: inline styles first, then link.
+/// Supported styles: bold, italic, strikethrough, underline.
+/// Link styles are intentionally discarded per design doc.
 pub(crate) fn apply_text_style(text: &str, style: &serde_json::Value) -> String {
-    let styled = wrap_inline_styles(text, style);
-    wrap_link(&styled, style)
+    wrap_inline_styles(text, style)
 }

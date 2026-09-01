@@ -400,9 +400,7 @@ impl ProcessManager {
         running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
         shutdown_rx: &mut tokio::sync::broadcast::Receiver<()>,
     ) -> bool {
-        if !running.load(std::sync::atomic::Ordering::SeqCst)
-            || shutdown_rx.try_recv().is_ok()
-        {
+        if !running.load(std::sync::atomic::Ordering::SeqCst) || shutdown_rx.try_recv().is_ok() {
             tracing::info!("monitor loop: shutdown requested, exiting");
             return true;
         }
@@ -536,6 +534,70 @@ impl ProcessManager {
 }
 
 // ===========================================================================
+// Event stream → Gateway integration
+// ===========================================================================
+
+/// Spawn a long-running task that reads parsed events from the
+/// [`ProcessManager`] event channel and enqueues them into the
+/// Gateway's inbound queue.
+///
+/// Each [`EventLine::Event`] is serialized back to raw JSON bytes and
+/// wrapped in an [`InboundRequest`] with `platform="feishu"`. Non-event
+/// lines (parse errors) and enqueue failures are logged and skipped.
+///
+/// Group chat filtering is deferred to `parse_inbound` (returns `None`
+/// for group events, which the gateway discards).
+///
+pub(crate) fn start_event_stream(
+    gateway: &std::sync::Arc<closeclaw_gateway::Gateway>,
+    mut event_rx: mpsc::UnboundedReceiver<EventLine>,
+) {
+    let gateway = gateway.clone();
+    tokio::spawn(async move {
+        tracing::info!("feishu long-connection event stream started");
+        while let Some(event_line) = event_rx.recv().await {
+            match event_line {
+                EventLine::Event(event) => {
+                    let raw_payload = match serde_json::to_vec(&event.raw) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            tracing::warn!(
+                                event_type = %event.event_type,
+                                error = %e,
+                                "failed to serialize event raw payload"
+                            );
+                            continue;
+                        }
+                    };
+                    let timestamp_hex = format!("{:x}", chrono::Utc::now().timestamp_millis());
+                    let uuid_no_hyphens = uuid::Uuid::new_v4().simple().to_string();
+                    let trace_id = format!("feishu_{}_{}", timestamp_hex, uuid_no_hyphens);
+                    let req = closeclaw_gateway::inbound_queue::InboundRequest {
+                        platform: "feishu".to_string(),
+                        raw_payload,
+                        peer_id: String::new(),
+                        trace_id,
+                        span_id: None,
+                    };
+                    if let Err(e) = gateway.enqueue_inbound(req).await {
+                        tracing::warn!(
+                            event_type = %event.event_type,
+                            event_id = %event.event_id,
+                            error = %e,
+                            "failed to enqueue inbound event"
+                        );
+                    }
+                }
+                EventLine::Error(err) => {
+                    tracing::warn!(error = %err, "event stream parse error — skipping");
+                }
+            }
+        }
+        tracing::info!("feishu long-connection event stream ended");
+    });
+}
+
+// ===========================================================================
 // CLI event normalization
 // ===========================================================================
 
@@ -585,6 +647,7 @@ fn extract_cli_message_event(raw: &serde_json::Value) -> super::adapter::FeishuM
         },
         content: opt_str_default(raw, "content", ""),
         chat_id: opt_str_default(raw, "chat_id", ""),
+        chat_type: opt_str(raw, "chat_type").map(String::from),
         message_type: opt_str_default(raw, "message_type", ""),
         thread_id: opt_str(raw, "thread_id").map(String::from),
         root_id: opt_str(raw, "root_id").map(String::from),
@@ -613,60 +676,8 @@ mod tests {
     use super::*;
 
     // -----------------------------------------------------------------------
-    // Format parsing tests
+    // parse_cli_event / parse_webhook_event — direct unit tests
     // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_extract_event_type_cli_format() {
-        let raw = serde_json::json!({
-            "type": "im.message.receive_v1",
-            "event_id": "ev_001",
-            "id": "om_001"
-        });
-        assert_eq!(extract_event_type(&raw), "im.message.receive_v1");
-    }
-
-    #[test]
-    fn test_extract_event_type_webhook_format() {
-        let raw = serde_json::json!({
-            "schema": "2.0",
-            "header": {
-                "event_type": "im.message.reaction.created_v1",
-                "event_id": "ev_002"
-            },
-            "event": {}
-        });
-        assert_eq!(extract_event_type(&raw), "im.message.reaction.created_v1");
-    }
-
-    #[test]
-    fn test_extract_event_type_missing() {
-        let raw = serde_json::json!({"foo": "bar"});
-        assert_eq!(extract_event_type(&raw), "");
-    }
-
-    #[test]
-    fn test_extract_event_id_cli_format() {
-        let raw = serde_json::json!({
-            "type": "im.message.receive_v1",
-            "event_id": "ev_cli_001"
-        });
-        assert_eq!(extract_event_id(&raw), "ev_cli_001");
-    }
-
-    #[test]
-    fn test_extract_event_id_webhook_format() {
-        let raw = serde_json::json!({
-            "header": {"event_id": "ev_wh_001"}
-        });
-        assert_eq!(extract_event_id(&raw), "ev_wh_001");
-    }
-
-    #[test]
-    fn test_extract_event_id_missing() {
-        let raw = serde_json::json!({});
-        assert_eq!(extract_event_id(&raw), "");
-    }
 
     #[test]
     fn test_parse_cli_event_valid() {
@@ -727,263 +738,5 @@ mod tests {
         });
         let err = parse_webhook_event(raw).unwrap_err();
         assert!(matches!(err, ProcessError::Json(_)));
-    }
-
-    // -----------------------------------------------------------------------
-    // EventLine::parse tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_parse_event_line_cli_format() {
-        let line = r#"{
-            "type": "im.message.receive_v1",
-            "event_id": "ev_001",
-            "message_id": "om_001",
-            "sender_id": "ou_user",
-            "content": "{\"text\": \"hello\"}"
-        }"#;
-        let result = parse_event_line(line);
-        match result {
-            EventLine::Event(e) => {
-                assert_eq!(e.event_type, "im.message.receive_v1");
-                assert_eq!(e.event_id, "ev_001");
-            }
-            EventLine::Error(err) => panic!("expected Event, got Error: {err}"),
-        }
-    }
-
-    #[test]
-    fn test_parse_event_line_webhook_format() {
-        let line = r#"{
-            "schema": "2.0",
-            "header": {
-                "event_type": "im.message.reaction.created_v1",
-                "event_id": "ev_002",
-                "create_time": "1234567890",
-                "token": "",
-                "app_id": "app_123"
-            },
-            "event": {
-                "message_id": "om_002",
-                "reaction_type": {"emoji_type": "THUMBSUP"}
-            }
-        }"#;
-        let result = parse_event_line(line);
-        match result {
-            EventLine::Event(e) => {
-                assert_eq!(e.event_type, "im.message.reaction.created_v1");
-                assert_eq!(e.event_id, "ev_002");
-            }
-            EventLine::Error(err) => panic!("expected Event, got Error: {err}"),
-        }
-    }
-
-    #[test]
-    fn test_parse_event_line_invalid_json() {
-        let result = parse_event_line("not valid json {{{");
-        assert!(matches!(result, EventLine::Error(_)));
-    }
-
-    #[test]
-    fn test_parse_event_line_empty_line() {
-        // Empty string → JSON parse error
-        let result = parse_event_line("");
-        assert!(matches!(result, EventLine::Error(_)));
-    }
-
-    #[test]
-    fn test_parse_event_line_cli_missing_type() {
-        let line = r#"{"event_id": "ev_123"}"#;
-        let result = parse_event_line(line);
-        assert!(matches!(result, EventLine::Error(_)));
-    }
-
-    #[test]
-    fn test_parse_event_line_webhook_missing_header() {
-        let line = r#"{"schema": "2.0"}"#;
-        let result = parse_event_line(line);
-        assert!(matches!(result, EventLine::Error(_)));
-    }
-
-    // -----------------------------------------------------------------------
-    // ProcessManager integration tests
-    // -----------------------------------------------------------------------
-
-    /// Create a mock script that writes NDJSON lines to stdout and a ready
-    /// signal to stderr, then exits.
-    fn create_mock_script(lines: &[&str]) -> (tempfile::TempDir, String) {
-        let dir = tempfile::TempDir::new().unwrap();
-        let script_path = dir.path().join("mock_lark_cli.sh");
-
-        let mut content = String::from("#!/bin/bash\n");
-        content.push_str("echo '[event] ready' >&2\n");
-        for line in lines {
-            content.push_str(&format!("echo '{line}'\n"));
-        }
-        content.push_str("exit 0\n");
-
-        std::fs::write(&script_path, &content).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
-        (dir, script_path.to_str().unwrap().to_string())
-    }
-
-    /// Create a mock script that outputs events at a given interval.
-    fn create_slow_script(events: &[&str], delay_ms: u64) -> (tempfile::TempDir, String) {
-        let dir = tempfile::TempDir::new().unwrap();
-        let script_path = dir.path().join("slow_lark_cli.sh");
-
-        let mut content = String::from("#!/bin/bash\n");
-        content.push_str("echo '[event] ready' >&2\n");
-        for event in events {
-            content.push_str(&format!("sleep 0.{delay_ms:03}\necho '{event}'\n"));
-        }
-        content.push_str("exit 0\n");
-
-        std::fs::write(&script_path, &content).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
-        (dir, script_path.to_str().unwrap().to_string())
-    }
-
-    #[tokio::test]
-    async fn test_process_manager_start_and_receive_events() {
-        let cli_event = r#"{"type":"im.message.receive_v1","event_id":"ev_001","message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#;
-        let webhook_event = r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","event_id":"ev_002","create_time":"123","token":"","app_id":"app_1"},"event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#;
-
-        let (_dir, script) = create_mock_script(&[cli_event, webhook_event]);
-        let (mut manager, mut rx) = ProcessManager::new("bash".into(), vec![script]);
-
-        manager.start().await.unwrap();
-        assert!(manager.is_running());
-
-        let mut received = Vec::new();
-        while let Ok(line) =
-            tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await
-        {
-            if let Some(EventLine::Event(e)) = line {
-                received.push(e);
-            }
-            if received.len() == 2 {
-                break;
-            }
-        }
-
-        assert_eq!(received.len(), 2);
-        assert_eq!(received[0].event_type, "im.message.receive_v1");
-        assert_eq!(received[0].event_id, "ev_001");
-        assert_eq!(received[1].event_type, "im.message.reaction.created_v1");
-        assert_eq!(received[1].event_id, "ev_002");
-
-        manager.shutdown().await.unwrap();
-    }
-    #[tokio::test]
-    async fn test_process_manager_empty_output() {
-        let (_dir, script) = create_mock_script(&[]);
-        let (mut manager, mut rx) = ProcessManager::new("bash".into(), vec![script]);
-
-        manager.start().await.unwrap();
-
-        // No events expected, just EOF
-        let result = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await;
-        // Should either timeout (no events) or get None (channel closed)
-        assert!(result.is_ok() || result.is_err());
-
-        manager.shutdown().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_process_manager_ready_timeout() {
-        // Script that never outputs the ready signal
-        let dir = tempfile::TempDir::new().unwrap();
-        let script_path = dir.path().join("no_ready.sh");
-        std::fs::write(&script_path, "#!/bin/bash\nwhile true; do sleep 1; done\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
-
-        let (mut manager, _rx) = ProcessManager::new(
-            "bash".into(),
-            vec![script_path.to_str().unwrap().to_string()],
-        );
-
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(35), // wait_for_ready timeout is 30s
-            manager.start(),
-        )
-        .await;
-
-        // Should timeout or return ReadyTimeout
-        match result {
-            Ok(Err(ProcessError::ReadyTimeout)) => {} // Expected
-            Ok(Err(e)) => panic!("expected ReadyTimeout, got: {e}"),
-            Ok(Ok(())) => panic!("expected error, got Ok"),
-            Err(_) => {} // Timeout is also acceptable
-        }
-
-        let _ = manager.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn test_process_manager_parse_event_exposed() {
-        let cli_line = r#"{"type":"im.message.receive_v1","event_id":"ev_001"}"#;
-        let result = ProcessManager::parse_event(cli_line);
-        match result {
-            EventLine::Event(e) => {
-                assert_eq!(e.event_type, "im.message.receive_v1");
-                assert_eq!(e.event_id, "ev_001");
-            }
-            EventLine::Error(err) => panic!("expected Event, got Error: {err}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_process_manager_process_id() {
-        let (_dir, script) = create_mock_script(&[]);
-        let (mut manager, _rx) = ProcessManager::new("bash".into(), vec![script]);
-
-        assert!(manager.pid().is_none());
-        manager.start().await.unwrap();
-        assert!(manager.pid().is_some());
-
-        manager.shutdown().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_process_manager_graceful_shutdown() {
-        let event = r#"{"type":"im.message.receive_v1","event_id":"ev_001"}"#;
-        let (_dir, script) = create_slow_script(&[event, event, event], 200);
-        let (mut manager, mut rx) = ProcessManager::new("bash".into(), vec![script]);
-
-        manager.start().await.unwrap();
-
-        // Read first event
-        let first = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(matches!(first, EventLine::Event(_)));
-
-        // Shutdown should not panic
-        manager.shutdown().await.unwrap();
-        assert!(!manager.is_running());
-    }
-
-    #[test]
-    fn test_process_manager_new_defaults() {
-        let (manager, _rx) =
-            ProcessManager::new("lark-cli".into(), vec!["event".into(), "consume".into()]);
-        assert!(!manager.is_running());
-        assert!(manager.pid().is_none());
-        assert_eq!(manager.command, "lark-cli");
-        assert_eq!(manager.args, vec!["event", "consume"]);
     }
 }

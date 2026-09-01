@@ -488,3 +488,191 @@ fn test_format_detection_cli_preferred_over_webhook() {
         EventLine::Error(err) => panic!("expected Event, got Error: {err}"),
     }
 }
+
+// ===========================================================================
+// start_event_stream tests
+// ===========================================================================
+
+/// Create a test Gateway with inbound queue and DebugLog started.
+///
+/// Returns `(gateway, debug_log_dir)` — the caller can read JSONL files
+/// from `debug_log_dir` to verify debug events.
+async fn make_test_gateway_with_debug_log() -> (
+    std::sync::Arc<closeclaw_gateway::Gateway>,
+    tempfile::TempDir,
+) {
+    use closeclaw_gateway::{Gateway, GatewayConfig};
+
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let config = GatewayConfig {
+        name: "test-debug-log".to_owned(),
+        rate_limit_per_minute: 0,
+        max_message_size: 0,
+        inbound_queue_capacity: 16,
+        inbound_wal_dir: None,
+        ..Default::default()
+    };
+    let sm = std::sync::Arc::new(closeclaw_gateway::SessionManager::new(
+        &config,
+        None,
+        None,
+        closeclaw_common::ReasoningLevel::default(),
+    ));
+    let gw = std::sync::Arc::new(Gateway::new(config, sm));
+    gw.start_inbound_queue();
+
+    // Set DebugLog so emit_arrived_log writes to JSONL.
+    use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+    let debug_log = DebugLog::new(DebugLogConfig {
+        min_level: LogLevel::Trace,
+        log_dir: temp_dir.path().to_path_buf(),
+        retention_days: 1,
+        redaction_patterns: vec![],
+    })
+    .await
+    .expect("DebugLog::new failed");
+    gw.set_debug_log(debug_log).await;
+
+    (gw, temp_dir)
+}
+
+/// Read all LogEvent entries from JSONL files in `dir` (sync helper).
+fn read_debug_events(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
+    let mut events = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        if !line.trim().is_empty() {
+                            if let Ok(event) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
+                                events.push(event);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    events
+}
+
+/// Poll until events appear or timeout, up to 3 seconds.
+async fn wait_debug_events(
+    dir: &std::path::Path,
+    min_count: usize,
+) -> Vec<closeclaw_debug_log::LogEvent> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        let events = read_debug_events(dir);
+        if events.len() >= min_count || tokio::time::Instant::now() >= deadline {
+            return events;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+/// Successful enqueue of a message event emits exactly one `gateway.arrived`
+/// debug event with correct platform.
+#[tokio::test]
+async fn test_start_event_stream_enqueues_message_event() {
+    let (gw, temp_dir) = make_test_gateway_with_debug_log().await;
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    start_event_stream(&gw, rx);
+
+    let event = Event {
+        event_type: "im.message.receive_v1".to_string(),
+        event_id: "ev_stream_001".to_string(),
+        raw: serde_json::json!({
+            "type": "im.message.receive_v1",
+            "event_id": "ev_stream_001",
+            "message_id": "om_001",
+            "sender_id": "ou_user",
+            "content": "{\"text\":\"hello\"}",
+            "chat_id": "oc_chat",
+            "message_type": "text"
+        }),
+    };
+    tx.send(EventLine::Event(event)).unwrap();
+    drop(tx);
+
+    let events = wait_debug_events(temp_dir.path(), 1).await;
+    let arrived: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "gateway.arrived" && e.source_module == "gateway")
+        .collect();
+    assert_eq!(
+        arrived.len(),
+        1,
+        "expected exactly one gateway.arrived event, got {}",
+        arrived.len()
+    );
+    assert_eq!(arrived[0].payload["platform"].as_str().unwrap(), "feishu");
+}
+
+/// Error lines (parse failures) must NOT emit `gateway.arrived`.
+#[tokio::test]
+async fn test_start_event_stream_skips_error_lines() {
+    let (gw, temp_dir) = make_test_gateway_with_debug_log().await;
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    start_event_stream(&gw, rx);
+
+    tx.send(EventLine::Error("bad json".to_string())).unwrap();
+    drop(tx);
+
+    let events = wait_debug_events(temp_dir.path(), 0).await;
+    let arrived: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "gateway.arrived")
+        .collect();
+    assert_eq!(
+        arrived.len(),
+        0,
+        "no gateway.arrived event expected for error lines"
+    );
+}
+
+/// Multiple events each emit their own `gateway.arrived` debug event.
+#[tokio::test]
+async fn test_start_event_stream_multiple_events() {
+    let (gw, temp_dir) = make_test_gateway_with_debug_log().await;
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    start_event_stream(&gw, rx);
+
+    for i in 0..5 {
+        let event = Event {
+            event_type: "im.message.receive_v1".to_string(),
+            event_id: format!("ev_multi_{i}"),
+            raw: serde_json::json!({
+                "type": "im.message.receive_v1",
+                "event_id": format!("ev_multi_{i}"),
+                "message_id": format!("om_{i}"),
+                "sender_id": "ou_user",
+                "content": "{\"text\":\"hello\"}",
+                "chat_id": "oc_chat",
+                "message_type": "text"
+            }),
+        };
+        tx.send(EventLine::Event(event)).unwrap();
+    }
+    drop(tx);
+
+    let events = wait_debug_events(temp_dir.path(), 5).await;
+    let arrived: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "gateway.arrived" && e.source_module == "gateway")
+        .collect();
+    assert_eq!(
+        arrived.len(),
+        5,
+        "expected 5 gateway.arrived events, got {}",
+        arrived.len()
+    );
+    for evt in &arrived {
+        assert_eq!(evt.payload["platform"].as_str().unwrap(), "feishu");
+    }
+}

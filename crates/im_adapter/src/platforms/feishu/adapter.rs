@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use closeclaw_common::{CardActionEvent, MediaRef, MediaType, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,6 +44,8 @@ pub(crate) struct FeishuMessageEvent {
     pub(crate) sender: FeishuSender,
     pub(crate) content: String,
     pub(crate) chat_id: String,
+    #[serde(default)]
+    pub(crate) chat_type: Option<String>,
     pub(crate) message_type: String,
     #[serde(default)]
     pub(crate) thread_id: Option<String>,
@@ -66,7 +68,11 @@ pub(crate) struct FeishuSenderId {
 }
 
 /// Card action event payload (`card.action.trigger`).
+///
+/// Preserved for future use when card.action.trigger is enabled
+/// (设计文档「暂缓能力」— card.action.trigger).
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct FeishuCardActionEvent {
     pub(crate) operator: FeishuCardOperator,
     #[allow(dead_code)]
@@ -75,11 +81,13 @@ pub(crate) struct FeishuCardActionEvent {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct FeishuCardOperator {
     pub(crate) open_id: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct FeishuCardAction {
     pub(crate) value: Option<serde_json::Value>,
     #[allow(dead_code)]
@@ -91,6 +99,71 @@ pub(crate) const DEFAULT_MAX_DOWNLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Default lark-cli command name.
 const DEFAULT_CLI_COMMAND: &str = "lark-cli";
+
+/// Default capacity for the event deduplicator (number of event IDs retained).
+const DEFAULT_DEDUP_CAPACITY: usize = 4096;
+
+// ---------------------------------------------------------------------------
+// Event deduplication
+// ---------------------------------------------------------------------------
+
+/// In-memory event deduplicator -- a bounded FIFO set keyed by `event_id`.
+///
+/// When the set reaches capacity the oldest entry is evicted so new events
+/// can always be accepted.  This provides "at most once" semantics for
+/// platform event processing: duplicate deliveries with the same `event_id`
+/// are silently dropped before any side-effects (media downloads, network
+/// calls, etc.) are triggered.
+#[derive(Debug)]
+pub(crate) struct EventDeduplicator {
+    seen: HashSet<String>,
+    order: VecDeque<String>,
+    capacity: usize,
+}
+
+impl EventDeduplicator {
+    /// Create a new deduplicator with the given maximum capacity.
+    pub(crate) fn new(capacity: usize) -> Self {
+        Self {
+            seen: HashSet::with_capacity(capacity.min(4096)),
+            order: VecDeque::with_capacity(capacity.min(4096)),
+            capacity,
+        }
+    }
+
+    /// Return `true` if `event_id` has already been recorded.
+    fn contains(&self, event_id: &str) -> bool {
+        self.seen.contains(event_id)
+    }
+
+    /// Record `event_id` as seen, evicting the oldest entry if at capacity.
+    fn insert(&mut self, event_id: String) {
+        if self.seen.contains(&event_id) {
+            return;
+        }
+        if self.order.len() >= self.capacity {
+            if let Some(oldest) = self.order.pop_front() {
+                self.seen.remove(&oldest);
+            }
+        }
+        self.seen.insert(event_id.clone());
+        self.order.push_back(event_id);
+    }
+
+    /// Check whether `event_id` is a duplicate and, if not, record it.
+    ///
+    /// Returns `true` when the event should be **dropped** (already seen).
+    pub(crate) fn check_and_record(&mut self, event_id: &str) -> bool {
+        if event_id.is_empty() {
+            return false;
+        }
+        if self.contains(event_id) {
+            return true;
+        }
+        self.insert(event_id.to_string());
+        false
+    }
+}
 
 // Quote helpers
 
@@ -184,6 +257,11 @@ pub struct FeishuAdapter {
     pub(crate) cli_command: String,
     /// HTTP client for media downloads (media URLs returned by lark-cli).
     http_client: Client,
+    /// In-memory event deduplicator (capacity 4096).
+    /// Uses `tokio::sync::Mutex` for consistency with other `FeishuAdapter`
+    /// fields; the critical section is synchronous (no awaits) but the lock
+    /// is acquired in an async context.
+    event_dedup: Arc<Mutex<EventDeduplicator>>,
 }
 
 impl FeishuAdapter {
@@ -200,6 +278,7 @@ impl FeishuAdapter {
             workspace_dir: None,
             cli_command: DEFAULT_CLI_COMMAND.to_string(),
             http_client,
+            event_dedup: Arc::new(Mutex::new(EventDeduplicator::new(DEFAULT_DEDUP_CAPACITY))),
         }
     }
 
@@ -422,6 +501,10 @@ impl FeishuAdapter {
     }
 
     /// Parse a card.action.trigger event into a CardActionEvent.
+    ///
+    /// Preserved for future use when card.action.trigger is enabled
+    /// (设计文档「暂缓能力」— card.action.trigger).
+    #[allow(dead_code)]
     pub(crate) fn parse_card_action_event(
         &self,
         _event_id: String,
@@ -472,42 +555,39 @@ impl FeishuAdapter {
         &self,
         event: FeishuEvent,
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        if Self::is_group_chat_event(&event) {
+            return Ok(None);
+        }
         let content: serde_json::Value = serde_json::from_str(&event.event.content)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let original_parent_id = event.event.parent_id.clone();
-        let thread_id = event
-            .event
-            .thread_id
-            .clone()
-            .or(event.event.root_id.clone())
-            .or(event.event.parent_id.clone());
-        let sender_open_id = event.event.sender.sender_id.open_id.clone();
-
+        let (sender_open_id, message_id, thread_id, original_root_id, original_parent_id) =
+            Self::clone_event_fields(&event);
         let (text, mut media_refs) =
             match Self::extract_message_content(&event.event.message_type, &content) {
                 Ok(pair) => pair,
                 Err(_) => return Ok(None),
             };
-
-        let unavailable_media = self
-            .persist_media_refs(&event, &mut media_refs)
-            .await;
+        let unavailable_media = self.persist_media_refs(&event, &mut media_refs).await;
         media_refs.retain(|r| !unavailable_media.contains(&r.key));
-
         if Self::should_discard_message(&event.event.message_type, &text, &media_refs) {
             return Ok(None);
         }
-
         let content = self
             .prepend_quote_blockquote(original_parent_id.as_deref(), &text)
             .await;
         self.store_event_metadata(&event).await;
-
+        let (peer_id, reply_ref) = Self::construct_anchor(
+            &sender_open_id,
+            &message_id,
+            &thread_id,
+            &original_root_id,
+            &original_parent_id,
+        );
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
             sender_id: sender_open_id.clone(),
-            peer_id: event.event.chat_id,
+            peer_id,
             content,
             timestamp: chrono::Utc::now().timestamp_millis(),
             message_type: MessageType::from(event.event.message_type.as_str()),
@@ -516,10 +596,91 @@ impl FeishuAdapter {
             account_id: sender_open_id,
             chat_name: String::new(),
             trace_id: String::new(),
-            message_id: String::new(),
-            reply_ref: None,
+            message_id,
+            reply_ref,
             unavailable_media,
         }))
+    }
+
+    /// Pre-clone frequently-accessed event fields to reduce borrow scope.
+    fn clone_event_fields(
+        event: &FeishuEvent,
+    ) -> (
+        String,         // sender_open_id
+        String,         // message_id
+        Option<String>, // thread_id
+        Option<String>, // original_root_id
+        Option<String>, // original_parent_id
+    ) {
+        let sender_open_id = event.event.sender.sender_id.open_id.clone();
+        let message_id = event.event.message_id.clone().unwrap_or_default();
+        let original_root_id = event.event.root_id.clone();
+        let original_parent_id = event.event.parent_id.clone();
+        let thread_id = Self::resolve_thread_id(
+            &event.event.thread_id,
+            &original_root_id,
+            &original_parent_id,
+        );
+        (
+            sender_open_id,
+            message_id,
+            thread_id,
+            original_root_id,
+            original_parent_id,
+        )
+    }
+
+    /// Check whether the event is a group chat receive (deferred per design doc).
+    fn is_group_chat_event(event: &FeishuEvent) -> bool {
+        let is_group = event.event.chat_type.as_deref() == Some("group");
+        if is_group {
+            tracing::debug!(
+                platform = "feishu",
+                chat_id = %event.event.chat_id,
+                event_id = %event.header.event_id,
+                "group chat receive event deferred -- not entering message path"
+            );
+        }
+        is_group
+    }
+
+    /// Resolve thread_id via fallback chain: thread_id → root_id → parent_id.
+    fn resolve_thread_id(
+        thread_id: &Option<String>,
+        root_id: &Option<String>,
+        parent_id: &Option<String>,
+    ) -> Option<String> {
+        thread_id
+            .clone()
+            .or_else(|| root_id.clone())
+            .or_else(|| parent_id.clone())
+    }
+
+    /// Construct peer_id and reply_ref per design doc "会话锚点构造".
+    ///
+    /// - Topic reply (thread_id present):
+    ///   `peer_id = sender_open_id|thread_id`, `reply_ref = root_id`
+    /// - Top-level message:
+    ///   `peer_id = sender_open_id|message_id`, `reply_ref = message_id`
+    fn construct_anchor(
+        sender_open_id: &str,
+        message_id: &str,
+        thread_id: &Option<String>,
+        root_id: &Option<String>,
+        parent_id: &Option<String>,
+    ) -> (String, Option<String>) {
+        if let Some(ref tid) = thread_id {
+            let ref_id = root_id
+                .clone()
+                .or_else(|| parent_id.clone())
+                .or(Some(message_id.to_string()));
+            (format!("{}|{}", sender_open_id, tid), ref_id)
+        } else {
+            (
+                format!("{}|{}", sender_open_id, message_id),
+                Some(message_id.to_string()),
+            )
+        }
     }
 
     /// Download and persist all media refs, returning unavailable keys.
@@ -566,11 +727,7 @@ impl FeishuAdapter {
     }
 
     /// Determine whether a message should be discarded per design-doc rules.
-    fn should_discard_message(
-        message_type: &str,
-        text: &str,
-        media_refs: &[MediaRef],
-    ) -> bool {
+    fn should_discard_message(message_type: &str, text: &str, media_refs: &[MediaRef]) -> bool {
         match message_type {
             "text" => text.trim().is_empty(),
             "post" => text.trim().is_empty() && media_refs.is_empty(),
@@ -666,6 +823,7 @@ impl FeishuAdapter {
         }
     }
 
+    #[allow(dead_code)]
     fn extract_card_ids(raw: &serde_json::Value) -> (String, String) {
         let is_cli = raw.get("type").and_then(|v| v.as_str()).is_some();
         let get = |key: &str| -> String {
@@ -698,6 +856,19 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+
+        // Deduplication: reject duplicate event_ids before any side-effects.
+        let event_id = super::process_manager::extract_event_id(&raw);
+        {
+            let mut dedup = self.event_dedup.lock().await;
+            if dedup.check_and_record(&event_id) {
+                tracing::debug!(
+                    event_id = %event_id,
+                    "duplicate event_id -- dropping"
+                );
+                return Ok(None);
+            }
+        }
 
         let event_type = super::process_manager::extract_event_type(&raw);
         if event_type == "card.action.trigger" {
@@ -733,10 +904,28 @@ impl IMAdapter for FeishuAdapter {
         if super::process_manager::extract_event_type(&raw) != "card.action.trigger" {
             return Ok(None);
         }
-        let (event_id, app_id) = Self::extract_card_ids(&raw);
-        let card_event: FeishuCardActionEvent =
-            serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-        self.parse_card_action_event(event_id, app_id, &card_event)
+        // Deduplication: record event_id even though we discard the event
+        // (deferred per design doc). This prevents duplicate events from
+        // entering the system if card.action.trigger is enabled in the future.
+        let event_id = super::process_manager::extract_event_id(&raw);
+        {
+            let mut dedup = self.event_dedup.lock().await;
+            if dedup.check_and_record(&event_id) {
+                tracing::debug!(
+                    event_id = %event_id,
+                    "duplicate card.action.trigger event_id -- dropping"
+                );
+                return Ok(None);
+            }
+        }
+        // card.action.trigger is deferred (设计文档「暂缓能力」).
+        // Do not enter the message path; log debug info only.
+        tracing::debug!(
+            platform = "feishu",
+            event_id = %event_id,
+            "card.action.trigger deferred -- not entering message path"
+        );
+        Ok(None)
     }
 
     /// Send a text message via lark-cli subprocess.
@@ -745,7 +934,10 @@ impl IMAdapter for FeishuAdapter {
         message: &Message,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        self.send_msg(&message.to, "text", &message.content, root_id)
+        let reply_ref = root_id.map(|id| super::send_helpers::ReplyTarget::Thread {
+            root_id: id.to_string(),
+        });
+        self.send_msg(&message.to, "text", &message.content, reply_ref.as_ref())
             .await
     }
 
@@ -756,8 +948,11 @@ impl IMAdapter for FeishuAdapter {
         card_json: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
+        let reply_ref = root_id.map(|id| super::send_helpers::ReplyTarget::Thread {
+            root_id: id.to_string(),
+        });
         match self
-            .send_msg(chat_id, "interactive", card_json, root_id)
+            .send_msg(chat_id, "interactive", card_json, reply_ref.as_ref())
             .await
         {
             Ok(()) => Ok(()),
@@ -767,9 +962,12 @@ impl IMAdapter for FeishuAdapter {
                 tracing::warn!(
                     receive_id = %chat_id,
                     error = %msg,
-                    "Feishu card capability error — falling back to plain text"
+                    "Feishu card capability error \u{2014} falling back to plain text"
                 );
-                if let Err(fb_err) = self.try_fallback_to_text(chat_id, card_json, root_id).await {
+                if let Err(fb_err) = self
+                    .try_fallback_to_text(chat_id, card_json, reply_ref.as_ref())
+                    .await
+                {
                     tracing::warn!(
                         receive_id = %chat_id,
                         error = %fb_err,

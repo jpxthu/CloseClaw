@@ -22,6 +22,7 @@ async fn test_terminal_session_key_computed() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -62,6 +63,7 @@ async fn test_deterministic_key() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -98,6 +100,7 @@ async fn test_missing_peer_id_yields_empty_key() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -123,6 +126,7 @@ async fn test_metadata_preserves_upstream() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -152,6 +156,7 @@ async fn test_fallback_when_no_initial_normalized() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -179,6 +184,7 @@ async fn test_system_time_used_for_session_key() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -226,6 +232,7 @@ async fn test_per_account_channel_peer_uses_system_time() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -275,6 +282,7 @@ async fn test_different_account_ids_produce_different_session_keys() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: "account_1".to_string(),
         ..Default::default()
     };
@@ -287,6 +295,7 @@ async fn test_different_account_ids_produce_different_session_keys() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: "account_2".to_string(),
         ..Default::default()
     };
@@ -342,6 +351,7 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -354,6 +364,7 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: "tenant_x".to_string(),
         ..Default::default()
     };
@@ -400,6 +411,7 @@ async fn test_account_id_read_from_raw_message() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: "tenant_42".to_string(),
         ..Default::default()
     };
@@ -422,6 +434,7 @@ async fn test_account_id_read_from_raw_message() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: "metadata_account".to_string(),
         ..Default::default()
     };
@@ -509,6 +522,7 @@ async fn test_warn_log_when_from_empty() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -552,6 +566,7 @@ async fn test_warn_log_when_to_empty() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -595,6 +610,7 @@ async fn test_no_warn_log_when_both_present() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -640,6 +656,7 @@ async fn test_message_type_injected_into_metadata() {
         message_type: MessageType::Text,
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -671,6 +688,7 @@ async fn test_message_type_image_injected() {
         message_type: MessageType::Image,
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -701,6 +719,7 @@ async fn test_message_type_file_injected() {
         message_type: MessageType::File,
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -731,6 +750,7 @@ async fn test_message_type_audio_injected() {
         message_type: MessageType::Audio,
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -761,6 +781,7 @@ async fn test_message_type_post_injected() {
         message_type: MessageType::Post,
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };

@@ -65,6 +65,7 @@ async fn test_adapter_profile_not_in_message_content() {
             },
             content: serde_json::json!({"text": "hello"}).to_string(),
             chat_id: "oc_chat".to_string(),
+            chat_type: None,
             message_type: "text".to_string(),
             thread_id: None,
             root_id: None,

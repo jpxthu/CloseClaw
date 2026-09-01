@@ -158,6 +158,7 @@ impl closeclaw_common::IMPlugin for MockPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         let mut remaining = self.fail_count.lock().await;
         if *remaining == 0 {

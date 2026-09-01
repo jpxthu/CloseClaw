@@ -44,7 +44,8 @@ pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
 /// Expand a single post content element into plain text based on its tag.
 ///
 /// Supported tags:
-/// - `text`, `a` → text content
+/// - `text` → text content
+/// - `a` → discarded (links not preserved per design doc)
 /// - `at` → `@name` or `@user_id`
 /// - `text_run` → styled text via `apply_text_style`
 /// - `img` → `[图片]`
@@ -57,11 +58,14 @@ pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
 pub(crate) fn expand_element(elem: &serde_json::Value) -> String {
     let tag = elem.get("tag").and_then(|t| t.as_str()).unwrap_or("");
     match tag {
-        "text" | "a" => elem
+        "text" => elem
             .get("text")
             .and_then(|t| t.as_str())
             .unwrap_or("")
             .to_string(),
+        // `a` tags (hyperlinks) are discarded per design doc:
+        // "超链接、邮箱、电话暂不解析、不保留"
+        "a" => String::new(),
         "at" => expand_at(elem),
         "text_run" => expand_text_run(elem),
         "img" => "[图片]".to_string(),

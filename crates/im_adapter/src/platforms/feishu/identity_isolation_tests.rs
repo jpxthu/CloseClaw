@@ -30,6 +30,7 @@ fn make_test_adapter() -> FeishuAdapter {
 /// Build a FeishuEvent with a custom header app_id (simulates different bot
 /// application receiving the same user's message).
 fn make_message_event_with_app_id(
+    event_id: &str,
     message_type: &str,
     content_json: &str,
     app_id: &str,
@@ -37,7 +38,7 @@ fn make_message_event_with_app_id(
     FeishuEvent {
         schema: "2.0".to_string(),
         header: FeishuHeader {
-            event_id: "ev_iso".to_string(),
+            event_id: event_id.to_string(),
             event_type: "im.message.receive_v1".to_string(),
             create_time: "1234567890".to_string(),
             token: "tok".to_string(),
@@ -53,6 +54,7 @@ fn make_message_event_with_app_id(
             },
             content: content_json.to_string(),
             chat_id: "oc_chat".to_string(),
+            chat_type: None,
             message_type: message_type.to_string(),
             thread_id: None,
             root_id: None,
@@ -115,6 +117,7 @@ async fn test_parse_inbound_isolation_different_header_app_id() {
 
     // Message arrives at app_x → account should be alice_via_x
     let event_x = make_message_event_with_app_id(
+        "ev_iso_x",
         "text",
         &serde_json::json!({"text": "hello from x"}).to_string(),
         "app_x",
@@ -126,6 +129,7 @@ async fn test_parse_inbound_isolation_different_header_app_id() {
 
     // Message arrives at app_y → account should be alice_via_y
     let event_y = make_message_event_with_app_id(
+        "ev_iso_y",
         "text",
         &serde_json::json!({"text": "hello from y"}).to_string(),
         "app_y",
@@ -155,6 +159,7 @@ async fn test_parse_inbound_header_app_id_not_in_resolver_fallback() {
 
     // Message arrives at unknown_app → no match → fallback to sender_id
     let event = make_message_event_with_app_id(
+        "ev_iso_fallback",
         "text",
         &serde_json::json!({"text": "hi"}).to_string(),
         "unknown_app",
@@ -181,6 +186,7 @@ async fn test_parse_inbound_adapter_app_id_used_as_fallback() {
 
     // Event with header app_id matching adapter's app_id
     let event = make_message_event_with_app_id(
+        "ev_iso_adapter",
         "text",
         &serde_json::json!({"text": "hi"}).to_string(),
         "test_app_id",

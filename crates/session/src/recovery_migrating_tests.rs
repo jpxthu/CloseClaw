@@ -41,6 +41,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         reasoning_level: ReasoningLevel::default(),
         system_appends: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         sender_id: None,
         parent_session_id: None,
         depth: 0,

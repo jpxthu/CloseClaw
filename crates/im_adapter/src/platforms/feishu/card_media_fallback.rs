@@ -5,12 +5,9 @@
 //! them separately via text message API and `dispatch_send_media`.
 
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_gateway::Message;
-use std::collections::HashMap;
 use tracing::warn;
 
 use super::renderer::extract_card_plain_text;
-use crate::IMAdapter;
 
 /// Dispatch a standalone media message (image, file, or audio) directly
 /// via lark-cli, bypassing card rendering.
@@ -118,12 +115,14 @@ pub(super) async fn send_interactive_fallback(
     adapter: &super::FeishuAdapter,
     peer_id: &str,
     output: &super::RenderedOutput,
-    thread_id: Option<&str>,
+    reply_ref: Option<&super::send_helpers::ReplyTarget>,
 ) {
     let plain_text = extract_card_plain_text(&output.payload);
     if !plain_text.is_empty() {
-        let fallback = make_text_message(peer_id, &plain_text);
-        if let Err(e2) = adapter.send_message(&fallback, thread_id).await {
+        if let Err(e2) = adapter
+            .send_msg(peer_id, "text", &plain_text, reply_ref)
+            .await
+        {
             warn!(
                 peer_id = %peer_id,
                 error = %e2,
@@ -132,21 +131,4 @@ pub(super) async fn send_interactive_fallback(
         }
     }
     send_media_from_card(adapter, peer_id, output).await;
-}
-
-/// Build a text-mode [`Message`] targeting `peer_id`.
-pub(super) fn make_text_message(peer_id: &str, text: &str) -> Message {
-    Message {
-        id: String::new(),
-        from: String::new(),
-        to: peer_id.to_string(),
-        content: text.to_string(),
-        channel: "feishu".to_string(),
-        timestamp: chrono::Utc::now().timestamp(),
-        metadata: HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    }
 }

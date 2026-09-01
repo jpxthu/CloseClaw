@@ -58,6 +58,7 @@ impl IMPlugin for MockPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -134,6 +135,7 @@ fn feishu_msg(from: &str, to: &str) -> crate::Message {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

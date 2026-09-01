@@ -62,7 +62,7 @@ impl Gateway {
                         msg_type: "text".into(),
                         payload: json!({"content": {"text": text}}),
                     };
-                    match plugin.send(&output, "owner", None).await {
+                    match plugin.send(&output, "owner", None, None).await {
                         Ok(()) => break,
                         Err(e) => {
                             tracing::warn!(

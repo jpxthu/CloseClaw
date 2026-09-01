@@ -72,6 +72,7 @@ fn test_message() -> Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -110,6 +111,7 @@ async fn test_archived_session_restoration() {
                 .with_peer_id("agent-b".to_string()),
         )),
         restore_called: Mutex::new(false),
+        saved_checkpoint: tokio::sync::Mutex::new(None),
     });
     let mgr = SessionManager::new(
         &test_config(),

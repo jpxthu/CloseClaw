@@ -51,6 +51,7 @@ impl super::Gateway {
             timestamp: chrono::Utc::now().timestamp(),
             metadata: HashMap::new(),
             thread_id: processed.metadata.get("thread_id").cloned(),
+            reply_ref: processed.metadata.get("reply_ref").cloned(),
             platform: None,
             dsl_result: None,
             content_blocks: None,

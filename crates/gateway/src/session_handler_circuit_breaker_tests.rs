@@ -27,6 +27,7 @@ fn make_msg() -> crate::Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -382,6 +383,7 @@ impl IMPlugin for MockStreamingPlugin {
         _output: &closeclaw_common::im_plugin::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
         Ok(())
     }

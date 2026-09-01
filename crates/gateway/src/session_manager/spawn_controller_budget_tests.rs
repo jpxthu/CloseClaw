@@ -1,5 +1,4 @@
 //! Unit tests for spawn depth budget propagation, kill all-mode, and cascade termination (Step 1.5).
-
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
@@ -59,6 +58,7 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

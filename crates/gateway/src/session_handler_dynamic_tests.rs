@@ -39,6 +39,7 @@ fn make_msg() -> crate::Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
     }
 }
 

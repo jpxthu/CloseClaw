@@ -109,6 +109,7 @@ mod tests {
             message_type: MessageType::Text,
             media_refs: Vec::new(),
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         };
@@ -148,6 +149,7 @@ mod tests {
             message_type: Default::default(),
             media_refs: Vec::new(),
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             unavailable_media: vec!["file_a".to_string(), "file_b".to_string()],
             ..Default::default()

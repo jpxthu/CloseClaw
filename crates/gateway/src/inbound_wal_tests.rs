@@ -296,6 +296,7 @@ impl IMPlugin for SendCapturePlugin {
             message_type: closeclaw_common::MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: "u1".into(),
             ..Default::default()
         }))
@@ -323,6 +324,7 @@ impl IMPlugin for SendCapturePlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         let text = output
             .payload

@@ -40,6 +40,7 @@ mod tests {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            reply_ref: None,
             sender_id: None,
             parent_session_id: None,
             depth: 0,
@@ -374,7 +375,6 @@ mod tests {
         assert!(loaded.recovery_notification.is_none());
     }
     // ── Step 1.3: archived session recovery tests ───────────────────
-
     /// Minimal mock storage for testing the "checkpoint not found" path.
     struct MockNotFoundStorage;
 

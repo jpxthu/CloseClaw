@@ -29,6 +29,7 @@ pub(crate) struct StreamContext<'a> {
     pub channel: &'a str,
     pub chat_id: &'a str,
     pub thread_id: Option<&'a str>,
+    pub reply_ref: Option<&'a str>,
     pub registry: Option<&'a std::sync::Arc<dyn closeclaw_common::processor::ProcessorChain>>,
     pub trace_id: Option<&'a str>,
     pub session_key: Option<&'a str>,
@@ -210,7 +211,7 @@ pub(crate) async fn send_text(ctx: &StreamContext<'_>, text: &str) -> Result<(),
         payload: serde_json::json!({"content": {"text": text}}),
     };
     ctx.plugin
-        .send(&rendered, ctx.chat_id, ctx.thread_id)
+        .send(&rendered, ctx.chat_id, ctx.thread_id, ctx.reply_ref)
         .await
         .map_err(Into::into)
 }
@@ -249,7 +250,7 @@ pub(crate) async fn send_render_block(
     );
     let send_start = std::time::Instant::now();
     ctx.plugin
-        .send(&rendered, ctx.chat_id, ctx.thread_id)
+        .send(&rendered, ctx.chat_id, ctx.thread_id, ctx.reply_ref)
         .await?;
     if ctx.channel == "feishu" {
         let send_duration_ms = send_start.elapsed().as_millis() as u64;
@@ -466,7 +467,7 @@ impl Gateway {
                 return log_middleware_rejection(self, e, chat_id, channel).await;
             }
         }
-        plugin.send(&rendered, chat_id, None).await?;
+        plugin.send(&rendered, chat_id, None, None).await?;
         Ok(())
     }
 
@@ -490,7 +491,7 @@ impl Gateway {
             return Ok(());
         }
         let rendered = plugin.render(&processed.content_blocks, None);
-        if plugin.send(&rendered, chat_id, None).await.is_err() {
+        if plugin.send(&rendered, chat_id, None, None).await.is_err() {
             self.send_as_plain_text(&plugin, raw_output, chat_id, None)
                 .await
         } else {

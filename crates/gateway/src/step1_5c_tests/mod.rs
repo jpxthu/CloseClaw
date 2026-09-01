@@ -213,6 +213,7 @@ impl IMPlugin for MockImPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.sent.lock().unwrap().push(output.payload.clone());
@@ -282,8 +283,9 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
-        self.0.send(output, peer_id, thread_id).await
+        self.0.send(output, peer_id, thread_id, None).await
     }
     fn handle_stream_event(
         &self,
@@ -322,8 +324,9 @@ impl IMPlugin for FailingPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
-        self.0.send(output, peer_id, thread_id).await
+        self.0.send(output, peer_id, thread_id, None).await
     }
     fn handle_stream_event(
         &self,
@@ -357,6 +360,7 @@ pub fn make_message(to: &str, content: &str) -> Message {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

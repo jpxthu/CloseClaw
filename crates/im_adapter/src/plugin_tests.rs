@@ -46,6 +46,7 @@ mod tests {
             _output: &RenderedOutput,
             _peer_id: &str,
             _thread_id: Option<&str>,
+            _reply_ref: Option<&str>,
         ) -> Result<(), AdapterError> {
             Ok(())
         }
@@ -430,6 +431,7 @@ mod tests {
             _output: &RenderedOutput,
             _peer_id: &str,
             _thread_id: Option<&str>,
+            _reply_ref: Option<&str>,
         ) -> Result<(), AdapterError> {
             Ok(())
         }

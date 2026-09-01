@@ -203,6 +203,7 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.sent.lock().unwrap().push(output.payload.clone());
         Ok(())
@@ -247,6 +248,7 @@ pub(super) fn make_message(to: &str, content: &str) -> Message {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

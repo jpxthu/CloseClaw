@@ -341,6 +341,7 @@ async fn test_cross_step_system_append_reflected_in_status() {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

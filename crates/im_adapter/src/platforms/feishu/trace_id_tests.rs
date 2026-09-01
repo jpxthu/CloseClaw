@@ -42,6 +42,7 @@ fn make_event(message_type: &str, content_json: &str) -> FeishuEvent {
             },
             content: content_json.to_string(),
             chat_id: "oc_chat".to_string(),
+            chat_type: None,
             message_type: message_type.to_string(),
             thread_id: None,
             root_id: None,

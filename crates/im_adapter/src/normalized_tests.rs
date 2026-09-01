@@ -79,6 +79,7 @@ fn test_roundtrip_message_type_non_default() {
         message_type: MessageType::File,
         media_refs: vec![],
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -148,6 +149,7 @@ fn test_roundtrip_message_with_media_refs() {
             },
         ],
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -230,6 +232,7 @@ fn test_normalized_message_debug_contains_key_fields() {
         message_type: MessageType::Text,
         media_refs: vec![],
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };

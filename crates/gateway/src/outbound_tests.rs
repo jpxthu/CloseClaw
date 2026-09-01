@@ -347,6 +347,7 @@ impl closeclaw_common::IMPlugin for ThinkingIndicatorMock {
         _output: &closeclaw_common::im_plugin::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
         Ok(())
     }

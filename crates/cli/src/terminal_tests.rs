@@ -47,6 +47,7 @@ mod tests {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         };
@@ -66,6 +67,7 @@ mod tests {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         };
@@ -84,6 +86,7 @@ mod tests {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         };
@@ -102,6 +105,7 @@ mod tests {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         };
@@ -122,6 +126,7 @@ mod tests {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         };
@@ -139,6 +144,7 @@ mod tests {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         };

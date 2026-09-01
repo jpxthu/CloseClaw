@@ -231,6 +231,7 @@ impl IMPlugin for DelegatingPlugin {
         _output: &crate::im_plugin::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -274,6 +275,7 @@ impl IMPlugin for NoRendererPlugin {
         _output: &crate::im_plugin::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }

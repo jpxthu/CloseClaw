@@ -14,6 +14,7 @@ fn make_ctx(content: &str, channel: &str) -> MessageContext {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };
@@ -114,6 +115,7 @@ async fn test_outbound_and_independent_from_inbound() {
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
+        reply_ref: None,
         account_id: String::new(),
         ..Default::default()
     };

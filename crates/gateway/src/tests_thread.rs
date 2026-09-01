@@ -36,6 +36,7 @@ fn make_message(to: &str, content: &str) -> Message {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -96,6 +97,7 @@ impl IMPlugin for CapturingPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         *self.captured_thread_id.lock().unwrap() = thread_id.map(|s| s.to_string());
         Ok(())
@@ -421,6 +423,7 @@ impl IMPlugin for IndexCapturingPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }

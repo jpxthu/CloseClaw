@@ -391,12 +391,15 @@ pub trait IMPlugin: Send + Sync {
     /// Send the rendered output to the platform.
     ///
     /// `peer_id` identifies the target chat or user. `thread_id` optionally
-    /// directs the message into a specific thread/topic.
+    /// directs the message into a specific thread/topic. `reply_ref` is the
+    /// outbound directed reference for定向回复 (e.g. a message ID to reply to
+    /// or a thread root ID).
     async fn send(
         &self,
         output: &RenderedOutput,
         peer_id: &str,
         thread_id: Option<&str>,
+        reply_ref: Option<&str>,
     ) -> Result<(), AdapterError>;
 
     /// Clean platform-native text by removing platform-specific markers.

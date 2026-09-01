@@ -62,6 +62,7 @@ impl IMPlugin for OutboundTrackerPlugin {
         _output: &closeclaw_common::im_plugin::RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
         Ok(())
     }

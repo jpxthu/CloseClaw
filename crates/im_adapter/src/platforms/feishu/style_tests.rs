@@ -50,7 +50,7 @@ fn test_text_run_link_outputs_markdown_link() {
         "text": "click here",
         "style": {"link": {"url": "https://example.com"}}
     });
-    assert_eq!(expand_element(&elem), "[click here](https://example.com)");
+    assert_eq!(expand_element(&elem), "click here");
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn test_text_run_link_plus_bold_wraps_styled_text() {
         "text": "click",
         "style": {"bold": true, "link": {"url": "https://example.com"}}
     });
-    assert_eq!(expand_element(&elem), "[**click**](https://example.com)");
+    assert_eq!(expand_element(&elem), "**click**");
 }
 
 #[test]

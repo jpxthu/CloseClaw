@@ -40,12 +40,14 @@ pub(crate) mod process_manager;
 #[cfg(test)]
 mod process_manager_tests;
 pub mod renderer;
-pub(crate) mod streaming_send;
 #[cfg(test)]
 mod send_fallback_tests;
 mod send_helpers;
 #[cfg(test)]
 mod send_warn_tests;
+#[cfg(test)]
+mod step1_8_gap_tests;
+pub(crate) mod streaming_send;
 #[cfg(test)]
 mod style_tests;
 mod text_style;
@@ -71,7 +73,6 @@ use closeclaw_common::{
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
-use closeclaw_gateway::Message;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -90,6 +91,8 @@ pub use renderer::should_use_card_for_blocks;
 pub(crate) use adapter::{
     truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
 };
+#[cfg(test)]
+pub(crate) use closeclaw_gateway::Message;
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
 #[cfg(test)]
@@ -222,7 +225,7 @@ pub async fn register(
             )
         });
         let adapter = Arc::new(
-            FeishuAdapter::new(profile, media_store)
+            FeishuAdapter::new(profile.clone(), media_store)
                 .with_workspace_dir(Some(std::path::PathBuf::from(config_dir))),
         );
 
@@ -240,6 +243,30 @@ pub async fn register(
         let plugin: Arc<dyn IMPlugin> = Arc::new(plugin);
         gateway.register_plugin(plugin).await;
         info!("Feishu plugin registered");
+
+        // Spawn long-connection event stream (lark-cli event consume).
+        let profile_name = profile.clone();
+        let (mut pm, event_rx) = process_manager::ProcessManager::new(
+            "lark-cli".to_string(),
+            vec![
+                "event".to_string(),
+                "consume".to_string(),
+                "--profile".to_string(),
+                profile_name,
+            ],
+        );
+        match pm.start().await {
+            Ok(()) => {
+                process_manager::start_event_stream(gateway, event_rx);
+                info!("Feishu long-connection event stream started");
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "failed to start lark-cli event stream — events will not be received"
+                );
+            }
+        }
     } else {
         warn!("feishu enabled in platforms.json but FEISHU_PROFILE not set — skipping");
     }
@@ -359,20 +386,10 @@ impl FeishuPlugin {
         &self,
         peer_id: &str,
         output: &RenderedOutput,
-        thread_id: Option<&str>,
+        reply_ref: Option<&send_helpers::ReplyTarget>,
     ) {
-        card_media_fallback::send_interactive_fallback(
-            &self.adapter,
-            peer_id,
-            output,
-            thread_id,
-        )
-        .await
-    }
-
-    /// Build a text-mode [`Message`] targeting `peer_id`.
-    fn make_text_message(peer_id: &str, text: &str) -> Message {
-        card_media_fallback::make_text_message(peer_id, text)
+        card_media_fallback::send_interactive_fallback(&self.adapter, peer_id, output, reply_ref)
+            .await
     }
 
     /// Generate a trace_id in the format `{platform}_{timestamp_hex}_{uuid_v4}`.
@@ -458,7 +475,7 @@ impl FeishuPlugin {
         &self,
         peer_id: &str,
         output: &RenderedOutput,
-        thread_id: Option<&str>,
+        reply_ref: Option<&send_helpers::ReplyTarget>,
     ) -> Result<(), CommonAdapterError> {
         match output.msg_type.as_str() {
             "text" => {
@@ -468,14 +485,15 @@ impl FeishuPlugin {
                     .and_then(|c| c.get("text"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                let message = Self::make_text_message(peer_id, text);
-                if let Err(e) = self.adapter.send_message(&message, thread_id).await {
+                if let Err(e) = self
+                    .adapter
+                    .send_msg(peer_id, "text", text, reply_ref)
+                    .await
+                {
                     warn!(peer_id = %peer_id, error = %e,
                         "Feishu text send failed — returning Ok(()) per design doc");
-                    Ok(())
-                } else {
-                    Ok(())
                 }
+                Ok(())
             }
             "interactive" => {
                 // Process media elements in the card payload before sending.
@@ -488,14 +506,14 @@ impl FeishuPlugin {
                     .map_err(|e| CommonAdapterError::SendFailed(e.to_string()))?;
                 match self
                     .adapter
-                    .send_card_json(peer_id, &card_json, thread_id)
+                    .send_msg(peer_id, "interactive", &card_json, reply_ref)
                     .await
                 {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         warn!(peer_id = %peer_id, error = %e,
                             "Feishu interactive card send failed — falling back to text + media");
-                        self.send_interactive_fallback(peer_id, output, thread_id)
+                        self.send_interactive_fallback(peer_id, output, reply_ref)
                             .await;
                         Ok(())
                     }
@@ -711,6 +729,7 @@ impl IMPlugin for FeishuPlugin {
         &self,
         payload: &[u8],
     ) -> Result<Option<CardActionEvent>, CommonAdapterError> {
+        // Delegate to adapter: handles dedup + deferred discard + debug logging.
         self.adapter
             .parse_card_action(payload)
             .await
@@ -769,14 +788,32 @@ impl IMPlugin for FeishuPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         thread_id: Option<&str>,
+        reply_ref: Option<&str>,
     ) -> Result<(), CommonAdapterError> {
+        // Construct ReplyTarget from thread_id + reply_ref:
+        // - Thread (topic): thread_id is Some → Thread { root_id }
+        // - Top-level: thread_id is None → reply_ref.map(Message)
+        let target = if let Some(tid) = thread_id {
+            // Topic conversation: use reply_ref as root_id, fallback to thread_id
+            let root_id = reply_ref.unwrap_or(tid).to_string();
+            Some(send_helpers::ReplyTarget::Thread { root_id })
+        } else {
+            // Top-level message: use reply_ref as message_id
+            reply_ref.map(|id| send_helpers::ReplyTarget::Message {
+                message_id: id.to_string(),
+            })
+        };
+
         // During streaming, text messages are routed to cardkit card updates.
         // Non-text (interactive cards) go through normal dispatch for batch mode.
         if output.msg_type == "text" {
-            return self.send_streaming_text(output, peer_id, thread_id).await;
+            return self
+                .send_streaming_text_with_target(output, peer_id, target.as_ref())
+                .await;
         }
 
-        self.send_batch_output(output, peer_id, thread_id).await
+        self.send_batch_output_with_target(output, peer_id, target.as_ref())
+            .await
     }
 
     async fn shutdown(&self) -> Result<(), CommonAdapterError> {

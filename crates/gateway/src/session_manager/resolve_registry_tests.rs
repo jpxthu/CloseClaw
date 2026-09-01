@@ -25,6 +25,7 @@ fn test_message() -> Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -315,4 +316,61 @@ async fn test_rebuild_system_prompt_uses_cached_bootstrap_mode() {
     let conv = mgr.get_conversation_session(&session_id).await.unwrap();
     let conv = conv.read().await;
     assert_eq!(conv.bootstrap_mode(), BootstrapMode::Minimal);
+}
+
+// ── Archived session restore: reply_ref propagation ─────────────────────
+
+/// When an archived session is restored, the checkpoint should be saved with
+/// the new message's reply_ref (Step 1.13 fix for archived restore path).
+#[tokio::test]
+async fn test_archived_session_restore_sets_reply_ref() {
+    use super::test_helpers::MockPersistService;
+    use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
+
+    let mock_storage = Arc::new(MockPersistService {
+        archived_checkpoint: tokio::sync::Mutex::new(Some(
+            SessionCheckpoint::new("archived-sid".to_string())
+                .with_status(SessionStatus::Archived)
+                .with_peer_id("agent-b".to_string()),
+        )),
+        restore_called: tokio::sync::Mutex::new(false),
+        saved_checkpoint: tokio::sync::Mutex::new(None),
+    });
+    let mgr = SessionManager::new(
+        &test_config(),
+        Some(mock_storage.clone()),
+        None,
+        ReasoningLevel::default(),
+    );
+    // Message with reply_ref set
+    let msg = Message {
+        id: "msg-2".to_string(),
+        from: "user-a".to_string(),
+        to: "agent-b".to_string(),
+        content: "hello".to_string(),
+        channel: "feishu".to_string(),
+        timestamp: chrono::Utc::now().timestamp(),
+        metadata: std::collections::HashMap::new(),
+        thread_id: None,
+        reply_ref: Some("om_reply_target".to_string()),
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
+    };
+    // Insert routing_key so resolve hits Path 2 (archived restore from registry)
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
+    {
+        let mut reg = mgr.key_registry.write().await;
+        reg.insert(routing_key, "archived-sid".to_string());
+    }
+    let result = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert_eq!(result, "archived-sid");
+    // Verify the saved checkpoint has reply_ref from the new message
+    let saved = mock_storage.saved_checkpoint.lock().await;
+    let cp = saved.as_ref().expect("checkpoint should have been saved");
+    assert_eq!(
+        cp.reply_ref,
+        Some("om_reply_target".to_string()),
+        "archived session restore should propagate reply_ref to checkpoint"
+    );
 }

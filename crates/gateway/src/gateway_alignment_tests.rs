@@ -81,6 +81,7 @@ impl IMPlugin for CaptureSendPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.sends.lock().unwrap().push((
             RenderedOutput {
@@ -370,6 +371,7 @@ async fn test_middleware_rejection_send_failure_no_panic() {
             _output: &RenderedOutput,
             _peer_id: &str,
             _thread_id: Option<&str>,
+            _reply_ref: Option<&str>,
         ) -> Result<(), AdapterError> {
             Err(AdapterError::SendFailed("mock failure".into()))
         }

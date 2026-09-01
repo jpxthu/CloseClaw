@@ -77,6 +77,7 @@ impl IMPlugin for MockPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         if self.should_fail {
             return Err(AdapterError::SendFailed("mock error".into()));
@@ -146,6 +147,7 @@ fn make_message(to: &str, content: &str) -> Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -336,6 +338,7 @@ async fn test_per_channel_peer_different_senders() {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -349,6 +352,7 @@ async fn test_per_channel_peer_different_senders() {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

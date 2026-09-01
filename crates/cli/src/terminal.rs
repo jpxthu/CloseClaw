@@ -173,6 +173,7 @@ impl IMPlugin for TerminalPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         let text = output.payload.as_str().unwrap_or("");
 

@@ -115,6 +115,7 @@ impl IMPlugin for SendTrackingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.send_called
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -176,6 +177,7 @@ fn make_stream_ctx<'a>(
         channel,
         chat_id,
         thread_id: None,
+        reply_ref: None,
         registry: None,
         trace_id: None,
         session_key: None,
@@ -268,6 +270,7 @@ impl IMPlugin for FastSendPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -313,6 +316,7 @@ impl IMPlugin for SlowSendPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         Ok(())
@@ -404,6 +408,7 @@ impl IMPlugin for SlowParsePlugin {
             message_type: closeclaw_common::MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: "u1".into(),
             ..Default::default()
         }))
@@ -433,6 +438,7 @@ impl IMPlugin for SlowParsePlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }

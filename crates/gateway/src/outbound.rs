@@ -117,6 +117,8 @@ struct DispatchCtx<'a> {
     chat_id: String,
     /// Optional thread/topic ID for directing the message into a thread.
     thread_id: Option<String>,
+    /// Outbound directed reference for定向回复.
+    reply_ref: Option<String>,
     /// DSL result string from the processor chain (JSON serialized).
     dsl_result: Option<String>,
     /// Serialized content blocks (JSON) for checkpoint persistence.
@@ -203,6 +205,7 @@ impl Gateway {
             );
         }
         let thread_id = self.session_manager.get_thread_id(session_id).await;
+        let reply_ref = self.session_manager.get_reply_ref(session_id).await;
         let fallback_text = blocks
             .iter()
             .find_map(|b| match b {
@@ -218,6 +221,7 @@ impl Gateway {
             channel,
             chat_id,
             thread_id,
+            reply_ref,
             dsl_result: processed.metadata.get("dsl_result").cloned(),
             content_blocks: serde_json::to_string(&processed.content_blocks).ok(),
             trace_id,
@@ -254,7 +258,12 @@ impl Gateway {
         let send_start = std::time::Instant::now();
         let send_result = ctx
             .plugin
-            .send(ctx.rendered, &ctx.chat_id, ctx.thread_id.as_deref())
+            .send(
+                ctx.rendered,
+                &ctx.chat_id,
+                ctx.thread_id.as_deref(),
+                ctx.reply_ref.as_deref(),
+            )
             .await;
         if ctx.channel == "feishu" {
             let send_duration_ms = send_start.elapsed().as_millis() as u64;
@@ -428,7 +437,7 @@ impl Gateway {
             msg_type: "text".to_string(),
             payload: serde_json::json!({ "content": { "text": raw_output } }),
         };
-        plugin.send(&rendered, chat_id, thread_id).await?;
+        plugin.send(&rendered, chat_id, thread_id, None).await?;
         Ok(())
     }
 
@@ -450,6 +459,7 @@ impl Gateway {
             timestamp: chrono::Utc::now().timestamp(),
             metadata: std::collections::HashMap::new(),
             thread_id: None,
+            reply_ref: None,
             platform,
             dsl_result,
             content_blocks,
@@ -578,6 +588,7 @@ impl Gateway {
 
         // Resolve thread_id from session checkpoint for outbound thread routing.
         let thread_id = self.session_manager.get_thread_id(session_id).await;
+        let reply_ref = self.session_manager.get_reply_ref(session_id).await;
 
         let verbosity_level = if let Some(cs) = self
             .session_manager
@@ -644,6 +655,7 @@ impl Gateway {
             channel,
             chat_id: &chat_id,
             thread_id: thread_id.as_deref(),
+            reply_ref: reply_ref.as_deref(),
             registry: processor_registry.as_ref(),
             trace_id: meta.trace_id.as_deref(),
             session_key: meta.session_key.as_deref(),

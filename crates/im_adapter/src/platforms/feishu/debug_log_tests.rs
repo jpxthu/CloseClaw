@@ -179,7 +179,7 @@ async fn test_send_writes_jsonl() {
         msg_type: "text".into(),
         payload: serde_json::json!({"content": {"text": "send test"}}),
     };
-    let result = plugin.send(&output, "ou_peer", None).await;
+    let result = plugin.send(&output, "ou_peer", None, None).await;
     assert!(result.is_ok());
 
     let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
@@ -238,7 +238,7 @@ async fn test_send_without_debug_log_no_panic() {
         msg_type: "text".into(),
         payload: serde_json::json!({"content": {"text": "test"}}),
     };
-    let result = plugin.send(&output, "ou_peer", None).await;
+    let result = plugin.send(&output, "ou_peer", None, None).await;
     assert!(result.is_ok());
 }
 
@@ -322,7 +322,7 @@ async fn test_trace_id_propagation_send() {
         msg_type: "text".into(),
         payload: serde_json::json!({"content": {"text": "send trace"}}),
     };
-    let _ = plugin.send(&output, "ou_peer", None).await;
+    let _ = plugin.send(&output, "ou_peer", None, None).await;
 
     let lines = wait_for_jsonl_lines(temp_dir.path(), 2).await;
     let send_line = lines
@@ -411,7 +411,7 @@ async fn test_send_duration_non_negative() {
         msg_type: "text".into(),
         payload: serde_json::json!({"content": {"text": "timing send"}}),
     };
-    let _ = plugin.send(&output, "ou_peer", None).await;
+    let _ = plugin.send(&output, "ou_peer", None, None).await;
 
     let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
     let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
@@ -497,7 +497,7 @@ async fn test_outbound_send_event_structure() {
         msg_type: "text".into(),
         payload: serde_json::json!({"content": {"text": "structure send"}}),
     };
-    let _ = plugin.send(&output, "ou_peer", None).await;
+    let _ = plugin.send(&output, "ou_peer", None, None).await;
 
     let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
     let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
@@ -527,7 +527,7 @@ async fn test_send_failure_records_event() {
         msg_type: "unsupported_type".into(),
         payload: serde_json::json!({}),
     };
-    let result = plugin.send(&output, "ou_peer", None).await;
+    let result = plugin.send(&output, "ou_peer", None, None).await;
     assert!(result.is_err(), "unsupported type should error");
 
     let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;

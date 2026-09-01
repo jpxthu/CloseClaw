@@ -133,6 +133,7 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.sent.lock().await.push(output.payload.clone());
         Ok(())
@@ -196,6 +197,7 @@ async fn setup_gateway(plugin: Arc<dyn IMPlugin>) -> (crate::Gateway, Arc<Sessio
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
