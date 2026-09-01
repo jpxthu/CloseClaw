@@ -503,30 +503,17 @@ fn test_validate_credentials_valid_api_key_passes() {
 #[test]
 fn test_validate_credentials_valid_feishu_passes() {
     let v: serde_json::Value =
-        serde_json::from_str(r#"{"provider":"feishu","appId":"cli_abc","appSecret":"secret"}"#)
-            .unwrap();
+        serde_json::from_str(r#"{"provider":"feishu","profile":"my_profile"}"#).unwrap();
     assert!(validate_credentials(&v).is_ok());
 }
 
 #[test]
-fn test_validate_credentials_empty_app_id_returns_error() {
+fn test_validate_credentials_empty_profile_returns_error() {
     let v: serde_json::Value =
-        serde_json::from_str(r#"{"provider":"feishu","appId":"","appSecret":"secret"}"#).unwrap();
+        serde_json::from_str(r#"{"provider":"feishu","profile":""}"#).unwrap();
     let err = validate_credentials(&v).unwrap_err();
     assert!(
-        err.contains("credentials.appId cannot be empty"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_credentials_empty_app_secret_returns_error() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"provider":"feishu","appId":"cli_abc","appSecret":""}"#).unwrap();
-    let err = validate_credentials(&v).unwrap_err();
-    assert!(
-        err.contains("credentials.appSecret cannot be empty"),
+        err.contains("credentials.profile cannot be empty"),
         "error: {}",
         err
     );

@@ -1,62 +1,42 @@
-//! Tests for send_message / send_card_json warn logging (Step 1.1).
+//! Tests for send_message / send_card_json warn logging (Step 1.2).
 //!
 //! Covers:
-//! - send_message API error (resp.code != 0) → warn + Err
+//! - send_message lark-cli error → warn + Err
 //! - send_card_json non-capability error → warn + Err, no fallback
-//! - send_message reqwest connection failure → warn + Err
-//! - send_card_json reqwest connection failure → warn + Err
+//! - send_message lark-cli command not found → warn + Err
+//! - send_card_json lark-cli command not found → warn + Err
 
 use super::*;
-use axum::{routing::post, Json, Router};
-use tokio::net::TcpListener;
+use std::io::Write;
+use tempfile::TempDir;
 
-/// Create a FeishuAdapter pointing at a mock server.
-fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
-    let http_client = reqwest::Client::new();
-    let tmp = tempfile::TempDir::new().expect("tmp dir");
-    FeishuAdapter {
-        app_id: "test_app_id".into(),
-        app_secret: "test_secret".into(),
-        verification_token: "test_token".into(),
-        http_client,
-        cached_token: Arc::new(tokio::sync::Mutex::new(None)),
-        base_url: base_url.to_string(),
-        last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-        media_store: Arc::new(
-            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
-        ),
-        max_download_size_bytes: u64::MAX,
-        workspace_dir: None,
+/// Create a mock lark-cli script that outputs an error JSON.
+fn create_error_mock_cli(tmp: &TempDir, code: i32) -> String {
+    let script_path = tmp.path().join("error_cli.sh");
+    let mut f = std::fs::File::create(&script_path).unwrap();
+    writeln!(f, "#!/bin/bash").unwrap();
+    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"API error\"}}' >&2").unwrap();
+    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"API error\"}}'").unwrap();
+    writeln!(f, "exit 1").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
     }
+    script_path.to_str().unwrap().to_string()
 }
 
-/// Mock server that always returns a non-zero error code for the message
-/// send endpoint. Token endpoint always succeeds.
-async fn start_error_code_server(code: i32) -> String {
-    let app = Router::new()
-        .route(
-            "/auth/v3/tenant_access_token/internal",
-            post(|| async {
-                Json(serde_json::json!({
-                    "code": 0,
-                    "msg": "ok",
-                    "tenant_access_token": "mock_token"
-                }))
-            }),
-        )
-        .route(
-            "/im/v1/messages",
-            post(move || async move {
-                Json(serde_json::json!({
-                    "code": code,
-                    "msg": "API error"
-                }))
-            }),
-        );
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    format!("http://{}", addr)
+/// Create a FeishuAdapter pointing at a mock CLI script.
+fn make_adapter_with_cli(cli_command: &str) -> FeishuAdapter {
+    let tmp = tempfile::TempDir::new().expect("tmp dir");
+    let mut adapter = FeishuAdapter::new(
+        "test_profile".into(),
+        Arc::new(
+            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
+        ),
+    );
+    adapter.cli_command = cli_command.to_string();
+    adapter
 }
 
 /// Helper: build a card JSON string with a single markdown element.
@@ -72,11 +52,12 @@ fn card_payload_with_markdown(text: &str) -> String {
     .to_string()
 }
 
-/// send_message: API returns non-zero code → returns Err (warn logged).
+/// send_message: mock CLI returns error code → returns Err (warn logged).
 #[tokio::test]
-async fn test_send_message_api_error_returns_err() {
-    let base_url = start_error_code_server(99999).await;
-    let adapter = make_adapter_with_base(&base_url);
+async fn test_send_message_cli_error_returns_err() {
+    let tmp = TempDir::new().unwrap();
+    let cli = create_error_mock_cli(&tmp, 99999);
+    let adapter = make_adapter_with_cli(&cli);
     let msg = Message {
         id: "1".into(),
         from: "a".into(),
@@ -93,7 +74,7 @@ async fn test_send_message_api_error_returns_err() {
     let result = adapter.send_message(&msg, None).await;
     assert!(
         result.is_err(),
-        "send_message should return Err on API error"
+        "send_message should return Err on CLI error"
     );
     match result.unwrap_err() {
         AdapterError::SendFailed(msg) => {
@@ -107,8 +88,9 @@ async fn test_send_message_api_error_returns_err() {
 /// no text fallback attempted.
 #[tokio::test]
 async fn test_send_card_non_capability_error_returns_err_no_fallback() {
-    let base_url = start_error_code_server(99999).await;
-    let adapter = make_adapter_with_base(&base_url);
+    let tmp = TempDir::new().unwrap();
+    let cli = create_error_mock_cli(&tmp, 99999);
+    let adapter = make_adapter_with_cli(&cli);
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
     assert!(
@@ -123,11 +105,10 @@ async fn test_send_card_non_capability_error_returns_err_no_fallback() {
     }
 }
 
-/// send_message: reqwest connection failure → returns Err (warn logged).
+/// send_message: lark-cli command not found → returns Err (warn logged).
 #[tokio::test]
-async fn test_send_message_connection_failure_returns_err() {
-    // Use a port that is very likely unused to trigger connection refused.
-    let adapter = make_adapter_with_base("http://127.0.0.1:1");
+async fn test_send_message_command_not_found_returns_err() {
+    let adapter = make_adapter_with_cli("nonexistent_command_xyz");
     let msg = Message {
         id: "1".into(),
         from: "a".into(),
@@ -144,18 +125,18 @@ async fn test_send_message_connection_failure_returns_err() {
     let result = adapter.send_message(&msg, None).await;
     assert!(
         result.is_err(),
-        "send_message should return Err on connection failure"
+        "send_message should return Err when command not found"
     );
 }
 
-/// send_card_json: reqwest connection failure → returns Err (warn logged).
+/// send_card_json: lark-cli command not found → returns Err (warn logged).
 #[tokio::test]
-async fn test_send_card_connection_failure_returns_err() {
-    let adapter = make_adapter_with_base("http://127.0.0.1:1");
+async fn test_send_card_command_not_found_returns_err() {
+    let adapter = make_adapter_with_cli("nonexistent_command_xyz");
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
     assert!(
         result.is_err(),
-        "send_card_json should return Err on connection failure"
+        "send_card_json should return Err when command not found"
     );
 }

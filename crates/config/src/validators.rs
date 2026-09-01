@@ -780,8 +780,7 @@ pub fn validate_credentials(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "credentials")?;
     require_non_empty(value, "provider", "credentials.provider")?;
     validate_optional_non_empty_string(value, "apiKey", "credentials.apiKey")?;
-    validate_optional_non_empty_string(value, "appId", "credentials.appId")?;
-    validate_optional_non_empty_string(value, "appSecret", "credentials.appSecret")?;
+    validate_optional_non_empty_string(value, "profile", "credentials.profile")?;
     Ok(())
 }
 

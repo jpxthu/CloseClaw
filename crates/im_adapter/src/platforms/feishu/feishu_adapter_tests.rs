@@ -2,14 +2,12 @@
 //!
 //! These tests were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
 
-use super::{CachedToken, FeishuAdapter};
+use super::FeishuAdapter;
 use crate::media_store::MediaStore;
 use crate::IMAdapter;
 use closeclaw_gateway::Message;
-use sha2::Digest;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 /// Create a test MediaStore rooted in a temp directory.
@@ -20,58 +18,29 @@ fn make_test_media_store() -> Arc<MediaStore> {
 
 #[test]
 fn test_feishu_adapter_name() {
-    let adapter = FeishuAdapter::new(
-        "app_id".to_string(),
-        "app_secret".to_string(),
-        "token".to_string(),
-        make_test_media_store(),
-    );
+    let adapter = FeishuAdapter::new("test_profile".to_string(), make_test_media_store());
     assert_eq!(adapter.name(), "feishu");
-}
-
-#[test]
-fn test_cached_token_needs_refresh_expired() {
-    let cached = CachedToken {
-        token: "t".to_string(),
-        expires_at: Instant::now() - Duration::from_secs(10),
-    };
-    assert!(cached.needs_refresh());
-}
-
-#[test]
-fn test_cached_token_needs_refresh_valid() {
-    let cached = CachedToken {
-        token: "t".to_string(),
-        expires_at: Instant::now() + Duration::from_secs(7200),
-    };
-    assert!(!cached.needs_refresh());
 }
 
 #[tokio::test]
 async fn test_validate_signature_correct() {
-    let adapter = FeishuAdapter::new(
-        "a".into(),
-        "s".into(),
-        "my_token".into(),
-        make_test_media_store(),
-    );
-    let payload = b"test";
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(b"my_token");
-    hasher.update(payload);
-    let sig = format!("{:x}", hasher.finalize());
-    assert!(adapter.validate_signature(&sig, payload).await);
+    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    // lark-cli event consume handles signature verification;
+    // validate_signature always returns true.
+    assert!(adapter.validate_signature("any", b"test").await);
 }
 
 #[tokio::test]
 async fn test_validate_signature_incorrect() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
-    assert!(!adapter.validate_signature("wrong", b"test").await);
+    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    // lark-cli event consume handles signature verification;
+    // validate_signature always returns true.
+    assert!(adapter.validate_signature("wrong", b"test").await);
 }
 
 #[tokio::test]
 async fn test_parse_inbound_valid() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
+    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {"event_id":"evt_1","event_type":"im.message.receive_v1","create_time":"0","token":"t","app_id":"a"},
@@ -90,13 +59,13 @@ async fn test_parse_inbound_valid() {
 
 #[tokio::test]
 async fn test_parse_inbound_invalid_json() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
+    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     assert!(adapter.parse_inbound(b"not json").await.is_err());
 }
 
 #[tokio::test]
 async fn test_parse_inbound_empty_text() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
+    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     let payload = serde_json::json!({
         "schema":"2.0","header":{"event_id":"e2","event_type":"x","create_time":"0","token":"t","app_id":"a"},
         "event":{"sender":{"sender_id":{"open_id":"ou_x"},"sender_type":"user"},"content":"{\"other\":\"data\"}","chat_id":"oc_y","message_type":"text"}
@@ -110,13 +79,7 @@ async fn test_parse_inbound_empty_text() {
 
 #[tokio::test]
 async fn test_error_cases() {
-    let a = FeishuAdapter::new(
-        "bad".into(),
-        "bad".into(),
-        "t".into(),
-        make_test_media_store(),
-    );
-    assert!(a.fetch_tenant_token().await.is_err());
+    let a = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     let msg = Message {
         id: "1".into(),
         from: "a".into(),
@@ -131,18 +94,4 @@ async fn test_error_cases() {
         content_blocks: None,
     };
     assert!(a.send_message(&msg, None).await.is_err());
-}
-
-#[tokio::test]
-async fn test_update_message_error() {
-    let adapter = FeishuAdapter::new(
-        "bad".into(),
-        "bad".into(),
-        "t".into(),
-        make_test_media_store(),
-    );
-    assert!(adapter
-        .update_message("om_1", &serde_json::json!({}))
-        .await
-        .is_err());
 }

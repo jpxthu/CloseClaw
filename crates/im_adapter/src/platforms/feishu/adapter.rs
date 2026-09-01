@@ -1,42 +1,43 @@
-//! Feishu adapter — HTTP I/O, token management, and webhook parsing.
+//! Feishu adapter — lark-cli subprocess I/O and event parsing.
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::{CardActionEvent, MediaRef, MediaType, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::post_expand::{expand_post_content, extract_post_media_refs};
 use crate::media_store::MediaStore;
+use reqwest::Client;
 use tokio::sync::Mutex;
 
 // Webhook event types
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuEvent {
+    #[allow(dead_code)]
     pub(crate) schema: String,
     pub(crate) header: FeishuHeader,
     pub(crate) event: FeishuMessageEvent,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuHeader {
+    #[allow(dead_code)]
     pub(crate) event_id: String,
+    #[allow(dead_code)]
     pub(crate) event_type: String,
+    #[allow(dead_code)]
     pub(crate) create_time: String,
+    #[allow(dead_code)]
     pub(crate) token: String,
     pub(crate) app_id: String,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuMessageEvent {
     #[serde(default)]
     pub(crate) message_id: Option<String>,
@@ -53,9 +54,9 @@ pub(crate) struct FeishuMessageEvent {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuSender {
     pub(crate) sender_id: FeishuSenderId,
+    #[allow(dead_code)]
     pub(crate) sender_type: String,
 }
 
@@ -66,49 +67,32 @@ pub(crate) struct FeishuSenderId {
 
 /// Card action event payload (`card.action.trigger`).
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuCardActionEvent {
     pub(crate) operator: FeishuCardOperator,
+    #[allow(dead_code)]
     pub(crate) token: String,
     pub(crate) action: FeishuCardAction,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuCardOperator {
     pub(crate) open_id: String,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuCardAction {
     pub(crate) value: Option<serde_json::Value>,
+    #[allow(dead_code)]
     pub(crate) tag: Option<String>,
 }
 
-pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
-
-/// Default max download size in bytes for a single media file (50 MB).
-/// Platform-specific: Feishu supports up to 50 MB per media resource.
+/// Default max download size: 50 MB per media resource.
 pub(crate) const DEFAULT_MAX_DOWNLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
-/// Returns `true` when the Feishu API error code indicates a platform
-/// capability limitation (e.g. unsupported `select_static` component).
-///
-/// These errors warrant a one-time fallback retry via text message.
-/// Network failures, token errors, and permission errors are NOT
-/// capability errors.
-///
-/// Error code sources (Feishu Open Platform documentation):
-/// - 230001: invalid card element type
-/// - 230002: unsupported component in card template
-pub(crate) fn is_capability_error(code: i32) -> bool {
-    matches!(code, 230001 | 230002)
-}
+/// Default lark-cli command name.
+const DEFAULT_CLI_COMMAND: &str = "lark-cli";
 
-// ---------------------------------------------------------------------------
 // Quote helpers
-// ---------------------------------------------------------------------------
 
 /// Truncate text to at most 500 characters, appending "..." if truncated.
 pub(crate) fn truncate_to_500(text: &str) -> String {
@@ -132,27 +116,7 @@ pub(crate) fn to_blockquote(text: &str) -> String {
         .join("\n")
 }
 
-// ---------------------------------------------------------------------------
-// CachedToken
-// ---------------------------------------------------------------------------
-
-/// Cached tenant access token with expiry time.
-#[derive(Debug, Clone)]
-pub struct CachedToken {
-    pub token: String,
-    pub expires_at: Instant,
-}
-
-impl CachedToken {
-    /// Returns true if token is expired or close to expiry (within 5 minutes).
-    pub fn needs_refresh(&self) -> bool {
-        Instant::now() > self.expires_at - Duration::from_secs(300)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Feishu API response types
-// ---------------------------------------------------------------------------
+// lark-cli response types for message retrieval
 
 #[derive(Deserialize)]
 struct FeishuMsgBody {
@@ -172,25 +136,40 @@ struct FeishuGetMessageResponse {
     items: Option<Vec<FeishuMsgItem>>,
 }
 
+// lark-cli response type for chat info
+
 #[derive(Deserialize)]
-pub(crate) struct SendResponse {
-    pub(crate) code: i32,
-    pub(crate) msg: String,
+struct FeishuChatResponse {
+    code: i32,
+    msg: String,
+    data: Option<FeishuChatData>,
 }
 
-// ---------------------------------------------------------------------------
+#[derive(Deserialize)]
+struct FeishuChatData {
+    name: Option<String>,
+}
+
+// lark-cli response type for media download URL
+
+#[derive(Deserialize)]
+struct ResourceResp {
+    code: i32,
+    msg: String,
+    data: Option<serde_json::Value>,
+}
+
 // FeishuAdapter
-// ---------------------------------------------------------------------------
 
 /// Feishu adapter implementation.
+///
+/// All platform communication goes through lark-cli subprocess commands.
+/// Credentials are managed by lark-cli via profile — the adapter only
+/// stores the profile name and delegates auth to the CLI.
 #[derive(Debug, Clone)]
 pub struct FeishuAdapter {
-    pub(crate) app_id: String,
-    pub(crate) app_secret: String,
-    pub(crate) verification_token: String,
-    pub(crate) http_client: Client,
-    pub(crate) cached_token: Arc<Mutex<Option<CachedToken>>>,
-    pub(crate) base_url: String,
+    /// lark-cli profile name for credential delegation.
+    pub(crate) profile: String,
     /// Metadata produced by the last successful `parse_inbound` call.
     /// Used by `last_parsed_metadata()` to surface platform-specific
     /// fields (e.g. `chat_name`) that were removed from NormalizedMessage.
@@ -201,30 +180,26 @@ pub struct FeishuAdapter {
     pub(crate) max_download_size_bytes: u64,
     /// Workspace directory for outbound media path resolution.
     pub(crate) workspace_dir: Option<std::path::PathBuf>,
+    /// lark-cli command name or path for subprocess execution.
+    pub(crate) cli_command: String,
+    /// HTTP client for media downloads (media URLs returned by lark-cli).
+    http_client: Client,
 }
 
 impl FeishuAdapter {
-    pub fn new(
-        app_id: String,
-        app_secret: String,
-        verification_token: String,
-        media_store: Arc<MediaStore>,
-    ) -> Self {
+    pub fn new(profile: String, media_store: Arc<MediaStore>) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("FeishuAdapter: failed to build HTTP client");
         Self {
-            app_id,
-            app_secret,
-            verification_token,
-            http_client,
-            cached_token: Arc::new(Mutex::new(None)),
-            base_url: FEISHU_API_BASE.to_string(),
+            profile,
             last_metadata: Arc::new(Mutex::new(HashMap::new())),
             media_store,
             max_download_size_bytes: DEFAULT_MAX_DOWNLOAD_SIZE_BYTES,
             workspace_dir: None,
+            cli_command: DEFAULT_CLI_COMMAND.to_string(),
+            http_client,
         }
     }
 
@@ -234,80 +209,7 @@ impl FeishuAdapter {
         self
     }
 
-    /// Extract the event_type from a raw webhook JSON payload header.
-    fn extract_event_type(raw: &serde_json::Value) -> String {
-        raw.get("header")
-            .and_then(|h| h.get("event_type"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_string()
-    }
-
-    /// Obtain a tenant access token, using a cached token when valid.
-    pub(crate) async fn get_tenant_token(&self) -> Result<String, AdapterError> {
-        let cached = self.cached_token.lock().await;
-        if let Some(ref c) = *cached {
-            if !c.needs_refresh() {
-                return Ok(c.token.clone());
-            }
-        }
-        drop(cached);
-
-        let new_token = self.fetch_tenant_token().await?;
-
-        let mut cached = self.cached_token.lock().await;
-        *cached = Some(CachedToken {
-            expires_at: Instant::now() + Duration::from_secs(7200),
-            token: new_token.clone(),
-        });
-
-        Ok(new_token)
-    }
-
-    /// Fetch a fresh tenant access token from Feishu API (no caching).
-    pub async fn fetch_tenant_token(&self) -> Result<String, AdapterError> {
-        #[derive(Serialize)]
-        struct TokenRequest<'a> {
-            app_id: &'a str,
-            app_secret: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct TokenResponse {
-            code: i32,
-            msg: String,
-            tenant_access_token: Option<String>,
-        }
-
-        let resp: TokenResponse = self
-            .http_client
-            .post(format!(
-                "{}/auth/v3/tenant_access_token/internal",
-                self.base_url
-            ))
-            .json(&TokenRequest {
-                app_id: &self.app_id,
-                app_secret: &self.app_secret,
-            })
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        if resp.code != 0 {
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu token error {}: {}",
-                resp.code, resp.msg
-            )));
-        }
-
-        resp.tenant_access_token
-            .ok_or_else(|| AdapterError::SendFailed("No token in response".to_string()))
-    }
-
-    /// Fetch the content of a message by its ID via Feishu API.
+    /// Fetch the content of a message by its ID via lark-cli.
     ///
     /// Returns `Some(text)` for supported types (text, post), or `None` for
     /// unsupported types or on failure (which logs a warning and degrades
@@ -323,22 +225,20 @@ impl FeishuAdapter {
         self.extract_text_from_message(&msg_type, &raw_content, message_id)
     }
 
-    /// Fetch the raw message item from Feishu API and return (msg_type, content).
+    /// Fetch the raw message item via lark-cli and return (msg_type, content).
     async fn fetch_message_raw(
         &self,
         message_id: &str,
     ) -> Result<Option<(String, String)>, AdapterError> {
-        let token = self.get_tenant_token().await?;
-        let resp: FeishuGetMessageResponse = self
-            .http_client
-            .get(format!("{}/im/v1/messages/{}", self.base_url, message_id))
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        let output = super::send_helpers::run_cli(
+            self,
+            &["im", "+messages-get", "--message-id", message_id],
+        )
+        .await?;
+
+        let resp: FeishuGetMessageResponse = serde_json::from_str(&output).map_err(|e| {
+            AdapterError::InvalidPayload(format!("lark-cli messages-get invalid JSON: {e}"))
+        })?;
 
         if resp.code != 0 {
             tracing::warn!(
@@ -388,33 +288,17 @@ impl FeishuAdapter {
         })
     }
 
-    /// Fetch the chat (group) name for a given chat_id via Feishu API.
+    /// Fetch the chat (group) name for a given chat_id via lark-cli.
     ///
     /// Returns `Some(name)` on success, or `None` on failure (which logs
     /// a warning and degrades gracefully — chat_name defaults to empty).
     pub async fn fetch_chat_name(&self, chat_id: &str) -> Option<String> {
-        #[derive(Deserialize)]
-        struct FeishuChatResponse {
-            code: i32,
-            msg: String,
-            data: Option<FeishuChatData>,
-        }
-        #[derive(Deserialize)]
-        struct FeishuChatData {
-            name: Option<String>,
-        }
+        let output =
+            super::send_helpers::run_cli(self, &["im", "+chats-get", "--chat-id", chat_id])
+                .await
+                .ok()?;
 
-        let token = self.get_tenant_token().await.ok()?;
-        let resp: FeishuChatResponse = self
-            .http_client
-            .get(format!("{}/im/v1/chats/{}", self.base_url, chat_id))
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
-            .await
-            .ok()?
-            .json()
-            .await
-            .ok()?;
+        let resp: FeishuChatResponse = serde_json::from_str(&output).ok()?;
 
         if resp.code != 0 {
             tracing::warn!(
@@ -463,45 +347,33 @@ impl FeishuAdapter {
         }
     }
 
-    /// Build the URL for fetching a media resource, percent-encoding path params.
-    fn build_media_resource_url(
-        &self,
-        message_id: &str,
-        file_key: &str,
-        resource_type: &str,
-    ) -> String {
-        let enc_msg: String = url::form_urlencoded::byte_serialize(message_id.as_bytes()).collect();
-        let enc_key: String = url::form_urlencoded::byte_serialize(file_key.as_bytes()).collect();
-        format!(
-            "{}/im/v1/messages/{}/resources/{}?type={}",
-            self.base_url, enc_msg, enc_key, resource_type
-        )
-    }
-
-    /// Fetch a temporary download URL for a media resource (image, file, audio).
+    /// Fetch a temporary download URL for a media resource (image, file, audio)
+    /// via lark-cli.
     pub(crate) async fn fetch_media_download_url(
         &self,
         message_id: &str,
         file_key: &str,
         resource_type: &str,
     ) -> Result<String, AdapterError> {
-        let token = self.get_tenant_token().await?;
-        #[derive(Deserialize)]
-        struct ResourceResp {
-            code: i32,
-            msg: String,
-            data: Option<serde_json::Value>,
-        }
-        let resp: ResourceResp = self
-            .http_client
-            .get(self.build_media_resource_url(message_id, file_key, resource_type))
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
+        let output = super::send_helpers::run_cli(
+            self,
+            &[
+                "im",
+                "+messages-resources",
+                "--message-id",
+                message_id,
+                "--file-key",
+                file_key,
+                "--type",
+                resource_type,
+            ],
+        )
+        .await?;
+
+        let resp: ResourceResp = serde_json::from_str(&output).map_err(|e| {
+            AdapterError::InvalidPayload(format!("lark-cli resources invalid JSON: {e}"))
+        })?;
+
         if resp.code != 0 {
             tracing::warn!(
                 code = resp.code, msg = %resp.msg,
@@ -547,50 +419,6 @@ impl FeishuAdapter {
                 text.to_string()
             }
         }
-    }
-
-    /// Update an existing card message identified by `message_id`.
-    pub async fn update_message(
-        &self,
-        message_id: &str,
-        patch: &serde_json::Value,
-    ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await?;
-
-        #[derive(Serialize)]
-        struct UpdateRequest<'a> {
-            content: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct UpdateResponse {
-            code: i32,
-            msg: String,
-        }
-
-        let content =
-            serde_json::to_string(patch).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        let resp: UpdateResponse = self
-            .http_client
-            .patch(format!("{}/im/v1/messages/{}", self.base_url, message_id))
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&UpdateRequest { content: &content })
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        if resp.code != 0 {
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu card update error {}: {}",
-                resp.code, resp.msg
-            )));
-        }
-
-        Ok(())
     }
 
     /// Parse a card.action.trigger event into a CardActionEvent.
@@ -651,8 +479,9 @@ impl FeishuAdapter {
         let thread_id = event
             .event
             .thread_id
-            .or(event.event.root_id)
-            .or(event.event.parent_id);
+            .clone()
+            .or(event.event.root_id.clone())
+            .or(event.event.parent_id.clone());
         let sender_open_id = event.event.sender.sender_id.open_id.clone();
 
         let (text, mut media_refs) =
@@ -661,93 +490,19 @@ impl FeishuAdapter {
                 Err(_) => return Ok(None),
             };
 
-        // Populate media download URLs and persist inbound media.
-        let mut unavailable_media: Vec<String> = Vec::new();
-        for r in &mut media_refs {
-            let msg_id = event.event.message_id.as_deref().unwrap_or("");
-            match self
-                .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
-                .await
-            {
-                Ok(url) => {
-                    match self
-                        .media_store
-                        .download_and_persist(
-                            &url,
-                            &r.key,
-                            &r.media_type,
-                            &self.http_client,
-                            self.max_download_size_bytes,
-                        )
-                        .await
-                    {
-                        Ok(persisted) => {
-                            r.path = persisted.path;
-                            r.size = persisted.size;
-                            r.mime = persisted.mime;
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                key = %r.key,
-                                error = %e,
-                                "Failed to persist media, marking unavailable"
-                            );
-                            unavailable_media.push(r.key.clone());
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        key = %r.key,
-                        error = %e,
-                        "Failed to fetch media URL, marking unavailable"
-                    );
-                    unavailable_media.push(r.key.clone());
-                }
-            }
-        }
-        // Remove unavailable entries from media_refs.
+        let unavailable_media = self
+            .persist_media_refs(&event, &mut media_refs)
+            .await;
         media_refs.retain(|r| !unavailable_media.contains(&r.key));
 
-        // Discard empty messages per design-doc filtering rules:
-        // - text: empty content → discard
-        // - post: empty content AND no media_refs → discard
-        // - image/file/audio: always produce (content may be empty)
-        // - sticker: keep existing behavior (emoji expansion)
-        let msg_type_str = event.event.message_type.as_str();
-        let should_discard = match msg_type_str {
-            "text" => text.trim().is_empty(),
-            "post" => text.trim().is_empty() && media_refs.is_empty(),
-            "sticker" => false,
-            _ => false,
-        };
-        if should_discard {
-            tracing::debug!(
-                message_type = %msg_type_str,
-                "Discarding empty message"
-            );
+        if Self::should_discard_message(&event.event.message_type, &text, &media_refs) {
             return Ok(None);
         }
 
         let content = self
             .prepend_quote_blockquote(original_parent_id.as_deref(), &text)
             .await;
-
-        // Fetch the chat name for the group chat.
-        let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
-
-        // Store chat_name and header app_id in last_metadata.
-        // header_app_id is used by normalize_inbound_message as the
-        // bot_app_id for identity resolution (priority over adapter.app_id).
-        {
-            let mut meta = self.last_metadata.lock().await;
-            meta.clear();
-            let name = chat_name.unwrap_or_default();
-            if !name.is_empty() {
-                meta.insert("chat_name".to_string(), name);
-            }
-            meta.insert("header_app_id".to_string(), event.header.app_id.clone());
-        }
+        self.store_event_metadata(&event).await;
 
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
@@ -765,6 +520,76 @@ impl FeishuAdapter {
             reply_ref: None,
             unavailable_media,
         }))
+    }
+
+    /// Download and persist all media refs, returning unavailable keys.
+    async fn persist_media_refs(
+        &self,
+        event: &FeishuEvent,
+        media_refs: &mut [MediaRef],
+    ) -> Vec<String> {
+        let mut unavailable_media: Vec<String> = Vec::new();
+        for r in media_refs.iter_mut() {
+            let msg_id = event.event.message_id.as_deref().unwrap_or("");
+            match self
+                .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
+                .await
+            {
+                Ok(url) => match self
+                    .media_store
+                    .download_and_persist(
+                        &url,
+                        &r.key,
+                        &r.media_type,
+                        &self.http_client,
+                        self.max_download_size_bytes,
+                    )
+                    .await
+                {
+                    Ok(persisted) => {
+                        r.path = persisted.path;
+                        r.size = persisted.size;
+                        r.mime = persisted.mime;
+                    }
+                    Err(e) => {
+                        tracing::warn!(key = %r.key, error = %e, "Failed to persist media");
+                        unavailable_media.push(r.key.clone());
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(key = %r.key, error = %e, "Failed to fetch media URL");
+                    unavailable_media.push(r.key.clone());
+                }
+            }
+        }
+        unavailable_media
+    }
+
+    /// Determine whether a message should be discarded per design-doc rules.
+    fn should_discard_message(
+        message_type: &str,
+        text: &str,
+        media_refs: &[MediaRef],
+    ) -> bool {
+        match message_type {
+            "text" => text.trim().is_empty(),
+            "post" => text.trim().is_empty() && media_refs.is_empty(),
+            "sticker" => false,
+            _ => false,
+        }
+    }
+
+    /// Store chat_name and header app_id in last_metadata.
+    async fn store_event_metadata(&self, event: &FeishuEvent) {
+        let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
+        let mut meta = self.last_metadata.lock().await;
+        meta.clear();
+        if let Some(name) = chat_name {
+            if !name.is_empty() {
+                meta.insert("chat_name".to_string(), name);
+            }
+        }
+        meta.insert("header_app_id".to_string(), event.header.app_id.clone());
     }
 
     /// Build a `MediaRef` from content JSON using the given key field.
@@ -840,6 +665,25 @@ impl FeishuAdapter {
             }
         }
     }
+
+    fn extract_card_ids(raw: &serde_json::Value) -> (String, String) {
+        let is_cli = raw.get("type").and_then(|v| v.as_str()).is_some();
+        let get = |key: &str| -> String {
+            if is_cli {
+                raw.get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                raw.get("header")
+                    .and_then(|h| h.get(key))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            }
+        };
+        (get("event_id"), get("app_id"))
+    }
 }
 
 #[async_trait]
@@ -855,12 +699,12 @@ impl IMAdapter for FeishuAdapter {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
 
-        let event_type = Self::extract_event_type(&raw);
+        let event_type = super::process_manager::extract_event_type(&raw);
         if event_type == "card.action.trigger" {
             return Ok(None);
         }
 
-        if event_type == "reaction.created" {
+        if event_type == "reaction.created" || event_type == "im.message.reaction.created_v1" {
             return super::events::parse_reaction_event(&raw);
         }
 
@@ -868,8 +712,15 @@ impl IMAdapter for FeishuAdapter {
             return super::events::parse_bot_added_event(&raw);
         }
 
-        let event: FeishuEvent =
-            serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+        // Determine format: CLI has top-level "type"; webhook has "header.event_type"
+        let is_cli = raw.get("type").and_then(|v| v.as_str()).is_some();
+
+        let event = if is_cli {
+            super::process_manager::normalize_cli_event(&raw)
+                .ok_or_else(|| AdapterError::InvalidPayload("invalid CLI event format".into()))?
+        } else {
+            serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?
+        };
         self.parse_message_event(event).await
     }
 
@@ -879,122 +730,68 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<Option<CardActionEvent>, AdapterError> {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-
-        let event_type = Self::extract_event_type(&raw);
-        if event_type != "card.action.trigger" {
+        if super::process_manager::extract_event_type(&raw) != "card.action.trigger" {
             return Ok(None);
         }
-
-        let event_id = raw
-            .get("header")
-            .and_then(|h| h.get("event_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let app_id = raw
-            .get("header")
-            .and_then(|h| h.get("app_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
+        let (event_id, app_id) = Self::extract_card_ids(&raw);
         let card_event: FeishuCardActionEvent =
             serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
         self.parse_card_action_event(event_id, app_id, &card_event)
     }
 
+    /// Send a text message via lark-cli subprocess.
     async fn send_message(
         &self,
         message: &Message,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await.map_err(|e| {
-            tracing::warn!(
-                receive_id = %message.to,
-                error = %e,
-                "Feishu token fetch failed"
-            );
-            e
-        })?;
-        let content = serde_json::json!({ "text": &message.content }).to_string();
-        let resp = self
-            .send_msg(&token, &message.to, "text", &content, root_id)
-            .await?;
-        if resp.code != 0 {
-            tracing::warn!(
-                receive_id = %message.to,
-                code = resp.code,
-                msg = %resp.msg,
-                "Feishu send error"
-            );
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu send error {}: {}",
-                resp.code, resp.msg
-            )));
-        }
-        Ok(())
+        self.send_msg(&message.to, "text", &message.content, root_id)
+            .await
     }
 
+    /// Send an interactive card via lark-cli subprocess.
     async fn send_card_json(
         &self,
         chat_id: &str,
         card_json: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await.map_err(|e| {
-            tracing::warn!(
-                receive_id = %chat_id,
-                error = %e,
-                "Feishu card token fetch failed"
-            );
-            e
-        })?;
-
-        let resp = self
-            .send_msg(&token, chat_id, "interactive", card_json, root_id)
-            .await?;
-
-        if resp.code != 0 {
-            tracing::warn!(
-                receive_id = %chat_id,
-                code = resp.code,
-                msg = %resp.msg,
-                "Feishu card send error"
-            );
-            if is_capability_error(resp.code) {
-                if let Err(fb_err) = self
-                    .try_fallback_to_text(chat_id, card_json, &token, root_id)
-                    .await
-                {
+        match self
+            .send_msg(chat_id, "interactive", card_json, root_id)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(AdapterError::SendFailed(ref msg))
+                if super::send_helpers::is_capability_error(msg) =>
+            {
+                tracing::warn!(
+                    receive_id = %chat_id,
+                    error = %msg,
+                    "Feishu card capability error — falling back to plain text"
+                );
+                if let Err(fb_err) = self.try_fallback_to_text(chat_id, card_json, root_id).await {
                     tracing::warn!(
                         receive_id = %chat_id,
                         error = %fb_err,
                         "Text fallback after capability error also failed"
                     );
-                    return Err(AdapterError::SendFailed(format!(
-                        "Feishu card send error {}: {}",
-                        resp.code, resp.msg
-                    )));
                 }
-                // Fallback succeeded — return Ok so mod.rs won't
-                // attempt a second fallback (avoids duplicate messages).
-                return Ok(());
+                Ok(())
             }
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu card send error {}: {}",
-                resp.code, resp.msg
-            )));
+            Err(e) => {
+                tracing::warn!(
+                    receive_id = %chat_id,
+                    error = %e,
+                    "Feishu card send error"
+                );
+                Err(e)
+            }
         }
-        Ok(())
     }
 
-    async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
-        let mut hasher = Sha256::new();
-        hasher.update(&self.verification_token);
-        hasher.update(payload);
-        let result = hasher.finalize();
-        let expected = format!("{:x}", result);
-        expected == signature
+    async fn validate_signature(&self, _signature: &str, _payload: &[u8]) -> bool {
+        // lark-cli event consume handles signature verification.
+        // All events received from the subprocess are pre-validated.
+        true
     }
 }

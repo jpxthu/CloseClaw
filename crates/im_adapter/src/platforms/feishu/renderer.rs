@@ -53,7 +53,6 @@ pub(crate) enum CardElement {
     #[serde(rename = "note")]
     Note { elements: Vec<CardNoteElement> },
     #[serde(rename = "collapsible_panel")]
-    #[allow(dead_code)]
     CollapsiblePanel {
         header: CollapsiblePanelHeader,
         elements: Vec<CardElement>,

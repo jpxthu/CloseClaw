@@ -10,9 +10,13 @@ mod adapter_emoji_tests;
 mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
+pub(crate) mod card_media_fallback;
+pub(crate) mod cardkit_streaming;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
+#[cfg(test)]
+mod credential_isolation_tests;
 #[cfg(test)]
 mod debug_log_tests;
 mod events;
@@ -26,11 +30,17 @@ mod feishu_tests;
 mod identity_isolation_tests;
 #[cfg(test)]
 mod media_filter_tests;
+#[cfg(test)]
+mod normalize_cli_event_tests;
 mod outbound_media;
 #[cfg(test)]
 mod outbound_media_tests;
 mod post_expand;
+pub(crate) mod process_manager;
+#[cfg(test)]
+mod process_manager_tests;
 pub mod renderer;
+pub(crate) mod streaming_send;
 #[cfg(test)]
 mod send_fallback_tests;
 mod send_helpers;
@@ -45,6 +55,7 @@ mod trace_id_tests;
 #[cfg(test)]
 mod try_resolve_media_path_tests;
 
+use self::cardkit_streaming::CardkitStreamingRenderer;
 use self::outbound_media::{copy_to_outbound, upload_file, upload_image, validate_outbound_path};
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
@@ -54,7 +65,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
-use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer};
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
@@ -70,21 +80,20 @@ use tracing::{debug, info, warn};
 
 use super::PlatformEntry;
 
-pub use adapter::CachedToken;
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
 pub use renderer::build_text;
-use renderer::extract_card_plain_text;
 pub use renderer::should_use_card_for_blocks;
 
 // Re-export adapter internals for test modules.
 #[cfg(test)]
 pub(crate) use adapter::{
-    is_capability_error, truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
-    FeishuSender, FeishuSenderId, FEISHU_API_BASE,
+    truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
+#[cfg(test)]
+pub(crate) use renderer::extract_card_plain_text;
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
@@ -203,12 +212,8 @@ pub async fn register(
         return;
     }
 
-    let app_id = std::env::var("FEISHU_APP_ID").ok();
-    let app_secret = std::env::var("FEISHU_APP_SECRET").ok();
-    let verification_token = std::env::var("FEISHU_VERIFICATION_TOKEN").ok();
-    if let (Some(app_id), Some(app_secret), Some(verification_token)) =
-        (app_id, app_secret, verification_token)
-    {
+    let profile = std::env::var("FEISHU_PROFILE").ok();
+    if let Some(profile) = profile {
         // Use shared MediaStore from daemon if available, otherwise create one.
         let media_store = shared_media_store.unwrap_or_else(|| {
             let media_config = load_media_config(config_dir);
@@ -217,7 +222,7 @@ pub async fn register(
             )
         });
         let adapter = Arc::new(
-            FeishuAdapter::new(app_id, app_secret, verification_token, media_store)
+            FeishuAdapter::new(profile, media_store)
                 .with_workspace_dir(Some(std::path::PathBuf::from(config_dir))),
         );
 
@@ -236,7 +241,7 @@ pub async fn register(
         gateway.register_plugin(plugin).await;
         info!("Feishu plugin registered");
     } else {
-        warn!("feishu enabled in platforms.json but credentials missing in env — skipping");
+        warn!("feishu enabled in platforms.json but FEISHU_PROFILE not set — skipping");
     }
 }
 
@@ -307,7 +312,8 @@ fn convert_to_common_error(e: AdapterError) -> CommonAdapterError {
 pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
     identity_resolver: Option<Arc<dyn IdentityResolver>>,
-    streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
+    /// Cardkit streaming renderer for incremental card updates.
+    cardkit_streaming: std::sync::Mutex<CardkitStreamingRenderer>,
     /// Debug log framework instance for structured event logging.
     debug_log: Option<Arc<DebugLog>>,
 }
@@ -318,15 +324,12 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver: None,
-            streaming_renderer: std::sync::Mutex::new(
-                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
-            ),
+            cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
             debug_log: None,
         }
     }
 
     /// Create a Feishu plugin with an optional identity resolver.
-    #[allow(dead_code)]
     pub(crate) fn with_identity_resolver(
         adapter: Arc<FeishuAdapter>,
         identity_resolver: Option<Arc<dyn IdentityResolver>>,
@@ -334,9 +337,7 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver,
-            streaming_renderer: std::sync::Mutex::new(
-                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
-            ),
+            cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
             debug_log: None,
         }
     }
@@ -351,48 +352,27 @@ impl FeishuPlugin {
         self.identity_resolver.as_deref()
     }
 
-    /// Fallback: extract plain text from an interactive card and send
-    /// via text message API.  Logs warnings on failure and always
-    /// returns `Ok(())` so the Agent keeps running.
+    /// Fallback: extract plain text and media from an interactive card
+    /// and send them via text message API and `dispatch_send_media`.
+    /// Logs warnings on failure and always returns so the Agent keeps running.
     async fn send_interactive_fallback(
         &self,
         peer_id: &str,
         output: &RenderedOutput,
         thread_id: Option<&str>,
     ) {
-        let plain_text = extract_card_plain_text(&output.payload);
-        if plain_text.is_empty() {
-            warn!(
-                peer_id = %peer_id,
-                "No extractable text in card payload — returning Ok(())"
-            );
-            return;
-        }
-        let fallback = Self::make_text_message(peer_id, &plain_text);
-        if let Err(e2) = self.adapter.send_message(&fallback, thread_id).await {
-            warn!(
-                peer_id = %peer_id,
-                error = %e2,
-                "Feishu text fallback also failed — returning Ok(()) per design doc"
-            );
-        }
+        card_media_fallback::send_interactive_fallback(
+            &self.adapter,
+            peer_id,
+            output,
+            thread_id,
+        )
+        .await
     }
 
     /// Build a text-mode [`Message`] targeting `peer_id`.
     fn make_text_message(peer_id: &str, text: &str) -> Message {
-        Message {
-            id: String::new(),
-            from: String::new(),
-            to: peer_id.to_string(),
-            content: text.to_string(),
-            channel: "feishu".to_string(),
-            timestamp: chrono::Utc::now().timestamp(),
-            metadata: HashMap::new(),
-            thread_id: None,
-            platform: None,
-            dsl_result: None,
-            content_blocks: None,
-        }
+        card_media_fallback::make_text_message(peer_id, text)
     }
 
     /// Generate a trace_id in the format `{platform}_{timestamp_hex}_{uuid_v4}`.
@@ -414,7 +394,7 @@ impl FeishuPlugin {
     /// Centralizes the repeated pattern: check debug_log, acquire trace_id,
     /// build event, spawn async send. Callers only supply `event_type` and
     /// `payload`. Skips silently when debug_log is None or trace_id is empty.
-    fn emit_debug_event(&self, event_type: &str, payload: serde_json::Value) {
+    pub(super) fn emit_debug_event(&self, event_type: &str, payload: serde_json::Value) {
         let debug_log = match self.debug_log {
             Some(ref dl) => dl.clone(),
             None => return,
@@ -457,14 +437,14 @@ impl FeishuPlugin {
                     .get("header_app_id")
                     .filter(|s| !s.is_empty())
                     .cloned()
-                    .unwrap_or_else(|| self.adapter.app_id.clone()),
+                    .unwrap_or_default(),
                 Err(_) => {
                     debug!(
                         platform = %msg.platform,
                         sender_id = %msg.sender_id,
-                        "try_lock failed, falling back to adapter.app_id"
+                        "try_lock failed, falling back to empty bot_app_id"
                     );
-                    self.adapter.app_id.clone()
+                    String::new()
                 }
             };
             msg.account_id = resolver
@@ -474,7 +454,7 @@ impl FeishuPlugin {
     }
 
     /// Dispatch a rendered output to the platform send API.
-    async fn dispatch_send(
+    pub(super) async fn dispatch_send(
         &self,
         peer_id: &str,
         output: &RenderedOutput,
@@ -514,7 +494,7 @@ impl FeishuPlugin {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         warn!(peer_id = %peer_id, error = %e,
-                            "Feishu interactive card send failed — falling back to plain text");
+                            "Feishu interactive card send failed — falling back to text + media");
                         self.send_interactive_fallback(peer_id, output, thread_id)
                             .await;
                         Ok(())
@@ -788,36 +768,86 @@ impl IMPlugin for FeishuPlugin {
         &self,
         output: &RenderedOutput,
         peer_id: &str,
-        _thread_id: Option<&str>,
+        thread_id: Option<&str>,
     ) -> Result<(), CommonAdapterError> {
-        let msg_type = output.msg_type.clone();
-        let start = Instant::now();
-        let result = self.dispatch_send(peer_id, output, _thread_id).await;
-        let send_duration_ms = start.elapsed().as_millis() as u64;
-        let success = result.is_ok();
+        // During streaming, text messages are routed to cardkit card updates.
+        // Non-text (interactive cards) go through normal dispatch for batch mode.
+        if output.msg_type == "text" {
+            return self.send_streaming_text(output, peer_id, thread_id).await;
+        }
 
-        // Emit structured debug_log event for outbound send.
-        self.emit_debug_event(
-            "outbound.send",
-            serde_json::json!({
-                "platform": "feishu",
-                "peer_id": peer_id,
-                "msg_type": msg_type,
-                "send_duration_ms": send_duration_ms,
-                "success": success,
-            }),
-        );
-
-        result
+        self.send_batch_output(output, peer_id, thread_id).await
     }
 
     async fn shutdown(&self) -> Result<(), CommonAdapterError> {
-        *self.adapter.cached_token.lock().await = None;
+        // lark-cli manages its own credential lifecycle.
         Ok(())
     }
 
-    fn streaming_renderer(&self) -> Option<&std::sync::Mutex<DefaultStreamingRenderer>> {
-        Some(&self.streaming_renderer)
+    fn handle_stream_event(
+        &self,
+        event: closeclaw_common::processor::StreamEvent,
+    ) -> closeclaw_common::im_plugin::StreamingOutput {
+        use closeclaw_common::processor::{ContentBlockType, ContentDelta, StreamEvent};
+        let mut state = self
+            .cardkit_streaming
+            .lock()
+            .expect("cardkit streaming lock poisoned");
+
+        match event {
+            StreamEvent::BlockStart { block_type, .. } => {
+                if block_type == ContentBlockType::Text {
+                    state.handle_block_start_text();
+                }
+            }
+            StreamEvent::BlockDelta { delta, .. } => {
+                if let ContentDelta::Text { text } = delta {
+                    state.handle_text_delta(&text);
+                }
+            }
+            StreamEvent::BlockEnd { block_type, .. } => {
+                if block_type == ContentBlockType::Text {
+                    state.handle_block_end_text();
+                }
+            }
+            StreamEvent::MessageEnd { .. } | StreamEvent::Error { .. } => {}
+        }
+
+        // Return empty output — text is batched internally for cardkit updates.
+        // Non-text blocks (Thinking/Tool) are handled by the Gateway's
+        // normal flow via render_blocks (returned as empty here).
+        closeclaw_common::im_plugin::StreamingOutput::default()
+    }
+
+    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        let mut state = self
+            .cardkit_streaming
+            .lock()
+            .expect("cardkit streaming lock poisoned");
+        let remaining = state.flush();
+        if remaining.is_empty() {
+            return closeclaw_common::im_plugin::StreamingOutput::default();
+        }
+        // Return remaining text for the Gateway to dispatch.
+        // During streaming, send() will intercept and route to cardkit.
+        closeclaw_common::im_plugin::StreamingOutput {
+            text_messages: vec![remaining],
+            render_blocks: Vec::new(),
+        }
+    }
+
+    fn check_stream_timeout(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        let mut state = self
+            .cardkit_streaming
+            .lock()
+            .expect("cardkit streaming lock poisoned");
+        match state.check_timeout() {
+            Some(text) => closeclaw_common::im_plugin::StreamingOutput {
+                text_messages: vec![text],
+                render_blocks: Vec::new(),
+            },
+            None => closeclaw_common::im_plugin::StreamingOutput::default(),
+        }
     }
 
     fn clean_content(&self, raw: &str) -> String {
