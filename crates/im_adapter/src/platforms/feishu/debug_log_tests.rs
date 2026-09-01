@@ -10,6 +10,7 @@
 use super::adapter::FeishuAdapter;
 use super::adapter::FEISHU_API_BASE;
 use super::FeishuPlugin;
+use crate::media_store::MediaStore;
 use crate::IMPlugin;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
@@ -28,6 +29,12 @@ async fn set_test_trace_id(adapter: &FeishuAdapter, trace_id: &str) {
     meta.insert("trace_id".to_string(), trace_id.to_string());
 }
 
+/// Create a test MediaStore rooted in a temp directory.
+fn make_test_media_store() -> Arc<MediaStore> {
+    let tmp = TempDir::new().expect("tmp dir");
+    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
+}
+
 fn make_test_adapter() -> FeishuAdapter {
     let http_client = reqwest::Client::new();
     FeishuAdapter {
@@ -38,6 +45,7 @@ fn make_test_adapter() -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: make_test_media_store(),
     }
 }
 

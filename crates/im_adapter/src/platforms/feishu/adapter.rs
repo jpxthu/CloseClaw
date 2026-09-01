@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::post_expand::{expand_post_content, extract_post_media_refs};
+use crate::media_store::MediaStore;
 use tokio::sync::Mutex;
 
 // Webhook event types
@@ -191,10 +192,17 @@ pub struct FeishuAdapter {
     /// Used by `last_parsed_metadata()` to surface platform-specific
     /// fields (e.g. `chat_name`) that were removed from NormalizedMessage.
     pub(crate) last_metadata: Arc<Mutex<HashMap<String, String>>>,
+    /// Media storage manager for inbound persistence.
+    pub(crate) media_store: Arc<MediaStore>,
 }
 
 impl FeishuAdapter {
-    pub fn new(app_id: String, app_secret: String, verification_token: String) -> Self {
+    pub fn new(
+        app_id: String,
+        app_secret: String,
+        verification_token: String,
+        media_store: Arc<MediaStore>,
+    ) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -207,6 +215,7 @@ impl FeishuAdapter {
             cached_token: Arc::new(Mutex::new(None)),
             base_url: FEISHU_API_BASE.to_string(),
             last_metadata: Arc::new(Mutex::new(HashMap::new())),
+            media_store,
         }
     }
 
@@ -631,26 +640,59 @@ impl FeishuAdapter {
             .or(event.event.parent_id);
         let sender_open_id = event.event.sender.sender_id.open_id.clone();
 
-        let (text, media_refs) =
+        let (text, mut media_refs) =
             match Self::extract_message_content(&event.event.message_type, &content) {
                 Ok(pair) => pair,
                 Err(_) => return Ok(None),
             };
 
-        // Populate media download URLs (non-text messages).
-        // After Step 1.1 the MediaRef uses `path` (local) instead of `url`
-        // (remote). For now the adapter does not perform local persistence,
-        // so we leave `path` empty. The platform key (`r.key`) is already
-        // set by `make_media_ref`.
-        let mut media_refs = media_refs;
+        // Populate media download URLs and persist inbound media.
+        let mut unavailable_media: Vec<String> = Vec::new();
         for r in &mut media_refs {
             let msg_id = event.event.message_id.as_deref().unwrap_or("");
-            let _url = self
+            match self
                 .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
                 .await
-                .unwrap_or_default();
-            // TODO(media-store): download to local path, set r.path, r.size, r.mime
+            {
+                Ok(url) => {
+                    match self
+                        .media_store
+                        .download_and_persist(
+                            &url,
+                            &r.key,
+                            &r.media_type,
+                            &self.http_client,
+                            u64::MAX,
+                        )
+                        .await
+                    {
+                        Ok(persisted) => {
+                            r.path = persisted.path;
+                            r.size = persisted.size;
+                            r.mime = persisted.mime;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                key = %r.key,
+                                error = %e,
+                                "Failed to persist media, marking unavailable"
+                            );
+                            unavailable_media.push(r.key.clone());
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        key = %r.key,
+                        error = %e,
+                        "Failed to fetch media URL, marking unavailable"
+                    );
+                    unavailable_media.push(r.key.clone());
+                }
+            }
         }
+        // Remove unavailable entries from media_refs.
+        media_refs.retain(|r| !unavailable_media.contains(&r.key));
 
         // Discard empty messages per design-doc filtering rules:
         // - text: empty content → discard
@@ -706,7 +748,7 @@ impl FeishuAdapter {
             trace_id: String::new(),
             message_id: String::new(),
             reply_ref: None,
-            unavailable_media: Vec::new(),
+            unavailable_media,
         }))
     }
 

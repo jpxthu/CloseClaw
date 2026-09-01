@@ -47,6 +47,7 @@ pub enum MediaStoreError {
 ///
 /// Owns the `inbound/` and `outbound/` directories under a configurable
 /// storage root and provides methods for download, resolution, and cleanup.
+#[derive(Debug, Clone)]
 pub struct MediaStore {
     /// Root storage directory.
     storage_dir: PathBuf,

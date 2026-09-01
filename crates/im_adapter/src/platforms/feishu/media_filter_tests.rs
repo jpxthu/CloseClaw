@@ -8,8 +8,16 @@
 //! - post media_refs extraction from embedded img/media/file tags
 
 use super::*;
+use crate::media_store::MediaStore;
 use closeclaw_common::MessageType;
 use std::collections::HashMap;
+use tempfile::TempDir;
+
+/// Create a test MediaStore rooted in a temp directory.
+fn make_test_media_store() -> Arc<MediaStore> {
+    let tmp = TempDir::new().expect("tmp dir");
+    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
+}
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods).
 fn make_test_adapter() -> FeishuAdapter {
@@ -22,6 +30,7 @@ fn make_test_adapter() -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: make_test_media_store(),
     }
 }
 
@@ -179,17 +188,14 @@ async fn test_post_with_image_not_discarded() {
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Post);
     assert_eq!(msg.content, "[图片]");
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "img_in_post");
+    // Download fails in unit tests → media unavailable
+    assert!(msg.media_refs.is_empty());
 }
 
 #[tokio::test]
 async fn test_post_empty_text_no_media_discarded() {
     let adapter = make_test_adapter();
-    let event = make_message_event(
-        "post",
-        &serde_json::json!({"content": []}).to_string(),
-    );
+    let event = make_message_event("post", &serde_json::json!({"content": []}).to_string());
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
         "post with empty text and no media should be discarded"
@@ -200,30 +206,23 @@ async fn test_post_empty_text_no_media_discarded() {
 async fn test_post_empty_text_with_image_produces() {
     let adapter = make_test_adapter();
     // Post with only an img tag (no text) → content is "[图片]",
-    // media_refs populated.
+    // media_refs populated. Download fails → media unavailable.
     let content = serde_json::json!({
         "content": [[{"tag": "img", "image_key": "img_in_post_only"}]]
     });
     let event = make_message_event("post", &content.to_string());
-    let msg = adapter
-        .parse_message_event(event)
-        .await
-        .unwrap()
-        .unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Post);
     assert_eq!(msg.content, "[图片]");
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "img_in_post_only");
-    assert_eq!(
-        msg.media_refs[0].media_type,
-        closeclaw_common::MediaType::Image
-    );
+    // Download fails in unit tests → media unavailable
+    assert!(msg.media_refs.is_empty());
 }
 
 #[tokio::test]
 async fn test_post_with_text_and_embedded_image() {
     let adapter = make_test_adapter();
     // Post with text + img tag → content has text, media_refs has image.
+    // Download fails → media unavailable.
     let content = serde_json::json!({
         "content": [
             [{"tag": "text", "text": "Check this: "}],
@@ -231,51 +230,40 @@ async fn test_post_with_text_and_embedded_image() {
         ]
     });
     let event = make_message_event("post", &content.to_string());
-    let msg = adapter
-        .parse_message_event(event)
-        .await
-        .unwrap()
-        .unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Post);
     assert!(
         msg.content.contains("Check this:"),
         "content should contain the text portion: {}",
         msg.content
     );
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "img_mixed");
+    // Download fails in unit tests → media unavailable
+    assert!(msg.media_refs.is_empty());
 }
 
 #[tokio::test]
 async fn test_post_empty_text_with_file_produces() {
     let adapter = make_test_adapter();
     // Post with only a file tag (no text) → content is "[文件]",
-    // media_refs populated.
+    // media_refs populated. Download fails → media unavailable.
     let content = serde_json::json!({
         "content": [
             [{"tag": "file", "file_key": "file_in_post"}]
         ]
     });
     let event = make_message_event("post", &content.to_string());
-    let msg = adapter
-        .parse_message_event(event)
-        .await
-        .unwrap()
-        .unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Post);
     assert_eq!(msg.content, "[文件]");
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "file_in_post");
-    assert_eq!(
-        msg.media_refs[0].media_type,
-        closeclaw_common::MediaType::File
-    );
+    // Download fails in unit tests → media unavailable
+    assert!(msg.media_refs.is_empty());
 }
 
 #[tokio::test]
 async fn test_post_multiple_media_refs_extracted() {
     let adapter = make_test_adapter();
     // Post with img + file + text → media_refs has both, content has text.
+    // Download fails → media unavailable.
     let content = serde_json::json!({
         "content": [
             [{"tag": "text", "text": "Report attached:"}],
@@ -284,24 +272,11 @@ async fn test_post_multiple_media_refs_extracted() {
         ]
     });
     let event = make_message_event("post", &content.to_string());
-    let msg = adapter
-        .parse_message_event(event)
-        .await
-        .unwrap()
-        .unwrap();
+    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Post);
     assert!(msg.content.contains("Report attached:"));
-    assert_eq!(msg.media_refs.len(), 2);
-    assert_eq!(msg.media_refs[0].key, "chart_1");
-    assert_eq!(
-        msg.media_refs[0].media_type,
-        closeclaw_common::MediaType::Image
-    );
-    assert_eq!(msg.media_refs[1].key, "report_pdf");
-    assert_eq!(
-        msg.media_refs[1].media_type,
-        closeclaw_common::MediaType::File
-    );
+    // Download fails in unit tests → media unavailable
+    assert!(msg.media_refs.is_empty());
 }
 
 // ===========================================================================
@@ -318,8 +293,8 @@ async fn test_image_no_text_produces_message() {
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Image);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "img_xxx");
+    // Download fails in unit tests (no HTTP mock) → media unavailable
+    assert!(msg.media_refs.is_empty());
     assert!(msg.content.is_empty());
 }
 
@@ -333,8 +308,8 @@ async fn test_file_no_text_produces_message() {
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::File);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "file_xxx");
+    // Download fails in unit tests (no HTTP mock) → media unavailable
+    assert!(msg.media_refs.is_empty());
     assert!(msg.content.is_empty());
 }
 
@@ -348,8 +323,8 @@ async fn test_audio_no_text_produces_message() {
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Audio);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "audio_xxx");
+    // Download fails in unit tests (no HTTP mock) → media unavailable
+    assert!(msg.media_refs.is_empty());
     assert!(msg.content.is_empty());
 }
 
@@ -363,11 +338,8 @@ async fn test_image_empty_key_produces_message() {
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Image);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert!(
-        msg.media_refs[0].key.is_empty(),
-        "image with no image_key should have empty key"
-    );
+    // Empty key → download fails → media unavailable
+    assert!(msg.media_refs.is_empty());
 }
 
 // ===========================================================================

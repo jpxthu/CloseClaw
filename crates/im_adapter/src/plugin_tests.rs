@@ -14,6 +14,7 @@
 #[cfg(test)]
 mod tests {
     use crate::code_block::{parse_content_segments, ContentSegment};
+    use crate::media_store::MediaStore;
     use crate::platforms::feishu::{FeishuAdapter, FeishuPlugin};
     use crate::plugin::{IMPlugin, RenderedOutput};
     use async_trait::async_trait;
@@ -183,10 +184,12 @@ mod tests {
     // =========================================================================
 
     fn make_feishu_plugin() -> FeishuPlugin {
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
         let adapter = Arc::new(FeishuAdapter::new(
             "test_app".into(),
             "test_secret".into(),
             "test_token".into(),
+            Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
         ));
         FeishuPlugin::new(adapter)
     }

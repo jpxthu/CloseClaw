@@ -706,6 +706,7 @@ dependencies = [
  "closeclaw-gateway",
  "closeclaw-llm",
  "closeclaw-tools",
+ "dirs",
  "futures",
  "inventory",
  "regex",

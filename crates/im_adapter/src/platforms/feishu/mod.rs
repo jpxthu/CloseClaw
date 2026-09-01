@@ -41,6 +41,7 @@ pub mod tools;
 mod trace_id_tests;
 
 use crate::error::AdapterError;
+use crate::media_store::MediaStore;
 use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::IMAdapter;
 use async_trait::async_trait;
@@ -169,7 +170,12 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
     if let (Some(app_id), Some(app_secret), Some(verification_token)) =
         (app_id, app_secret, verification_token)
     {
-        let adapter = Arc::new(FeishuAdapter::new(app_id, app_secret, verification_token));
+        let adapter = Arc::new(FeishuAdapter::new(
+            app_id,
+            app_secret,
+            verification_token,
+            Arc::new(MediaStore::new("~/.closeclaw/media").expect("failed to create media store")),
+        ));
 
         // Load identity mapping from config file (best-effort).
         let identity_resolver: Option<Arc<dyn IdentityResolver>> =

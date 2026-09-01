@@ -6,8 +6,16 @@
 use super::adapter::FeishuAdapter;
 use super::adapter::{FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId};
 use super::FeishuPlugin;
+use crate::media_store::MediaStore;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tempfile::TempDir;
+
+/// Create a test MediaStore rooted in a temp directory.
+fn make_test_media_store() -> Arc<MediaStore> {
+    let tmp = TempDir::new().expect("tmp dir");
+    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
+}
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
 fn make_adapter() -> FeishuAdapter {
@@ -20,6 +28,7 @@ fn make_adapter() -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: super::adapter::FEISHU_API_BASE.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: make_test_media_store(),
     }
 }
 

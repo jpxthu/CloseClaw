@@ -1,7 +1,15 @@
 //! Unit tests for Feishu adapter: sticker message handling.
 
 use super::*;
+use crate::media_store::MediaStore;
 use std::collections::HashMap;
+use tempfile::TempDir;
+
+/// Create a test MediaStore rooted in a temp directory.
+fn make_test_media_store() -> Arc<MediaStore> {
+    let tmp = TempDir::new().expect("tmp dir");
+    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
+}
 
 /// Create a test FeishuAdapter (no real HTTP — only sync methods).
 fn make_test_adapter() -> FeishuAdapter {
@@ -14,6 +22,7 @@ fn make_test_adapter() -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: make_test_media_store(),
     }
 }
 
