@@ -19,12 +19,9 @@ const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024;
 const MAX_FILE_SIZE: u64 = 30 * 1024 * 1024;
 
 /// Outbound media validation and copy result.
-#[allow(dead_code)]
 pub(crate) struct OutboundMediaResult {
     /// Absolute path to the copied file in the outbound directory.
     pub outbound_path: PathBuf,
-    /// Original filename (sanitized).
-    pub filename: String,
 }
 
 /// Validate that `path` is within one of the allowed directories.
@@ -34,7 +31,6 @@ pub(crate) struct OutboundMediaResult {
 /// - `media_store_dir` — the media storage root
 ///
 /// Returns `Ok(path)` if valid, `Err(AdapterError)` if out of bounds.
-#[allow(dead_code)]
 pub(crate) fn validate_outbound_path(
     path: &Path,
     workspace_dir: Option<&Path>,
@@ -76,7 +72,6 @@ pub(crate) fn validate_outbound_path(
 /// The file is copied to `media_store.outbound_dir()` with a sanitized
 /// filename. If a file with the same name exists, a unique suffix is
 /// appended.
-#[allow(dead_code)]
 pub(crate) fn copy_to_outbound(
     source_path: &Path,
     media_store: &MediaStore,
@@ -88,22 +83,18 @@ pub(crate) fn copy_to_outbound(
 
     let outbound_dir = media_store.outbound_dir();
 
-    // Generate unique filename to avoid conflicts.
-    let unique_name = crate::media_store::sanitize_filename(&filename);
-    let mut outbound_path = outbound_dir.join(&unique_name);
-    let mut counter = 0u32;
-    while outbound_path.exists() {
-        counter += 1;
-        let stem = Path::new(&unique_name)
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "media".to_string());
-        let ext = Path::new(&unique_name)
-            .extension()
-            .map(|e| format!(".{}", e.to_string_lossy()))
-            .unwrap_or_default();
-        outbound_path = outbound_dir.join(format!("{stem}_{counter}{ext}"));
-    }
+    // Use shared unique_filename to avoid conflicts.
+    let safe_name = crate::media_store::sanitize_filename(&filename);
+    let stem = Path::new(&safe_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "media".to_string());
+    let ext = Path::new(&safe_name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let unique_name = crate::media_store::unique_filename(outbound_dir, &stem, &ext);
+    let outbound_path = outbound_dir.join(&unique_name);
 
     std::fs::copy(source_path, &outbound_path).map_err(|e| {
         tracing::warn!(
@@ -115,21 +106,12 @@ pub(crate) fn copy_to_outbound(
         AdapterError::SendFailed(format!("failed to copy media: {e}"))
     })?;
 
-    let final_filename = outbound_path
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_else(|| "media".to_string());
-
-    Ok(OutboundMediaResult {
-        outbound_path,
-        filename: final_filename,
-    })
+    Ok(OutboundMediaResult { outbound_path })
 }
 
 /// Upload an image file to Feishu and return the image key.
 ///
 /// Uses the Feishu image upload API (`POST /im/v1/images`).
-#[allow(dead_code)]
 pub(crate) async fn upload_image(
     adapter: &FeishuAdapter,
     file_path: &Path,
@@ -222,7 +204,6 @@ pub(crate) async fn upload_image(
 /// Upload a file to Feishu and return the file key.
 ///
 /// Uses the Feishu file upload API (`POST /im/v1/files`).
-#[allow(dead_code)]
 pub(crate) async fn upload_file(
     adapter: &FeishuAdapter,
     file_path: &Path,
@@ -315,7 +296,6 @@ pub(crate) async fn upload_file(
 }
 
 /// Detect Feishu file type from extension.
-#[allow(dead_code)]
 pub(crate) fn detect_file_type(path: &Path) -> &'static str {
     match path
         .extension()
@@ -410,7 +390,13 @@ mod tests {
         let result = copy_to_outbound(&source, &media_store).unwrap();
 
         assert!(result.outbound_path.exists());
-        assert_eq!(result.filename, "source.png");
+        let fname = result
+            .outbound_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(fname, "source.png");
     }
 
     #[test]
@@ -425,8 +411,14 @@ mod tests {
 
         let result = copy_to_outbound(&source, &media_store).unwrap();
         assert!(result.outbound_path.exists());
-        assert_ne!(result.filename, "test.png");
-        assert!(result.filename.starts_with("test_"));
+        let fname = result
+            .outbound_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert_ne!(fname, "test.png");
+        assert!(fname.starts_with("test_"));
     }
 
     #[test]

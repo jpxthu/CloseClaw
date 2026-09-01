@@ -30,6 +30,7 @@ fn make_ctx(session_id: Option<&str>) -> ToolContext {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 
@@ -47,6 +48,7 @@ fn make_ctx_with_workdir(session_id: Option<&str>, workdir: &std::path::Path) ->
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 

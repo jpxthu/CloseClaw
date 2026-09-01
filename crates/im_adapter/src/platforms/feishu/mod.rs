@@ -43,6 +43,7 @@ pub mod tools;
 #[cfg(test)]
 mod trace_id_tests;
 
+use self::outbound_media::{copy_to_outbound, upload_file, upload_image, validate_outbound_path};
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
 use crate::normalized::{add_code_block_language_hint, normalize_urls};
@@ -491,7 +492,13 @@ impl FeishuPlugin {
                 }
             }
             "interactive" => {
-                let card_json = serde_json::to_string(&output.payload)
+                // Process media elements in the card payload before sending.
+                let mut payload = output.payload.clone();
+                if let Err(e) = self.process_card_media(&mut payload).await {
+                    warn!(peer_id = %peer_id, error = %e,
+                        "Failed to process card media — sending as-is");
+                }
+                let card_json = serde_json::to_string(&payload)
                     .map_err(|e| CommonAdapterError::SendFailed(e.to_string()))?;
                 match self
                     .adapter
@@ -510,6 +517,122 @@ impl FeishuPlugin {
             }
             _ => Err(CommonAdapterError::UnsupportedOperation),
         }
+    }
+
+    /// Process media elements in a card payload, uploading files to Feishu
+    /// and replacing local paths with Feishu image/file keys.
+    async fn process_card_media(
+        &self,
+        payload: &mut serde_json::Value,
+    ) -> Result<(), AdapterError> {
+        let elements = match payload
+            .get_mut("card")
+            .and_then(|c| c.get_mut("elements"))
+            .and_then(|e| e.as_array_mut())
+        {
+            Some(e) => e,
+            None => return Ok(()),
+        };
+
+        let media_store = &self.adapter.media_store;
+
+        for element in elements.iter_mut() {
+            let tag = element.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+            match tag {
+                "img" => {
+                    if let Some(img_key) = element.get("img_key").and_then(|k| k.as_str()) {
+                        if let Some(outbound) =
+                            self.prepare_outbound_media(img_key, media_store).await
+                        {
+                            match upload_image(&self.adapter, &outbound).await {
+                                Ok(key) => {
+                                    if let Some(obj) = element.as_object_mut() {
+                                        obj.insert(
+                                            "img_key".to_string(),
+                                            serde_json::Value::String(key),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to upload image to Feishu");
+                                }
+                            }
+                        }
+                    }
+                }
+                "media" => {
+                    if let Some(file_token) = element.get("file_token").and_then(|k| k.as_str()) {
+                        if let Some(outbound) =
+                            self.prepare_outbound_media(file_token, media_store).await
+                        {
+                            let filename = outbound
+                                .file_name()
+                                .map(|f| f.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "file".to_string());
+                            match upload_file(&self.adapter, &outbound, &filename).await {
+                                Ok(key) => {
+                                    if let Some(obj) = element.as_object_mut() {
+                                        obj.insert(
+                                            "file_token".to_string(),
+                                            serde_json::Value::String(key),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(error = %e, "Failed to upload file to Feishu");
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate, copy to outbound, and return the outbound path for upload.
+    ///
+    /// Returns `Some(outbound_path)` on success, `None` if the reference
+    /// is an HTTP URL, doesn't exist, or fails validation.
+    async fn prepare_outbound_media(
+        &self,
+        reference: &str,
+        media_store: &MediaStore,
+    ) -> Option<std::path::PathBuf> {
+        let path = self.try_resolve_media_path(reference, media_store)?;
+        match copy_to_outbound(&path, media_store) {
+            Ok(result) => Some(result.outbound_path),
+            Err(e) => {
+                warn!(source = %path.display(), error = %e, "Failed to copy media to outbound");
+                None
+            }
+        }
+    }
+
+    /// Try to resolve a media reference string to a local path.
+    ///
+    /// Returns `Some(path)` if the string is a local file path that exists
+    /// and passes outbound validation. Returns `None` for HTTP URLs or
+    /// unresolvable references.
+    fn try_resolve_media_path(
+        &self,
+        reference: &str,
+        media_store: &MediaStore,
+    ) -> Option<std::path::PathBuf> {
+        // Skip HTTP/HTTPS URLs — they're already Feishu-hosted.
+        if reference.starts_with("http://") || reference.starts_with("https://") {
+            return None;
+        }
+
+        let path = std::path::PathBuf::from(reference);
+        if !path.exists() {
+            return None;
+        }
+
+        // Validate against whitelist (media store + workspace).
+        let media_dir = media_store.storage_dir();
+        validate_outbound_path(&path, None, media_dir).ok()
     }
 }
 

@@ -273,6 +273,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let result = tool.call(serde_json::json!({}), &ctx).await.unwrap();
         assert_eq!(result.data["total"], 0);
@@ -297,6 +298,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let result = tool.call(serde_json::json!({}), &ctx).await.unwrap();
         assert_eq!(result.data["total"], 2);
@@ -322,6 +324,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let result = tool
             .call(serde_json::json!({"agent_id": "a1"}), &ctx)
@@ -371,6 +374,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let result = tool
             .call(serde_json::json!({"disposition": "rejected"}), &ctx)
@@ -427,6 +431,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let result = tool
             .call(
@@ -488,6 +493,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let result = tool
             .call(
@@ -521,6 +527,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let result = tool
             .call(serde_json::json!({"agent_id": "nonexistent"}), &ctx)

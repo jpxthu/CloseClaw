@@ -75,7 +75,13 @@ fn test_copy_to_outbound_creates_file() {
     let result = copy_to_outbound(&source, &media_store).unwrap();
 
     assert!(result.outbound_path.exists());
-    assert_eq!(result.filename, "source.png");
+    let fname = result
+        .outbound_path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    assert_eq!(fname, "source.png");
 }
 
 #[test]
@@ -90,8 +96,14 @@ fn test_copy_to_outbound_unique_name_on_conflict() {
 
     let result = copy_to_outbound(&source, &media_store).unwrap();
     assert!(result.outbound_path.exists());
-    assert_ne!(result.filename, "test.png");
-    assert!(result.filename.starts_with("test_"));
+    let fname = result
+        .outbound_path
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    assert_ne!(fname, "test.png");
+    assert!(fname.starts_with("test_"));
 }
 
 #[test]

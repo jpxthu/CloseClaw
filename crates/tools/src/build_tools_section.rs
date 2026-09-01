@@ -293,6 +293,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -334,6 +335,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -380,6 +382,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -436,6 +439,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -467,6 +471,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -512,6 +517,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -552,6 +558,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -605,6 +612,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -649,6 +657,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -698,6 +707,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         // sessions_spawn is always visible in the tools section
         // (budget filtering is now handled at session creation time).
@@ -750,6 +760,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         // Budget = 1 → sessions_spawn should be present.
         let content = build_tools_section(
@@ -796,6 +807,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,
@@ -839,6 +851,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         };
         let content = build_tools_section(
             &registry,

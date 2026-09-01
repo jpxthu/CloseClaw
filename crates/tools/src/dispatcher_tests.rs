@@ -589,6 +589,7 @@ fn make_base_ctx() -> ToolContext {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 

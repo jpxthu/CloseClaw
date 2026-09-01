@@ -137,21 +137,6 @@ impl MediaStore {
         })
     }
 
-    /// Resolve a [`MediaRef`] to its absolute local path.
-    ///
-    /// The `path` field of the ref is treated as relative to the storage
-    /// root (e.g. `inbound/file.png`).
-    pub fn resolve_ref(&self, media_ref: &MediaRef) -> Result<PathBuf, MediaStoreError> {
-        if media_ref.path.is_empty() {
-            return Err(MediaStoreError::NoPath);
-        }
-        let full = self.storage_dir.join(&media_ref.path);
-        if !full.exists() {
-            return Err(MediaStoreError::FileNotFound(full));
-        }
-        Ok(full)
-    }
-
     /// Delete files older than `retention_days` in both `inbound/` and
     /// `outbound/`. Returns the number of files removed.
     ///
@@ -261,7 +246,7 @@ pub fn sanitize_filename(name: &str) -> String {
 
 /// Generate a unique filename by appending a short random suffix if a
 /// file with the same name already exists.
-fn unique_filename(dir: &Path, name: &str, extension: &str) -> String {
+pub fn unique_filename(dir: &Path, name: &str, extension: &str) -> String {
     let base = if extension.is_empty() {
         name.to_string()
     } else {
@@ -356,6 +341,8 @@ fn cleanup_dir(dir: &Path, cutoff: SystemTime) -> Result<u64, MediaStoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::MediaStoreAccess;
+    use closeclaw_common::MediaStoreError as CommonMediaStoreError;
     use tempfile::TempDir;
 
     /// Helper: create a MediaStore rooted in a temp directory.
@@ -442,7 +429,7 @@ mod tests {
         };
         assert!(matches!(
             store.resolve_ref(&media_ref),
-            Err(MediaStoreError::NoPath)
+            Err(CommonMediaStoreError::NoPath)
         ));
     }
 
@@ -458,7 +445,7 @@ mod tests {
         };
         assert!(matches!(
             store.resolve_ref(&media_ref),
-            Err(MediaStoreError::FileNotFound(_))
+            Err(CommonMediaStoreError::FileNotFound(_))
         ));
     }
 
