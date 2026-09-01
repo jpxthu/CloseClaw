@@ -39,12 +39,12 @@ impl RebuildStash {
     }
 
     /// Returns `true` if the Gateway is currently in rebuild mode.
-    pub fn is_rebuild_mode(&self) -> bool {
+    pub(crate) fn is_rebuild_mode(&self) -> bool {
         self.rebuild_mode.load(Ordering::Acquire)
     }
 
     /// Append a stashed request to the back of the buffer.
-    pub fn push(&self, request: InboundRequest) {
+    pub(crate) fn push(&self, request: InboundRequest) {
         match self.stash.lock() {
             Ok(mut guard) => guard.push_back(request),
             Err(poisoned) => {
@@ -60,7 +60,7 @@ impl RebuildStash {
     ///
     /// Called by the Daemon after the rebuild completes to replay
     /// messages into the new Gateway.
-    pub fn take_stashed(&self) -> Vec<InboundRequest> {
+    pub(crate) fn take_stashed(&self) -> Vec<InboundRequest> {
         match self.stash.lock() {
             Ok(mut guard) => guard.drain(..).collect(),
             Err(poisoned) => {

@@ -244,6 +244,51 @@ async fn test_rebuild_mode_no_wal_still_stashes() {
     assert_eq!(gw.rebuild_stash.take_stashed().len(), 1);
 }
 
+/// Rebuild mode ON + WAL configured → stashed messages are WAL-appended.
+///
+/// Verifies that the WAL file exists and contains the stashed message
+/// after a queue-full hit during rebuild mode.
+#[tokio::test]
+async fn test_rebuild_stash_wal_appended() {
+    let wal_dir = tempfile::tempdir().unwrap();
+    let wal_path = wal_dir.path().to_path_buf();
+    let config = GatewayConfig {
+        name: "wal-stash-test".into(),
+        inbound_queue_capacity: 1,
+        inbound_wal_dir: Some(wal_path.clone()),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = Arc::new(Gateway::new(config, sm));
+    let handle = gw.start_inbound_queue();
+    handle.try_send(queued(make_request("fill"))).unwrap();
+
+    // Enter rebuild mode — next full hit stashes + WAL appends.
+    gw.set_rebuild_mode(true);
+    let stashed_req = make_request("wal-stashed-msg");
+    let result = gw.enqueue_inbound(stashed_req).await;
+    assert!(result.is_ok(), "rebuild mode should stash, not reject");
+
+    // Verify the stash buffer has the message.
+    let stashed = gw.rebuild_stash.take_stashed();
+    assert_eq!(stashed.len(), 1);
+    let trace_id = stashed[0].trace_id.clone();
+
+    // Verify WAL file exists and contains the stashed message.
+    let wal_file = wal_path.join("inbound.jsonl");
+    assert!(wal_file.exists(), "WAL file should exist after stash");
+    let wal_content = std::fs::read_to_string(&wal_file).unwrap();
+    assert!(
+        wal_content.contains(&trace_id),
+        "WAL should contain the stashed message trace_id"
+    );
+}
+
 /// Replay into a new Gateway with full queue → normal reject (Err returned,
 /// logged, not silently lost).
 #[tokio::test]
