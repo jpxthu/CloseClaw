@@ -40,6 +40,7 @@ pub(crate) mod process_manager;
 #[cfg(test)]
 mod process_manager_tests;
 pub mod renderer;
+pub(crate) mod streaming_send;
 #[cfg(test)]
 mod send_fallback_tests;
 mod send_helpers;
@@ -329,7 +330,6 @@ impl FeishuPlugin {
     }
 
     /// Create a Feishu plugin with an optional identity resolver.
-    #[allow(dead_code)]
     pub(crate) fn with_identity_resolver(
         adapter: Arc<FeishuAdapter>,
         identity_resolver: Option<Arc<dyn IdentityResolver>>,
@@ -394,7 +394,7 @@ impl FeishuPlugin {
     /// Centralizes the repeated pattern: check debug_log, acquire trace_id,
     /// build event, spawn async send. Callers only supply `event_type` and
     /// `payload`. Skips silently when debug_log is None or trace_id is empty.
-    fn emit_debug_event(&self, event_type: &str, payload: serde_json::Value) {
+    pub(super) fn emit_debug_event(&self, event_type: &str, payload: serde_json::Value) {
         let debug_log = match self.debug_log {
             Some(ref dl) => dl.clone(),
             None => return,
@@ -454,7 +454,7 @@ impl FeishuPlugin {
     }
 
     /// Dispatch a rendered output to the platform send API.
-    async fn dispatch_send(
+    pub(super) async fn dispatch_send(
         &self,
         peer_id: &str,
         output: &RenderedOutput,
@@ -773,75 +773,10 @@ impl IMPlugin for FeishuPlugin {
         // During streaming, text messages are routed to cardkit card updates.
         // Non-text (interactive cards) go through normal dispatch for batch mode.
         if output.msg_type == "text" {
-            let mut state = self
-                .cardkit_streaming
-                .lock()
-                .expect("cardkit streaming lock poisoned");
-            if state.state.is_active {
-                let text = output
-                    .payload
-                    .get("content")
-                    .and_then(|c| c.get("text"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
-                if text.is_empty() {
-                    return Ok(());
-                }
-                state.state.pending_text.push_str(text);
-                // Respect platform frequency limit — if the minimum
-                // interval between card updates has not elapsed, keep
-                // the content buffered for the next send() call.
-                if !state.should_update_now() {
-                    return Ok(());
-                }
-                let content = std::mem::take(&mut state.state.pending_text);
-                state.state.sequence += 1;
-                let card_id = state
-                    .state
-                    .card_id
-                    .clone()
-                    .expect("card_id must be set when streaming is active");
-                let seq = state.state.sequence;
-                state.state.last_update = Some(Instant::now());
-                drop(state);
-                let adapter = self.adapter.clone();
-                let element_id = cardkit_streaming::STREAMING_ELEMENT_ID.to_string();
-                tokio::spawn(async move {
-                    if let Err(e) = CardkitStreamingRenderer::update_element(
-                        &adapter,
-                        &card_id,
-                        &element_id,
-                        &content,
-                        seq,
-                    )
-                    .await
-                    {
-                        tracing::warn!(error = %e, card_id = %card_id, "Failed to update streaming card element");
-                    }
-                });
-                return Ok(());
-            }
+            return self.send_streaming_text(output, peer_id, thread_id).await;
         }
 
-        let msg_type = output.msg_type.clone();
-        let start = Instant::now();
-        let result = self.dispatch_send(peer_id, output, thread_id).await;
-        let send_duration_ms = start.elapsed().as_millis() as u64;
-        let success = result.is_ok();
-
-        // Emit structured debug_log event for outbound send.
-        self.emit_debug_event(
-            "outbound.send",
-            serde_json::json!({
-                "platform": "feishu",
-                "peer_id": peer_id,
-                "msg_type": msg_type,
-                "send_duration_ms": send_duration_ms,
-                "success": success,
-            }),
-        );
-
-        result
+        self.send_batch_output(output, peer_id, thread_id).await
     }
 
     async fn shutdown(&self) -> Result<(), CommonAdapterError> {

@@ -144,7 +144,6 @@ impl CardkitStreamingRenderer {
     /// Create a streaming card via cardkit API.
     ///
     /// Returns `Some(card_id)` on success, `None` on failure.
-    #[allow(dead_code)]
     pub(crate) async fn create_card(adapter: &FeishuAdapter) -> Option<String> {
         let card_json = serde_json::json!({
             "streaming_mode": true,
@@ -195,7 +194,6 @@ impl CardkitStreamingRenderer {
     ///
     /// Routes to `--user-id` for P2P (`ou_xxx`) or `--chat-id` for
     /// group chats (`oc_xxx`).
-    #[allow(dead_code)]
     pub(crate) async fn send_card_ref(
         adapter: &FeishuAdapter,
         chat_id: &str,

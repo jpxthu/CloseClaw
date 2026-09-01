@@ -386,59 +386,83 @@ impl ProcessManager {
         mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     ) {
         let mut delay_ms = INITIAL_RESTART_DELAY_MS;
-
         loop {
-            // Read stdout lines and send parsed events.
             Self::read_stdout_lines(&mut child, &event_tx).await;
-
-            // Check if we should shut down.
-            if !running.load(std::sync::atomic::Ordering::SeqCst) || shutdown_rx.try_recv().is_ok()
-            {
-                tracing::info!("monitor loop: shutdown requested, exiting");
+            if Self::should_shutdown(&running, &mut shutdown_rx) {
                 break;
             }
+            Self::wait_for_child_exit(&mut child).await;
+            delay_ms = Self::apply_backoff(delay_ms).await;
+            child = match Self::try_respawn(&command, &args, &last_pid).await {
+                Some(c) => {
+                    delay_ms = INITIAL_RESTART_DELAY_MS;
+                    c
+                }
+                None => child,
+            };
+        }
+    }
 
-            // Wait for process to actually exit.
-            let _ = child.wait().await;
-            tracing::warn!("lark-cli subprocess exited, restarting in {delay_ms}ms");
+    /// Check if the monitor should shut down.
+    fn should_shutdown(
+        running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+        shutdown_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    ) -> bool {
+        if !running.load(std::sync::atomic::Ordering::SeqCst)
+            || shutdown_rx.try_recv().is_ok()
+        {
+            tracing::info!("monitor loop: shutdown requested, exiting");
+            return true;
+        }
+        false
+    }
 
-            // Exponential backoff with cap.
-            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-            delay_ms = (delay_ms * 2).min(MAX_RESTART_DELAY_MS);
+    /// Wait for the child process to exit.
+    async fn wait_for_child_exit(child: &mut Child) {
+        let _ = child.wait().await;
+        tracing::warn!("lark-cli subprocess exited, restarting");
+    }
 
-            // Respawn.
-            match Command::new(&command)
-                .args(&args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()
-            {
-                Ok(mut new_child) => {
-                    let pid = new_child.id();
-                    tracing::info!(pid = pid, "lark-cli subprocess restarted");
+    /// Apply exponential backoff and sleep.
+    async fn apply_backoff(delay_ms: u64) -> u64 {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        (delay_ms * 2).min(MAX_RESTART_DELAY_MS)
+    }
 
-                    // Wait for ready signal on stderr.
-                    let stderr = new_child.stderr.take().expect("stderr piped");
-                    match Self::wait_for_ready(stderr).await {
-                        Ok(true) => {
-                            tracing::info!("lark-cli subprocess ready after restart");
-                            child = new_child;
-                            last_pid.store(pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
-                            // Reset delay on successful restart.
-                            delay_ms = INITIAL_RESTART_DELAY_MS;
-                        }
-                        _ => {
-                            tracing::warn!(
-                                "lark-cli subprocess failed to become ready after restart"
-                            );
-                            // Drop the child, loop will retry.
-                        }
+    /// Attempt to respawn the subprocess.
+    ///
+    /// Returns `Some(new_child)` on success, `None` on failure.
+    async fn try_respawn(
+        command: &str,
+        args: &[String],
+        last_pid: &std::sync::Arc<std::sync::atomic::AtomicU32>,
+    ) -> Option<Child> {
+        match Command::new(command)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+        {
+            Ok(mut new_child) => {
+                let pid = new_child.id();
+                tracing::info!(pid = pid, "lark-cli subprocess restarted");
+                let stderr = new_child.stderr.take().expect("stderr piped");
+                match Self::wait_for_ready(stderr).await {
+                    Ok(true) => {
+                        tracing::info!("lark-cli subprocess ready after restart");
+                        last_pid.store(pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+                        Some(new_child)
+                    }
+                    _ => {
+                        tracing::warn!("lark-cli subprocess failed to become ready after restart");
+                        None
                     }
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to respawn lark-cli subprocess");
-                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to respawn lark-cli subprocess");
+                None
             }
         }
     }
@@ -531,87 +555,62 @@ impl ProcessManager {
 /// the `FeishuEvent` / `FeishuMessageEvent` structs used by the rest
 /// of the parsing pipeline.
 #[allow(dead_code)]
-pub(crate) fn normalize_cli_event(raw: &serde_json::Value) -> Option<super::adapter::FeishuEvent> {
-    use super::adapter::{
-        FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
-    };
+/// Helper to extract an optional string field from a JSON value.
+fn opt_str<'a>(raw: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    raw.get(key).and_then(|v| v.as_str())
+}
 
-    let event_type = raw.get("type").and_then(|v| v.as_str())?.to_string();
-    let event_id = raw.get("event_id").and_then(|v| v.as_str())?.to_string();
-    let create_time = raw
-        .get("create_time")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let app_id = raw
-        .get("app_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let chat_id = raw
-        .get("chat_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let message_type = raw
-        .get("message_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let content = raw
-        .get("content")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let sender_id = raw
-        .get("sender_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let sender_type = raw
-        .get("sender_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("user")
-        .to_string();
-    let message_id = raw
-        .get("message_id")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let thread_id = raw
-        .get("thread_id")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let root_id = raw
-        .get("root_id")
-        .and_then(|v| v.as_str())
-        .map(String::from);
-    let parent_id = raw
-        .get("parent_id")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+/// Helper to extract a required string field, returning `None` if missing.
+fn required_str(raw: &serde_json::Value, key: &str) -> Option<String> {
+    opt_str(raw, key).map(String::from)
+}
 
-    Some(FeishuEvent {
-        schema: String::new(),
-        header: FeishuHeader {
-            event_id,
-            event_type,
-            create_time,
-            token: String::new(),
-            app_id,
-        },
-        event: FeishuMessageEvent {
-            message_id,
-            sender: FeishuSender {
-                sender_id: FeishuSenderId { open_id: sender_id },
-                sender_type,
+/// Helper to extract an optional string field with a default value.
+fn opt_str_default(raw: &serde_json::Value, key: &str, default: &str) -> String {
+    opt_str(raw, key).unwrap_or(default).to_string()
+}
+
+/// Extract the header portion from a CLI-format event.
+fn extract_cli_header(raw: &serde_json::Value) -> Option<super::adapter::FeishuHeader> {
+    Some(super::adapter::FeishuHeader {
+        event_id: required_str(raw, "event_id")?,
+        event_type: required_str(raw, "type")?,
+        create_time: opt_str_default(raw, "create_time", ""),
+        token: String::new(),
+        app_id: opt_str_default(raw, "app_id", ""),
+    })
+}
+
+/// Extract the message event portion from a CLI-format event.
+fn extract_cli_message_event(raw: &serde_json::Value) -> super::adapter::FeishuMessageEvent {
+    use super::adapter::{FeishuMessageEvent, FeishuSender, FeishuSenderId};
+    FeishuMessageEvent {
+        message_id: opt_str(raw, "message_id").map(String::from),
+        sender: FeishuSender {
+            sender_id: FeishuSenderId {
+                open_id: opt_str_default(raw, "sender_id", ""),
             },
-            content,
-            chat_id,
-            message_type,
-            thread_id,
-            root_id,
-            parent_id,
+            sender_type: opt_str_default(raw, "sender_type", "user"),
         },
+        content: opt_str_default(raw, "content", ""),
+        chat_id: opt_str_default(raw, "chat_id", ""),
+        message_type: opt_str_default(raw, "message_type", ""),
+        thread_id: opt_str(raw, "thread_id").map(String::from),
+        root_id: opt_str(raw, "root_id").map(String::from),
+        parent_id: opt_str(raw, "parent_id").map(String::from),
+    }
+}
+
+/// Normalize a raw CLI-format event (flat top-level fields) into
+/// the webhook-style [`FeishuEvent`] structure.
+#[allow(dead_code)]
+pub(crate) fn normalize_cli_event(raw: &serde_json::Value) -> Option<super::adapter::FeishuEvent> {
+    let header = extract_cli_header(raw)?;
+    let event = extract_cli_message_event(raw);
+    Some(super::adapter::FeishuEvent {
+        schema: String::new(),
+        header,
+        event,
     })
 }
 

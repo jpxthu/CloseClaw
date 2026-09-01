@@ -25,61 +25,67 @@ pub(crate) async fn run_cli(
     adapter: &FeishuAdapter,
     args: &[&str],
 ) -> Result<String, AdapterError> {
-    // Prepend --profile to ensure correct credential delegation.
+    let output = spawn_cli(adapter, args).await?;
+    check_cli_exit_status(&output)?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    check_cli_json_error(&stdout)?;
+    Ok(stdout)
+}
+
+/// Spawn a lark-cli subprocess with --profile prepended.
+async fn spawn_cli(
+    adapter: &FeishuAdapter,
+    args: &[&str],
+) -> Result<std::process::Output, AdapterError> {
     let mut full_args: Vec<&str> = vec!["--profile", &adapter.profile];
     full_args.extend_from_slice(args);
-
-    let output = Command::new(&adapter.cli_command)
+    Command::new(&adapter.cli_command)
         .args(&full_args)
         .output()
         .await
         .map_err(|e| {
             tracing::warn!(error = %e, command = %adapter.cli_command, "failed to spawn lark-cli");
             AdapterError::SendFailed(format!("lark-cli spawn error: {e}"))
-        })?;
+        })
+}
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!(
-            code = ?output.status.code(),
-            stderr = %stderr,
-            "lark-cli exited with error"
-        );
-        return Err(AdapterError::SendFailed(format!(
-            "lark-cli exited with code {:?}: {}",
-            output.status.code(),
-            stderr.trim()
-        )));
+/// Check if the process exited with a non-zero status.
+fn check_cli_exit_status(output: &std::process::Output) -> Result<(), AdapterError> {
+    if output.status.success() {
+        return Ok(());
     }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    tracing::warn!(
+        code = ?output.status.code(),
+        stderr = %stderr,
+        "lark-cli exited with error"
+    );
+    Err(AdapterError::SendFailed(format!(
+        "lark-cli exited with code {:?}: {}",
+        output.status.code(),
+        stderr.trim()
+    )))
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+/// Check if a JSON response contains an error code.
+fn check_cli_json_error(stdout: &str) -> Result<(), AdapterError> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return Ok(String::new());
+        return Ok(());
     }
-
-    // Parse JSON response and check for error code.
-    match serde_json::from_str::<serde_json::Value>(trimmed) {
-        Ok(val) => {
-            let code = val.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
-            if code != 0 {
-                let msg = val
-                    .get("msg")
-                    .or_else(|| val.get("message"))
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("unknown error");
-                tracing::warn!(code = code, msg = %msg, "lark-cli returned error");
-                return Err(AdapterError::SendFailed(format!(
-                    "lark-cli error {code}: {msg}"
-                )));
-            }
-        }
-        Err(_) => {
-            // Response is not JSON — likely raw text output. Accept as success.
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let code = val.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
+        if code != 0 {
+            let msg = val
+                .get("msg")
+                .or_else(|| val.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown error");
+            tracing::warn!(code = code, msg = %msg, "lark-cli returned error");
+            return Err(AdapterError::SendFailed(format!("lark-cli error {code}: {msg}")));
         }
     }
-
-    Ok(stdout)
+    Ok(())
 }
 
 /// Build lark-cli arguments for sending a message.
@@ -194,23 +200,7 @@ impl FeishuAdapter {
         receive_id: &str,
         image_path: &str,
     ) -> Result<(), AdapterError> {
-        let id_flag = if receive_id.starts_with("ou_") {
-            "--user-id"
-        } else {
-            "--chat-id"
-        };
-        let args = vec![
-            "im",
-            "+messages-send",
-            id_flag,
-            receive_id,
-            "--image",
-            image_path,
-            "--as",
-            "bot",
-        ];
-        run_cli(self, &args).await?;
-        Ok(())
+        self.send_media_file(receive_id, "--image", image_path).await
     }
 
     /// Send a file via lark-cli.
@@ -220,6 +210,19 @@ impl FeishuAdapter {
     pub(crate) async fn send_file(
         &self,
         receive_id: &str,
+        file_path: &str,
+    ) -> Result<(), AdapterError> {
+        self.send_media_file(receive_id, "--file", file_path).await
+    }
+
+    /// Send a media file (image or file) via lark-cli.
+    ///
+    /// Common implementation for `send_image` and `send_file`.
+    /// Routes to `--user-id` for P2P (`ou_xxx`) or `--chat-id` for group chats (`oc_xxx`).
+    async fn send_media_file(
+        &self,
+        receive_id: &str,
+        media_flag: &str,
         file_path: &str,
     ) -> Result<(), AdapterError> {
         let id_flag = if receive_id.starts_with("ou_") {
@@ -232,7 +235,7 @@ impl FeishuAdapter {
             "+messages-send",
             id_flag,
             receive_id,
-            "--file",
+            media_flag,
             file_path,
             "--as",
             "bot",

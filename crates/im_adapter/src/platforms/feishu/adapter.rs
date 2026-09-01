@@ -492,8 +492,9 @@ impl FeishuAdapter {
         let thread_id = event
             .event
             .thread_id
-            .or(event.event.root_id)
-            .or(event.event.parent_id);
+            .clone()
+            .or(event.event.root_id.clone())
+            .or(event.event.parent_id.clone());
         let sender_open_id = event.event.sender.sender_id.open_id.clone();
 
         let (text, mut media_refs) =
@@ -502,93 +503,19 @@ impl FeishuAdapter {
                 Err(_) => return Ok(None),
             };
 
-        // Populate media download URLs and persist inbound media.
-        let mut unavailable_media: Vec<String> = Vec::new();
-        for r in &mut media_refs {
-            let msg_id = event.event.message_id.as_deref().unwrap_or("");
-            match self
-                .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
-                .await
-            {
-                Ok(url) => {
-                    match self
-                        .media_store
-                        .download_and_persist(
-                            &url,
-                            &r.key,
-                            &r.media_type,
-                            &self.http_client,
-                            self.max_download_size_bytes,
-                        )
-                        .await
-                    {
-                        Ok(persisted) => {
-                            r.path = persisted.path;
-                            r.size = persisted.size;
-                            r.mime = persisted.mime;
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                key = %r.key,
-                                error = %e,
-                                "Failed to persist media, marking unavailable"
-                            );
-                            unavailable_media.push(r.key.clone());
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        key = %r.key,
-                        error = %e,
-                        "Failed to fetch media URL, marking unavailable"
-                    );
-                    unavailable_media.push(r.key.clone());
-                }
-            }
-        }
-        // Remove unavailable entries from media_refs.
+        let unavailable_media = self
+            .persist_media_refs(&event, &mut media_refs)
+            .await;
         media_refs.retain(|r| !unavailable_media.contains(&r.key));
 
-        // Discard empty messages per design-doc filtering rules:
-        // - text: empty content → discard
-        // - post: empty content AND no media_refs → discard
-        // - image/file/audio: always produce (content may be empty)
-        // - sticker: keep existing behavior (emoji expansion)
-        let msg_type_str = event.event.message_type.as_str();
-        let should_discard = match msg_type_str {
-            "text" => text.trim().is_empty(),
-            "post" => text.trim().is_empty() && media_refs.is_empty(),
-            "sticker" => false,
-            _ => false,
-        };
-        if should_discard {
-            tracing::debug!(
-                message_type = %msg_type_str,
-                "Discarding empty message"
-            );
+        if Self::should_discard_message(&event.event.message_type, &text, &media_refs) {
             return Ok(None);
         }
 
         let content = self
             .prepend_quote_blockquote(original_parent_id.as_deref(), &text)
             .await;
-
-        // Fetch the chat name for the group chat.
-        let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
-
-        // Store chat_name and header app_id in last_metadata.
-        // header_app_id is used by normalize_inbound_message as the
-        // bot_app_id for identity resolution (priority over adapter.app_id).
-        {
-            let mut meta = self.last_metadata.lock().await;
-            meta.clear();
-            let name = chat_name.unwrap_or_default();
-            if !name.is_empty() {
-                meta.insert("chat_name".to_string(), name);
-            }
-            meta.insert("header_app_id".to_string(), event.header.app_id.clone());
-        }
+        self.store_event_metadata(&event).await;
 
         Ok(Some(NormalizedMessage {
             platform: "feishu".to_string(),
@@ -606,6 +533,76 @@ impl FeishuAdapter {
             reply_ref: None,
             unavailable_media,
         }))
+    }
+
+    /// Download and persist all media refs, returning unavailable keys.
+    async fn persist_media_refs(
+        &self,
+        event: &FeishuEvent,
+        media_refs: &mut [MediaRef],
+    ) -> Vec<String> {
+        let mut unavailable_media: Vec<String> = Vec::new();
+        for r in media_refs.iter_mut() {
+            let msg_id = event.event.message_id.as_deref().unwrap_or("");
+            match self
+                .fetch_media_download_url(msg_id, &r.key, &event.event.message_type)
+                .await
+            {
+                Ok(url) => match self
+                    .media_store
+                    .download_and_persist(
+                        &url,
+                        &r.key,
+                        &r.media_type,
+                        &self.http_client,
+                        self.max_download_size_bytes,
+                    )
+                    .await
+                {
+                    Ok(persisted) => {
+                        r.path = persisted.path;
+                        r.size = persisted.size;
+                        r.mime = persisted.mime;
+                    }
+                    Err(e) => {
+                        tracing::warn!(key = %r.key, error = %e, "Failed to persist media");
+                        unavailable_media.push(r.key.clone());
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(key = %r.key, error = %e, "Failed to fetch media URL");
+                    unavailable_media.push(r.key.clone());
+                }
+            }
+        }
+        unavailable_media
+    }
+
+    /// Determine whether a message should be discarded per design-doc rules.
+    fn should_discard_message(
+        message_type: &str,
+        text: &str,
+        media_refs: &[MediaRef],
+    ) -> bool {
+        match message_type {
+            "text" => text.trim().is_empty(),
+            "post" => text.trim().is_empty() && media_refs.is_empty(),
+            "sticker" => false,
+            _ => false,
+        }
+    }
+
+    /// Store chat_name and header app_id in last_metadata.
+    async fn store_event_metadata(&self, event: &FeishuEvent) {
+        let chat_name = self.fetch_chat_name(&event.event.chat_id).await;
+        let mut meta = self.last_metadata.lock().await;
+        meta.clear();
+        if let Some(name) = chat_name {
+            if !name.is_empty() {
+                meta.insert("chat_name".to_string(), name);
+            }
+        }
+        meta.insert("header_app_id".to_string(), event.header.app_id.clone());
     }
 
     /// Build a `MediaRef` from content JSON using the given key field.
