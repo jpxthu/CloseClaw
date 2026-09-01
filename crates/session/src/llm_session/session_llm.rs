@@ -292,6 +292,7 @@ impl ConversationSession {
         messages.push(InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
+            content_blocks: None,
             tool_call_id: None,
         });
 
@@ -303,6 +304,7 @@ impl ConversationSession {
                     InternalMessage {
                         role: "system".to_string(),
                         content: listing,
+                        content_blocks: None,
                         tool_call_id: None,
                     },
                 );
@@ -325,6 +327,7 @@ impl ConversationSession {
             let tool_msg = InternalMessage {
                 role: "tool".to_string(),
                 content: injection.content.clone(),
+                content_blocks: None,
                 tool_call_id: None,
             };
             match injection.position_mode {
@@ -364,6 +367,7 @@ impl ConversationSession {
                 InternalMessage {
                     role: msg.role.clone(),
                     content,
+                    content_blocks: None,
                     tool_call_id: None,
                 }
             })
@@ -380,6 +384,7 @@ impl ConversationSession {
                     result.push(InternalMessage {
                         role: "tool".into(),
                         content: content.clone(),
+                        content_blocks: None,
                         tool_call_id: Some(tool_call_id.clone()),
                     });
                 }

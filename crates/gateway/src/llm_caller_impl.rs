@@ -73,6 +73,7 @@ mod tests {
             messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content: content.to_string(),
+                content_blocks: None,
                 tool_call_id: None,
             }],
             temperature: 0.7,

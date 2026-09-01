@@ -28,6 +28,7 @@ async fn test_stub_provider_chat_returns_fixed_response() {
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: "Hello, world!".to_string(),
+            content_blocks: None,
             tool_call_id: None,
         }],
         temperature: 0.7,
@@ -63,6 +64,7 @@ async fn test_stub_provider_custom_response() {
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: "test input".to_string(),
+            content_blocks: None,
             tool_call_id: None,
         }],
         temperature: 0.0,
@@ -142,6 +144,7 @@ async fn test_stub_provider_through_registry_chat() {
         messages: vec![InternalMessage {
             role: "user".to_string(),
             content: "Hello, agent!".to_string(),
+            content_blocks: None,
             tool_call_id: None,
         }],
         temperature: 0.5,

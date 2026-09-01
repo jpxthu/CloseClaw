@@ -632,6 +632,7 @@ fn test_build_message_tool_result() {
     let msg = super::InternalMessage {
         role: "tool".to_string(),
         content: r#"{"temperature": 22}"#.to_string(),
+        content_blocks: None,
         tool_call_id: Some("call_abc".to_string()),
     };
     let value = super::build_message(&msg);
@@ -641,28 +642,28 @@ fn test_build_message_tool_result() {
 }
 
 #[test]
-fn test_build_message_tool_result_no_id_falls_back() {
-    let msg = super::InternalMessage {
+fn test_build_message_no_tool_call_id_omitted() {
+    // Tool message without ID falls back to omitting tool_call_id
+    let tool_msg = super::InternalMessage {
         role: "tool".to_string(),
         content: "result".to_string(),
+        content_blocks: None,
         tool_call_id: None,
     };
-    let value = super::build_message(&msg);
-    assert_eq!(value["role"], "tool");
-    assert!(value.get("tool_call_id").is_none());
-}
-
-#[test]
-fn test_build_message_normal_user() {
-    let msg = super::InternalMessage {
+    let tool_val = super::build_message(&tool_msg);
+    assert_eq!(tool_val["role"], "tool");
+    assert!(tool_val.get("tool_call_id").is_none());
+    // Normal user message works the same way
+    let user_msg = super::InternalMessage {
         role: "user".to_string(),
         content: "Hello".to_string(),
+        content_blocks: None,
         tool_call_id: None,
     };
-    let value = super::build_message(&msg);
-    assert_eq!(value["role"], "user");
-    assert_eq!(value["content"], "Hello");
-    assert!(value.get("tool_call_id").is_none());
+    let user_val = super::build_message(&user_msg);
+    assert_eq!(user_val["role"], "user");
+    assert_eq!(user_val["content"], "Hello");
+    assert!(user_val.get("tool_call_id").is_none());
 }
 
 #[test]
@@ -677,6 +678,7 @@ fn test_build_request_includes_tool_result_message() {
     request.messages.push(super::InternalMessage {
         role: "tool".to_string(),
         content: r#"{"temp": 22}"#.to_string(),
+        content_blocks: None,
         tool_call_id: Some("call_xyz".to_string()),
     });
     let body = proto.build_request(&request).unwrap();
@@ -688,36 +690,23 @@ fn test_build_request_includes_tool_result_message() {
 }
 
 #[test]
-fn test_parse_response_cached_tokens() {
+fn test_parse_response_cached_tokens_presence() {
     let proto = OpenAiProtocol::new();
-    let body = serde_json::json!({
+    // With cached_tokens
+    let with_cache = serde_json::json!({
         "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
-        "usage": {
-            "prompt_tokens": 100,
-            "completion_tokens": 50,
-            "total_tokens": 150,
-            "prompt_tokens_details": {
-                "cached_tokens": 80
-            }
-        }
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150,
+                  "prompt_tokens_details": {"cached_tokens": 80}}
     });
-    let resp = proto.parse_response(body).unwrap();
+    let resp = proto.parse_response(with_cache).unwrap();
     assert_eq!(resp.usage.cache_read_tokens, Some(80));
     assert_eq!(resp.usage.cache_write_tokens, None);
-}
-
-#[test]
-fn test_parse_response_no_cached_tokens() {
-    let proto = OpenAiProtocol::new();
-    let body = serde_json::json!({
+    // Without cached_tokens
+    let without_cache = serde_json::json!({
         "choices": [{"message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}],
-        "usage": {
-            "prompt_tokens": 100,
-            "completion_tokens": 50,
-            "total_tokens": 150
-        }
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
     });
-    let resp = proto.parse_response(body).unwrap();
+    let resp = proto.parse_response(without_cache).unwrap();
     assert_eq!(resp.usage.cache_read_tokens, None);
     assert_eq!(resp.usage.cache_write_tokens, None);
 }

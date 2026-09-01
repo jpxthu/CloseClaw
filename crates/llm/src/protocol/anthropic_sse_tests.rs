@@ -341,6 +341,7 @@ fn test_build_message_tool_result() {
     request.messages = vec![InternalMessage {
         role: "tool".to_string(),
         content: "25°C, sunny".to_string(),
+        content_blocks: None,
         tool_call_id: Some("toolu_01A09q90qw90lq917835lq9".to_string()),
     }];
     let body = AnthropicProtocol::new().build_request(&request).unwrap();
