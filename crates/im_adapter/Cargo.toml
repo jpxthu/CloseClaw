@@ -54,6 +54,10 @@ url = "2"
 # Plugin auto-discovery
 inventory = "0.3"
 
+# Home directory expansion
+
+dirs = "5"
+
 # HTTP server (for adapter tests)
 axum = "0.7"
 
