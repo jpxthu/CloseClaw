@@ -379,6 +379,17 @@ impl SessionMessageHandler {
         }
         self.inject_active_children_summary_if_needed(session_id)
             .await;
+        // Degradation: skip image blocks when model doesn't support images.
+        let blocks = if blocks.is_some()
+            && !self
+                .session_manager
+                .session_model_supports_images(session_id)
+                .await
+        {
+            None
+        } else {
+            blocks
+        };
         if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)

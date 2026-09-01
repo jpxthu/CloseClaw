@@ -15,6 +15,21 @@ use closeclaw_common::processor::{ContentBlock, ProcessedMessage};
 use closeclaw_common::MediaStoreAccess;
 
 use crate::HandleResult;
+use closeclaw_llm::model_info::{InputType, ModelInfo};
+use std::str::FromStr;
+
+/// Check whether a model supports image input.
+///
+/// Parses the model name (e.g. `"anthropic/claude-sonnet-4-20250514"`)
+/// into a [`ModelInfo`] and checks whether [`InputType::Image`] is in
+/// the model's `input_types`. Returns `true` on any parse failure
+/// (fail-open: assume image support to avoid breaking existing
+/// behavior).
+pub(crate) fn model_supports_images(model_name: &str) -> bool {
+    ModelInfo::from_str(model_name)
+        .map(|i| i.input_types.contains(&InputType::Image))
+        .unwrap_or(true)
+}
 
 /// Result of inbound pre-validation gates.
 pub(crate) enum InboundValidation {

@@ -435,6 +435,24 @@ impl SessionManager {
         sessions.get(session_id).map(|s| s.agent_id.clone())
     }
 
+    /// Check whether the model for the given session supports image input.
+    /// Fail-open on any lookup failure.
+    pub async fn session_model_supports_images(&self, session_id: &str) -> bool {
+        let aid = match self.get_chat_id(session_id).await {
+            Some(id) => id,
+            None => return true,
+        };
+        let cfg = match self.get_agent_config(&aid).await {
+            Some(c) => c,
+            None => return true,
+        };
+        let name = cfg.model.map(|m| m.primary).unwrap_or_default();
+        if name.is_empty() {
+            return true;
+        }
+        crate::media_routing::model_supports_images(&name)
+    }
+
     /// Force a WAL checkpoint via the persistence backend.
     ///
     /// Should be called after `flush_all` in Phase 4 to ensure all
