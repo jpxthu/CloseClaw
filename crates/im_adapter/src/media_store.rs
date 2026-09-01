@@ -187,6 +187,22 @@ impl MediaStore {
     }
 }
 
+impl closeclaw_common::MediaStoreAccess for MediaStore {
+    fn resolve_ref(
+        &self,
+        media_ref: &closeclaw_common::MediaRef,
+    ) -> Result<std::path::PathBuf, closeclaw_common::MediaStoreError> {
+        if media_ref.path.is_empty() {
+            return Err(closeclaw_common::MediaStoreError::NoPath);
+        }
+        let full = self.storage_dir.join(&media_ref.path);
+        if !full.exists() {
+            return Err(closeclaw_common::MediaStoreError::FileNotFound(full));
+        }
+        Ok(full)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
