@@ -38,6 +38,7 @@ impl HookLlmProvider for LlmCallerHookProvider {
             messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content,
+                content_blocks: None,
                 tool_call_id: None,
             }],
             temperature: 0.0,

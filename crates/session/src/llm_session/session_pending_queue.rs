@@ -401,6 +401,15 @@ impl ConversationSession {
         self.append_transcript("user", vec![ContentBlock::Text(content.to_string())]);
     }
 
+    /// Persist a user message with structured content blocks.
+    ///
+    /// Used when the user message contains multimodal content (e.g.,
+    /// images as [`ContentBlock::Image`]) that should be preserved
+    /// as structured blocks rather than flattened to text.
+    pub fn append_user_content_blocks(&mut self, blocks: Vec<ContentBlock>) {
+        self.append_transcript("user", blocks);
+    }
+
     /// Inject a system message into the conversation history.
     pub fn inject_system_message(&mut self, text: String) {
         self.append_transcript("system", vec![ContentBlock::Text(text)]);

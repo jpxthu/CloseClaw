@@ -365,6 +365,7 @@ impl crate::memory::active_searcher_llm::ActiveSearchLlm for ActiveSearcherLlmCa
             messages: vec![InternalMessage {
                 role: "user".to_string(),
                 content: prompt.to_string(),
+                content_blocks: None,
                 tool_call_id: None,
             }],
             temperature: 0.0,

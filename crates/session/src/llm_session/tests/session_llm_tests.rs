@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::llm_session::session_chat::ChatSession;
-use crate::llm_session::{ConversationSession, InjectionPosition, MemoryInjection};
+use crate::llm_session::{ConversationSession, InjectionPosition, MemoryInjection, SessionMessage};
 use async_trait::async_trait;
 use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
@@ -631,4 +631,147 @@ async fn test_build_llm_messages_thinking_clean_does_not_mutate_self() {
         &session.messages()[0].content_blocks[1],
         ContentBlock::Thinking { thinking: t, .. } if t == "thought"
     ));
+}
+
+// ── Step 1.6: convert_history_to_internal tests ─────────────────────────
+
+/// Pure text message → content_blocks is None, content has text.
+#[test]
+fn test_convert_history_text_only_no_content_blocks() {
+    let msgs = vec![SessionMessage {
+        role: "user".to_string(),
+        content_blocks: vec![ContentBlock::Text("hello".to_string())],
+        timestamp: chrono::Utc::now(),
+    }];
+    let internal = ConversationSession::convert_history_to_internal(&msgs);
+    assert_eq!(internal.len(), 1);
+    assert_eq!(internal[0].role, "user");
+    assert_eq!(internal[0].content, "hello");
+    assert!(
+        internal[0].content_blocks.is_none(),
+        "no images → content_blocks should be None"
+    );
+}
+
+/// Message with Image block → preserved in content_blocks.
+#[test]
+fn test_convert_history_image_block_preserved() {
+    let msgs = vec![SessionMessage {
+        role: "user".to_string(),
+        content_blocks: vec![ContentBlock::Image {
+            name: "photo.jpg".to_string(),
+            url: "data:image/jpeg;base64,abc123".to_string(),
+        }],
+        timestamp: chrono::Utc::now(),
+    }];
+    let internal = ConversationSession::convert_history_to_internal(&msgs);
+    assert_eq!(internal.len(), 1);
+    assert!(
+        internal[0].content.is_empty(),
+        "image-only message should have empty text content"
+    );
+    let blocks = internal[0]
+        .content_blocks
+        .as_ref()
+        .expect("should have content_blocks");
+    assert_eq!(blocks.len(), 1);
+    assert!(matches!(&blocks[0], ContentBlock::Image { name, url }
+        if name == "photo.jpg" && url == "data:image/jpeg;base64,abc123"));
+}
+
+/// Mixed: text + image → text in content, image in content_blocks.
+#[test]
+fn test_convert_history_mixed_text_and_image() {
+    let msgs = vec![SessionMessage {
+        role: "user".to_string(),
+        content_blocks: vec![
+            ContentBlock::Text("look at this".to_string()),
+            ContentBlock::Image {
+                name: "pic.png".to_string(),
+                url: "data:image/png;base64,XYZ".to_string(),
+            },
+        ],
+        timestamp: chrono::Utc::now(),
+    }];
+    let internal = ConversationSession::convert_history_to_internal(&msgs);
+    assert_eq!(internal.len(), 1);
+    assert_eq!(internal[0].content, "look at this");
+    let blocks = internal[0]
+        .content_blocks
+        .as_ref()
+        .expect("should have content_blocks");
+    assert_eq!(blocks.len(), 1);
+    assert!(matches!(&blocks[0], ContentBlock::Image { name, .. } if name == "pic.png"));
+}
+
+/// ToolResult blocks are extracted as independent role="tool" messages.
+#[test]
+fn test_convert_history_tool_result_becomes_tool_message() {
+    let msgs = vec![
+        SessionMessage {
+            role: "assistant".to_string(),
+            content_blocks: vec![
+                ContentBlock::Text("calling tool".to_string()),
+                ContentBlock::ToolUse {
+                    id: "tc_1".to_string(),
+                    name: "search".to_string(),
+                    input: "{}".to_string(),
+                },
+            ],
+            timestamp: chrono::Utc::now(),
+        },
+        SessionMessage {
+            role: "tool".to_string(),
+            content_blocks: vec![ContentBlock::ToolResult {
+                tool_call_id: "tc_1".to_string(),
+                content: "{\"result\": 42}".to_string(),
+            }],
+            timestamp: chrono::Utc::now(),
+        },
+    ];
+    let internal = ConversationSession::convert_history_to_internal(&msgs);
+    assert_eq!(internal.len(), 3);
+    assert_eq!(internal[0].role, "assistant");
+    assert_eq!(internal[0].content, "calling tool\n[tool:search] {}");
+    assert!(internal[0].content_blocks.is_none());
+    // Second: empty tool message from first pass
+    assert_eq!(internal[1].role, "tool");
+    assert!(internal[1].content.is_empty());
+    // Third: ToolResult as independent message from second pass
+    assert_eq!(internal[2].role, "tool");
+    assert_eq!(internal[2].content, "{\"result\": 42}");
+    assert_eq!(internal[2].tool_call_id.as_deref(), Some("tc_1"));
+}
+
+/// Backward compat: pure text messages → all content_blocks are None.
+#[test]
+fn test_convert_history_backward_compat_pure_text() {
+    let msgs = vec![
+        SessionMessage {
+            role: "user".to_string(),
+            content_blocks: vec![ContentBlock::Text("q1".to_string())],
+            timestamp: chrono::Utc::now(),
+        },
+        SessionMessage {
+            role: "assistant".to_string(),
+            content_blocks: vec![ContentBlock::Text("a1".to_string())],
+            timestamp: chrono::Utc::now(),
+        },
+        SessionMessage {
+            role: "user".to_string(),
+            content_blocks: vec![ContentBlock::Text("q2".to_string())],
+            timestamp: chrono::Utc::now(),
+        },
+    ];
+    let internal = ConversationSession::convert_history_to_internal(&msgs);
+    assert_eq!(internal.len(), 3);
+    for msg in &internal {
+        assert!(
+            msg.content_blocks.is_none(),
+            "pure text → no content_blocks"
+        );
+    }
+    assert_eq!(internal[0].content, "q1");
+    assert_eq!(internal[1].content, "a1");
+    assert_eq!(internal[2].content, "q2");
 }

@@ -368,6 +368,7 @@ impl SessionMessageHandler {
         &self,
         session_id: &str,
         content: String,
+        blocks: Option<Vec<closeclaw_common::processor::ContentBlock>>,
         meta: MessageMetadata,
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
@@ -378,12 +379,28 @@ impl SessionMessageHandler {
         }
         self.inject_active_children_summary_if_needed(session_id)
             .await;
+        // Degradation: skip image blocks when model doesn't support images.
+        let blocks = if blocks.is_some()
+            && !self
+                .session_manager
+                .session_model_supports_images(session_id)
+                .await
+        {
+            None
+        } else {
+            blocks
+        };
         if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
             .await
         {
-            cs.write().await.append_user_message(&content);
+            let mut session = cs.write().await;
+            if let Some(blks) = blocks {
+                session.append_user_content_blocks(blks);
+            } else {
+                session.append_user_message(&content);
+            }
         }
         self.session_manager
             .update_checkpoint_user_activity(session_id)

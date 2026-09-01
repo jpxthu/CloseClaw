@@ -292,6 +292,7 @@ impl ConversationSession {
         messages.push(InternalMessage {
             role: "user".to_string(),
             content: content.to_string(),
+            content_blocks: None,
             tool_call_id: None,
         });
 
@@ -303,6 +304,7 @@ impl ConversationSession {
                     InternalMessage {
                         role: "system".to_string(),
                         content: listing,
+                        content_blocks: None,
                         tool_call_id: None,
                     },
                 );
@@ -325,6 +327,7 @@ impl ConversationSession {
             let tool_msg = InternalMessage {
                 role: "tool".to_string(),
                 content: injection.content.clone(),
+                content_blocks: None,
                 tool_call_id: None,
             };
             match injection.position_mode {
@@ -347,6 +350,11 @@ impl ConversationSession {
     /// Non-tool content blocks are formatted via [`format_content_block`]
     /// and joined with newlines. Tool results are appended as independent
     /// `role="tool"` messages at the end.
+    ///
+    /// When a message contains [`ContentBlock::Image`] blocks, these are
+    /// preserved in [`InternalMessage::content_blocks`] as structured
+    /// content blocks (not flattened to text). Non-image blocks are still
+    /// flattened to the `content` string for backward compatibility.
     pub(crate) fn convert_history_to_internal(messages: &[SessionMessage]) -> Vec<InternalMessage> {
         let mut result: Vec<InternalMessage> = messages
             .iter()
@@ -356,14 +364,37 @@ impl ConversationSession {
                     .iter()
                     .filter(|b| !matches!(b, ContentBlock::ToolResult { .. }))
                     .collect();
-                let content = non_tool_blocks
+
+                // Flatten non-image blocks to text for the content string.
+                let text_content = non_tool_blocks
                     .iter()
+                    .filter(|b| !matches!(b, ContentBlock::Image { .. }))
                     .flat_map(|b| format_content_block(b))
                     .collect::<Vec<_>>()
                     .join("\n");
+
+                // Preserve image blocks as structured content_blocks.
+                let image_blocks: Vec<ContentBlock> = non_tool_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Image { name, url } => Some(ContentBlock::Image {
+                            name: name.clone(),
+                            url: url.clone(),
+                        }),
+                        _ => None,
+                    })
+                    .collect();
+
+                let content_blocks = if image_blocks.is_empty() {
+                    None
+                } else {
+                    Some(image_blocks)
+                };
+
                 InternalMessage {
                     role: msg.role.clone(),
-                    content,
+                    content: text_content,
+                    content_blocks,
                     tool_call_id: None,
                 }
             })
@@ -380,6 +411,7 @@ impl ConversationSession {
                     result.push(InternalMessage {
                         role: "tool".into(),
                         content: content.clone(),
+                        content_blocks: None,
                         tool_call_id: Some(tool_call_id.clone()),
                     });
                 }
