@@ -9,8 +9,9 @@ use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use std::collections::HashMap;
 
 use crate::types::{
-    ContentBlockType, ContentDelta, InternalMessage, InternalRequest, InternalResponse, ProtocolId,
-    RawContentBlock, RawUsage, SseStateMachine, StreamEvent, ToolDefinition,
+    ContentBlock, ContentBlockType, ContentDelta, InternalMessage, InternalRequest,
+    InternalResponse, ProtocolId, RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
+    ToolDefinition,
 };
 
 use crate::protocol::{
@@ -151,6 +152,10 @@ fn build_request_body(request: &InternalRequest) -> Result<serde_json::Value> {
 ///
 /// Tool result messages use role "user" with structured content blocks,
 /// matching Anthropic's native tool_result format.
+///
+/// When `content_blocks` is present, builds a structured content array:
+/// - Text blocks → `{"type": "text", "text": ...}`
+/// - Image blocks → `{"type": "image", "source": {"type": "base64", ...}}`
 fn build_message(msg: &InternalMessage) -> serde_json::Value {
     if let Some(ref tool_call_id) = msg.tool_call_id {
         serde_json::json!({
@@ -161,12 +166,53 @@ fn build_message(msg: &InternalMessage) -> serde_json::Value {
                 "content": msg.content,
             }],
         })
+    } else if let Some(ref blocks) = msg.content_blocks {
+        if blocks.is_empty() {
+            serde_json::json!({
+                "role": msg.role,
+                "content": msg.content,
+            })
+        } else {
+            let content_array: Vec<serde_json::Value> = blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text(text) => {
+                        Some(serde_json::json!({"type": "text", "text": text}))
+                    }
+                    ContentBlock::Image { url, .. } => {
+                        parse_data_uri(url).map(|(media_type, data)| {
+                            serde_json::json!({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": data,
+                                },
+                            })
+                        })
+                    }
+                    _ => None,
+                })
+                .collect();
+            serde_json::json!({
+                "role": msg.role,
+                "content": content_array,
+            })
+        }
     } else {
         serde_json::json!({
             "role": msg.role,
             "content": msg.content,
         })
     }
+}
+
+/// Parse a `data:<mime>;base64,<data>` URI into `(media_type, data)`.
+fn parse_data_uri(url: &str) -> Option<(String, String)> {
+    let rest = url.strip_prefix("data:")?;
+    let (media_type, encoded) = rest.split_once(';')?;
+    let data = encoded.strip_prefix("base64=")?;
+    Some((media_type.to_string(), data.to_string()))
 }
 
 /// Mark the last message with `cache_control` for Anthropic prefix caching.

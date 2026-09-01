@@ -11,8 +11,8 @@ use crate::protocol::{
     ChatProtocol, IncomingSseStream, OutgoingEventStream, ProtocolError, Result,
 };
 use crate::types::{
-    ContentBlockType, ContentDelta, InternalMessage, InternalRequest, InternalResponse, ProtocolId,
-    RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
+    ContentBlock, ContentBlockType, ContentDelta, InternalMessage, InternalRequest,
+    InternalResponse, ProtocolId, RawContentBlock, RawUsage, SseStateMachine, StreamEvent,
 };
 
 const PATH: &str = "/v1/chat/completions";
@@ -37,6 +37,11 @@ impl Default for OpenAiProtocol {
     }
 }
 
+/// Build a single message JSON for OpenAI.
+///
+/// When `content_blocks` is present, builds a structured content array:
+/// - Text blocks → `{"type": "text", "text": ...}`
+/// - Image blocks → `{"type": "image_url", "image_url": {"url": ...}}`
 fn build_message(msg: &InternalMessage) -> serde_json::Value {
     if let Some(ref tool_call_id) = msg.tool_call_id {
         serde_json::json!({
@@ -44,6 +49,31 @@ fn build_message(msg: &InternalMessage) -> serde_json::Value {
             "tool_call_id": tool_call_id,
             "content": msg.content,
         })
+    } else if let Some(ref blocks) = msg.content_blocks {
+        if blocks.is_empty() {
+            serde_json::json!({
+                "role": msg.role,
+                "content": msg.content,
+            })
+        } else {
+            let content_array: Vec<serde_json::Value> = blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text(text) => {
+                        Some(serde_json::json!({"type": "text", "text": text}))
+                    }
+                    ContentBlock::Image { url, .. } => Some(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": {"url": url},
+                    })),
+                    _ => None,
+                })
+                .collect();
+            serde_json::json!({
+                "role": msg.role,
+                "content": content_array,
+            })
+        }
     } else {
         serde_json::json!({
             "role": msg.role,
