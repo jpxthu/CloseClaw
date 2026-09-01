@@ -17,6 +17,7 @@ pub mod builtin;
 pub mod debug_log;
 pub mod dispatcher;
 pub mod file_mutex;
+pub mod media_ref;
 pub mod permission_check;
 pub mod registrar;
 pub mod registrars;

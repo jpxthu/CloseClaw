@@ -6,11 +6,13 @@
 //! sender_id)` triple key.
 
 use super::*;
+use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
 use std::sync::Arc;
+use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -19,6 +21,7 @@ use std::sync::Arc;
 /// Build a FeishuAdapter for tests (no real HTTP).
 fn make_test_adapter() -> FeishuAdapter {
     let http_client = reqwest::Client::new();
+    let tmp = TempDir::new().expect("tmp dir");
     FeishuAdapter {
         app_id: "test_app_id".to_string(),
         app_secret: "test_secret".to_string(),
@@ -27,6 +30,8 @@ fn make_test_adapter() -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
+        max_download_size_bytes: u64::MAX,
     }
 }
 

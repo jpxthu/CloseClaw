@@ -176,6 +176,7 @@ fn make_ctx() -> ToolContext {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 
@@ -241,6 +242,7 @@ fn make_ctx_with_agent(agent_id: &str) -> ToolContext {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 

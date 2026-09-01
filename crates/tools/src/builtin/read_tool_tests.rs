@@ -95,6 +95,7 @@ fn make_ctx_with_session(session: std::sync::Arc<dyn ToolSession>) -> ToolContex
         session: Some(session),
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 

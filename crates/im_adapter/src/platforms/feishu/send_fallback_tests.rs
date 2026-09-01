@@ -106,6 +106,7 @@ async fn start_fail_then_succeed_server(
 }
 
 fn make_plugin(base_url: &str) -> FeishuPlugin {
+    let tmp = tempfile::TempDir::new().expect("tmp dir");
     let adapter = Arc::new(FeishuAdapter {
         app_id: "test".into(),
         app_secret: "test".into(),
@@ -114,6 +115,10 @@ fn make_plugin(base_url: &str) -> FeishuPlugin {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: Arc::new(
+            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
+        ),
+        max_download_size_bytes: u64::MAX,
     });
     FeishuPlugin::new(adapter)
 }
@@ -294,6 +299,7 @@ async fn interactive_empty_text_fallback_returns_ok() {
 /// Helper: create a FeishuAdapter pointing at a mock server.
 fn make_adapter(base_url: &str) -> FeishuAdapter {
     let http_client = reqwest::Client::new();
+    let tmp = tempfile::TempDir::new().expect("tmp dir");
     FeishuAdapter {
         app_id: "test_app_id".into(),
         app_secret: "test_secret".into(),
@@ -302,6 +308,10 @@ fn make_adapter(base_url: &str) -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: Arc::new(
+            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
+        ),
+        max_download_size_bytes: u64::MAX,
     }
 }
 

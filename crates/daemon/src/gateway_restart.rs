@@ -359,7 +359,24 @@ impl crate::Daemon {
         let common_sh = crate::bridge::common_shutdown_handle(&self.shutdown);
         new_gw.set_shutdown_handle(Arc::clone(&common_sh));
 
-        closeclaw_im_adapter::platforms::register_platform_plugins(&new_gw, config_dir).await;
+        // Pass MediaStore and MediaConfigData from the old gateway if available.
+        // Re-create MediaStore from config to share the same instance with new gateway.
+        let media_config_path = std::path::Path::new(config_dir)
+            .join("config")
+            .join("media.json");
+        let media_config =
+            closeclaw_config::MediaConfigData::from_file(&media_config_path).unwrap_or_default();
+        let shared_media_store =
+            closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir)
+                .ok()
+                .map(std::sync::Arc::new);
+        closeclaw_im_adapter::platforms::register_platform_plugins(
+            &new_gw,
+            config_dir,
+            shared_media_store,
+            Some(media_config),
+        )
+        .await;
         info!("platform plugins registered on new gateway");
 
         // Inject shared CheckpointManager from SessionManager so outbound

@@ -176,11 +176,12 @@ fn make_ctx_with_session(agent: &str, session_id: &str) -> ToolContext {
     ToolContext {
         agent_id: agent.to_string(),
         workdir: None,
-        session_id: Some(session_id.to_string()),
+        session_id: Some(session_id.to_string()).filter(|s| !s.is_empty()),
         call_id: None,
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 
@@ -228,15 +229,7 @@ fn make_deps_with_message_deny(rules: Vec<Rule>) -> PermDeps {
 }
 
 fn make_ctx(agent: &str) -> ToolContext {
-    ToolContext {
-        agent_id: agent.to_string(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-    }
+    make_ctx_with_session(agent, "")
 }
 
 fn allow_tool_rule(agent: &str, skill: &str) -> Rule {
@@ -660,6 +653,7 @@ async fn test_root_session_denial_goes_through_approval_flow() {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     };
     let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // Root session → is_sub_agent=false → approval flow enqueues → Ok(Some(...))
@@ -690,6 +684,7 @@ async fn test_child_session_denial_is_silent() {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     };
     let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // Child session → is_sub_agent=true → silent deny → PermissionDenied
@@ -732,6 +727,7 @@ async fn test_empty_session_id_not_sub_agent() {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     };
     let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
     // Empty session_id → is_sub_agent=false → approval flow enqueues
@@ -758,6 +754,7 @@ async fn test_child_session_file_op_denial_is_silent() {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     };
     let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read", None).await;
     // Child session → silent deny → PermissionDenied
@@ -783,6 +780,7 @@ async fn test_child_session_command_denial_is_silent() {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     };
     let result = check_command_permission(&deps, &ctx, "ls", &["-la".to_string()], None).await;
     // Child session → silent deny → Denied variant

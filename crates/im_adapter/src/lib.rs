@@ -5,6 +5,7 @@
 
 pub mod code_block;
 pub mod error;
+pub mod media_store;
 pub mod normalized;
 #[cfg(test)]
 pub mod normalized_tests;

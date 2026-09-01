@@ -21,6 +21,8 @@ const DEFAULT_STORAGE_DIR: &str = "~/.closeclaw/media";
 const DEFAULT_RETENTION_DAYS: u64 = 7;
 /// Default image content threshold in bytes (1 MB).
 const DEFAULT_IMAGE_CONTENT_THRESHOLD: u64 = 1_048_576;
+/// Default max download size in bytes (50 MB).
+const DEFAULT_MAX_DOWNLOAD_SIZE: u64 = 50 * 1024 * 1024;
 
 /// Media configuration data.
 ///
@@ -48,6 +50,11 @@ pub struct MediaConfigData {
     /// rather than inline content.
     #[serde(default = "default_image_content_threshold")]
     pub image_content_threshold_bytes: u64,
+
+    /// Max download size in bytes for a single media file.
+    /// Files exceeding this limit are rejected during download.
+    #[serde(default = "default_max_download_size")]
+    pub max_download_size_bytes: u64,
 }
 
 fn default_version() -> String {
@@ -66,6 +73,10 @@ fn default_image_content_threshold() -> u64 {
     DEFAULT_IMAGE_CONTENT_THRESHOLD
 }
 
+fn default_max_download_size() -> u64 {
+    DEFAULT_MAX_DOWNLOAD_SIZE
+}
+
 impl Default for MediaConfigData {
     fn default() -> Self {
         Self {
@@ -73,6 +84,7 @@ impl Default for MediaConfigData {
             storage_dir: default_storage_dir(),
             retention_days: default_retention_days(),
             image_content_threshold_bytes: default_image_content_threshold(),
+            max_download_size_bytes: default_max_download_size(),
         }
     }
 }
@@ -120,6 +132,7 @@ impl ConfigProvider for MediaConfigData {
             && self.storage_dir == DEFAULT_STORAGE_DIR
             && self.retention_days == DEFAULT_RETENTION_DAYS
             && self.image_content_threshold_bytes == DEFAULT_IMAGE_CONTENT_THRESHOLD
+            && self.max_download_size_bytes == DEFAULT_MAX_DOWNLOAD_SIZE
     }
 }
 
@@ -190,12 +203,14 @@ mod tests {
             "version": "1.0.0",
             "storageDir": "/data/media",
             "retentionDays": 30,
-            "imageContentThresholdBytes": 2097152
+            "imageContentThresholdBytes": 2097152,
+            "maxDownloadSizeBytes": 104857600
         }"#;
         let config = MediaConfigData::from_json_str(json).expect("valid JSON should parse");
         assert_eq!(config.storage_dir, "/data/media");
         assert_eq!(config.retention_days, 30);
         assert_eq!(config.image_content_threshold_bytes, 2_097_152);
+        assert_eq!(config.max_download_size_bytes, 104_857_600);
     }
 
     #[test]

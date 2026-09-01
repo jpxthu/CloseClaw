@@ -87,6 +87,7 @@ pub(crate) fn make_ctx(agent: &str) -> ToolContext {
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 

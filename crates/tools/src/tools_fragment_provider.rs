@@ -73,6 +73,7 @@ impl ToolsFragmentProvider {
             session: None,
             session_mode,
             manual_background_signal: None,
+            media_store: None,
         }
     }
 }

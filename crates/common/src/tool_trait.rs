@@ -19,6 +19,7 @@ use std::process::Command;
 use std::sync::Arc;
 use thiserror::Error;
 
+use crate::media_store::MediaStoreAccess;
 use crate::session_mode::SessionMode;
 use crate::tool_session::ToolSession;
 
@@ -92,6 +93,8 @@ pub struct ToolContext {
     /// can await `signal.notified()` inside `tokio::select!` to react to
     /// user-initiated manual backgrounding requests.
     pub manual_background_signal: Option<Arc<tokio::sync::Notify>>,
+    /// Optional media store for resolving `[type: key]` references.
+    pub media_store: Option<Arc<dyn MediaStoreAccess>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -110,6 +113,10 @@ impl std::fmt::Debug for ToolContext {
                 "manual_background_signal",
                 &self.manual_background_signal.as_ref().map(|_| "<Notify>"),
             )
+            .field(
+                "media_store",
+                &self.media_store.as_ref().map(|_| "<dyn MediaStoreAccess>"),
+            )
             .finish()
     }
 }
@@ -124,6 +131,7 @@ impl Clone for ToolContext {
             session: self.session.clone(),
             session_mode: self.session_mode,
             manual_background_signal: self.manual_background_signal.clone(),
+            media_store: self.media_store.clone(),
         }
     }
 }

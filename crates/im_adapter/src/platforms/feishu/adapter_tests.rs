@@ -2,6 +2,7 @@
 //! (text/post/image/file/audio with graceful degradation), parse_inbound,
 //! and send_message/send_card_json receive_id_type verification.
 use super::*;
+use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use axum::{
@@ -13,7 +14,15 @@ use closeclaw_common::MessageType;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
 use std::collections::HashMap as StdHashMap;
+use tempfile::TempDir;
 use tokio::net::TcpListener;
+
+/// Create a test MediaStore rooted in a temp directory.
+fn make_test_media_store() -> Arc<MediaStore> {
+    let tmp = TempDir::new().expect("tmp dir");
+    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
+}
+
 /// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
 fn make_test_adapter() -> FeishuAdapter {
     let http_client = reqwest::Client::new();
@@ -25,6 +34,8 @@ fn make_test_adapter() -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: FEISHU_API_BASE.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: make_test_media_store(),
+        max_download_size_bytes: u64::MAX,
     }
 }
 
@@ -39,6 +50,8 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: make_test_media_store(),
+        max_download_size_bytes: u64::MAX,
     }
 }
 
@@ -323,8 +336,8 @@ async fn test_parse_message_event_image_type() {
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Image);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "img_xxx");
+    // Download fails in unit tests (no HTTP mock) → media unavailable
+    assert!(msg.media_refs.is_empty());
     assert!(msg.content.is_empty());
 }
 #[tokio::test]
@@ -337,8 +350,8 @@ async fn test_parse_message_event_file_type() {
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::File);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "file_xxx");
+    // Download fails in unit tests (no HTTP mock) → media unavailable
+    assert!(msg.media_refs.is_empty());
     assert!(msg.content.is_empty());
 }
 #[tokio::test]
@@ -351,8 +364,8 @@ async fn test_parse_message_event_audio_type() {
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Audio);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "audio_xxx");
+    // Download fails in unit tests (no HTTP mock) → media unavailable
+    assert!(msg.media_refs.is_empty());
     assert!(msg.content.is_empty());
 }
 #[tokio::test]
@@ -599,8 +612,8 @@ async fn test_parse_inbound_image_type() {
     );
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
     assert_eq!(msg.message_type, MessageType::Image);
-    assert_eq!(msg.media_refs.len(), 1);
-    assert_eq!(msg.media_refs[0].key, "img_xxx");
+    // Download fails in unit tests (no HTTP mock) → media unavailable
+    assert!(msg.media_refs.is_empty());
     assert!(msg.content.is_empty());
 }
 // ===========================================================================
