@@ -118,6 +118,8 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
+pub(crate) use rebuild_stash::RebuildStash;
+
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
@@ -159,6 +161,8 @@ pub struct Gateway {
     /// WAL persistence for inbound queue durability.
     /// `None` when `inbound_wal_dir` is not configured.
     inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
+    /// Shared rebuild-stash for config-triggered gateway restarts.
+    pub(crate) rebuild_stash: Arc<RebuildStash>,
 }
 
 /// Result of inbound pre-validation gates.
@@ -186,6 +190,7 @@ impl Gateway {
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
+            rebuild_stash: Arc::new(RebuildStash::new()),
         };
         register_default_middlewares(&gw, &gw.config);
         gw
@@ -215,9 +220,39 @@ impl Gateway {
             metrics_emitter: std::sync::RwLock::new(None),
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
+            rebuild_stash: Arc::new(RebuildStash::new()),
         };
         register_default_middlewares(&gw, &gw.config);
         gw
+    }
+
+    /// Enter or exit rebuild mode on the shared stash buffer.
+    ///
+    /// The Daemon calls this with `true` **only on the old Gateway**
+    /// before `shutdown_old_gateway` — from that point on, inbound
+    /// queue-full hits stash the message instead of rejecting it.
+    /// The new Gateway is created with `rebuild_mode` defaulting to
+    /// `false`, so no explicit `set_rebuild_mode(false)` call is needed
+    /// on it.
+    pub fn set_rebuild_mode(&self, enabled: bool) {
+        self.rebuild_stash.set_rebuild_mode(enabled);
+    }
+
+    /// Drain all stashed inbound requests in FIFO order.
+    ///
+    /// Must be called **after** `swap_and_notify` has installed the new
+    /// Gateway, so the replayed messages can be enqueued into the fresh
+    /// inbound queue.  Returns an empty `Vec` if the stash is empty.
+    pub fn take_rebuild_stashed(&self) -> Vec<InboundRequest> {
+        self.rebuild_stash.take_stashed()
+    }
+
+    /// Push a single request back into the rebuild stash buffer.
+    ///
+    /// Used by the Daemon during replay to preserve messages that failed
+    /// to enqueue into the new Gateway (e.g. new queue also full).
+    pub fn push_rebuild_stashed(&self, request: InboundRequest) {
+        self.rebuild_stash.push(request);
     }
 
     /// Set config directory for permission rule persistence.
@@ -907,6 +942,9 @@ pub mod notification_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
+pub(crate) mod rebuild_stash;
+#[cfg(test)]
+mod rebuild_stash_tests;
 #[cfg(test)]
 pub mod session_handler_announce_reasoning_always_tests;
 #[cfg(test)]

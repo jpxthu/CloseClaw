@@ -228,11 +228,57 @@ impl crate::Daemon {
         info!(changes = ?changes, "starting gateway restart");
         let _ = self.restart_state.tx.send(RestartState::Executing);
 
+        // Enter rebuild mode: subsequent inbound queue-full hits are stashed
+        // instead of rejected. Capture the old gateway Arc so we can drain
+        // the stash after the swap completes (the Mutex slot will point to
+        // the new gateway by then).
+        let old_gw = self.gateway().await;
+        old_gw.set_rebuild_mode(true);
+        info!("old gateway entered rebuild mode");
+
         self.shutdown_old_gateway().await;
         let config_dir = self.resolve_config_dir();
         let new_gw = self.build_new_gateway(&config_dir).await;
         self.install_handlers(&new_gw).await;
         self.swap_and_notify(new_gw, changes).await;
+
+        // Replay stashed inbound messages into the new gateway.
+        // The old gateway's rebuild_mode is still true, but
+        // take_rebuild_stashed only drains the Mutex<VecDeque> — no
+        // dependency on the old gateway's live state.
+        let stashed = old_gw.take_rebuild_stashed();
+        if !stashed.is_empty() {
+            let count = stashed.len();
+            let new_gw_ref = self.gateway().await;
+            let mut replayed = 0u64;
+            let mut failed = Vec::new();
+            for req in stashed {
+                match new_gw_ref.enqueue_inbound(req).await {
+                    Ok(()) => replayed += 1,
+                    Err(e) => {
+                        tracing::warn!(
+                            trace_id = %e.request.trace_id,
+                            peer_id = %e.request.peer_id,
+                            "replay: new queue full — returning to stash"
+                        );
+                        failed.push(e.request);
+                    }
+                }
+            }
+            let failed_count = failed.len();
+            // Push failed messages back to the old gateway's stash buffer
+            // so they are not silently lost.  They remain available for
+            // subsequent replay attempts or WAL-based recovery.
+            for req in failed {
+                old_gw.push_rebuild_stashed(req);
+            }
+            tracing::info!(
+                total = count,
+                replayed,
+                failed = failed_count,
+                "stashed inbound messages replayed"
+            );
+        }
 
         // Apply pending restart-class config values after the gateway rebuild
         // completes. This moves staged values from the pending_restart staging
