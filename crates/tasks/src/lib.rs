@@ -1,4 +1,5 @@
 pub mod background;
+pub mod media_cleanup;
 pub mod stuck_detect;
 pub mod task_manager;
 
