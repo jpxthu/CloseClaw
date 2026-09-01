@@ -233,17 +233,20 @@ fn parse_event_line(line: &str) -> EventLine {
 ///
 /// Handles lifecycle (start, monitor, restart), reads NDJSON events from
 /// stdout, and sends parsed events through a channel.
+///
+/// The monitor task owns the child process and manages its full lifecycle
+/// (spawn, read stdout, detect exit, restart with backoff). The manager
+/// retains cached state (`last_pid`) for the public API.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) struct ProcessManager {
-    /// The managed child process.
-    child: Option<Child>,
     /// Signal to stop the monitoring loop.
     shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
     /// Channel for parsed events.
     event_tx: mpsc::UnboundedSender<EventLine>,
     /// Whether the subprocess is currently running.
     running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Cached PID of the last spawned child process.
+    last_pid: std::sync::Arc<std::sync::atomic::AtomicU32>,
     /// The command used to spawn the process (for restarts).
     pub(crate) command: String,
     /// Arguments for the command.
@@ -261,10 +264,10 @@ impl ProcessManager {
         let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
 
         let manager = Self {
-            child: None,
             shutdown_tx: Some(shutdown_tx),
             event_tx,
             running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            last_pid: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
             command,
             args,
         };
@@ -277,6 +280,7 @@ impl ProcessManager {
     /// (within `timeout`). Returns an error if the process fails to start
     /// or the ready signal is not received.
     pub async fn start(&mut self) -> Result<(), ProcessError> {
+        // Spawn the initial child process.
         let mut child = Command::new(&self.command)
             .args(&self.args)
             .stdout(Stdio::piped())
@@ -284,8 +288,9 @@ impl ProcessManager {
             .kill_on_drop(true)
             .spawn()?;
 
+        let pid = child.id();
         tracing::info!(
-            pid = child.id(),
+            pid = pid,
             command = %self.command,
             "lark-cli subprocess started"
         );
@@ -299,15 +304,14 @@ impl ProcessManager {
 
         tracing::info!("lark-cli subprocess ready");
 
-        self.child = Some(child);
         self.running
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.last_pid
+            .store(pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
 
-        // Start stdout reading loop.
-        self.start_read_loop();
-
-        // Start auto-restart monitor.
-        self.start_restart_monitor();
+        // Start the monitor task which owns the child and manages its
+        // full lifecycle (stdout reading, exit detection, restart).
+        self.start_monitor(child);
 
         Ok(())
     }
@@ -342,54 +346,14 @@ impl ProcessManager {
         }
     }
 
-    /// Start the background task that reads lines from stdout and sends
-    /// parsed events through the channel.
-    fn start_read_loop(&mut self) {
-        let child = self.child.as_mut().expect("child must exist");
-        let stdout = child.stdout.take().expect("stdout piped");
-        let event_tx = self.event_tx.clone();
-        let running = self.running.clone();
-
-        tokio::spawn(async move {
-            let mut reader = BufReader::new(stdout).lines();
-            let mut last_line = None;
-
-            while let Some(result) = reader.next_line().await.transpose() {
-                match result {
-                    Ok(line) => {
-                        if line.is_empty() {
-                            continue;
-                        }
-                        let event_line = parse_event_line(&line);
-                        last_line = Some(line);
-                        if event_tx.send(event_line).is_err() {
-                            break; // Receiver dropped
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "error reading from subprocess stdout");
-                        let _ = event_tx.send(EventLine::Error(e.to_string()));
-                        break;
-                    }
-                }
-            }
-
-            // Stream ended — process may have exited.
-            if running.load(std::sync::atomic::Ordering::SeqCst) {
-                tracing::warn!(
-                    last_line = last_line.as_deref().unwrap_or("(none)"),
-                    "subprocess stdout stream ended unexpectedly"
-                );
-            }
-        });
-    }
-
-    /// Monitor the subprocess and auto-restart on abnormal exit.
-    fn start_restart_monitor(&mut self) {
+    /// Start the monitor task that owns the child process and manages its
+    /// full lifecycle: reads stdout, detects exit, and restarts with backoff.
+    fn start_monitor(&self, initial_child: Child) {
         let running = self.running.clone();
         let command = self.command.clone();
         let args = self.args.clone();
         let event_tx = self.event_tx.clone();
+        let last_pid = self.last_pid.clone();
         let shutdown_rx = self
             .shutdown_tx
             .as_ref()
@@ -397,27 +361,122 @@ impl ProcessManager {
             .subscribe();
 
         tokio::spawn(async move {
-            Self::restart_loop(running, command, args, event_tx, shutdown_rx).await;
+            Self::monitor_loop(
+                initial_child,
+                running,
+                command,
+                args,
+                event_tx,
+                last_pid,
+                shutdown_rx,
+            )
+            .await;
         });
     }
 
-    /// Restart loop: wait for process exit, then respawn with backoff.
-    async fn restart_loop(
+    /// Monitor loop: owns the child process, reads stdout, waits for exit,
+    /// and restarts with exponential backoff.
+    async fn monitor_loop(
+        mut child: Child,
         running: std::sync::Arc<std::sync::atomic::AtomicBool>,
-        _command: String,
-        _args: Vec<String>,
-        _event_tx: mpsc::UnboundedSender<EventLine>,
+        command: String,
+        args: Vec<String>,
+        event_tx: mpsc::UnboundedSender<EventLine>,
+        last_pid: std::sync::Arc<std::sync::atomic::AtomicU32>,
         mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     ) {
-        let mut _delay_ms = INITIAL_RESTART_DELAY_MS;
+        let mut delay_ms = INITIAL_RESTART_DELAY_MS;
 
-        // Wait for either the running flag to go false or shutdown signal.
-        // In a real implementation, this would spawn new subprocess instances.
-        // For now, auto-restart is tested via the integration tests that
-        // create fresh ProcessManager instances.
-        while running.load(std::sync::atomic::Ordering::SeqCst) && shutdown_rx.try_recv().is_err() {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        loop {
+            // Read stdout lines and send parsed events.
+            Self::read_stdout_lines(&mut child, &event_tx).await;
+
+            // Check if we should shut down.
+            if !running.load(std::sync::atomic::Ordering::SeqCst) || shutdown_rx.try_recv().is_ok()
+            {
+                tracing::info!("monitor loop: shutdown requested, exiting");
+                break;
+            }
+
+            // Wait for process to actually exit.
+            let _ = child.wait().await;
+            tracing::warn!("lark-cli subprocess exited, restarting in {delay_ms}ms");
+
+            // Exponential backoff with cap.
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            delay_ms = (delay_ms * 2).min(MAX_RESTART_DELAY_MS);
+
+            // Respawn.
+            match Command::new(&command)
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+            {
+                Ok(mut new_child) => {
+                    let pid = new_child.id();
+                    tracing::info!(pid = pid, "lark-cli subprocess restarted");
+
+                    // Wait for ready signal on stderr.
+                    let stderr = new_child.stderr.take().expect("stderr piped");
+                    match Self::wait_for_ready(stderr).await {
+                        Ok(true) => {
+                            tracing::info!("lark-cli subprocess ready after restart");
+                            child = new_child;
+                            last_pid.store(pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+                            // Reset delay on successful restart.
+                            delay_ms = INITIAL_RESTART_DELAY_MS;
+                        }
+                        _ => {
+                            tracing::warn!(
+                                "lark-cli subprocess failed to become ready after restart"
+                            );
+                            // Drop the child, loop will retry.
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to respawn lark-cli subprocess");
+                }
+            }
         }
+    }
+
+    /// Read NDJSON lines from the child's stdout and send parsed events
+    /// through the channel. Returns when stdout closes (EOF or error).
+    async fn read_stdout_lines(child: &mut Child, event_tx: &mpsc::UnboundedSender<EventLine>) {
+        let stdout = match child.stdout.take() {
+            Some(s) => s,
+            None => return,
+        };
+        let mut reader = BufReader::new(stdout).lines();
+        let mut last_line = None;
+
+        while let Some(result) = reader.next_line().await.transpose() {
+            match result {
+                Ok(line) => {
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let event_line = parse_event_line(&line);
+                    last_line = Some(line);
+                    if event_tx.send(event_line).is_err() {
+                        break; // Receiver dropped
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "error reading from subprocess stdout");
+                    let _ = event_tx.send(EventLine::Error(e.to_string()));
+                    break;
+                }
+            }
+        }
+
+        tracing::debug!(
+            last_line = last_line.as_deref().unwrap_or("(none)"),
+            "subprocess stdout stream ended"
+        );
     }
 
     /// Gracefully shut down the subprocess.
@@ -426,20 +485,15 @@ impl ProcessManager {
     pub async fn shutdown(&mut self) -> Result<(), AdapterError> {
         tracing::info!("shutting down lark-cli subprocess");
 
-        // Signal monitoring tasks to stop.
+        self.running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+
+        // Signal the monitor task to stop.
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
 
-        self.running
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-
-        if let Some(ref mut child) = self.child {
-            // Graceful: try SIGTERM first.
-            let _ = child.kill().await;
-            tracing::info!("lark-cli subprocess terminated");
-        }
-        self.child = None;
+        tracing::info!("lark-cli subprocess shutdown signal sent");
         Ok(())
     }
 
@@ -457,7 +511,11 @@ impl ProcessManager {
 
     /// Get the PID of the managed subprocess, if any.
     pub fn pid(&self) -> Option<u32> {
-        self.child.as_ref().and_then(|c| c.id())
+        let pid = self.last_pid.load(std::sync::atomic::Ordering::SeqCst);
+        match pid {
+            0 => None,
+            p => Some(p),
+        }
     }
 }
 
@@ -836,7 +894,6 @@ mod tests {
 
         manager.shutdown().await.unwrap();
     }
-
     #[tokio::test]
     async fn test_process_manager_empty_output() {
         let (_dir, script) = create_mock_script(&[]);

@@ -16,15 +16,21 @@ use tokio::process::Command;
 /// Execute a lark-cli command and return the result.
 ///
 /// Spawns the subprocess, captures stdout/stderr, and parses the JSON
-/// response. Returns `Ok(stdout)` on successful execution, or
+/// response. Automatically prepends `["--profile", &adapter.profile]`
+/// to ensure all lark-cli commands use the correct credential profile.
+/// Returns `Ok(stdout)` on successful execution, or
 /// `Err(SendFailed)` if the process fails to start, exits with error,
 /// or returns a non-zero `code` in its JSON output.
 pub(crate) async fn run_cli(
     adapter: &FeishuAdapter,
     args: &[&str],
 ) -> Result<String, AdapterError> {
+    // Prepend --profile to ensure correct credential delegation.
+    let mut full_args: Vec<&str> = vec!["--profile", &adapter.profile];
+    full_args.extend_from_slice(args);
+
     let output = Command::new(&adapter.cli_command)
-        .args(args)
+        .args(&full_args)
         .output()
         .await
         .map_err(|e| {
@@ -390,5 +396,45 @@ mod tests {
         assert!(!is_capability_error(200));
         assert!(!is_capability_error(0));
         assert!(!is_capability_error(99999));
+    }
+
+    /// Create a mock lark-cli script that echoes all arguments as JSON.
+    fn create_args_echo_cli(tmp: &TempDir) -> String {
+        let script_path = tmp.path().join("echo_args.sh");
+        let args_file = tmp.path().join("captured_args");
+        let args_path = args_file.to_str().unwrap();
+        let mut f = std::fs::File::create(&script_path).unwrap();
+        // Script that writes all args to a file, one per line
+        writeln!(f, "#!/bin/bash").unwrap();
+        writeln!(f, "echo \"$@\" > {args_path}").unwrap();
+        writeln!(f, "echo '{{\"code\":0}}'").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+        }
+        script_path.to_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn test_run_cli_inserts_profile_arg() {
+        let tmp = TempDir::new().unwrap();
+        let cli = create_args_echo_cli(&tmp);
+        let adapter = make_adapter_with_cli(&cli);
+        let _ = run_cli(&adapter, &["im", "+messages-send"]).await;
+        // Verify --profile was prepended to the args
+        let args_file = tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        assert!(
+            content.contains("--profile"),
+            "Expected --profile in args, got: {content}"
+        );
+        assert!(
+            content.contains("test_profile"),
+            "Expected profile name in args, got: {content}"
+        );
+        // Verify the original args are still present
+        assert!(content.contains("im"));
+        assert!(content.contains("+messages-send"));
     }
 }

@@ -524,6 +524,51 @@ impl FeishuPlugin {
         }
     }
 
+    /// Dispatch a standalone media message (image, file, or audio) directly
+    /// via lark-cli, bypassing card rendering.
+    ///
+    /// Used by the streaming renderer and internal code paths that produce
+    /// standalone `ContentBlock::Image`/`Audio`/`File` blocks.
+    #[allow(dead_code)]
+    pub(crate) async fn dispatch_send_media(
+        &self,
+        peer_id: &str,
+        block: &closeclaw_common::processor::ContentBlock,
+        _thread_id: Option<&str>,
+    ) -> Result<(), CommonAdapterError> {
+        use closeclaw_common::processor::ContentBlock;
+        match block {
+            ContentBlock::Image { name, url } => {
+                if url.is_empty() {
+                    warn!(peer_id = %peer_id, name = %name,
+                        "Image block has empty URL, skipping");
+                    return Ok(());
+                }
+                if let Err(e) = self.adapter.send_image(peer_id, url).await {
+                    warn!(peer_id = %peer_id, error = %e, name = %name,
+                        "Failed to send image via lark-cli");
+                }
+                Ok(())
+            }
+            ContentBlock::Audio { name, url } | ContentBlock::File { name, url } => {
+                if url.is_empty() {
+                    warn!(peer_id = %peer_id, name = %name,
+                        "Audio/File block has empty URL, skipping");
+                    return Ok(());
+                }
+                if let Err(e) = self.adapter.send_file(peer_id, url).await {
+                    warn!(peer_id = %peer_id, error = %e, name = %name,
+                        "Failed to send file via lark-cli");
+                }
+                Ok(())
+            }
+            _ => {
+                warn!("dispatch_send_media called with non-media block");
+                Ok(())
+            }
+        }
+    }
+
     /// Process media elements in a card payload, uploading files to Feishu
     /// and replacing local paths with Feishu image/file keys.
     async fn process_card_media(
