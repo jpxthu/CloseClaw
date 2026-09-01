@@ -118,6 +118,7 @@ fn make_plugin(base_url: &str) -> FeishuPlugin {
         media_store: Arc::new(
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
+        max_download_size_bytes: u64::MAX,
     });
     FeishuPlugin::new(adapter)
 }
@@ -310,6 +311,7 @@ fn make_adapter(base_url: &str) -> FeishuAdapter {
         media_store: Arc::new(
             crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
         ),
+        max_download_size_bytes: u64::MAX,
     }
 }
 

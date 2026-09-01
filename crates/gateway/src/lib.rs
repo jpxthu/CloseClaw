@@ -770,7 +770,8 @@ impl Gateway {
             &processed,
             self.get_media_store().as_deref(),
             self.image_content_threshold(),
-        );
+        )
+        .await;
         let session_id = match inbound_queue::resolve_session_with_log(
             self,
             &processed,

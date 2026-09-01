@@ -150,6 +150,34 @@ pub(crate) fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
     }
 }
 
+/// Load `{config_dir}/config/media.json`.
+///
+/// Returns default config when the file is missing or unparseable.
+pub(crate) fn load_media_config(config_dir: &str) -> closeclaw_config::MediaConfigData {
+    let path = std::path::Path::new(config_dir)
+        .join("config")
+        .join("media.json");
+    match closeclaw_config::MediaConfigData::from_file(&path) {
+        Ok(cfg) => {
+            info!(
+                storage_dir = %cfg.storage_dir,
+                max_download_size = cfg.max_download_size_bytes,
+                "media config loaded from {}",
+                path.display()
+            );
+            cfg
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                path = %path.display(),
+                "failed to load media.json — using defaults"
+            );
+            closeclaw_config::MediaConfigData::default()
+        }
+    }
+}
+
 /// Register the Feishu plugin with the Gateway.
 ///
 /// First checks `{config_dir}/config/platforms.json` for an explicit
@@ -173,11 +201,17 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
     if let (Some(app_id), Some(app_secret), Some(verification_token)) =
         (app_id, app_secret, verification_token)
     {
+        // Load media config from media.json (best-effort, use defaults on failure).
+        let media_config = load_media_config(config_dir);
+        let media_store = Arc::new(
+            MediaStore::new(&media_config.storage_dir).expect("failed to create media store"),
+        );
         let adapter = Arc::new(FeishuAdapter::new(
             app_id,
             app_secret,
             verification_token,
-            Arc::new(MediaStore::new("~/.closeclaw/media").expect("failed to create media store")),
+            media_store,
+            media_config.max_download_size_bytes,
         ));
 
         // Load identity mapping from config file (best-effort).

@@ -350,6 +350,40 @@ impl Daemon {
             .set_metrics_emitter(Arc::new(NoopMetricsEmitter))
             .await;
         closeclaw_im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
+        // Inject MediaStore and MediaConfigData into Gateway.
+        // Config missing or invalid → Gateway runs without media store.
+        {
+            let media_config_path = std::path::Path::new(config_dir)
+                .join("config")
+                .join("media.json");
+            let media_config =
+                match closeclaw_config::MediaConfigData::from_file(&media_config_path) {
+                    Ok(cfg) => cfg,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            path = %media_config_path.display(),
+                            "failed to load media.json — using defaults"
+                        );
+                        closeclaw_config::MediaConfigData::default()
+                    }
+                };
+            match closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir) {
+                Ok(store) => {
+                    let store: Arc<dyn closeclaw_common::MediaStoreAccess> = Arc::new(store);
+                    gateway.set_media_store(store);
+                    gateway.set_media_config(media_config);
+                    info!("MediaStore and MediaConfigData injected into Gateway");
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        storage_dir = %media_config.storage_dir,
+                        "failed to create MediaStore — gateway media features disabled"
+                    );
+                }
+            }
+        }
         // Drain outbound pending messages for dirty sessions recovered earlier.
         // Each session is drained asynchronously via tokio::spawn so startup
         // is not blocked by network I/O.

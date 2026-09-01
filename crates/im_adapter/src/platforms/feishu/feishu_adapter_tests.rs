@@ -25,6 +25,7 @@ fn test_feishu_adapter_name() {
         "app_secret".to_string(),
         "token".to_string(),
         make_test_media_store(),
+        u64::MAX,
     );
     assert_eq!(adapter.name(), "feishu");
 }
@@ -54,6 +55,7 @@ async fn test_validate_signature_correct() {
         "s".into(),
         "my_token".into(),
         make_test_media_store(),
+        u64::MAX,
     );
     let payload = b"test";
     let mut hasher = sha2::Sha256::new();
@@ -65,13 +67,25 @@ async fn test_validate_signature_correct() {
 
 #[tokio::test]
 async fn test_validate_signature_incorrect() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
+    let adapter = FeishuAdapter::new(
+        "a".into(),
+        "s".into(),
+        "t".into(),
+        make_test_media_store(),
+        u64::MAX,
+    );
     assert!(!adapter.validate_signature("wrong", b"test").await);
 }
 
 #[tokio::test]
 async fn test_parse_inbound_valid() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
+    let adapter = FeishuAdapter::new(
+        "a".into(),
+        "s".into(),
+        "t".into(),
+        make_test_media_store(),
+        u64::MAX,
+    );
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {"event_id":"evt_1","event_type":"im.message.receive_v1","create_time":"0","token":"t","app_id":"a"},
@@ -90,13 +104,25 @@ async fn test_parse_inbound_valid() {
 
 #[tokio::test]
 async fn test_parse_inbound_invalid_json() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
+    let adapter = FeishuAdapter::new(
+        "a".into(),
+        "s".into(),
+        "t".into(),
+        make_test_media_store(),
+        u64::MAX,
+    );
     assert!(adapter.parse_inbound(b"not json").await.is_err());
 }
 
 #[tokio::test]
 async fn test_parse_inbound_empty_text() {
-    let adapter = FeishuAdapter::new("a".into(), "s".into(), "t".into(), make_test_media_store());
+    let adapter = FeishuAdapter::new(
+        "a".into(),
+        "s".into(),
+        "t".into(),
+        make_test_media_store(),
+        u64::MAX,
+    );
     let payload = serde_json::json!({
         "schema":"2.0","header":{"event_id":"e2","event_type":"x","create_time":"0","token":"t","app_id":"a"},
         "event":{"sender":{"sender_id":{"open_id":"ou_x"},"sender_type":"user"},"content":"{\"other\":\"data\"}","chat_id":"oc_y","message_type":"text"}
@@ -115,6 +141,7 @@ async fn test_error_cases() {
         "bad".into(),
         "t".into(),
         make_test_media_store(),
+        u64::MAX,
     );
     assert!(a.fetch_tenant_token().await.is_err());
     let msg = Message {
@@ -140,6 +167,7 @@ async fn test_update_message_error() {
         "bad".into(),
         "t".into(),
         make_test_media_store(),
+        u64::MAX,
     );
     assert!(adapter
         .update_message("om_1", &serde_json::json!({}))

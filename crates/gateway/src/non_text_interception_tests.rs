@@ -400,7 +400,7 @@ async fn test_build_context_content_smoke() {
         },
     };
     assert_eq!(
-        crate::media_routing::build_context_content(&pm, None, 0),
+        crate::media_routing::build_context_content(&pm, None, 0).await,
         "hello"
     );
 }
@@ -770,7 +770,7 @@ async fn test_build_context_content_post_mixed_text_and_media() {
             m
         },
     };
-    let content = crate::media_routing::build_context_content(&pm, None, 0);
+    let content = crate::media_routing::build_context_content(&pm, None, 0).await;
     assert!(
         content.contains("check this image"),
         "should contain the text portion: {content}"
@@ -805,7 +805,7 @@ async fn test_build_context_content_image_empty_refs_returns_empty() {
         },
     };
     assert_eq!(
-        crate::media_routing::build_context_content(&pm, None, 0),
+        crate::media_routing::build_context_content(&pm, None, 0).await,
         "",
         "image with no media_refs should return empty string"
     );

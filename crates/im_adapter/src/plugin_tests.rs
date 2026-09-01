@@ -190,6 +190,7 @@ mod tests {
             "test_secret".into(),
             "test_token".into(),
             Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
+            u64::MAX,
         ));
         FeishuPlugin::new(adapter)
     }

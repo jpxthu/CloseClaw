@@ -194,6 +194,8 @@ pub struct FeishuAdapter {
     pub(crate) last_metadata: Arc<Mutex<HashMap<String, String>>>,
     /// Media storage manager for inbound persistence.
     pub(crate) media_store: Arc<MediaStore>,
+    /// Max download size in bytes for a single media file.
+    pub(crate) max_download_size_bytes: u64,
 }
 
 impl FeishuAdapter {
@@ -202,6 +204,7 @@ impl FeishuAdapter {
         app_secret: String,
         verification_token: String,
         media_store: Arc<MediaStore>,
+        max_download_size_bytes: u64,
     ) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -216,6 +219,7 @@ impl FeishuAdapter {
             base_url: FEISHU_API_BASE.to_string(),
             last_metadata: Arc::new(Mutex::new(HashMap::new())),
             media_store,
+            max_download_size_bytes,
         }
     }
 
@@ -662,7 +666,7 @@ impl FeishuAdapter {
                             &r.key,
                             &r.media_type,
                             &self.http_client,
-                            u64::MAX,
+                            self.max_download_size_bytes,
                         )
                         .await
                     {

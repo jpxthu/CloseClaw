@@ -46,6 +46,7 @@ fn make_test_adapter() -> FeishuAdapter {
         base_url: FEISHU_API_BASE.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         media_store: make_test_media_store(),
+        max_download_size_bytes: u64::MAX,
     }
 }
 
