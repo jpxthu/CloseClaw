@@ -251,6 +251,7 @@ impl crate::Daemon {
             let count = stashed.len();
             let new_gw_ref = self.gateway().await;
             let mut replayed = 0u64;
+            let mut failed = Vec::new();
             for req in stashed {
                 match new_gw_ref.enqueue_inbound(req).await {
                     Ok(()) => replayed += 1,
@@ -258,10 +259,17 @@ impl crate::Daemon {
                         tracing::warn!(
                             trace_id = %e.request.trace_id,
                             peer_id = %e.request.peer_id,
-                            "replay: new queue full — dropping"
+                            "replay: new queue full — returning to stash"
                         );
+                        failed.push(e.request);
                     }
                 }
+            }
+            // Push failed messages back to the old gateway's stash buffer
+            // so they are not silently lost.  They remain available for
+            // subsequent replay attempts or WAL-based recovery.
+            for req in failed {
+                old_gw.push_rebuild_stashed(req);
             }
             tracing::info!(total = count, replayed, "stashed inbound messages replayed");
         }

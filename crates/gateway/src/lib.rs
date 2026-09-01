@@ -102,9 +102,8 @@ pub mod types;
 pub mod workflow_owner;
 use inbound_queue::InboundDebugCtx;
 pub use outbound::OutboundMeta;
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 pub use types::*;
 
@@ -119,42 +118,8 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
+pub(crate) use rebuild_stash::RebuildStash;
 
-/// Shared state for config-triggered gateway rebuild stash mode.
-pub struct RebuildStash {
-    rebuild_mode: AtomicBool,
-    stash: Mutex<VecDeque<InboundRequest>>,
-}
-
-impl RebuildStash {
-    pub(crate) fn new() -> Self {
-        Self {
-            rebuild_mode: AtomicBool::new(false),
-            stash: Mutex::new(VecDeque::new()),
-        }
-    }
-
-    pub fn set_rebuild_mode(&self, enabled: bool) {
-        self.rebuild_mode.store(enabled, Ordering::Release);
-    }
-
-    pub fn is_rebuild_mode(&self) -> bool {
-        self.rebuild_mode.load(Ordering::Acquire)
-    }
-
-    pub fn push(&self, request: InboundRequest) {
-        if let Ok(mut guard) = self.stash.lock() {
-            guard.push_back(request);
-        }
-    }
-
-    pub fn take_stashed(&self) -> Vec<InboundRequest> {
-        match self.stash.lock() {
-            Ok(mut guard) => guard.drain(..).collect(),
-            Err(_) => Vec::new(),
-        }
-    }
-}
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
@@ -197,7 +162,7 @@ pub struct Gateway {
     /// `None` when `inbound_wal_dir` is not configured.
     inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
     /// Shared rebuild-stash for config-triggered gateway restarts.
-    rebuild_stash: Arc<RebuildStash>,
+    pub(crate) rebuild_stash: Arc<RebuildStash>,
 }
 
 /// Result of inbound pre-validation gates.
@@ -261,16 +226,31 @@ impl Gateway {
         gw
     }
 
-    pub fn rebuild_stash(&self) -> &Arc<RebuildStash> {
-        &self.rebuild_stash
-    }
-
+    /// Enter or exit rebuild mode on the shared stash buffer.
+    ///
+    /// When `enabled` is `true`, inbound queue-full hits stash the
+    /// message instead of rejecting it.  The Daemon calls this with
+    /// `true` before `shutdown_old_gateway` and with `false` (or relies
+    /// on the new Gateway's default `false`) after the rebuild.
     pub fn set_rebuild_mode(&self, enabled: bool) {
         self.rebuild_stash.set_rebuild_mode(enabled);
     }
 
+    /// Drain all stashed inbound requests in FIFO order.
+    ///
+    /// Must be called **after** `swap_and_notify` has installed the new
+    /// Gateway, so the replayed messages can be enqueued into the fresh
+    /// inbound queue.  Returns an empty `Vec` if the stash is empty.
     pub fn take_rebuild_stashed(&self) -> Vec<InboundRequest> {
         self.rebuild_stash.take_stashed()
+    }
+
+    /// Push a single request back into the rebuild stash buffer.
+    ///
+    /// Used by the Daemon during replay to preserve messages that failed
+    /// to enqueue into the new Gateway (e.g. new queue also full).
+    pub fn push_rebuild_stashed(&self, request: InboundRequest) {
+        self.rebuild_stash.push(request);
     }
 
     /// Set config directory for permission rule persistence.
@@ -958,6 +938,7 @@ pub mod notification_tests;
 #[cfg(feature = "full-tests")]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
+pub(crate) mod rebuild_stash;
 #[cfg(test)]
 mod rebuild_stash_tests;
 #[cfg(test)]

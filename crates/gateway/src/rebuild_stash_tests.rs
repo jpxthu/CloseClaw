@@ -40,9 +40,9 @@ async fn test_rebuild_mode_queue_full_stashes_message() {
     assert!(result.is_ok(), "rebuild mode should return Ok, not Err");
 
     // The stash buffer should contain exactly one message.
-    assert_eq!(gw.rebuild_stash().take_stashed().len(), 1);
+    assert_eq!(gw.rebuild_stash.take_stashed().len(), 1);
     // Stash is drained by take.
-    assert!(gw.rebuild_stash().take_stashed().is_empty());
+    assert!(gw.rebuild_stash.take_stashed().is_empty());
 }
 
 /// After rebuild completes (mode OFF), queue-full resumes rejection behavior.
@@ -74,24 +74,36 @@ async fn test_take_stashed_returns_fifo_and_clears() {
     handle.try_send(queued(make_request("fill"))).unwrap();
     gw.set_rebuild_mode(true);
 
-    // Enqueue 3 messages during rebuild — all should be stashed.
-    for i in 0..3 {
-        let result = gw.enqueue_inbound(make_request(&format!("msg-{i}"))).await;
-        assert!(result.is_ok(), "msg-{i} should be stashed");
+    // Enqueue 3 messages with distinct trace_ids during rebuild.
+    let trace_ids: Vec<String> = (0..3).map(|i| format!("fifo-trace-{i}")).collect();
+    for tid in &trace_ids {
+        let req = InboundRequest {
+            platform: "feishu".into(),
+            raw_payload: b"{}".to_vec(),
+            peer_id: "p1".into(),
+            trace_id: tid.clone(),
+            span_id: None,
+        };
+        let result = gw.enqueue_inbound(req).await;
+        assert!(result.is_ok(), "{tid} should be stashed");
     }
 
-    let stashed = gw.rebuild_stash().take_stashed();
+    let stashed = gw.rebuild_stash.take_stashed();
     assert_eq!(
         stashed.len(),
         3,
         "all 3 stashed messages should be returned"
     );
-    // Verify FIFO order via trace_id prefix embedded in payload.
-    assert_eq!(stashed[0].peer_id, "p1");
-    assert_eq!(stashed[1].peer_id, "p1");
-    assert_eq!(stashed[2].peer_id, "p1");
+    // Verify FIFO order via distinct trace_ids.
+    for (i, req) in stashed.iter().enumerate() {
+        assert_eq!(
+            req.trace_id, trace_ids[i],
+            "message {i} should have trace_id {}",
+            trace_ids[i]
+        );
+    }
     // Second take should be empty.
-    assert!(gw.rebuild_stash().take_stashed().is_empty());
+    assert!(gw.rebuild_stash.take_stashed().is_empty());
 }
 
 /// Stashed messages replayed into a new Gateway with capacity are all accepted.
@@ -108,7 +120,7 @@ async fn test_replay_stashed_into_new_gateway() {
             .await
             .unwrap();
     }
-    let stashed = old_gw.rebuild_stash().take_stashed();
+    let stashed = old_gw.rebuild_stash.take_stashed();
     assert_eq!(stashed.len(), 3);
 
     // New gateway: capacity=8, should accept all 3.
@@ -134,7 +146,7 @@ async fn test_state_transition_rebuild_on_then_off() {
     // Phase 1: rebuild mode ON — stashes.
     gw.set_rebuild_mode(true);
     gw.enqueue_inbound(make_request("phase1")).await.unwrap();
-    assert_eq!(gw.rebuild_stash().take_stashed().len(), 1);
+    assert_eq!(gw.rebuild_stash.take_stashed().len(), 1);
 
     // Phase 2: rebuild mode OFF — rejects.
     gw.set_rebuild_mode(false);
@@ -163,7 +175,7 @@ async fn test_multiple_stashes_strict_fifo_order() {
         trace_ids.push(format!("fifo-{i}"));
     }
 
-    let stashed = gw.rebuild_stash().take_stashed();
+    let stashed = gw.rebuild_stash.take_stashed();
     assert_eq!(stashed.len(), 5);
     for (i, req) in stashed.iter().enumerate() {
         assert_eq!(
@@ -190,7 +202,7 @@ async fn test_rebuild_mode_queue_not_full_enqueues_normally() {
     assert!(result.is_ok());
 
     // Stash should be empty — message went into the channel, not stash.
-    assert!(gw.rebuild_stash().take_stashed().is_empty());
+    assert!(gw.rebuild_stash.take_stashed().is_empty());
 }
 
 /// take_stashed on empty buffer returns empty Vec.
@@ -200,7 +212,7 @@ async fn test_take_stashed_empty_returns_empty_vec() {
     let _handle = gw.start_inbound_queue();
     gw.set_rebuild_mode(true);
 
-    let stashed = gw.rebuild_stash().take_stashed();
+    let stashed = gw.rebuild_stash.take_stashed();
     assert!(stashed.is_empty());
 }
 
@@ -229,7 +241,7 @@ async fn test_rebuild_mode_no_wal_still_stashes() {
 
     let result = gw.enqueue_inbound(make_request("no-wal")).await;
     assert!(result.is_ok(), "should stash even without WAL");
-    assert_eq!(gw.rebuild_stash().take_stashed().len(), 1);
+    assert_eq!(gw.rebuild_stash.take_stashed().len(), 1);
 }
 
 /// Replay into a new Gateway with full queue → normal reject (Err returned,
@@ -289,7 +301,7 @@ async fn test_full_rebuild_cycle_fifo_replay() {
     }
 
     // --- Phase 2: take stash ---
-    let stashed = old_gw.rebuild_stash().take_stashed();
+    let stashed = old_gw.rebuild_stash.take_stashed();
     assert_eq!(stashed.len(), 5);
     for (i, req) in stashed.iter().enumerate() {
         assert_eq!(req.trace_id, expected_trace_ids[i]);
@@ -325,7 +337,7 @@ async fn test_long_chain_mixed_capacity() {
 
     old_gw.enqueue_inbound(make_request("mix-a")).await.unwrap();
     old_gw.enqueue_inbound(make_request("mix-b")).await.unwrap();
-    let stashed = old_gw.rebuild_stash().take_stashed();
+    let stashed = old_gw.rebuild_stash.take_stashed();
     assert_eq!(stashed.len(), 2, "both messages should be stashed");
 
     // New gateway: capacity=4, should accept both.
@@ -336,7 +348,7 @@ async fn test_long_chain_mixed_capacity() {
         new_gw.enqueue_inbound(req.clone()).await.unwrap();
     }
     // Verify stash is empty after take.
-    assert!(old_gw.rebuild_stash().take_stashed().is_empty());
+    assert!(old_gw.rebuild_stash.take_stashed().is_empty());
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
