@@ -88,27 +88,16 @@ pub(crate) struct FeishuCardAction {
 
 pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
-/// Default max download size in bytes for a single media file (50 MB).
-/// Platform-specific: Feishu supports up to 50 MB per media resource.
+/// Default max download size: 50 MB per media resource.
 pub(crate) const DEFAULT_MAX_DOWNLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
-/// Returns `true` when the Feishu API error code indicates a platform
-/// capability limitation (e.g. unsupported `select_static` component).
-///
-/// These errors warrant a one-time fallback retry via text message.
-/// Network failures, token errors, and permission errors are NOT
-/// capability errors.
-///
-/// Error code sources (Feishu Open Platform documentation):
-/// - 230001: invalid card element type
-/// - 230002: unsupported component in card template
+/// Returns `true` when the API error indicates a platform capability
+/// limitation (e.g. unsupported component). These warrant a text fallback.
 pub(crate) fn is_capability_error(code: i32) -> bool {
     matches!(code, 230001 | 230002)
 }
 
-// ---------------------------------------------------------------------------
 // Quote helpers
-// ---------------------------------------------------------------------------
 
 /// Truncate text to at most 500 characters, appending "..." if truncated.
 pub(crate) fn truncate_to_500(text: &str) -> String {
@@ -132,11 +121,8 @@ pub(crate) fn to_blockquote(text: &str) -> String {
         .join("\n")
 }
 
-// ---------------------------------------------------------------------------
 // CachedToken
-// ---------------------------------------------------------------------------
 
-/// Cached tenant access token with expiry time.
 #[derive(Debug, Clone)]
 pub struct CachedToken {
     pub token: String,
@@ -150,9 +136,7 @@ impl CachedToken {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Feishu API response types
-// ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
 struct FeishuMsgBody {
@@ -178,9 +162,7 @@ pub(crate) struct SendResponse {
     pub(crate) msg: String,
 }
 
-// ---------------------------------------------------------------------------
 // FeishuAdapter
-// ---------------------------------------------------------------------------
 
 /// Feishu adapter implementation.
 #[derive(Debug, Clone)]
@@ -234,8 +216,16 @@ impl FeishuAdapter {
         self
     }
 
-    /// Extract the event_type from a raw webhook JSON payload header.
+    /// Extract the event_type from a raw JSON payload.
+    ///
+    /// Supports both CLI format (top-level `type`) and webhook format
+    /// (`header.event_type`).
     fn extract_event_type(raw: &serde_json::Value) -> String {
+        // CLI format: top-level "type" field
+        if let Some(t) = raw.get("type").and_then(|v| v.as_str()) {
+            return t.to_string();
+        }
+        // Webhook format: header.event_type
         raw.get("header")
             .and_then(|h| h.get("event_type"))
             .and_then(|t| t.as_str())
@@ -840,6 +830,25 @@ impl FeishuAdapter {
             }
         }
     }
+
+    fn extract_card_ids(raw: &serde_json::Value) -> (String, String) {
+        let is_cli = raw.get("type").and_then(|v| v.as_str()).is_some();
+        let get = |key: &str| -> String {
+            if is_cli {
+                raw.get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                raw.get("header")
+                    .and_then(|h| h.get(key))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            }
+        };
+        (get("event_id"), get("app_id"))
+    }
 }
 
 #[async_trait]
@@ -860,7 +869,7 @@ impl IMAdapter for FeishuAdapter {
             return Ok(None);
         }
 
-        if event_type == "reaction.created" {
+        if event_type == "reaction.created" || event_type == "im.message.reaction.created_v1" {
             return super::events::parse_reaction_event(&raw);
         }
 
@@ -868,8 +877,15 @@ impl IMAdapter for FeishuAdapter {
             return super::events::parse_bot_added_event(&raw);
         }
 
-        let event: FeishuEvent =
-            serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
+        // Determine format: CLI has top-level "type"; webhook has "header.event_type"
+        let is_cli = raw.get("type").and_then(|v| v.as_str()).is_some();
+
+        let event = if is_cli {
+            super::process_manager::normalize_cli_event(&raw)
+                .ok_or_else(|| AdapterError::InvalidPayload("invalid CLI event format".into()))?
+        } else {
+            serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?
+        };
         self.parse_message_event(event).await
     }
 
@@ -879,26 +895,10 @@ impl IMAdapter for FeishuAdapter {
     ) -> Result<Option<CardActionEvent>, AdapterError> {
         let raw: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-
-        let event_type = Self::extract_event_type(&raw);
-        if event_type != "card.action.trigger" {
+        if Self::extract_event_type(&raw) != "card.action.trigger" {
             return Ok(None);
         }
-
-        let event_id = raw
-            .get("header")
-            .and_then(|h| h.get("event_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let app_id = raw
-            .get("header")
-            .and_then(|h| h.get("app_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-
+        let (event_id, app_id) = Self::extract_card_ids(&raw);
         let card_event: FeishuCardActionEvent =
             serde_json::from_value(raw).map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
         self.parse_card_action_event(event_id, app_id, &card_event)

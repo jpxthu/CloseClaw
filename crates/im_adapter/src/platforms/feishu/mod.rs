@@ -30,6 +30,9 @@ mod outbound_media;
 #[cfg(test)]
 mod outbound_media_tests;
 mod post_expand;
+pub(crate) mod process_manager;
+#[cfg(test)]
+mod process_manager_tests;
 pub mod renderer;
 #[cfg(test)]
 mod send_fallback_tests;
