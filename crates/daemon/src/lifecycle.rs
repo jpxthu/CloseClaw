@@ -197,7 +197,7 @@ impl Daemon {
             dreaming_scheduler_handle: Some(dreaming_handle),
             plan_archive_shutdown_tx,
             plan_archive_sweeper_handle: Some(plan_archive_sweeper_handle),
-            media_cleanup_handle: media_cleanup_handle,
+            media_cleanup_handle,
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
