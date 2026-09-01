@@ -35,12 +35,18 @@ impl Gateway {
             return Err(GatewayError::MessageTooLarge);
         }
         let thread_id = self.session_manager.get_thread_id(session_id).await;
+        let reply_ref = self.session_manager.get_reply_ref(session_id).await;
         let output = RenderedOutput {
             msg_type: "text".into(),
             payload: serde_json::json!({"content": {"text": &message.content}}),
         };
         plugin
-            .send(&output, &message.to, thread_id.as_deref())
+            .send(
+                &output,
+                &message.to,
+                thread_id.as_deref(),
+                reply_ref.as_deref(),
+            )
             .await
             .map_err(|e| GatewayError::AdapterError(e.to_string()))
     }
@@ -57,7 +63,7 @@ impl Gateway {
                     }
                 }),
             };
-            let _ = plugin.send(&err_output, &message.to, None).await;
+            let _ = plugin.send(&err_output, &message.to, None, None).await;
         }
     }
 
@@ -248,6 +254,9 @@ fn build_extra_metadata(normalized: &NormalizedMessage) -> HashMap<String, Strin
     if let Some(ref thread_id) = normalized.thread_id {
         meta.insert("thread_id".to_string(), thread_id.clone());
     }
+    if let Some(ref reply_ref) = normalized.reply_ref {
+        meta.insert("reply_ref".to_string(), reply_ref.clone());
+    }
     meta.insert(
         "media_refs".to_string(),
         serde_json::to_string(&normalized.media_refs).unwrap_or_else(|_| "[]".to_string()),
@@ -364,6 +373,7 @@ mod tests {
     fn all_fields_combined() {
         let normalized = make_normalized(|n| {
             n.thread_id = Some("t_1".into());
+            n.reply_ref = Some("r_1".into());
             n.media_refs = vec![MediaRef {
                 key: "r1".into(),
                 path: "/media/r1".into(),
@@ -376,12 +386,13 @@ mod tests {
             n.chat_name = "chat".into();
             n.trace_id = "tr1".into();
         });
-        // build_extra_metadata propagates thread_id, media_refs,
+        // build_extra_metadata propagates thread_id, reply_ref, media_refs,
         // account_id, chat_name, trace_id — but NOT unavailable_media
         // (which is injected by the chain dispatcher).
         let meta = build_extra_metadata(&normalized);
-        assert_eq!(meta.len(), 5);
+        assert_eq!(meta.len(), 6);
         assert_eq!(meta.get("thread_id").unwrap(), "t_1");
+        assert_eq!(meta.get("reply_ref").unwrap(), "r_1");
         assert!(!meta.contains_key("unavailable_media"));
         assert_eq!(meta.get("account_id").unwrap(), "a1");
         assert_eq!(meta.get("chat_name").unwrap(), "chat");

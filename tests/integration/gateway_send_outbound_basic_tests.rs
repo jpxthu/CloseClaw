@@ -104,6 +104,7 @@ impl IMPlugin for TrackingPlugin {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         }))
@@ -147,6 +148,7 @@ impl IMPlugin for TrackingPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         *self.send_called.lock().unwrap() = true;
         Ok(())
@@ -172,6 +174,7 @@ pub(crate) fn make_outbound_message(to: &str, content: &str) -> Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

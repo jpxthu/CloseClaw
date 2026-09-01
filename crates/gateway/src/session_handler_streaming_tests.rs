@@ -178,6 +178,7 @@ impl IMPlugin for DegradMockPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         let text = output
             .payload
@@ -233,6 +234,7 @@ impl IMPlugin for FailingSendPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::SendFailed("mock send failure".into()))
     }

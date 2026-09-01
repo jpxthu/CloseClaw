@@ -82,10 +82,27 @@ fn check_cli_json_error(stdout: &str) -> Result<(), AdapterError> {
                 .and_then(|m| m.as_str())
                 .unwrap_or("unknown error");
             tracing::warn!(code = code, msg = %msg, "lark-cli returned error");
-            return Err(AdapterError::SendFailed(format!("lark-cli error {code}: {msg}")));
+            return Err(AdapterError::SendFailed(format!(
+                "lark-cli error {code}: {msg}"
+            )));
         }
     }
     Ok(())
+}
+
+/// Target type for outgoing reply routing.
+///
+/// Determines which `lark-cli` command and flags to use:
+/// - `Thread`: `+messages-reply --message-id <root_id> --reply-in-thread`
+/// - `Message`: `+messages-reply --message-id <message_id>` (no thread flag)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ReplyTarget {
+    /// Reply to a thread root (creates or continues a thread).
+    Thread { root_id: String },
+    /// Reply to a specific message (direct reply, not in thread).
+    /// Used when Gateway passes top-level peer_id as a reply target
+    /// (design doc "会话锚点构造").
+    Message { message_id: String },
 }
 
 /// Build lark-cli arguments for sending a message.
@@ -129,36 +146,56 @@ fn build_send_args(chat_id: &str, msg_type: &str, content: &str) -> Vec<String> 
     args
 }
 
-/// Build lark-cli arguments for replying to a message in a thread.
+/// Build lark-cli arguments for replying to a message.
 ///
-/// `lark-cli im +messages-reply --message-id <msg_id> --text "..." --reply-in-thread`
-fn build_reply_args(message_id: &str, text: &str) -> Vec<String> {
-    vec![
+/// `ReplyTarget::Thread` → `+messages-reply --message-id <root_id> --text "..." --reply-in-thread`
+/// `ReplyTarget::Message` → `+messages-reply --message-id <id> --text "..."`
+fn build_reply_args(target: &ReplyTarget, text: &str) -> Vec<String> {
+    let mut args = vec![
         "im".to_string(),
         "+messages-reply".to_string(),
         "--message-id".to_string(),
-        message_id.to_string(),
-        "--text".to_string(),
-        text.to_string(),
-        "--reply-in-thread".to_string(),
-    ]
+    ];
+    match target {
+        ReplyTarget::Thread { root_id } => {
+            args.push(root_id.clone());
+            args.push("--text".to_string());
+            args.push(text.to_string());
+            args.push("--reply-in-thread".to_string());
+        }
+        ReplyTarget::Message { message_id } => {
+            args.push(message_id.clone());
+            args.push("--text".to_string());
+            args.push(text.to_string());
+        }
+    }
+    args
 }
 
 impl FeishuAdapter {
     /// Low-level: send a message via lark-cli subprocess.
     ///
-    /// Routes to `+messages-reply` when `root_id` is `Some` (thread reply),
-    /// otherwise to `+messages-send`.
+    /// Routes to `+messages-reply` when `reply_ref` is `Some` (thread or
+    /// message reply), otherwise to `+messages-send`.
+    ///
+    /// When `receive_id` is a composite peer_id (`{user_id}|{rest}`),
+    /// the user identifier portion (before the first `|`) is extracted
+    /// for the `--user-id` flag.
     pub(crate) async fn send_msg(
         &self,
         receive_id: &str,
         msg_type: &str,
         content: &str,
-        root_id: Option<&str>,
+        reply_ref: Option<&ReplyTarget>,
     ) -> Result<(), AdapterError> {
-        let args = match root_id {
-            Some(msg_id) => build_reply_args(msg_id, content),
-            None => build_send_args(receive_id, msg_type, content),
+        // Extract user identifier from composite peer_id.
+        let effective_id = match receive_id.find('|') {
+            Some(pos) => &receive_id[..pos],
+            None => receive_id,
+        };
+        let args = match reply_ref {
+            Some(target) => build_reply_args(target, content),
+            None => build_send_args(effective_id, msg_type, content),
         };
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         run_cli(self, &arg_refs).await?;
@@ -176,7 +213,7 @@ impl FeishuAdapter {
         &self,
         chat_id: &str,
         card_json: &str,
-        root_id: Option<&str>,
+        reply_ref: Option<&ReplyTarget>,
     ) -> Result<(), AdapterError> {
         let card_value: serde_json::Value =
             serde_json::from_str(card_json).unwrap_or(serde_json::Value::Null);
@@ -188,7 +225,7 @@ impl FeishuAdapter {
             );
             return Ok(());
         }
-        self.send_msg(chat_id, "text", &plain_text, root_id).await
+        self.send_msg(chat_id, "text", &plain_text, reply_ref).await
     }
 
     /// Send an image file via lark-cli.
@@ -200,7 +237,8 @@ impl FeishuAdapter {
         receive_id: &str,
         image_path: &str,
     ) -> Result<(), AdapterError> {
-        self.send_media_file(receive_id, "--image", image_path).await
+        self.send_media_file(receive_id, "--image", image_path)
+            .await
     }
 
     /// Send a file via lark-cli.
@@ -398,13 +436,29 @@ mod tests {
     }
 
     #[test]
-    fn test_build_reply_args() {
-        let args = build_reply_args("om_msg123", "reply text");
+    fn test_build_reply_args_thread() {
+        let target = ReplyTarget::Thread {
+            root_id: "om_msg123".to_string(),
+        };
+        let args = build_reply_args(&target, "reply text");
         assert_eq!(args[0], "im");
         assert_eq!(args[1], "+messages-reply");
         assert!(args.contains(&"--message-id".to_string()));
         assert!(args.contains(&"om_msg123".to_string()));
         assert!(args.contains(&"--reply-in-thread".to_string()));
+    }
+
+    #[test]
+    fn test_build_reply_args_message() {
+        let target = ReplyTarget::Message {
+            message_id: "om_msg456".to_string(),
+        };
+        let args = build_reply_args(&target, "reply text");
+        assert_eq!(args[0], "im");
+        assert_eq!(args[1], "+messages-reply");
+        assert!(args.contains(&"--message-id".to_string()));
+        assert!(args.contains(&"om_msg456".to_string()));
+        assert!(!args.contains(&"--reply-in-thread".to_string()));
     }
 
     #[test]
@@ -457,5 +511,102 @@ mod tests {
         // Verify the original args are still present
         assert!(content.contains("im"));
         assert!(content.contains("+messages-send"));
+    }
+
+    // =====================================================================
+    // send_msg composite peer_id tests
+    // =====================================================================
+
+    /// Composite peer_id without reply_ref → extract user-id, send new message.
+    #[tokio::test]
+    async fn test_send_msg_composite_peer_id_no_reply() {
+        let tmp = TempDir::new().unwrap();
+        let cli = create_args_echo_cli(&tmp);
+        let adapter = make_adapter_with_cli(&cli);
+        let result = adapter
+            .send_msg("ou_user123|om_msg456", "text", "hello", None)
+            .await;
+        assert!(result.is_ok());
+        let args_file = tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        assert!(content.contains("--user-id"));
+        assert!(content.contains("ou_user123"));
+        assert!(!content.contains("om_msg456"));
+        assert!(content.contains("+messages-send"));
+    }
+
+    /// Composite peer_id with Thread reply_ref → use +messages-reply --reply-in-thread.
+    #[tokio::test]
+    async fn test_send_msg_composite_peer_id_thread_reply() {
+        let tmp = TempDir::new().unwrap();
+        let cli = create_args_echo_cli(&tmp);
+        let adapter = make_adapter_with_cli(&cli);
+        let target = ReplyTarget::Thread {
+            root_id: "om_root789".to_string(),
+        };
+        let result = adapter
+            .send_msg("ou_user123|om_msg456", "text", "reply", Some(&target))
+            .await;
+        assert!(result.is_ok());
+        let args_file = tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        assert!(content.contains("+messages-reply"));
+        assert!(content.contains("--message-id"));
+        assert!(content.contains("om_root789"));
+        assert!(content.contains("--reply-in-thread"));
+    }
+
+    /// Composite peer_id with Message reply_ref → use +messages-reply without --reply-in-thread.
+    #[tokio::test]
+    async fn test_send_msg_composite_peer_id_message_reply() {
+        let tmp = TempDir::new().unwrap();
+        let cli = create_args_echo_cli(&tmp);
+        let adapter = make_adapter_with_cli(&cli);
+        let target = ReplyTarget::Message {
+            message_id: "om_msg456".to_string(),
+        };
+        let result = adapter
+            .send_msg("ou_user123|om_msg456", "text", "reply", Some(&target))
+            .await;
+        assert!(result.is_ok());
+        let args_file = tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        assert!(content.contains("+messages-reply"));
+        assert!(content.contains("--message-id"));
+        assert!(content.contains("om_msg456"));
+        assert!(!content.contains("--reply-in-thread"));
+    }
+
+    /// Simple (non-composite) peer_id without reply_ref → send new message.
+    #[tokio::test]
+    async fn test_send_msg_simple_peer_id_no_reply() {
+        let tmp = TempDir::new().unwrap();
+        let cli = create_args_echo_cli(&tmp);
+        let adapter = make_adapter_with_cli(&cli);
+        let result = adapter.send_msg("oc_chat123", "text", "hello", None).await;
+        assert!(result.is_ok());
+        let args_file = tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        assert!(content.contains("--chat-id"));
+        assert!(content.contains("oc_chat123"));
+        assert!(content.contains("+messages-send"));
+    }
+
+    /// Composite peer_id with group chat (oc_) → extract user-id portion.
+    #[tokio::test]
+    async fn test_send_msg_composite_peer_id_group_chat() {
+        let tmp = TempDir::new().unwrap();
+        let cli = create_args_echo_cli(&tmp);
+        let adapter = make_adapter_with_cli(&cli);
+        let result = adapter
+            .send_msg("ou_user123|oc_chat456", "text", "hello", None)
+            .await;
+        assert!(result.is_ok());
+        let args_file = tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        // Should use --user-id with the extracted user portion
+        assert!(content.contains("--user-id"));
+        assert!(content.contains("ou_user123"));
+        assert!(!content.contains("oc_chat456"));
     }
 }

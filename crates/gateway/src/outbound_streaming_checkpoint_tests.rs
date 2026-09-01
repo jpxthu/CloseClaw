@@ -251,6 +251,7 @@ impl IMPlugin for CheckpointCapturingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.sent.lock().await.push(output.payload.clone());
         Ok(())
@@ -301,6 +302,7 @@ async fn setup_with_checkpoint(
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -331,6 +333,7 @@ async fn setup_without_checkpoint(plugin: Arc<dyn IMPlugin>) -> (crate::Gateway,
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

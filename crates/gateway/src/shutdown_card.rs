@@ -139,7 +139,7 @@ impl Gateway {
                     msg_type: "interactive".into(),
                     payload: card.clone(),
                 };
-                if let Err(e) = plugin.send(&output, chat_id, None).await {
+                if let Err(e) = plugin.send(&output, chat_id, None, None).await {
                     tracing::warn!(
                         chat_id = %chat_id,
                         plugin = plugin.platform(),
@@ -308,7 +308,7 @@ impl Gateway {
                     msg_type: "interactive".into(),
                     payload: card.clone(),
                 };
-                if let Err(e) = plugin.send(&output, chat_id, None).await {
+                if let Err(e) = plugin.send(&output, chat_id, None, None).await {
                     tracing::warn!(
                         chat_id = %chat_id,
                         plugin = plugin.platform(),
@@ -402,7 +402,7 @@ impl Gateway {
                     msg_type: "interactive".into(),
                     payload: card.clone(),
                 };
-                if let Err(e) = plugin.send(&output, chat_id, None).await {
+                if let Err(e) = plugin.send(&output, chat_id, None, None).await {
                     tracing::warn!(
                         chat_id = %chat_id,
                         plugin = plugin.platform(),
@@ -466,7 +466,7 @@ impl Gateway {
                     msg_type: "interactive".into(),
                     payload: card.clone(),
                 };
-                if let Err(e) = plugin.send(&output, chat_id, None).await {
+                if let Err(e) = plugin.send(&output, chat_id, None, None).await {
                     tracing::warn!(
                         chat_id = %chat_id,
                         plugin = plugin.platform(),

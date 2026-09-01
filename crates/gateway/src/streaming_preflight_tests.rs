@@ -88,6 +88,7 @@ impl IMPlugin for TrackingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.send_count.fetch_add(1, Ordering::SeqCst);
         let text = output

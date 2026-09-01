@@ -97,6 +97,7 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         peer_id: &str,
         thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.send_calls.lock().unwrap().push((
             RenderedOutput {
@@ -188,6 +189,7 @@ fn make_message(to: &str, content: &str) -> Message {
         timestamp: chrono::Utc::now().timestamp(),
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

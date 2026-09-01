@@ -176,6 +176,7 @@ impl IMPlugin for CheckpointCapturingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.sent.lock().await.push(output.payload.clone());
         Ok(())
@@ -264,6 +265,7 @@ async fn setup_with_dsl_parser(
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,
@@ -391,6 +393,7 @@ async fn test_streaming_checkpoint_dsl_result_none_when_no_dsl() {
         timestamp: 0,
         metadata: HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

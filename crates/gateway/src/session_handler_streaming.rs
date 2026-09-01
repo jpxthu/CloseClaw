@@ -282,6 +282,7 @@ pub(crate) fn build_checkpoint_message(
         timestamp: chrono::Utc::now().timestamp(),
         metadata,
         thread_id: None,
+        reply_ref: None,
         platform: Some(channel.to_string()),
         dsl_result: None,
         content_blocks: Some(content_blocks_json),

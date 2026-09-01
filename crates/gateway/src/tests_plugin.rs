@@ -64,6 +64,7 @@ impl IMPlugin for MockPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         if self.fail {
             Err(AdapterError::SendFailed("mock failure".into()))
@@ -231,6 +232,7 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         if output.msg_type == "interactive" {
             *self.last_card.write().await = Some(output.payload.clone());

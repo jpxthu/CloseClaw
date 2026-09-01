@@ -191,6 +191,7 @@ impl IMPlugin for EmptyTextBypassPlugin {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: "u1".into(),
             ..Default::default()
         }))
@@ -212,6 +213,7 @@ impl IMPlugin for EmptyTextBypassPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -240,6 +242,7 @@ impl IMPlugin for NonTextEmptyContentPlugin {
             message_type: MessageType::Image,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: "u1".into(),
             ..Default::default()
         }))
@@ -261,6 +264,7 @@ impl IMPlugin for NonTextEmptyContentPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -318,6 +322,7 @@ impl IMPlugin for EmptyStringTextPlugin {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: "u1".into(),
             ..Default::default()
         }))
@@ -339,6 +344,7 @@ impl IMPlugin for EmptyStringTextPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -366,6 +372,7 @@ impl IMPlugin for NormalTextPlugin {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: "u1".into(),
             ..Default::default()
         }))
@@ -387,6 +394,7 @@ impl IMPlugin for NormalTextPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         Ok(())
     }
@@ -506,6 +514,7 @@ impl IMPlugin for TrackingSendPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.send_called
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -563,6 +572,7 @@ impl IMPlugin for SlowSendPlugin {
             message_type: MessageType::Text,
             media_refs: vec![],
             thread_id: None,
+            reply_ref: None,
             account_id: String::new(),
             ..Default::default()
         }))
@@ -592,6 +602,7 @@ impl IMPlugin for SlowSendPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         Ok(())
@@ -692,6 +703,7 @@ impl IMPlugin for CapturingPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         let text = output
             .payload

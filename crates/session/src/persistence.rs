@@ -106,6 +106,14 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub thread_id: Option<String>,
+    /// 出站定向回复引用（IM 渠道定向投递的靶标 ID）
+    ///
+    /// 顶层消息 = 本条消息 ID；话题回复 = 根消息 ID（root_id）。
+    /// 出站时由 Gateway 从 checkpoint 取出传入 plugin.send。
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
+    #[serde(default)]
+    pub reply_ref: Option<String>,
     /// 租户标识（可选）
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
@@ -291,6 +299,7 @@ impl SessionCheckpoint {
             reasoning_level: ReasoningLevel::default(),
             system_appends: Vec::new(),
             thread_id: None,
+            reply_ref: None,
             sender_id: None,
             parent_session_id: None,
             depth: 0,
@@ -402,6 +411,11 @@ impl SessionCheckpoint {
     /// Update the thread ID
     pub fn with_thread_id(mut self, thread_id: String) -> Self {
         self.thread_id = Some(thread_id);
+        self
+    }
+    /// Update the reply_ref (outbound directed reference)
+    pub fn with_reply_ref(mut self, reply_ref: String) -> Self {
+        self.reply_ref = Some(reply_ref);
         self
     }
     /// Update the parent session ID

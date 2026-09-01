@@ -161,6 +161,7 @@ impl IMPlugin for TimingMockPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         // Signal that send() has been entered (first persist is done).
         self.entered_send.notify_one();
@@ -388,6 +389,7 @@ impl IMPlugin for InteractiveTimingPlugin {
         _output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         self.entered_send.notify_one();
         self.ok_to_return.notified().await;

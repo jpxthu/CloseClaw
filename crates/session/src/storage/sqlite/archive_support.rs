@@ -411,6 +411,7 @@ pub fn load_checkpoint_inner(
         system_appends,
         account_id: account_id_new,
         thread_id,
+        reply_ref: None,
         sender_id,
         parent_session_id,
         depth,

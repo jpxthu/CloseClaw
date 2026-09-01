@@ -84,6 +84,7 @@ fn test_message() -> Message {
         timestamp: 0,
         metadata: std::collections::HashMap::new(),
         thread_id: None,
+        reply_ref: None,
         platform: None,
         dsl_result: None,
         content_blocks: None,

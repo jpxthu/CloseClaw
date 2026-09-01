@@ -474,6 +474,7 @@ impl IMPlugin for RpcTerminalPlugin {
         output: &RenderedOutput,
         _peer_id: &str,
         _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
     ) -> Result<(), AdapterError> {
         // Route to the current task's connection channel.
         let conn_id = CHAT_CONN_ID.with(|id| *id);
