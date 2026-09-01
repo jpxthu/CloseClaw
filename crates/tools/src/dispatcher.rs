@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use crate::debug_log::{emit_tool_event, ToolsDebugLogContext, ToolsEmitEventParams};
 use crate::file_mutex::FileMutexMap;
+use crate::media_ref::{resolve_media_refs, MediaRefError};
 use crate::registry::ToolRegistryImpl;
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,8 @@ pub struct ToolRegistryExecutor {
     trace_id: String,
     session_key: Option<String>,
     parent_span: Option<closeclaw_debug_log::TraceContext>,
+    /// Optional media store for resolving `[type: key]` references in tool args.
+    media_store: Option<Arc<dyn closeclaw_common::MediaStoreAccess>>,
 }
 
 impl ToolRegistryExecutor {
@@ -170,6 +173,7 @@ impl ToolRegistryExecutor {
     /// `base_ctx` is cloned for each call; its `call_id` is replaced
     /// with the individual `PendingToolCall::id`.
     pub fn new(registry: Arc<ToolRegistryImpl>, base_ctx: crate::ToolContext) -> Self {
+        let media_store = base_ctx.media_store.clone();
         Self {
             registry,
             base_ctx,
@@ -177,7 +181,17 @@ impl ToolRegistryExecutor {
             trace_id: String::new(),
             session_key: None,
             parent_span: None,
+            media_store,
         }
+    }
+
+    /// Attach a media store for resolving `[type: key]` references in tool args.
+    pub fn with_media_store(
+        mut self,
+        media_store: Option<Arc<dyn closeclaw_common::MediaStoreAccess>>,
+    ) -> Self {
+        self.media_store = media_store;
+        self
     }
 
     /// Attach a debug-log context for emitting structured events.
@@ -206,6 +220,32 @@ impl ToolExecutor for ToolRegistryExecutor {
         let tool = Arc::clone(tool);
         drop(guard);
 
+        // Resolve media references in tool args before execution.
+        let args = if let Some(ref store) = self.media_store {
+            match resolve_media_refs(&call.args, store.as_ref()) {
+                Ok(resolved) => resolved,
+                Err(MediaRefError::NotFound { media_type, key }) => {
+                    return closeclaw_common::tool_trait::ToolResult {
+                        data: serde_json::json!({
+                            "error": format!("media reference not found: [{media_type}: {key}]")
+                        }),
+                        new_messages: vec![],
+                        context_modifier: None,
+                    };
+                }
+                Err(MediaRefError::StoreUnavailable) => call.args.clone(),
+                Err(MediaRefError::Store(e)) => {
+                    return closeclaw_common::tool_trait::ToolResult {
+                        data: serde_json::json!({ "error": format!("media store error: {e}") }),
+                        new_messages: vec![],
+                        context_modifier: None,
+                    };
+                }
+            }
+        } else {
+            call.args.clone()
+        };
+
         let mut ctx = self.base_ctx.clone();
         ctx.call_id = Some(call.id.clone());
 
@@ -226,7 +266,7 @@ impl ToolExecutor for ToolRegistryExecutor {
             parent: self.parent_span.as_ref(),
         });
 
-        let result = match tool.call(call.args.clone(), &ctx).await {
+        let result = match tool.call(args.clone(), &ctx).await {
             Ok(result) => result,
             Err(e) => closeclaw_common::tool_trait::ToolResult {
                 data: serde_json::json!({ "error": e.to_string() }),
@@ -236,6 +276,7 @@ impl ToolExecutor for ToolRegistryExecutor {
         };
 
         // Emit tool.params (Debug level — full params and return value)
+        // Note: emit original call.args, not resolved args, to avoid leaking paths.
         emit_tool_event(ToolsEmitEventParams {
             ctx: ToolsDebugLogContext {
                 debug_log: self.debug_log.as_deref(),

@@ -41,14 +41,20 @@ impl Daemon {
             plan_archive_shutdown_tx,
             plan_archive_sweeper_handle,
         ) = Self::init_phase_2_registries(config_dir, &config_manager, &audit_logger).await?;
-        let (gateway, session_manager, shutdown, dirty_sessions, slash_registry) =
-            Self::init_phase_3_core_services(
-                config_dir,
-                &storage,
-                &permission_engine,
-                &config_manager,
-            )
-            .await?;
+        let (
+            gateway,
+            session_manager,
+            shutdown,
+            dirty_sessions,
+            slash_registry,
+            media_cleanup_handle,
+        ) = Self::init_phase_3_core_services(
+            config_dir,
+            &storage,
+            &permission_engine,
+            &config_manager,
+        )
+        .await?;
         let shutdown = Arc::new(shutdown);
         // Wire shutdown handle into Gateway and SessionManager for
         // busy-count tracking during drain.
@@ -191,6 +197,7 @@ impl Daemon {
             dreaming_scheduler_handle: Some(dreaming_handle),
             plan_archive_shutdown_tx,
             plan_archive_sweeper_handle: Some(plan_archive_sweeper_handle),
+            media_cleanup_handle: media_cleanup_handle,
             spawn_controller: Some(spawn_controller),
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
@@ -563,6 +570,11 @@ impl Daemon {
         let _ = self.announce_shutdown_tx.send(());
         let _ = self.dreaming_scheduler_shutdown_tx.send(());
         let _ = self.plan_archive_shutdown_tx.send(());
+        // Stop the media cleanup task (RAII handle, drop signals shutdown).
+        if let Some(handle) = self.media_cleanup_handle.take() {
+            handle.shutdown();
+            tracing::info!("media cleanup task signaled to stop");
+        }
 
         let task_results = self.wait_all_bg_tasks().await;
         Self::log_phase3_stop_confirmation(&task_results);

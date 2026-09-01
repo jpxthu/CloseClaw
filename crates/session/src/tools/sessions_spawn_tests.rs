@@ -573,6 +573,7 @@ fn make_tool_context(session_id: &str) -> closeclaw_common::tool_trait::ToolCont
         session: None,
         session_mode: None,
         manual_background_signal: None,
+        media_store: None,
     }
 }
 

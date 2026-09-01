@@ -73,6 +73,8 @@ pub struct Daemon {
     pub(crate) plan_archive_shutdown_tx: watch::Sender<()>,
     /// Join handle for PlanArchiveSweeper background task
     pub(crate) plan_archive_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Media cleanup task handle — shuts down the periodic cleanup loop.
+    pub(crate) media_cleanup_handle: Option<closeclaw_tasks::media_cleanup::MediaCleanupHandle>,
     /// ConfigManager reference — used to read shutdown timeouts at runtime.
     pub config_manager: Arc<closeclaw_config::ConfigManager>,
     /// SpawnController reference — manages sub-agent lifecycle

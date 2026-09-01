@@ -37,7 +37,8 @@ tracing = "=0.1.43"
 regex = "1.10"
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
+bytes = "1"
 
 # Hashing (for signature validation)
 sha2 = "0.10"
@@ -53,6 +54,10 @@ url = "2"
 
 # Plugin auto-discovery
 inventory = "0.3"
+
+# Home directory expansion
+
+dirs = "5"
 
 # HTTP server (for adapter tests)
 axum = "0.7"

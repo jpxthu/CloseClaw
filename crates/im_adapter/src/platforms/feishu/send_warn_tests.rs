@@ -13,6 +13,7 @@ use tokio::net::TcpListener;
 /// Create a FeishuAdapter pointing at a mock server.
 fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
     let http_client = reqwest::Client::new();
+    let tmp = tempfile::TempDir::new().expect("tmp dir");
     FeishuAdapter {
         app_id: "test_app_id".into(),
         app_secret: "test_secret".into(),
@@ -21,6 +22,10 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
         cached_token: Arc::new(tokio::sync::Mutex::new(None)),
         base_url: base_url.to_string(),
         last_metadata: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        media_store: Arc::new(
+            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
+        ),
+        max_download_size_bytes: u64::MAX,
     }
 }
 

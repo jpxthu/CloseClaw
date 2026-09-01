@@ -252,6 +252,7 @@ mod tests {
             session: None,
             session_mode: None,
             manual_background_signal: None,
+            media_store: None,
         }
     }
 

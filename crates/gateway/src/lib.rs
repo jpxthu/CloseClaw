@@ -105,12 +105,13 @@ pub use outbound::OutboundMeta;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-pub use types::*;
 
 use closeclaw_common::processor::ProcessedMessage;
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::slash_router::SlashRouter;
+use closeclaw_common::MediaStoreAccess;
+use closeclaw_config::MediaConfigData;
 use closeclaw_debug_log::{DebugLog, LogLevel};
 use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_permission::approval_flow::ApprovalFlow;
@@ -119,12 +120,13 @@ use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub(crate) use rebuild_stash::RebuildStash;
+pub use types::*;
 
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
 
-/// Gateway - routes messages between IM plugins and agents
+/// Routes messages between IM plugins and agents.
 pub struct Gateway {
     config: GatewayConfig,
     plugins: RwLock<HashMap<String, Arc<dyn closeclaw_common::IMPlugin>>>,
@@ -132,37 +134,22 @@ pub struct Gateway {
     processor_registry: std::sync::RwLock<Option<Arc<dyn ProcessorChain>>>,
     checkpoint_manager: std::sync::RwLock<Option<Arc<CheckpointManager<dyn PersistenceService>>>>,
     session_handler: std::sync::OnceLock<Arc<SessionMessageHandler>>,
-    /// Daemon-level approval flow for intercepting `/approve` / `/deny` commands.
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,
-    /// Slash command dispatcher.
     slash_dispatcher: RwLock<Option<Arc<dyn SlashRouter>>>,
-    /// Permission engine for slash command authorization.
     permission_engine: RwLock<Option<Arc<tokio::sync::RwLock<PermissionEngine>>>>,
-    /// Bounded inbound queue sender. `None` until the queue is started.
     inbound_tx: std::sync::Mutex<Option<mpsc::Sender<inbound_queue::QueuedInbound>>>,
-    /// Self-reference for back-pointer to the owning `Arc<Gateway>`.
-    /// `handle_inbound_message` is called with `&self`, but
-    /// `SessionMessageHandler` needs an `Arc<Gateway>` to call
-    /// `send_outbound_streaming`. The caller wires this after wrapping
-    /// the `Gateway` in `Arc::new(...)` via `set_self_ref`. Until set,
-    /// the slot is `None`; the handler falls back to the non-streaming
-    /// path in that case.
+    /// Back-pointer to owning `Arc<Gateway>` for streaming dispatch.
     self_ref: std::sync::Mutex<Option<Arc<Gateway>>>,
     /// Shutdown handle for busy-count tracking during drain.
     shutdown_handle: std::sync::Mutex<Option<Arc<ShutdownHandle>>>,
-    /// Outbound middleware chain, run between render and send.
     outbound_middlewares: std::sync::RwLock<Vec<Arc<dyn closeclaw_common::OutboundMiddleware>>>,
-    /// Config directory for permission rule persistence.
     config_dir: RwLock<Option<std::path::PathBuf>>,
-    /// Metrics emitter for operational metrics (cache breaks, etc.).
     metrics_emitter: std::sync::RwLock<Option<Arc<dyn closeclaw_common::MetricsEmitter>>>,
-    /// Debug log framework instance for structured event logging.
     debug_log: std::sync::RwLock<Option<DebugLog>>,
-    /// WAL persistence for inbound queue durability.
-    /// `None` when `inbound_wal_dir` is not configured.
     inbound_wal: std::sync::Mutex<Option<Arc<inbound_wal::InboundWal>>>,
-    /// Shared rebuild-stash for config-triggered gateway restarts.
     pub(crate) rebuild_stash: Arc<RebuildStash>,
+    media_store: std::sync::Mutex<Option<Arc<dyn MediaStoreAccess>>>,
+    media_config: std::sync::RwLock<MediaConfigData>,
 }
 
 /// Result of inbound pre-validation gates.
@@ -191,6 +178,8 @@ impl Gateway {
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
             rebuild_stash: Arc::new(RebuildStash::new()),
+            media_store: std::sync::Mutex::new(None),
+            media_config: std::sync::RwLock::new(MediaConfigData::default()),
         };
         register_default_middlewares(&gw, &gw.config);
         gw
@@ -221,36 +210,23 @@ impl Gateway {
             debug_log: std::sync::RwLock::new(None),
             inbound_wal: std::sync::Mutex::new(None),
             rebuild_stash: Arc::new(RebuildStash::new()),
+            media_store: std::sync::Mutex::new(None),
+            media_config: std::sync::RwLock::new(MediaConfigData::default()),
         };
         register_default_middlewares(&gw, &gw.config);
         gw
     }
 
     /// Enter or exit rebuild mode on the shared stash buffer.
-    ///
-    /// The Daemon calls this with `true` **only on the old Gateway**
-    /// before `shutdown_old_gateway` — from that point on, inbound
-    /// queue-full hits stash the message instead of rejecting it.
-    /// The new Gateway is created with `rebuild_mode` defaulting to
-    /// `false`, so no explicit `set_rebuild_mode(false)` call is needed
-    /// on it.
     pub fn set_rebuild_mode(&self, enabled: bool) {
         self.rebuild_stash.set_rebuild_mode(enabled);
     }
 
     /// Drain all stashed inbound requests in FIFO order.
-    ///
-    /// Must be called **after** `swap_and_notify` has installed the new
-    /// Gateway, so the replayed messages can be enqueued into the fresh
-    /// inbound queue.  Returns an empty `Vec` if the stash is empty.
     pub fn take_rebuild_stashed(&self) -> Vec<InboundRequest> {
         self.rebuild_stash.take_stashed()
     }
-
     /// Push a single request back into the rebuild stash buffer.
-    ///
-    /// Used by the Daemon during replay to preserve messages that failed
-    /// to enqueue into the new Gateway (e.g. new queue also full).
     pub fn push_rebuild_stashed(&self, request: InboundRequest) {
         self.rebuild_stash.push(request);
     }
@@ -305,11 +281,7 @@ impl Gateway {
         let _ = self.session_handler.set(handler);
     }
 
-    /// Wire the back-reference to the owning `Arc<Gateway>`.
-    ///
-    /// Call this immediately after `Arc::new(Gateway::new(...))` so that
-    /// `handle_inbound_message` can pass a strong `Arc<Gateway>` to the
-    /// session handler for streaming dispatch.
+    /// Wire the back-reference to the owning `Arc<Gateway>` for streaming dispatch.
     pub fn set_self_ref(&self, arc: Arc<Gateway>) {
         if let Ok(mut slot) = self.self_ref.lock() {
             *slot = Some(arc);
@@ -352,6 +324,30 @@ impl Gateway {
         if let Ok(mut slot) = self.debug_log.write() {
             *slot = Some(debug_log);
         }
+    }
+
+    /// Inject a [`MediaStoreAccess`] for file persistence.
+    pub fn set_media_store(&self, store: Arc<dyn MediaStoreAccess>) {
+        if let Ok(mut s) = self.media_store.lock() {
+            *s = Some(store);
+        }
+    }
+    /// Get the current media store, if configured.
+    pub fn get_media_store(&self) -> Option<Arc<dyn MediaStoreAccess>> {
+        self.media_store.lock().ok().and_then(|s| s.clone())
+    }
+    /// Update the media configuration.
+    pub fn set_media_config(&self, config: MediaConfigData) {
+        if let Ok(mut g) = self.media_config.write() {
+            *g = config;
+        }
+    }
+    /// Get the current image content threshold in bytes.
+    pub fn image_content_threshold(&self) -> u64 {
+        self.media_config
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .image_content_threshold_bytes
     }
 
     /// Get a clone of the current [`DebugLog`] instance, if configured.
@@ -770,7 +766,12 @@ impl Gateway {
             InboundValidation::Reject(result) => return Some(result),
             InboundValidation::RejectSilently => return None,
         }
-        let content = media_routing::build_context_content(&processed);
+        let content = media_routing::build_context_content(
+            &processed,
+            self.get_media_store().as_deref(),
+            self.image_content_threshold(),
+        )
+        .await;
         let session_id = match inbound_queue::resolve_session_with_log(
             self,
             &processed,
