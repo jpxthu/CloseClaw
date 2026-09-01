@@ -5,7 +5,7 @@
 //! When the queue is full, new messages are rejected with a busy reply.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use super::inbound_wal::{InboundWal, InboundWalEntry};
@@ -149,16 +149,16 @@ async fn process_single_request(
     req: &InboundRequest,
     plugin: &Arc<dyn closeclaw_common::IMPlugin>,
 ) {
-    let start = Instant::now();
+    let request_start = Instant::now();
     match plugin.parse_inbound(&req.raw_payload).await {
         Ok(Some(normalized)) => {
-            let duration_ms = start.elapsed().as_millis() as u64;
+            let parse_duration_ms = request_start.elapsed().as_millis() as u64;
             emit_inbound_parsed_log(
                 gateway,
                 &req.trace_id,
                 &normalized.platform,
                 &normalized.message_type,
-                duration_ms,
+                parse_duration_ms,
             );
             handle_normalized_message(gateway, req, normalized, plugin).await;
         }
@@ -190,6 +190,17 @@ async fn process_single_request(
                 "parse_inbound failed — dropping"
             );
         }
+    }
+    // 1-second response constraint monitoring (design doc).
+    // Warn when total inbound processing exceeds 1 second.
+    let request_duration = request_start.elapsed();
+    if request_duration > Duration::from_secs(1) {
+        tracing::warn!(
+            trace_id = %req.trace_id,
+            peer_id = %req.peer_id,
+            duration_ms = request_duration.as_millis() as u64,
+            "inbound processing exceeded 1s response constraint"
+        );
     }
 }
 
