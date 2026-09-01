@@ -33,7 +33,11 @@ fn create_failing_mock_cli(tmp: &TempDir) -> String {
     let script_path = tmp.path().join("failing_cli.sh");
     let mut f = std::fs::File::create(&script_path).unwrap();
     writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":230001,\"msg\":\"capability error\"}}' >&2").unwrap();
+    writeln!(
+        f,
+        "echo '{{\"code\":230001,\"msg\":\"capability error\"}}' >&2"
+    )
+    .unwrap();
     writeln!(f, "echo '{{\"code\":230001,\"msg\":\"capability error\"}}'").unwrap();
     writeln!(f, "exit 1").unwrap();
     #[cfg(unix)]
@@ -55,14 +59,17 @@ fn create_fail_then_succeed_cli(tmp: &TempDir, fail_count: usize) -> String {
     writeln!(f, "COUNTER_FILE=\"{}\"", counter_path.display()).unwrap();
     writeln!(f, "COUNT=$(cat \"$COUNTER_FILE\" 2>/dev/null || echo 0)").unwrap();
     writeln!(f, "echo $((COUNT + 1)) > \"$COUNTER_FILE\"").unwrap();
+    writeln!(f, "if [ \"$COUNT\" -lt {} ]; then", fail_count_str).unwrap();
     writeln!(
         f,
-        "if [ \"$COUNT\" -lt {} ]; then",
-        fail_count_str
+        "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}' >&2"
     )
     .unwrap();
-    writeln!(f, "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}' >&2").unwrap();
-    writeln!(f, "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}'").unwrap();
+    writeln!(
+        f,
+        "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}'"
+    )
+    .unwrap();
     writeln!(f, "  exit 1").unwrap();
     writeln!(f, "else").unwrap();
     writeln!(f, "  echo '{{\"code\":0,\"msg\":\"ok\"}}'").unwrap();
@@ -348,7 +355,10 @@ async fn send_card_non_capability_error_returns_err() {
     let adapter = make_adapter(&cli);
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
-    assert!(result.is_err(), "should return Err for non-capability error");
+    assert!(
+        result.is_err(),
+        "should return Err for non-capability error"
+    );
 }
 
 #[tokio::test]

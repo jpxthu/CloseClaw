@@ -15,16 +15,8 @@ fn create_error_mock_cli(tmp: &TempDir, code: i32) -> String {
     let script_path = tmp.path().join("error_cli.sh");
     let mut f = std::fs::File::create(&script_path).unwrap();
     writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":{code},\"msg\":\"API error\"}}' >&2"
-    )
-    .unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":{code},\"msg\":\"API error\"}}'"
-    )
-    .unwrap();
+    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"API error\"}}' >&2").unwrap();
+    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"API error\"}}'").unwrap();
     writeln!(f, "exit 1").unwrap();
     #[cfg(unix)]
     {

@@ -10,6 +10,7 @@ mod adapter_emoji_tests;
 mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
+pub(crate) mod cardkit_streaming;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
@@ -48,6 +49,7 @@ mod trace_id_tests;
 #[cfg(test)]
 mod try_resolve_media_path_tests;
 
+use self::cardkit_streaming::CardkitStreamingRenderer;
 use self::outbound_media::{copy_to_outbound, upload_file, upload_image, validate_outbound_path};
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
@@ -57,7 +59,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
-use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer};
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
@@ -83,8 +84,8 @@ pub use renderer::should_use_card_for_blocks;
 // Re-export adapter internals for test modules.
 #[cfg(test)]
 pub(crate) use adapter::{
-    truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
-    FeishuSender, FeishuSenderId, FEISHU_API_BASE,
+    truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
+    FEISHU_API_BASE,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
@@ -310,7 +311,8 @@ fn convert_to_common_error(e: AdapterError) -> CommonAdapterError {
 pub struct FeishuPlugin {
     adapter: Arc<FeishuAdapter>,
     identity_resolver: Option<Arc<dyn IdentityResolver>>,
-    streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
+    /// Cardkit streaming renderer for incremental card updates.
+    cardkit_streaming: std::sync::Mutex<CardkitStreamingRenderer>,
     /// Debug log framework instance for structured event logging.
     debug_log: Option<Arc<DebugLog>>,
 }
@@ -321,9 +323,7 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver: None,
-            streaming_renderer: std::sync::Mutex::new(
-                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
-            ),
+            cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
             debug_log: None,
         }
     }
@@ -337,9 +337,7 @@ impl FeishuPlugin {
         Self {
             adapter,
             identity_resolver,
-            streaming_renderer: std::sync::Mutex::new(
-                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
-            ),
+            cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
             debug_log: None,
         }
     }
@@ -791,11 +789,58 @@ impl IMPlugin for FeishuPlugin {
         &self,
         output: &RenderedOutput,
         peer_id: &str,
-        _thread_id: Option<&str>,
+        thread_id: Option<&str>,
     ) -> Result<(), CommonAdapterError> {
+        // During streaming, text messages are routed to cardkit card updates.
+        // Non-text (interactive cards) go through normal dispatch for batch mode.
+        if output.msg_type == "text" {
+            let mut state = self
+                .cardkit_streaming
+                .lock()
+                .expect("cardkit streaming lock poisoned");
+            if state.state.is_active {
+                let text = output
+                    .payload
+                    .get("content")
+                    .and_then(|c| c.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                if text.is_empty() {
+                    return Ok(());
+                }
+                state.state.pending_text.push_str(text);
+                let content = std::mem::take(&mut state.state.pending_text);
+                state.state.sequence += 1;
+                let card_id = state
+                    .state
+                    .card_id
+                    .clone()
+                    .expect("card_id must be set when streaming is active");
+                let seq = state.state.sequence;
+                state.state.last_update = Some(Instant::now());
+                drop(state);
+                let adapter = self.adapter.clone();
+                let element_id = cardkit_streaming::STREAMING_ELEMENT_ID.to_string();
+                tokio::spawn(async move {
+                    if let Err(e) = CardkitStreamingRenderer::update_element(
+                        &adapter,
+                        &card_id,
+                        &element_id,
+                        &content,
+                        seq,
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, card_id = %card_id, "Failed to update streaming card element");
+                    }
+                });
+                return Ok(());
+            }
+        }
+
         let msg_type = output.msg_type.clone();
         let start = Instant::now();
-        let result = self.dispatch_send(peer_id, output, _thread_id).await;
+        let result = self.dispatch_send(peer_id, output, thread_id).await;
         let send_duration_ms = start.elapsed().as_millis() as u64;
         let success = result.is_ok();
 
@@ -819,8 +864,70 @@ impl IMPlugin for FeishuPlugin {
         Ok(())
     }
 
-    fn streaming_renderer(&self) -> Option<&std::sync::Mutex<DefaultStreamingRenderer>> {
-        Some(&self.streaming_renderer)
+    fn handle_stream_event(
+        &self,
+        event: closeclaw_common::processor::StreamEvent,
+    ) -> closeclaw_common::im_plugin::StreamingOutput {
+        use closeclaw_common::processor::{ContentBlockType, ContentDelta, StreamEvent};
+        let mut state = self
+            .cardkit_streaming
+            .lock()
+            .expect("cardkit streaming lock poisoned");
+
+        match event {
+            StreamEvent::BlockStart { block_type, .. } => {
+                if block_type == ContentBlockType::Text {
+                    state.handle_block_start_text();
+                }
+            }
+            StreamEvent::BlockDelta { delta, .. } => {
+                if let ContentDelta::Text { text } = delta {
+                    state.handle_text_delta(&text);
+                }
+            }
+            StreamEvent::BlockEnd { block_type, .. } => {
+                if block_type == ContentBlockType::Text {
+                    state.handle_block_end_text();
+                }
+            }
+            StreamEvent::MessageEnd { .. } | StreamEvent::Error { .. } => {}
+        }
+
+        // Return empty output — text is batched internally for cardkit updates.
+        // Non-text blocks (Thinking/Tool) are handled by the Gateway's
+        // normal flow via render_blocks (returned as empty here).
+        closeclaw_common::im_plugin::StreamingOutput::default()
+    }
+
+    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        let mut state = self
+            .cardkit_streaming
+            .lock()
+            .expect("cardkit streaming lock poisoned");
+        let remaining = state.flush();
+        if remaining.is_empty() {
+            return closeclaw_common::im_plugin::StreamingOutput::default();
+        }
+        // Return remaining text for the Gateway to dispatch.
+        // During streaming, send() will intercept and route to cardkit.
+        closeclaw_common::im_plugin::StreamingOutput {
+            text_messages: vec![remaining],
+            render_blocks: Vec::new(),
+        }
+    }
+
+    fn check_stream_timeout(&self) -> closeclaw_common::im_plugin::StreamingOutput {
+        let mut state = self
+            .cardkit_streaming
+            .lock()
+            .expect("cardkit streaming lock poisoned");
+        match state.check_timeout() {
+            Some(text) => closeclaw_common::im_plugin::StreamingOutput {
+                text_messages: vec![text],
+                render_blocks: Vec::new(),
+            },
+            None => closeclaw_common::im_plugin::StreamingOutput::default(),
+        }
     }
 
     fn clean_content(&self, raw: &str) -> String {

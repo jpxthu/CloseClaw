@@ -8,8 +8,8 @@
 //!
 //! HTTP token management and direct API calls are no longer used for sending.
 
-use crate::error::AdapterError;
 use super::adapter::FeishuAdapter;
+use crate::error::AdapterError;
 
 use tokio::process::Command;
 
@@ -170,8 +170,7 @@ impl FeishuAdapter {
             );
             return Ok(());
         }
-        self.send_msg(chat_id, "text", &plain_text, root_id)
-            .await
+        self.send_msg(chat_id, "text", &plain_text, root_id).await
     }
 
     /// Send an image file via lark-cli.
@@ -184,8 +183,14 @@ impl FeishuAdapter {
         image_path: &str,
     ) -> Result<(), AdapterError> {
         let args = vec![
-            "im", "+messages-send", "--chat-id", chat_id,
-            "--image", image_path, "--as", "bot",
+            "im",
+            "+messages-send",
+            "--chat-id",
+            chat_id,
+            "--image",
+            image_path,
+            "--as",
+            "bot",
         ];
         run_cli(self, &args).await?;
         Ok(())
@@ -201,8 +206,14 @@ impl FeishuAdapter {
         file_path: &str,
     ) -> Result<(), AdapterError> {
         let args = vec![
-            "im", "+messages-send", "--chat-id", chat_id,
-            "--file", file_path, "--as", "bot",
+            "im",
+            "+messages-send",
+            "--chat-id",
+            chat_id,
+            "--file",
+            file_path,
+            "--as",
+            "bot",
         ];
         run_cli(self, &args).await?;
         Ok(())
@@ -223,9 +234,13 @@ impl FeishuAdapter {
         })
         .to_string();
         let args = vec![
-            "im", "reactions", "create",
-            "--params", &params,
-            "--data", &data,
+            "im",
+            "reactions",
+            "create",
+            "--params",
+            &params,
+            "--data",
+            &data,
         ];
         run_cli(self, &args).await?;
         Ok(())

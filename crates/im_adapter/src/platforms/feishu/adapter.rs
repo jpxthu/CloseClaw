@@ -533,8 +533,6 @@ impl FeishuAdapter {
         }
     }
 
-
-
     /// Parse a card.action.trigger event into a CardActionEvent.
     pub(crate) fn parse_card_action_event(
         &self,
@@ -873,18 +871,20 @@ impl IMAdapter for FeishuAdapter {
         card_json: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        match self.send_msg(chat_id, "interactive", card_json, root_id).await {
+        match self
+            .send_msg(chat_id, "interactive", card_json, root_id)
+            .await
+        {
             Ok(()) => Ok(()),
-            Err(AdapterError::SendFailed(ref msg)) if msg.contains("230001") || msg.contains("230002") => {
+            Err(AdapterError::SendFailed(ref msg))
+                if msg.contains("230001") || msg.contains("230002") =>
+            {
                 tracing::warn!(
                     receive_id = %chat_id,
                     error = %msg,
                     "Feishu card capability error — falling back to plain text"
                 );
-                if let Err(fb_err) = self
-                    .try_fallback_to_text(chat_id, card_json, root_id)
-                    .await
-                {
+                if let Err(fb_err) = self.try_fallback_to_text(chat_id, card_json, root_id).await {
                     tracing::warn!(
                         receive_id = %chat_id,
                         error = %fb_err,
