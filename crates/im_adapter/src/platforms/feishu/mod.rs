@@ -83,7 +83,7 @@ pub use renderer::should_use_card_for_blocks;
 // Re-export adapter internals for test modules.
 #[cfg(test)]
 pub(crate) use adapter::{
-    is_capability_error, truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
+    truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent,
     FeishuSender, FeishuSenderId, FEISHU_API_BASE,
 };
 #[cfg(test)]

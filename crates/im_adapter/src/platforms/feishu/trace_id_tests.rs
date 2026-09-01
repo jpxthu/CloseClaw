@@ -31,6 +31,7 @@ fn make_adapter() -> FeishuAdapter {
         media_store: make_test_media_store(),
         max_download_size_bytes: u64::MAX,
         workspace_dir: None,
+        cli_command: "lark-cli".to_string(),
     }
 }
 

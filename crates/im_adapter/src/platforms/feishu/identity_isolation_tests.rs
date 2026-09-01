@@ -33,6 +33,7 @@ fn make_test_adapter() -> FeishuAdapter {
         media_store: Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
         max_download_size_bytes: u64::MAX,
         workspace_dir: None,
+        cli_command: "lark-cli".to_string(),
     }
 }
 

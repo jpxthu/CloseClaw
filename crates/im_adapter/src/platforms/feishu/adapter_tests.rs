@@ -1,12 +1,12 @@
 //! Unit tests for Feishu adapter: expand_post_content, parse_message_event
 //! (text/post/image/file/audio with graceful degradation), parse_inbound,
-//! and send_message/send_card_json receive_id_type verification.
+//! parse_card_action, identity mapping, and quote/reference handling.
 use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use axum::{
-    extract::{Path, Query},
+    extract::Path,
     routing::{get, post},
     Json, Router,
 };
@@ -37,10 +37,11 @@ fn make_test_adapter() -> FeishuAdapter {
         media_store: make_test_media_store(),
         max_download_size_bytes: u64::MAX,
         workspace_dir: None,
+        cli_command: "lark-cli".to_string(),
     }
 }
 
-/// Create a FeishuAdapter pointing at a mock server.
+/// Create a FeishuAdapter pointing at a mock server (for parse/quote tests).
 fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
     let http_client = reqwest::Client::new();
     FeishuAdapter {
@@ -54,38 +55,8 @@ fn make_adapter_with_base(base_url: &str) -> FeishuAdapter {
         media_store: make_test_media_store(),
         max_download_size_bytes: u64::MAX,
         workspace_dir: None,
+        cli_command: "lark-cli".to_string(),
     }
-}
-
-/// Start a minimal mock Feishu API server, return its base URL.
-/// Tracks whether `receive_id_type=chat_id` was sent on `/im/v1/messages`.
-async fn start_mock_server(received_id_type: Arc<tokio::sync::Mutex<Option<String>>>) -> String {
-    let app = Router::new()
-        .route(
-            "/auth/v3/tenant_access_token/internal",
-            post(|Json(_body): Json<serde_json::Value>| async move {
-                Json(serde_json::json!({
-                    "code": 0,
-                    "msg": "ok",
-                    "tenant_access_token": "mock_token"
-                }))
-            }),
-        )
-        .route(
-            "/im/v1/messages",
-            post(
-                move |Query(params): Query<StdHashMap<String, String>>,
-                      Json(_body): Json<serde_json::Value>| async move {
-                    let rid = params.get("receive_id_type").cloned();
-                    *received_id_type.lock().await = rid;
-                    Json(serde_json::json!({"code": 0, "msg": "ok"}))
-                },
-            ),
-        );
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    format!("http://{}", addr)
 }
 
 /// Build a minimal FeishuEvent for a message event.
@@ -384,80 +355,6 @@ async fn test_parse_message_event_thread_id_from_root_id() {
     event.event.root_id = Some("om_root123".to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.thread_id.as_deref(), Some("om_root123"));
-}
-// ===========================================================================
-// send_message / send_card_json receive_id_type tests
-// ===========================================================================
-
-#[tokio::test]
-async fn test_send_message_uses_chat_id_receive_id_type() {
-    let received = Arc::new(tokio::sync::Mutex::new(None));
-    let base_url = start_mock_server(Arc::clone(&received)).await;
-
-    let adapter = make_adapter_with_base(&base_url);
-    let msg = Message {
-        id: "1".into(),
-        from: "a".into(),
-        to: "oc_target_chat".into(),
-        content: "hello".into(),
-        channel: "feishu".into(),
-        timestamp: 0,
-        metadata: HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
-
-    adapter.send_message(&msg, None).await.unwrap();
-    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
-}
-#[tokio::test]
-async fn test_send_card_json_uses_chat_id_receive_id_type() {
-    let received = Arc::new(tokio::sync::Mutex::new(None));
-    let base_url = start_mock_server(Arc::clone(&received)).await;
-
-    let adapter = make_adapter_with_base(&base_url);
-    let card = serde_json::json!({"header": {}, "elements": []}).to_string();
-
-    adapter
-        .send_card_json("oc_target_chat", &card, None)
-        .await
-        .unwrap();
-    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
-}
-#[tokio::test]
-async fn test_send_message_and_card_use_consistent_receive_id_type() {
-    let received = Arc::new(tokio::sync::Mutex::new(None));
-    let base_url = start_mock_server(Arc::clone(&received)).await;
-
-    let adapter = make_adapter_with_base(&base_url);
-
-    // Send text message
-    let msg = Message {
-        id: "1".into(),
-        from: "a".into(),
-        to: "oc_chat".into(),
-        content: "hi".into(),
-        channel: "feishu".into(),
-        timestamp: 0,
-        metadata: HashMap::new(),
-        thread_id: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
-    adapter.send_message(&msg, None).await.unwrap();
-    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
-
-    // Send card message
-    *received.lock().await = None;
-    let card = serde_json::json!({"header": {}, "elements": []}).to_string();
-    adapter
-        .send_card_json("oc_chat", &card, None)
-        .await
-        .unwrap();
-    assert_eq!(received.lock().await.as_deref(), Some("chat_id"));
 }
 // ===========================================================================
 // handle_webhook card action tests

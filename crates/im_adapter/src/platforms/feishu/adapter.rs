@@ -91,11 +91,8 @@ pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 /// Default max download size: 50 MB per media resource.
 pub(crate) const DEFAULT_MAX_DOWNLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
 
-/// Returns `true` when the API error indicates a platform capability
-/// limitation (e.g. unsupported component). These warrant a text fallback.
-pub(crate) fn is_capability_error(code: i32) -> bool {
-    matches!(code, 230001 | 230002)
-}
+/// Default lark-cli command name.
+const DEFAULT_CLI_COMMAND: &str = "lark-cli";
 
 // Quote helpers
 
@@ -156,12 +153,6 @@ struct FeishuGetMessageResponse {
     items: Option<Vec<FeishuMsgItem>>,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SendResponse {
-    pub(crate) code: i32,
-    pub(crate) msg: String,
-}
-
 // FeishuAdapter
 
 /// Feishu adapter implementation.
@@ -183,6 +174,8 @@ pub struct FeishuAdapter {
     pub(crate) max_download_size_bytes: u64,
     /// Workspace directory for outbound media path resolution.
     pub(crate) workspace_dir: Option<std::path::PathBuf>,
+    /// lark-cli command name or path for subprocess execution.
+    pub(crate) cli_command: String,
 }
 
 impl FeishuAdapter {
@@ -207,6 +200,7 @@ impl FeishuAdapter {
             media_store,
             max_download_size_bytes: DEFAULT_MAX_DOWNLOAD_SIZE_BYTES,
             workspace_dir: None,
+            cli_command: DEFAULT_CLI_COMMAND.to_string(),
         }
     }
 
@@ -539,49 +533,7 @@ impl FeishuAdapter {
         }
     }
 
-    /// Update an existing card message identified by `message_id`.
-    pub async fn update_message(
-        &self,
-        message_id: &str,
-        patch: &serde_json::Value,
-    ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await?;
 
-        #[derive(Serialize)]
-        struct UpdateRequest<'a> {
-            content: &'a str,
-        }
-
-        #[derive(Deserialize)]
-        struct UpdateResponse {
-            code: i32,
-            msg: String,
-        }
-
-        let content =
-            serde_json::to_string(patch).map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        let resp: UpdateResponse = self
-            .http_client
-            .patch(format!("{}/im/v1/messages/{}", self.base_url, message_id))
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&UpdateRequest { content: &content })
-            .send()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| AdapterError::SendFailed(e.to_string()))?;
-
-        if resp.code != 0 {
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu card update error {}: {}",
-                resp.code, resp.msg
-            )));
-        }
-
-        Ok(())
-    }
 
     /// Parse a card.action.trigger event into a CardActionEvent.
     pub(crate) fn parse_card_action_event(
@@ -904,67 +856,33 @@ impl IMAdapter for FeishuAdapter {
         self.parse_card_action_event(event_id, app_id, &card_event)
     }
 
+    /// Send a text message via lark-cli subprocess.
     async fn send_message(
         &self,
         message: &Message,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await.map_err(|e| {
-            tracing::warn!(
-                receive_id = %message.to,
-                error = %e,
-                "Feishu token fetch failed"
-            );
-            e
-        })?;
-        let content = serde_json::json!({ "text": &message.content }).to_string();
-        let resp = self
-            .send_msg(&token, &message.to, "text", &content, root_id)
-            .await?;
-        if resp.code != 0 {
-            tracing::warn!(
-                receive_id = %message.to,
-                code = resp.code,
-                msg = %resp.msg,
-                "Feishu send error"
-            );
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu send error {}: {}",
-                resp.code, resp.msg
-            )));
-        }
-        Ok(())
+        self.send_msg(&message.to, "text", &message.content, root_id)
+            .await
     }
 
+    /// Send an interactive card via lark-cli subprocess.
     async fn send_card_json(
         &self,
         chat_id: &str,
         card_json: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
-        let token = self.get_tenant_token().await.map_err(|e| {
-            tracing::warn!(
-                receive_id = %chat_id,
-                error = %e,
-                "Feishu card token fetch failed"
-            );
-            e
-        })?;
-
-        let resp = self
-            .send_msg(&token, chat_id, "interactive", card_json, root_id)
-            .await?;
-
-        if resp.code != 0 {
-            tracing::warn!(
-                receive_id = %chat_id,
-                code = resp.code,
-                msg = %resp.msg,
-                "Feishu card send error"
-            );
-            if is_capability_error(resp.code) {
+        match self.send_msg(chat_id, "interactive", card_json, root_id).await {
+            Ok(()) => Ok(()),
+            Err(AdapterError::SendFailed(ref msg)) if msg.contains("230001") || msg.contains("230002") => {
+                tracing::warn!(
+                    receive_id = %chat_id,
+                    error = %msg,
+                    "Feishu card capability error — falling back to plain text"
+                );
                 if let Err(fb_err) = self
-                    .try_fallback_to_text(chat_id, card_json, &token, root_id)
+                    .try_fallback_to_text(chat_id, card_json, root_id)
                     .await
                 {
                     tracing::warn!(
@@ -972,21 +890,18 @@ impl IMAdapter for FeishuAdapter {
                         error = %fb_err,
                         "Text fallback after capability error also failed"
                     );
-                    return Err(AdapterError::SendFailed(format!(
-                        "Feishu card send error {}: {}",
-                        resp.code, resp.msg
-                    )));
                 }
-                // Fallback succeeded — return Ok so mod.rs won't
-                // attempt a second fallback (avoids duplicate messages).
-                return Ok(());
+                Ok(())
             }
-            return Err(AdapterError::SendFailed(format!(
-                "Feishu card send error {}: {}",
-                resp.code, resp.msg
-            )));
+            Err(e) => {
+                tracing::warn!(
+                    receive_id = %chat_id,
+                    error = %e,
+                    "Feishu card send error"
+                );
+                Err(e)
+            }
         }
-        Ok(())
     }
 
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {

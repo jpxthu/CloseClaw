@@ -132,17 +132,3 @@ async fn test_error_cases() {
     };
     assert!(a.send_message(&msg, None).await.is_err());
 }
-
-#[tokio::test]
-async fn test_update_message_error() {
-    let adapter = FeishuAdapter::new(
-        "bad".into(),
-        "bad".into(),
-        "t".into(),
-        make_test_media_store(),
-    );
-    assert!(adapter
-        .update_message("om_1", &serde_json::json!({}))
-        .await
-        .is_err());
-}
