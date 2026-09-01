@@ -86,6 +86,7 @@ inactive 的 Session 自动归档，User 无需手动管理。User 可配置归�
 - inactive 的 Session 自动归档：标记为归档状态，不再作为活跃 Session
 - inactive 判定条件：四维活跃维度均为否（详见 F11），且距上次 User 活动超过配置的 inactive 时长
 - User 配置清理时间后，已归档超过该时长的 Session 彻底删除（元数据 + 对话记录）
+- 销毁仅由按时间清理触发。归档不是销毁（归档 Session 可恢复），子 Session 完成不销毁子 Session（结果注入父 Session 后保留可查）
 - 每个 Agent 可独立配置 inactive 时长和清理时间，主 Session 与子 Session 可以分别设置
 - 各配置项独立回退：未配置的项使用系统默认值（inactive 30 分钟归档、归档数据不自动删除）
 - 新会话创建时使用当前配置；已在运行的 Session 沿用创建时的配置，不随配置变更而变
