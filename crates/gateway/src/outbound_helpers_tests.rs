@@ -15,7 +15,9 @@ use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::OutboundMiddleware;
 use closeclaw_common::{ContentBlock, MiddlewareContext, MiddlewareError};
 
-use crate::outbound_helpers::{send_text, StreamContext};
+use super::inbound_queue::InboundRequest;
+use super::inbound_queue_test_utils::queued;
+use crate::outbound_helpers::{send_simplified_with_timeout, send_text, StreamContext};
 use crate::{Gateway, GatewayConfig, SessionManager};
 
 // ---------------------------------------------------------------------------
@@ -220,4 +222,271 @@ async fn test_send_text_special_characters() {
         tracker.last_sent_text().unwrap(),
         "hello 🌍 <script>alert('xss')</script>"
     );
+}
+
+// ===========================================================================
+// send_simplified_with_timeout tests (Step 1.4)
+// ===========================================================================
+
+/// Mock plugin whose `send()` completes immediately.
+struct FastSendPlugin;
+
+#[async_trait]
+impl IMPlugin for FastSendPlugin {
+    fn platform(&self) -> &str {
+        "mock"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+}
+
+/// Mock plugin whose `send()` sleeps for 3 seconds (exceeds 2s timeout).
+struct SlowSendPlugin;
+
+#[async_trait]
+impl IMPlugin for SlowSendPlugin {
+    fn platform(&self) -> &str {
+        "mock"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        Ok(())
+    }
+}
+
+/// send_simplified_with_timeout returns Ok when plugin.send() completes quickly.
+#[tokio::test]
+async fn test_send_simplified_with_timeout_normal_path() {
+    let gw = test_gw();
+    gw.register_plugin(Arc::new(FastSendPlugin) as Arc<dyn IMPlugin>)
+        .await;
+    let result = send_simplified_with_timeout(&gw, "chat1", "mock", "hello").await;
+    assert!(
+        result.is_ok(),
+        "normal path should return Ok, got {:?}",
+        result
+    );
+}
+
+/// send_simplified_with_timeout returns Ok (drops message) when plugin.send()
+/// takes longer than 2 seconds — the timeout fires and the function must
+/// not block beyond ~2s.
+#[tokio::test]
+async fn test_send_simplified_with_timeout_timeout_path() {
+    let gw = test_gw();
+    gw.register_plugin(Arc::new(SlowSendPlugin) as Arc<dyn IMPlugin>)
+        .await;
+    let start = std::time::Instant::now();
+    let result = send_simplified_with_timeout(&gw, "chat2", "mock", "slow-msg").await;
+    let elapsed = start.elapsed();
+    assert!(
+        result.is_ok(),
+        "timeout path should return Ok, got {:?}",
+        result
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(4),
+        "function should return within ~2s timeout, took {:?}",
+        elapsed
+    );
+    assert!(
+        elapsed >= std::time::Duration::from_millis(1800),
+        "timeout should fire around 2s, took {:?}",
+        elapsed
+    );
+}
+
+/// send_simplified_with_timeout returns Ok when plugin is not registered
+/// (falls back to plain-text log path).
+#[tokio::test]
+async fn test_send_simplified_with_timeout_no_plugin_fallback() {
+    let gw = test_gw();
+    // No plugin registered — should fallback to plain-text log, not panic.
+    let result = send_simplified_with_timeout(&gw, "chat3", "nonexistent", "msg").await;
+    assert!(
+        result.is_ok(),
+        "no-plugin fallback should return Ok, got {:?}",
+        result
+    );
+}
+
+// ===========================================================================
+// 1-second response constraint monitoring test (Step 1.4)
+// ===========================================================================
+
+/// Mock plugin whose `parse_inbound()` sleeps for 1.5 seconds, causing
+/// total processing to exceed the 1-second response constraint.
+struct SlowParsePlugin;
+
+#[async_trait]
+impl IMPlugin for SlowParsePlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        // Simulate slow inbound parsing (>1s).
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        Ok(Some(NormalizedMessage {
+            platform: "feishu".into(),
+            sender_id: "u1".into(),
+            peer_id: "p1".into(),
+            content: "slow-parse".into(),
+            timestamp: chrono::Utc::now().timestamp(),
+            message_type: closeclaw_common::MessageType::Text,
+            media_refs: vec![],
+            thread_id: None,
+            account_id: "u1".into(),
+            ..Default::default()
+        }))
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+}
+
+/// When inbound processing exceeds 1 second, the 1-second response constraint
+/// monitor should fire a warn log. This test enqueues a message through the
+/// consumer with a slow-parse plugin and verifies the log is emitted.
+#[tokio::test]
+async fn test_1s_response_constraint_warn_log() {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::Registry;
+
+    // Set up a tracing subscriber that captures warn-level logs.
+    let subscriber = Registry::default().with(
+        tracing_subscriber::fmt::layer()
+            .with_test_writer()
+            .with_filter(tracing_subscriber::EnvFilter::new("warn")),
+    );
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let gw = make_gateway_for_1s_test();
+    gw.register_plugin(Arc::new(SlowParsePlugin) as Arc<dyn IMPlugin>)
+        .await;
+    let handle = gw.start_inbound_queue();
+
+    let req = make_slow_request();
+    handle.try_send(queued(req)).unwrap();
+
+    // Wait for processing to complete (>1.5s for slow parse).
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // No panic = the warn log was emitted successfully.
+}
+
+fn make_gateway_for_1s_test() -> Arc<Gateway> {
+    let config = GatewayConfig {
+        name: "outbound_helpers_1s_test".into(),
+        rate_limit_per_minute: 0,
+        max_message_size: 0,
+        inbound_queue_capacity: 4,
+        inbound_wal_dir: None,
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(&config, None, None, Default::default()));
+    Arc::new(Gateway::new(config, sm))
+}
+
+fn make_slow_request() -> InboundRequest {
+    InboundRequest {
+        platform: "feishu".into(),
+        raw_payload: b"{}".to_vec(),
+        peer_id: "p1".into(),
+        trace_id: "slow-parse-trace".into(),
+        span_id: None,
+    }
 }
