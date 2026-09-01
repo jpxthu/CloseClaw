@@ -19,15 +19,12 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
 /// Ready signal expected on stderr when the subprocess is fully initialized.
-#[allow(dead_code)]
 const READY_SIGNAL: &str = "[event] ready";
 
 /// Initial delay before restarting a crashed subprocess (milliseconds).
-#[allow(dead_code)]
 const INITIAL_RESTART_DELAY_MS: u64 = 1_000;
 
 /// Maximum delay between restart attempts (milliseconds).
-#[allow(dead_code)]
 const MAX_RESTART_DELAY_MS: u64 = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -36,7 +33,6 @@ const MAX_RESTART_DELAY_MS: u64 = 30_000;
 
 /// A parsed event read from the subprocess stdout.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(crate) struct Event {
     /// Event type string (e.g. `im.message.receive_v1`,
     /// `im.message.reaction.created_v1`).
@@ -44,16 +40,16 @@ pub(crate) struct Event {
     /// Event ID for deduplication.
     pub event_id: String,
     /// Raw JSON payload for downstream parsing.
+    #[allow(dead_code)]
     pub raw: serde_json::Value,
 }
 
 /// An event line read from subprocess stdout — either a successfully parsed
 /// event or a read/parse error.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) enum EventLine {
-    Event(Event),
-    Error(String),
+    Event(#[allow(dead_code)] Event),
+    Error(#[allow(dead_code)] String),
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +86,6 @@ impl From<ProcessError> for AdapterError {
 ///
 /// Supports both CLI format (`type` at top level) and webhook format
 /// (`header.event_type`).
-#[allow(dead_code)]
 pub fn extract_event_type(raw: &serde_json::Value) -> String {
     // CLI format: top-level "type" field
     if let Some(t) = raw.get("type").and_then(|v| v.as_str()) {
@@ -135,7 +130,6 @@ pub(crate) fn extract_event_id(raw: &serde_json::Value) -> String {
 ///   ...
 /// }
 /// ```
-#[allow(dead_code)]
 fn parse_cli_event(raw: serde_json::Value) -> Result<Event, ProcessError> {
     let event_type = raw
         .get("type")
@@ -169,7 +163,6 @@ fn parse_cli_event(raw: serde_json::Value) -> Result<Event, ProcessError> {
 ///   "event": { ... }
 /// }
 /// ```
-#[allow(dead_code)]
 fn parse_webhook_event(raw: serde_json::Value) -> Result<Event, ProcessError> {
     let event_type = raw
         .get("header")
@@ -196,7 +189,6 @@ fn parse_webhook_event(raw: serde_json::Value) -> Result<Event, ProcessError> {
 ///
 /// Determines the format (CLI vs webhook) based on field presence and
 /// delegates to the appropriate parser.
-#[allow(dead_code)]
 fn parse_event_line(line: &str) -> EventLine {
     let raw: serde_json::Value = match serde_json::from_str(line) {
         Ok(v) => v,
@@ -554,7 +546,6 @@ impl ProcessManager {
 /// `message_type`, etc. at the top level. This method maps them into
 /// the `FeishuEvent` / `FeishuMessageEvent` structs used by the rest
 /// of the parsing pipeline.
-#[allow(dead_code)]
 /// Helper to extract an optional string field from a JSON value.
 fn opt_str<'a>(raw: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     raw.get(key).and_then(|v| v.as_str())
@@ -603,7 +594,6 @@ fn extract_cli_message_event(raw: &serde_json::Value) -> super::adapter::FeishuM
 
 /// Normalize a raw CLI-format event (flat top-level fields) into
 /// the webhook-style [`FeishuEvent`] structure.
-#[allow(dead_code)]
 pub(crate) fn normalize_cli_event(raw: &serde_json::Value) -> Option<super::adapter::FeishuEvent> {
     let header = extract_cli_header(raw)?;
     let event = extract_cli_message_event(raw);

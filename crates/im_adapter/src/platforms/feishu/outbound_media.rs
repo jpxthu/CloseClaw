@@ -164,16 +164,7 @@ pub(crate) async fn upload_file(
     file_path: &Path,
     filename: &str,
 ) -> Result<String, AdapterError> {
-    let metadata = tokio::fs::metadata(file_path)
-        .await
-        .map_err(|e| AdapterError::SendFailed(format!("cannot read file metadata: {e}")))?;
-    if metadata.len() > MAX_FILE_SIZE {
-        return Err(AdapterError::SendFailed(format!(
-            "file too large: {} bytes (max {})",
-            metadata.len(),
-            MAX_FILE_SIZE
-        )));
-    }
+    validate_file_size(file_path, MAX_FILE_SIZE).await?;
     let path_str = file_path
         .to_str()
         .ok_or_else(|| AdapterError::SendFailed("file path is not valid UTF-8".to_string()))?;
@@ -192,8 +183,27 @@ pub(crate) async fn upload_file(
         ],
     )
     .await?;
+    parse_file_upload_response(&output)
+}
 
-    let resp: serde_json::Value = serde_json::from_str(&output).map_err(|e| {
+/// Validate that a file does not exceed `max_size` bytes.
+async fn validate_file_size(file_path: &Path, max_size: u64) -> Result<(), AdapterError> {
+    let metadata = tokio::fs::metadata(file_path)
+        .await
+        .map_err(|e| AdapterError::SendFailed(format!("cannot read file metadata: {e}")))?;
+    if metadata.len() > max_size {
+        return Err(AdapterError::SendFailed(format!(
+            "file too large: {} bytes (max {})",
+            metadata.len(),
+            max_size
+        )));
+    }
+    Ok(())
+}
+
+/// Parse the JSON response from `lark-cli +files-upload` and extract the file key.
+fn parse_file_upload_response(output: &str) -> Result<String, AdapterError> {
+    let resp: serde_json::Value = serde_json::from_str(output).map_err(|e| {
         AdapterError::InvalidPayload(format!("lark-cli files-upload invalid JSON: {e}"))
     })?;
     let code = resp.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);

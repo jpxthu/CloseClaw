@@ -17,25 +17,27 @@ use tokio::sync::Mutex;
 // Webhook event types
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuEvent {
+    #[allow(dead_code)]
     pub(crate) schema: String,
     pub(crate) header: FeishuHeader,
     pub(crate) event: FeishuMessageEvent,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuHeader {
+    #[allow(dead_code)]
     pub(crate) event_id: String,
+    #[allow(dead_code)]
     pub(crate) event_type: String,
+    #[allow(dead_code)]
     pub(crate) create_time: String,
+    #[allow(dead_code)]
     pub(crate) token: String,
     pub(crate) app_id: String,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuMessageEvent {
     #[serde(default)]
     pub(crate) message_id: Option<String>,
@@ -52,9 +54,9 @@ pub(crate) struct FeishuMessageEvent {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuSender {
     pub(crate) sender_id: FeishuSenderId,
+    #[allow(dead_code)]
     pub(crate) sender_type: String,
 }
 
@@ -65,23 +67,22 @@ pub(crate) struct FeishuSenderId {
 
 /// Card action event payload (`card.action.trigger`).
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuCardActionEvent {
     pub(crate) operator: FeishuCardOperator,
+    #[allow(dead_code)]
     pub(crate) token: String,
     pub(crate) action: FeishuCardAction,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuCardOperator {
     pub(crate) open_id: String,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct FeishuCardAction {
     pub(crate) value: Option<serde_json::Value>,
+    #[allow(dead_code)]
     pub(crate) tag: Option<String>,
 }
 
@@ -168,7 +169,6 @@ struct ResourceResp {
 #[derive(Debug, Clone)]
 pub struct FeishuAdapter {
     /// lark-cli profile name for credential delegation.
-    #[allow(dead_code)]
     pub(crate) profile: String,
     /// Metadata produced by the last successful `parse_inbound` call.
     /// Used by `last_parsed_metadata()` to surface platform-specific
@@ -207,19 +207,6 @@ impl FeishuAdapter {
     pub fn with_workspace_dir(mut self, ws: Option<std::path::PathBuf>) -> Self {
         self.workspace_dir = ws;
         self
-    }
-
-    /// Extract bot_app_id from last_metadata (set by parse_inbound from event header).
-    ///
-    /// Falls back to empty string if not available — identity resolution
-    /// must handle this gracefully.
-    #[allow(dead_code)]
-    pub(crate) fn bot_app_id_from_metadata(&self) -> String {
-        self.last_metadata
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get("header_app_id").cloned())
-            .unwrap_or_default()
     }
 
     /// Fetch the content of a message by its ID via lark-cli.
