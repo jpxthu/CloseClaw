@@ -2,6 +2,8 @@
 //!
 //! Extracted from `outbound.rs` to stay within the 1000-line file limit.
 
+use std::time::Duration;
+
 use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -492,6 +494,36 @@ impl Gateway {
             self.send_as_plain_text(&plugin, raw_output, chat_id, None)
                 .await
         } else {
+            Ok(())
+        }
+    }
+}
+
+/// Send a simplified outbound message with a 2-second timeout.
+///
+/// Per design doc: fast system responses must complete within 2 seconds
+/// to avoid blocking the Gateway consumer loop. On timeout, the message
+/// is dropped and a warning is logged.
+#[expect(dead_code, reason = "will be used in step 1.2 refactoring")]
+pub(crate) async fn send_simplified_with_timeout(
+    gateway: &Gateway,
+    peer_id: &str,
+    channel: &str,
+    msg: &str,
+) -> Result<(), GatewayError> {
+    match tokio::time::timeout(
+        Duration::from_secs(2),
+        gateway.send_outbound_simplified(peer_id, channel, msg),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_elapsed) => {
+            tracing::warn!(
+                peer_id = %peer_id,
+                channel = %channel,
+                "simplified outbound timed out after 2s — dropping"
+            );
             Ok(())
         }
     }
