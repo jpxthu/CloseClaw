@@ -38,6 +38,7 @@ regex = "1.10"
 
 # HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
+bytes = "1"
 
 # Hashing (for signature validation)
 sha2 = "0.10"

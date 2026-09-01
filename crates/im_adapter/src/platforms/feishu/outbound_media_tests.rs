@@ -5,8 +5,8 @@ use crate::media_store::MediaStore;
 use std::fs;
 use tempfile::TempDir;
 
-#[test]
-fn test_validate_path_within_workspace() {
+#[tokio::test]
+async fn test_validate_path_within_workspace() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     let media = tmp.path().join("media");
@@ -16,12 +16,12 @@ fn test_validate_path_within_workspace() {
     let file = ws.join("test.txt");
     fs::write(&file, "content").unwrap();
 
-    let result = validate_outbound_path(&file, Some(&ws), &media);
+    let result = validate_outbound_path(&file, Some(&ws), &media).await;
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_validate_path_within_media_store() {
+#[tokio::test]
+async fn test_validate_path_within_media_store() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     let media = tmp.path().join("media");
@@ -31,12 +31,12 @@ fn test_validate_path_within_media_store() {
     let file = media.join("test.txt");
     fs::write(&file, "content").unwrap();
 
-    let result = validate_outbound_path(&file, Some(&ws), &media);
+    let result = validate_outbound_path(&file, Some(&ws), &media).await;
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_validate_path_outside_rejected() {
+#[tokio::test]
+async fn test_validate_path_outside_rejected() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     let media = tmp.path().join("media");
@@ -48,12 +48,12 @@ fn test_validate_path_outside_rejected() {
     let file = outside.join("test.txt");
     fs::write(&file, "content").unwrap();
 
-    let result = validate_outbound_path(&file, Some(&ws), &media);
+    let result = validate_outbound_path(&file, Some(&ws), &media).await;
     assert!(result.is_err());
 }
 
-#[test]
-fn test_validate_path_no_workspace_only_media() {
+#[tokio::test]
+async fn test_validate_path_no_workspace_only_media() {
     let tmp = TempDir::new().unwrap();
     let media = tmp.path().join("media");
     fs::create_dir_all(&media).unwrap();
@@ -61,18 +61,18 @@ fn test_validate_path_no_workspace_only_media() {
     let file = media.join("test.txt");
     fs::write(&file, "content").unwrap();
 
-    let result = validate_outbound_path(&file, None, &media);
+    let result = validate_outbound_path(&file, None, &media).await;
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_copy_to_outbound_creates_file() {
+#[tokio::test]
+async fn test_copy_to_outbound_creates_file() {
     let tmp = TempDir::new().unwrap();
     let source = tmp.path().join("source.png");
     fs::write(&source, "image data").unwrap();
 
     let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
-    let result = copy_to_outbound(&source, &media_store).unwrap();
+    let result = copy_to_outbound(&source, &media_store).await.unwrap();
 
     assert!(result.outbound_path.exists());
     let fname = result
@@ -84,8 +84,8 @@ fn test_copy_to_outbound_creates_file() {
     assert_eq!(fname, "source.png");
 }
 
-#[test]
-fn test_copy_to_outbound_unique_name_on_conflict() {
+#[tokio::test]
+async fn test_copy_to_outbound_unique_name_on_conflict() {
     let tmp = TempDir::new().unwrap();
     let source = tmp.path().join("test.png");
     fs::write(&source, "data1").unwrap();
@@ -94,7 +94,7 @@ fn test_copy_to_outbound_unique_name_on_conflict() {
     // Create a file with the same name in outbound.
     fs::write(media_store.outbound_dir().join("test.png"), "existing").unwrap();
 
-    let result = copy_to_outbound(&source, &media_store).unwrap();
+    let result = copy_to_outbound(&source, &media_store).await.unwrap();
     assert!(result.outbound_path.exists());
     let fname = result
         .outbound_path

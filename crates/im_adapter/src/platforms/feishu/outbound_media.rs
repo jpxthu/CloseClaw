@@ -31,26 +31,36 @@ pub(crate) struct OutboundMediaResult {
 /// - `media_store_dir` — the media storage root
 ///
 /// Returns `Ok(path)` if valid, `Err(AdapterError)` if out of bounds.
-pub(crate) fn validate_outbound_path(
+pub(crate) async fn validate_outbound_path(
     path: &Path,
     workspace_dir: Option<&Path>,
     media_store_dir: &Path,
 ) -> Result<PathBuf, AdapterError> {
-    let canonical = path.canonicalize().map_err(|e| {
-        tracing::warn!(path = %path.display(), error = %e, "outbound path canonicalize failed");
-        AdapterError::SendFailed(format!("cannot resolve path: {e}"))
-    })?;
+    let path_owned = path.to_path_buf();
+    let canonical = tokio::task::spawn_blocking(move || path_owned.canonicalize())
+        .await
+        .map_err(|e| AdapterError::SendFailed(format!("task join error: {e}")))?
+        .map_err(|e| {
+            tracing::warn!(path = %path.display(), error = %e, "outbound path canonicalize failed");
+            AdapterError::SendFailed(format!("cannot resolve path: {e}"))
+        })?;
 
-    // Check media store directory.
-    if let Ok(media_canonical) = media_store_dir.canonicalize() {
+    let media_owned = media_store_dir.to_path_buf();
+    if let Ok(media_canonical) = tokio::task::spawn_blocking(move || media_owned.canonicalize())
+        .await
+        .map_err(|e| AdapterError::SendFailed(format!("task join error: {e}")))?
+    {
         if canonical.starts_with(&media_canonical) {
             return Ok(canonical);
         }
     }
 
-    // Check workspace directory.
     if let Some(workspace) = workspace_dir {
-        if let Ok(ws_canonical) = workspace.canonicalize() {
+        let ws_owned = workspace.to_path_buf();
+        if let Ok(ws_canonical) = tokio::task::spawn_blocking(move || ws_owned.canonicalize())
+            .await
+            .map_err(|e| AdapterError::SendFailed(format!("task join error: {e}")))?
+        {
             if canonical.starts_with(&ws_canonical) {
                 return Ok(canonical);
             }
@@ -68,11 +78,7 @@ pub(crate) fn validate_outbound_path(
 }
 
 /// Copy a media file to the outbound directory and return the result.
-///
-/// The file is copied to `media_store.outbound_dir()` with a sanitized
-/// filename. If a file with the same name exists, a unique suffix is
-/// appended.
-pub(crate) fn copy_to_outbound(
+pub(crate) async fn copy_to_outbound(
     source_path: &Path,
     media_store: &MediaStore,
 ) -> Result<OutboundMediaResult, AdapterError> {
@@ -82,8 +88,6 @@ pub(crate) fn copy_to_outbound(
         .unwrap_or_else(|| "media".to_string());
 
     let outbound_dir = media_store.outbound_dir();
-
-    // Use shared unique_filename to avoid conflicts.
     let safe_name = crate::media_store::sanitize_filename(&filename);
     let stem = Path::new(&safe_name)
         .file_stem()
@@ -96,54 +100,24 @@ pub(crate) fn copy_to_outbound(
     let unique_name = crate::media_store::unique_filename(outbound_dir, &stem, &ext);
     let outbound_path = outbound_dir.join(&unique_name);
 
-    std::fs::copy(source_path, &outbound_path).map_err(|e| {
-        tracing::warn!(
-            source = %source_path.display(),
-            dest = %outbound_path.display(),
-            error = %e,
-            "failed to copy media to outbound directory"
-        );
-        AdapterError::SendFailed(format!("failed to copy media: {e}"))
-    })?;
+    tokio::fs::copy(source_path, &outbound_path)
+        .await
+        .map_err(|e| {
+            tracing::warn!(
+                source = %source_path.display(),
+                dest = %outbound_path.display(),
+                error = %e,
+                "failed to copy media to outbound directory"
+            );
+            AdapterError::SendFailed(format!("failed to copy media: {e}"))
+        })?;
 
     Ok(OutboundMediaResult { outbound_path })
 }
 
-/// Upload an image file to Feishu and return the image key.
-///
-/// Uses the Feishu image upload API (`POST /im/v1/images`).
-pub(crate) async fn upload_image(
-    adapter: &FeishuAdapter,
-    file_path: &Path,
-) -> Result<String, AdapterError> {
-    let metadata = std::fs::metadata(file_path)
-        .map_err(|e| AdapterError::SendFailed(format!("cannot read image metadata: {e}")))?;
-
-    if metadata.len() > MAX_IMAGE_SIZE {
-        return Err(AdapterError::SendFailed(format!(
-            "image too large: {} bytes (max {})",
-            metadata.len(),
-            MAX_IMAGE_SIZE
-        )));
-    }
-
-    let token = adapter
-        .get_tenant_token()
-        .await
-        .map_err(|e: AdapterError| {
-            tracing::warn!(error = %e, "token fetch failed for image upload");
-            e
-        })?;
-
-    let file_bytes = std::fs::read(file_path)
-        .map_err(|e| AdapterError::SendFailed(format!("cannot read image file: {e}")))?;
-
-    let filename = file_path
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_else(|| "image.png".to_string());
-
-    let mime_type = match file_path
+/// Detect MIME type for image upload based on file extension.
+fn detect_image_mime(path: &Path) -> &'static str {
+    match path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
@@ -155,13 +129,98 @@ pub(crate) async fn upload_image(
         "webp" => "image/webp",
         "svg" => "image/svg+xml",
         _ => "image/png",
-    };
+    }
+}
 
+/// Parse an upload response JSON and extract the key for the given field.
+fn parse_upload_response(
+    resp: serde_json::Value,
+    key_field: &str,
+    api_name: &str,
+) -> Result<String, AdapterError> {
+    let code = resp
+        .get("code")
+        .and_then(|c| c.as_i64())
+        .unwrap_or(-1);
+    if code != 0 {
+        let msg = resp
+            .get("msg")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown");
+        tracing::warn!(code = code, msg = %msg, "Feishu {api_name} upload error");
+        return Err(AdapterError::SendFailed(format!(
+            "Feishu {api_name} upload error {code}: {msg}"
+        )));
+    }
+    resp.get("data")
+        .and_then(|d| d.get(key_field))
+        .and_then(|k| k.as_str())
+        .map(String::from)
+        .ok_or_else(|| {
+            AdapterError::SendFailed(format!(
+                "{api_name} upload response missing {key_field}"
+            ))
+        })
+}
+
+/// Generic multipart upload: send form to Feishu API and parse response.
+async fn upload_multipart(
+    adapter: &FeishuAdapter,
+    api_path: &str,
+    form: reqwest::multipart::Form,
+    key_field: &str,
+    api_name: &str,
+) -> Result<String, AdapterError> {
+    let token = adapter.get_tenant_token().await.map_err(|e| {
+        tracing::warn!(error = %e, "token fetch failed for {api_name} upload");
+        e
+    })?;
+    let url = format!("{}/{}", adapter.base_url, api_path);
+    let resp = adapter
+        .http_client
+        .post(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "{api_name} upload request failed");
+            AdapterError::SendFailed(e.to_string())
+        })?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "{api_name} upload response parse failed");
+            AdapterError::SendFailed(e.to_string())
+        })?;
+    parse_upload_response(resp, key_field, api_name)
+}
+
+/// Upload an image file to Feishu and return the image key.
+pub(crate) async fn upload_image(
+    adapter: &FeishuAdapter,
+    file_path: &Path,
+) -> Result<String, AdapterError> {
+    let metadata = tokio::fs::metadata(file_path)
+        .await
+        .map_err(|e| AdapterError::SendFailed(format!("cannot read image metadata: {e}")))?;
+    if metadata.len() > MAX_IMAGE_SIZE {
+        return Err(AdapterError::SendFailed(format!(
+            "image too large: {} bytes (max {})",
+            metadata.len(),
+            MAX_IMAGE_SIZE
+        )));
+    }
+    let file_bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| AdapterError::SendFailed(format!("cannot read image file: {e}")))?;
+    let filename = file_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| "image.png".to_string());
+    let mime_type = detect_image_mime(file_path);
     let form = reqwest::multipart::Form::new()
-        .part(
-            "image_type",
-            reqwest::multipart::Part::text("message".to_string()),
-        )
+        .part("image_type", reqwest::multipart::Part::text("message".to_string()))
         .part(
             "image",
             reqwest::multipart::Part::bytes(file_bytes)
@@ -169,63 +228,18 @@ pub(crate) async fn upload_image(
                 .mime_str(mime_type)
                 .map_err(|e| AdapterError::SendFailed(e.to_string()))?,
         );
-
-    let url = format!("{}/im/v1/images", adapter.base_url);
-    let resp = adapter
-        .http_client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", token))
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "image upload request failed");
-            AdapterError::SendFailed(e.to_string())
-        })?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "image upload response parse failed");
-            AdapterError::SendFailed(e.to_string())
-        })?;
-
-    let code = resp
-        .get("code")
-        .and_then(|c: &serde_json::Value| c.as_i64())
-        .unwrap_or(-1);
-    if code != 0 {
-        let msg = resp
-            .get("msg")
-            .and_then(|m: &serde_json::Value| m.as_str())
-            .unwrap_or("unknown");
-        tracing::warn!(code = code, msg = %msg, "Feishu image upload error");
-        return Err(AdapterError::SendFailed(format!(
-            "Feishu image upload error {code}: {msg}"
-        )));
-    }
-
-    let image_key = resp
-        .get("data")
-        .and_then(|d: &serde_json::Value| d.get("image_key"))
-        .and_then(|k: &serde_json::Value| k.as_str())
-        .ok_or_else(|| {
-            AdapterError::SendFailed("image upload response missing image_key".to_string())
-        })?;
-
-    Ok(image_key.to_string())
+    upload_multipart(adapter, "im/v1/images", form, "image_key", "image").await
 }
 
 /// Upload a file to Feishu and return the file key.
-///
-/// Uses the Feishu file upload API (`POST /im/v1/files`).
 pub(crate) async fn upload_file(
     adapter: &FeishuAdapter,
     file_path: &Path,
     filename: &str,
 ) -> Result<String, AdapterError> {
-    let metadata = std::fs::metadata(file_path)
+    let metadata = tokio::fs::metadata(file_path)
+        .await
         .map_err(|e| AdapterError::SendFailed(format!("cannot read file metadata: {e}")))?;
-
     if metadata.len() > MAX_FILE_SIZE {
         return Err(AdapterError::SendFailed(format!(
             "file too large: {} bytes (max {})",
@@ -233,29 +247,13 @@ pub(crate) async fn upload_file(
             MAX_FILE_SIZE
         )));
     }
-
-    let token = adapter
-        .get_tenant_token()
+    let file_bytes = tokio::fs::read(file_path)
         .await
-        .map_err(|e: AdapterError| {
-            tracing::warn!(error = %e, "token fetch failed for file upload");
-            e
-        })?;
-
-    let file_bytes = std::fs::read(file_path)
         .map_err(|e| AdapterError::SendFailed(format!("cannot read file: {e}")))?;
-
     let file_type = detect_file_type(file_path);
-
     let form = reqwest::multipart::Form::new()
-        .part(
-            "file_type",
-            reqwest::multipart::Part::text(file_type.to_string()),
-        )
-        .part(
-            "file_name",
-            reqwest::multipart::Part::text(filename.to_string()),
-        )
+        .part("file_type", reqwest::multipart::Part::text(file_type.to_string()))
+        .part("file_name", reqwest::multipart::Part::text(filename.to_string()))
         .part(
             "file",
             reqwest::multipart::Part::bytes(file_bytes)
@@ -263,50 +261,7 @@ pub(crate) async fn upload_file(
                 .mime_str("application/octet-stream")
                 .map_err(|e| AdapterError::SendFailed(e.to_string()))?,
         );
-
-    let url = format!("{}/im/v1/files", adapter.base_url);
-    let resp = adapter
-        .http_client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", token))
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "file upload request failed");
-            AdapterError::SendFailed(e.to_string())
-        })?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "file upload response parse failed");
-            AdapterError::SendFailed(e.to_string())
-        })?;
-
-    let code = resp
-        .get("code")
-        .and_then(|c: &serde_json::Value| c.as_i64())
-        .unwrap_or(-1);
-    if code != 0 {
-        let msg = resp
-            .get("msg")
-            .and_then(|m: &serde_json::Value| m.as_str())
-            .unwrap_or("unknown");
-        tracing::warn!(code = code, msg = %msg, "Feishu file upload error");
-        return Err(AdapterError::SendFailed(format!(
-            "Feishu file upload error {code}: {msg}"
-        )));
-    }
-
-    let file_key = resp
-        .get("data")
-        .and_then(|d: &serde_json::Value| d.get("file_key"))
-        .and_then(|k: &serde_json::Value| k.as_str())
-        .ok_or_else(|| {
-            AdapterError::SendFailed("file upload response missing file_key".to_string())
-        })?;
-
-    Ok(file_key.to_string())
+    upload_multipart(adapter, "im/v1/files", form, "file_key", "file").await
 }
 
 /// Detect Feishu file type from extension.
@@ -334,38 +289,34 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    #[test]
-    fn validate_path_within_workspace() {
+    #[tokio::test]
+    async fn validate_path_within_workspace() {
         let tmp = TempDir::new().unwrap();
         let ws = tmp.path().join("workspace");
         let media = tmp.path().join("media");
         fs::create_dir_all(&ws).unwrap();
         fs::create_dir_all(&media).unwrap();
-
         let file = ws.join("test.txt");
         fs::write(&file, "content").unwrap();
-
-        let result = validate_outbound_path(&file, Some(&ws), &media);
+        let result = validate_outbound_path(&file, Some(&ws), &media).await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn validate_path_within_media_store() {
+    #[tokio::test]
+    async fn validate_path_within_media_store() {
         let tmp = TempDir::new().unwrap();
         let ws = tmp.path().join("workspace");
         let media = tmp.path().join("media");
         fs::create_dir_all(&ws).unwrap();
         fs::create_dir_all(&media).unwrap();
-
         let file = media.join("test.txt");
         fs::write(&file, "content").unwrap();
-
-        let result = validate_outbound_path(&file, Some(&ws), &media);
+        let result = validate_outbound_path(&file, Some(&ws), &media).await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn validate_path_outside_rejected() {
+    #[tokio::test]
+    async fn validate_path_outside_rejected() {
         let tmp = TempDir::new().unwrap();
         let ws = tmp.path().join("workspace");
         let media = tmp.path().join("media");
@@ -373,36 +324,30 @@ mod tests {
         fs::create_dir_all(&ws).unwrap();
         fs::create_dir_all(&media).unwrap();
         fs::create_dir_all(&outside).unwrap();
-
         let file = outside.join("test.txt");
         fs::write(&file, "content").unwrap();
-
-        let result = validate_outbound_path(&file, Some(&ws), &media);
+        let result = validate_outbound_path(&file, Some(&ws), &media).await;
         assert!(result.is_err());
     }
 
-    #[test]
-    fn validate_path_no_workspace_only_media() {
+    #[tokio::test]
+    async fn validate_path_no_workspace_only_media() {
         let tmp = TempDir::new().unwrap();
         let media = tmp.path().join("media");
         fs::create_dir_all(&media).unwrap();
-
         let file = media.join("test.txt");
         fs::write(&file, "content").unwrap();
-
-        let result = validate_outbound_path(&file, None, &media);
+        let result = validate_outbound_path(&file, None, &media).await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn copy_to_outbound_creates_file() {
+    #[tokio::test]
+    async fn copy_to_outbound_creates_file() {
         let tmp = TempDir::new().unwrap();
         let source = tmp.path().join("source.png");
         fs::write(&source, "image data").unwrap();
-
         let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
-        let result = copy_to_outbound(&source, &media_store).unwrap();
-
+        let result = copy_to_outbound(&source, &media_store).await.unwrap();
         assert!(result.outbound_path.exists());
         let fname = result
             .outbound_path
@@ -413,17 +358,14 @@ mod tests {
         assert_eq!(fname, "source.png");
     }
 
-    #[test]
-    fn copy_to_outbound_unique_name_on_conflict() {
+    #[tokio::test]
+    async fn copy_to_outbound_unique_name_on_conflict() {
         let tmp = TempDir::new().unwrap();
         let source = tmp.path().join("test.png");
         fs::write(&source, "data1").unwrap();
-
         let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
-        // Create a file with the same name in outbound.
         fs::write(media_store.outbound_dir().join("test.png"), "existing").unwrap();
-
-        let result = copy_to_outbound(&source, &media_store).unwrap();
+        let result = copy_to_outbound(&source, &media_store).await.unwrap();
         assert!(result.outbound_path.exists());
         let fname = result
             .outbound_path

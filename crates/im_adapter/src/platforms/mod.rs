@@ -18,9 +18,14 @@ include!(concat!(env!("OUT_DIR"), "/platforms_gen.rs"));
 
 /// Registration function type for platform plugins.
 ///
-/// Receives the Gateway handle and the configuration directory path.
-pub type RegisterFn =
-    fn(&Arc<closeclaw_gateway::Gateway>, &str) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+/// Receives the Gateway handle, the configuration directory path,
+/// an optional shared MediaStore, and optional MediaConfigData.
+pub type RegisterFn = fn(
+    &Arc<closeclaw_gateway::Gateway>,
+    &str,
+    Option<std::sync::Arc<crate::media_store::MediaStore>>,
+    Option<closeclaw_config::MediaConfigData>,
+) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// A platform plugin entry discovered at compile time via [`inventory`].
 ///
@@ -46,8 +51,16 @@ inventory::collect!(PlatformEntry);
 pub async fn register_platform_plugins(
     gateway: &Arc<closeclaw_gateway::Gateway>,
     config_dir: &str,
+    media_store: Option<std::sync::Arc<crate::media_store::MediaStore>>,
+    media_config: Option<closeclaw_config::MediaConfigData>,
 ) {
     for entry in inventory::iter::<PlatformEntry> {
-        (entry.register)(gateway, config_dir).await;
+        (entry.register)(
+            gateway,
+            config_dir,
+            media_store.clone(),
+            media_config.clone(),
+        )
+        .await;
     }
 }

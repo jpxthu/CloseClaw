@@ -89,6 +89,10 @@ pub(crate) struct FeishuCardAction {
 
 pub(crate) const FEISHU_API_BASE: &str = "https://open.feishu.cn/open-apis";
 
+/// Default max download size in bytes for a single media file (50 MB).
+/// Platform-specific: Feishu supports up to 50 MB per media resource.
+pub(crate) const DEFAULT_MAX_DOWNLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
+
 /// Returns `true` when the Feishu API error code indicates a platform
 /// capability limitation (e.g. unsupported `select_static` component).
 ///
@@ -204,7 +208,6 @@ impl FeishuAdapter {
         app_secret: String,
         verification_token: String,
         media_store: Arc<MediaStore>,
-        max_download_size_bytes: u64,
     ) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -219,7 +222,7 @@ impl FeishuAdapter {
             base_url: FEISHU_API_BASE.to_string(),
             last_metadata: Arc::new(Mutex::new(HashMap::new())),
             media_store,
-            max_download_size_bytes,
+            max_download_size_bytes: DEFAULT_MAX_DOWNLOAD_SIZE_BYTES,
         }
     }
 

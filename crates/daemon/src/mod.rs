@@ -345,9 +345,59 @@ impl Daemon {
         gateway
             .set_metrics_emitter(Arc::new(NoopMetricsEmitter))
             .await;
-        closeclaw_im_adapter::platforms::register_platform_plugins(&gateway, config_dir).await;
-        // Inject MediaStore, MediaConfigData, and cleanup task into Gateway.
-        let media_cleanup_handle = Self::init_media_store_and_cleanup(&gateway, config_dir);
+        let media_config_path = std::path::Path::new(config_dir).join("config/media.json");
+        let media_config = match closeclaw_config::MediaConfigData::from_file(&media_config_path) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %media_config_path.display(),
+                    "failed to load media.json — using defaults");
+                closeclaw_config::MediaConfigData::default()
+            }
+        };
+        let shared_media_store =
+            match closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir) {
+                Ok(store) => {
+                    let store = Arc::new(store);
+                    gateway.set_media_store(
+                        store.clone() as Arc<dyn closeclaw_common::MediaStoreAccess>
+                    );
+                    gateway.set_media_config(media_config.clone());
+                    Some(store)
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, storage_dir = %media_config.storage_dir,
+                        "failed to create MediaStore — media features disabled");
+                    None
+                }
+            };
+        closeclaw_im_adapter::platforms::register_platform_plugins(
+            &gateway,
+            config_dir,
+            shared_media_store.clone(),
+            Some(media_config.clone()),
+        )
+        .await;
+        // Start the periodic media cleanup task.
+        let media_cleanup_handle = if let Some(ref store) = shared_media_store {
+            let retention_days = media_config.retention_days;
+            let store_for_cleanup = Arc::new(store.as_ref().clone());
+            let cleanup_fn: closeclaw_tasks::media_cleanup::CleanupFn = Arc::new(move |d| {
+                store_for_cleanup
+                    .cleanup_expired(d)
+                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
+            });
+            let rp: closeclaw_tasks::media_cleanup::RetentionProvider =
+                Arc::new(move || retention_days);
+            let handle = closeclaw_tasks::media_cleanup::start_media_cleanup(
+                std::time::Duration::from_secs(3600),
+                rp,
+                cleanup_fn,
+            );
+            tracing::info!(retention_days, "media cleanup task started");
+            Some(handle)
+        } else {
+            None
+        };
         // Drain outbound pending messages for dirty sessions recovered earlier.
         // Each session is drained asynchronously via tokio::spawn so startup
         // is not blocked by network I/O.
@@ -401,52 +451,6 @@ impl Daemon {
             slash_registry,
             media_cleanup_handle,
         ))
-    }
-
-    /// Inject MediaStore into Gateway and start the periodic cleanup task.
-    fn init_media_store_and_cleanup(
-        gateway: &Arc<Gateway>,
-        config_dir: &str,
-    ) -> Option<closeclaw_tasks::media_cleanup::MediaCleanupHandle> {
-        let media_config_path = std::path::Path::new(config_dir)
-            .join("config")
-            .join("media.json");
-        let media_config = match closeclaw_config::MediaConfigData::from_file(&media_config_path) {
-            Ok(cfg) => cfg,
-            Err(e) => {
-                tracing::warn!(error = %e, path = %media_config_path.display(),
-                    "failed to load media.json — using defaults");
-                closeclaw_config::MediaConfigData::default()
-            }
-        };
-        match closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir) {
-            Ok(store) => {
-                let retention_days = media_config.retention_days;
-                let store_for_cleanup = Arc::new(store.clone());
-                let cleanup_fn: closeclaw_tasks::media_cleanup::CleanupFn = Arc::new(move |d| {
-                    store_for_cleanup
-                        .cleanup_expired(d)
-                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
-                });
-                let rp: closeclaw_tasks::media_cleanup::RetentionProvider =
-                    Arc::new(move || retention_days);
-                let handle = closeclaw_tasks::media_cleanup::start_media_cleanup(
-                    std::time::Duration::from_secs(3600),
-                    rp,
-                    cleanup_fn,
-                );
-                tracing::info!(retention_days, "media cleanup task started");
-                gateway.set_media_store(Arc::new(store) as Arc<dyn closeclaw_common::MediaStoreAccess>);
-                gateway.set_media_config(media_config);
-                info!("MediaStore and MediaConfigData injected into Gateway");
-                Some(handle)
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, storage_dir = %media_config.storage_dir,
-                    "failed to create MediaStore — gateway media features disabled");
-                None
-            }
-        }
     }
 }
 

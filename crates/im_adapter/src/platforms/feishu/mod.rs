@@ -86,10 +86,10 @@ pub(crate) use post_expand::expand_post_content;
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
-    register: |gw, cfg| {
+    register: |gw, cfg, ms, mc| {
         let gw = gw.clone();
         let cfg = cfg.to_string();
-        Box::pin(async move { register(&gw, &cfg).await })
+        Box::pin(async move { register(&gw, &cfg, ms, mc).await })
     },
 });
 
@@ -189,7 +189,12 @@ pub(crate) fn load_media_config(config_dir: &str) -> closeclaw_config::MediaConf
 /// Identity mapping is loaded from `{config_dir}/config/accounts.json`
 /// (if the file exists).  A missing or empty file results in no
 /// mapping — the fallback uses `sender_id` as `account_id`.
-pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &str) {
+pub async fn register(
+    gateway: &Arc<closeclaw_gateway::Gateway>,
+    config_dir: &str,
+    shared_media_store: Option<Arc<MediaStore>>,
+    _shared_media_config: Option<closeclaw_config::MediaConfigData>,
+) {
     let platforms = load_platforms_config(config_dir);
     if !platforms.is_enabled("feishu") {
         info!("feishu not enabled in platforms.json — skipping");
@@ -202,17 +207,18 @@ pub async fn register(gateway: &Arc<closeclaw_gateway::Gateway>, config_dir: &st
     if let (Some(app_id), Some(app_secret), Some(verification_token)) =
         (app_id, app_secret, verification_token)
     {
-        // Load media config from media.json (best-effort, use defaults on failure).
-        let media_config = load_media_config(config_dir);
-        let media_store = Arc::new(
-            MediaStore::new(&media_config.storage_dir).expect("failed to create media store"),
-        );
+        // Use shared MediaStore from daemon if available, otherwise create one.
+        let media_store = shared_media_store.unwrap_or_else(|| {
+            let media_config = load_media_config(config_dir);
+            Arc::new(
+                MediaStore::new(&media_config.storage_dir).expect("failed to create media store"),
+            )
+        });
         let adapter = Arc::new(FeishuAdapter::new(
             app_id,
             app_secret,
             verification_token,
             media_store,
-            media_config.max_download_size_bytes,
         ));
 
         // Load identity mapping from config file (best-effort).
@@ -534,61 +540,61 @@ impl FeishuPlugin {
             None => return Ok(()),
         };
 
-        let media_store = &self.adapter.media_store;
-
         for element in elements.iter_mut() {
             let tag = element.get("tag").and_then(|t| t.as_str()).unwrap_or("");
             match tag {
-                "img" => {
-                    if let Some(img_key) = element.get("img_key").and_then(|k| k.as_str()) {
-                        if let Some(outbound) =
-                            self.prepare_outbound_media(img_key, media_store).await
-                        {
-                            match upload_image(&self.adapter, &outbound).await {
-                                Ok(key) => {
-                                    if let Some(obj) = element.as_object_mut() {
-                                        obj.insert(
-                                            "img_key".to_string(),
-                                            serde_json::Value::String(key),
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!(error = %e, "Failed to upload image to Feishu");
-                                }
-                            }
-                        }
-                    }
-                }
-                "media" => {
-                    if let Some(file_token) = element.get("file_token").and_then(|k| k.as_str()) {
-                        if let Some(outbound) =
-                            self.prepare_outbound_media(file_token, media_store).await
-                        {
-                            let filename = outbound
-                                .file_name()
-                                .map(|f| f.to_string_lossy().to_string())
-                                .unwrap_or_else(|| "file".to_string());
-                            match upload_file(&self.adapter, &outbound, &filename).await {
-                                Ok(key) => {
-                                    if let Some(obj) = element.as_object_mut() {
-                                        obj.insert(
-                                            "file_token".to_string(),
-                                            serde_json::Value::String(key),
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!(error = %e, "Failed to upload file to Feishu");
-                                }
-                            }
-                        }
-                    }
-                }
+                "img" => self.process_card_img(element).await,
+                "media" => self.process_card_media_file(element).await,
                 _ => {}
             }
         }
         Ok(())
+    }
+
+    /// Process a single `img` element: validate, copy to outbound, upload.
+    async fn process_card_img(&self, element: &mut serde_json::Value) {
+        let img_key = match element.get("img_key").and_then(|k| k.as_str()) {
+            Some(k) => k,
+            None => return,
+        };
+        let media_store = &self.adapter.media_store;
+        let outbound = match self.prepare_outbound_media(img_key, media_store).await {
+            Some(p) => p,
+            None => return,
+        };
+        match upload_image(&self.adapter, &outbound).await {
+            Ok(key) => {
+                if let Some(obj) = element.as_object_mut() {
+                    obj.insert("img_key".to_string(), serde_json::Value::String(key));
+                }
+            }
+            Err(e) => warn!(error = %e, "Failed to upload image to Feishu"),
+        }
+    }
+
+    /// Process a single `media` element: validate, copy to outbound, upload.
+    async fn process_card_media_file(&self, element: &mut serde_json::Value) {
+        let file_token = match element.get("file_token").and_then(|k| k.as_str()) {
+            Some(k) => k,
+            None => return,
+        };
+        let media_store = &self.adapter.media_store;
+        let outbound = match self.prepare_outbound_media(file_token, media_store).await {
+            Some(p) => p,
+            None => return,
+        };
+        let filename = outbound
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".to_string());
+        match upload_file(&self.adapter, &outbound, &filename).await {
+            Ok(key) => {
+                if let Some(obj) = element.as_object_mut() {
+                    obj.insert("file_token".to_string(), serde_json::Value::String(key));
+                }
+            }
+            Err(e) => warn!(error = %e, "Failed to upload file to Feishu"),
+        }
     }
 
     /// Validate, copy to outbound, and return the outbound path for upload.
@@ -600,8 +606,8 @@ impl FeishuPlugin {
         reference: &str,
         media_store: &MediaStore,
     ) -> Option<std::path::PathBuf> {
-        let path = self.try_resolve_media_path(reference, media_store)?;
-        match copy_to_outbound(&path, media_store) {
+        let path = self.try_resolve_media_path(reference, media_store).await?;
+        match copy_to_outbound(&path, media_store).await {
             Ok(result) => Some(result.outbound_path),
             Err(e) => {
                 warn!(source = %path.display(), error = %e, "Failed to copy media to outbound");
@@ -615,7 +621,7 @@ impl FeishuPlugin {
     /// Returns `Some(path)` if the string is a local file path that exists
     /// and passes outbound validation. Returns `None` for HTTP URLs or
     /// unresolvable references.
-    fn try_resolve_media_path(
+    async fn try_resolve_media_path(
         &self,
         reference: &str,
         media_store: &MediaStore,
@@ -632,7 +638,7 @@ impl FeishuPlugin {
 
         // Validate against whitelist (media store + workspace).
         let media_dir = media_store.storage_dir();
-        validate_outbound_path(&path, None, media_dir).ok()
+        validate_outbound_path(&path, None, media_dir).await.ok()
     }
 }
 

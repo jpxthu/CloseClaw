@@ -75,6 +75,87 @@ impl MediaStore {
         })
     }
 
+    /// Download content from `url` into memory, respecting `max_size_bytes`.
+    ///
+    /// Returns the downloaded bytes and the response content-type.
+    pub async fn download_bytes(
+        &self,
+        url: &str,
+        http_client: &reqwest::Client,
+        max_size_bytes: u64,
+    ) -> Result<(bytes::Bytes, String), MediaStoreError> {
+        let response = http_client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| MediaStoreError::DownloadFailed(e.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(MediaStoreError::DownloadFailed(format!("HTTP {status}")));
+        }
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        if let Some(cl) = response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            if cl > max_size_bytes {
+                return Err(MediaStoreError::SizeLimitExceeded {
+                    size: cl,
+                    limit: max_size_bytes,
+                });
+            }
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| MediaStoreError::DownloadFailed(e.to_string()))?;
+        let size = bytes.len() as u64;
+        if size > max_size_bytes {
+            return Err(MediaStoreError::SizeLimitExceeded {
+                size,
+                limit: max_size_bytes,
+            });
+        }
+        Ok((bytes, content_type))
+    }
+
+    /// Persist downloaded bytes to the `inbound/` directory.
+    ///
+    /// Sanitizes the filename, appends a unique suffix to avoid
+    /// conflicts, writes to disk, and returns a fully-populated [`MediaRef`].
+    pub fn persist_to_disk(
+        &self,
+        key: &str,
+        media_type: &MediaType,
+        content_type: &str,
+        bytes: bytes::Bytes,
+    ) -> Result<MediaRef, MediaStoreError> {
+        let extension = mime_to_extension(content_type);
+        let safe_name = sanitize_filename(key);
+        let filename = unique_filename(&self.inbound_dir, &safe_name, extension);
+        let file_path = self.inbound_dir.join(&filename);
+
+        fs::write(&file_path, &bytes)?;
+
+        let relative_path = format!("inbound/{filename}");
+        let size = bytes.len() as i64;
+
+        Ok(MediaRef {
+            key: key.to_string(),
+            path: relative_path,
+            media_type: media_type.clone(),
+            size,
+            mime: content_type.to_string(),
+        })
+    }
+
     /// Download content from `url`, sanitize the filename, write to
     /// `inbound/`, and return a fully-populated [`MediaRef`].
     ///
@@ -87,69 +168,10 @@ impl MediaStore {
         http_client: &reqwest::Client,
         max_size_bytes: u64,
     ) -> Result<MediaRef, MediaStoreError> {
-        let response = http_client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| MediaStoreError::DownloadFailed(e.to_string()))?;
-
-        let status = response.status();
-        if !status.is_success() {
-            return Err(MediaStoreError::DownloadFailed(format!("HTTP {status}")));
-        }
-
-        let content_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("application/octet-stream")
-            .to_string();
-
-        // Pre-check Content-Length to reject oversized files before download.
-        if let Some(content_length) = response
-            .headers()
-            .get(reqwest::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<u64>().ok())
-        {
-            if content_length > max_size_bytes {
-                return Err(MediaStoreError::SizeLimitExceeded {
-                    size: content_length,
-                    limit: max_size_bytes,
-                });
-            }
-        }
-
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| MediaStoreError::DownloadFailed(e.to_string()))?;
-
-        let size = bytes.len() as u64;
-        if size > max_size_bytes {
-            return Err(MediaStoreError::SizeLimitExceeded {
-                size,
-                limit: max_size_bytes,
-            });
-        }
-
-        let extension = mime_to_extension(&content_type);
-        let safe_name = sanitize_filename(key);
-        let filename = unique_filename(&self.inbound_dir, &safe_name, extension);
-        let file_path = self.inbound_dir.join(&filename);
-
-        fs::write(&file_path, &bytes)?;
-
-        let relative_path = format!("inbound/{filename}");
-        let mime = content_type;
-
-        Ok(MediaRef {
-            key: key.to_string(),
-            path: relative_path,
-            media_type: media_type.clone(),
-            size: size as i64,
-            mime,
-        })
+        let (bytes, content_type) = self
+            .download_bytes(url, http_client, max_size_bytes)
+            .await?;
+        self.persist_to_disk(key, media_type, &content_type, bytes)
     }
 
     /// Delete files older than `retention_days` in both `inbound/` and

@@ -24,8 +24,7 @@ fn test_feishu_adapter_name() {
         "app_id".to_string(),
         "app_secret".to_string(),
         "token".to_string(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     assert_eq!(adapter.name(), "feishu");
 }
@@ -54,8 +53,7 @@ async fn test_validate_signature_correct() {
         "a".into(),
         "s".into(),
         "my_token".into(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     let payload = b"test";
     let mut hasher = sha2::Sha256::new();
@@ -71,8 +69,7 @@ async fn test_validate_signature_incorrect() {
         "a".into(),
         "s".into(),
         "t".into(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     assert!(!adapter.validate_signature("wrong", b"test").await);
 }
@@ -83,8 +80,7 @@ async fn test_parse_inbound_valid() {
         "a".into(),
         "s".into(),
         "t".into(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     let payload = serde_json::json!({
         "schema": "2.0",
@@ -108,8 +104,7 @@ async fn test_parse_inbound_invalid_json() {
         "a".into(),
         "s".into(),
         "t".into(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     assert!(adapter.parse_inbound(b"not json").await.is_err());
 }
@@ -120,8 +115,7 @@ async fn test_parse_inbound_empty_text() {
         "a".into(),
         "s".into(),
         "t".into(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     let payload = serde_json::json!({
         "schema":"2.0","header":{"event_id":"e2","event_type":"x","create_time":"0","token":"t","app_id":"a"},
@@ -140,8 +134,7 @@ async fn test_error_cases() {
         "bad".into(),
         "bad".into(),
         "t".into(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     assert!(a.fetch_tenant_token().await.is_err());
     let msg = Message {
@@ -166,8 +159,7 @@ async fn test_update_message_error() {
         "bad".into(),
         "bad".into(),
         "t".into(),
-        make_test_media_store(),
-        u64::MAX,
+        make_test_media_store()
     );
     assert!(adapter
         .update_message("om_1", &serde_json::json!({}))
