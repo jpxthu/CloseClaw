@@ -42,6 +42,8 @@ mod text_style;
 pub mod tools;
 #[cfg(test)]
 mod trace_id_tests;
+#[cfg(test)]
+mod try_resolve_media_path_tests;
 
 use self::outbound_media::{copy_to_outbound, upload_file, upload_image, validate_outbound_path};
 use crate::error::AdapterError;
