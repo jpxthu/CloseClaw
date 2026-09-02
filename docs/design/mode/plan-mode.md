@@ -52,9 +52,9 @@ Plan Mode 下的工具限制由模式系统自身执行——写工具中仅 pla
 | plan 文件写 | plans/ 目录作为独立可写区域，plan 文件写工具是写工具集中唯一可见的 |
 | 子 Agent 继承 | spawn 出的子 Agent 继承只读约束（不含 plan 文件写权限） |
 
-### 模式标记与规划阶段状态
+### 会话模式与规划阶段状态
 
-模式标记（plan_mode / auto_mode）由 session 模块持久化，压缩时完整保护，不经过 LLM 总结。规划阶段的会话状态（当前阶段 phase）另由 session checkpoint 持有的 PlanState 承载，随 checkpoint 持久化并由 session 在恢复时重建，定义见 [common/shared-types.md](../common/shared-types.md)（PlanState）。PlanState 由 mode 模块在进入 Plan Mode 时创建、阶段推进时更新 phase、退出 Plan Mode 时销毁（含触发执行与 [execution.md](execution.md) 之外的非执行退出，如 `/mode normal`），管理路径见 [common/shared-types.md](../common/shared-types.md)。
+会话模式由 session 模块持久化为单一字段 `session_mode`（normal/plan/auto，plan 即本模块的 Plan Mode），压缩时完整保护，不经过 LLM 总结；延迟生效语义（写入 `pending_session_mode` 待应用、下一条用户消息前惰性应用）见 [session-lifecycle.md](../session/session-lifecycle.md) 模式切换节。规划阶段的会话状态（当前阶段 phase）另由 session checkpoint 持有的 PlanState 承载，随 checkpoint 持久化并由 session 在恢复时重建，定义见 [common/shared-types.md](../common/shared-types.md)（PlanState）。PlanState 由 mode 模块在进入 Plan Mode 时创建、阶段推进时更新 phase、退出 Plan Mode 时销毁（含触发执行与 [execution.md](execution.md) 之外的非执行退出，如 `/mode normal`），管理路径见 [common/shared-types.md](../common/shared-types.md)。
 
 ### Plan 文件
 
@@ -83,14 +83,14 @@ plan 本身无全局状态——只有步骤级别状态。已完成若干步后
 
 ### 恢复机制
 
-plan 文件（`workspace/plans/`）是**执行进度**（plan 的 Context/Tasks/Verification/Notes 四节及步骤状态标记）的唯一持久化恢复源，独立于 session、不依赖消息历史。对话被压缩、系统重启、乃至 session 完全丢失时，均可通过重新读取 plan 文件重建执行进度；规划阶段状态（phase）的恢复另经 PlanState，见 [common/shared-types.md](../common/shared-types.md) 与「模式标记与规划阶段状态」。具体恢复数据流见 [execution.md](execution.md)「中断恢复」与「session 压缩后恢复」。
+plan 文件（`workspace/plans/`）是**执行进度**（plan 的 Context/Tasks/Verification/Notes 四节及步骤状态标记）的唯一持久化恢复源，独立于 session、不依赖消息历史。对话被压缩、系统重启、乃至 session 完全丢失时，均可通过重新读取 plan 文件重建执行进度；规划阶段状态（phase）的恢复另经 PlanState，见 [common/shared-types.md](../common/shared-types.md) 与「会话模式与规划阶段状态」。具体恢复数据流见 [execution.md](execution.md)「中断恢复」与「session 压缩后恢复」。
 
 ## 数据流
 
 ### 进入 Plan Mode
 
 1. User `/plan "任务描述"`（描述可选；不带描述时仅切换模式）
-2. session 设置 plan_mode 标记（切换不立即生效，下一条用户消息前才应用约束）
+2. session 将模式切换为 plan（写入内存待应用值，下一条用户消息前才应用约束）
 3. mode 模块创建 PlanState（持久化与管理见 [common/shared-types.md](../common/shared-types.md)）
 4. 任务描述作为下一条用户消息注入对话
 5. 工具过滤取交集白名单：仅 plan 文件写工具可见
@@ -133,7 +133,7 @@ plan 文件（`workspace/plans/`）是**执行进度**（plan 的 Context/Tasks/
 **通过 `/execute` 指令**：
 
 1. SlashDispatcher 接收 /execute → ModeSwitchHandler 切换模式
-2. session 退出 plan_mode → 标记 auto_mode（切换不立即生效，下一条用户消息前才应用约束）
+2. session 将模式由 plan 切换为 auto（写入内存待应用值，下一条用户消息前才应用约束）
 3. 退出 Plan Mode → 销毁 PlanState（见 [common/shared-types.md](../common/shared-types.md)）
 4. 详见 [execution.md](execution.md) 同 session 执行数据流
 
@@ -141,7 +141,7 @@ plan 文件（`workspace/plans/`）是**执行进度**（plan 的 Context/Tasks/
 
 1. User 自然语言要求执行
 2. Agent 调用执行触发工具 → User 确认
-3. session 退出 plan_mode → 标记 auto_mode（切换不立即生效，下一条用户消息前才应用约束）
+3. session 将模式由 plan 切换为 auto（写入内存待应用值，下一条用户消息前才应用约束）
 4. 退出 Plan Mode → 销毁 PlanState（见 [common/shared-types.md](../common/shared-types.md)）
 5. 详见 [execution.md](execution.md) 同 session 执行（自然语言触发）数据流
 
@@ -158,7 +158,7 @@ plan 文件（`workspace/plans/`）是**执行进度**（plan 的 Context/Tasks/
 | 模块 | 调用关系 |
 |------|---------|
 | Agent | 各阶段 spawn Explore/Plan 子 Agent |
-| Session | plan_mode 标记持久化、压缩保护 |
+| Session | 会话模式（normal/plan/auto）持久化、压缩保护 |
 | System Prompt | 双路径指令注入 |
 | Permission | Auto Mode 下运行时审查危险操作 |
 | Tools | 执行触发工具注册与调用 |
