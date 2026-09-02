@@ -256,13 +256,7 @@ impl SessionManager {
             return;
         };
         for text in notifications {
-            if let Err(e) = gw.send_outbound_simplified(&chat_id, &channel, text).await {
-                warn!(
-                    session_id = %session_id,
-                    error = %e,
-                    "route_system_notifications: send failed"
-                );
-            }
+            gw.send_system_notification(&chat_id, &channel, text).await;
         }
     }
 
