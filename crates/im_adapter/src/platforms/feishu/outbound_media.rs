@@ -11,6 +11,7 @@ use crate::error::AdapterError;
 use crate::media_store::MediaStore;
 
 use super::adapter::FeishuAdapter;
+use tracing::warn;
 
 /// Maximum file size for Feishu image upload (10 MB).
 const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024;
@@ -36,34 +37,39 @@ pub(crate) async fn validate_outbound_path(
     workspace_dir: Option<&Path>,
     media_store_dir: &Path,
 ) -> Result<PathBuf, AdapterError> {
-    let path_owned = path.to_path_buf();
-    let canonical = tokio::task::spawn_blocking(move || path_owned.canonicalize())
-        .await
-        .map_err(|e| AdapterError::SendFailed(format!("task join error: {e}")))?
-        .map_err(|e| {
-            tracing::warn!(path = %path.display(), error = %e, "outbound path canonicalize failed");
-            AdapterError::SendFailed(format!("cannot resolve path: {e}"))
-        })?;
+    // Canonicalize the path to resolve `..` components and symlinks.
+    // This is a fast syscall and safe to call in async context.
+    let canonical = path.canonicalize().map_err(|e| {
+        tracing::warn!(path = %path.display(), error = %e, "outbound path canonicalize failed");
+        AdapterError::SendFailed(format!("cannot resolve path: {e}"))
+    })?;
 
-    let media_owned = media_store_dir.to_path_buf();
-    if let Ok(media_canonical) = tokio::task::spawn_blocking(move || media_owned.canonicalize())
-        .await
-        .map_err(|e| AdapterError::SendFailed(format!("task join error: {e}")))?
-    {
-        if canonical.starts_with(&media_canonical) {
-            return Ok(canonical);
-        }
+    let media_canonical = media_store_dir.canonicalize().map_err(|e| {
+        tracing::warn!(
+            path = %media_store_dir.display(),
+            error = %e,
+            "media store dir canonicalize failed, refusing to validate against non-canonical path"
+        );
+        AdapterError::SendFailed(format!("cannot resolve media store directory: {e}"))
+    })?;
+    if canonical.starts_with(&media_canonical) {
+        return Ok(canonical);
     }
 
     if let Some(workspace) = workspace_dir {
-        let ws_owned = workspace.to_path_buf();
-        if let Ok(ws_canonical) = tokio::task::spawn_blocking(move || ws_owned.canonicalize())
-            .await
-            .map_err(|e| AdapterError::SendFailed(format!("task join error: {e}")))?
-        {
-            if canonical.starts_with(&ws_canonical) {
-                return Ok(canonical);
+        let ws_canonical = match workspace.canonicalize() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    path = %workspace.display(),
+                    error = %e,
+                    "workspace dir canonicalize failed, falling back to raw path"
+                );
+                workspace.to_path_buf()
             }
+        };
+        if canonical.starts_with(&ws_canonical) {
+            return Ok(canonical);
         }
     }
 
@@ -75,6 +81,64 @@ pub(crate) async fn validate_outbound_path(
         "media path rejected: {} is outside allowed directories",
         path.display()
     )))
+}
+
+/// Prepare outbound local media: resolve path, validate, and copy to outbound directory.
+///
+/// Standalone function (no dependency on `FeishuPlugin`) for reuse across all
+/// send paths including the card media fallback route.
+///
+/// # Arguments
+/// * `reference` - Media reference string (path or URL)
+/// * `workspace_dir` - Agent workspace directory for resolving relative paths
+/// * `media_store` - Media store for outbound directory and whitelist validation
+///
+/// Returns `Some(outbound_path)` when a local file was successfully validated
+/// and copied to the outbound directory. Returns `None` when:
+/// - `reference` is an HTTP(S) URL (already platform-hosted)
+/// - File does not exist
+/// - Path fails whitelist validation
+/// - Copy to outbound fails (warning logged)
+pub(crate) async fn prepare_outbound_local_media(
+    reference: &str,
+    workspace_dir: Option<&Path>,
+    media_store: &MediaStore,
+) -> Option<PathBuf> {
+    // HTTP(S) URLs are already platform-hosted — no local copy needed.
+    if reference.starts_with("http://") || reference.starts_with("https://") {
+        return None;
+    }
+
+    let raw_path = PathBuf::from(reference);
+
+    // Resolve relative paths against workspace_dir.
+    let path = if raw_path.is_relative() {
+        if let Some(ws) = workspace_dir {
+            ws.join(&raw_path)
+        } else {
+            raw_path
+        }
+    } else {
+        raw_path
+    };
+
+    if !path.exists() {
+        return None;
+    }
+
+    // Validate against whitelist (media store + workspace).
+    let media_dir = media_store.storage_dir();
+    let validated = validate_outbound_path(&path, workspace_dir, media_dir)
+        .await
+        .ok()?;
+
+    match copy_to_outbound(&validated, media_store).await {
+        Ok(result) => Some(result.outbound_path),
+        Err(e) => {
+            warn!(source = %validated.display(), error = %e, "Failed to copy media to outbound");
+            None
+        }
+    }
 }
 
 /// Copy a media file to the outbound directory and return the result.
@@ -100,6 +164,18 @@ pub(crate) async fn copy_to_outbound(
     let unique_name = crate::media_store::unique_filename(outbound_dir, &stem, &ext);
     let outbound_path = outbound_dir.join(&unique_name);
 
+    // Ensure outbound directory exists (may not have been created by MediaStore::new
+    // in all code paths, e.g. when using a shared media store).
+    if let Err(e) = tokio::fs::create_dir_all(outbound_dir).await {
+        tracing::warn!(
+            path = %outbound_dir.display(),
+            error = %e,
+            "failed to create outbound directory"
+        );
+        return Err(AdapterError::SendFailed(format!(
+            "failed to create outbound directory: {e}"
+        )));
+    }
     tokio::fs::copy(source_path, &outbound_path)
         .await
         .map_err(|e| {
