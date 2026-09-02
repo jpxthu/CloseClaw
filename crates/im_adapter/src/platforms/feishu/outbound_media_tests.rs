@@ -536,3 +536,83 @@ async fn test_dispatch_send_media_audio_file_outbound_copy() {
         "lark-cli should receive outbound path, args: {args}"
     );
 }
+
+// =================================================================
+// Step 1.4 — media_store_dir canonicalize failure → reject send
+// =================================================================
+
+/// When the media store directory is a broken symlink (cannot be
+/// canonicalized), `validate_outbound_path` must return Err instead of
+/// silently degrading to a raw (non-canonical) path.
+#[tokio::test]
+async fn test_validate_path_media_store_broken_symlink_rejected() {
+    let tmp = TempDir::new().unwrap();
+    let ws = tmp.path().join("workspace");
+    let media = tmp.path().join("media");
+    fs::create_dir_all(&ws).unwrap();
+    // Create a broken symlink for the media store directory.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/nonexistent/path", &media).unwrap();
+    #[cfg(not(unix))]
+    return; // broken-symlink test not applicable on non-unix
+
+    let file = ws.join("test.txt");
+    fs::write(&file, "content").unwrap();
+
+    let result = validate_outbound_path(&file, Some(&ws), &media).await;
+    assert!(
+        result.is_err(),
+        "should reject when media store dir cannot be canonicalized"
+    );
+}
+
+/// When the workspace directory is a broken symlink, validation should
+/// still work via the media store path (workspace degradation is allowed
+/// with a warning, but media_store_dir must succeed).
+#[tokio::test]
+async fn test_validate_path_workspace_broken_symlink_falls_back_to_media() {
+    let tmp = TempDir::new().unwrap();
+    let ws = tmp.path().join("workspace");
+    let media = tmp.path().join("media");
+    fs::create_dir_all(&media).unwrap();
+    // Create a broken symlink for the workspace directory.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/nonexistent/path", &ws).unwrap();
+    #[cfg(not(unix))]
+    return;
+
+    let file = media.join("test.txt");
+    fs::write(&file, "content").unwrap();
+
+    // Should still succeed because the file is inside the (valid) media store.
+    let result = validate_outbound_path(&file, Some(&ws), &media).await;
+    assert!(
+        result.is_ok(),
+        "should accept file within media store even when workspace is broken symlink"
+    );
+}
+
+/// `prepare_outbound_local_media` with broken media store symlink →
+/// returns None (rejected, does not panic).
+#[tokio::test]
+async fn test_prepare_outbound_broken_media_store_symlink_skipped() {
+    let tmp = TempDir::new().unwrap();
+    let media = tmp.path().join("media");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/nonexistent/path", &media).unwrap();
+    #[cfg(not(unix))]
+    return;
+
+    // We need a valid MediaStore, but since MediaStore::new validates the
+    // dir, we test at the validate_outbound_path level instead.
+    let ws = tmp.path().join("ws");
+    fs::create_dir_all(&ws).unwrap();
+    let file = ws.join("img.png");
+    fs::write(&file, "data").unwrap();
+
+    let result = validate_outbound_path(&file, Some(&ws), &media).await;
+    assert!(
+        result.is_err(),
+        "should reject when media store dir is broken symlink"
+    );
+}

@@ -264,7 +264,7 @@ impl FeishuAdapter {
     /// - File does not exist
     /// - Path fails whitelist validation
     /// - Copy to outbound fails
-    /// (warning logged in all skip cases)
+    ///   (warning logged in all skip cases)
     async fn send_media_file(
         &self,
         receive_id: &str,

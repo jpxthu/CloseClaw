@@ -44,17 +44,30 @@ pub(crate) async fn validate_outbound_path(
         AdapterError::SendFailed(format!("cannot resolve path: {e}"))
     })?;
 
-    let media_canonical = media_store_dir
-        .canonicalize()
-        .unwrap_or_else(|_| media_store_dir.to_path_buf());
+    let media_canonical = media_store_dir.canonicalize().map_err(|e| {
+        tracing::warn!(
+            path = %media_store_dir.display(),
+            error = %e,
+            "media store dir canonicalize failed, refusing to validate against non-canonical path"
+        );
+        AdapterError::SendFailed(format!("cannot resolve media store directory: {e}"))
+    })?;
     if canonical.starts_with(&media_canonical) {
         return Ok(canonical);
     }
 
     if let Some(workspace) = workspace_dir {
-        let ws_canonical = workspace
-            .canonicalize()
-            .unwrap_or_else(|_| workspace.to_path_buf());
+        let ws_canonical = match workspace.canonicalize() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    path = %workspace.display(),
+                    error = %e,
+                    "workspace dir canonicalize failed, falling back to raw path"
+                );
+                workspace.to_path_buf()
+            }
+        };
         if canonical.starts_with(&ws_canonical) {
             return Ok(canonical);
         }
@@ -153,7 +166,16 @@ pub(crate) async fn copy_to_outbound(
 
     // Ensure outbound directory exists (may not have been created by MediaStore::new
     // in all code paths, e.g. when using a shared media store).
-    let _ = tokio::fs::create_dir_all(outbound_dir).await;
+    if let Err(e) = tokio::fs::create_dir_all(outbound_dir).await {
+        tracing::warn!(
+            path = %outbound_dir.display(),
+            error = %e,
+            "failed to create outbound directory"
+        );
+        return Err(AdapterError::SendFailed(format!(
+            "failed to create outbound directory: {e}"
+        )));
+    }
     tokio::fs::copy(source_path, &outbound_path)
         .await
         .map_err(|e| {
