@@ -4,7 +4,7 @@
 
 飞书插件是 IMPlugin trait 的飞书平台实现。它基于飞书官方 CLI（lark-cli）封装平台通信与格式渲染：通过 CLI 的事件订阅长连接接收飞书事件，通过 CLI 命令完成消息发送，将 LLM 结构化输出渲染为飞书消息格式。当前仅覆盖私聊场景（群聊暂不设计）。飞书插件作为独立平台插件按需启用——仅在配置文件中显式配置并启用飞书平台时才加载，未配置则不加载。
 
-本设计的消息格式与事件字段细节以 `tests/fixtures/feishu/cli-poc/` 下的真实飞书 CLI 事件样本为权威来源（README 含字段语义实测记录与逐文件来源映射），开发与单元测试对照 fixture 实现与验证。平台接口真实性验证（fixture 对照 + 真实收发校验）见 [im_adapter README 平台接口真实性验证](../README.md#平台接口真实性验证)。
+本设计的消息格式与事件字段细节以 `tests/fixtures/feishu/cli-poc/` 下的真实飞书 CLI 事件样本为权威来源（README 含字段语义实测记录与逐文件来源映射），平台接口行为与限制以飞书官方 CLI API 文档为权威来源——两者均为本设计的必要输入，开发实现与单元测试必须对照两者进行验证，不可仅凭既有代码或主观推断。平台接口真实性验证（fixture 对照 + 真实收发校验）见 [im_adapter README 平台接口真实性验证](../README.md#平台接口真实性验证)。
 
 ## 架构
 
@@ -25,9 +25,12 @@
 - **text 类型消息**（message_type=text）：提取 `content.text` 字段作为消息正文。飞书已将正文中的表情符号以占位符文本形式（如 `[OK]`、`[赞]`）写入 content.text，Adapter 原样透传，不做额外转换
 - **post 类型消息**（含图片的富文本消息，message_type=post）：展开 title 和 content blocks 为文本，保留标题、段落、有序/无序列表（含多级嵌套）、文本样式（粗体/斜体/删除线/下划线及组合）、@提及（渲染为 `@用户名`）、引用块、行内代码；emoji 元素展开为占位符文本；代码块展开为 markdown 代码块；超链接、邮箱、电话暂不解析、不保留。内嵌图片按 `![Image](img_key)` 行内标记识别（标记内 key 即图片资源标识），提取该资源标识落盘后填入 media_refs，正文在原位置保留 `[图片]` 占位符
 - **file 类型消息**（message_type=file）：从 content 标签提取 file_key 与文件名，落盘后填入 media_refs，正文可为空
-- **sticker 类型消息**（message_type=text）：独立表情消息，提取表情标识渲染为文本占位符（如 `[OK]`）作为消息正文
+- **sticker 类型消息**（message_type=sticker）：独立表情消息，提取表情标识渲染为文本占位符（如 `[OK]`）作为消息正文
 - **引用/回复消息**：提取被引用消息的文本内容，按 [im_adapter README](../README.md#implugin-trait-契约) 的引用/回复消息处理规则拼接（截断至 500 字符、blockquote 格式）
-- **媒体落盘**：所有提取到的媒体资源（图片、文件）在解析阶段立即下载落盘并填充 media_refs，机制见 [im_adapter media-store](../media-store.md)
+- **媒体落盘**：所有提取到的媒体资源（图片、文件）在解析阶段立即下载落盘并填充 media_refs，机制见 [im_adapter media-store](../media-store.md)；大小上限为平台可得性约束、非系统配置项，直接调用平台 API、拒绝即失败，见「平台接口权威来源」
+- **媒体下载失败**：下载失败或平台拒绝（含超出限制）的媒体不落盘、不进 media_refs，其资源标识记入 unavailable_media，由 Gateway 按媒体不可得处理（见 [im_adapter media-store](../media-store.md) 入站落盘）
+
+**平台接口权威来源**：平台接口行为与限制（含媒体大小/格式限制，属平台可得性约束、非系统配置项——系统不预判、不预校验，直接调用平台 API，平台拒绝即按对应操作失败处理）以两个来源为准：`tests/fixtures/feishu/cli-poc/` 实测样本（事件结构、字段语义、命令行为）与飞书官方 CLI API 文档（接口行为与限制）。开发实现时遇到平台限制相关问题，须查官方 API 文档、并对照 fixture 实测验证，不可仅凭既有代码或主观推断；平台拒绝路径（下载失败记入 unavailable_media、发送失败向 Agent 返回错误）须作为单元测试覆盖。
 
 **会话锚点构造**（peer_id / reply_ref）：
 
@@ -100,7 +103,7 @@ Renderer 产出的 RenderedOutput 由 Adapter 映射为 lark-cli 命令发送：
 - **文本消息**：文本发送命令（peer 定向）
 - **卡片消息**：interactive 卡片发送命令
 - **定向回复**：携带 reply_ref——话题会话以根消息 ID 话题回复（reply-in-thread），顶层会话以消息 ID 定向回复
-- **媒体消息**：Image/Audio/File 经 lark-cli 上传后以平台资源引用发送（自动上传，仅接受本地路径）；发出媒体先保留副本到媒体存储出站子目录（见 [im_adapter media-store](../media-store.md)）
+- **媒体消息**：Image/Audio/File 直接经 lark-cli 上传发送（自动上传；CLI 仅接受进程工作目录的相对路径，fixture `send-commands.md` 实测，Adapter 须转换；平台大小/格式限制见「平台接口权威来源」——系统不预校验，平台拒绝即按发送失败处理）；发出媒体先保留副本到媒体存储出站子目录（见 [im_adapter media-store](../media-store.md)）
 - **表情回应**：表情回应命令（reactions create）
 
 发送目标由 Gateway 传入（peer_id + reply_ref）。发送失败时记录日志并降级，不导致进程崩溃，Agent 继续运行。
