@@ -11,6 +11,8 @@ mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
 pub(crate) mod card_media_fallback;
+#[cfg(test)]
+mod card_media_tests;
 pub(crate) mod cardkit_streaming;
 pub mod cleaner;
 #[cfg(test)]
@@ -542,7 +544,7 @@ impl FeishuPlugin {
             let tag = element.get("tag").and_then(|t| t.as_str()).unwrap_or("");
             match tag {
                 "img" => self.process_card_img(element).await,
-                "media" => self.process_card_media_file(element).await,
+                "media" | "audio" | "file" => self.process_card_media_file(element).await,
                 _ => {}
             }
         }
