@@ -242,7 +242,7 @@ async fn test_batch_send_failure_sends_notification() {
     );
     // Second call was the failure notification.
     assert_eq!(
-        texts[1], "⚠️ 回复发送失败：消息未能送达，请稍后重试",
+        texts[1], "⚠️ 回复发送失败：消息未能送达",
         "second call should be the failure notification"
     );
 }
@@ -273,7 +273,7 @@ async fn test_batch_send_failure_no_outbound_history() {
     // The second send is the notification, not a retry of the original.
     assert_eq!(
         mock.sent_texts()[1],
-        "⚠️ 回复发送失败：消息未能送达，请稍后重试",
+        "⚠️ 回复发送失败：消息未能送达",
         "second send should be failure notification, not a retry"
     );
 }

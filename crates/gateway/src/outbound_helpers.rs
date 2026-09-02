@@ -140,11 +140,7 @@ pub(crate) async fn notify_batch_send_failure(
         "batch plugin.send failed, sending failure notification"
     );
     let _ = gateway
-        .send_outbound_simplified(
-            chat_id,
-            channel,
-            "⚠️ 回复发送失败：消息未能送达，请稍后重试",
-        )
+        .send_outbound_simplified(chat_id, channel, "⚠️ 回复发送失败：消息未能送达")
         .await;
 }
 
