@@ -206,6 +206,17 @@ impl UnifiedMessageQueue {
             .collect()
     }
 
+    /// Returns all system notification entries without consuming the queue.
+    pub fn system_notifications(&self) -> Vec<(String, NotificationPriority)> {
+        self.entries
+            .iter()
+            .filter_map(|i| match &i.entry {
+                QueueEntry::SystemNotification(text, p) => Some((text.clone(), *p)),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Clear all entries and return the count removed.
     pub fn clear(&mut self) -> usize {
         let n = self.entries.len();
@@ -368,6 +379,11 @@ impl ConversationSession {
     /// Returns all announce events without consuming the queue.
     pub fn get_announce_events(&self) -> Vec<AnnounceEvent> {
         self.unified_queue.announce_events()
+    }
+
+    /// Returns all system notification entries without consuming the queue.
+    pub fn get_system_notifications(&self) -> Vec<(String, NotificationPriority)> {
+        self.unified_queue.system_notifications()
     }
 
     // ── restore / clear ─────────────────────────────────────────────────
