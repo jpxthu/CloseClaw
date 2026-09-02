@@ -380,6 +380,47 @@ async fn test_send_simplified_with_timeout_no_plugin_fallback() {
 }
 
 // ===========================================================================
+// send_system_notification tests (Step 1.4)
+// ============================================================================
+
+/// send_system_notification returns (unit) when plugin.send() completes quickly.
+#[tokio::test]
+async fn test_send_system_notification_normal_path() {
+    let gw = test_gw();
+    gw.register_plugin(Arc::new(FastSendPlugin) as Arc<dyn IMPlugin>)
+        .await;
+    // send_system_notification is fire-and-forget (returns ()); just ensure no panic.
+    gw.send_system_notification("chat1", "mock", "hello system notification")
+        .await;
+}
+
+/// send_system_notification does not panic when plugin.send() exceeds 2s timeout.
+#[tokio::test]
+async fn test_send_system_notification_timeout_path() {
+    let gw = test_gw();
+    gw.register_plugin(Arc::new(SlowSendPlugin) as Arc<dyn IMPlugin>)
+        .await;
+    let start = std::time::Instant::now();
+    gw.send_system_notification("chat2", "mock", "slow notification")
+        .await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(4),
+        "send_system_notification should return within ~2s timeout, took {:?}",
+        elapsed
+    );
+}
+
+/// send_system_notification handles missing plugin gracefully (fallback path).
+#[tokio::test]
+async fn test_send_system_notification_no_plugin_fallback() {
+    let gw = test_gw();
+    // No plugin registered — should fallback to plain-text log, not panic.
+    gw.send_system_notification("chat3", "nonexistent", "fallback notification")
+        .await;
+}
+
+// ===========================================================================
 // 1-second response constraint monitoring test (Step 1.4)
 // ===========================================================================
 
