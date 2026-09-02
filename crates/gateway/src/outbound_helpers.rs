@@ -489,23 +489,22 @@ impl Gateway {
     /// 走简化出站路径（跳过 VerbosityFilter/DslParser/中间件），2 秒超时自动丢弃。
     /// 系统通知不写入 session checkpoint（出站历史记录）。
     pub async fn send_system_notification(&self, chat_id: &str, channel: &str, message: &str) {
-        let preview = &message[..message.len().min(50)];
+        let preview: String = message.chars().take(50).collect();
         tracing::info!(
             chat_id = %chat_id,
             channel = %channel,
             message = %preview,
             "sending system notification"
         );
-        match send_simplified_with_timeout(self, chat_id, channel, message).await {
-            Ok(()) => {}
-            Err(e) => {
-                tracing::warn!(
-                    chat_id = %chat_id,
-                    channel = %channel,
-                    error = %e,
-                    "send_system_notification failed"
-                );
-            }
+        if let Err(e) = send_simplified_with_timeout(self, chat_id, channel, message).await {
+            let preview: String = message.chars().take(50).collect();
+            tracing::warn!(
+                chat_id = %chat_id,
+                channel = %channel,
+                message = %preview,
+                error = %e,
+                "send_system_notification failed"
+            );
         }
     }
 }

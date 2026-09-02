@@ -803,14 +803,8 @@ impl Gateway {
         .await
     }
 
-    /// Send a notification to the user when the result carries a message
-    /// (e.g. queuing, error).
-    async fn send_notification(&self, peer_id: &str, channel: &str, text: &str) {
-        self.send_system_notification(peer_id, channel, text).await;
-    }
-
     /// If `result` carries a user-facing message (`MessageQueued` or `Error`),
-    /// send it as a notification.  No-op for other variants or empty peer_id.
+    /// send it as a system notification.  No-op for other variants or empty peer_id.
     async fn maybe_send_notification(&self, result: &HandleResult, peer_id: &str, channel: &str) {
         if peer_id.is_empty() {
             return;
@@ -820,7 +814,7 @@ impl Gateway {
             HandleResult::Error(t) => t,
             _ => return,
         };
-        self.send_notification(peer_id, channel, text).await;
+        self.send_system_notification(peer_id, channel, text).await;
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).

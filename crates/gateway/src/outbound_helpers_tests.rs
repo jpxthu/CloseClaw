@@ -354,13 +354,13 @@ async fn test_send_simplified_with_timeout_timeout_path() {
         result
     );
     assert!(
-        elapsed < std::time::Duration::from_secs(4),
-        "function should return within ~2s timeout, took {:?}",
+        elapsed >= std::time::Duration::from_secs(2),
+        "timeout should fire around 2s, took {:?}",
         elapsed
     );
     assert!(
-        elapsed >= std::time::Duration::from_millis(1800),
-        "timeout should fire around 2s, took {:?}",
+        elapsed < std::time::Duration::from_secs(4),
+        "function should return within ~4s ceiling, took {:?}",
         elapsed
     );
 }
@@ -405,8 +405,13 @@ async fn test_send_system_notification_timeout_path() {
         .await;
     let elapsed = start.elapsed();
     assert!(
+        elapsed >= std::time::Duration::from_secs(2),
+        "timeout should fire around 2s, took {:?}",
+        elapsed
+    );
+    assert!(
         elapsed < std::time::Duration::from_secs(4),
-        "send_system_notification should return within ~2s timeout, took {:?}",
+        "send_system_notification should return within ~4s ceiling, took {:?}",
         elapsed
     );
 }
