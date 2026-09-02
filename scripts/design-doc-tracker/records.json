@@ -209,11 +209,11 @@
   },
   {
     "path": "docs/design/gateway/outbound-flow.md",
-    "commit": "310ef3d4e0f8f622ec0fd3c40fe43ec20ce0f7cc",
-    "commit_time": "2026-09-01T04:08:07+08:00",
-    "confirmed_time": "2026-09-01T07:10:41.708537+08:00",
+    "commit": "ebfc03470f08a5a7fc27f11c805e4bd6aa3bfd06",
+    "commit_time": "2026-09-02T12:30:07+08:00",
+    "confirmed_time": "2026-09-02T12:58:09.224974+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "系统通知接口依赖方向与文档描述不一致：文档写'供 Session 等模块发送'暗示 Session→Gateway 调用方向，代码实际为 Gateway 主动调用 Session.push_system_notification 注入通知。此外，系统通知接口缺少独立公共接口设计（代码中 send_outbound_simplified 承载多场景）；批量模式中间件拒绝静默丢弃与流式模式不一致。"
   },
   {
     "path": "docs/design/im_adapter/README.md",
