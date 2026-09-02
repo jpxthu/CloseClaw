@@ -608,13 +608,7 @@ impl Gateway {
             .await
         {
             let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-            if let Err(e) =
-                crate::outbound_helpers::send_simplified_with_timeout(self, &chat_id, channel, msg)
-                    .await
-            {
-                tracing::warn!(session_id = %session_id, chat_id = %chat_id,
-                    error = %e, "failed to send restore notification");
-            }
+            self.send_system_notification(&chat_id, channel, msg).await;
         }
         // Shutdown gate: reject new operations.
         if let Some(sh) = self.get_shutdown_handle() {
@@ -809,23 +803,8 @@ impl Gateway {
         .await
     }
 
-    /// Send a notification to the user when the result carries a message
-    /// (e.g. queuing, error).
-    async fn send_notification(&self, peer_id: &str, channel: &str, text: &str) {
-        if let Err(e) =
-            crate::outbound_helpers::send_simplified_with_timeout(self, peer_id, channel, text)
-                .await
-        {
-            tracing::warn!(
-                peer_id = %peer_id,
-                error = %e,
-                "failed to send notification"
-            );
-        }
-    }
-
     /// If `result` carries a user-facing message (`MessageQueued` or `Error`),
-    /// send it as a notification.  No-op for other variants or empty peer_id.
+    /// send it as a system notification.  No-op for other variants or empty peer_id.
     async fn maybe_send_notification(&self, result: &HandleResult, peer_id: &str, channel: &str) {
         if peer_id.is_empty() {
             return;
@@ -835,7 +814,7 @@ impl Gateway {
             HandleResult::Error(t) => t,
             _ => return,
         };
-        self.send_notification(peer_id, channel, text).await;
+        self.send_system_notification(peer_id, channel, text).await;
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).
