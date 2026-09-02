@@ -85,7 +85,7 @@ impl Gateway {
                 "failed to enqueue pending slash command"
             );
         }
-        let text = crate::session_handler::QUEUING_NOTIFICATION_TEXT;
+        let text = closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT;
         if let Err(e) = self.send_outbound_simplified(peer_id, channel, text).await {
             tracing::warn!(
                 session_id,
