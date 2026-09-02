@@ -286,9 +286,11 @@ async fn test_batch_middleware_rejection_does_not_notify_user() {
     gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     let err = closeclaw_common::MiddlewareError::rejected("test-reject", "blocked by policy");
-    crate::outbound_helpers::log_middleware_rejection(&gw, err, "chat_test", "mock")
-        .await
-        .expect("log_middleware_rejection should not error");
+    let result = crate::outbound_helpers::log_middleware_rejection(err, "chat_test").await;
+    assert!(
+        result.is_ok(),
+        "log_middleware_rejection should always return Ok"
+    );
 
     // Batch middleware rejection must NOT send any notification to the user.
     assert_eq!(
@@ -315,37 +317,16 @@ async fn test_batch_middleware_failed_does_not_notify_user() {
         .await;
 
     let err = closeclaw_common::MiddlewareError::middleware_failed("buggy-mw", "mock failure");
-    crate::outbound_helpers::log_middleware_rejection(&gw, err, "chat_test", "mock")
-        .await
-        .expect("log_middleware_rejection should not error");
+    let result = crate::outbound_helpers::log_middleware_rejection(err, "chat_test").await;
+    assert!(
+        result.is_ok(),
+        "log_middleware_rejection should always return Ok"
+    );
 
     assert_eq!(
         plugin.send_count(),
         0,
         "batch middleware failure must not send user notification"
-    );
-}
-
-/// `log_middleware_rejection` always returns Ok(()) regardless of plugin state.
-#[tokio::test]
-async fn test_batch_middleware_rejection_returns_ok() {
-    let config = make_config();
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    gw.register_plugin(Arc::new(CaptureSendPlugin::new("mock")))
-        .await;
-
-    let err = closeclaw_common::MiddlewareError::rejected("mw", "test");
-    let result =
-        crate::outbound_helpers::log_middleware_rejection(&gw, err, "chat_test", "mock").await;
-    assert!(
-        result.is_ok(),
-        "log_middleware_rejection should always return Ok"
     );
 }
 

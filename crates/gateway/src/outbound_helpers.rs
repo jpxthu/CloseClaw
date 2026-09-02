@@ -90,10 +90,8 @@ impl StreamState {
 /// Unlike the streaming pre-flight path, batch mode does NOT send a user
 /// notification on middleware rejection (the user simply receives nothing).
 pub(crate) async fn log_middleware_rejection(
-    _gateway: &Gateway,
     e: closeclaw_common::MiddlewareError,
     chat_id: &str,
-    _channel: &str,
 ) -> Result<(), GatewayError> {
     match &e {
         closeclaw_common::MiddlewareError::Rejected { name, reason } => {
@@ -454,7 +452,7 @@ impl Gateway {
                 closeclaw_processor_chain::run_middleware_chain(&middlewares, &mctx, &rendered)
                     .await
             {
-                return log_middleware_rejection(self, e, chat_id, channel).await;
+                return log_middleware_rejection(e, chat_id).await;
             }
         }
         plugin.send(&rendered, chat_id, None, None).await?;
