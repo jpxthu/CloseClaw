@@ -362,7 +362,7 @@ async fn test_filtered_drain_system_notification_prefix() {
 
     // SystemNotification is NOT returned as AnnounceEvent
     assert!(
-        drained.is_empty(),
+        drained.announces.is_empty(),
         "SystemNotification should not appear in drained AnnounceEvents"
     );
 
