@@ -282,7 +282,7 @@ async fn test_send_outbound_to_chat_send_fails_fallback() {
 }
 
 #[tokio::test]
-async fn test_send_outbound_simplified_send_fails_fallback() {
+async fn test_send_outbound_simplified_send_failure_propagates() {
     let gw = make_gw(
         "s6",
         "mock",
@@ -296,7 +296,7 @@ async fn test_send_outbound_simplified_send_fails_fallback() {
 }
 
 // ===========================================================================
-// 3. Fallback also fails → error returned
+// 3. Send failure → error returned (no fallback)
 // ===========================================================================
 
 #[tokio::test]

@@ -9,9 +9,12 @@ use crate::outbound_helpers::{
     notify_batch_send_failure, process_single_through_chain, send_render_block, StreamContext,
     StreamState,
 };
-use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
+use closeclaw_common::im_plugin::{IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
-use closeclaw_processor_chain::run_middleware_chain;
+use closeclaw_processor_chain::{
+    context::MessageContext, outbound_raw_log::OutboundRawLogProcessor,
+    processor::MessageProcessor, raw_log_processor::RawLogConfig, run_middleware_chain,
+};
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
@@ -339,10 +342,6 @@ impl Gateway {
     }
 
     /// Run only the outbound raw-log processor, bypassing the full chain.
-    ///
-    /// Used by [`send_outbound_simplified`] for non-text message rejection
-    /// replies where the design doc requires log → render → send without
-    /// VerbosityFilter / DslParser / middleware.
     pub(crate) async fn process_outbound_raw_log_only(
         &self,
         raw_output: &str,
@@ -351,13 +350,31 @@ impl Gateway {
     ) -> Result<ProcessedMessage, GatewayError> {
         let meta = make_outbound_meta(&[("channel", channel)]);
         let input = self.make_outbound_input(raw_output, content_blocks, meta);
-        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+        let Some(ref dir) = self.config.raw_log_dir else {
             return Ok(input);
         };
-        registry
-            .process_outbound_raw_log_only(input)
-            .await
-            .map_err(|e| GatewayError::OutboundError(e.to_string()))
+        let mut ctx = MessageContext::from_normalized(NormalizedMessage {
+            content: raw_output.to_string(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            ..Default::default()
+        });
+        ctx.metadata = input.metadata;
+        ctx.content_blocks = input.content_blocks;
+        let cfg = RawLogConfig::new(true, dir.clone(), 7);
+        match OutboundRawLogProcessor::new(cfg).process(&ctx).await {
+            Ok(Some(out)) => Ok(ProcessedMessage {
+                content_blocks: out.content_blocks,
+                metadata: out.metadata,
+            }),
+            Ok(None) => Ok(ProcessedMessage {
+                content_blocks: ctx.content_blocks,
+                metadata: ctx.metadata,
+            }),
+            Err(e) => Err(GatewayError::OutboundError(format!(
+                "raw log processor: {}",
+                e
+            ))),
+        }
     }
 
     /// Run the outbound processor chain if configured, otherwise bypass.
@@ -422,6 +439,7 @@ impl Gateway {
     }
 
     /// Fallback to plain-text send when render/send fails.
+    #[allow(dead_code)] // kept for test assertions; no longer called in production path
     pub(crate) async fn send_as_plain_text(
         &self,
         plugin: &Arc<dyn IMPlugin>,

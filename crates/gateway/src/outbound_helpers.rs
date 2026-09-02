@@ -487,12 +487,8 @@ impl Gateway {
             return Ok(());
         }
         let rendered = plugin.render(&processed.content_blocks, None);
-        if plugin.send(&rendered, chat_id, None, None).await.is_err() {
-            self.send_as_plain_text(&plugin, raw_output, chat_id, None)
-                .await
-        } else {
-            Ok(())
-        }
+        plugin.send(&rendered, chat_id, None, None).await?;
+        Ok(())
     }
 }
 
