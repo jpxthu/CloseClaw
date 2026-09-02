@@ -354,7 +354,9 @@ async fn test_route_message_archived_session_sends_notification() {
 
     let sent = adapter.sent.read().await;
     assert!(
-        sent.iter().any(|m| m.content == "正在恢复会话..."),
+        sent.iter()
+            .any(|m| m.content
+                == closeclaw_session::notifications::RESTORE_NOTIFICATION_DEFAULT_TEXT),
         "restore notification should be sent"
     );
 }

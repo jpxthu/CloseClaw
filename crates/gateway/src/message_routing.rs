@@ -123,7 +123,9 @@ impl Gateway {
             .take_restore_notification(&session_id)
             .await
         {
-            let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
+            let msg = custom_msg
+                .as_deref()
+                .unwrap_or(closeclaw_session::notifications::RESTORE_NOTIFICATION_DEFAULT_TEXT);
             if let Err(e) = self.send_outbound_simplified(&chat_id, channel, msg).await {
                 tracing::warn!(
                     session_id = %session_id,

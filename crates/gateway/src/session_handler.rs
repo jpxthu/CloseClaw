@@ -16,6 +16,7 @@ use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_session::compaction::{CompactConfig, CompactionResult, CompactionService};
+use closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT;
 use closeclaw_session::run_health::TranscriptOp;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -66,9 +67,6 @@ impl MessageMetadata {
         }
     }
 }
-
-/// Single source of truth for the queuing notification text.
-pub(crate) const QUEUING_NOTIFICATION_TEXT: &str = "⏳ 正在排队...";
 
 /// Outcome of handling an inbound message.
 #[derive(Debug)]
@@ -296,7 +294,7 @@ impl SessionMessageHandler {
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
+            return HandleResult::MessageQueued(QUEUE_NOTIFICATION_TEXT.to_string());
         }
         // Inject active children summary BEFORE the user message
         // (design-doc position constraint).

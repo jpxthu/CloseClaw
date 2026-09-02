@@ -325,7 +325,7 @@ async fn set_busy(sm: &SessionManager, session_id: &str) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// When a session is busy and a message arrives via the non-streaming path,
-/// the gateway sends "⏳ 正在排队..." to the user.
+/// the gateway sends the queuing notification text to the user.
 #[tokio::test]
 async fn test_queuing_notification_non_streaming() {
     let (gw, plugin, sm) = make_gw_with_handler("mock").await;
@@ -349,7 +349,11 @@ async fn test_queuing_notification_non_streaming() {
         "queuing notification should be sent"
     );
     let text = plugin.last_send_text().unwrap();
-    assert_eq!(text, "⏳ 正在排队...", "notification text mismatch");
+    assert_eq!(
+        text,
+        closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT,
+        "notification text mismatch"
+    );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

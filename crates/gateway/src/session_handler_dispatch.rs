@@ -12,9 +12,9 @@ use std::sync::Arc;
 
 use tokio::time::Instant;
 
-use super::session_handler::{
-    ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler, QUEUING_NOTIFICATION_TEXT,
-};
+use closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT;
+
+use super::session_handler::{ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler};
 use super::Gateway;
 use crate::session_manager::compact::flatten_content_blocks;
 use crate::session_manager::SessionManager;
@@ -375,7 +375,7 @@ impl SessionMessageHandler {
     ) -> HandleResult {
         if self.session_manager.is_session_busy(session_id).await {
             self.enqueue_pending(session_id, content).await;
-            return HandleResult::MessageQueued(QUEUING_NOTIFICATION_TEXT.to_string());
+            return HandleResult::MessageQueued(QUEUE_NOTIFICATION_TEXT.to_string());
         }
         self.inject_active_children_summary_if_needed(session_id)
             .await;

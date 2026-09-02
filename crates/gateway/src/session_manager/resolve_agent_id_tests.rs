@@ -4,7 +4,7 @@
 //! 1. agent_id parameter controls per-agent lock serialization
 //! 2. agent_id different from message.to → lock uses agent_id
 //! 3. Empty agent_id edge case
-//! 4. Queuing notification text comes from Session's QUEUING_NOTIFICATION_TEXT
+//! 4. Queuing notification text comes from Session's QUEUE_NOTIFICATION_TEXT
 
 use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
@@ -186,7 +186,7 @@ async fn test_resolve_empty_agent_id_session_uses_message_to_for_id() {
 
 /// When a session is busy and a message arrives, `handle_message_with_meta`
 /// returns `HandleResult::MessageQueued` carrying the notification text from
-/// Session's `QUEUING_NOTIFICATION_TEXT` constant.
+/// Session's `QUEUE_NOTIFICATION_TEXT` constant.
 #[tokio::test]
 async fn test_queuing_notification_text_from_session() {
     let sm = Arc::new(SessionManager::new(
@@ -220,8 +220,8 @@ async fn test_queuing_notification_text_from_session() {
         HandleResult::MessageQueued(text) => {
             assert_eq!(
                 text,
-                crate::session_handler::QUEUING_NOTIFICATION_TEXT,
-                "notification text should match Session's QUEUING_NOTIFICATION_TEXT constant"
+                closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT,
+                "notification text should match Session's QUEUE_NOTIFICATION_TEXT constant"
             );
         }
         other => {
