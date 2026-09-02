@@ -206,7 +206,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 计划状态 | 读取/更新会话的 PlanState |
-| 待处理消息 | 向会话队列推送 PendingMessage |
+| 待处理消息 | 向统一消息队列推送一条待处理消息（排队规则见 [session 统一消息队列](../session/session-execution.md#统一消息队列)） |
 | 后台触发 | 触发会话的手动后台执行 |
 | workflow 状态 | 设置并持久化 workflow run（类型擦除，避免依赖 workflow crate） |
 | 系统提示词 | 失效静态层缓存、重建会话 system prompt、追加 system append |
@@ -273,7 +273,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SessionLookup
 
-**用途**：会话关系与待处理消息查询接口。Gateway 的 SessionManager 实现，permission 与 slash 消费——查询父/子会话关系、聊天 ID、计划状态，避免直接依赖 gateway。
+**用途**：会话关系与待处理消息接口。Gateway 的 SessionManager 实现，permission 与 slash 消费——查询父/子会话关系、聊天 ID、计划状态，并向统一消息队列推送待处理消息，避免直接依赖 gateway。
 
 **接口契约**：
 
@@ -281,7 +281,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 |------|------|
 | 父会话查询 | 给定子会话 ID 返回父会话 ID |
 | 聊天 ID 查询 | 给定会话 ID 返回关联聊天 ID |
-| 待处理消息 | 向会话队列推送 PendingMessage |
+| 待处理消息 | 向统一消息队列推送一条待处理消息（排队规则见 [session 统一消息队列](../session/session-execution.md#统一消息队列)） |
 | 计划状态 | 读取/更新会话的 PlanState |
 | 会话模式切换 | 设置会话模式（如 plan → auto） |
 
@@ -435,7 +435,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### ShutdownSignal
 
-**用途**：关停信号抽象接口。gateway 的 ShutdownHandle 实现，llm 模块消费——查询关停状态、忙计数、graceful→forceful 升级、drain 快照，避免 llm 依赖 gateway。
+**用途**：关停信号抽象接口。daemon 的 ShutdownHandle 实现（daemon 启动时创建），llm 模块消费——查询关停状态、忙计数、graceful→forceful 升级、drain 快照，避免 llm 直接依赖 daemon 模块。
 
 **接口契约**：
 
@@ -481,12 +481,12 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
   - **im_adapter**（实现 ToolRegistrar、IMPlugin、StreamingRenderer；消费 IdentityResolver）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ShutdownSignal；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor）
   - **cli**（实现 IMPlugin）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
   - **permission**（消费 SessionLookup、SessionModeQuery）
   - **processor_chain**（实现 ProcessorChain）
-  - **daemon**（实现 SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission；消费 LlmCaller、MetricsEmitter）
+  - **daemon**（实现 SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission、ShutdownSignal；消费 LlmCaller、MetricsEmitter）
   - **config**（实现 IdentityResolver）
   - **llm**（消费 ShutdownSignal）
 - **无关**：无（common 的 trait 与各业务模块均存在实现或消费关系，不存在无关模块）

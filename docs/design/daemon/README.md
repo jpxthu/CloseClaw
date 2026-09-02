@@ -150,7 +150,7 @@ Graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | Config Hot Reload | 启动时 spawn 后台任务，监听配置文件变更并触发增量重载；重载校验失败时保留旧配置运行并经 IM 通知 Owner（出站通道为运行时引用，IM Adapters 就绪后接线，不构成启动依赖，详见 [config/hot-reload.md](../config/hot-reload.md)）。变更确认为重启类时触发 Daemon 择机网关重启（见「配置触发的网关重启」） |
 | DreamingScheduler | 启动时 spawn 后台任务（依赖 Storage 与 SessionConfigProvider），定时扫描 archived 会话触发记忆挖掘与升格（先 dreaming 后 mining） |
 
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission；消费：LlmCaller、MetricsEmitter）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission、ShutdownSignal；消费：LlmCaller、MetricsEmitter）
 - **无关**：**Processor Chain**（无调用关系）——处理器链由 Gateway 调度，Daemon 不直接参与
 
 
