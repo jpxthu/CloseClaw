@@ -452,8 +452,8 @@ async fn test_slash_notification_failure_does_not_block_enqueue() {
     );
     assert_eq!(
         failing_ref.send_attempt_count(),
-        2,
-        "notification should attempt initial + fallback = 2 sends"
+        1,
+        "notification should attempt exactly 1 send (no fallback)"
     );
 }
 

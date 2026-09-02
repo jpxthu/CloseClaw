@@ -1,9 +1,9 @@
-//! Unit tests for Step 1.5b: batch send failure + simplified path failure.
+//! Unit tests for batch send failure + simplified path failure.
 //!
 //! Covers three error-path behaviors:
 //! 1. Batch send failure → user receives failure notification, no retry,
 //!    no outbound history written.
-//! 2. Simplified path itself fails → plain-text fallback attempted.
+//! 2. Simplified path itself fails → error propagated (no retry, per design doc).
 //! 3. Middleware rejection is unaffected by batch failure changes.
 
 use crate::{Gateway, GatewayConfig, Session, SessionManager};
@@ -322,38 +322,38 @@ async fn test_batch_send_failure_interactive_msg_type() {
 // 2. Simplified path itself fails → plain text fallback
 // ===========================================================================
 
-/// When `send_outbound_simplified` plugin.send fails, it falls back to
-/// `send_as_plain_text`. If that also fails, the error propagates.
+/// When `send_outbound_simplified` plugin.send fails, the error propagates
+/// directly (no retry, no fallback — per design doc §批量出错降级).
 #[tokio::test]
-async fn test_simplified_path_send_fails_fallback_to_plain_text() {
+async fn test_simplified_path_send_fails_propagates_error() {
     let plugin: Arc<dyn IMPlugin> = Arc::new(MockPlugin::always_fail());
     let gw = make_gw("s5", "mock", plugin).await;
     let result = gw
         .send_outbound_simplified("chat_5", "mock", "fallback test")
         .await;
 
-    // send_outbound_simplified catches render-send error → send_as_plain_text.
-    // Both calls fail → Err.
+    // send_outbound_simplified propagates render-send error directly.
     assert!(
         result.is_err(),
-        "simplified path double failure should return Err"
+        "simplified path send failure should return Err"
     );
 }
 
-/// When `send_outbound_simplified` plugin.send fails but `send_as_plain_text`
-/// succeeds, the overall operation returns Ok (fallback recovered).
+/// When `send_outbound_simplified` plugin.send fails, the error propagates
+/// directly — no implicit retry as plain text (design doc §批量出错降级).
 #[tokio::test]
-async fn test_simplified_path_fallback_succeeds() {
+async fn test_simplified_path_send_failure_propagates() {
     let mock = Arc::new(MockPlugin::fail_then_ok());
     let gw = make_gw("s6", "mock", mock.clone()).await;
     let result = gw
         .send_outbound_simplified("chat_6", "mock", "recovered")
         .await;
     assert!(
-        result.is_ok(),
-        "simplified path fallback success should return Ok, got {:?}",
+        result.is_err(),
+        "simplified path send failure should return Err, got {:?}",
         result
     );
+    assert_eq!(mock.send_count(), 1, "only one send attempt (no fallback)");
 }
 
 /// When `send_outbound_simplified` succeeds on first try (no fallback needed),

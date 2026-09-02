@@ -480,12 +480,12 @@ async fn test_queuing_notification_failure_does_not_block() {
         matches!(result, Some(HandleResult::MessageQueued(_))),
         "expected MessageQueued even when notification fails, got {result:?}"
     );
-    // send_outbound_simplified tries plugin.send() once, then falls back
-    // to send_as_plain_text (which also calls plugin.send()), so 2 attempts.
+    // send_outbound_simplified now propagates plugin.send() error directly
+    // (no plain-text fallback per design doc §批量出错降级), so only 1 attempt.
     assert_eq!(
         failing_plugin.send_attempt_count(),
-        2,
-        "send should be attempted exactly twice (initial + plain-text fallback)"
+        1,
+        "send should be attempted exactly once (no fallback)"
     );
 }
 
