@@ -145,7 +145,7 @@ async fn test_now_injected_as_system_message() {
     {
         let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
         let mut guard = cs.write().await;
-        for ev in &events {
+        for ev in &events.announces {
             guard.inject_system_message(format!(
                 "[子 agent {}] 任务已完成：\n{}",
                 ev.child_agent_id, ev.result_text
@@ -300,7 +300,7 @@ async fn test_sequential_drain_now_then_rest() {
             .await;
         let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
         let mut guard = cs.write().await;
-        for ev in &now_events {
+        for ev in &now_events.announces {
             guard.inject_system_message(format!("[NOW] {}", ev.child_agent_id));
         }
     }
@@ -324,7 +324,7 @@ async fn test_sequential_drain_now_then_rest() {
             .await;
         let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
         let mut guard = cs.write().await;
-        for ev in &rest_events {
+        for ev in &rest_events.announces {
             guard.inject_system_message(format!("[REST] {}", ev.child_agent_id));
         }
     }

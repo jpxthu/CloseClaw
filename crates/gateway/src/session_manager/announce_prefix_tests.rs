@@ -77,7 +77,7 @@ async fn test_inject_now_prefix() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1, "should inject one system message");
@@ -116,7 +116,7 @@ async fn test_inject_next_prefix() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -147,7 +147,7 @@ async fn test_inject_later_prefix() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -209,7 +209,7 @@ async fn test_inject_mixed_priority_prefixes() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3, "should inject 3 system messages");
@@ -269,7 +269,7 @@ async fn test_inject_same_level_batch_each_has_prefix() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3, "should inject 3 messages");
@@ -322,7 +322,7 @@ async fn test_filtered_inject_adds_prefix() {
     .unwrap();
 
     // Only drain Now priority
-    mgr.drain_and_inject_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now))
+    mgr.drain_and_inject_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now), None)
         .await;
 
     let msgs = get_system_messages(&mgr, pid).await;
@@ -338,7 +338,8 @@ async fn test_filtered_inject_adds_prefix() {
 
 // ── drain_announces_filtered: SystemNotification prefix ─────────────────────
 
-/// `drain_announces_filtered` injects prefix on SystemNotification entries.
+/// `drain_announces_filtered` returns SystemNotification in DrainResult.system_notifications
+/// with priority prefix, NOT injected into conversation transcript.
 #[tokio::test]
 async fn test_filtered_drain_system_notification_prefix() {
     clear_global_prompt_state();
@@ -354,31 +355,41 @@ async fn test_filtered_drain_system_notification_prefix() {
         cs.push_system_notification("system urgent message".into(), NotificationPriority::Now);
     }
 
-    // drain_announces_filtered with Now predicate should inject with prefix
+    // drain_announces_filtered with Now predicate should collect notification
     let drained = mgr
         .drain_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now))
         .await;
 
-    // SystemNotification is not returned as AnnounceEvent — it's injected directly
-    // The drained list should be empty (no AnnounceEvents matched)
+    // SystemNotification is NOT returned as AnnounceEvent
     assert!(
-        drained.is_empty(),
+        drained.announces.is_empty(),
         "SystemNotification should not appear in drained AnnounceEvents"
     );
 
-    // But the system message should be injected with prefix
-    let msgs = get_system_messages(&mgr, pid).await;
-    assert_eq!(msgs.len(), 1, "system notification should be injected");
-    assert!(
-        msgs[0].contains("[紧急]"),
-        "SystemNotification must have [紧急] prefix, got: {}",
-        msgs[0]
+    // SystemNotification should be in system_notifications with prefix
+    assert_eq!(
+        drained.system_notifications.len(),
+        1,
+        "system notification should be in DrainResult.system_notifications"
     );
-    assert!(msgs[0].contains("system urgent message"));
+    assert!(
+        drained.system_notifications[0].contains("[紧急]"),
+        "SystemNotification must have [紧急] prefix, got: {}",
+        drained.system_notifications[0]
+    );
+    assert!(drained.system_notifications[0].contains("system urgent message"));
+
+    // Notification should NOT be injected into conversation transcript
+    let msgs = get_system_messages(&mgr, pid).await;
+    assert_eq!(
+        msgs.len(),
+        0,
+        "system notification should NOT be in transcript (routed outbound)"
+    );
 }
 
-/// `drain_announces_filtered` with Next predicate injects [注意] prefix
-/// on SystemNotification.
+/// `drain_announces_filtered` with Next predicate returns SystemNotification
+/// in DrainResult.system_notifications with [注意] prefix.
 #[tokio::test]
 async fn test_filtered_drain_system_notification_next_prefix() {
     clear_global_prompt_state();
@@ -393,16 +404,27 @@ async fn test_filtered_drain_system_notification_next_prefix() {
         cs.push_system_notification("next system msg".into(), NotificationPriority::Next);
     }
 
-    let _drained = mgr
+    let drained = mgr
         .drain_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Next))
         .await;
 
-    let msgs = get_system_messages(&mgr, pid).await;
-    assert_eq!(msgs.len(), 1);
+    assert_eq!(
+        drained.system_notifications.len(),
+        1,
+        "system notification should be in DrainResult.system_notifications"
+    );
     assert!(
-        msgs[0].contains("[注意]"),
+        drained.system_notifications[0].contains("[注意]"),
         "SystemNotification must have [注意] prefix, got: {}",
-        msgs[0]
+        drained.system_notifications[0]
+    );
+
+    // Should NOT be in transcript
+    let msgs = get_system_messages(&mgr, pid).await;
+    assert_eq!(
+        msgs.len(),
+        0,
+        "system notification should NOT be in transcript (routed outbound)"
     );
 }
 
@@ -425,7 +447,7 @@ async fn test_errored_status_gets_priority_prefix() {
         ChildCompletionStatus::Errored,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -456,7 +478,7 @@ async fn test_terminated_status_gets_priority_prefix() {
         ChildCompletionStatus::Terminated,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -490,7 +512,7 @@ async fn test_injected_text_format() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -610,7 +632,7 @@ async fn test_injection_order_follows_priority() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3);
@@ -626,5 +648,171 @@ async fn test_injection_order_follows_priority() {
         msgs[2].contains("[后台]"),
         "third must be Later: {}",
         msgs[2]
+    );
+}
+
+// ── SystemNotification outbound routing (Step 1.4) ─────────────────────────
+
+/// Verify that `drain_announces` correctly separates `SystemNotification`
+/// from `AnnounceEvent`: SystemNotification goes to `DrainResult.system_notifications`,
+/// AnnounceEvent goes to `DrainResult.announces`.
+#[tokio::test]
+async fn test_drain_announces_separates_notifications_from_events() {
+    clear_global_prompt_state();
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let pid = "parent-separate";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    // Push an AnnounceEvent.
+    mgr.push_announce(
+        &pid,
+        make_event(
+            "child-sep",
+            "agent-sep",
+            "result text",
+            NotificationPriority::Now,
+            ChildCompletionStatus::Completed,
+        ),
+    )
+    .await
+    .unwrap();
+
+    // Push a SystemNotification.
+    {
+        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.push_system_notification("urgent system msg".into(), NotificationPriority::Now);
+    }
+
+    let result = mgr.drain_announces(&pid).await;
+
+    // AnnounceEvent goes to announces.
+    assert_eq!(result.announces.len(), 1);
+    assert_eq!(result.announces[0].result_text, "result text");
+
+    // SystemNotification goes to system_notifications.
+    assert_eq!(result.system_notifications.len(), 1);
+    assert!(result.system_notifications[0].contains("urgent system msg"));
+}
+
+/// `drain_and_inject_announces` with gateway=None does not panic.
+/// SystemNotifications are silently dropped (warning logged).
+#[tokio::test]
+async fn test_drain_and_inject_gateway_none_no_panic() {
+    clear_global_prompt_state();
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let pid = "parent-gw-none";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    // Push a SystemNotification.
+    {
+        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.push_system_notification("test notification".into(), NotificationPriority::Next);
+    }
+
+    // Call with gateway=None — should not panic.
+    mgr.drain_and_inject_announces(&pid, None).await;
+
+    // Notification should NOT be in transcript.
+    let msgs = get_system_messages(&mgr, pid).await;
+    assert!(
+        msgs.is_empty(),
+        "system notification should NOT be in transcript when gateway=None"
+    );
+
+    // Queue should be empty (drain consumed the entry).
+    let cs = mgr.get_conversation_session(&pid).await.unwrap();
+    assert!(cs.read().await.is_queue_empty());
+}
+
+/// `drain_and_inject_announces_filtered` with gateway=None does not panic.
+#[tokio::test]
+async fn test_drain_and_inject_filtered_gateway_none_no_panic() {
+    clear_global_prompt_state();
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let pid = "parent-gw-none-filt";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    // Push a SystemNotification and an AnnounceEvent.
+    {
+        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.push_system_notification("test filtered".into(), NotificationPriority::Now);
+    }
+    mgr.push_announce(
+        &pid,
+        make_event(
+            "child-filt",
+            "agent-filt",
+            "filtered result",
+            NotificationPriority::Now,
+            ChildCompletionStatus::Completed,
+        ),
+    )
+    .await
+    .unwrap();
+
+    // Call with gateway=None.
+    mgr.drain_and_inject_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now), None)
+        .await;
+
+    // AnnounceEvent should be injected as system message.
+    let msgs = get_system_messages(&mgr, pid).await;
+    assert_eq!(msgs.len(), 1);
+    assert!(msgs[0].contains("filtered result"));
+
+    // SystemNotification should NOT be in transcript (dropped, gateway=None).
+    assert!(
+        !msgs[0].contains("test filtered"),
+        "system notification text should NOT appear in transcript"
+    );
+
+    // Queue should be empty.
+    let cs = mgr.get_conversation_session(&pid).await.unwrap();
+    assert!(cs.read().await.is_queue_empty());
+}
+
+/// Mixed queue: AnnounceEvent + SystemNotification. After drain_and_inject,
+/// only AnnounceEvent appears in transcript; SystemNotification is routed outbound.
+#[tokio::test]
+async fn test_mixed_queue_only_announce_injected() {
+    clear_global_prompt_state();
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let pid = "parent-mixed";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    // Push AnnounceEvent (Now) and SystemNotification (Now).
+    mgr.push_announce(
+        &pid,
+        make_event(
+            "child-mix",
+            "agent-mix",
+            "announce result",
+            NotificationPriority::Now,
+            ChildCompletionStatus::Completed,
+        ),
+    )
+    .await
+    .unwrap();
+    {
+        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.push_system_notification("system text".into(), NotificationPriority::Now);
+    }
+
+    mgr.drain_and_inject_announces(&pid, None).await;
+
+    // Only AnnounceEvent should be in transcript.
+    let msgs = get_system_messages(&mgr, pid).await;
+    assert_eq!(msgs.len(), 1, "only announce event should be in transcript");
+    assert!(msgs[0].contains("announce result"));
+    assert!(
+        !msgs[0].contains("system text"),
+        "system notification should NOT be in transcript"
     );
 }
