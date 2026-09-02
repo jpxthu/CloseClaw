@@ -482,6 +482,32 @@ impl Gateway {
         plugin.send(&rendered, chat_id, None, None).await?;
         Ok(())
     }
+
+    /// 通用系统通知发送接口。
+    ///
+    /// 供 Session 等模块发送纯文本系统通知（如"⏳ 正在排队..."、"正在恢复会话..."）。
+    /// 走简化出站路径（跳过 VerbosityFilter/DslParser/中间件），2 秒超时自动丢弃。
+    /// 系统通知不写入 session checkpoint（出站历史记录）。
+    pub async fn send_system_notification(&self, chat_id: &str, channel: &str, message: &str) {
+        let preview = &message[..message.len().min(50)];
+        tracing::info!(
+            chat_id = %chat_id,
+            channel = %channel,
+            message = %preview,
+            "sending system notification"
+        );
+        match send_simplified_with_timeout(self, chat_id, channel, message).await {
+            Ok(()) => {}
+            Err(e) => {
+                tracing::warn!(
+                    chat_id = %chat_id,
+                    channel = %channel,
+                    error = %e,
+                    "send_system_notification failed"
+                );
+            }
+        }
+    }
 }
 
 /// Send a simplified outbound message with a 2-second timeout.
