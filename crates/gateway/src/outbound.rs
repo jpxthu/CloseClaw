@@ -439,6 +439,7 @@ impl Gateway {
     }
 
     /// Fallback to plain-text send when render/send fails.
+    #[allow(dead_code)] // kept for test assertions; no longer called in production path
     pub(crate) async fn send_as_plain_text(
         &self,
         plugin: &Arc<dyn IMPlugin>,
