@@ -159,9 +159,13 @@ async fn test_simplified_path_skips_middleware() {
 
     // Call send_outbound_simplified directly — this is the path system
     // notifications use after Step 1.1.
-    gw.send_outbound_simplified("chat_1", "mock", "正在恢复会话...")
-        .await
-        .expect("send_outbound_simplified should succeed");
+    gw.send_outbound_simplified(
+        "chat_1",
+        "mock",
+        closeclaw_session::notifications::RESTORE_NOTIFICATION_DEFAULT_TEXT,
+    )
+    .await
+    .expect("send_outbound_simplified should succeed");
 
     // The rejecting middleware must NOT block the simplified path.
     assert_eq!(
@@ -170,7 +174,10 @@ async fn test_simplified_path_skips_middleware() {
         "simplified path should call plugin.send() despite rejecting middleware"
     );
     let text = plugin.last_send_text().expect("should have text");
-    assert_eq!(text, "正在恢复会话...");
+    assert_eq!(
+        text,
+        closeclaw_session::notifications::RESTORE_NOTIFICATION_DEFAULT_TEXT
+    );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
