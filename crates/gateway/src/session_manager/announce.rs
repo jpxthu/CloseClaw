@@ -1,20 +1,16 @@
 //! Announce pipeline: child → parent push-based completion notification.
-//!
-//! When a run-mode child session completes, `SessionManager::try_push_announce`
-//! reads the child's final assistant message, builds an `AnnounceEvent`, and
-//! pushes it onto the parent's `announce_queue`. The parent drains and injects
-//! each event as a `role="system"` message at the start of its next turn.
 
 use super::spawn::SpawnMode;
 use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
+use crate::Gateway;
 use chrono::Utc;
 use closeclaw_common::{ChildCompletionStatus, ChildSessionState};
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession, QueueEntry};
-
 use closeclaw_session::spawn::types::ChildSessionStatus;
 use closeclaw_tasks::NotificationPriority;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, warn};
 
 // ── Priority prefix helper ────────────────────────────────────────────────
@@ -35,24 +31,39 @@ fn priority_prefix(priority: &NotificationPriority) -> &'static str {
 
 /// Return type for drain functions: separates announce events from
 /// system notifications (routed via simplified outbound path).
+#[derive(Debug)]
 pub(crate) struct DrainResult {
     pub announces: Vec<AnnounceEvent>,
     pub system_notifications: Vec<String>,
+}
+
+#[cfg(test)]
+impl DrainResult {
+    /// Whether the announce list is empty.
+    pub fn is_empty(&self) -> bool {
+        self.announces.is_empty()
+    }
+    /// Number of announce events.
+    pub fn len(&self) -> usize {
+        self.announces.len()
+    }
+    /// Iterate over announce events.
+    pub fn iter(&self) -> std::slice::Iter<'_, AnnounceEvent> {
+        self.announces.iter()
+    }
+}
+
+impl std::ops::Index<usize> for DrainResult {
+    type Output = AnnounceEvent;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.announces[index]
+    }
 }
 
 // ── Queue accessors (push / drain) ─────────────────────────────────────────
 
 impl SessionManager {
     /// Push an announce event onto the parent session's in-memory queue.
-    ///
-    /// Called by `try_push_announce` (Step 1.4) after a run-mode child
-    /// session completes. The parent session drains the queue at the
-    /// start of its next turn via `drain_announces`.
-    ///
-    /// If the parent session does not exist, this logs a warning and
-    /// returns an error — the caller (typically `clear_busy_and_send` in
-    /// the gateway) should not block on announce delivery, but a missing
-    /// parent is a programming error worth surfacing.
     pub async fn push_announce(
         &self,
         parent_session_id: &str,
@@ -106,12 +117,13 @@ impl SessionManager {
         }
     }
 
-    /// Drain and inject announce events into the conversation transcript.
-    ///
-    /// Loops until the queue is empty. System notifications are currently
-    /// injected as system messages (TODO: route via simplified outbound
-    /// path in Step 1.2).
-    pub async fn drain_and_inject_announces(&self, session_id: &str) {
+    /// Drain and inject announce events. System notifications route
+    /// via simplified outbound path; announce events inject as system messages.
+    pub async fn drain_and_inject_announces(
+        &self,
+        session_id: &str,
+        gateway: Option<&Arc<Gateway>>,
+    ) {
         loop {
             let result = self.drain_announces(session_id).await;
             if result.announces.is_empty() && result.system_notifications.is_empty() {
@@ -125,10 +137,8 @@ impl SessionManager {
                 return;
             };
             inject_announces_as_system_messages(&cs, &result.announces).await;
-            // TODO(step-1.2): route via simplified outbound path
-            for text in &result.system_notifications {
-                cs.write().await.inject_system_message(text.clone());
-            }
+            self.route_system_notifications(session_id, &result.system_notifications, gateway)
+                .await;
         }
     }
 
@@ -177,13 +187,13 @@ impl SessionManager {
         }
     }
 
-    /// Drain and inject filtered announce events.
-    ///
-    /// Non-matching events stay in the queue.
+    /// Drain and inject filtered announce events. Non-matching events
+    /// stay in the queue. System notifications route via simplified outbound.
     pub async fn drain_and_inject_announces_filtered(
         &self,
         session_id: &str,
         predicate: impl Fn(&NotificationPriority) -> bool,
+        gateway: Option<&Arc<Gateway>>,
     ) {
         loop {
             let result = self
@@ -200,23 +210,63 @@ impl SessionManager {
                 return;
             };
             inject_announces_as_system_messages(&cs, &result.announces).await;
-            // TODO(step-1.2): route via simplified outbound path
-            for text in &result.system_notifications {
-                cs.write().await.inject_system_message(text.clone());
+            self.route_system_notifications(session_id, &result.system_notifications, gateway)
+                .await;
+        }
+    }
+
+    /// Route system notifications via simplified outbound path.
+    /// Falls back to warn log when gateway is None or send fails.
+    async fn route_system_notifications(
+        &self,
+        session_id: &str,
+        notifications: &[String],
+        gateway: Option<&Arc<Gateway>>,
+    ) {
+        if notifications.is_empty() {
+            return;
+        }
+        let Some(gw) = gateway else {
+            warn!(
+                session_id = %session_id,
+                count = notifications.len(),
+                "route_system_notifications: gateway unavailable, dropping notifications"
+            );
+            return;
+        };
+        let chat_id = match self.get_chat_id(session_id).await {
+            Some(id) => id,
+            None => {
+                warn!(
+                    session_id = %session_id,
+                    "route_system_notifications: chat_id not found, dropping notifications"
+                );
+                return;
+            }
+        };
+        let channel = {
+            let sessions = self.sessions.read().await;
+            sessions.get(session_id).map(|s| s.channel.clone())
+        };
+        let Some(channel) = channel else {
+            warn!(
+                session_id = %session_id,
+                "route_system_notifications: session not found, dropping notifications"
+            );
+            return;
+        };
+        for text in notifications {
+            if let Err(e) = gw.send_outbound_simplified(&chat_id, &channel, text).await {
+                warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "route_system_notifications: send failed"
+                );
             }
         }
     }
 
-    /// Drain unsent outbound pending messages for a single session and
-    /// re-deliver them through the gateway's outbound pipeline.
-    ///
-    /// Called during daemon startup for each dirty session that has
-    /// `outbound_pending` entries with `sent == false`. Strategy: better
-    /// duplicate than miss — no dedup protection.
-    /// Delivery failure is logged as a warning and does not block
-    /// processing of subsequent messages.
-    ///
-    /// Returns the number of messages successfully delivered.
+    /// Drain unsent outbound pending messages and re-deliver via gateway.
     pub async fn drain_outbound_pending_for_session(
         &self,
         session_id: &str,
@@ -386,16 +436,8 @@ impl SessionManager {
 // ── try_push_announce + private helpers ─────────────────────────────────────
 
 impl SessionManager {
-    /// Try to push an announce event from a completed child session to
-    /// its parent's in-memory queue.
-    ///
-    /// Called by `clear_busy_and_send` after a child finishes
-    /// `append_response`. Walks the children table to find the run-mode
-    /// parent, reads the child's last assistant text, and pushes a fresh
-    /// `AnnounceEvent` onto the parent's `announce_queue`.
-    ///
-    /// Errors are logged but not propagated — announce delivery is
-    /// best-effort and must not block child completion.
+    /// Push announce from completed child to parent's queue. Best-effort,
+    /// errors logged but not propagated.
     pub async fn try_push_announce(&self, child_session_id: &str, priority: NotificationPriority) {
         let Some((parent_session_id, child_agent_id)) =
             self.find_run_mode_parent(child_session_id).await
@@ -560,12 +602,8 @@ impl SessionManager {
         self.maybe_recover_yielded_session(&parent_session_id).await;
     }
 
-    /// Find the (parent_session_id, child_agent_id) of a child whose
-    /// `mode == Run` in the children table. Returns `None` for
+    /// Find run-mode parent for a child session. Returns None for
     /// non-children or session-mode children.
-    ///
-    /// The children-table lock is acquired and dropped within this
-    /// helper — we never hold it while touching any session lock.
     async fn find_run_mode_parent(&self, child_session_id: &str) -> Option<(String, String)> {
         let children = self.children.read().await;
         children
@@ -574,12 +612,7 @@ impl SessionManager {
             .map(|info| (info.parent_session_id.clone(), info.agent_id.clone()))
     }
 
-    /// Extract the concatenated `Text` blocks from the child's last
-    /// `role="assistant"` message. Returns `None` if the child has no
-    /// `ConversationSession` or no assistant message.
-    ///
-    /// The session read lock is acquired and dropped within this
-    /// helper — callers must not already hold it.
+    /// Extract concatenated Text blocks from child's last assistant message.
     async fn extract_last_assistant_text(&self, child_session_id: &str) -> Option<String> {
         let child_cs = self
             .get_conversation_session(child_session_id)
@@ -595,9 +628,7 @@ impl SessionManager {
         ConversationSession::collect_last_assistant_text(child_cs.messages())
     }
 
-    /// Check if the parent session has any remaining running run-mode
-    /// children in the SpawnTree. Returns `true` if at least one
-    /// run-mode child is still registered (i.e. not yet completed).
+    /// Check if any run-mode children are still running.
     async fn has_running_run_mode_children(&self, parent_id: &str) -> bool {
         let children = self.children.read().await;
         children
@@ -606,9 +637,7 @@ impl SessionManager {
             .any(|info| info.mode == SpawnMode::Run)
     }
 
-    /// Resolve the child session's completion status from the parent's
-    /// `child_states` map. Falls back to `Completed` if the child's
-    /// state is not found (e.g. state was already cleaned up).
+    /// Resolve child completion status from parent's child_states map.
     async fn resolve_child_completion_status(
         &self,
         parent_session_id: &str,
@@ -641,18 +670,8 @@ impl SessionManager {
         }
     }
 
-    /// Step 1.6: Auto-recovery — exit Waiting and drain pending
-    /// messages when all run-mode children have completed.
-    ///
-    /// Called after each child announce push. If the parent session
-    /// is in active Waiting state AND no run-mode children remain,
-    /// the session resumes by:
-    /// 1. Exiting Waiting state
-    /// 2. Triggering the pending-message drain loop
-    ///
-    /// The drain loop will pick up the just-pushed announce event
-    /// (already in the announce queue) along with any queued user
-    /// messages, then initiate a new LLM turn.
+    /// Auto-recovery: exit Waiting and drain pending messages when
+    /// all run-mode children have completed.
     async fn maybe_recover_yielded_session(&self, parent_id: &str) {
         // Only recover if the session is actively yielding.
         if !self.is_session_yielding(parent_id).await {
@@ -677,17 +696,7 @@ impl SessionManager {
         self.drain_pending_for_session(parent_id).await;
     }
 
-    /// Notify parent about a forcefuly terminated child session.
-    ///
-    /// Called from `stop_single_session` / `forceful_stop_session` when
-    /// a run-mode child is killed with `Forceful` mode. Sets the child's
-    /// state to `Terminated` in the parent's `child_states` and pushes
-    /// an `AnnounceEvent` with `status = Terminated`.
-    ///
-    /// If the session is not a run-mode child, or the parent session
-    /// is not found, this is a no-op. Dedup protection: if the child's
-    /// state is already terminal (`Completed`, `Errored`, `Terminated`),
-    /// the notification is skipped.
+    /// Notify parent about a forcefully terminated child session.
     pub(crate) async fn notify_child_forced_termination(&self, session_id: &str) {
         let Some(info) = self.find_child_info(session_id).await else {
             // Not a child in the tree — nothing to do.
@@ -768,14 +777,6 @@ impl SessionManager {
     }
 
     /// Notify parent about a child session that errored.
-    ///
-    /// Called from `clear_busy_and_send` when the LLM call fails for
-    /// a run-mode child session. Sets the child's state to `Errored`
-    /// in the parent's `child_states` so that `try_push_announce`
-    /// resolves the correct `ChildCompletionStatus::Errored`.
-    ///
-    /// Dedup protection: if the child's state is already terminal,
-    /// the update is skipped.
     pub(crate) async fn notify_child_error(&self, session_id: &str) {
         let Some(info) = self.find_child_info(session_id).await else {
             return;
@@ -824,7 +825,7 @@ impl SessionManager {
         }
     }
 
-    /// Find child info in the spawn tree by session ID.
+    /// Find child info in spawn tree by session ID.
     async fn find_child_info(&self, session_id: &str) -> Option<super::spawn::ChildSessionInfo> {
         let children = self.children.read().await;
         children.find_child(session_id).cloned()
@@ -846,11 +847,9 @@ impl SessionManager {
     /// but runs directly on SessionManager. Processes queued announce
     /// events first, then any pending user messages.
     pub(crate) async fn drain_pending_for_session(&self, session_id: &str) {
-        // First drain announce events and inject them as system messages.
-        self.drain_and_inject_announces(session_id).await;
-
-        // Get gateway reference for outbound sends.
         let gw = self.get_gateway_ref().await;
+        self.drain_and_inject_announces(session_id, gw.as_ref())
+            .await;
 
         // Resolve channel from session for outbound dispatch.
         let channel = {

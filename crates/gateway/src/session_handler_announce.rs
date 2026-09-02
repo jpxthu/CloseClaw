@@ -1,21 +1,4 @@
 //! Announce integration and LLM-finishing helpers for SessionMessageHandler.
-//!
-//! Extracted from `session_handler.rs` to keep the file under the
-//! 500-line project limit. This module hosts two closely related
-//! concerns that share the same call sites:
-//!
-//! 1. **Announce integration** (Step 1.5) — `maybe_push_announce` and
-//!    `drain_announce_events` wrap the two `SessionManager` methods
-//!    that let run-mode child sessions notify their parent and let
-//!    parents drain queued announces before processing the next
-//!    pending user message.
-//! 2. **LLM finishing** — `finish_llm`, `clear_busy_and_send`, and
-//!    `drain_pending_loop` are the post-LLM completion pipeline that
-//!    clears the busy flag, surfaces the response, pushes the
-//!    announce, and processes any queued pending messages. They were
-//!    co-located with the announce calls and grew large enough that
-//!    moving them together was the natural fix for the line-count
-//!    constraint.
 
 use std::sync::Arc;
 
@@ -23,6 +6,7 @@ use super::session_handler::SessionMessageHandler;
 use super::OutputTx;
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
+use crate::Gateway;
 use closeclaw_llm::resolve_anthropic_effective as resolve_anthropic_effective_shared;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
@@ -145,11 +129,6 @@ pub(super) struct TurnMetrics {
 
 impl SessionMessageHandler {
     /// Clear busy flag, send output, and drain pending messages.
-    ///
-    /// Accepts a [`StreamResult`] (returned by the streaming LLM call) or an
-    /// `LLMError`. The non-streaming `call_llm` path converts its
-    /// `UnifiedResponse` into a `StreamResult` via [`StreamResult::from`]
-    /// before calling this entry point.
     pub(super) async fn finish_llm(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
@@ -187,7 +166,14 @@ impl SessionMessageHandler {
         // (not queued), so the LLM processes them immediately. After
         // the turn completes, drain_pending_loop processes any remaining
         // queued announce events or pending messages normally.
-        Self::drain_pending_loop(session_manager, session_id, output_tx, metrics_emitter).await;
+        Self::drain_pending_loop(
+            session_manager,
+            session_id,
+            output_tx,
+            metrics_emitter,
+            gateway,
+        )
+        .await;
 
         // Step 1.3: idle→verify hook — inject verify message when session
         // becomes idle during workflow execution.
@@ -347,10 +333,9 @@ impl SessionMessageHandler {
         session_id: &str,
         output_tx: &OutputTx,
         metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        gateway: Option<&Arc<Gateway>>,
     ) {
-        // Step 1.4: drain Next/Later priority announces at turn start.
-        // Now-priority events were already drained before the LLM call.
-        Self::drain_announces_rest(session_manager, session_id).await;
+        Self::drain_announces_rest(session_manager, session_id, gateway).await;
         loop {
             // Get next pending message
             let Some(pending) = session_manager.pop_pending_message(session_id).await else {
@@ -696,9 +681,14 @@ impl SessionMessageHandler {
     pub(super) async fn drain_announces_now(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
+        gateway: Option<&Arc<Gateway>>,
     ) {
         session_manager
-            .drain_and_inject_announces_filtered(session_id, |p| *p == NotificationPriority::Now)
+            .drain_and_inject_announces_filtered(
+                session_id,
+                |p| *p == NotificationPriority::Now,
+                gateway,
+            )
             .await;
     }
 
@@ -711,6 +701,7 @@ impl SessionMessageHandler {
     pub(super) async fn drain_announces_rest(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
+        gateway: Option<&Arc<Gateway>>,
     ) {
         // Step 1.5: Push background task notifications onto the
         // unified queue before draining, so they follow the same
@@ -735,7 +726,11 @@ impl SessionMessageHandler {
         // Drain session announces (including the just-pushed task
         // notifications) with Next + Later priority.
         session_manager
-            .drain_and_inject_announces_filtered(session_id, |p| *p < NotificationPriority::Now)
+            .drain_and_inject_announces_filtered(
+                session_id,
+                |p| *p < NotificationPriority::Now,
+                gateway,
+            )
             .await;
     }
 

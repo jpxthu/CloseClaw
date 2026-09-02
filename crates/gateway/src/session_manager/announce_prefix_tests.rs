@@ -77,7 +77,7 @@ async fn test_inject_now_prefix() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1, "should inject one system message");
@@ -116,7 +116,7 @@ async fn test_inject_next_prefix() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -147,7 +147,7 @@ async fn test_inject_later_prefix() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -209,7 +209,7 @@ async fn test_inject_mixed_priority_prefixes() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3, "should inject 3 system messages");
@@ -269,7 +269,7 @@ async fn test_inject_same_level_batch_each_has_prefix() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3, "should inject 3 messages");
@@ -322,7 +322,7 @@ async fn test_filtered_inject_adds_prefix() {
     .unwrap();
 
     // Only drain Now priority
-    mgr.drain_and_inject_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now))
+    mgr.drain_and_inject_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now), None)
         .await;
 
     let msgs = get_system_messages(&mgr, pid).await;
@@ -425,7 +425,7 @@ async fn test_errored_status_gets_priority_prefix() {
         ChildCompletionStatus::Errored,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -456,7 +456,7 @@ async fn test_terminated_status_gets_priority_prefix() {
         ChildCompletionStatus::Terminated,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -490,7 +490,7 @@ async fn test_injected_text_format() {
         ChildCompletionStatus::Completed,
     );
     mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -610,7 +610,7 @@ async fn test_injection_order_follows_priority() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid).await;
+    mgr.drain_and_inject_announces(&pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3);
