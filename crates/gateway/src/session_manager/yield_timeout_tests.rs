@@ -172,18 +172,24 @@ async fn test_yield_timeout_fires_and_resumes() {
         "session should exit Waiting after timeout fires"
     );
 
-    // Timeout notification should be injected.
+    // Timeout notification should NOT be in transcript (routed outbound).
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let messages = cs.read().await.messages().to_vec();
-    let has_timeout_msg = messages.iter().any(|m| {
+    let has_timeout_in_transcript = messages.iter().any(|m| {
         m.role == "system"
             && m.content_blocks.iter().any(
                 |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("超时")),
             )
     });
     assert!(
-        has_timeout_msg,
-        "timeout notification should be injected into conversation"
+        !has_timeout_in_transcript,
+        "timeout notification should NOT be in transcript (routed outbound)"
+    );
+
+    // Queue should be empty (drain consumed the notification).
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
     );
 }
 
@@ -234,10 +240,10 @@ async fn test_yield_timeout_default_value_in_notification() {
         .await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // Check notification mentions the timeout value in the new format.
+    // Notification should NOT be in transcript (routed outbound).
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let messages = cs.read().await.messages().to_vec();
-    let has_timeout_value = messages.iter().any(|m| {
+    let has_timeout_in_transcript = messages.iter().any(|m| {
         m.role == "system"
             && m.content_blocks.iter().any(|b| {
                 matches!(
@@ -248,8 +254,14 @@ async fn test_yield_timeout_default_value_in_notification() {
             })
     });
     assert!(
-        has_timeout_value,
-        "timeout notification should mention the actual timeout value (1s)"
+        !has_timeout_in_transcript,
+        "timeout notification should NOT be in transcript (routed outbound)"
+    );
+
+    // Verify the notification was queued and drained (queue is empty).
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
     );
 }
 
@@ -420,7 +432,7 @@ async fn test_yield_two_stage_timeout_sequence() {
         "session should exit Waiting after hard timeout fires"
     );
 
-    // Timeout notification should be present.
+    // Timeout notification should NOT be in transcript (routed outbound).
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let messages = cs.read().await.messages().to_vec();
     let has_warning = messages.iter().any(|m| {
@@ -437,9 +449,18 @@ async fn test_yield_two_stage_timeout_sequence() {
     });
     assert!(
         !has_warning,
-        "warning notification should NOT be present (timeout <= 60s)"
+        "warning notification should NOT be in transcript (routed outbound)"
     );
-    assert!(has_timeout, "timeout notification should be present");
+    assert!(
+        !has_timeout,
+        "timeout notification should NOT be in transcript (routed outbound)"
+    );
+
+    // Queue should be empty after drain.
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
+    );
 }
 
 // ── 9. Warning disabled (very large) — only hard timeout fires ──────────────
@@ -487,8 +508,20 @@ async fn test_yield_warning_disabled_only_hard_timeout_fires() {
                 |b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")),
             )
     });
-    assert!(!has_warning, "warning notification should NOT be present");
-    assert!(has_timeout, "timeout notification should be present");
+    assert!(
+        !has_warning,
+        "warning notification should NOT be in transcript"
+    );
+    assert!(
+        !has_timeout,
+        "timeout notification should NOT be in transcript (routed outbound)"
+    );
+
+    // Queue should be empty after drain.
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
+    );
 }
 
 // ── 9b. Legacy mode (None, None) fires exactly one warning ─────────────────
@@ -797,8 +830,7 @@ async fn test_yield_timeout_notification_goes_through_queue() {
     // Wait for timeout to fire and drain to complete.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // After drain, the notification should be in the transcript as a
-    // system message (not in the queue).
+    // After drain, the notification should be routed outbound (NOT in transcript).
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let messages = cs.read().await.messages().to_vec();
     let has_timeout_in_transcript = messages.iter().any(|m| {
@@ -808,8 +840,8 @@ async fn test_yield_timeout_notification_goes_through_queue() {
             )
     });
     assert!(
-        has_timeout_in_transcript,
-        "timeout notification should appear in transcript after queue drain"
+        !has_timeout_in_transcript,
+        "timeout notification should NOT be in transcript (routed outbound)"
     );
 
     // Queue should be empty after drain.

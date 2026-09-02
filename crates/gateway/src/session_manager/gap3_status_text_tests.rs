@@ -99,7 +99,7 @@ async fn test_status_text_completed() {
     );
     mgr.push_announce(&parent_id, event).await.unwrap();
 
-    mgr.drain_and_inject_announces(&parent_id).await;
+    mgr.drain_and_inject_announces(&parent_id, None).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let msgs = cs.read().await.messages().to_vec();
@@ -147,7 +147,7 @@ async fn test_status_text_errored() {
     );
     mgr.push_announce(&parent_id, event).await.unwrap();
 
-    mgr.drain_and_inject_announces(&parent_id).await;
+    mgr.drain_and_inject_announces(&parent_id, None).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let msgs = cs.read().await.messages().to_vec();
@@ -184,7 +184,7 @@ async fn test_status_text_terminated() {
     );
     mgr.push_announce(&parent_id, event).await.unwrap();
 
-    mgr.drain_and_inject_announces(&parent_id).await;
+    mgr.drain_and_inject_announces(&parent_id, None).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let msgs = cs.read().await.messages().to_vec();
@@ -232,7 +232,7 @@ async fn test_status_text_mixed_statuses() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&parent_id).await;
+    mgr.drain_and_inject_announces(&parent_id, None).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let msgs = cs.read().await.messages().to_vec();
@@ -279,7 +279,7 @@ async fn test_status_text_no_cross_contamination() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&parent_id).await;
+    mgr.drain_and_inject_announces(&parent_id, None).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let msgs = cs.read().await.messages().to_vec();
@@ -331,10 +331,10 @@ async fn test_status_text_errored_via_direct_push() {
     );
 
     // Push it back and inject via drain_and_inject.
-    mgr.push_announce(&parent_id, drained.into_iter().next().unwrap())
+    mgr.push_announce(&parent_id, drained.announces.into_iter().next().unwrap())
         .await
         .unwrap();
-    mgr.drain_and_inject_announces(&parent_id).await;
+    mgr.drain_and_inject_announces(&parent_id, None).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
     let msgs = cs.read().await.messages().to_vec();

@@ -210,7 +210,7 @@ pub(super) async fn inject_events_and_return_messages(
             .await
             .expect("parent ConversationSession should exist");
         let mut cs = cs.write().await;
-        for ev in &drained {
+        for ev in &drained.announces {
             cs.inject_system_message(format!(
                 "[子 agent {}] 任务已完成：\n{}",
                 ev.child_agent_id, ev.result_text

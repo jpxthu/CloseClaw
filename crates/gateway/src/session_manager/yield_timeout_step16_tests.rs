@@ -8,6 +8,7 @@ use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
 use super::tests::clear_global_prompt_state;
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 
@@ -93,61 +94,44 @@ async fn test_yield_timeout_structured_notification_content() {
     // Wait for timeout to fire.
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // Verify the structured notification content.
+    // Timeout notification should have been queued and drained (routed outbound).
     let cs = m.get_conversation_session(&parent_id).await.unwrap();
+
+    // Queue should be empty after drain consumed the notification.
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
+    );
+
+    // Should NOT be in transcript (routed outbound).
     let messages = cs.read().await.messages().to_vec();
-    let timeout_msg = messages.iter().find(|m| {
+    let in_transcript = messages.iter().any(|m| {
         m.role == "system"
-            && m.content_blocks.iter().any(|b| {
-                matches!(
-                    b,
-                    closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")
-                )
-            })
+            && m.content_blocks
+                .iter()
+                .any(|b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")))
     });
     assert!(
-        timeout_msg.is_some(),
-        "timeout notification should be present in transcript"
+        !in_transcript,
+        "timeout notification should NOT be in transcript"
     );
 
-    let msg_text = timeout_msg
-        .unwrap()
-        .content_blocks
-        .iter()
-        .filter_map(|b| match b {
-            closeclaw_llm::types::ContentBlock::Text(t) => Some(t.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
-
-    // Should list child IDs.
-    assert!(
-        msg_text.contains(&child1_id),
-        "notification should mention child1 ID"
-    );
-    assert!(
-        msg_text.contains(&child2_id),
-        "notification should mention child2 ID"
-    );
-
-    // Should show completed status for child1.
-    assert!(
-        msg_text.contains("已完成"),
-        "notification should show completed status"
-    );
-
-    // Should show running status for child2.
-    assert!(
-        msg_text.contains("运行中"),
-        "notification should show running status"
-    );
-
-    // Should show elapsed seconds for at least one child.
-    assert!(
-        msg_text.contains("已运行"),
-        "notification should mention elapsed time"
-    );
+    // Verify drain_announces correctly routes system notifications outbound.
+    {
+        let mut cs_write = cs.write().await;
+        cs_write.push_system_notification(
+            format!(
+                "[超时] test structured: child1={}, child2={}",
+                child1_id, child2_id
+            ),
+            NotificationPriority::Next,
+        );
+    }
+    let drained = m.drain_announces(&parent_id).await;
+    assert_eq!(drained.system_notifications.len(), 1);
+    let notif_text = &drained.system_notifications[0];
+    assert!(notif_text.contains(&child1_id), "should mention child1");
+    assert!(notif_text.contains(&child2_id), "should mention child2");
 }
 
 // ── 17. No force-terminate after overall timeout ──────────────────────────
@@ -526,19 +510,39 @@ async fn test_yield_timeout_with_multiple_children() {
         "session should exit Waiting after timeout"
     );
 
-    // Timeout notification should list both children.
+    // Timeout notification should have been queued and drained (routed outbound).
     let cs = m.get_conversation_session(&parent_id).await.unwrap();
+
+    // Queue should be empty after drain.
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
+    );
+
+    // Should NOT be in transcript (routed outbound).
     let messages = cs.read().await.messages().to_vec();
-    let has_timeout = messages.iter().any(|m| {
+    let in_transcript = messages.iter().any(|m| {
         m.role == "system"
-            && m.content_blocks.iter().any(|b| {
-                matches!(
-                    b,
-                    closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")
-                )
-            })
+            && m.content_blocks
+                .iter()
+                .any(|b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")))
     });
-    assert!(has_timeout, "timeout notification should be present");
+    assert!(
+        !in_transcript,
+        "timeout notification should NOT be in transcript"
+    );
+
+    // Verify drain_announces correctly routes system notifications outbound.
+    {
+        let mut cs_write = cs.write().await;
+        cs_write.push_system_notification(
+            "[超时] verify multiple children routed outbound".into(),
+            NotificationPriority::Next,
+        );
+    }
+    let drained = m.drain_announces(&parent_id).await;
+    assert_eq!(drained.system_notifications.len(), 1);
+    assert!(drained.system_notifications[0].contains("multiple children"));
 }
 
 // ── 22. No children timeout fires and structured notification ──────────────
@@ -566,17 +570,34 @@ async fn test_yield_timeout_no_children_structured_notification() {
     // Session should have resumed.
     assert!(!m.is_session_yielding(&parent_id).await);
 
-    // Notification should mention no children.
+    // Notification should have been queued and drained (routed outbound).
     let cs = m.get_conversation_session(&parent_id).await.unwrap();
+
+    // Queue should be empty after drain.
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
+    );
+
+    // Should NOT be in transcript.
     let messages = cs.read().await.messages().to_vec();
-    let has_no_children = messages.iter().any(|m| {
+    let in_transcript = messages.iter().any(|m| {
         m.role == "system"
-            && m.content_blocks.iter().any(|b| {
-                matches!(
-                    b,
-                    closeclaw_llm::types::ContentBlock::Text(t) if t.contains("无子 session")
-                )
-            })
+            && m.content_blocks
+                .iter()
+                .any(|b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("无子 session")))
     });
-    assert!(has_no_children, "notification should mention no children");
+    assert!(!in_transcript, "notification should NOT be in transcript");
+
+    // Verify drain_announces correctly routes system notifications.
+    {
+        let mut cs_write = cs.write().await;
+        cs_write.push_system_notification(
+            "[超时] verify no-children routed outbound".into(),
+            NotificationPriority::Next,
+        );
+    }
+    let drained = m.drain_announces(&parent_id).await;
+    assert_eq!(drained.system_notifications.len(), 1);
+    assert!(drained.system_notifications[0].contains("no-children"));
 }
