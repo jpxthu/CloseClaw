@@ -614,7 +614,7 @@ async fn test_batch_send_success_no_notification() {
 /// Pre-flight middleware rejection does NOT send user notification
 /// (batch path — per design doc §出站中间件 contract) and returns Ok.
 #[tokio::test]
-async fn test_preflight_rejection_sends_notification() {
+async fn test_preflight_rejection_does_not_notify_user() {
     use closeclaw_common::OutboundMiddleware;
 
     struct RejectAll;
