@@ -209,9 +209,9 @@
   },
   {
     "path": "docs/design/gateway/outbound-flow.md",
-    "commit": "8420cc2768090ff5e38aa8494dc88890e0ebb724",
-    "commit_time": "2026-09-02T13:14:54+08:00",
-    "confirmed_time": "2026-09-02T13:34:25.362598+08:00",
+    "commit": "310ef3d4e0f8f622ec0fd3c40fe43ec20ce0f7cc",
+    "commit_time": "2026-09-01T04:08:07+08:00",
+    "confirmed_time": "2026-09-01T07:10:41.708537+08:00",
     "comment": "",
     "blocked_reason": ""
   },
