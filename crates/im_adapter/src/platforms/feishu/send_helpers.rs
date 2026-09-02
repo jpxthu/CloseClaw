@@ -9,6 +9,7 @@
 //! HTTP token management and direct API calls are no longer used for sending.
 
 use super::adapter::FeishuAdapter;
+use super::outbound_media::prepare_outbound_local_media;
 use crate::error::AdapterError;
 
 use tokio::process::Command;
@@ -256,13 +257,39 @@ impl FeishuAdapter {
     /// Send a media file (image or file) via lark-cli.
     ///
     /// Common implementation for `send_image` and `send_file`.
-    /// Routes to `--user-id` for P2P (`ou_xxx`) or `--chat-id` for group chats (`oc_xxx`).
+    /// Validates the file path against the outbound whitelist, copies it
+    /// to the outbound directory, and sends the outbound copy.
+    /// Returns `Ok(())` and skips sending when:
+    /// - `file_path` is an HTTP(S) URL (already platform-hosted)
+    /// - File does not exist
+    /// - Path fails whitelist validation
+    /// - Copy to outbound fails
+    ///   (warning logged in all skip cases)
     async fn send_media_file(
         &self,
         receive_id: &str,
         media_flag: &str,
         file_path: &str,
     ) -> Result<(), AdapterError> {
+        let media_store = &self.media_store;
+        let workspace_dir = self.workspace_dir.as_deref();
+        let outbound_path = match prepare_outbound_local_media(
+            file_path,
+            workspace_dir,
+            media_store,
+        )
+        .await
+        {
+            Some(p) => p,
+            None => {
+                tracing::warn!(
+                    file_path = %file_path,
+                    "Skipping media send: not a local file, does not exist, or failed whitelist validation"
+                );
+                return Ok(());
+            }
+        };
+        let path_str = outbound_path.to_string_lossy().to_string();
         let id_flag = if receive_id.starts_with("ou_") {
             "--user-id"
         } else {
@@ -274,7 +301,7 @@ impl FeishuAdapter {
             id_flag,
             receive_id,
             media_flag,
-            file_path,
+            &path_str,
             "--as",
             "bot",
         ];
