@@ -8,11 +8,11 @@
 
 ### 执行触发
 
-plan 写完后，User 通过以下方式触发执行：
+plan 写完后，User 通过两个等价的途径进入执行——斜杠指令 `/execute` 或执行触发工具。两者入参与执行落点一致，权威语义见需求 [mode F4](../../requirements/mode.md)。进入执行本身不属于需 Owner 审批的危险操作：它只把会话推进到执行态，不触达系统边界（本工具与审批链的分界见下文「执行触发工具」）。
 
 **斜杠指令**：通过 `/execute <plan名称> [附加指令]` 命令触发执行。`plan名称` 为必选参数（即 plan 文件 identifier，命名见 [plan-mode.md](plan-mode.md)），指定要执行的 plan；`附加指令` 可选，空格后的内容作为一条用户消息注入 Auto Mode 初始对话。若当前处于 Plan Mode 则先退出。
 
-**自然语言**：Agent 调用执行触发工具，参数与 `/execute` 相同（`plan名称` + 可选附加指令）。该工具自动发起 User 确认交互——支持交互的通道弹出确认卡片，不支持的通道以自然语言让 User 回复确认。确认后进入 Auto Mode 开始执行。
+**自然语言**：Agent 调用执行触发工具（权威定义见下节）。执行触发工具是模式的统一入口，供自然语言路径调用，参数与 `/execute` 相同（`plan名称` + 可选附加指令）。该工具自动向 User 发起确认交互——支持交互的通道弹出确认卡片，不支持的通道以自然语言让 User 回复确认。确认后进入 Auto Mode 开始执行。
 
 **执行路径**：
 
@@ -20,6 +20,15 @@ plan 写完后，User 通过以下方式触发执行：
 - **新 session 执行**：创建新 session，注入 plan 文件内容作为初始上下文，新 session 直接进入 Auto Mode
 
 同一 plan 的并发执行不做系统级锁定，由 User 自行管理。
+
+#### 执行触发工具（权威定义）
+
+执行触发工具是模式域在进入 Auto Mode 执行时提供的入口能力，等价于 `/execute` 命令——它使自然语言成为合法的执行启动途径。本工具的全部行为在此唯一定义，`/execute` 斜杠指令与它是同一执行语义的两个触发通道：
+
+- **触发通道**：自然语言触发——Agent 调用本工具发起执行；斜杠 `/execute` 由 Gateway 直接处理，不经由此工具调用，二者结果等价。
+- **入参**：必选 `plan名称`（plan 文件 identifier，命名见 [plan-mode.md](plan-mode.md)）+ 可选附加指令。
+- **执行效应**：确认后会话进入 Auto Mode 开始执行（若处于 Plan Mode 则先退出），随后按下文「进度管理」与「数据流」推进 plan 步骤。
+- **启动确认 ≠ 审批**：本工具在启动执行时请求 User 确认，确认对象是「是否开始实施（切换/进入 Auto Mode）」，不是对某项具体系统调用的审批，也不写入审批记录。执行过程中触达系统边界的危险操作是否需 Owner 审批，由 Permission 审批链独立判定（详见 [permission 审批工作流](../permission/approval-workflow.md)）——两者确认/审批对象、记录与通道不同，互不混淆。
 
 ### Auto Mode 行为原则
 
@@ -36,7 +45,7 @@ Agent 在 Auto Mode 下以连续自主方式执行 plan 步骤。行为原则：
 
 ### 进度管理
 
-执行进度由 Agent 自行管理——Agent 在 plan 文件中以约定的格式标记步骤完成状态。系统不介入进度判断，Agent 是步骤完成与否的唯一判断者。
+执行进度由 Agent 自行管理——Agent 在 plan 文件中以约定的格式标记步骤完成状态。系统不介入进度判断，Agent 是步骤完成与否的唯一判断者。**进度推进不依赖任何系统级的「进度工具」**——Agent 直接用写入 plan 文件的方式标记步骤状态，不存在逐步骤触发的系统介入或审批栅栏（步骤状态流转本身不产生审批；Auto Mode 下是否需审批只由单步操作是否触达系统边界决定，见 [permission 审批工作流](../permission/approval-workflow.md)）。
 
 - Agent 按 plan 文件的 Tasks 节顺序执行步骤
 - Tasks 节每个步骤以序号（Tasks 节顺序）与标题共同标识；User 可通过 /execute 附加指令或自然语言以此标识指定步骤或步骤子集
@@ -178,7 +187,7 @@ Auto Mode 下触发审批的危险操作会生成审计日志，User 可查看�
 | 模块 | 调用关系 |
 |------|---------|
 | Agent | spawn executor 子 Agent |
-| Session | auto_mode 标记持久化、compaction 保护 |
+| Session | 会话模式（normal/plan/auto）持久化、compaction 保护 |
 | System Prompt | 注入 Auto Mode 指令 |
 | Permission | Auto Mode 下运行时审查危险操作 |
 | Tools | 执行触发工具注册和调用 |
