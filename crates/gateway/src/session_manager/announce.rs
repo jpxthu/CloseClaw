@@ -39,13 +39,13 @@ pub(crate) struct DrainResult {
 
 #[cfg(test)]
 impl DrainResult {
-    /// Whether the announce list is empty.
+    /// Whether both announces and system_notifications are empty.
     pub fn is_empty(&self) -> bool {
-        self.announces.is_empty()
+        self.announces.is_empty() && self.system_notifications.is_empty()
     }
     /// Number of announce events.
     pub fn len(&self) -> usize {
-        self.announces.len()
+        self.announces.len() + self.system_notifications.len()
     }
     /// Iterate over announce events.
     pub fn iter(&self) -> std::slice::Iter<'_, AnnounceEvent> {
