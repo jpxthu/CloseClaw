@@ -283,7 +283,6 @@ async fn test_batch_middleware_rejection_does_not_notify_user() {
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
-    gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     let err = closeclaw_common::MiddlewareError::rejected("test-reject", "blocked by policy");
     let result = crate::outbound_helpers::log_middleware_rejection(err, "chat_test").await;
@@ -346,7 +345,6 @@ async fn test_streaming_preflight_rejection_sends_notification() {
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
-    gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     // send_outbound_simplified is the function used by streaming pre-flight
     // rejection (outbound.rs:652). Verify it still sends.

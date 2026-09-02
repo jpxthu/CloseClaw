@@ -611,8 +611,8 @@ async fn test_batch_send_success_no_notification() {
 // 5. Regression: pre-flight rejection and stream error paths
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Pre-flight middleware rejection still sends rejection notification
-/// and returns Ok (regression guard).
+/// Pre-flight middleware rejection does NOT send user notification
+/// (batch path — per design doc §出站中间件 contract) and returns Ok.
 #[tokio::test]
 async fn test_preflight_rejection_sends_notification() {
     use closeclaw_common::OutboundMiddleware;
