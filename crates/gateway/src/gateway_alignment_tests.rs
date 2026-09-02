@@ -3,7 +3,8 @@
 //! Test dimensions:
 //! 1. System notifications use simplified outbound path
 //! 2. Inbound queue full rejection emits debug event
-//! 3. Non-streaming middleware rejection sends user notification
+//! 3. Non-streaming middleware rejection does NOT send user notification
+//!    (per design doc §出站中间件 execution contract)
 //! 4. Post-send checkpoint persistence works, no pre-send checkpoint
 
 use crate::inbound_queue::QueuedInbound;
@@ -261,14 +262,16 @@ async fn test_queue_full_rejection_emits_debug_event() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 3. Non-Streaming Middleware Rejection Sends User Notification
+// 3. Non-Streaming Middleware Rejection Does NOT Send User Notification
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// When `log_middleware_rejection` is called (non-streaming path), it should
-/// send a user notification via `send_outbound_simplified` with the standard
-/// rejection message, consistent with the streaming path.
+/// When `log_middleware_rejection` is called (non-streaming/batch path),
+/// it should NOT send a user notification via `send_outbound_simplified`.
+/// Per design doc §出站中间件 execution contract: when any middleware returns
+/// rejection the message is not sent and an alert log is recorded — but no
+/// user notification is sent (the user simply receives nothing).
 #[tokio::test]
-async fn test_middleware_rejection_sends_user_notification() {
+async fn test_batch_middleware_rejection_does_not_notify_user() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -280,29 +283,26 @@ async fn test_middleware_rejection_sends_user_notification() {
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
-    // Register a rejecting middleware — it should NOT affect the
-    // simplified path used by log_middleware_rejection.
-    gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     let err = closeclaw_common::MiddlewareError::rejected("test-reject", "blocked by policy");
-    crate::outbound_helpers::log_middleware_rejection(&gw, err, "chat_test", "mock")
-        .await
-        .expect("log_middleware_rejection should not error");
+    let result = crate::outbound_helpers::log_middleware_rejection(err, "chat_test").await;
+    assert!(
+        result.is_ok(),
+        "log_middleware_rejection should always return Ok"
+    );
 
-    // The plugin should have received exactly one send call with the
-    // standard rejection notification text.
-    assert_eq!(plugin.send_count(), 1, "notification should be sent once");
-    let text = plugin.last_send_text().expect("should have text");
+    // Batch middleware rejection must NOT send any notification to the user.
     assert_eq!(
-        text, "Your message was not sent due to an outbound policy restriction.",
-        "rejection notification text mismatch"
+        plugin.send_count(),
+        0,
+        "batch middleware rejection must not send user notification"
     );
 }
 
 /// When `log_middleware_rejection` receives a `MiddlewareFailed` error
-/// (not `Rejected`), it should still send the same user notification.
+/// (not `Rejected`), it should also NOT send any user notification.
 #[tokio::test]
-async fn test_middleware_failed_sends_user_notification() {
+async fn test_batch_middleware_failed_does_not_notify_user() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -316,73 +316,24 @@ async fn test_middleware_failed_sends_user_notification() {
         .await;
 
     let err = closeclaw_common::MiddlewareError::middleware_failed("buggy-mw", "mock failure");
-    crate::outbound_helpers::log_middleware_rejection(&gw, err, "chat_test", "mock")
-        .await
-        .expect("log_middleware_rejection should not error");
+    let result = crate::outbound_helpers::log_middleware_rejection(err, "chat_test").await;
+    assert!(
+        result.is_ok(),
+        "log_middleware_rejection should always return Ok"
+    );
 
-    assert_eq!(plugin.send_count(), 1, "notification should be sent once");
-    let text = plugin.last_send_text().expect("should have text");
     assert_eq!(
-        text, "Your message was not sent due to an outbound policy restriction.",
-        "rejection notification text mismatch for MiddlewareFailed"
+        plugin.send_count(),
+        0,
+        "batch middleware failure must not send user notification"
     );
 }
 
-/// When the simplified-path plugin send fails, log_middleware_rejection
-/// still returns Ok(()) — notification failure must not propagate.
+/// Streaming pre-flight middleware rejection still sends a user notification
+/// via `send_outbound_simplified` (per design doc §流式模式 data flow step 1).
+/// This test verifies the streaming path is NOT affected by the batch change.
 #[tokio::test]
-async fn test_middleware_rejection_send_failure_no_panic() {
-    use closeclaw_common::im_plugin::StreamingOutput;
-    use closeclaw_common::processor::StreamEvent;
-
-    struct FailingPlugin;
-
-    #[async_trait]
-    impl IMPlugin for FailingPlugin {
-        fn platform(&self) -> &str {
-            "mock"
-        }
-        async fn parse_inbound(
-            &self,
-            _payload: &[u8],
-        ) -> Result<Option<NormalizedMessage>, AdapterError> {
-            Ok(None)
-        }
-        fn render(
-            &self,
-            content_blocks: &[ContentBlock],
-            _dsl_result: Option<&DslParseResult>,
-        ) -> RenderedOutput {
-            let text = content_blocks
-                .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Text(t) => Some(t.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("");
-            RenderedOutput {
-                msg_type: "text".into(),
-                payload: serde_json::json!({"content": {"text": text}}),
-            }
-        }
-        async fn send(
-            &self,
-            _output: &RenderedOutput,
-            _peer_id: &str,
-            _thread_id: Option<&str>,
-            _reply_ref: Option<&str>,
-        ) -> Result<(), AdapterError> {
-            Err(AdapterError::SendFailed("mock failure".into()))
-        }
-        fn handle_stream_event(&self, _event: StreamEvent) -> StreamingOutput {
-            StreamingOutput::default()
-        }
-        fn flush_stream(&self) -> StreamingOutput {
-            StreamingOutput::default()
-        }
-    }
-
+async fn test_streaming_preflight_rejection_sends_notification() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -391,13 +342,61 @@ async fn test_middleware_rejection_send_failure_no_panic() {
         ReasoningLevel::default(),
     ));
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    gw.register_plugin(Arc::new(FailingPlugin)).await;
+    let plugin = Arc::new(CaptureSendPlugin::new("mock"));
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
 
-    let err = closeclaw_common::MiddlewareError::rejected("mw", "test");
-    let result =
-        crate::outbound_helpers::log_middleware_rejection(&gw, err, "chat_test", "mock").await;
-    assert!(
-        result.is_ok(),
-        "log_middleware_rejection should return Ok even when send fails"
+    // send_outbound_simplified is the function used by streaming pre-flight
+    // rejection (outbound.rs:652). Verify it still sends.
+    gw.send_outbound_simplified(
+        "chat_test",
+        "mock",
+        "Your message was not sent due to an outbound policy restriction.",
+    )
+    .await
+    .expect("send_outbound_simplified should succeed");
+
+    assert_eq!(
+        plugin.send_count(),
+        1,
+        "streaming pre-flight rejection must send user notification"
+    );
+    let text = plugin.last_send_text().expect("should have text");
+    assert_eq!(
+        text, "Your message was not sent due to an outbound policy restriction.",
+        "streaming pre-flight rejection notification text mismatch"
+    );
+}
+
+/// Batch send failure (`notify_batch_send_failure`) still sends the
+/// "⚠️ 回复发送失败" notification via simplified path (per design doc
+/// §批量出错降级). This is a different scenario from middleware rejection.
+#[tokio::test]
+async fn test_batch_send_failure_notifies_user() {
+    let config = make_config();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let plugin = Arc::new(CaptureSendPlugin::new("mock"));
+    gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
+        .await;
+
+    let send_error =
+        closeclaw_common::im_plugin::AdapterError::SendFailed("connection refused".into());
+    crate::outbound_helpers::notify_batch_send_failure(&gw, "mock", "chat_test", send_error).await;
+
+    assert_eq!(
+        plugin.send_count(),
+        1,
+        "batch send failure must send user notification"
+    );
+    let text = plugin.last_send_text().expect("should have text");
+    assert_eq!(
+        text, "⚠️ 回复发送失败：消息未能送达",
+        "batch send failure notification text mismatch"
     );
 }

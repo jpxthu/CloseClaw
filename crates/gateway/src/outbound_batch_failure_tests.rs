@@ -411,23 +411,18 @@ async fn test_middleware_rejection_still_works() {
         .send_outbound("s9", "mock", "should be rejected", vec![], None, None)
         .await;
 
-    // Middleware rejection returns Ok(()) after sending notification.
+    // Middleware rejection returns Ok(()) without sending notification.
     assert!(
         result.is_ok(),
         "middleware rejection should return Ok, got {:?}",
         result
     );
 
-    // The plugin should have received exactly one send: the rejection notification.
+    // Batch middleware rejection must NOT send any notification to the user.
     assert_eq!(
         mock.send_count(),
-        1,
-        "plugin should receive 1 send (rejection notification)"
-    );
-    let text = mock.last_sent_text().expect("should have sent text");
-    assert_eq!(
-        text, "Your message was not sent due to an outbound policy restriction.",
-        "rejection notification text mismatch"
+        0,
+        "batch middleware rejection must not send user notification"
     );
 }
 

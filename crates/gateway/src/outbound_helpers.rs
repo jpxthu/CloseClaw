@@ -81,15 +81,17 @@ impl StreamState {
     }
 }
 
-/// Log a middleware chain error and send a rejection notification to the
-/// user via the simplified path (skips VerbosityFilter/DslParser/middleware).
-/// Returns `Ok(())` so the caller can discard the message without
+/// Log a middleware chain error when a message is rejected or a middleware
+/// fails. Returns `Ok(())` so the caller can discard the message without
 /// propagating the error.
+///
+/// Per design doc §出站中间件 execution contract: when any middleware returns
+/// rejection the message is not sent and an alert log is recorded.
+/// Unlike the streaming pre-flight path, batch mode does NOT send a user
+/// notification on middleware rejection (the user simply receives nothing).
 pub(crate) async fn log_middleware_rejection(
-    gateway: &Gateway,
     e: closeclaw_common::MiddlewareError,
     chat_id: &str,
-    channel: &str,
 ) -> Result<(), GatewayError> {
     match &e {
         closeclaw_common::MiddlewareError::Rejected { name, reason } => {
@@ -108,16 +110,6 @@ pub(crate) async fn log_middleware_rejection(
             );
         }
     }
-    // Send a rejection notification to the user via simplified path
-    // (skips middleware to avoid re-rejection), consistent with the
-    // streaming outbound path.
-    let _ = gateway
-        .send_outbound_simplified(
-            chat_id,
-            channel,
-            "Your message was not sent due to an outbound policy restriction.",
-        )
-        .await;
     Ok(())
 }
 
@@ -460,7 +452,7 @@ impl Gateway {
                 closeclaw_processor_chain::run_middleware_chain(&middlewares, &mctx, &rendered)
                     .await
             {
-                return log_middleware_rejection(self, e, chat_id, channel).await;
+                return log_middleware_rejection(e, chat_id).await;
             }
         }
         plugin.send(&rendered, chat_id, None, None).await?;
