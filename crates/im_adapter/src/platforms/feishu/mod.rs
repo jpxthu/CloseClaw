@@ -60,7 +60,7 @@ mod trace_id_tests;
 mod try_resolve_media_path_tests;
 
 use self::cardkit_streaming::CardkitStreamingRenderer;
-use self::outbound_media::{copy_to_outbound, upload_file, upload_image, validate_outbound_path};
+use self::outbound_media::{prepare_outbound_local_media, upload_file, upload_image};
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
 use crate::normalized::{add_code_block_language_hint, normalize_urls};
@@ -558,7 +558,9 @@ impl FeishuPlugin {
             None => return,
         };
         let media_store = &self.adapter.media_store;
-        let outbound = match self.prepare_outbound_media(img_key, media_store).await {
+        let workspace_dir = self.adapter.workspace_dir.as_deref();
+        let outbound = match prepare_outbound_local_media(img_key, workspace_dir, media_store).await
+        {
             Some(p) => p,
             None => return,
         };
@@ -579,10 +581,12 @@ impl FeishuPlugin {
             None => return,
         };
         let media_store = &self.adapter.media_store;
-        let outbound = match self.prepare_outbound_media(file_token, media_store).await {
-            Some(p) => p,
-            None => return,
-        };
+        let workspace_dir = self.adapter.workspace_dir.as_deref();
+        let outbound =
+            match prepare_outbound_local_media(file_token, workspace_dir, media_store).await {
+                Some(p) => p,
+                None => return,
+            };
         let filename = outbound
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
@@ -595,68 +599,6 @@ impl FeishuPlugin {
             }
             Err(e) => warn!(error = %e, "Failed to upload file to Feishu"),
         }
-    }
-
-    /// Validate, copy to outbound, and return the outbound path for upload.
-    ///
-    /// Returns `Some(outbound_path)` on success, `None` if the reference
-    /// is an HTTP URL, doesn't exist, or fails validation.
-    async fn prepare_outbound_media(
-        &self,
-        reference: &str,
-        media_store: &MediaStore,
-    ) -> Option<std::path::PathBuf> {
-        let path = self.try_resolve_media_path(reference, media_store).await?;
-        match copy_to_outbound(&path, media_store).await {
-            Ok(result) => Some(result.outbound_path),
-            Err(e) => {
-                warn!(source = %path.display(), error = %e, "Failed to copy media to outbound");
-                None
-            }
-        }
-    }
-
-    /// Try to resolve a media reference string to a local path.
-    ///
-    /// Returns `Some(path)` if the string is a local file path that exists
-    /// and passes outbound validation. Returns `None` for HTTP URLs or
-    /// unresolvable references.
-    ///
-    /// When `reference` is a relative path, it is resolved against
-    /// `workspace_dir` before validation.
-    async fn try_resolve_media_path(
-        &self,
-        reference: &str,
-        media_store: &MediaStore,
-    ) -> Option<std::path::PathBuf> {
-        // Skip HTTP/HTTPS URLs — they're already Feishu-hosted.
-        if reference.starts_with("http://") || reference.starts_with("https://") {
-            return None;
-        }
-
-        let raw_path = std::path::PathBuf::from(reference);
-
-        // Resolve relative paths against workspace_dir.
-        let path = if raw_path.is_relative() {
-            if let Some(ref ws) = self.adapter.workspace_dir {
-                ws.join(&raw_path)
-            } else {
-                raw_path
-            }
-        } else {
-            raw_path
-        };
-
-        if !path.exists() {
-            return None;
-        }
-
-        // Validate against whitelist (media store + workspace).
-        let media_dir = media_store.storage_dir();
-        let workspace_dir = self.adapter.workspace_dir.as_deref();
-        validate_outbound_path(&path, workspace_dir, media_dir)
-            .await
-            .ok()
     }
 }
 
