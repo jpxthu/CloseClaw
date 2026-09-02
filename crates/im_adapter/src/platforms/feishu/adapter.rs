@@ -94,9 +94,6 @@ pub(crate) struct FeishuCardAction {
     pub(crate) tag: Option<String>,
 }
 
-/// Default max download size: 50 MB per media resource.
-pub(crate) const DEFAULT_MAX_DOWNLOAD_SIZE_BYTES: u64 = 50 * 1024 * 1024;
-
 /// Default lark-cli command name.
 const DEFAULT_CLI_COMMAND: &str = "lark-cli";
 
@@ -249,8 +246,6 @@ pub struct FeishuAdapter {
     pub(crate) last_metadata: Arc<Mutex<HashMap<String, String>>>,
     /// Media storage manager for inbound persistence.
     pub(crate) media_store: Arc<MediaStore>,
-    /// Max download size in bytes for a single media file.
-    pub(crate) max_download_size_bytes: u64,
     /// Workspace directory for outbound media path resolution.
     pub(crate) workspace_dir: Option<std::path::PathBuf>,
     /// lark-cli command name or path for subprocess execution.
@@ -274,7 +269,6 @@ impl FeishuAdapter {
             profile,
             last_metadata: Arc::new(Mutex::new(HashMap::new())),
             media_store,
-            max_download_size_bytes: DEFAULT_MAX_DOWNLOAD_SIZE_BYTES,
             workspace_dir: None,
             cli_command: DEFAULT_CLI_COMMAND.to_string(),
             http_client,
@@ -698,13 +692,7 @@ impl FeishuAdapter {
             {
                 Ok(url) => match self
                     .media_store
-                    .download_and_persist(
-                        &url,
-                        &r.key,
-                        &r.media_type,
-                        &self.http_client,
-                        self.max_download_size_bytes,
-                    )
+                    .download_and_persist(&url, &r.key, &r.media_type, &self.http_client)
                     .await
                 {
                     Ok(persisted) => {

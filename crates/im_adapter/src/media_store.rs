@@ -26,10 +26,6 @@ pub enum MediaStoreError {
     #[error("download failed: {0}")]
     DownloadFailed(String),
 
-    /// File exceeds the configured size limit.
-    #[error("file exceeds size limit ({size} bytes > {limit} bytes)")]
-    SizeLimitExceeded { size: u64, limit: u64 },
-
     /// Media reference has no local path to resolve.
     #[error("media reference has no path set")]
     NoPath,
@@ -75,14 +71,15 @@ impl MediaStore {
         })
     }
 
-    /// Download content from `url` into memory, respecting `max_size_bytes`.
+    /// Download content from `url` into memory.
     ///
     /// Returns the downloaded bytes and the response content-type.
+    /// Platform size limits (if any) are enforced by the platform itself;
+    /// this method does not apply any size pre-checks.
     pub async fn download_bytes(
         &self,
         url: &str,
         http_client: &reqwest::Client,
-        max_size_bytes: u64,
     ) -> Result<(bytes::Bytes, String), MediaStoreError> {
         let response = http_client
             .get(url)
@@ -99,30 +96,10 @@ impl MediaStore {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("application/octet-stream")
             .to_string();
-        if let Some(cl) = response
-            .headers()
-            .get(reqwest::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<u64>().ok())
-        {
-            if cl > max_size_bytes {
-                return Err(MediaStoreError::SizeLimitExceeded {
-                    size: cl,
-                    limit: max_size_bytes,
-                });
-            }
-        }
         let bytes = response
             .bytes()
             .await
             .map_err(|e| MediaStoreError::DownloadFailed(e.to_string()))?;
-        let size = bytes.len() as u64;
-        if size > max_size_bytes {
-            return Err(MediaStoreError::SizeLimitExceeded {
-                size,
-                limit: max_size_bytes,
-            });
-        }
         Ok((bytes, content_type))
     }
 
@@ -158,19 +135,14 @@ impl MediaStore {
 
     /// Download content from `url`, sanitize the filename, write to
     /// `inbound/`, and return a fully-populated [`MediaRef`].
-    ///
-    /// `max_size_bytes` caps the download; set to `u64::MAX` to disable.
     pub async fn download_and_persist(
         &self,
         url: &str,
         key: &str,
         media_type: &MediaType,
         http_client: &reqwest::Client,
-        max_size_bytes: u64,
     ) -> Result<MediaRef, MediaStoreError> {
-        let (bytes, content_type) = self
-            .download_bytes(url, http_client, max_size_bytes)
-            .await?;
+        let (bytes, content_type) = self.download_bytes(url, http_client).await?;
         self.persist_to_disk(key, media_type, &content_type, bytes)
     }
 
@@ -646,66 +618,16 @@ mod tests {
         );
     }
 
-    // -- download_and_persist Content-Length pre-check tests --
+    // -- download_and_persist tests --
 
     #[tokio::test]
-    async fn download_rejects_oversized_via_content_length() {
-        use axum::{routing::get, Router};
-
-        // Mock server returns Content-Length: 9999 with a matching body.
-        let big_body = "x".repeat(9999);
-        let app = Router::new().route(
-            "/big",
-            get(move || async move {
-                (
-                    [
-                        (reqwest::header::CONTENT_TYPE, "image/png"),
-                        (reqwest::header::CONTENT_LENGTH, "9999"),
-                    ],
-                    big_body,
-                )
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-        let tmp = tempfile::tempdir().unwrap();
-        let store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
-        let client = reqwest::Client::new();
-
-        let result = store
-            .download_and_persist(
-                &format!("http://{addr}/big"),
-                "test",
-                &closeclaw_common::MediaType::Image,
-                &client,
-                1024, // 1 KB limit
-            )
-            .await;
-
-        assert!(
-            matches!(result, Err(MediaStoreError::SizeLimitExceeded { .. })),
-            "expected SizeLimitExceeded from Content-Length pre-check, got: {result:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn download_accepts_within_limit() {
+    async fn download_and_persist_succeeds() {
         use axum::{routing::get, Router};
 
         let body = "hello world"; // 11 bytes
         let app = Router::new().route(
-            "/small",
-            get(move || async move {
-                (
-                    [
-                        (reqwest::header::CONTENT_TYPE, "image/png"),
-                        (reqwest::header::CONTENT_LENGTH, "11"),
-                    ],
-                    body,
-                )
-            }),
+            "/ok",
+            get(move || async move { ([(reqwest::header::CONTENT_TYPE, "image/png")], body) }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -717,11 +639,10 @@ mod tests {
 
         let result = store
             .download_and_persist(
-                &format!("http://{addr}/small"),
+                &format!("http://{addr}/ok"),
                 "test",
                 &closeclaw_common::MediaType::Image,
                 &client,
-                1024,
             )
             .await;
 
@@ -732,13 +653,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_rejects_oversized_body_without_content_length() {
+    async fn download_and_persist_large_body_succeeds() {
         use axum::{routing::get, Router};
 
-        // Server omits Content-Length; body is actually larger than limit.
+        // No size pre-checks — any body size is accepted.
         let big_body = "x".repeat(2048);
         let app = Router::new().route(
-            "/nocl",
+            "/big",
             get(move || async move { ([(reqwest::header::CONTENT_TYPE, "image/png")], big_body) }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -751,17 +672,51 @@ mod tests {
 
         let result = store
             .download_and_persist(
-                &format!("http://{addr}/nocl"),
-                "test",
+                &format!("http://{addr}/big"),
+                "big-test",
                 &closeclaw_common::MediaType::Image,
                 &client,
-                1024, // 1 KB limit — body is 2048 bytes
             )
             .await;
 
         assert!(
-            matches!(result, Err(MediaStoreError::SizeLimitExceeded { .. })),
-            "expected SizeLimitExceeded from body check, got: {result:?}"
+            result.is_ok(),
+            "expected Ok for large body, got: {result:?}"
+        );
+        let media_ref = result.unwrap();
+        assert_eq!(media_ref.size, 2048);
+        assert!(media_ref.path.starts_with("inbound/"));
+    }
+
+    #[tokio::test]
+    async fn download_and_persist_http_failure_returns_download_failed() {
+        use axum::{routing::get, Router};
+
+        // Mock server returns 403 Forbidden (platform rejects download).
+        let app = Router::new().route(
+            "/forbidden",
+            get(|| async { (axum::http::StatusCode::FORBIDDEN, "") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+        let client = reqwest::Client::new();
+
+        let result = store
+            .download_and_persist(
+                &format!("http://{addr}/forbidden"),
+                "test",
+                &closeclaw_common::MediaType::Image,
+                &client,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(MediaStoreError::DownloadFailed(_))),
+            "expected DownloadFailed for HTTP 403, got: {result:?}"
         );
     }
 }

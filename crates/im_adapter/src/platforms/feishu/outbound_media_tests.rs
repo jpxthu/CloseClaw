@@ -1,8 +1,10 @@
 //! Tests for outbound media handling.
 
 use super::outbound_media::*;
+use crate::error::AdapterError;
 use crate::media_store::MediaStore;
 use std::fs;
+use std::io::Write;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -414,6 +416,118 @@ async fn test_send_file_whitelist_violation_skips_send() {
         !args_file.exists(),
         "no CLI call expected for whitelist violation"
     );
+}
+
+// =================================================================
+// Step 1.4 — platform rejection path tests (send side)
+// =================================================================
+
+/// Helper: create a mock lark-cli that returns a rejection response
+/// with a non-zero code and error message.
+fn create_reject_cli(tmp: &TempDir, code: i64, msg: &str) -> String {
+    let script = tmp.path().join("reject.sh");
+    let mut f = std::fs::File::create(&script).unwrap();
+    writeln!(f, "#!/bin/bash").unwrap();
+    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"{msg}\"}}'").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
+    }
+    script.to_str().unwrap().to_string()
+}
+
+/// Helper: create a mock lark-cli that returns a success response
+/// with the given data payload.
+fn create_success_cli(tmp: &TempDir, data: &str) -> String {
+    let script = tmp.path().join("success.sh");
+    let mut f = std::fs::File::create(&script).unwrap();
+    writeln!(f, "#!/bin/bash").unwrap();
+    writeln!(f, "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{data}}}'").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
+    }
+    script.to_str().unwrap().to_string()
+}
+
+/// upload_image with mock CLI returning non-zero code → SendFailed
+/// with platform error code/msg in error string.
+#[tokio::test]
+async fn test_upload_image_reject_returns_send_failed_with_code_msg() {
+    let tmp = TempDir::new().unwrap();
+    let cli = create_reject_cli(&tmp, 99001, "image too large");
+    let file = tmp.path().join("photo.png");
+    fs::write(&file, "data").unwrap();
+    let adapter = make_adapter(&cli, tmp.path(), None);
+    let result = upload_image(&adapter, &file).await;
+    match result {
+        Err(AdapterError::SendFailed(msg)) => {
+            assert!(
+                msg.contains("99001"),
+                "should contain error code, got: {msg}"
+            );
+            assert!(
+                msg.contains("image too large"),
+                "should contain error msg, got: {msg}"
+            );
+        }
+        other => panic!("expected SendFailed, got: {other:?}"),
+    }
+}
+
+/// upload_file with mock CLI returning non-zero code → SendFailed
+/// with platform error code/msg in error string.
+#[tokio::test]
+async fn test_upload_file_reject_returns_send_failed_with_code_msg() {
+    let tmp = TempDir::new().unwrap();
+    let cli = create_reject_cli(&tmp, 99002, "file type not allowed");
+    let file = tmp.path().join("doc.pdf");
+    fs::write(&file, "data").unwrap();
+    let adapter = make_adapter(&cli, tmp.path(), None);
+    let result = upload_file(&adapter, &file, "doc.pdf").await;
+    match result {
+        Err(AdapterError::SendFailed(msg)) => {
+            assert!(
+                msg.contains("99002"),
+                "should contain error code, got: {msg}"
+            );
+            assert!(
+                msg.contains("file type not allowed"),
+                "should contain error msg, got: {msg}"
+            );
+        }
+        other => panic!("expected SendFailed, got: {other:?}"),
+    }
+}
+
+/// upload_image with mock CLI returning code 0 + image_key → returns
+/// the image key successfully.
+#[tokio::test]
+async fn test_upload_image_success_returns_image_key() {
+    let tmp = TempDir::new().unwrap();
+    let data = r#"{"image_key": "img_v3_test123"}"#;
+    let cli = create_success_cli(&tmp, data);
+    let file = tmp.path().join("photo.png");
+    fs::write(&file, "data").unwrap();
+    let adapter = make_adapter(&cli, tmp.path(), None);
+    let result = upload_image(&adapter, &file).await;
+    assert_eq!(result.unwrap(), "img_v3_test123");
+}
+
+/// upload_file with mock CLI returning code 0 + file_key → returns
+/// the file key successfully.
+#[tokio::test]
+async fn test_upload_file_success_returns_file_key() {
+    let tmp = TempDir::new().unwrap();
+    let data = r#"{"file_key": "file_v3_abc789"}"#;
+    let cli = create_success_cli(&tmp, data);
+    let file = tmp.path().join("report.pdf");
+    fs::write(&file, "data").unwrap();
+    let adapter = make_adapter(&cli, tmp.path(), None);
+    let result = upload_file(&adapter, &file, "report.pdf").await;
+    assert_eq!(result.unwrap(), "file_v3_abc789");
 }
 
 /// Copy to outbound preserved even when upload (lark-cli) fails.

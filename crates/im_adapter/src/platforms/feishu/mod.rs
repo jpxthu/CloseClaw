@@ -178,7 +178,6 @@ pub(crate) fn load_media_config(config_dir: &str) -> closeclaw_config::MediaConf
         Ok(cfg) => {
             info!(
                 storage_dir = %cfg.storage_dir,
-                max_download_size = cfg.max_download_size_bytes,
                 "media config loaded from {}",
                 path.display()
             );
