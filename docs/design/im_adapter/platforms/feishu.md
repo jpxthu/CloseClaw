@@ -27,21 +27,10 @@
 - **file 类型消息**（message_type=file）：从 content 标签提取 file_key 与文件名，落盘后填入 media_refs，正文可为空
 - **sticker 类型消息**（message_type=sticker）：独立表情消息，提取表情标识渲染为文本占位符（如 `[OK]`）作为消息正文
 - **引用/回复消息**：提取被引用消息的文本内容，按 [im_adapter README](../README.md#implugin-trait-契约) 的引用/回复消息处理规则拼接（截断至 500 字符、blockquote 格式）
-- **媒体落盘**：所有提取到的媒体资源（图片、文件）在解析阶段立即下载落盘并填充 media_refs，机制见 [im_adapter media-store](../media-store.md)；大小/格式为平台可得性约束、非系统配置项，见「媒体平台约束」
-- **媒体下载失败**：下载失败或平台超限拒绝的媒体不落盘、不进 media_refs，其资源标识记入 unavailable_media，由 Gateway 按媒体不可得处理（见 [im_adapter media-store](../media-store.md) 入站落盘）
+- **媒体落盘**：所有提取到的媒体资源（图片、文件）在解析阶段立即下载落盘并填充 media_refs，机制见 [im_adapter media-store](../media-store.md)；大小上限为平台可得性约束、非系统配置项，直接调用平台 API、拒绝即失败，见「平台接口权威来源」
+- **媒体下载失败**：下载失败或平台拒绝（含超出限制）的媒体不落盘、不进 media_refs，其资源标识记入 unavailable_media，由 Gateway 按媒体不可得处理（见 [im_adapter media-store](../media-store.md) 入站落盘）
 
-**媒体平台约束**（大小/格式为平台可得性约束、非系统配置项，见 [im_adapter media-store](../media-store.md)）：
-
-| 操作 | 平台限制 | 权威来源 | 超限行为 |
-|------|---------|---------|---------|
-| 消息资源下载（图片/文件/音频） | 单资源 ≤ 100 MB | 飞书官方 API 文档（消息资源下载接口「使用限制」） | 平台拒绝提供下载（错误码 234037），视同下载失败，资源标识记入 unavailable_media |
-| 媒体发送（文件） | 单文件 ≤ 30 MB | 飞书官方 API 文档（文件上传接口「使用限制」） | 发送前校验并拒绝，Agent 收到清晰错误 |
-| 媒体发送（图片） | 单图片 ≤ 10 MB（另有分辨率限制：GIF ≤ 2000×2000，其他图片 ≤ 12000×12000） | 飞书官方 API 文档（图片上传接口「使用限制」） | 发送前校验并拒绝，Agent 收到清晰错误 |
-| 媒体发送（音频） | 仅支持 OPUS 格式 | 飞书官方 API 文档（文件上传接口 file_type 说明） | 非 OPUS 音频发送前校验并拒绝，Agent 收到清晰错误（不提供格式转换） |
-
-数值与错误码以飞书官方 API 文档为准，开发实现时须查阅官方 CLI/API 文档核对，并以 fixture 目录实测样本验证字段与命令行为；平台限制相关行为（超限拒绝、错误码识别、unavailable_media 填充）须作为单元测试覆盖。
-
-另：CLI 媒体上传命令仅接受进程工作目录的相对路径（fixture `send-commands.md` 实测记录），Adapter 调用时须将解析后的路径转换为 CLI 工作目录相对路径。
+**平台接口权威来源**：平台接口行为与限制（含媒体大小/格式限制，属平台可得性约束、非系统配置项——系统不预判、不预校验，直接调用平台 API，平台拒绝即按对应操作失败处理）以两个来源为准：`tests/fixtures/feishu/cli-poc/` 实测样本（事件结构、字段语义、命令行为）与飞书官方 CLI API 文档（接口行为与限制）。开发实现时遇到平台限制相关问题，须查官方 API 文档、并对照 fixture 实测验证，不可仅凭既有代码或主观推断；平台拒绝路径（下载失败记入 unavailable_media、发送失败向 Agent 返回错误）须作为单元测试覆盖。
 
 **会话锚点构造**（peer_id / reply_ref）：
 
@@ -114,7 +103,7 @@ Renderer 产出的 RenderedOutput 由 Adapter 映射为 lark-cli 命令发送：
 - **文本消息**：文本发送命令（peer 定向）
 - **卡片消息**：interactive 卡片发送命令
 - **定向回复**：携带 reply_ref——话题会话以根消息 ID 话题回复（reply-in-thread），顶层会话以消息 ID 定向回复
-- **媒体消息**：Image/Audio/File 经 lark-cli 上传后以平台资源引用发送（自动上传，仅接受本地路径；大小/格式约束见「媒体平台约束」，超限发送前校验拒绝，拒绝先于出站副本保留）；发出媒体先保留副本到媒体存储出站子目录（见 [im_adapter media-store](../media-store.md)）
+- **媒体消息**：Image/Audio/File 直接经 lark-cli 上传发送（自动上传；CLI 仅接受进程工作目录的相对路径，fixture `send-commands.md` 实测，Adapter 须转换；平台大小/格式限制见「平台接口权威来源」——系统不预校验，平台拒绝即按发送失败处理）；发出媒体先保留副本到媒体存储出站子目录（见 [im_adapter media-store](../media-store.md)）
 - **表情回应**：表情回应命令（reactions create）
 
 发送目标由 Gateway 传入（peer_id + reply_ref）。发送失败时记录日志并降级，不导致进程崩溃，Agent 继续运行。
