@@ -15,6 +15,7 @@ pub mod compaction;
 pub mod debug_log;
 pub mod events;
 pub mod llm_session;
+pub mod notifications;
 pub mod pending_operation_detail;
 pub mod persistence;
 pub mod persistence_service;
