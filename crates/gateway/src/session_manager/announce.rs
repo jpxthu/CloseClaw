@@ -33,6 +33,13 @@ fn priority_prefix(priority: &NotificationPriority) -> &'static str {
     }
 }
 
+/// Return type for drain functions: separates announce events from
+/// system notifications (routed via simplified outbound path).
+pub(crate) struct DrainResult {
+    pub announces: Vec<AnnounceEvent>,
+    pub system_notifications: Vec<String>,
+}
+
 // ── Queue accessors (push / drain) ─────────────────────────────────────────
 
 impl SessionManager {
@@ -65,22 +72,20 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Drain all queued announce events for a session.
-    ///
-    /// Called by `drain_pending_loop` (Step 1.5) at the start of each
-    /// turn. If the session does not exist, returns an empty `Vec` so
-    /// callers can treat "no session" and "empty queue" identically.
-    pub async fn drain_announces(&self, session_id: &str) -> Vec<AnnounceEvent> {
+    /// Drain all queued announce events. System notifications go to
+    /// `DrainResult::system_notifications` (simplified outbound path).
+    pub(crate) async fn drain_announces(&self, session_id: &str) -> DrainResult {
         let Some(cs) = self.get_conversation_session(session_id).await else {
-            warn!(
-                session_id = %session_id,
-                "drain_announces: session not found, returning empty list"
-            );
-            return Vec::new();
+            warn!(session_id = %session_id, "drain_announces: session not found");
+            return DrainResult {
+                announces: vec![],
+                system_notifications: vec![],
+            };
         };
         let mut cs = cs.write().await;
         let all = cs.drain_all_entries();
         let mut announces = Vec::new();
+        let mut system_notifications = Vec::new();
         for entry in all {
             match entry {
                 QueueEntry::Announce(e) => announces.push(e),
@@ -91,26 +96,25 @@ impl SessionManager {
                     announces.push(notif_to_announce(notif));
                 }
                 QueueEntry::SystemNotification(text, _) => {
-                    cs.inject_system_message(text);
+                    system_notifications.push(text);
                 }
             }
         }
-        announces
+        DrainResult {
+            announces,
+            system_notifications,
+        }
     }
 
-    /// Drain all queued announce events and inject each one as a
-    /// `role="system"` message at the head of the parent's next turn.
+    /// Drain and inject announce events into the conversation transcript.
     ///
-    /// Called by `SessionMessageHandler::drain_pending_loop` (Step 1.5)
-    /// before processing user-pending messages. Loops until the queue is
-    /// empty so bursts of child completions accumulated during LLM
-    /// calls are all consumed in a single call. If the session is
-    /// missing mid-drain, logs a warning and returns — the next turn
-    /// will retry from an empty queue.
+    /// Loops until the queue is empty. System notifications are currently
+    /// injected as system messages (TODO: route via simplified outbound
+    /// path in Step 1.2).
     pub async fn drain_and_inject_announces(&self, session_id: &str) {
         loop {
-            let events = self.drain_announces(session_id).await;
-            if events.is_empty() {
+            let result = self.drain_announces(session_id).await;
+            if result.announces.is_empty() && result.system_notifications.is_empty() {
                 break;
             }
             let Some(cs) = self.get_conversation_session(session_id).await else {
@@ -120,43 +124,44 @@ impl SessionManager {
                 );
                 return;
             };
-            inject_announces_as_system_messages(&cs, &events).await;
+            inject_announces_as_system_messages(&cs, &result.announces).await;
+            // TODO(step-1.2): route via simplified outbound path
+            for text in &result.system_notifications {
+                cs.write().await.inject_system_message(text.clone());
+            }
         }
     }
 
-    /// Drain announce events matching a priority predicate.
-    ///
-    /// Filters the session's announce queue, returning only events whose
-    /// priority satisfies the predicate. Non-matching events are re-inserted
-    /// into the queue in priority order.
-    pub async fn drain_announces_filtered(
+    /// Drain announce events matching a predicate.
+    /// Non-matching events are re-inserted. System notifications go to
+    /// `DrainResult::system_notifications`.
+    pub(crate) async fn drain_announces_filtered(
         &self,
         session_id: &str,
         predicate: impl Fn(&NotificationPriority) -> bool,
-    ) -> Vec<AnnounceEvent> {
+    ) -> DrainResult {
         let Some(cs) = self.get_conversation_session(session_id).await else {
-            warn!(
-                session_id = %session_id,
-                "drain_announces_filtered: session not found, returning empty list"
-            );
-            return Vec::new();
+            warn!(session_id = %session_id, "drain_announces_filtered: session not found");
+            return DrainResult {
+                announces: vec![],
+                system_notifications: vec![],
+            };
         };
         let mut cs = cs.write().await;
         let all = cs.drain_all_entries();
-        let mut matched = Vec::new();
+        let mut matched_announces = Vec::new();
+        let mut matched_notifications = Vec::new();
         for entry in all {
             match entry {
                 QueueEntry::Announce(ref event) if predicate(&event.priority) => {
-                    matched.push(event.clone());
+                    matched_announces.push(event.clone());
                 }
-                // Step 1.5: Background tool completion notifications
-                // follow the same drain path as child session announces.
-                // Convert to AnnounceEvent for the inject path.
+                // Background tool completion → AnnounceEvent for inject path.
                 QueueEntry::BackgroundToolNotification(ref notif) if predicate(&notif.priority) => {
-                    matched.push(notif_to_announce(notif.clone()));
+                    matched_announces.push(notif_to_announce(notif.clone()));
                 }
                 QueueEntry::SystemNotification(ref text, ref priority) if predicate(priority) => {
-                    cs.inject_system_message(format!("{}{}", priority_prefix(priority), text));
+                    matched_notifications.push(format!("{}{}", priority_prefix(priority), text));
                 }
                 QueueEntry::SystemNotification(text, priority) => {
                     cs.push_queue_entry(QueueEntry::SystemNotification(text, priority));
@@ -166,23 +171,25 @@ impl SessionManager {
                 }
             }
         }
-        matched
+        DrainResult {
+            announces: matched_announces,
+            system_notifications: matched_notifications,
+        }
     }
 
-    /// Drain and inject announce events matching a priority predicate.
+    /// Drain and inject filtered announce events.
     ///
-    /// Loops until no matching events remain, injecting each as a
-    /// `role="system"` message. Non-matching events stay in the queue.
+    /// Non-matching events stay in the queue.
     pub async fn drain_and_inject_announces_filtered(
         &self,
         session_id: &str,
         predicate: impl Fn(&NotificationPriority) -> bool,
     ) {
         loop {
-            let events = self
+            let result = self
                 .drain_announces_filtered(session_id, |p| predicate(p))
                 .await;
-            if events.is_empty() {
+            if result.announces.is_empty() && result.system_notifications.is_empty() {
                 break;
             }
             let Some(cs) = self.get_conversation_session(session_id).await else {
@@ -192,7 +199,11 @@ impl SessionManager {
                 );
                 return;
             };
-            inject_announces_as_system_messages(&cs, &events).await;
+            inject_announces_as_system_messages(&cs, &result.announces).await;
+            // TODO(step-1.2): route via simplified outbound path
+            for text in &result.system_notifications {
+                cs.write().await.inject_system_message(text.clone());
+            }
         }
     }
 
