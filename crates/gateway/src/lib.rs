@@ -608,13 +608,7 @@ impl Gateway {
             .await
         {
             let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-            if let Err(e) =
-                crate::outbound_helpers::send_simplified_with_timeout(self, &chat_id, channel, msg)
-                    .await
-            {
-                tracing::warn!(session_id = %session_id, chat_id = %chat_id,
-                    error = %e, "failed to send restore notification");
-            }
+            self.send_system_notification(&chat_id, channel, msg).await;
         }
         // Shutdown gate: reject new operations.
         if let Some(sh) = self.get_shutdown_handle() {
@@ -812,16 +806,7 @@ impl Gateway {
     /// Send a notification to the user when the result carries a message
     /// (e.g. queuing, error).
     async fn send_notification(&self, peer_id: &str, channel: &str, text: &str) {
-        if let Err(e) =
-            crate::outbound_helpers::send_simplified_with_timeout(self, peer_id, channel, text)
-                .await
-        {
-            tracing::warn!(
-                peer_id = %peer_id,
-                error = %e,
-                "failed to send notification"
-            );
-        }
+        self.send_system_notification(peer_id, channel, text).await;
     }
 
     /// If `result` carries a user-facing message (`MessageQueued` or `Error`),
