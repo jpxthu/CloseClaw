@@ -252,7 +252,7 @@ impl Gateway {
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
             if let Err(e) = run_middleware_chain(&middlewares, &mctx, ctx.rendered).await {
-                return log_middleware_rejection(self, e, &ctx.chat_id, ctx.channel)
+                return log_middleware_rejection(e, &ctx.chat_id)
                     .await
                     .map(|()| SendOutcome::Sent);
             }

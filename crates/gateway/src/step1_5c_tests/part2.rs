@@ -611,10 +611,10 @@ async fn test_batch_send_success_no_notification() {
 // 5. Regression: pre-flight rejection and stream error paths
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Pre-flight middleware rejection still sends rejection notification
-/// and returns Ok (regression guard).
+/// Pre-flight middleware rejection does NOT send user notification
+/// (batch path — per design doc §出站中间件 contract) and returns Ok.
 #[tokio::test]
-async fn test_preflight_rejection_sends_notification() {
+async fn test_preflight_rejection_does_not_notify_user() {
     use closeclaw_common::OutboundMiddleware;
 
     struct RejectAll;
@@ -663,13 +663,11 @@ async fn test_preflight_rejection_sends_notification() {
         .await;
     assert!(result.is_ok(), "middleware rejection should return Ok");
 
-    // CapturingPlugin captures sent payloads. On middleware rejection,
-    // exactly one send is made (the rejection notification).
-    assert_eq!(mock.send_count(), 1, "rejection notification sent");
-    let sent = mock.drain_sent();
+    // Batch middleware rejection must NOT send any notification.
     assert_eq!(
-        extract_text(&sent[0]),
-        "Your message was not sent due to an outbound policy restriction."
+        mock.send_count(),
+        0,
+        "batch middleware rejection must not send notification"
     );
 }
 
