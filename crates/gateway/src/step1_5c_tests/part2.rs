@@ -663,13 +663,11 @@ async fn test_preflight_rejection_sends_notification() {
         .await;
     assert!(result.is_ok(), "middleware rejection should return Ok");
 
-    // CapturingPlugin captures sent payloads. On middleware rejection,
-    // exactly one send is made (the rejection notification).
-    assert_eq!(mock.send_count(), 1, "rejection notification sent");
-    let sent = mock.drain_sent();
+    // Batch middleware rejection must NOT send any notification.
     assert_eq!(
-        extract_text(&sent[0]),
-        "Your message was not sent due to an outbound policy restriction."
+        mock.send_count(),
+        0,
+        "batch middleware rejection must not send notification"
     );
 }
 
