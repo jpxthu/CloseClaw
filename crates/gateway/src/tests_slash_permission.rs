@@ -288,37 +288,6 @@ fn capturing_dispatcher(
     Arc::new(CapturingRouter { command, last_ctx })
 }
 
-fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-    let rules = RuleSet {
-        rules: vec![Rule {
-            name: "allow-all".to_owned(),
-            subject: Subject::AgentOnly {
-                agent: "*".to_owned(),
-                match_type: Default::default(),
-            },
-            effect: Effect::Allow,
-            actions: vec![Action::All],
-            template: None,
-            priority: 100,
-        }],
-        defaults: Defaults {
-            file_read: Effect::Allow,
-            file_write: Effect::Allow,
-            exec: Effect::Allow,
-            network: Effect::Allow,
-            inter_agent: Effect::Allow,
-            config: Effect::Allow,
-            tool_call: Effect::Allow,
-            message: Effect::Allow,
-        },
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        PermissionEngine::new_with_default_data_root(rules),
-    ))
-}
-
 // --- Tests ---
 #[tokio::test]
 async fn test_slash_not_entering_agent_session() {

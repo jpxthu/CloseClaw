@@ -215,7 +215,14 @@ impl Gateway {
                 .send_outbound_simplified(ctx.peer_id, ctx.channel, "权限不足：权限引擎未配置")
                 .await
             {
-                tracing::warn!(cmd, session_id = %ctx.session_id, channel = %ctx.channel, error = %e, "failed to send permission engine not configured notification");
+                tracing::warn!(
+                    cmd,
+                    session_id = %ctx.session_id,
+                    channel = %ctx.channel,
+                    error = %e,
+                    "failed to send permission engine \
+                     not configured notification"
+                );
             }
             return false;
         };
@@ -234,7 +241,14 @@ impl Gateway {
                 .send_outbound_simplified(ctx.peer_id, ctx.channel, &format!("权限不足：{reason}"))
                 .await
             {
-                tracing::warn!(cmd, session_id = %ctx.session_id, channel = %ctx.channel, error = %e, "failed to send permission denied notification");
+                tracing::warn!(
+                    cmd,
+                    session_id = %ctx.session_id,
+                    channel = %ctx.channel,
+                    error = %e,
+                    "failed to send permission denied \
+                     notification"
+                );
             }
             return false;
         }

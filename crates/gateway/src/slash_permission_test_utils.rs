@@ -1,8 +1,11 @@
 //! Shared test constructors for slash permission tests.
 //!
-//! Provides [`make_gateway`] and [`deny_engine`] so that
-//! `tests_slash_permission.rs`, `slash_permission_routing_tests.rs`,
-//! and `slash_permission_outbound_tests.rs` avoid duplicating
+//! Provides [`make_gateway`], [`deny_engine`], and [`allow_engine`]
+//! so that `tests_slash_permission.rs`,
+//! `slash_permission_routing_tests.rs`,
+//! `slash_permission_outbound_tests.rs`,
+//! `tests_slash_dispatcher_routing.rs`, and
+//! `tests_slash_permission_integration.rs` avoid duplicating
 //! identical helper functions.
 
 use std::sync::Arc;
@@ -52,6 +55,43 @@ pub(crate) fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
             priority: 100,
         }],
         defaults: Defaults::default(),
+        user_defaults: Defaults::default(),
+        template_includes: vec![],
+        ..Default::default()
+    };
+    Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(rules),
+    ))
+}
+
+/// Create a [`PermissionEngine`] that allows every action for every agent.
+///
+/// Useful for testing permission-allow paths without relying on
+/// specific policy configuration.
+pub(crate) fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+    let rules = RuleSet {
+        rules: vec![Rule {
+            name: "allow-all".to_owned(),
+            subject: Subject::AgentOnly {
+                agent: "*".to_owned(),
+                match_type: Default::default(),
+            },
+            effect: Effect::Allow,
+            actions: vec![Action::All],
+            template: None,
+            priority: 100,
+        }],
+        defaults: Defaults {
+            file_read: Effect::Allow,
+            file_write: Effect::Allow,
+            exec: Effect::Allow,
+            network: Effect::Allow,
+            inter_agent: Effect::Allow,
+            config: Effect::Allow,
+            tool_call: Effect::Allow,
+            message: Effect::Allow,
+        },
+        user_defaults: Defaults::default(),
         template_includes: vec![],
         ..Default::default()
     };
