@@ -10,7 +10,7 @@
 
 User 可以定义工作流，描述一个多步骤流程的结构化信息：包含哪些步骤、每步要完成什么、如何验收、完成后如何分支。
 
-定义放在 agent workspace 的 `workflows/` 目录下，与 skill 共用目录结构但独立管理。每个 workflow 是一个 SKILL.md 文件——正文部分给 agent 阅读（原则和注意事项），YAML frontmatter 给 Engine 读取（步骤、验收、跳转规则）。
+每个 workflow 是一个独立定义文件，放在 agent workspace 的 `workflows/` 目录下，与 skill 共用目录结构但独立管理。定义文件分两部分：正文给 agent 阅读（原则和注意事项），结构化定义给 Engine 读取（步骤、验收、跳转规则）。
 
 > **交叉引用**：目录层级与查找优先级详见 [skills §F2](skills.md)（技能目录层级）。
 
@@ -22,25 +22,21 @@ User 通过 create-workflow skill 创建和修改 workflow 定义。定义产出
 
 workflow 有两种启动方式：
 
-- **斜杠指令**：owner 输入 `/workflow <名称>`，Engine 加载对应定义并启动
+- **斜杠指令**：Owner 输入 `/workflow <名称>`，Engine 加载对应定义并启动
 
-> **交叉引用**：该指令由 slash 模块拦截分发，详见 [slash §F1](slash.md)（斜杠指令入口）。
+> **交叉引用**：该指令由 slash 模块拦截分发，指令注册详见 [slash §F15](slash.md)（workflow 指令）。
 
 - **Agent 工具调用**：agent 在对话中判断需要执行某个 workflow 时，调用 `workflow_start` 工具启动
 
-启动后，当前 session 进入 workflow 模式。agent 收到 Engine 注入的 workflow 上下文说明（在 system prompt 中），了解自己正在执行受控工作流以及需遵守的三阶段协议（收到 goal 消息 → 执行；收到 verify 清单 → 验收；收到 jump 问题 → 回答跳转）。
+启动后，当前 session 进入 workflow 模式。Agent 收到注入的 workflow 上下文说明（位于 system prompt 追加区，注入与移除机制详见 [system_prompt §F5](system_prompt.md)（动态指令管理）），了解自己正在执行受控工作流以及需遵守的三阶段协议（收到 goal 消息 → 执行；收到 verify 清单 → 验收；收到 jump 问题 → 回答跳转）。
 
-> **交叉引用**：workflow context 通过 system prompt 追加区注入与移除，机制详见 [system_prompt §F5](system_prompt.md)（动态指令管理）。
-
-一个 session 同一时刻只能执行一个 workflow。workflow 开始后不可回退为普通 session——必须经 Engine 通过 complete 跳转动作正常结束，或由 owner 主动终止。
+一个 session 同一时刻只能执行一个 workflow。workflow 开始后不可回退为普通 session——必须经 Engine 通过 complete 跳转动作正常结束，或由 Owner 主动终止。
 
 ### F3. 步骤引导执行
 
 workflow 启动后，Engine 按定义逐步骤推进。每个步骤 agent 收到一条 goal 消息（role: workflow），描述当前步骤要完成的目标。agent 基于 goal 自主执行——可以调用任意工具、spawn 子 session 等，Engine 不干预。
 
-一个步骤 = agent 一次连续执行，不受 Engine 中断。agent 完成当前 turn 后，且 session 满足以下条件时，Engine 进入验收阶段。
-
-验收判定条件 = LLM推理=false AND 同步工具等结果=false AND 后台任务=false AND 子Session=false。四个活跃维度由 [session §F11](session.md) 定义。任一维度为 true 时不进入验收，Engine 等待下次判定。
+一个步骤 = agent 一次连续执行，不受 Engine 中断。agent 完成当前 turn 后，且 session 满足以下条件时，Engine 进入验收阶段。验收判定条件 = LLM推理=false AND 同步工具等结果=false AND 后台任务=false AND 子Session=false。四个活跃维度由 [session §F11](session.md) 定义。任一维度为 true 时不进入验收，Engine 等待下次判定。
 
 ### F4. 步骤完成验收
 
@@ -49,7 +45,7 @@ Engine 在满足验收判定条件时注入验收清单（来自步骤定义中�
 - **未完成**：继续执行步骤内容。Engine 不干预，等下次满足验收判定条件时重新注入验收清单
 - **已完成**：agent 调用 workflow_verify 声明步骤完成
 
-验收重试有次数上限（可在 workflow 定义中配置，默认 3 次）。若 agent 连续达到重试次数上限仍无法通过验收，Engine 将流程转为暂停并通知 owner 介入。没有超时机制——agent 执行步骤本身不受时间限制。
+验收重试有次数上限（可在 workflow 定义中配置，默认 3 次）。若 agent 连续达到重试次数上限仍无法通过验收，Engine 将流程转为暂停并通知 Owner 介入。没有超时机制——agent 执行步骤本身不受时间限制。
 
 ### F5. 流程分支控制
 
@@ -65,29 +61,29 @@ agent 收到跳转问题后只需提供结构化答案，不需自己理解跳�
 
 ### F6. 流程暂停与恢复
 
-workflow 执行过程中遇到需要 owner 介入的情况时，流程暂停（blocked）：
+workflow 执行过程中遇到需要 Owner 介入的情况时，流程暂停（blocked）：
 
-**被动暂停**：验收重试次数耗尽后，Engine 自动暂停并通过 IM 消息通知 owner
+**被动暂停**：验收重试次数耗尽后，Engine 自动暂停并通过 IM 消息通知 Owner
 **主动暂停**：agent 在验收阶段判断无法继续时，可主动请求暂停（若当前步骤允许）
 
-暂停后，Engine 通过 IM 消息告知 owner 暂停原因。owner 回复后 Engine 解除暂停——清除旧的步骤目标，重置验收计数，立即重新注入验收清单，agent 按正常验收→跳转流程继续。
+暂停后，Engine 通过 IM 消息告知 Owner 暂停原因。Owner 回复后 Engine 解除暂停——清除旧的步骤目标，重置验收计数，立即重新注入验收清单，agent 按正常验收→跳转流程继续。
 
-owner 也可以选择直接终止 workflow。
+Owner 也可以选择直接终止 workflow。
 
 ### F7. 中断续跑
 
 workflow 状态随 session 持久化保存。系统重启或 session 归档恢复时，Engine 检测是否存在未完成的 workflow：
 
 - 若存在且当前步骤编号仍在新定义中 → 自动恢复，Engine 注入恢复提示和当前步骤 goal，agent 从中断点继续
-- 若当前步骤编号已不存在于新定义 → 转为暂停，通过 IM 消息通知 owner
+- 若当前步骤编号已不存在于新定义 → 转为暂停，通过 IM 消息通知 Owner
 
-恢复时 Engine 重新注入 workflow 上下文到 system prompt，保证 agent 具备完整的执行上下文。
+恢复时 Engine 重新注入 workflow 上下文到 system prompt 追加区（见 F2），保证 agent 具备完整的执行上下文。
 
 ### F8. 流程生命周期
 
-workflow 正常结束（jump 结果为 complete）或 owner 终止后，Engine 执行退出清理：
+workflow 正常结束（jump 结果为 complete）或 Owner 终止后，Engine 执行退出清理：
 
-- 从 system prompt 中移除 workflow 上下文
+- 从 system prompt 追加区移除 workflow 上下文（见 F2）
 - 清理对话历史中的 workflow 控制消息
 - 清空 workflow 运行状态
 - session 恢复为普通 session
@@ -106,5 +102,5 @@ workflow 正常结束（jump 结果为 complete）或 owner 终止后，Engine �
 
 - **执行进度不丢失**：系统重启后，未完成的 workflow 必须能从断点恢复，不丢失执行进度
 - **步骤不跳不漏**：agent 无法自行跳过验收或绕过跳转——流程推进完全由 Engine 控制
-- **通知及时**：当 workflow 转为暂停等待 owner 介入时，IM 通知必须在 2 秒内推送到 owner
+- **通知及时**：当 workflow 转为暂停等待 Owner 介入时，IM 通知应即时推送，不让 Owner 在不知情中等候
 - **控制消息精简**：验收清单与 agent 确认记录（一问一答）在跳转决策完成后即从对话历史中删除——这些记录已无后续语义价值。步骤目标消息保留以确保 agent 始终知道当前任务

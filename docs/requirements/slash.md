@@ -149,6 +149,12 @@ Slash 模块在以下环节记录调试日志：
 
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
+### F15. Workflow 指令
+
+Owner 通过 `/workflow <名称>` 启动对应的 workflow。指令为非 Immediate——满足排队条件时在当前 LLM 调用结束后执行。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）；启动语义与 workflow 模式行为由 Workflow 模块定义。
+
+> **交叉引用**：启动语义、workflow 模式进入与退出详见 [workflow §F2](workflow.md)（workflow 启动）。
+
 ## 关联设计文档
 
 - [✓] slash/README.md
@@ -163,6 +169,7 @@ Slash 模块在以下环节记录调试日志：
 - [✓] slash/help.md
 - [✓] slash/reasoning.md
 - [✓] slash/verbose.md
+- [ ] slash/workflow.md
 
 ## 非功能需求
 
