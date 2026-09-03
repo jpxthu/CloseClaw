@@ -327,6 +327,12 @@ impl DefaultStreamingRenderer {
         self
     }
 
+    /// Set the line buffer timeout. Pass `None` to disable.
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.line_buffer = self.line_buffer.with_timeout(timeout);
+        self
+    }
+
     /// Check the line buffer timeout; if elapsed, force-output buffered content.
     pub fn check_timeout(&mut self) -> StreamingOutput {
         let mut out = StreamingOutput::default();

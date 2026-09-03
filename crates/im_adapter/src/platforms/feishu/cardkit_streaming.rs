@@ -5,44 +5,36 @@
 //! 2. Send a card-reference message (card_json with `card_id`)
 //! 3. Batch-update card element content (`PUT /cardkit/v1/cards/{card_id}/elements/{element_id}/content`)
 //!
-//! Line buffering rules are inherited from `docs/design/im_adapter/streaming-render.md`.
+//! Text line-buffering is delegated to [`DefaultStreamingRenderer`]
+//! (via [`super::FeishuPlugin::streaming_renderer`]). This module
+//! is only responsible for the cardkit protocol layer: card creation,
+//! reference sending, element updates, update frequency limiting,
+//! and the `pending_text` buffer for batch cardkit updates.
 
 use std::time::{Duration, Instant};
 
 use super::adapter::FeishuAdapter;
 use super::send_helpers::run_cli;
-use closeclaw_common::streaming::LineBuffer;
 
 /// Cardkit streaming element ID for the main content element.
 pub(crate) const STREAMING_ELEMENT_ID: &str = "streaming_content";
 
 /// Streaming card state managed per-response.
+#[derive(Default)]
 pub(crate) struct FeishuStreamingState {
     /// Card ID assigned by cardkit on creation.
     pub(crate) card_id: Option<String>,
     /// Monotonically increasing sequence for card updates.
     pub(crate) sequence: u32,
-    /// Line buffer for text content.
-    pub(crate) line_buffer: LineBuffer,
     /// Whether streaming is active (card created, updates in progress).
     pub(crate) is_active: bool,
     /// Timestamp of the last card update sent to the platform.
     pub(crate) last_update: Option<Instant>,
     /// Accumulated text since the last card update.
+    ///
+    /// Fed by `FeishuPlugin::accumulate_streaming_text` via Gateway's
+    /// send path (`dispatch_text` → `send` → `send_streaming_text_with_target`).
     pub(crate) pending_text: String,
-}
-
-impl Default for FeishuStreamingState {
-    fn default() -> Self {
-        Self {
-            card_id: None,
-            sequence: 0,
-            line_buffer: LineBuffer::new(),
-            is_active: false,
-            last_update: None,
-            pending_text: String::new(),
-        }
-    }
 }
 
 impl FeishuStreamingState {
@@ -51,7 +43,6 @@ impl FeishuStreamingState {
     pub(crate) fn reset(&mut self) {
         self.card_id = None;
         self.sequence = 0;
-        self.line_buffer.reset();
         self.is_active = false;
         self.last_update = None;
         self.pending_text.clear();
@@ -60,74 +51,20 @@ impl FeishuStreamingState {
 
 /// Feishu cardkit streaming renderer.
 ///
-/// Manages the cardkit three-step protocol (create → send ref → batch update)
-/// and enforces line buffering rules from `streaming-render.md`.
+/// Manages the cardkit three-step protocol (create → send ref → batch update).
+/// Text line-buffering is handled by the default streaming renderer in
+/// `FeishuPlugin`; this renderer only accumulates the resulting text lines
+/// in `pending_text` for batch cardkit element updates.
 pub(crate) struct CardkitStreamingRenderer {
     pub(crate) state: FeishuStreamingState,
 }
 
 impl CardkitStreamingRenderer {
-    /// Create a new cardkit streaming renderer with WholeBlock code mode.
+    /// Create a new cardkit streaming renderer.
     pub(crate) fn new() -> Self {
         Self {
             state: FeishuStreamingState::default(),
         }
-    }
-
-    /// Handle a text delta from the LLM stream.
-    ///
-    /// Feeds text through the line buffer and returns any completed lines.
-    /// Lines are buffered internally for batch card updates.
-    pub(crate) fn handle_text_delta(&mut self, text: &str) {
-        for line in self.state.line_buffer.feed(text) {
-            self.state.pending_text.push_str(&line);
-        }
-    }
-
-    /// Handle a BlockStart event for a Text block.
-    ///
-    /// Resets the line buffer for the new text block.
-    pub(crate) fn handle_block_start_text(&mut self) {
-        self.state.line_buffer.reset();
-    }
-
-    /// Handle a BlockEnd event for a Text block.
-    ///
-    /// Flushes any remaining buffered text.
-    pub(crate) fn handle_block_end_text(&mut self) {
-        if let Some(remaining) = self.state.line_buffer.flush() {
-            self.state.pending_text.push_str(&remaining);
-        }
-    }
-
-    /// Check the line buffer timeout; if elapsed, force-output buffered content.
-    ///
-    /// Returns the pending text if the timeout has been exceeded.
-    pub(crate) fn check_timeout(&mut self) -> Option<String> {
-        if self.state.pending_text.is_empty() {
-            return None;
-        }
-        if let Some(lines) = self.state.line_buffer.check_timeout() {
-            for line in lines {
-                self.state.pending_text.push_str(&line);
-            }
-        }
-        if self.state.pending_text.is_empty() {
-            None
-        } else {
-            Some(std::mem::take(&mut self.state.pending_text))
-        }
-    }
-
-    /// Flush all remaining buffered content.
-    ///
-    /// Called at MessageEnd to drain the line buffer and return all
-    /// pending text.
-    pub(crate) fn flush(&mut self) -> String {
-        if let Some(remaining) = self.state.line_buffer.flush() {
-            self.state.pending_text.push_str(&remaining);
-        }
-        std::mem::take(&mut self.state.pending_text)
     }
 
     /// Check if a card update should be sent based on timing.
@@ -139,6 +76,20 @@ impl CardkitStreamingRenderer {
             Some(last) => last.elapsed() >= Duration::from_millis(100),
             None => true,
         }
+    }
+
+    /// Return the current pending text buffer (test-only).
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn pending_text(&self) -> &str {
+        &self.state.pending_text
+    }
+
+    /// Set card_id for testing cardkit state transitions.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn set_card_id_for_test(&mut self, card_id: &str) {
+        self.state.card_id = Some(card_id.to_string());
     }
 
     /// Create a streaming card via cardkit API.
@@ -262,70 +213,63 @@ mod tests {
         CardkitStreamingRenderer::new()
     }
 
+    /// Simulate text routed from DefaultStreamingRenderer into cardkit
+    /// pending_text (the new data flow after Step 1.1).
+    fn push_text(r: &mut CardkitStreamingRenderer, text: &str) {
+        r.state.pending_text.push_str(text);
+    }
+
+    // =========================================================================
+    // pending_text accumulation (text routed from DefaultStreamingRenderer)
+    // =========================================================================
+
     #[test]
-    fn text_delta_buffers_content() {
+    fn pending_text_direct_accumulation() {
         let mut r = make_renderer();
-        r.handle_text_delta("Hello ");
-        assert!(r.state.pending_text.is_empty());
-        r.handle_text_delta("world!");
-        // The `!` is a sentence terminator, so LineBuffer emits
-        // "Hello world!" into pending_text
+        push_text(&mut r, "Hello ");
+        push_text(&mut r, "world!");
         assert_eq!(r.state.pending_text, "Hello world!");
     }
 
     #[test]
-    fn text_delta_with_sentence_terminator_emits() {
+    fn pending_text_preserves_all_content() {
         let mut r = make_renderer();
-        r.handle_text_delta("Hello world! ");
-        // `!` triggers emit of "Hello world!", trailing space stays in buffer
-        assert_eq!(r.state.pending_text, "Hello world!");
+        push_text(&mut r, "Hello world! ");
+        assert_eq!(r.state.pending_text, "Hello world! ");
     }
 
     #[test]
-    fn text_delta_with_newline_emits() {
+    fn pending_text_with_newline() {
         let mut r = make_renderer();
-        r.handle_text_delta("line1\nline2");
-        assert_eq!(r.state.pending_text, "line1\n");
+        push_text(&mut r, "line1\nline2");
+        assert_eq!(r.state.pending_text, "line1\nline2");
     }
 
     #[test]
-    fn block_start_resets_line_buffer() {
+    fn pending_text_without_terminator_preserved() {
         let mut r = make_renderer();
-        r.handle_text_delta("partial");
-        r.handle_block_start_text();
-        assert!(r.state.line_buffer.flush().is_none());
-    }
-
-    #[test]
-    fn block_end_flushes_remaining() {
-        let mut r = make_renderer();
-        r.handle_text_delta("no terminator here");
-        r.handle_block_end_text();
+        push_text(&mut r, "no terminator here");
         assert_eq!(r.state.pending_text, "no terminator here");
     }
 
     #[test]
-    fn flush_returns_all_pending() {
-        let mut r = make_renderer();
-        r.handle_text_delta("Hello");
-        r.handle_block_end_text();
-        let result = r.flush();
-        assert_eq!(result, "Hello");
-        assert!(r.state.pending_text.is_empty());
+    fn pending_text_empty_initially() {
+        let r = make_renderer();
+        assert!(r.pending_text().is_empty());
     }
 
     #[test]
-    fn flush_empty_returns_empty() {
+    fn pending_text_cleared_by_reset() {
         let mut r = make_renderer();
-        let result = r.flush();
-        assert!(result.is_empty());
+        push_text(&mut r, "some content。");
+        assert!(!r.state.pending_text.is_empty());
+        r.state.reset();
+        assert!(r.pending_text().is_empty());
     }
 
-    #[test]
-    fn check_timeout_returns_none_when_empty() {
-        let mut r = make_renderer();
-        assert!(r.check_timeout().is_none());
-    }
+    // =========================================================================
+    // State defaults and reset
+    // =========================================================================
 
     #[test]
     fn state_default_values() {
@@ -353,6 +297,10 @@ mod tests {
         assert!(state.pending_text.is_empty());
     }
 
+    // =========================================================================
+    // Cardkit protocol state tests
+    // =========================================================================
+
     #[test]
     fn should_update_now_true_when_no_last_update() {
         let r = make_renderer();
@@ -370,27 +318,6 @@ mod tests {
     fn streaming_element_id_is_correct() {
         assert_eq!(STREAMING_ELEMENT_ID, "streaming_content");
     }
-
-    #[test]
-    fn multiple_text_deltas_accumulate() {
-        let mut r = make_renderer();
-        r.handle_text_delta("Hello ");
-        r.handle_text_delta("world ");
-        r.handle_text_delta("!");
-        assert!(r.state.pending_text.contains("!"));
-    }
-
-    #[test]
-    fn code_block_newlines_not_emitted() {
-        let mut r = make_renderer();
-        r.handle_text_delta("```rust\nfn main() {\n    println!(\"hello\");\n}\n```\n");
-        r.handle_block_end_text();
-        assert!(r.state.pending_text.contains("fn main()"));
-    }
-
-    // =========================================================================
-    // Cardkit protocol state tests
-    // =========================================================================
 
     #[test]
     fn sequence_starts_at_zero() {
@@ -425,131 +352,6 @@ mod tests {
         assert!(!state.is_active);
     }
 
-    #[test]
-    fn pending_text_cleared_on_flush() {
-        let mut r = make_renderer();
-        r.handle_text_delta("some content。");
-        assert!(!r.state.pending_text.is_empty());
-        let flushed = r.flush();
-        assert_eq!(flushed, "some content。");
-        assert!(r.state.pending_text.is_empty());
-    }
-
-    // =========================================================================
-    // Multi-block streaming flow tests
-    // =========================================================================
-
-    #[test]
-    fn multiple_blocks_independent_buffering() {
-        let mut r = make_renderer();
-        // First block
-        r.handle_block_start_text();
-        r.handle_text_delta("Block 1。");
-        r.handle_block_end_text();
-        let block1 = r.flush();
-        assert_eq!(block1, "Block 1。");
-        // Second block
-        r.handle_block_start_text();
-        r.handle_text_delta("Block 2。");
-        r.handle_block_end_text();
-        let block2 = r.flush();
-        assert_eq!(block2, "Block 2。");
-    }
-
-    #[test]
-    fn interleaved_block_start_and_delta() {
-        let mut r = make_renderer();
-        r.handle_block_start_text();
-        r.handle_text_delta("partial");
-        // New block start resets buffer
-        r.handle_block_start_text();
-        r.handle_text_delta("fresh。");
-        r.handle_block_end_text();
-        assert_eq!(r.flush(), "fresh。");
-    }
-
-    // =========================================================================
-    // Code block handling tests
-    // =========================================================================
-
-    #[test]
-    fn code_block_with_language_preserves_content() {
-        let mut r = make_renderer();
-        r.handle_text_delta("```python\ndef hello():\n    print(\"world\")\n```\n");
-        r.handle_block_end_text();
-        assert!(r.state.pending_text.contains("def hello():"));
-        assert!(r.state.pending_text.contains("print(\"world\")"));
-    }
-
-    #[test]
-    fn code_block_without_language_preserves_content() {
-        let mut r = make_renderer();
-        r.handle_text_delta("```\nsome code\n```\n");
-        r.handle_block_end_text();
-        assert!(r.state.pending_text.contains("some code"));
-    }
-
-    #[test]
-    fn unclosed_code_block_flushed_on_block_end() {
-        let mut r = make_renderer();
-        r.handle_text_delta("```rust\nlet x = 1;");
-        r.handle_block_end_text();
-        assert!(r.state.pending_text.contains("let x = 1;"));
-    }
-
-    // =========================================================================
-    // Chinese and mixed content tests
-    // =========================================================================
-
-    #[test]
-    fn chinese_sentence_terminator_emits() {
-        let mut r = make_renderer();
-        r.handle_text_delta("你好世界。");
-        assert_eq!(r.state.pending_text, "你好世界。");
-    }
-
-    #[test]
-    fn mixed_chinese_english_content() {
-        let mut r = make_renderer();
-        r.handle_text_delta("Hello 世界！");
-        assert_eq!(r.state.pending_text, "Hello 世界！");
-    }
-
-    // =========================================================================
-    // Empty and boundary tests
-    // =========================================================================
-
-    #[test]
-    fn empty_text_delta_no_change() {
-        let mut r = make_renderer();
-        r.handle_text_delta("");
-        assert!(r.state.pending_text.is_empty());
-    }
-
-    #[test]
-    fn only_whitespace_text_delta() {
-        let mut r = make_renderer();
-        r.handle_text_delta("   ");
-        // Whitespace does not trigger sentence boundary
-        assert!(r.state.pending_text.is_empty());
-    }
-
-    #[test]
-    fn only_newline_text_delta_emits() {
-        let mut r = make_renderer();
-        r.handle_text_delta("\n");
-        assert_eq!(r.state.pending_text, "\n");
-    }
-
-    #[test]
-    fn consecutive_sentence_terminators() {
-        let mut r = make_renderer();
-        r.handle_text_delta("a!b?c。");
-        assert!(r.state.pending_text.contains("a!"));
-        assert!(r.state.pending_text.contains("b?"));
-        assert!(r.state.pending_text.contains("c。"));
-    }
-
     // =========================================================================
     // Reset during active streaming
     // =========================================================================
@@ -557,7 +359,7 @@ mod tests {
     #[test]
     fn reset_during_active_streaming_clears_state() {
         let mut r = make_renderer();
-        r.handle_text_delta("partial content。");
+        push_text(&mut r, "partial content。");
         r.state.card_id = Some("active_card".to_string());
         r.state.sequence = 3;
         r.state.is_active = true;
@@ -566,38 +368,5 @@ mod tests {
         assert_eq!(r.state.sequence, 0);
         assert!(!r.state.is_active);
         assert!(r.state.pending_text.is_empty());
-    }
-
-    #[test]
-    fn flush_after_reset_returns_empty() {
-        let mut r = make_renderer();
-        r.handle_text_delta("content。");
-        r.state.reset();
-        assert!(r.flush().is_empty());
-    }
-
-    // =========================================================================
-    // Check timeout edge cases
-    // =========================================================================
-
-    #[test]
-    fn check_timeout_after_flush_returns_none() {
-        let mut r = make_renderer();
-        r.handle_text_delta("done。");
-        r.flush();
-        assert!(r.check_timeout().is_none());
-    }
-
-    #[test]
-    fn check_timeout_with_pending_text_returns_some() {
-        let mut r = make_renderer();
-        // Feed text with a sentence terminator to populate pending_text
-        r.handle_text_delta("partial content。");
-        assert!(!r.state.pending_text.is_empty());
-        // The line buffer's own timeout is still within 200ms, so
-        // check_timeout returns the pending text as-is.
-        let result = r.check_timeout();
-        assert!(result.is_some());
-        assert!(result.unwrap().contains("partial content。"));
     }
 }
