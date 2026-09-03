@@ -21,9 +21,7 @@ pub use executor::{ReplyAction, SideEffectContext, SlashEffectExecutor, SlashRes
 pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 pub use handlers_bg::BackgroundHandler;
-pub use handlers_mode::{
-    AutoModeHandler, ExecuteHandler, ModeHandler, PauseHandler, PlanModeHandler,
-};
+pub use handlers_mode::{AutoModeHandler, ExecuteHandler, ModeHandler, PlanModeHandler};
 pub use handlers_permission::PermissionSlashHandler;
 pub use handlers_plans_browse::PlanBrowseHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
@@ -54,8 +52,6 @@ mod handlers_git_tests;
 mod handlers_mode_tests;
 #[cfg(test)]
 mod handlers_permission_tests;
-#[cfg(test)]
-mod pause_handler_tests;
 
 #[cfg(test)]
 pub mod handlers_user_tests;
@@ -65,3 +61,6 @@ pub mod handlers_plans_browse_tests;
 
 #[cfg(test)]
 pub mod dispatcher_tests;
+
+#[cfg(test)]
+mod pause_removal_tests;

@@ -921,8 +921,8 @@ impl Daemon {
         use closeclaw_slash::registry::HandlerRegistry;
         use closeclaw_slash::{
             AutoModeHandler, ClearHandler, CompactHandler, ExecHandler, ExecuteHandler,
-            HelpHandler, ModeHandler, NewSessionHandler, PauseHandler, PlanBrowseHandler,
-            PlanModeHandler, StatusHandler, StopHandler, VerboseHandler,
+            HelpHandler, ModeHandler, NewSessionHandler, PlanBrowseHandler, PlanModeHandler,
+            StatusHandler, StopHandler, VerboseHandler,
         };
 
         let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
@@ -949,7 +949,6 @@ impl Daemon {
             auto_handler,
         )));
         slash_registry.register(Arc::new(ExecuteHandler::new(Arc::clone(&sm_query))));
-        slash_registry.register(Arc::new(PauseHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(BackgroundHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(PlanBrowseHandler::new(Arc::clone(&sm_query))));
         slash_registry.register(Arc::new(PermissionSlashHandler));
