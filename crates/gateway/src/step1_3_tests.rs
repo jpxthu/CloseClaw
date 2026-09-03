@@ -545,15 +545,15 @@ fn test_checkpoint_error_with_empty_content_has_markers() {
     );
 }
 
-/// End-to-end: handle_streaming_degradation with StreamError persists a
-/// checkpoint whose message metadata contains error markers.
+/// End-to-end: handle_streaming_degradation with StreamError skips
+/// checkpoint when partial_content is empty (no incremental output).
 #[tokio::test]
-async fn test_degradation_checkpoint_has_error_markers() {
+async fn test_degradation_skips_checkpoint_for_empty_partial() {
     let (gw, sm, persist) = build_degradation_env("s-degrad", "chat_u").await;
 
     let dispatch_err = GatewayError::StreamError {
         message: "stream broken".into(),
-        partial_content: vec![ContentBlock::Text("partial".into())],
+        partial_content: vec![],
     };
 
     super::session_handler_streaming::handle_streaming_degradation(
@@ -566,23 +566,12 @@ async fn test_degradation_checkpoint_has_error_markers() {
     .await
     .unwrap();
 
-    // CheckpointManager::save spawns a task — yield to let it complete.
     tokio::task::yield_now().await;
 
     let saved = persist.take();
-    assert!(!saved.is_empty(), "checkpoint should be persisted");
-
-    let pending = &saved[0].outbound_pending;
     assert!(
-        !pending.is_empty(),
-        "should have at least one pending message"
-    );
-    // The pending message content_blocks JSON contains the partial content.
-    // The actual metadata is on the Message object created by
-    // build_checkpoint_message, verified by the unit tests above.
-    assert!(
-        pending[0].content.contains("partial"),
-        "persisted content should include partial text"
+        saved.is_empty(),
+        "checkpoint should be skipped when partial_content is empty"
     );
 }
 

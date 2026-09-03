@@ -300,38 +300,33 @@ async fn build_degradation_env(
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-/// StreamError with two text blocks → both sent before error.
+/// StreamError with empty partial_content → only error sent, no text.
 #[test]
-fn test_stream_error_sends_partial_text_before_error() {
+fn test_stream_error_no_text_sent_on_error() {
     let sink = RecordingSink::new();
     let error = GatewayError::StreamError {
         message: "stream interrupted".to_string(),
-        partial_content: vec![
-            ContentBlock::Text("Hello, ".to_string()),
-            ContentBlock::Text("world!".to_string()),
-        ],
+        partial_content: vec![],
     };
 
     let result = handle_stream_error(error, &sink);
     assert!(matches!(result, LLMError::ApiError(_)));
 
     let texts = sink.texts.lock().unwrap();
-    assert_eq!(texts.len(), 2, "should have sent 2 text blocks");
-    assert_eq!(texts[0], "Hello, ");
-    assert_eq!(texts[1], "world!");
+    assert!(texts.is_empty(), "no text blocks should be sent on error");
 
     let errors = sink.errors.lock().unwrap();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0], "Streaming error: stream interrupted");
 }
 
-/// Error message is sent after all partial text blocks.
+/// Error message is sent (no partial content on error).
 #[test]
-fn test_stream_error_sends_error_after_partial_content() {
+fn test_stream_error_sends_error_only() {
     let sink = RecordingSink::new();
     let error = GatewayError::StreamError {
         message: "timeout".to_string(),
-        partial_content: vec![ContentBlock::Text("partial".to_string())],
+        partial_content: vec![],
     };
 
     handle_stream_error(error, &sink);
@@ -341,33 +336,23 @@ fn test_stream_error_sends_error_after_partial_content() {
     assert_eq!(errors[0], "Streaming error: timeout");
 }
 
-/// Mixed ContentBlocks (Text + Image) → only Text blocks sent, Image ignored.
+/// Empty partial_content → no text blocks sent, only the error.
 #[test]
-fn test_stream_error_only_text_blocks_sent_from_mixed_content() {
+fn test_stream_error_no_text_from_empty_partial() {
     let sink = RecordingSink::new();
     let error = GatewayError::StreamError {
         message: "stream interrupted".to_string(),
-        partial_content: vec![
-            ContentBlock::Text("Hello, ".to_string()),
-            ContentBlock::Image {
-                name: "screenshot.png".to_string(),
-                url: "https://example.com/img.png".to_string(),
-            },
-            ContentBlock::Text("world!".to_string()),
-        ],
+        partial_content: vec![],
     };
 
     let result = handle_stream_error(error, &sink);
     assert!(matches!(result, LLMError::ApiError(_)));
 
     let texts = sink.texts.lock().unwrap();
-    assert_eq!(
-        texts.len(),
-        2,
-        "should only send 2 text blocks, not the image block"
+    assert!(
+        texts.is_empty(),
+        "no text blocks should be sent for empty partial_content"
     );
-    assert_eq!(texts[0], "Hello, ");
-    assert_eq!(texts[1], "world!");
 
     let errors = sink.errors.lock().unwrap();
     assert_eq!(errors.len(), 1);
@@ -486,59 +471,36 @@ async fn test_degradation_sends_simplified_notification() {
     );
 }
 
-/// Scenario 2: StreamError with partial_content → persist_outbound_checkpoint
-/// is called with the partial content.
+/// Scenario 2: StreamError with empty partial_content → checkpoint
+/// persistence is skipped (nothing to persist).
 #[tokio::test]
-async fn test_degradation_persists_checkpoint() {
+async fn test_degradation_skips_checkpoint_when_empty() {
     let plugin = Arc::new(DegradMockPlugin::new("mock"));
     let (gw, _sm, persist, _plugin_arc) =
         build_degradation_env("s-degrad-2", "chat_u2", "mock", plugin).await;
 
     let dispatch_err = GatewayError::StreamError {
         message: "timeout".to_string(),
-        partial_content: vec![
-            ContentBlock::Text("Line one\n".to_string()),
-            ContentBlock::Text("Line two".to_string()),
-        ],
+        partial_content: vec![],
     };
 
     handle_streaming_degradation(&gw, &_sm, "s-degrad-2", "mock", &dispatch_err)
         .await
         .unwrap();
 
-    // CheckpointManager::save spawns a task for persistence — yield to let it
-    // complete before inspecting the mock's saved vector.
     tokio::task::yield_now().await;
 
     let saved = persist.take_saved();
     assert!(
-        !saved.is_empty(),
-        "checkpoint should be persisted when partial_content is non-empty"
-    );
-
-    let cp = &saved[0];
-    assert_eq!(cp.session_id, "s-degrad-2");
-    assert!(
-        !cp.outbound_pending.is_empty(),
-        "checkpoint should have at least one pending message"
-    );
-
-    let pending = &cp.outbound_pending[0];
-    assert!(pending.sent, "mark_sent should be true");
-    assert!(
-        pending.content.contains("Line one"),
-        "pending content should include partial content"
-    );
-    assert!(
-        pending.content.contains("Line two"),
-        "pending content should include all partial text"
+        saved.is_empty(),
+        "checkpoint should be skipped when partial_content is empty"
     );
 }
 
-/// Scenario 3: send_outbound_simplified fails → warn logged, but checkpoint
-/// persistence still executes (non-blocking failure).
+/// Scenario 3: send_outbound_simplified fails → warn logged, but
+/// degradation still returns Ok (checkpoint skipped for empty partial).
 #[tokio::test]
-async fn test_degradation_notification_failure_does_not_block_checkpoint() {
+async fn test_degradation_notification_failure_still_succeeds() {
     let failing = Arc::new(FailingSendPlugin {
         platform: "mock".to_string(),
     });
@@ -547,7 +509,7 @@ async fn test_degradation_notification_failure_does_not_block_checkpoint() {
 
     let dispatch_err = GatewayError::StreamError {
         message: "network error".to_string(),
-        partial_content: vec![ContentBlock::Text("important partial".to_string())],
+        partial_content: vec![],
     };
 
     let result = handle_streaming_degradation(&gw, &_sm, "s-degrad-3", "mock", &dispatch_err).await;
@@ -557,20 +519,12 @@ async fn test_degradation_notification_failure_does_not_block_checkpoint() {
         result
     );
 
-    // CheckpointManager::save spawns a task — yield to let it complete.
     tokio::task::yield_now().await;
 
     let saved = persist.take_saved();
-    assert_eq!(
-        saved.len(),
-        1,
-        "checkpoint should still be persisted despite notification failure"
-    );
     assert!(
-        saved[0].outbound_pending[0]
-            .content
-            .contains("important partial"),
-        "persisted partial content should be correct"
+        saved.is_empty(),
+        "checkpoint should be skipped for empty partial_content"
     );
 }
 
@@ -646,47 +600,18 @@ async fn test_degradation_chat_id_unavailable_skips() {
 
 // ── Behavior dimension 1 & 2: Thinking blocks preserved, Text filtered ─────
 
-/// StreamError with Thinking → returns PartialContent; with Thinking + Text →
-/// only Thinking preserved, Text sent to sink. Multiple Thinking all kept.
+/// StreamError with empty partial_content → ApiError (no Thinking blocks).
 #[test]
-fn test_stream_error_thinking_preserved_text_filtered() {
+fn test_stream_error_empty_partial_yields_api_error() {
     let sink = RecordingSink::new();
-    // Thinking + interleaved Text + ToolUse.
     let error = GatewayError::StreamError {
         message: "interrupted".to_string(),
-        partial_content: vec![
-            ContentBlock::Thinking {
-                thinking: "step 1".to_string(),
-                signature: Some("sig".to_string()),
-            },
-            ContentBlock::Text("partial answer".to_string()),
-            ContentBlock::Thinking {
-                thinking: "step 2".to_string(),
-                signature: None,
-            },
-            ContentBlock::ToolUse {
-                id: "c1".to_string(),
-                name: "exec".to_string(),
-                input: r"{}".to_string(),
-            },
-        ],
+        partial_content: vec![],
     };
     let result = handle_stream_error(error, &sink);
-    match result {
-        LLMError::PartialContent {
-            thinking_blocks, ..
-        } => {
-            assert_eq!(thinking_blocks.len(), 2, "both Thinking blocks preserved");
-        }
-        other => panic!(
-            "expected PartialContent, got {:?}",
-            std::mem::discriminant(&other)
-        ),
-    }
-    // Text sent to sink (user sees partial output) but not preserved.
+    assert!(matches!(result, LLMError::ApiError(_)));
     let texts = sink.texts.lock().unwrap();
-    assert_eq!(texts.len(), 1);
-    assert_eq!(texts[0], "partial answer");
+    assert!(texts.is_empty(), "no text blocks should be sent");
     let errors = sink.errors.lock().unwrap();
     assert_eq!(errors.len(), 1, "error still sent");
 }

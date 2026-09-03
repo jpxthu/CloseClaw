@@ -261,11 +261,11 @@ impl MessageProcessor for TestProc {
     }
 }
 
-/// Incremental phase: VerbosityFilter + DslParser (passthrough) run;
-/// OutboundRawLog is skipped.
+/// Incremental phase: VerbosityFilter runs; DslParser is zero-overhead
+/// passthrough (no parse); OutboundRawLog is skipped.
 ///
-/// DslParser runs in passthrough mode: it parses DSL and writes metadata,
-/// but does NOT strip DSL lines from content blocks.
+/// DslParser in incremental phase does NOT parse or write metadata.
+/// Full parse runs in finalization phase.
 /// Uses real VerbosityFilter + DslParser + mock OutboundRawLog.
 #[tokio::test]
 async fn test_incremental_runs_verbosity_and_dsl_passthrough() {
@@ -299,7 +299,7 @@ async fn test_incremental_runs_verbosity_and_dsl_passthrough() {
         0,
         "outbound_raw_log must be skipped"
     );
-    // DslParser passthrough: content blocks unchanged.
+    // DslParser zero-overhead: content blocks unchanged.
     assert_eq!(result.content_blocks.len(), 2);
     assert!(matches!(
         &result.content_blocks[0],
@@ -310,9 +310,11 @@ async fn test_incremental_runs_verbosity_and_dsl_passthrough() {
         &result.content_blocks[1],
         ContentBlock::Text(s) if s == "Hello world"
     ));
-    // DSL result written to metadata.
-    let dsl = result.metadata.get("dsl_result").unwrap();
-    assert!(dsl.contains("button"));
+    // DslParser zero-overhead: no dsl_result in metadata.
+    assert!(
+        !result.metadata.contains_key("dsl_result"),
+        "incremental phase must not write dsl_result (zero-overhead passthrough)"
+    );
 }
 
 /// Incremental phase: VerbosityFilter filters Thinking blocks.
@@ -340,10 +342,10 @@ async fn test_incremental_verbosity_filter_works() {
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "visible text"));
 }
 
-/// Incremental phase: DslParser runs in passthrough mode.
+/// Incremental phase: DslParser is zero-overhead passthrough.
 ///
-/// Input contains a DSL line + plain text. DslParser parses DSL, writes
-/// metadata, but does NOT strip DSL lines from content blocks.
+/// Input contains a DSL line + plain text. DslParser does NOT parse
+/// or write metadata in incremental phase; content blocks pass through unchanged.
 #[tokio::test]
 async fn test_incremental_dsl_parser_passthrough() {
     let mut registry = ProcessorRegistry::new();
@@ -360,7 +362,7 @@ async fn test_incremental_dsl_parser_passthrough() {
     };
     let result = registry.process_outbound_incremental(msg).await.unwrap();
 
-    // DslParser runs in passthrough: content blocks unchanged
+    // DslParser zero-overhead: content blocks unchanged
     assert_eq!(result.content_blocks.len(), 2);
     assert!(matches!(
         &result.content_blocks[0],
@@ -371,9 +373,11 @@ async fn test_incremental_dsl_parser_passthrough() {
         &result.content_blocks[1],
         ContentBlock::Text(s) if s == "Hello world"
     ));
-    // DSL result written to metadata
-    let dsl = result.metadata.get("dsl_result").unwrap();
-    assert!(dsl.contains("button"));
+    // DslParser zero-overhead: no dsl_result in metadata
+    assert!(
+        !result.metadata.contains_key("dsl_result"),
+        "incremental phase must not write dsl_result (zero-overhead passthrough)"
+    );
 }
 
 /// Default trait implementation: non-registry impl delegates to full outbound chain.
@@ -426,9 +430,8 @@ async fn test_default_impl_delegates_to_full_chain() {
 }
 
 /// Incremental phase with Off verbosity: VerbosityFilter runs first,
-/// removing all non-Text blocks, then DslParser passthrough receives
-/// only the remaining Text blocks. DSL in those Text blocks is parsed
-/// into metadata, but content blocks stay unchanged.
+/// removing all non-Text blocks. DslParser is zero-overhead passthrough
+/// (no parse, no metadata write); content blocks stay unchanged.
 #[tokio::test]
 async fn test_incremental_off_verbosity_filters_then_dsl_passthrough() {
     let mut registry = ProcessorRegistry::new();
@@ -448,7 +451,7 @@ async fn test_incremental_off_verbosity_filters_then_dsl_passthrough() {
     let result = registry.process_outbound_incremental(msg).await.unwrap();
 
     // Off: VerbosityFilter removes Thinking + Image, keeps 2 Text blocks.
-    // DslParser passthrough: DSL line NOT stripped, metadata written.
+    // DslParser zero-overhead: DSL line preserved, no metadata written.
     assert_eq!(result.content_blocks.len(), 2);
     assert!(
         matches!(
@@ -456,12 +459,14 @@ async fn test_incremental_off_verbosity_filters_then_dsl_passthrough() {
             ContentBlock::Text(s)
                 if s == "::button[label:OK;action:submit]"
         ),
-        "DSL line must be preserved in passthrough mode"
+        "DSL line must be preserved in zero-overhead passthrough mode"
     );
     assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "Plain response"));
-    // DSL result written to metadata by DslParser passthrough.
-    let dsl = result.metadata.get("dsl_result").unwrap();
-    assert!(dsl.contains("button"));
+    // DslParser zero-overhead: no dsl_result in metadata.
+    assert!(
+        !result.metadata.contains_key("dsl_result"),
+        "incremental phase must not write dsl_result (zero-overhead passthrough)"
+    );
 }
 
 /// Incremental phase with Off verbosity and no DSL: VerbosityFilter

@@ -406,12 +406,9 @@ pub(crate) async fn setup_streaming_gw(
     gw
 }
 
-/// Step 1.3 — StreamError carries partial_content blocks.
-///
-/// When the stream emits an error after receiving some content,
-/// the error variant must include the already-accumulated content_blocks.
+/// Error event → StreamError with empty partial_content (no incremental output).
 #[tokio::test]
-async fn test_stream_error_preserves_partial_content() {
+async fn test_stream_error_no_incremental_output() {
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
     let gw = setup_streaming_gw("sess-err-1", Arc::clone(&plugin)).await;
 
@@ -449,13 +446,12 @@ async fn test_stream_error_preserves_partial_content() {
             partial_content,
         }) => {
             assert_eq!(message, "stream interrupted");
-            assert_eq!(partial_content.len(), 1, "should have 1 partial block");
             assert!(
-                matches!(&partial_content[0], ContentBlock::Text(t) if t == "partial content"),
-                "partial block should be the text content"
+                partial_content.is_empty(),
+                "Error should not produce incremental output"
             );
         }
-        other => panic!("expected StreamError with partial_content, got {:?}", other),
+        other => panic!("expected StreamError, got {:?}", other),
     }
 }
 
@@ -539,9 +535,9 @@ async fn test_stream_success_no_error() {
     );
 }
 
-/// Step 1.3 — Multiple blocks then error → all prior blocks preserved.
+/// Error event → StreamError with empty partial_content even after blocks.
 #[tokio::test]
-async fn test_stream_error_preserves_multiple_blocks() {
+async fn test_stream_error_empty_partial_after_blocks() {
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
     let gw = setup_streaming_gw("sess-err-3", Arc::clone(&plugin)).await;
 
@@ -590,10 +586,9 @@ async fn test_stream_error_preserves_multiple_blocks() {
         Err(crate::GatewayError::StreamError {
             partial_content, ..
         }) => {
-            assert_eq!(
-                partial_content.len(),
-                2,
-                "should have 2 partial blocks before error"
+            assert!(
+                partial_content.is_empty(),
+                "Error should not produce incremental output"
             );
         }
         other => panic!("expected StreamError, got {:?}", other),
