@@ -297,9 +297,9 @@
   },
   {
     "path": "docs/design/llm/providers/deepseek.md",
-    "commit": "9f383c5ff50ac98e2875827adc71ebccdd2e440d",
-    "commit_time": "2026-06-28T03:48:32+08:00",
-    "confirmed_time": "2026-06-28T03:55:52.948213+08:00",
+    "commit": "6ffa3dd2e9f9a5dfcdba70ea352ff944a0991e0c",
+    "commit_time": "2026-09-03T20:14:57+08:00",
+    "confirmed_time": "2026-09-03T20:25:05.528343+08:00",
     "comment": "",
     "blocked_reason": ""
   },
