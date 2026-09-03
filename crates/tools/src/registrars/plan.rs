@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
 
 use crate::builtin::execute_plan::ExecutePlanTool;
+use crate::builtin::PlanExecConfirmFlow;
 use crate::try_register;
 use crate::Tool;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
@@ -18,18 +18,18 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 /// Covers the `plan` group (1 tool): `ExecutePlanTool`.
 pub struct PlanToolsRegistrar {
     session_manager: Arc<SessionManager>,
-    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    confirm_flow: Arc<PlanExecConfirmFlow>,
 }
 
 impl PlanToolsRegistrar {
     /// Create a new `PlanToolsRegistrar`.
     pub fn new(
         session_manager: Arc<SessionManager>,
-        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+        confirm_flow: Arc<PlanExecConfirmFlow>,
     ) -> Self {
         Self {
             session_manager,
-            approval_flow,
+            confirm_flow,
         }
     }
 }
@@ -52,7 +52,7 @@ impl ToolRegistrar for PlanToolsRegistrar {
         let r = self.name();
         let execute_plan = ExecutePlanTool::new(
             Arc::clone(&self.session_manager),
-            Arc::clone(&self.approval_flow),
+            Arc::clone(&self.confirm_flow),
         );
         try_register!(registry, registered, execute_plan, r);
         if registered == 0 {

@@ -12,6 +12,7 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionToolsRegistrar};
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
+use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use closeclaw_tools::builtin::SkillTool;
 use closeclaw_tools::{
     CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
@@ -43,6 +44,8 @@ pub(crate) struct RegistryContext<'a> {
     pub spawn_controller: Arc<SpawnController>,
     /// Approval flow for routing permission denials.
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    /// Plan-exec confirmation flow for independent plan-execution confirmations.
+    pub confirm_flow: &'a Arc<PlanExecConfirmFlow>,
     /// Late-bound session manager proxy for deferred injection.
     pub late_bound_session_manager: Arc<LateBoundSessionManagerOps>,
     /// Path to the config subdirectory (for hot-reload).
@@ -254,7 +257,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
     let plan_registrar = PlanToolsRegistrar::new(
         Arc::clone(ctx.session_manager),
-        Arc::clone(ctx.approval_flow),
+        Arc::clone(ctx.confirm_flow),
     );
 
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![

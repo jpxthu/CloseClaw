@@ -3,7 +3,6 @@ use crate::approval::WhitelistTarget;
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 use crate::mock_session_lookup::MockSessionLookup;
-use closeclaw_common::{PlanPhase, PlanState, SessionMode};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -589,58 +588,6 @@ fn test_clear() {
     assert!(!flow.deny_request(&id2));
 }
 
-/// Verify that approve_request transitions the plan to Executing and
-/// switches session mode to Auto, so /execute is no longer required.
-#[tokio::test]
-async fn test_approve_request_enters_auto_mode() {
-    let mock_arc: Arc<MockSessionLookup> = Arc::new(MockSessionLookup::new());
-    let sm: Arc<dyn SessionLookup> = mock_arc.clone() as Arc<dyn SessionLookup>;
-    let initial_plan = PlanState {
-        phase: PlanPhase::FinalPlan,
-        plan_file_path: "/tmp/test-plan.md".to_string(),
-        ..PlanState::new()
-    };
-    mock_arc.set_plan_state("session_1", initial_plan).await;
-    let nc = Arc::new(AtomicUsize::new(0));
-    let nc_clone = Arc::clone(&nc);
-    let mut flow = ApprovalFlow::new(
-        sm,
-        Arc::new(move |_n: ApprovalNotification| {
-            nc_clone.fetch_add(1, Ordering::SeqCst);
-        }),
-        Arc::new(|_| {}),
-        tokio::runtime::Handle::current(),
-        HeartbeatApprovalMode::default(),
-        std::env::temp_dir(),
-        RuleSet::default(),
-    );
-    let caller = test_caller();
-    let request = test_request();
-    let request_id = flow
-        .submit_denial(&caller, &request, RiskLevel::Low, "session_1", false)
-        .unwrap();
-    let result = flow.approve_request(&request_id, ApprovalMode::Once).await;
-    assert!(result.is_ok());
-    assert!(result.unwrap());
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let plan = mock_arc.get_tracked_plan_state("session_1");
-    assert!(plan.is_some(), "plan_state set");
-    let mode = mock_arc.get_tracked_session_mode("session_1");
-    assert!(mode.is_some(), "session_mode set");
-    assert_eq!(mode.unwrap(), SessionMode::Auto, "session Auto");
-    let msgs = mock_arc.pending_messages();
-    assert!(
-        msgs.iter()
-            .any(|(sid, m)| sid == "session_1" && m.content.contains("已批准")),
-        "approval msg pushed"
-    );
-    assert!(
-        msgs.iter()
-            .any(|(sid, m)| sid == "session_1" && m.content.contains("Auto Mode")),
-        "mode switch pushed"
-    );
-}
-
 // ── User creation approval flow tests (Step 1.6) ───────────────────────
 
 #[test]
@@ -901,97 +848,4 @@ async fn test_pending_approval_stores_rule_version_and_snapshot() {
     assert_eq!(p.snapshotted_rules.rules[0].effect, Effect::Deny);
     assert_eq!(p.snapshotted_rules.rules[0].name, "deny-test-tool");
     assert_eq!(p.rule_version.len(), 64);
-}
-
-/// Helper: create a tempfile-backed approval flow with plan state.
-async fn ns_flow() -> (
-    tempfile::TempDir,
-    Arc<MockSessionLookup>,
-    ApprovalFlow,
-    String,
-) {
-    let d = tempfile::tempdir().unwrap();
-    let p = d.path().join("plan.md");
-    std::fs::write(&p, "# Plan\n").unwrap();
-    let ps = p.to_str().unwrap().to_string();
-    let m: Arc<MockSessionLookup> = Arc::new(MockSessionLookup::new());
-    m.set_plan_state(
-        "s1",
-        PlanState {
-            phase: PlanPhase::FinalPlan,
-            plan_file_path: ps.clone(),
-            ..PlanState::new()
-        },
-    )
-    .await;
-    let nc = Arc::new(AtomicUsize::new(0));
-    (
-        d,
-        m.clone(),
-        test_approval_flow_with(m, nc, tokio::runtime::Handle::current()),
-        ps,
-    )
-}
-
-#[tokio::test]
-async fn test_new_session_creates_child() {
-    let (d, m, mut f, ps) = ns_flow().await;
-    let c = Arc::new(AtomicUsize::new(0));
-    let cc = Arc::clone(&c);
-    f.set_create_child_session_fn(Arc::new(
-        move |_: String, _: String, _: Option<Vec<usize>>| {
-            let cc = Arc::clone(&cc);
-            Box::pin(async move {
-                cc.fetch_add(1, Ordering::SeqCst);
-                Ok("c1".to_string())
-            })
-        },
-    ));
-    let rid = f
-        .submit_denial(&test_caller(), &test_request(), RiskLevel::Low, "s1", false)
-        .unwrap();
-    f.set_plan_exec_metadata(&rid, ps, Some(vec![0, 2]), true, None);
-    assert!(f.approve_request(&rid, ApprovalMode::Once).await.unwrap());
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(c.load(Ordering::SeqCst), 1);
-    assert_eq!(m.get_tracked_session_mode("c1").unwrap(), SessionMode::Auto);
-    let p = m.get_tracked_plan_state("c1").unwrap();
-    assert_eq!(p.phase, PlanPhase::FinalPlan);
-    drop(d);
-}
-
-#[tokio::test]
-async fn test_new_session_fallback_without_callback() {
-    let (d, m, mut f, ps) = ns_flow().await;
-    let rid = f
-        .submit_denial(&test_caller(), &test_request(), RiskLevel::Low, "s1", false)
-        .unwrap();
-    f.set_plan_exec_metadata(&rid, ps, None, true, None);
-    assert!(f.approve_request(&rid, ApprovalMode::Once).await.unwrap());
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(
-        m.get_tracked_plan_state("s1").unwrap().phase,
-        PlanPhase::FinalPlan
-    );
-    assert!(m.get_tracked_plan_state("c1").is_none());
-    drop(d);
-}
-// ── Additional instruction injection tests ───────────────────────────────
-// Split into tests_additional_instruction.rs to keep this file under
-// the 1000-line limit.
-#[path = "tests_additional_instruction.rs"]
-mod tests_additional_instruction;
-
-#[tokio::test]
-async fn test_new_session_step_selection_metadata() {
-    let (d, m, mut f, ps) = ns_flow().await;
-    let rid = f
-        .submit_denial(&test_caller(), &test_request(), RiskLevel::Low, "s1", false)
-        .unwrap();
-    f.set_plan_exec_metadata(&rid, ps, Some(vec![1, 3]), false, None);
-    assert!(f.approve_request(&rid, ApprovalMode::Once).await.unwrap());
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    let p = m.get_tracked_plan_state("s1").unwrap();
-    assert_eq!(p.phase, PlanPhase::FinalPlan);
-    drop(d);
 }
