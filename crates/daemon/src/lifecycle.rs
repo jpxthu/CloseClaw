@@ -913,7 +913,7 @@ impl Daemon {
     pub(crate) async fn init_slash_dispatcher(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         session_manager: &Arc<closeclaw_gateway::SessionManager>,
-        permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+        _permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) -> Arc<closeclaw_slash::registry::HandlerRegistry> {
         use closeclaw_slash::dispatcher::SlashDispatcher;
         use closeclaw_slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
@@ -961,11 +961,10 @@ impl Daemon {
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry))
             as Arc<dyn closeclaw_common::SlashRouter>;
         gateway.set_slash_dispatcher(slash_dispatcher).await;
-        // 高危 slash 指令（如 /exec）需要权限引擎介入；在此注入使得
-        // dispatch_slash 在 Branch 2 时能取到 engine。
-        gateway
-            .set_permission_engine(Arc::clone(permission_engine))
-            .await;
+        // PermissionEngine is now injected in init_phase_3_core_services
+        // immediately after Gateway construction, matching the dependency
+        // topology. The permission_engine parameter remains in the signature
+        // for compatibility but is no longer used for injection here.
         info!("Slash dispatcher installed");
         registry_for_return
     }

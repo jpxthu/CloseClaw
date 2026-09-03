@@ -335,9 +335,10 @@ impl Daemon {
             tracing::warn!(error = %e, "failed to rebuild spawn_tree — continuing");
         }
         let gateway = Arc::new(gateway);
+        gateway
+            .set_permission_engine(Arc::clone(permission_engine))
+            .await;
         gateway.set_self_ref(Arc::clone(&gateway));
-        // Wire Gateway back-reference into SessionManager so
-        // drain_pending_for_session can send responses via outbound pipeline.
         session_manager.set_gateway_ref(Arc::clone(&gateway)).await;
         gateway
             .set_config_dir(std::path::PathBuf::from(config_dir))
@@ -546,7 +547,6 @@ impl Daemon {
 
         (approval_flow, builtin_skill_registry)
     }
-
     /// Build the child-session creation callback for the approval flow.
     fn build_create_child_fn(
         sm: Arc<SessionManager>,
