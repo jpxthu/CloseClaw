@@ -15,6 +15,7 @@ pub mod execute_plan;
 pub mod file_ops;
 pub mod git_ops;
 pub mod permission;
+pub mod plan_exec_confirm;
 pub mod prompt_template;
 pub(crate) mod read_truncator;
 pub mod search;
@@ -31,6 +32,9 @@ pub use execute_plan::ExecutePlanTool;
 pub use file_ops::{EditTool, GrepTool, LsTool, ReadTool, WriteTool};
 pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatusTool};
 pub use permission::PermissionQueryTool;
+pub use plan_exec_confirm::{
+    CreateChildSessionFn, PlanExecConfirmFlow, PlanExecMetadata, PlanExecNotification,
+};
 pub use search::ToolSearchTool;
 pub use skill_tool::SkillTool;
 pub use workflow_tools::{
