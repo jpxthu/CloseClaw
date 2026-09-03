@@ -241,9 +241,9 @@
   },
   {
     "path": "docs/design/im_adapter/platforms/feishu.md",
-    "commit": "2c393c116e26d63e23b819f1765cd10654525a96",
-    "commit_time": "2026-08-26T12:42:54+08:00",
-    "confirmed_time": "2026-08-26T12:55:27.511514+08:00",
+    "commit": "dbe4be5cac5ece0f639936196ade6ac352ebfaff",
+    "commit_time": "2026-09-03T15:35:37+08:00",
+    "confirmed_time": "2026-09-03T15:50:18.919024+08:00",
     "comment": "",
     "blocked_reason": ""
   },
