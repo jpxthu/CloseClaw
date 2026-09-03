@@ -786,6 +786,7 @@ async fn test_text_chunks_skipped_by_incremental_chain() {
     assert_eq!(
         chain_ref.incremental_call_count(),
         1,
-        "text chunks should NOT call process_outbound_incremental; only non-text blocks should trigger chain processing"
+        "text chunks should NOT call process_outbound_incremental; \
+         only non-text blocks should trigger chain processing"
     );
 }

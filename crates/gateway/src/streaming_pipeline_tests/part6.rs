@@ -485,7 +485,8 @@ async fn test_incremental_chain_not_called_for_text_chunks() {
     assert_eq!(
         chain_ref.incremental_call_count(),
         1,
-        "only non-text blocks should call process_outbound_incremental; text chunks are sent directly by dispatch_text"
+        "only non-text blocks should call process_outbound_incremental; \
+         text chunks are sent directly by dispatch_text"
     );
 }
 
