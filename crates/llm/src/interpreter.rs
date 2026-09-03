@@ -178,8 +178,8 @@ impl Default for InterpreterRegistry {
 /// MiniMax). When `false`, signature is always `None` (used by MiMo and GLM).
 ///
 /// When `clear_cache_tokens` is `true`, `cache_read_tokens` and
-/// `cache_write_tokens` are set to `None` in the output (used by GLM, DeepSeek,
-/// and MiMo — providers that don't support cache tokens).
+/// `cache_write_tokens` are set to `None` in the output (used by GLM and
+/// DeepSeek — providers that don't support cache tokens).
 fn interpret_openai_compatible(
     response: InternalResponse,
     preserve_signature: bool,
@@ -352,6 +352,10 @@ impl ModelInterpreter for DeepSeekInterpreter {
 /// present, they are emitted as separate [`ContentBlock::Text`] and
 /// [`ContentBlock::Thinking`] blocks respectively. Signature is always `None`
 /// (MiMo characteristic — no signature field in the wire format).
+///
+/// MiMo supports prefix cache hits: `cache_read_tokens` and
+/// `cache_write_tokens` from the upstream response are preserved as-is in
+/// [`UnifiedUsage`]. No client-side `cache_control` annotation is required.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MimoInterpreter;
 
@@ -361,7 +365,7 @@ impl ModelInterpreter for MimoInterpreter {
     }
 
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
-        interpret_openai_compatible(response, false, true)
+        interpret_openai_compatible(response, false, false)
     }
 
     fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent> {

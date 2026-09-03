@@ -53,6 +53,8 @@ pub mod interpreter;
 mod interpreter_test;
 #[cfg(test)]
 mod llm_tests;
+#[cfg(test)]
+mod mimo_cache_tests;
 pub mod plugin;
 pub mod unified_fallback;
 #[cfg(test)]
