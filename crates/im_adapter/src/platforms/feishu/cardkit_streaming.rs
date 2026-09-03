@@ -78,6 +78,7 @@ impl CardkitStreamingRenderer {
     ///
     /// Feeds text through the line buffer and returns any completed lines.
     /// Lines are buffered internally for batch card updates.
+    #[allow(dead_code)] // Will be removed in Step 1.2
     pub(crate) fn handle_text_delta(&mut self, text: &str) {
         for line in self.state.line_buffer.feed(text) {
             self.state.pending_text.push_str(&line);
@@ -87,6 +88,7 @@ impl CardkitStreamingRenderer {
     /// Handle a BlockStart event for a Text block.
     ///
     /// Resets the line buffer for the new text block.
+    #[allow(dead_code)] // Will be removed in Step 1.2
     pub(crate) fn handle_block_start_text(&mut self) {
         self.state.line_buffer.reset();
     }
@@ -94,6 +96,7 @@ impl CardkitStreamingRenderer {
     /// Handle a BlockEnd event for a Text block.
     ///
     /// Flushes any remaining buffered text.
+    #[allow(dead_code)] // Will be removed in Step 1.2
     pub(crate) fn handle_block_end_text(&mut self) {
         if let Some(remaining) = self.state.line_buffer.flush() {
             self.state.pending_text.push_str(&remaining);
@@ -103,6 +106,7 @@ impl CardkitStreamingRenderer {
     /// Check the line buffer timeout; if elapsed, force-output buffered content.
     ///
     /// Returns the pending text if the timeout has been exceeded.
+    #[allow(dead_code)] // Will be removed in Step 1.2
     pub(crate) fn check_timeout(&mut self) -> Option<String> {
         if self.state.pending_text.is_empty() {
             return None;
@@ -123,6 +127,7 @@ impl CardkitStreamingRenderer {
     ///
     /// Called at MessageEnd to drain the line buffer and return all
     /// pending text.
+    #[allow(dead_code)] // Will be removed in Step 1.2
     pub(crate) fn flush(&mut self) -> String {
         if let Some(remaining) = self.state.line_buffer.flush() {
             self.state.pending_text.push_str(&remaining);
