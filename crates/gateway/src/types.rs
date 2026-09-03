@@ -128,12 +128,12 @@ pub enum GatewayError {
     #[error("Outbound error: {0}")]
     OutboundError(String),
 
-    /// Streaming error that preserves partially received content blocks.
+    /// Streaming error that does not produce incremental output.
     ///
-    /// When a [`StreamEvent::Error`](closeclaw_llm::types::StreamEvent::Error)
-    /// arrives mid-stream, any `ContentBlock`s accumulated so far are carried
-    /// here rather than silently discarded, allowing callers to log or inspect
-    /// the partial output.
+    /// Per design doc: "Error → 不产生增量输出".
+    /// The `partial_content` field is always empty in current usage
+    /// (no flush on error). It is retained for structural consistency
+    /// and potential future use by `map_stream_error_to_llm_error`.
     #[error("Streaming error: {message}")]
     StreamError {
         message: String,

@@ -191,34 +191,38 @@ fn line_buffer_english_terminators() {
 // ===========================================================================
 
 /// Code block fence opens and closes code mode; inner periods don't split.
+/// In WholeBlock mode, the entire code block is emitted as one unit.
 #[test]
 fn code_block_boundaries_preserve_content() {
     let plugin = make_plugin();
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "```\nfoo.bar.baz\n```\n"));
-    assert_eq!(out.text_messages, vec!["```\n", "foo.bar.baz\n", "```\n"]);
+    assert_eq!(out.text_messages, vec!["```\nfoo.bar.baz\n```\n"]);
 }
 
 /// Code block with language hint opens code mode.
+/// In WholeBlock mode, the entire code block is emitted as one unit.
 #[test]
 fn code_block_with_language_hint() {
     let plugin = make_plugin();
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "```rust\nfn main() {}\n```\n"));
-    assert_eq!(
-        out.text_messages,
-        vec!["```rust\n", "fn main() {}\n", "```\n"]
-    );
+    assert_eq!(out.text_messages, vec!["```rust\nfn main() {}\n```\n"]);
 }
 
-/// Code block content exceeding 100-char threshold still emits in LineByLine mode.
+/// In WholeBlock mode, code block content exceeding 100-char threshold
+/// is NOT emitted at threshold — it waits for the closing fence.
 #[test]
-fn code_block_threshold_emits_in_line_by_line() {
+fn code_block_threshold_deferred_in_whole_block() {
     let plugin = make_plugin();
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "```\n"));
     let long_code = "x".repeat(120);
     let out = plugin.handle_stream_event(text_delta(0, &format!("{}\n", long_code)));
+    // WholeBlock mode: no emission yet, content is still buffered.
+    assert_eq!(out.text_messages.len(), 0);
+    // Emit the closing fence — entire block comes out as one unit.
+    let out = plugin.handle_stream_event(text_delta(0, "```\n"));
     assert_eq!(out.text_messages.len(), 1);
     assert!(out.text_messages[0].contains(&long_code));
 }
