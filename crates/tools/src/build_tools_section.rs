@@ -189,16 +189,6 @@ mod tests {
         )))
     }
 
-    fn test_confirm_flow(
-        session_manager: &Arc<SessionManager>,
-    ) -> Arc<crate::builtin::PlanExecConfirmFlow> {
-        Arc::new(crate::builtin::PlanExecConfirmFlow::new(
-            Arc::clone(session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            tokio::runtime::Handle::current(),
-        ))
-    }
-
     /// Build a minimal SpawnController + SessionManager pair for tests
     /// that only need to exercise the tool-registration path.
     fn test_spawn_deps() -> (
@@ -246,7 +236,6 @@ mod tests {
         config_manager: Arc<ConfigManager>,
         agent_registry: Arc<AgentRegistry>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
-        confirm_flow: Arc<crate::builtin::PlanExecConfirmFlow>,
     ) -> Vec<Box<dyn ToolRegistrar>> {
         let task_manager = Arc::new(BackgroundTaskManager::new());
         vec![
@@ -272,7 +261,7 @@ mod tests {
             )))),
             Box::new(PlanToolsRegistrar::new(
                 session_manager.clone(),
-                confirm_flow,
+                approval_flow.clone(),
             )),
         ]
     }
@@ -291,7 +280,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -334,7 +322,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -382,7 +369,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -440,7 +426,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -519,7 +504,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -615,7 +599,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -711,7 +694,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -765,7 +747,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();
@@ -813,7 +794,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
             ))
             .await
             .unwrap();

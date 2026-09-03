@@ -150,7 +150,6 @@ pub(crate) struct Phase5Deps<'a> {
     pub session_manager: &'a Arc<SessionManager>,
     pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
-    pub confirm_flow: &'a Arc<closeclaw_tools::builtin::PlanExecConfirmFlow>,
     pub gateway: &'a Arc<Gateway>,
     pub slash_registry: &'a Arc<closeclaw_slash::registry::HandlerRegistry>,
     pub shared_cache: &'a Arc<RwLock<SectionCache>>,

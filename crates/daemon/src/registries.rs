@@ -43,8 +43,6 @@ pub(crate) struct RegistryContext<'a> {
     pub spawn_controller: Arc<SpawnController>,
     /// Approval flow for routing permission denials.
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
-    /// Plan-exec confirmation flow for independent plan-execution confirmations.
-    pub confirm_flow: &'a Arc<closeclaw_tools::builtin::PlanExecConfirmFlow>,
     /// Late-bound session manager proxy for deferred injection.
     pub late_bound_session_manager: Arc<LateBoundSessionManagerOps>,
     /// Path to the config subdirectory (for hot-reload).
@@ -256,7 +254,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
     let plan_registrar = PlanToolsRegistrar::new(
         Arc::clone(ctx.session_manager),
-        Arc::clone(ctx.confirm_flow),
+        Arc::clone(ctx.approval_flow),
     );
 
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![

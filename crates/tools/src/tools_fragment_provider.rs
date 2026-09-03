@@ -253,11 +253,7 @@ mod tests {
             ))),
             Box::new(crate::PlanToolsRegistrar::new(
                 session_manager.clone(),
-                Arc::new(crate::builtin::PlanExecConfirmFlow::new(
-                    Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
-                    Arc::new(|_| {}),
-                    tokio::runtime::Handle::current(),
-                )),
+                approval_flow.clone(),
             )),
         ];
         registry.register_all(registrars).await.unwrap();

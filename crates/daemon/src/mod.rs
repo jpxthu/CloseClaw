@@ -505,6 +505,7 @@ impl Daemon {
         let sm_for_spawn = Arc::clone(session_manager);
         let cm_for_spawn = Arc::clone(config_manager);
         let create_child_fn = Self::build_create_child_fn(sm_for_spawn, cm_for_spawn);
+
         let mut af = ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
@@ -519,6 +520,7 @@ impl Daemon {
         }
         af.set_create_child_session_fn(create_child_fn);
         let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
+
         // Sync approval flow snapshot with actual loaded rules.
         {
             let pe_guard = permission_engine.read().await;
@@ -631,7 +633,6 @@ impl Daemon {
             session_manager,
             permission_engine,
             approval_flow,
-            confirm_flow,
             gateway,
             slash_registry,
             shared_cache,
@@ -675,7 +676,6 @@ impl Daemon {
             permission_engine,
             spawn_controller: Arc::clone(&spawn_controller),
             approval_flow,
-            confirm_flow,
             late_bound_session_manager: late_bound_session_manager.clone(),
             config_subdir: &config_subdir,
             data_dir,

@@ -248,6 +248,19 @@ impl PlanExecConfirmFlow {
     }
 }
 
+// ── Trait impl for Gateway ─────────────────────────────────────────────
+
+#[async_trait::async_trait]
+impl closeclaw_common::plan_confirm_handler::PlanConfirmationHandler for PlanExecConfirmFlow {
+    async fn confirm(&self, confirmation_id: &str) -> bool {
+        PlanExecConfirmFlow::confirm(self, confirmation_id).await
+    }
+
+    async fn cancel(&self, confirmation_id: &str) -> bool {
+        PlanExecConfirmFlow::cancel(self, confirmation_id).await
+    }
+}
+
 // ── Private helpers ─────────────────────────────────────────────────────
 
 /// Push a cancellation message to the session.

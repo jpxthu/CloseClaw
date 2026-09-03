@@ -81,20 +81,6 @@ impl Daemon {
             audit_logger,
         )
         .await;
-
-        // Create PlanExecConfirmFlow for independent plan-execution confirmation.
-        let confirm_flow = {
-            let sm_lookup: Arc<dyn closeclaw_common::SessionLookup> =
-                Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>;
-            let on_notify: Arc<
-                dyn Fn(closeclaw_tools::builtin::PlanExecNotification) + Send + Sync,
-            > = Arc::new(|_| {});
-            Arc::new(closeclaw_tools::builtin::PlanExecConfirmFlow::new(
-                sm_lookup,
-                on_notify,
-                tokio::runtime::Handle::current(),
-            ))
-        };
         let (
             sweeper_tx,
             announce_sweeper_tx,
@@ -116,7 +102,6 @@ impl Daemon {
                 session_manager: &session_manager,
                 permission_engine: &permission_engine,
                 approval_flow: &approval_flow,
-                confirm_flow: &confirm_flow,
                 gateway: &gateway,
                 slash_registry: &slash_registry,
                 shared_cache: &shared_cache,
