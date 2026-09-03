@@ -205,9 +205,12 @@ impl Gateway {
                 cmd,
                 "permission engine not configured; denying slash command"
             );
-            self.send_outbound_simplified(ctx.peer_id, ctx.channel, "权限不足：权限引擎未配置")
+            if let Err(e) = self
+                .send_outbound_simplified(ctx.peer_id, ctx.channel, "权限不足：权限引擎未配置")
                 .await
-                .ok();
+            {
+                tracing::warn!(cmd, error = %e, "failed to send permission engine not configured notification");
+            }
             return false;
         };
 
@@ -221,9 +224,12 @@ impl Gateway {
         // (three-branch routing) and does not involve agent inheritance.
         let response = engine.read().await.evaluate(request, None);
         if let PermissionResponse::Denied { reason, .. } = response {
-            self.send_outbound_simplified(ctx.peer_id, ctx.channel, &format!("权限不足：{reason}"))
+            if let Err(e) = self
+                .send_outbound_simplified(ctx.peer_id, ctx.channel, &format!("权限不足：{reason}"))
                 .await
-                .ok();
+            {
+                tracing::warn!(cmd, error = %e, "failed to send permission denied notification");
+            }
             return false;
         }
         true
