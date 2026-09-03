@@ -679,9 +679,9 @@ async fn test_non_immediate_idle_executes_normally() {
 // 2. 边界值 — denial when permission engine is not configured
 // 3. 状态转换 — permission engine Denied → handler invoked, execute skipped
 //
-// Note: The "权限不足" text is sent via `send_reply_if_available` which
-// delegates to `SessionMessageHandler::send_reply()`. In unit tests the
-// session_handler is None, so the text is silently dropped. The behavioral
+// Note: The "权限不足" text is sent via `send_outbound_simplified` which
+// routes through the simplified outbound path. In unit tests the outbound
+// chain is typically unavailable, so the text is silently dropped. The behavioral
 // contract (handler skipped, dispatch returns SlashHandled) is verified
 // below.
 

@@ -41,6 +41,19 @@ fn parse_slash(content: &str) -> Option<(&str, &str)> {
     Some((cmd, args.trim_start()))
 }
 
+/// Routing context for slash command dispatch.
+///
+/// Bundles the four routing fields (`session_id`, `sender_id`,
+/// `channel`, `peer_id`) so they can be threaded through the
+/// permission-checking methods without exceeding the 6-parameter
+/// hard limit.
+pub(crate) struct SlashRouteCtx<'a> {
+    session_id: &'a str,
+    sender_id: Option<&'a str>,
+    channel: &'a str,
+    peer_id: &'a str,
+}
+
 impl Gateway {
     /// Install the slash command dispatcher.
     pub async fn set_slash_dispatcher(&self, dispatcher: Arc<dyn SlashRouter>) {
@@ -135,7 +148,13 @@ impl Gateway {
             return Some(HandleResult::SlashHandled);
         }
 
-        self.execute_and_route(handler.as_ref(), cmd, args, session_id, sender_id, channel)
+        let route_ctx = SlashRouteCtx {
+            session_id,
+            sender_id,
+            channel,
+            peer_id: peer_id.unwrap_or(""),
+        };
+        self.execute_and_route(handler.as_ref(), cmd, args, &route_ctx)
             .await
     }
 
@@ -175,13 +194,8 @@ impl Gateway {
     /// `requires_permission()`. Used directly by `execute_and_route` for
     /// `SlashResult::Exec { requires_permission: true }` to bypass
     /// handler-level checks.
-    async fn check_engine_permission(
-        &self,
-        cmd: &str,
-        sender_id: Option<&str>,
-        session_id: &str,
-    ) -> bool {
-        if sender_id == Some("owner") {
+    async fn check_engine_permission(&self, cmd: &str, ctx: &SlashRouteCtx<'_>) -> bool {
+        if ctx.sender_id == Some("owner") {
             return true;
         }
 
@@ -191,13 +205,14 @@ impl Gateway {
                 cmd,
                 "permission engine not configured; denying slash command"
             );
-            self.send_reply_if_available("权限不足：权限引擎未配置")
-                .await;
+            self.send_outbound_simplified(ctx.peer_id, ctx.channel, "权限不足：权限引擎未配置")
+                .await
+                .ok();
             return false;
         };
 
         let request = self
-            .build_permission_request(cmd, sender_id, session_id)
+            .build_permission_request(cmd, ctx.sender_id, ctx.session_id)
             .await;
 
         // Gateway-level permission check: evaluate current agent config
@@ -206,8 +221,9 @@ impl Gateway {
         // (three-branch routing) and does not involve agent inheritance.
         let response = engine.read().await.evaluate(request, None);
         if let PermissionResponse::Denied { reason, .. } = response {
-            self.send_reply_if_available(&format!("权限不足：{reason}"))
-                .await;
+            self.send_outbound_simplified(ctx.peer_id, ctx.channel, &format!("权限不足：{reason}"))
+                .await
+                .ok();
             return false;
         }
         true
@@ -215,14 +231,9 @@ impl Gateway {
 
     /// Three-branch permission check. Returns `true` if the command may
     /// proceed, `false` if it was denied (reply already sent).
-    async fn check_slash_permission(
-        &self,
-        cmd: &str,
-        sender_id: Option<&str>,
-        session_id: &str,
-    ) -> bool {
+    async fn check_slash_permission(&self, cmd: &str, ctx: &SlashRouteCtx<'_>) -> bool {
         // Branch 1: Owner 短路
-        if sender_id == Some("owner") {
+        if ctx.sender_id == Some("owner") {
             return true;
         }
 
@@ -241,14 +252,7 @@ impl Gateway {
         drop(dispatcher_guard);
 
         // Branch 2: 高危指令走权限引擎
-        self.check_engine_permission(cmd, sender_id, session_id)
-            .await
-    }
-
-    async fn send_reply_if_available(&self, text: &str) {
-        if let Some(sh) = self.session_handler.get() {
-            sh.send_reply(text.to_owned()).await;
-        }
+        self.check_engine_permission(cmd, ctx).await
     }
 
     /// Route a slash reply through the outbound Processor Chain.
@@ -298,8 +302,7 @@ impl Gateway {
         &self,
         result: &SlashResult,
         cmd_name: &str,
-        sender_id: Option<&str>,
-        session_id: &str,
+        ctx: &SlashRouteCtx<'_>,
     ) -> bool {
         match result {
             SlashResult::Exec {
@@ -309,14 +312,8 @@ impl Gateway {
             SlashResult::Exec {
                 requires_permission: true,
                 ..
-            } => {
-                self.check_engine_permission(cmd_name, sender_id, session_id)
-                    .await
-            }
-            _ => {
-                self.check_slash_permission(cmd_name, sender_id, session_id)
-                    .await
-            }
+            } => self.check_engine_permission(cmd_name, ctx).await,
+            _ => self.check_slash_permission(cmd_name, ctx).await,
         }
     }
 
@@ -359,27 +356,26 @@ impl Gateway {
         handler: &dyn SlashHandler,
         cmd_name: &str,
         args: &str,
-        session_id: &str,
-        sender_id: Option<&str>,
-        channel: &str,
+        ctx: &SlashRouteCtx<'_>,
     ) -> Option<HandleResult> {
         let slash_ctx = SlashContext {
             command: cmd_name.to_owned(),
-            sender_id: sender_id.unwrap_or("").to_owned(),
-            session_id: session_id.to_owned(),
-            channel: channel.to_owned(),
+            sender_id: ctx.sender_id.unwrap_or("").to_owned(),
+            session_id: ctx.session_id.to_owned(),
+            channel: ctx.channel.to_owned(),
         };
         let result = handler.handle(args, &slash_ctx).await;
 
         // Permission check AFTER handler returns SlashResult but BEFORE execute.
         if !self
-            .check_permission_for_execute(&result, cmd_name, sender_id, session_id)
+            .check_permission_for_execute(&result, cmd_name, ctx)
             .await
         {
             return Some(HandleResult::SlashHandled);
         }
 
-        self.execute_side_effects(result, session_id, channel).await;
+        self.execute_side_effects(result, ctx.session_id, ctx.channel)
+            .await;
         Some(HandleResult::SlashHandled)
     }
 }
