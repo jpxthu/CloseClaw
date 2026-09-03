@@ -286,7 +286,7 @@ async fn test_image_no_text_produces_message() {
     assert_eq!(msg.message_type, MessageType::Image);
     // Download fails in unit tests (no HTTP mock) → media unavailable
     assert!(msg.media_refs.is_empty());
-    assert!(msg.content.is_empty());
+    assert_eq!(msg.content, "[图片]");
 }
 
 #[tokio::test]

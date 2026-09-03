@@ -783,7 +783,7 @@ impl FeishuAdapter {
                 Ok((expand_post_content(content), media))
             }
             "image" => Ok((
-                String::new(),
+                "[图片]".to_string(),
                 vec![Self::make_media_ref(content, "image_key", message_type)],
             )),
             "file" | "audio" => Ok((
