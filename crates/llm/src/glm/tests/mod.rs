@@ -152,16 +152,88 @@ fn test_parse_chat_response_content_empty_reasoning_degraded() {
     );
 }
 
-/// 3. Short reasoning filtered: reasoning_content is 1 char (below
-///    MIN_REASONING_LENGTH=2) → Thinking block not emitted.
+/// 3. Short reasoning demoted: reasoning_content is 1 char (below
+///    MIN_REASONING_LENGTH=2) → demoted to Text block.
 #[test]
-fn test_parse_chat_response_short_reasoning_filtered() {
+fn test_parse_chat_response_short_reasoning_demoted() {
     let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some(".")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text(".".to_string())
+    );
+}
+
+/// Boundary: reasoning length 0 (empty string after trim is filtered
+/// out by the Option filter, so it behaves like None — text only).
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_0() {
+    // reasoning_content set to empty string — trimmed & filtered → None
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("")));
     let resp = resp.expect("should succeed");
     assert_eq!(resp.content_blocks.len(), 1);
     assert_eq!(
         resp.content_blocks[0],
         RawContentBlock::Text("Hello".to_string())
+    );
+}
+
+/// Boundary: reasoning length 1 → below MIN_REASONING_LENGTH (2),
+/// demoted to Text.
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_1() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("x")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text("x".to_string())
+    );
+}
+
+/// Boundary: reasoning length 2 == MIN_REASONING_LENGTH → still demoted
+/// (the check is `> MIN_REASONING_LENGTH` for Thinking).
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_2() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("ab")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text("ab".to_string())
+    );
+}
+
+/// Boundary: reasoning length 3 > MIN_REASONING_LENGTH (2) → Thinking
+/// block (not demoted).
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_3() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("abc")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Thinking {
+            thinking: "abc".to_string(),
+            signature: None,
+        }
     );
 }
 
