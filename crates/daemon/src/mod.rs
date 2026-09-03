@@ -339,6 +339,7 @@ impl Daemon {
             .set_permission_engine(Arc::clone(permission_engine))
             .await;
         gateway.set_self_ref(Arc::clone(&gateway));
+        // Wire Gateway back-reference into SessionManager (outbound pipeline).
         session_manager.set_gateway_ref(Arc::clone(&gateway)).await;
         gateway
             .set_config_dir(std::path::PathBuf::from(config_dir))
@@ -428,8 +429,7 @@ impl Daemon {
             }
         }
         Self::init_terminal_plugin(&gateway).await;
-        let slash_registry =
-            Self::init_slash_dispatcher(&gateway, &session_manager, permission_engine).await;
+        let slash_registry = Self::init_slash_dispatcher(&gateway, &session_manager).await;
         // Start the inbound queue consumer so webhook messages are buffered.
         gateway.start_inbound_queue();
         // Read drain timeout from config; fall back to 30s default.
@@ -544,7 +544,6 @@ impl Daemon {
             reg
         };
         let ((), builtin_skill_registry) = tokio::join!(approval_fut, builtin_fut);
-
         (approval_flow, builtin_skill_registry)
     }
     /// Build the child-session creation callback for the approval flow.

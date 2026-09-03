@@ -3,7 +3,6 @@
 use super::{Daemon, Phase5Deps};
 use closeclaw_debug_log::{DebugLog, DebugLogConfig};
 use closeclaw_permission::engine::audit_log::AuditLogger;
-use closeclaw_permission::PermissionEngine;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
@@ -913,7 +912,6 @@ impl Daemon {
     pub(crate) async fn init_slash_dispatcher(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         session_manager: &Arc<closeclaw_gateway::SessionManager>,
-        _permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
     ) -> Arc<closeclaw_slash::registry::HandlerRegistry> {
         use closeclaw_slash::dispatcher::SlashDispatcher;
         use closeclaw_slash::handlers::{ReasoningHandler, SystemHandler, WorkdirHandler};
@@ -961,10 +959,8 @@ impl Daemon {
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry))
             as Arc<dyn closeclaw_common::SlashRouter>;
         gateway.set_slash_dispatcher(slash_dispatcher).await;
-        // PermissionEngine is now injected in init_phase_3_core_services
-        // immediately after Gateway construction, matching the dependency
-        // topology. The permission_engine parameter remains in the signature
-        // for compatibility but is no longer used for injection here.
+        // PermissionEngine injection moved to init_phase_3_core_services
+        // immediately after Gateway construction (dependency topology aligned).
         info!("Slash dispatcher installed");
         registry_for_return
     }
