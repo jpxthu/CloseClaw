@@ -313,11 +313,11 @@
   },
   {
     "path": "docs/design/llm/providers/mimo.md",
-    "commit": "4407c4dad3c0beb40173f04039ab5cc557b1d8ba",
-    "commit_time": "2026-06-29T20:24:48+08:00",
-    "confirmed_time": "2026-09-03T22:38:53.588266+08:00",
+    "commit": "583064d333e431424fc71c9bcd3f6ae3333cd1ec",
+    "commit_time": "2026-09-03T22:40:36+08:00",
+    "confirmed_time": "2026-09-03T23:04:10.351986+08:00",
     "comment": "",
-    "blocked_reason": "F2b 深度对比 3 轮后正/反向报告仍无法达成一致：(1) 文档「数据流/上游」声称 OpenAI 或 Anthropic 双协议路径，而 call_chain 仅注册 OpenAiProtocol，该差异在 must_fix/doc_problem/code_extra 间摇摆，无法确定代码应对齐的目标形态；(2)「用量/配额」声明无 usage-quota API 而代码无任何印证，是否需以注释固化该决策存在分歧"
+    "blocked_reason": "F2b 第 3 轮仲裁仍无法收敛：文档「thinking 行为」称 Anthropic 协议 signature 始终为空字符串，但未界定语义层级——wire format 层代码为 Some(\"\")（一致），统一响应层经 MimoInterpreter(preserve_signature=false) 归一为 None（不一致）；且该 Anthropic 解析路径当前为死代码（call_chain 仅注册 OpenAiProtocol），无法确定代码应对齐的目标形态，需 Owner 澄清文档语义"
   },
   {
     "path": "docs/design/llm/providers/minimax.md",
