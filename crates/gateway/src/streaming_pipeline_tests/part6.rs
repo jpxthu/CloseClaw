@@ -440,11 +440,12 @@ async fn test_incremental_chain_failure_no_panic() {
 // VerbosityAwareChain invocation count verification
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Verify that process_outbound_incremental is called for each text chunk
-/// dispatched by dispatch_text, and for each non-text block processed by
-/// process_and_send_non_text_blocks.
+/// Verify that process_outbound_incremental is only called for non-text
+/// blocks (Thinking/ToolUse/ToolResult). Text chunks are sent directly
+/// by `dispatch_text` without chain processing (Step 1.1 change:
+/// VerbosityFilter removed from per-line text dispatch).
 #[tokio::test]
-async fn test_incremental_chain_called_for_each_text_chunk() {
+async fn test_incremental_chain_not_called_for_text_chunks() {
     let chain = Arc::new(VerbosityAwareChain::new());
     let chain_ref = Arc::clone(&chain);
     let config = make_config();
@@ -461,12 +462,13 @@ async fn test_incremental_chain_called_for_each_text_chunk() {
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
 
     let events = vec![
-        // Text block with 2 lines (each dispatched separately by LineBuffer).
+        // Text block with 2 lines — dispatched directly by dispatch_text
+        // (no chain call after Step 1.1).
         block_start(0, ContentBlockType::Text),
         text_delta(0, "Line 1\n"),
         text_delta(0, "Line 2\n"),
         block_end(0, ContentBlockType::Text),
-        // Thinking block.
+        // Thinking block — processed through chain at BlockEnd.
         block_start(1, ContentBlockType::Thinking),
         thinking_delta("reasoning"),
         block_end(1, ContentBlockType::Thinking),
@@ -478,11 +480,12 @@ async fn test_incremental_chain_called_for_each_text_chunk() {
         .await
         .unwrap();
 
-    // 2 text chunks (Line 1, Line 2) + 1 Thinking block = 3 incremental calls.
+    // Only 1 call: Thinking block via process_and_send_non_text_blocks.
+    // Text chunks go directly through dispatch_text (no chain call).
     assert_eq!(
         chain_ref.incremental_call_count(),
-        3,
-        "process_outbound_incremental should be called for each text chunk + non-text block"
+        1,
+        "only non-text blocks should call process_outbound_incremental; text chunks are sent directly by dispatch_text"
     );
 }
 
