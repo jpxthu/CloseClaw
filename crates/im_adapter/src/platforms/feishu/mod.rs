@@ -71,7 +71,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
-use closeclaw_common::streaming::DefaultStreamingRenderer;
+use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer};
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
@@ -368,7 +368,9 @@ impl FeishuPlugin {
             adapter,
             identity_resolver: None,
             cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
-            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            streaming_renderer: std::sync::Mutex::new(
+                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
+            ),
             debug_log: None,
         }
     }
@@ -382,7 +384,9 @@ impl FeishuPlugin {
             adapter,
             identity_resolver,
             cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
-            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
+            streaming_renderer: std::sync::Mutex::new(
+                DefaultStreamingRenderer::new().with_code_block_mode(CodeBlockMode::WholeBlock),
+            ),
             debug_log: None,
         }
     }
