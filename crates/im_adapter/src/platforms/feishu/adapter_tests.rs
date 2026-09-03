@@ -274,7 +274,7 @@ async fn test_parse_message_event_image_type() {
     assert_eq!(msg.message_type, MessageType::Image);
     // Download fails in unit tests (no HTTP mock) → media unavailable
     assert!(msg.media_refs.is_empty());
-    assert!(msg.content.is_empty());
+    assert_eq!(msg.content, "[图片]");
 }
 #[tokio::test]
 async fn test_parse_message_event_file_type() {
@@ -477,7 +477,7 @@ async fn test_parse_inbound_image_type() {
     assert_eq!(msg.message_type, MessageType::Image);
     // Download fails in unit tests (no HTTP mock) → media unavailable
     assert!(msg.media_refs.is_empty());
-    assert!(msg.content.is_empty());
+    assert_eq!(msg.content, "[图片]");
 }
 // ===========================================================================
 // Identity mapping tests
