@@ -289,7 +289,13 @@ impl FeishuAdapter {
                 return Ok(());
             }
         };
-        let path_str = outbound_path.to_string_lossy().to_string();
+        // lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径)
+        let cwd = std::env::current_dir().unwrap_or_else(|e| {
+            // Defensive: current_dir() rarely fails; if it does, use absolute path
+            tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
+            outbound_path.clone()
+        });
+        let path_str = make_media_path_relative(&outbound_path, &cwd);
         let id_flag = if receive_id.starts_with("ou_") {
             "--user-id"
         } else {
@@ -334,6 +340,33 @@ impl FeishuAdapter {
         ];
         run_cli(self, &args).await?;
         Ok(())
+    }
+}
+
+/// Convert an absolute media path to a relative path when possible.
+///
+/// lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径).
+/// When `outbound` is a subdirectory of `cwd`, returns a relative path;
+/// otherwise returns the original absolute path string.
+///
+/// # Arguments
+/// * `outbound` - Absolute path to the outbound media file.
+/// * `cwd` - The working directory to compute the relative path against.
+///   Obtained from `std::env::current_dir()` by the caller.
+fn make_media_path_relative(outbound: &std::path::Path, cwd: &std::path::Path) -> String {
+    match outbound.strip_prefix(cwd) {
+        Ok(rel) => {
+            let rel_str = rel.to_string_lossy().to_string();
+            if rel_str.is_empty() {
+                // strip_prefix succeeded but returned empty string,
+                // meaning outbound == cwd (not a subdirectory). Preserve
+                // absolute path to avoid passing empty string to lark-cli.
+                return outbound.to_string_lossy().to_string();
+            }
+            rel_str
+        }
+        // outbound is not under cwd — fall back to absolute path
+        Err(_) => outbound.to_string_lossy().to_string(),
     }
 }
 
@@ -635,5 +668,124 @@ mod tests {
         assert!(content.contains("--user-id"));
         assert!(content.contains("ou_user123"));
         assert!(!content.contains("oc_chat456"));
+    }
+
+    // =====================================================================
+    // send_media_file path conversion tests
+    // =====================================================================
+
+    /// When outbound_path is under cwd, lark-cli receives a relative path.
+    ///
+    /// Places a source file in the media store's storage dir (which is under cwd),
+    /// so `prepare_outbound_local_media` copies it to outbound/ and `send_media_file`
+    /// converts the outbound path to relative.
+    #[tokio::test]
+    async fn test_send_media_file_outbound_under_cwd_uses_relative_path() {
+        // Create temp dir under the project cwd so outbound path can be stripped.
+        let cwd = std::env::current_dir().unwrap();
+        let tmp = TempDir::new_in(&cwd).unwrap();
+        let cli = create_args_echo_cli(&tmp);
+
+        // Place media store under tmp (which is under cwd).
+        let media_dir = tmp.path().join("media");
+        let media_store = crate::media_store::MediaStore::new(media_dir.to_str().unwrap()).unwrap();
+        // Source file must be inside an allowed dir (media store storage dir).
+        let src = media_dir.join("photo.png");
+        std::fs::write(&src, "image data").unwrap();
+
+        let mut adapter = make_adapter_with_cli(&cli);
+        adapter.media_store = Arc::new(media_store);
+
+        let result = adapter.send_image("oc_test", src.to_str().unwrap()).await;
+        assert!(result.is_ok());
+
+        let args_file = tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        let image_arg = content
+            .split_whitespace()
+            .skip_while(|s| *s != "--image")
+            .nth(1)
+            .expect("--image arg not found");
+        assert!(
+            !std::path::Path::new(image_arg).is_absolute(),
+            "Expected relative path under cwd, got absolute: {image_arg}"
+        );
+        assert!(
+            image_arg.contains("outbound/"),
+            "Expected outbound in path: {image_arg}"
+        );
+        // Verify the file actually exists at that relative path from cwd.
+        assert!(std::path::Path::new(image_arg).exists());
+    }
+
+    /// When outbound_path is not under cwd, lark-cli receives an absolute path.
+    ///
+    /// Places media store under /tmp (outside project cwd), so the outbound path
+    /// cannot be stripped to a cwd-relative path.
+    #[tokio::test]
+    async fn test_send_media_file_outbound_outside_cwd_uses_absolute_path() {
+        let external_dir = TempDir::new_in("/tmp").unwrap();
+        let media_dir = external_dir.path().join("media");
+        let media_store = crate::media_store::MediaStore::new(media_dir.to_str().unwrap()).unwrap();
+        let src = media_dir.join("photo.png");
+        std::fs::write(&src, "image data").unwrap();
+
+        let cli_tmp = TempDir::new().unwrap();
+        let cli = create_args_echo_cli(&cli_tmp);
+        let mut adapter = make_adapter_with_cli(&cli);
+        adapter.media_store = Arc::new(media_store);
+
+        let result = adapter.send_image("oc_test", src.to_str().unwrap()).await;
+        assert!(result.is_ok());
+
+        let args_file = cli_tmp.path().join("captured_args");
+        let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+        let image_arg = content
+            .split_whitespace()
+            .skip_while(|s| *s != "--image")
+            .nth(1)
+            .expect("--image arg not found");
+        assert!(
+            std::path::Path::new(image_arg).is_absolute(),
+            "Expected absolute path for outbound outside cwd, got: {image_arg}"
+        );
+        assert!(std::path::Path::new(image_arg).exists());
+    }
+
+    /// Unit test for make_media_path_relative: outbound is not under cwd,
+    /// so the function preserves the absolute path.
+    #[test]
+    fn test_make_media_path_relative_outbound_not_under_cwd() {
+        let cwd = std::path::PathBuf::from("/some/other/directory");
+        let outbound = std::path::PathBuf::from("/some/unreachable/path/outbound/photo.png");
+        let result = make_media_path_relative(&outbound, &cwd);
+        assert_eq!(result, outbound.to_string_lossy());
+    }
+
+    /// Unit test for make_media_path_relative: outbound under cwd → relative.
+    #[test]
+    fn test_make_media_path_relative_under_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let outbound = cwd.join("workspace").join("outbound").join("photo.png");
+        let result = make_media_path_relative(&outbound, &cwd);
+        assert_eq!(result, "workspace/outbound/photo.png");
+    }
+
+    /// Unit test for make_media_path_relative: outbound outside cwd → absolute.
+    #[test]
+    fn test_make_media_path_relative_outside_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let outbound = std::path::PathBuf::from("/completely/different/dir/photo.png");
+        let result = make_media_path_relative(&outbound, &cwd);
+        assert_eq!(result, outbound.to_string_lossy());
+    }
+
+    /// Unit test for make_media_path_relative: outbound == cwd (empty strip_prefix)
+    /// should preserve absolute path instead of returning empty string.
+    #[test]
+    fn test_make_media_path_relative_empty_relative_path_preserves_absolute() {
+        let cwd = std::path::PathBuf::from("/some/cwd/dir");
+        let result = make_media_path_relative(&cwd, &cwd);
+        assert_eq!(result, cwd.to_string_lossy());
     }
 }
