@@ -63,4 +63,4 @@ pub mod handlers_plans_browse_tests;
 pub mod dispatcher_tests;
 
 #[cfg(test)]
-pub mod pause_removal_tests;
+mod pause_removal_tests;
