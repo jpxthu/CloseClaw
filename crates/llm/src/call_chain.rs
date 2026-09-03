@@ -28,7 +28,7 @@ pub fn assemble_llm_components(
     use crate::plugin::PluginPipeline;
     match provider_id {
         "anthropic" => (
-            Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
+            Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
             InterpreterRegistry::default(),
             PluginPipeline::new().add(Box::new(crate::AnthropicPlugin)),
         ),
@@ -132,6 +132,13 @@ mod tests {
             "MinimaxInterpreter should resolve minimax/* models"
         );
         assert!(!plugin.is_empty(), "minimax should have plugins");
+    }
+
+    #[test]
+    fn assemble_anthropic_uses_anthropic_protocol() {
+        let (protocol, _, plugin) = assemble_llm_components("anthropic");
+        assert_eq!(protocol.protocol_id().as_str(), "anthropic");
+        assert!(!plugin.is_empty(), "anthropic should have plugins");
     }
 
     #[test]
