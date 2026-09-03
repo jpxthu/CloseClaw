@@ -86,13 +86,7 @@ impl Gateway {
             );
         }
         let text = closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT;
-        if let Err(e) = self.send_outbound_simplified(peer_id, channel, text).await {
-            tracing::warn!(
-                session_id,
-                error = %e,
-                "failed to send slash queuing notification"
-            );
-        }
+        self.send_system_notification(peer_id, channel, text).await;
     }
 
     /// Dispatch a slash command with permission checks.
