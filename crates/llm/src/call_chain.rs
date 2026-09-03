@@ -27,9 +27,12 @@ pub fn assemble_llm_components(
 ) -> (Arc<dyn ChatProtocol>, InterpreterRegistry, PluginPipeline) {
     use crate::plugin::PluginPipeline;
     match provider_id {
+        // AnthropicInterpreter needed because DefaultInterpreter doesn't:
+        // - merge empty-text + non-empty-thinking into Text block
+        // - handle signature-only Thinking blocks from signature_delta
         "anthropic" => (
-            Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
-            InterpreterRegistry::default(),
+            Arc::new(AnthropicProtocol::new()) as Arc<dyn ChatProtocol>,
+            InterpreterRegistry::new(vec![(Box::new(crate::AnthropicInterpreter), "anthropic/*")]),
             PluginPipeline::new().add(Box::new(crate::AnthropicPlugin)),
         ),
         "minimax" => (
@@ -132,6 +135,19 @@ mod tests {
             "MinimaxInterpreter should resolve minimax/* models"
         );
         assert!(!plugin.is_empty(), "minimax should have plugins");
+    }
+
+    #[test]
+    fn assemble_anthropic_uses_anthropic_protocol() {
+        let (protocol, interpreter, plugin) = assemble_llm_components("anthropic");
+        assert_eq!(protocol.protocol_id().as_str(), "anthropic");
+        assert!(!plugin.is_empty(), "anthropic should have plugins");
+        let resolved = interpreter.resolve("anthropic", "anthropic/claude-sonnet-4-20250514");
+        assert_eq!(
+            resolved.name(),
+            "anthropic",
+            "AnthropicInterpreter should resolve anthropic/* models"
+        );
     }
 
     #[test]
