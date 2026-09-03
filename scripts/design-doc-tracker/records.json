@@ -249,11 +249,11 @@
   },
   {
     "path": "docs/design/im_adapter/streaming-render.md",
-    "commit": "c2d7b270db515ea4c279c97cd33876388ba56c9c",
-    "commit_time": "2026-08-28T00:02:10+08:00",
-    "confirmed_time": "2026-09-03T20:00:46.683700+08:00",
+    "commit": "21032726f20ac16854c11a1b0b9871698f073dd6",
+    "commit_time": "2026-09-03T20:02:01+08:00",
+    "confirmed_time": "2026-09-03T20:13:27.751206+08:00",
     "comment": "",
-    "blocked_reason": "设计文档内部存在事实冲突：架构节暗示渲染器自包含，数据流节暗示 Processor Chain 在增量阶段运行。DslParser 在增量阶段被显式跳过，与文档描述的「零开销 passthrough」不符。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/README.md",
