@@ -418,7 +418,7 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
     > {
         // Incremental phase — explicit processor handling:
         // - VerbosityFilter (priority 5): normal execution
-        // - DslParser (priority 10): passthrough mode via public API
+        // - DslParser (priority 10): zero-overhead passthrough (no parse)
         // - OutboundRawLog (priority 20): skipped
         if self.outbound.is_empty() {
             return Ok(msg);
@@ -459,23 +459,8 @@ impl closeclaw_common::processor::ProcessorChain for ProcessorRegistry {
             }
         }
 
-        // 2. DslParser — passthrough mode (parse DSL, write metadata,
-        //    but do NOT strip DSL lines from content blocks)
-        if !ctx.skip {
-            let dsl = self.outbound.iter().find(|p| p.name() == "DslParser");
-            if dsl.is_some() {
-                // Passthrough: parse DSL into metadata only.
-                // parse_content_blocks reads Text blocks for DSL lines,
-                // content blocks remain unchanged.
-                let dsl_result = DslParser.parse_content_blocks(&ctx.content_blocks);
-                if !dsl_result.instructions.is_empty() {
-                    let json = serde_json::to_string(&dsl_result).map_err(|e| {
-                        convert_process_error(ProcessError::processor_failed("DslParser", e))
-                    })?;
-                    ctx.metadata.insert("dsl_result".into(), json);
-                }
-            }
-        }
+        // 2. DslParser — zero-overhead passthrough (skip entirely in
+        //    incremental phase; full parse runs in finalization phase)
 
         // 3. OutboundRawLog — skipped
         // 4. Build result
