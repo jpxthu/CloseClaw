@@ -94,8 +94,10 @@ pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;
 
-#[cfg(feature = "full-tests")]
+#[cfg(test)]
 mod slash_permission_routing_tests;
+#[cfg(test)]
+mod slash_permission_test_utils;
 #[cfg(test)]
 mod tests_slash_dispatcher_routing;
 #[cfg(feature = "full-tests")]

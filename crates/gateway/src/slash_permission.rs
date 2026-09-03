@@ -48,10 +48,14 @@ fn parse_slash(content: &str) -> Option<(&str, &str)> {
 /// permission-checking methods without exceeding the 6-parameter
 /// hard limit.
 pub(crate) struct SlashRouteCtx<'a> {
-    session_id: &'a str,
-    sender_id: Option<&'a str>,
-    channel: &'a str,
-    peer_id: &'a str,
+    /// Session identifier for the current dispatch.
+    pub(crate) session_id: &'a str,
+    /// Sender user identifier (None when unavailable).
+    pub(crate) sender_id: Option<&'a str>,
+    /// IM channel identifier (e.g. "feishu", "telegram").
+    pub(crate) channel: &'a str,
+    /// IM peer/chat identifier for outbound replies.
+    pub(crate) peer_id: &'a str,
 }
 
 impl Gateway {
@@ -203,13 +207,15 @@ impl Gateway {
         let Some(engine) = engine_guard.as_ref() else {
             tracing::warn!(
                 cmd,
+                session_id = %ctx.session_id,
+                channel = %ctx.channel,
                 "permission engine not configured; denying slash command"
             );
             if let Err(e) = self
                 .send_outbound_simplified(ctx.peer_id, ctx.channel, "权限不足：权限引擎未配置")
                 .await
             {
-                tracing::warn!(cmd, error = %e, "failed to send permission engine not configured notification");
+                tracing::warn!(cmd, session_id = %ctx.session_id, channel = %ctx.channel, error = %e, "failed to send permission engine not configured notification");
             }
             return false;
         };
@@ -228,7 +234,7 @@ impl Gateway {
                 .send_outbound_simplified(ctx.peer_id, ctx.channel, &format!("权限不足：{reason}"))
                 .await
             {
-                tracing::warn!(cmd, error = %e, "failed to send permission denied notification");
+                tracing::warn!(cmd, session_id = %ctx.session_id, channel = %ctx.channel, error = %e, "failed to send permission denied notification");
             }
             return false;
         }

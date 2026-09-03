@@ -10,54 +10,11 @@
 //! 3. /cd, /pwd → Reply(...) → unaffected by permission engine
 //! 4. Owner on /git commit → owner short-circuits, bypasses engine
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
+use crate::slash_permission_test_utils::*;
+use crate::HandleResult;
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_types::{
-    Action, Defaults, Effect, Rule, RuleSet, Subject,
-};
-use closeclaw_session::persistence::ReasoningLevel;
-
-fn make_gateway() -> Arc<Gateway> {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    Arc::new(Gateway::new(config, sm))
-}
-
-fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-    let rules = RuleSet {
-        rules: vec![Rule {
-            name: "deny-all".to_owned(),
-            subject: Subject::AgentOnly {
-                agent: "*".to_owned(),
-                match_type: Default::default(),
-            },
-            effect: Effect::Deny,
-            actions: vec![Action::All],
-            template: None,
-            priority: 100,
-        }],
-        defaults: Defaults::default(),
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        PermissionEngine::new_with_default_data_root(rules),
-    ))
-}
 
 /// WorkdirHandler mock: inspects git args to determine permission requirement.
 struct WorkdirHandler;

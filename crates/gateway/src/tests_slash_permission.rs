@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
+use crate::slash_permission_test_utils::*;
+use crate::{Gateway, HandleResult};
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Action, Defaults, Effect, Rule, RuleSet, Subject,
 };
-use closeclaw_session::persistence::ReasoningLevel;
 
 struct SimpleHandler {
     command: &'static str,
@@ -266,21 +266,7 @@ impl SlashRouter for ResultRouter {
         }
     }
 }
-fn make_gateway() -> Arc<Gateway> {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    Arc::new(Gateway::new(config, sm))
-}
+
 fn make_dispatcher() -> Arc<dyn SlashRouter> {
     Arc::new(DefaultTestRouter)
 }
@@ -301,27 +287,7 @@ fn capturing_dispatcher(
 ) -> Arc<dyn SlashRouter> {
     Arc::new(CapturingRouter { command, last_ctx })
 }
-fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-    let rules = RuleSet {
-        rules: vec![Rule {
-            name: "deny-all".to_owned(),
-            subject: Subject::AgentOnly {
-                agent: "*".to_owned(),
-                match_type: Default::default(),
-            },
-            effect: Effect::Deny,
-            actions: vec![Action::All],
-            template: None,
-            priority: 100,
-        }],
-        defaults: Defaults::default(),
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        PermissionEngine::new_with_default_data_root(rules),
-    ))
-}
+
 fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let rules = RuleSet {
         rules: vec![Rule {
