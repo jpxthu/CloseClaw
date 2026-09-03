@@ -704,7 +704,6 @@ mod tests {
             .skip_while(|s| *s != "--image")
             .nth(1)
             .expect("--image arg not found");
-        eprintln!("DEBUG image_arg: [{image_arg}]");
         assert!(
             !std::path::Path::new(image_arg).is_absolute(),
             "Expected relative path under cwd, got absolute: {image_arg}"
@@ -754,7 +753,7 @@ mod tests {
     /// Unit test for make_media_path_relative: cwd override simulates cwd failure
     /// by providing a non-existent path. The function falls back to absolute path.
     #[test]
-    fn test_make_media_path_relative_cwd_error_fallback() {
+    fn test_make_media_path_relative_no_cwd_fallback() {
         // Path that is not under any reasonable cwd.
         let outbound = std::path::PathBuf::from("/some/unreachable/path/outbound/photo.png");
         let result = make_media_path_relative(&outbound, None);
