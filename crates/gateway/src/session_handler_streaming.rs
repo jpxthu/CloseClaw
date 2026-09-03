@@ -307,13 +307,11 @@ async fn persist_streaming_checkpoint(
         .await;
 }
 
-/// Handle a streaming error by sending partial content to the user
-/// before the error message.
+/// Handle a streaming error by sending the error message to the sink.
 ///
-/// When a [`GatewayError::StreamError`] occurs mid-stream, any
-/// accumulated text blocks are sent to the sink first, then the
-/// error message is sent. This ensures the user does not lose
-/// already-generated content.
+/// When a [`GatewayError::StreamError`] occurs mid-stream, no
+/// incremental output is produced (per design doc: "Error →
+/// 不产生增量输出"). Only the error message is sent.
 ///
 /// Returns [`LLMError::PartialContent`] when the stream contained
 /// complete Thinking blocks, allowing callers to preserve them in
@@ -321,20 +319,10 @@ async fn persist_streaming_checkpoint(
 /// [`LLMError::ApiError`].
 pub(crate) fn handle_stream_error(e: GatewayError, sink: &dyn StreamingSink) -> LLMError {
     let msg = e.to_string();
-    if let GatewayError::StreamError {
-        ref partial_content,
-        ..
-    } = e
-    {
-        for block in partial_content {
-            if let ContentBlock::Text(text) = block {
-                sink.send_text(text);
-            }
-        }
-        tracing::warn!(
-            partial_content_blocks = partial_content.len(),
-            "streaming error: partial content blocks preserved"
-        );
+    if let GatewayError::StreamError { .. } = e {
+        // partial_content is always empty here (no flush on error).
+        // Kept for structural consistency with map_stream_error_to_llm_error.
+        tracing::warn!("streaming error: no incremental output");
     }
     sink.send_error(msg.clone());
     map_stream_error_to_llm_error(e, msg)
