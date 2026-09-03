@@ -45,7 +45,6 @@ pub mod mimo;
 pub mod volcengine;
 
 #[cfg(test)]
-#[path = "anthropic_interpreter_tests.rs"]
 mod anthropic_interpreter_tests;
 pub mod client;
 #[cfg(test)]

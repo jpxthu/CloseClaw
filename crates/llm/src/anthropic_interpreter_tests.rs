@@ -34,7 +34,11 @@ fn test_anthropic_interpreter_empty_text_uses_thinking() {
     let unified = AnthropicInterpreter.interpret_response(response);
     assert_eq!(unified.content_blocks.len(), 1);
     assert!(
-        matches!(&unified.content_blocks[0], ContentBlock::Text(s) if s == "Let me think step by step..."),
+        matches!(
+            &unified.content_blocks[0],
+            ContentBlock::Text(s)
+                if s == "Let me think step by step..."
+        ),
         "expected Text block (thinking merged), got {:?}",
         unified.content_blocks[0]
     );
@@ -69,7 +73,11 @@ fn test_anthropic_interpreter_text_and_thinking_both_nonempty() {
         unified.content_blocks[0]
     );
     assert!(
-        matches!(&unified.content_blocks[1], ContentBlock::Thinking { thinking: s, .. } if s == "reasoning"),
+        matches!(
+            &unified.content_blocks[1],
+            ContentBlock::Thinking { thinking: s, .. }
+                if s == "reasoning"
+        ),
         "expected Thinking block, got {:?}",
         unified.content_blocks[1]
     );

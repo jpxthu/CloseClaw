@@ -160,35 +160,31 @@ impl Default for InterpreterRegistry {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared helper: OpenAI-compatible response interpretation
+// Shared helpers: block collection and merge
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Shared `interpret_response` logic for OpenAI-compatible providers.
+/// Collected block parts from an [`InternalResponse`].
 ///
-/// Collects text, thinking, tool-use, and tool-result blocks from the raw
-/// response, then applies the standard merging rule:
+/// Holds the accumulated text fragments, thinking fragments, and the last
+/// non-`None` signature extracted during the collection pass.
+struct CollectedBlocks {
+    text_parts: Vec<String>,
+    thinking_parts: Vec<String>,
+    last_signature: Option<String>,
+}
+
+/// Collects text, thinking, tool-use, and tool-result blocks from
+/// `response.content_blocks` into a [`CollectedBlocks`].
 ///
-/// * If text is **empty** and thinking is non-empty → thinking is merged into a
-///   single `ContentBlock::Text` (no `Thinking` block emitted).
-/// * Otherwise → text and thinking are emitted as separate `Text` / `Thinking`
-///   blocks.
-///
-/// When `preserve_signature` is `true`, the last non-`None` signature from
-/// thinking blocks is forwarded into the `Thinking` block (used by DeepSeek and
-/// MiniMax). When `false`, signature is always `None` (used by MiMo and GLM).
-///
-/// When `clear_cache_tokens` is `true`, `cache_read_tokens` and
-/// `cache_write_tokens` are set to `None` in the output (used by GLM and
-/// DeepSeek — providers that don't support cache tokens).
-fn interpret_openai_compatible(
+/// When `collect_signature` is `true`, the last non-`None` signature from
+/// thinking blocks is retained; otherwise it is discarded.
+fn collect_blocks(
     response: InternalResponse,
-    preserve_signature: bool,
-    clear_cache_tokens: bool,
-) -> UnifiedResponse {
+    collect_signature: bool,
+) -> (CollectedBlocks, UnifiedUsage) {
     let mut text_parts: Vec<String> = vec![];
     let mut thinking_parts: Vec<String> = vec![];
     let mut last_signature: Option<String> = None;
-
     for block in response.content_blocks {
         match block {
             RawContentBlock::Text(s) => text_parts.push(s),
@@ -197,7 +193,7 @@ fn interpret_openai_compatible(
                 signature,
             } => {
                 thinking_parts.push(s);
-                if preserve_signature && signature.is_some() {
+                if collect_signature && signature.is_some() {
                     last_signature = signature;
                 }
             }
@@ -210,48 +206,120 @@ fn interpret_openai_compatible(
             } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
         }
     }
+    let usage = UnifiedUsage {
+        prompt_tokens: response.usage.prompt_tokens,
+        completion_tokens: response.usage.completion_tokens,
+        total_tokens: response.usage.total_tokens,
+        reasoning_tokens: response.usage.reasoning_tokens,
+        cache_read_tokens: response.usage.cache_read_tokens,
+        cache_write_tokens: response.usage.cache_write_tokens,
+    };
+    (
+        CollectedBlocks {
+            text_parts,
+            thinking_parts,
+            last_signature,
+        },
+        usage,
+    )
+}
 
+/// Merges collected blocks into content blocks and returns a
+/// [`UnifiedResponse`].
+///
+/// Standard merging rule:
+/// * If text is **empty** and thinking is non-empty → thinking is merged
+///   into a single `ContentBlock::Text`.
+/// * Otherwise → text and thinking are emitted as separate blocks.
+///
+/// When `preserve_signature` is `true`, the last non-`None` signature from
+/// thinking blocks is forwarded into the `Thinking` block (used by
+/// DeepSeek, MiniMax, and Anthropic). When `false`, signature is always
+/// `None` (used by MiMo and GLM).
+///
+/// When `always_emit_signature_block` is `true`, an empty-text +
+/// non-empty-thinking merge also emits a trailing `Thinking` block
+/// carrying only the signature (Anthropic behaviour). When `false`,
+/// no separate signature block is emitted in that case.
+fn merge_blocks(
+    collected: CollectedBlocks,
+    mut usage: UnifiedUsage,
+    preserve_signature: bool,
+    always_emit_signature_block: bool,
+    clear_cache_tokens: bool,
+) -> UnifiedResponse {
     let mut content_blocks: Vec<ContentBlock> = vec![];
-    let text_empty = text_parts.iter().all(|s| s.is_empty());
-    if text_empty && !thinking_parts.is_empty() {
-        content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
-    } else {
-        if !text_parts.iter().all(|s| s.is_empty()) {
-            content_blocks.push(ContentBlock::Text(text_parts.join("")));
-        }
-        if !thinking_parts.is_empty() {
+    let text_empty = collected.text_parts.iter().all(|s| s.is_empty());
+    if text_empty && !collected.thinking_parts.is_empty() {
+        // Merge thinking into Text block
+        content_blocks.push(ContentBlock::Text(collected.thinking_parts.join("")));
+        // Optionally preserve signature in a separate Thinking block
+        if always_emit_signature_block && collected.last_signature.is_some() {
             content_blocks.push(ContentBlock::Thinking {
-                thinking: thinking_parts.join(""),
+                thinking: String::new(),
+                signature: collected.last_signature,
+            });
+        }
+    } else {
+        if !collected.text_parts.iter().all(|s| s.is_empty()) {
+            content_blocks.push(ContentBlock::Text(collected.text_parts.join("")));
+        }
+        if !collected.thinking_parts.is_empty() {
+            content_blocks.push(ContentBlock::Thinking {
+                thinking: collected.thinking_parts.join(""),
                 signature: if preserve_signature {
-                    last_signature
+                    collected.last_signature
                 } else {
                     None
                 },
             });
         }
     }
-
+    if clear_cache_tokens {
+        usage.cache_read_tokens = None;
+        usage.cache_write_tokens = None;
+    }
     UnifiedResponse {
         content_blocks,
-        usage: UnifiedUsage {
-            prompt_tokens: response.usage.prompt_tokens,
-            completion_tokens: response.usage.completion_tokens,
-            total_tokens: response.usage.total_tokens,
-            reasoning_tokens: response.usage.reasoning_tokens,
-            cache_read_tokens: if clear_cache_tokens {
-                None
-            } else {
-                response.usage.cache_read_tokens
-            },
-            cache_write_tokens: if clear_cache_tokens {
-                None
-            } else {
-                response.usage.cache_write_tokens
-            },
-        },
-        finish_reason: response.finish_reason,
+        usage,
+        finish_reason: None,
         retry_attempts: 0,
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared helper: OpenAI-compatible response interpretation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Shared `interpret_response` logic for OpenAI-compatible providers.
+///
+/// Collects text, thinking, tool-use, and tool-result blocks from the raw
+/// response, then applies the standard merging rule.
+///
+/// When `preserve_signature` is `true`, the last non-`None` signature
+/// from thinking blocks is forwarded into the `Thinking` block (used by
+/// DeepSeek and MiniMax). When `false`, signature is always `None`
+/// (used by MiMo and GLM).
+///
+/// When `clear_cache_tokens` is `true`, `cache_read_tokens` and
+/// `cache_write_tokens` are set to `None` in the output (used by GLM
+/// and DeepSeek — providers that don't support cache tokens).
+fn interpret_openai_compatible(
+    response: InternalResponse,
+    preserve_signature: bool,
+    clear_cache_tokens: bool,
+) -> UnifiedResponse {
+    let finish_reason = response.finish_reason.clone();
+    let (collected, usage) = collect_blocks(response, preserve_signature);
+    let mut result = merge_blocks(
+        collected,
+        usage,
+        preserve_signature,
+        false,
+        clear_cache_tokens,
+    );
+    result.finish_reason = finish_reason;
+    result
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -354,9 +422,9 @@ impl ModelInterpreter for DeepSeekInterpreter {
 ///
 /// 1. **Empty text + non-empty thinking**: When text content is empty and
 ///    thinking content is present, thinking is merged into a single
-///    `ContentBlock::Text` (no `Thinking` block emitted). This matches the
-///    OpenAI-compatible contract (see [`interpret_openai_compatible`]).
-///    Signature is preserved in a trailing `Thinking` block.
+///    `ContentBlock::Text` (no `Thinking` block emitted). This matches
+///    the OpenAI-compatible merging contract. Signature is preserved
+///    in a trailing `Thinking` block.
 ///
 /// 2. **Streaming signature merge**: During SSE streaming, Anthropic emits
 ///    `thinking_delta` events (producing `Thinking{content, signature:None}`)
@@ -373,70 +441,12 @@ impl ModelInterpreter for AnthropicInterpreter {
     }
 
     fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
-        // Separate text and thinking blocks
-        let mut text_parts: Vec<String> = vec![];
-        let mut thinking_parts: Vec<String> = vec![];
-        let mut last_signature: Option<String> = None;
-
-        for block in response.content_blocks {
-            match block {
-                RawContentBlock::Text(s) => text_parts.push(s),
-                RawContentBlock::Thinking {
-                    thinking: s,
-                    signature,
-                } => {
-                    thinking_parts.push(s);
-                    if let Some(sig) = signature {
-                        last_signature = Some(sig);
-                    }
-                }
-                RawContentBlock::ToolUse { id, name, input } => {
-                    text_parts.push(format!("id:{id} name:{name} input:{input}"))
-                }
-                RawContentBlock::ToolResult {
-                    tool_call_id,
-                    content,
-                } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
-            }
-        }
-
-        let mut content_blocks: Vec<ContentBlock> = vec![];
-        let text_empty = text_parts.iter().all(|s| s.is_empty());
-        if text_empty && !thinking_parts.is_empty() {
-            // Merge thinking into Text block (no Thinking block)
-            content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
-            // Preserve signature in a separate Thinking block if present
-            if last_signature.is_some() {
-                content_blocks.push(ContentBlock::Thinking {
-                    thinking: String::new(),
-                    signature: last_signature,
-                });
-            }
-        } else {
-            if !text_parts.iter().all(|s| s.is_empty()) {
-                content_blocks.push(ContentBlock::Text(text_parts.join("")));
-            }
-            if !thinking_parts.is_empty() {
-                content_blocks.push(ContentBlock::Thinking {
-                    thinking: thinking_parts.join(""),
-                    signature: last_signature,
-                });
-            }
-        }
-
-        UnifiedResponse {
-            content_blocks,
-            usage: UnifiedUsage {
-                prompt_tokens: response.usage.prompt_tokens,
-                completion_tokens: response.usage.completion_tokens,
-                total_tokens: response.usage.total_tokens,
-                reasoning_tokens: response.usage.reasoning_tokens,
-                cache_read_tokens: response.usage.cache_read_tokens,
-                cache_write_tokens: response.usage.cache_write_tokens,
-            },
-            finish_reason: response.finish_reason,
-            retry_attempts: 0,
-        }
+        let finish_reason = response.finish_reason.clone();
+        // Anthropic always collects and preserves signatures
+        let (collected, usage) = collect_blocks(response, true);
+        let mut result = merge_blocks(collected, usage, true, true, false);
+        result.finish_reason = finish_reason;
+        result
     }
 
     /// Pass through all SSE events.

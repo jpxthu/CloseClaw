@@ -649,7 +649,9 @@ impl Provider for AnthropicStubProvider {
         _body: serde_json::Value,
     ) -> crate::provider::Result<SseStream> {
         let (tx, rx) = mpsc::channel(8);
-        // Anthropic SSE format: message_start → content_block_start → delta → block_stop → message_delta → message_stop
+        // Anthropic SSE format:
+        //   message_start -> content_block_start -> delta
+        //   -> block_stop -> message_delta -> message_stop
         let _ = tx
             .send(RawSseChunk {
                 event_type: "message_start".into(),
@@ -705,7 +707,11 @@ async fn test_anthropic_full_pipeline_parses_response() {
     let response = client.chat(make_request()).await.unwrap();
     assert_eq!(response.content_blocks.len(), 1);
     assert!(
-        matches!(&response.content_blocks[0], ContentBlock::Text(s) if s == "Hello from Anthropic stub"),
+        matches!(
+            &response.content_blocks[0],
+            ContentBlock::Text(s)
+                if s == "Hello from Anthropic stub"
+        ),
         "expected Text block from Anthropic response, got {:?}",
         response.content_blocks[0]
     );
