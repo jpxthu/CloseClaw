@@ -142,48 +142,24 @@ pub(crate) async fn notify_batch_send_failure(
 
 /// Send text messages from `outbound` into `state` and dispatch to the user.
 ///
-/// When `ctx.registry` is available, each text chunk is processed through
-/// the incremental-phase chain ([`ProcessorChain::process_outbound_incremental`])
-/// via [`process_single_through_chain`]. Only VerbosityFilter executes here;
-/// DslParser and OutboundRawLog are skipped per design doc.
+/// Text lines are sent directly without VerbosityFilter processing —
+/// VerbosityFilter only executes at block boundaries for non-text blocks
+/// (Thinking/ToolUse/ToolResult) in the `BlockEnd` phase via
+/// [`process_and_send_non_text_blocks`]. Text blocks pass through
+/// unchanged at all [`VerbosityLevel`]s per design doc §架构.
 ///
-/// When `ctx.registry` is `None`, text passes through unchanged
-/// (zero-overhead passthrough).
+/// This function also implements the Gateway-side of the streaming
+/// renderer's "incremental output" responsibility: the renderer produces
+/// `StreamingOutput` and this function sends each text chunk via
+/// IMPlugin (design doc §职责划分, 「不约束内部代码组织」).
 pub(crate) async fn dispatch_text(
     ctx: &StreamContext<'_>,
     out: StreamingOutput,
     state: &mut StreamState,
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
-        if let Some(registry) = ctx.registry {
-            let block = ContentBlock::Text(text.clone());
-            match process_single_through_chain(registry.as_ref(), &block, state.verbosity_level)
-                .await
-            {
-                Ok(processed_blocks) => {
-                    for block in &processed_blocks {
-                        if let ContentBlock::Text(ref t) = block {
-                            if t.is_empty() {
-                                continue;
-                            }
-                            send_text(ctx, t).await?;
-                        }
-                    }
-                    state.content_blocks.extend(processed_blocks);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "incremental chain failed for text chunk, sending original"
-                    );
-                    send_text(ctx, &text).await?;
-                    state.content_blocks.push(ContentBlock::Text(text));
-                }
-            }
-        } else {
-            send_text(ctx, &text).await?;
-            state.content_blocks.push(ContentBlock::Text(text));
-        }
+        send_text(ctx, &text).await?;
+        state.content_blocks.push(ContentBlock::Text(text));
     }
     Ok(())
 }
