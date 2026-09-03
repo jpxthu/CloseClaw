@@ -39,9 +39,6 @@ pub use memory_injection::{InjectionPosition, MemoryInjection};
 
 pub mod mode_transition;
 
-mod progress_notifier;
-pub use progress_notifier::PROGRESS_APPEND_PREFIX;
-
 mod session_chat;
 pub use session_chat::ChatSession;
 
@@ -175,8 +172,6 @@ pub struct ConversationSession {
     pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
-    /// Runtime progress appends managed by PlanStateNotifier.
-    progress_appends: Arc<Mutex<Vec<String>>>,
     /// File mtime tracking for staleness checks on Edit/Write.
     file_mtimes: Arc<RwLock<HashMap<PathBuf, SystemTime>>>,
     /// Per-turn read range tracking for file dedup.
@@ -270,7 +265,6 @@ impl ConversationSession {
             pending_mode_transition: Arc::new(Mutex::new(None)),
             has_been_in_plan: Arc::new(AtomicBool::new(false)),
             request_context: Arc::new(Mutex::new(closeclaw_common::RequestContext::default())),
-            progress_appends: Arc::new(Mutex::new(Vec::new())),
             file_mtimes: Arc::new(RwLock::new(HashMap::new())),
             file_read_ranges: Arc::new(RwLock::new(HashMap::new())),
             llm_caller: None,
@@ -804,31 +798,14 @@ impl ConversationSession {
         self.system_appends = items;
     }
 
-    /// Read-only access to the append-section list in insertion order,
-    /// with runtime progress appends merged at the end.
+    /// Read-only access to the append-section list in insertion order.
     pub fn system_appends(&self) -> Vec<String> {
-        let mut combined = self.system_appends.clone();
-        let progress = self
-            .progress_appends
-            .lock()
-            .expect("progress_appends lock poisoned");
-        combined.extend(progress.iter().cloned());
-        combined
+        self.system_appends.clone()
     }
 
-    /// Returns only the user-managed append-section items (excludes
-    /// runtime progress appends). Used by persistence layers that
-    /// should not persist ephemeral progress state.
+    /// Returns the user-managed append-section items.
     pub fn user_system_appends(&self) -> &[String] {
         &self.system_appends
-    }
-
-    /// Returns only the runtime progress appends, if any.
-    pub fn progress_appends(&self) -> Vec<String> {
-        self.progress_appends
-            .lock()
-            .expect("progress_appends lock poisoned")
-            .clone()
     }
 }
 

@@ -6,13 +6,11 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use closeclaw_common::NoopNotifier;
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::spawn::SpawnAdapter;
 use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use closeclaw_execution::ExecutionEngine;
-use closeclaw_execution::ExecutionState;
 use closeclaw_execution::ExecutionStepStatus;
 
 // ---------------------------------------------------------------------------
@@ -127,8 +125,7 @@ fn new_engine_with_config(
     adapter: impl SpawnAdapter + 'static,
     config: ExecutionConfig,
 ) -> ExecutionEngine<impl SpawnAdapter> {
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None)
+    ExecutionEngine::new(config, adapter, None)
 }
 
 // ---------------------------------------------------------------------------
@@ -202,14 +199,7 @@ async fn test_failure_stops_subsequent_steps() {
 async fn test_spawn_all_steps_single_spawn() {
     let adapter = CallRecordingMock::new(success_result(0, "all done"));
     let calls = adapter.calls.clone();
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(
-        plan_state,
-        spawn_all_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
+    let engine = ExecutionEngine::new(spawn_all_config(), adapter, None);
     let report = engine
         .execute(&["s0".into(), "s1".into(), "s2".into()])
         .await
@@ -357,34 +347,6 @@ async fn test_single_step_success() {
     assert_eq!(report.steps.len(), 1);
     assert_eq!(report.steps[0].summary, "only");
     assert_eq!(report.events.len(), 3); // Started, Completed, AllCompleted
-}
-
-#[tokio::test]
-async fn test_plan_state_updated_after_full_execution() {
-    let adapter = SequenceMock::new(vec![
-        Ok(success_result(0, "done")),
-        Ok(success_result(1, "done")),
-    ]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(
-        plan_state.clone(),
-        spawn_per_step_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
-    let _ = engine.execute(&["s0".into(), "s1".into()]).await.unwrap();
-
-    let state = plan_state.lock().unwrap();
-    assert_eq!(state.execution_steps.len(), 2);
-    assert!(matches!(
-        state.execution_steps[0].status,
-        ExecutionStepStatus::Completed
-    ));
-    assert!(matches!(
-        state.execution_steps[1].status,
-        ExecutionStepStatus::Completed
-    ));
 }
 
 #[tokio::test]

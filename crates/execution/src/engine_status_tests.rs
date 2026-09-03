@@ -3,10 +3,8 @@
 use crate::engine::ExecutionEngine;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
-use crate::{ExecutionState, ExecutionStepStatus};
+use crate::ExecutionStepStatus;
 use async_trait::async_trait;
-use closeclaw_common::NoopNotifier;
-use std::sync::{Arc, Mutex};
 
 use crate::error::ExecutionError;
 
@@ -49,18 +47,8 @@ fn default_config() -> ExecutionConfig {
 }
 
 /// Create an engine with a default plan state.
-fn engine_with_default(
-    adapter: MockAdapter,
-) -> (ExecutionEngine<MockAdapter>, Arc<Mutex<ExecutionState>>) {
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(
-        plan_state.clone(),
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
-    (engine, plan_state)
+fn engine_with_default(adapter: MockAdapter) -> ExecutionEngine<MockAdapter> {
+    ExecutionEngine::new(default_config(), adapter, None)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -83,7 +71,7 @@ async fn test_all_steps_succeed() {
             error_message: None,
         }),
     ]);
-    let (engine, _plan_state) = engine_with_default(adapter);
+    let engine = engine_with_default(adapter);
     let report = engine
         .execute(&["step A".into(), "step B".into()])
         .await
@@ -111,7 +99,7 @@ async fn test_step_failure_stops_execution() {
             error_message: Some("broken".into()),
         }),
     ]);
-    let (engine, _plan_state) = engine_with_default(adapter);
+    let engine = engine_with_default(adapter);
     let report = engine
         .execute(&["step A".into(), "step B".into()])
         .await
@@ -124,7 +112,7 @@ async fn test_step_failure_stops_execution() {
 #[tokio::test]
 async fn test_empty_steps_succeed() {
     let adapter = MockAdapter::new(vec![]);
-    let (engine, _plan_state) = engine_with_default(adapter);
+    let engine = engine_with_default(adapter);
     let report = engine.execute(&[]).await.unwrap();
 
     assert!(report.all_completed);

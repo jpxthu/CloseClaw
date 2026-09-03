@@ -82,8 +82,8 @@ impl Default for ToolRegistryImpl {
 ///
 /// In Plan Mode, only read-only tools and plan-specific tools are visible.
 /// Write-capable tools (Write, Edit, Bash, Git commit/push/diff, etc.) are
-/// hidden from the agent's tool list. Plan-specific tools (ProgressTool,
-/// execute_plan) remain visible for plan tracking and execution.
+/// hidden from the agent's tool list. Plan-specific tools (execute_plan)
+/// remain visible for plan execution.
 ///
 /// Tools that are `is_read_only` are always visible.
 /// Tools in the `PLAN_MODE_ALWAYS_VISIBLE` set are always visible.
@@ -103,7 +103,6 @@ fn plan_mode_tool_visible(tool: &Arc<dyn Tool>) -> bool {
 /// directory, so the safety boundary is preserved at the permission layer.
 const PLAN_MODE_ALWAYS_VISIBLE: &[&str] = &[
     "sessions_spawn", // spawn Explore/Plan agents
-    "progress",       // plan progress tracking
     "execute_plan",   // trigger execution from Plan Mode
     "Write",          // plan file writing, restricted to plans/ by is_plans_path()
     "Edit",           // plan file editing, restricted to plans/ by is_plans_path()
