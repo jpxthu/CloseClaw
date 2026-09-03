@@ -74,6 +74,7 @@ use closeclaw_common::{
     RenderedOutput,
 };
 use closeclaw_config::identity::ConfigIdentityResolver;
+use closeclaw_config::CredentialsProvider;
 use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -198,8 +199,9 @@ pub(crate) fn load_media_config(config_dir: &str) -> closeclaw_config::MediaConf
 ///
 /// First checks `{config_dir}/config/platforms.json` for an explicit
 /// enable flag.  If the platform is not listed or disabled the plugin
-/// is silently not registered.  When enabled, credentials are read
-/// from environment variables; missing env vars emit a warning.
+/// is silently not registered.  When enabled, credentials are loaded
+/// from `{config_dir}/config/credentials/` (config file first, then
+/// `FEISHU_PROFILE` environment variable as fallback).
 ///
 /// Identity mapping is loaded from `{config_dir}/config/accounts.json`
 /// (if the file exists).  A missing or empty file results in no
@@ -216,7 +218,15 @@ pub async fn register(
         return;
     }
 
-    let profile = std::env::var("FEISHU_PROFILE").ok();
+    // Load feishu profile from config credentials first, fallback to env var.
+    let profile = CredentialsProvider::load_from_dir(
+        &std::path::Path::new(config_dir)
+            .join("config")
+            .join("credentials"),
+    )
+    .ok()
+    .and_then(|creds| creds.feishu_profile().map(|p| p.profile.clone()))
+    .or_else(|| std::env::var("FEISHU_PROFILE").ok());
     if let Some(profile) = profile {
         // Use shared MediaStore from daemon if available, otherwise create one.
         let media_store = shared_media_store.unwrap_or_else(|| {
