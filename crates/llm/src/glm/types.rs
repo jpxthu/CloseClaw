@@ -235,8 +235,11 @@ impl GlmProvider {
                     thinking: rc.to_string(),
                     signature: None,
                 });
+            } else {
+                // Short reasoning — demote to plain text (design doc:
+                // "极短的 reasoning_content 不视为推理块，按普通文本处理")
+                content_blocks.push(RawContentBlock::Text(rc.to_string()));
             }
-            // else: content present but reasoning too short — skip it
         }
         if content_blocks.is_empty() {
             content_blocks.push(RawContentBlock::Text(String::new()));
