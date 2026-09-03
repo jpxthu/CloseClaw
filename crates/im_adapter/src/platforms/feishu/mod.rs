@@ -49,6 +49,8 @@ mod send_helpers;
 mod send_warn_tests;
 #[cfg(test)]
 mod step1_8_gap_tests;
+#[cfg(test)]
+mod streaming_render_tests;
 pub(crate) mod streaming_send;
 #[cfg(test)]
 mod style_tests;
@@ -388,6 +390,17 @@ impl FeishuPlugin {
     /// Inject a [`DebugLog`] instance for structured event logging.
     pub fn set_debug_log(&mut self, debug_log: Arc<DebugLog>) {
         self.debug_log = Some(debug_log);
+    }
+
+    /// Return the current cardkit pending text (test-only).
+    #[cfg(test)]
+    pub(crate) fn cardkit_pending_text(&self) -> String {
+        self.cardkit_streaming
+            .lock()
+            .expect("cardkit lock poisoned")
+            .state
+            .pending_text
+            .clone()
     }
 
     /// Get the identity resolver for cross-platform account mapping.

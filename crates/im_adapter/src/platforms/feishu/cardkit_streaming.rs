@@ -96,6 +96,20 @@ impl CardkitStreamingRenderer {
         }
     }
 
+    /// Return the current pending text buffer (test-only).
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn pending_text(&self) -> &str {
+        &self.state.pending_text
+    }
+
+    /// Set card_id for testing cardkit state transitions.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn set_card_id_for_test(&mut self, card_id: &str) {
+        self.state.card_id = Some(card_id.to_string());
+    }
+
     /// Create a streaming card via cardkit API.
     ///
     /// Returns `Some(card_id)` on success, `None` on failure.
