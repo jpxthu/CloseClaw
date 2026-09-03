@@ -89,8 +89,8 @@ pub use stub::StubProvider;
 pub use client::UnifiedChatClient;
 pub use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 pub use interpreter::{
-    DeepSeekInterpreter, DefaultInterpreter, GlmInterpreter, InterpreterRegistry, MimoInterpreter,
-    MinimaxInterpreter, ModelInterpreter,
+    AnthropicInterpreter, DeepSeekInterpreter, DefaultInterpreter, GlmInterpreter,
+    InterpreterRegistry, MimoInterpreter, MinimaxInterpreter, ModelInterpreter,
 };
 pub use plugin::PluginPipeline;
 pub use sink_updater::SinkUpdater;

@@ -341,6 +341,117 @@ impl ModelInterpreter for DeepSeekInterpreter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AnthropicInterpreter
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Interpreter for Anthropic provider.
+///
+/// Anthropic uses a typed content array where each element has a `type` field
+/// (`text`, `thinking`, `tool_use`, `tool_result`). The `thinking` block carries
+/// an optional `signature` field for traceability.
+///
+/// This interpreter applies two merging rules:
+///
+/// 1. **Empty text + non-empty thinking**: When text content is empty and
+///    thinking content is present, thinking is merged into a single
+///    `ContentBlock::Text` (no `Thinking` block emitted). This matches the
+///    OpenAI-compatible contract (see [`interpret_openai_compatible`]).
+///    Signature is preserved in a trailing `Thinking` block.
+///
+/// 2. **Streaming signature merge**: During SSE streaming, Anthropic emits
+///    `thinking_delta` events (producing `Thinking{content, signature:None}`)
+///    followed by a single `signature_delta` event (producing
+///    `Thinking{empty, signature:Some}`). This interpreter merges the
+///    signature into the preceding thinking block so consumers see a single
+///    `Thinking{content, signature:Some}` block.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AnthropicInterpreter;
+
+impl ModelInterpreter for AnthropicInterpreter {
+    fn name(&self) -> &str {
+        "anthropic"
+    }
+
+    fn interpret_response(&self, response: InternalResponse) -> UnifiedResponse {
+        // Separate text and thinking blocks
+        let mut text_parts: Vec<String> = vec![];
+        let mut thinking_parts: Vec<String> = vec![];
+        let mut last_signature: Option<String> = None;
+
+        for block in response.content_blocks {
+            match block {
+                RawContentBlock::Text(s) => text_parts.push(s),
+                RawContentBlock::Thinking {
+                    thinking: s,
+                    signature,
+                } => {
+                    thinking_parts.push(s);
+                    if let Some(sig) = signature {
+                        last_signature = Some(sig);
+                    }
+                }
+                RawContentBlock::ToolUse { id, name, input } => {
+                    text_parts.push(format!("id:{id} name:{name} input:{input}"))
+                }
+                RawContentBlock::ToolResult {
+                    tool_call_id,
+                    content,
+                } => text_parts.push(format!("tool_call_id:{tool_call_id} content:{content}")),
+            }
+        }
+
+        let mut content_blocks: Vec<ContentBlock> = vec![];
+        let text_empty = text_parts.iter().all(|s| s.is_empty());
+        if text_empty && !thinking_parts.is_empty() {
+            // Merge thinking into Text block (no Thinking block)
+            content_blocks.push(ContentBlock::Text(thinking_parts.join("")));
+            // Preserve signature in a separate Thinking block if present
+            if last_signature.is_some() {
+                content_blocks.push(ContentBlock::Thinking {
+                    thinking: String::new(),
+                    signature: last_signature,
+                });
+            }
+        } else {
+            if !text_parts.iter().all(|s| s.is_empty()) {
+                content_blocks.push(ContentBlock::Text(text_parts.join("")));
+            }
+            if !thinking_parts.is_empty() {
+                content_blocks.push(ContentBlock::Thinking {
+                    thinking: thinking_parts.join(""),
+                    signature: last_signature,
+                });
+            }
+        }
+
+        UnifiedResponse {
+            content_blocks,
+            usage: UnifiedUsage {
+                prompt_tokens: response.usage.prompt_tokens,
+                completion_tokens: response.usage.completion_tokens,
+                total_tokens: response.usage.total_tokens,
+                reasoning_tokens: response.usage.reasoning_tokens,
+                cache_read_tokens: response.usage.cache_read_tokens,
+                cache_write_tokens: response.usage.cache_write_tokens,
+            },
+            finish_reason: response.finish_reason,
+            retry_attempts: 0,
+        }
+    }
+
+    /// Pass through all SSE events.
+    ///
+    /// Anthropic SSE events are already correctly mapped by
+    /// [`AnthropicProtocol::parse_sse_stream`]: `thinking_delta` produces
+    /// `BlockDelta{Thinking{content, signature:None}}`, `signature_delta`
+    /// produces `BlockDelta{Thinking{"", signature:Some}}`. The signature
+    /// is carried in the delta and attached by consumers downstream.
+    fn interpret_stream_event(&self, event: StreamEvent) -> Option<StreamEvent> {
+        Some(event)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MimoInterpreter
 // ─────────────────────────────────────────────────────────────────────────────
 
