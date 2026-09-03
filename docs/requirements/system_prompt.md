@@ -52,7 +52,7 @@ Owner 可以在对话中通过指令管理 System Prompt 末尾的动态指令�
 
 - 清除动态指令时，触发全部缓存失效并重建，确保下次 System Prompt 为干净状态
 
-System Prompt 末尾的追加区除 Owner 动态指令外，还承载系统注入的运行时上下文（如 workflow 上下文）。系统注入内容的写入与移除由对应功能模块触发，注入与移除不触发 System Prompt 整体重组，也不清除 Owner 动态指令。
+System Prompt 末尾的追加区除 Owner 动态指令外，还承载系统注入的上下文（如 workflow 上下文）。系统注入内容的写入与移除由对应功能模块触发，注入与移除不触发 System Prompt 重新组装，也不清除 Owner 动态指令。
 
 > **交叉引用**：系统注入内容的一个实例——workflow 上下文的注入与移除，见 [workflow §F2](workflow.md)（workflow 启动）、[workflow §F8](workflow.md)（流程生命周期）。
 > **交叉引用**：动态指令的追加、查看、清除命令入口，见 [slash §F6](slash.md)（`/system` 指令）。持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）管理。本节仅定义 System Prompt 内容层的专属行为。
