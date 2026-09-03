@@ -832,6 +832,8 @@ fn test_deepseek_interpreter_thinking_only_preserves_signature() {
 
 // ── Gap 2: DefaultInterpreter preserves signature ─────────────────────────────
 
+// ── AnthropicInterpreter tests → anthropic_interpreter_tests.rs (via #[path])
+
 // ── MimoInterpreter ─────────────────────────────────────────────────────────
 
 use crate::interpreter::MimoInterpreter;
