@@ -289,7 +289,17 @@ impl FeishuAdapter {
                 return Ok(());
             }
         };
-        let path_str = outbound_path.to_string_lossy().to_string();
+        // lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径)
+        let path_str = match std::env::current_dir() {
+            Ok(cwd) => outbound_path
+                .strip_prefix(&cwd)
+                .map(|rel| rel.to_string_lossy().to_string())
+                .unwrap_or_else(|_| outbound_path.to_string_lossy().to_string()),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to get cwd, using absolute path");
+                outbound_path.to_string_lossy().to_string()
+            }
+        };
         let id_flag = if receive_id.starts_with("ou_") {
             "--user-id"
         } else {
