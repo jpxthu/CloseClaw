@@ -307,9 +307,9 @@
     "path": "docs/design/llm/providers/glm.md",
     "commit": "e9ae4180656e8d519a72219efb80b9013613dc55",
     "commit_time": "2026-06-29T15:56:25+08:00",
-    "confirmed_time": "2026-06-29T16:57:07.005267+08:00",
+    "confirmed_time": "2026-09-03T21:14:57.626574+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "设计文档概述章节提及 Anthropic 协议下 thinking block 丢失问题，但 GLM Provider 仅支持 OpenAI 协议（supported_protocols = [openai]）。文档描述与实现存在矛盾，需明确：(1) 是否应删除 Anthropic 协议相关描述；(2) 或应为 GLM 添加 Anthropic 协议支持。"
   },
   {
     "path": "docs/design/llm/providers/mimo.md",
