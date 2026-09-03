@@ -297,6 +297,19 @@ pub trait StreamingRenderer: Send {
 }
 
 /// Default streaming renderer: line-buffered text + per-block accumulation.
+///
+/// Per design doc §架构, the streaming renderer has three responsibilities:
+/// 1. **Line buffering** — text deltas are buffered by [`LineBuffer`] and
+///    emitted at sentence/code-line boundaries (or when the threshold/timeout
+///    fires).
+/// 2. **Type routing** — incoming [`StreamEvent`]s are routed by block type:
+///    Text deltas go through [`LineBuffer`], non-Text blocks (Thinking,
+///    ToolUse, ToolResult) are accumulated via [`BlockAccumulator`].
+/// 3. **Incremental output** — the renderer produces [`StreamingOutput`]
+///    containing `text_messages` (incremental text lines) and `render_blocks`
+///    (complete non-Text [`ContentBlock`]s). The actual sending through
+///    IMPlugin is performed by the upstream Gateway (design doc §职责划分,
+///    「职责划分，不约束内部代码组织」).
 pub struct DefaultStreamingRenderer {
     line_buffer: LineBuffer,
     current_block_type: Option<ContentBlockType>,
