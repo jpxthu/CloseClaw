@@ -32,9 +32,8 @@ pub(crate) struct FeishuStreamingState {
     pub(crate) last_update: Option<Instant>,
     /// Accumulated text since the last card update.
     ///
-    /// Fed by `FeishuPlugin::handle_stream_event` / `flush_stream` /
-    /// `check_stream_timeout` which route text from the default streaming
-    /// renderer to this buffer for batch cardkit updates.
+    /// Fed by `FeishuPlugin::accumulate_streaming_text` via Gateway's
+    /// send path (`dispatch_text` → `send` → `send_streaming_text_with_target`).
     pub(crate) pending_text: String,
 }
 
