@@ -367,6 +367,7 @@ struct RegistryHarness {
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     gateway: Arc<Gateway>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    confirm_flow: Arc<closeclaw_tools::builtin::PlanExecConfirmFlow>,
     builtin_registry: Arc<closeclaw_skills::BuiltinSkillRegistry>,
     agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
     spawn_controller: Arc<closeclaw_gateway::SpawnController>,
@@ -415,6 +416,11 @@ impl RegistryHarness {
             Arc::clone(&permission_engine),
         ));
         let late_bound = Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
+        let confirm_flow = Arc::new(closeclaw_tools::builtin::PlanExecConfirmFlow::new(
+            Arc::clone(&session_mgr) as Arc<dyn closeclaw_common::SessionLookup>,
+            Arc::new(|_| {}),
+            tokio::runtime::Handle::current(),
+        ));
 
         Self {
             tmp,
@@ -425,6 +431,7 @@ impl RegistryHarness {
             permission_engine,
             gateway,
             approval_flow,
+            confirm_flow,
             builtin_registry,
             agent_registry,
             spawn_controller,
@@ -450,6 +457,7 @@ impl RegistryHarness {
             permission_engine: &self.permission_engine,
             spawn_controller: Arc::clone(&self.spawn_controller),
             approval_flow: &self.approval_flow,
+            confirm_flow: &self.confirm_flow,
             late_bound_session_manager: Arc::clone(&self.late_bound),
             config_subdir: self.tmp.path(),
             data_dir: self.tmp.path(),

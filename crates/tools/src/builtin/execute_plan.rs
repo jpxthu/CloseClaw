@@ -3,44 +3,43 @@
 //! Provides natural-language trigger for plan execution — the tool
 //! equivalent of the `/execute` slash command. When the agent calls
 //! this tool, the framework presents a user confirmation dialog
-//! (approval_pending). On approval, the session transitions to
-//! Auto Mode and begins executing the plan steps.
+//! (confirm_pending). On confirmation via `/confirm`, the session
+//! transitions to Auto Mode and begins executing the plan steps.
 //!
 //! Supports two execution paths:
 //! - **Same session**: the current session enters Auto Mode.
 //! - **New session**: a new child session is created with the plan
 //!   content injected as initial context, directly entering Auto Mode.
 
+use crate::builtin::plan_exec_confirm::{PlanExecConfirmFlow, PlanExecMetadata};
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
 use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_session::plan_file::{resolve_plan_by_name, PlanResolveError};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
 
 /// Natural-language execution trigger tool.
 ///
 /// The agent calls this tool to start plan execution. The tool
-/// returns an `approval_pending` result, prompting the framework to
-/// display a user confirmation dialog. On approval, the plan enters
-/// Auto Mode for execution.
+/// returns a `confirm_pending` result, prompting the framework to
+/// display a user confirmation dialog. On `/confirm`, the plan
+/// enters Auto Mode for execution.
 pub struct ExecutePlanTool {
     session_manager: Arc<SessionManager>,
-    approval_flow: Arc<TokioMutex<ApprovalFlow>>,
+    confirm_flow: Arc<PlanExecConfirmFlow>,
 }
 
 impl ExecutePlanTool {
     /// Creates a new `ExecutePlanTool`.
     pub fn new(
         session_manager: Arc<SessionManager>,
-        approval_flow: Arc<TokioMutex<ApprovalFlow>>,
+        confirm_flow: Arc<PlanExecConfirmFlow>,
     ) -> Self {
         Self {
             session_manager,
-            approval_flow,
+            confirm_flow,
         }
     }
 }
@@ -61,9 +60,10 @@ impl Tool for ExecutePlanTool {
 
     fn detail(&self) -> String {
         "Trigger execution of a plan by name. This is the natural-language \
-         equivalent of the `/execute` slash command. The tool returns an \
-         approval_pending result, prompting the user to confirm execution. \
-         \n\nOn approval, the session transitions to Auto Mode \
+         equivalent of the `/execute` slash command. The tool returns a \
+         confirm_pending result, prompting the user to confirm execution \
+         via `/confirm`. \
+         \n\nOn confirmation, the session transitions to Auto Mode \
          and begins executing the plan steps sequentially. \
          \n\nSupports two execution paths: \
          \n- Same session: the current session enters Auto Mode. \
@@ -147,21 +147,19 @@ impl Tool for ExecutePlanTool {
         let step_selection = Self::parse_step_selection(&args);
         let new_session = Self::parse_new_session(&args);
 
-        let request_id = uuid::Uuid::new_v4().to_string();
-        self.store_plan_exec_metadata(
-            &request_id,
-            &effective_path,
-            &step_selection,
+        let metadata = PlanExecMetadata {
+            plan_file_path: effective_path.clone(),
+            step_selection,
             new_session,
             additional_instruction,
-        )
-        .await;
+        };
+        let confirmation_id = self.confirm_flow.submit(session_id, metadata).await;
 
         Ok(ToolResult {
             data: json!({
-                "status": "approval_pending",
-                "request_id": request_id,
-                "message": "Plan execution pending owner approval",
+                "status": "confirm_pending",
+                "confirmation_id": confirmation_id,
+                "message": "Plan execution pending user confirmation",
                 "plan_file_path": effective_path,
                 "new_session": new_session,
             }),
@@ -301,24 +299,5 @@ impl ExecutePlanTool {
         args.get("new_session")
             .and_then(Value::as_bool)
             .unwrap_or(false)
-    }
-
-    /// Store plan execution metadata in the approval flow.
-    async fn store_plan_exec_metadata(
-        &self,
-        request_id: &str,
-        effective_path: &str,
-        step_selection: &Option<Vec<usize>>,
-        new_session: bool,
-        additional_instruction: Option<String>,
-    ) {
-        let mut flow = self.approval_flow.lock().await;
-        flow.set_plan_exec_metadata(
-            request_id,
-            effective_path.to_string(),
-            step_selection.clone(),
-            new_session,
-            additional_instruction,
-        );
     }
 }

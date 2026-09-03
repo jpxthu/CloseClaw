@@ -8,16 +8,15 @@
 //! in unit tests. The error paths verify the tool's validation logic covers
 //! the dimensions specified in the plan.
 
+use crate::builtin::plan_exec_confirm::PlanExecConfirmFlow;
 use crate::{Tool, ToolCallError, ToolContext, WorkdirContext};
 use closeclaw_common::SessionMode;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::Mutex as TokioMutex;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -61,18 +60,39 @@ fn make_session_manager() -> Arc<SessionManager> {
     ))
 }
 
-async fn make_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
-    let sm = make_session_manager();
-    let flow = ApprovalFlow::new(
-        sm.clone(),
-        Arc::new(|_| {}), // on_notify_owner
-        Arc::new(|_| {}), // on_whitelist_updated
-        tokio::runtime::Handle::current(),
-        closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
-        PathBuf::from("/tmp/cc_test_plan"),
-        closeclaw_permission::rules::RuleSet::default(),
-    );
-    Arc::new(TokioMutex::new(flow))
+/// Minimal mock implementing SessionLookup for ExecutePlanTool tests.
+struct MockSessionLookup;
+
+#[async_trait::async_trait]
+impl closeclaw_common::SessionLookup for MockSessionLookup {
+    async fn get_parent_of(&self, _child_id: &str) -> Option<String> {
+        None
+    }
+    async fn get_chat_id(&self, _session_id: &str) -> Option<String> {
+        None
+    }
+    async fn push_pending_message(
+        &self,
+        _session_id: &str,
+        _msg: closeclaw_common::PendingMessage,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    async fn get_plan_state(&self, _session_id: &str) -> Option<closeclaw_common::PlanState> {
+        None
+    }
+    async fn set_plan_state(&self, _session_id: &str, _state: closeclaw_common::PlanState) {}
+    async fn set_session_mode(&self, _session_id: &str, _mode: closeclaw_common::SessionMode) {}
+}
+
+fn make_confirm_flow() -> std::sync::Arc<PlanExecConfirmFlow> {
+    let sm: std::sync::Arc<dyn closeclaw_common::SessionLookup> =
+        std::sync::Arc::new(MockSessionLookup);
+    let on_notify: std::sync::Arc<
+        dyn Fn(crate::builtin::plan_exec_confirm::PlanExecNotification) + Send + Sync,
+    > = std::sync::Arc::new(|_| {});
+    let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
+    std::sync::Arc::new(flow)
 }
 
 /// Register a ConversationSession in the SessionManager.
@@ -92,9 +112,9 @@ async fn register_session(sm: &SessionManager, session_id: &str, mode: SessionMo
 
 fn make_tool(
     sm: Arc<SessionManager>,
-    af: Arc<TokioMutex<ApprovalFlow>>,
+    cf: Arc<PlanExecConfirmFlow>,
 ) -> crate::builtin::execute_plan::ExecutePlanTool {
-    crate::builtin::execute_plan::ExecutePlanTool::new(sm, af)
+    crate::builtin::execute_plan::ExecutePlanTool::new(sm, cf)
 }
 
 /// Create a temp workspace with a plan file so resolve_plan_by_name succeeds.
@@ -111,32 +131,32 @@ fn setup_workspace_with_plan() -> (TempDir, String) {
 #[tokio::test]
 async fn test_tool_name() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     assert_eq!(tool.name(), "execute_plan");
 }
 
 #[tokio::test]
 async fn test_tool_group() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     assert_eq!(tool.group(), "plan");
 }
 
 #[tokio::test]
 async fn test_tool_summary() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     assert!(!tool.summary().is_empty());
 }
 
 #[tokio::test]
 async fn test_tool_flags() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let flags = tool.flags();
     assert!(flags.is_concurrency_safe);
     assert!(!flags.is_read_only);
@@ -147,8 +167,8 @@ async fn test_tool_flags() {
 #[tokio::test]
 async fn test_tool_input_schema_properties() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let schema = tool.input_schema();
     let props = schema.pointer("/properties").unwrap();
     assert!(props.get("plan_file_path").is_some());
@@ -164,8 +184,8 @@ async fn test_tool_input_schema_properties() {
 #[tokio::test]
 async fn test_tool_input_schema_has_plan_name_property() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let schema = tool.input_schema();
     let props = schema.pointer("/properties").unwrap();
     let plan_name = props
@@ -182,8 +202,8 @@ async fn test_tool_input_schema_has_plan_name_property() {
 #[tokio::test]
 async fn test_tool_input_schema_has_additional_instruction_property() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let schema = tool.input_schema();
     let props = schema.pointer("/properties").unwrap();
     let ai = props
@@ -202,8 +222,8 @@ async fn test_tool_input_schema_has_additional_instruction_property() {
 #[tokio::test]
 async fn test_tool_detail_mentions_additional_instruction() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let detail = tool.detail();
     assert!(
         detail.contains("additional instruction"),
@@ -216,8 +236,8 @@ async fn test_tool_detail_mentions_additional_instruction() {
 #[tokio::test]
 async fn test_call_without_session_id() {
     let sm = make_session_manager();
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(None);
 
     let result = tool.call(json!({}), &ctx).await;
@@ -238,8 +258,8 @@ async fn test_call_no_plan_info_returns_error() {
     let sm = make_session_manager();
     register_session(&sm, "sess-normal", SessionMode::Normal).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-normal"));
 
     // No plan_name, no plan_file_path, no plan state → fallback
@@ -262,8 +282,8 @@ async fn test_call_with_plan_file_path_bypasses_plan_state() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-file", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan-file"));
 
     // plan_file_path provided → plan_state check is skipped,
@@ -288,8 +308,8 @@ async fn test_call_with_step_selection_parses_correctly() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-steps", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan-steps"));
 
     // No plan_name/plan_file_path → fallback load_plan_state → error
@@ -311,8 +331,8 @@ async fn test_call_with_new_session_flag() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-newsess", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan-newsess"));
 
     // No plan_name/plan_file_path → fallback load_plan_state → error
@@ -336,8 +356,8 @@ async fn test_call_plan_name_resolves_by_name_not_plan_state() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-name", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan-name"));
 
     // plan_name provided → plan_state check skipped,
@@ -368,8 +388,8 @@ async fn test_call_plan_name_with_additional_instruction_not_found() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-missing", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan-missing"));
 
     // plan_name + additional_instruction provided but plan file not found
@@ -399,8 +419,8 @@ async fn test_call_empty_additional_instruction_filtered() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-empty-ai", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan-empty-ai"));
 
     // Empty additional_instruction treated as absent → no plan_name/plan_file_path
@@ -427,8 +447,8 @@ async fn test_call_empty_plan_name_filtered() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan-empty-pn", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan-empty-pn"));
 
     // Empty plan_name filtered → no plan_name/plan_file_path → fallback
@@ -457,18 +477,18 @@ async fn test_call_normal_mode_with_plan_name() {
     let sm = make_session_manager();
     register_session(&sm, "sess-normal-plan", SessionMode::Normal).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
 
     let (tmp, plan_name) = setup_workspace_with_plan();
     let ctx = make_ctx_with_workdir(Some("sess-normal-plan"), tmp.path());
 
-    // Normal mode + plan_name + plan file exists → approval_pending
+    // Normal mode + plan_name + plan file exists → confirm_pending
     let result = tool.call(json!({"plan_name": &plan_name}), &ctx).await;
     assert!(result.is_ok(), "should succeed with valid plan_name");
     let tr = result.unwrap();
-    assert_eq!(tr.data["status"], "approval_pending");
-    assert!(tr.data.get("request_id").is_some());
+    assert_eq!(tr.data["status"], "confirm_pending");
+    assert!(tr.data.get("confirmation_id").is_some());
 }
 
 #[tokio::test]
@@ -476,18 +496,18 @@ async fn test_call_auto_mode_with_plan_name() {
     let sm = make_session_manager();
     register_session(&sm, "sess-auto-plan", SessionMode::Auto).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
 
     let (tmp, plan_name) = setup_workspace_with_plan();
     let ctx = make_ctx_with_workdir(Some("sess-auto-plan"), tmp.path());
 
-    // Auto mode + plan_name + plan file exists → approval_pending
+    // Auto mode + plan_name + plan file exists → confirm_pending
     let result = tool.call(json!({"plan_name": &plan_name}), &ctx).await;
     assert!(result.is_ok(), "should succeed with valid plan_name");
     let tr = result.unwrap();
-    assert_eq!(tr.data["status"], "approval_pending");
-    assert!(tr.data.get("request_id").is_some());
+    assert_eq!(tr.data["status"], "confirm_pending");
+    assert!(tr.data.get("confirmation_id").is_some());
 }
 
 #[tokio::test]
@@ -495,8 +515,8 @@ async fn test_call_plan_mode_no_plan_info_returns_error() {
     let sm = make_session_manager();
     register_session(&sm, "sess-plan", SessionMode::Plan).await;
 
-    let af = make_approval_flow().await;
-    let tool = make_tool(sm, af);
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
     let ctx = make_ctx(Some("sess-plan"));
 
     // Plan mode, no plan_name/plan_file_path, no plan state → error
