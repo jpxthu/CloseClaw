@@ -96,12 +96,22 @@ struct PlanExecConfirmEntry {
     session_id: String,
     /// Plan execution metadata.
     metadata: PlanExecMetadata,
+    /// Timestamp when this entry was created (for TTL-based eviction).
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Inner state protected by `Arc<TokioMutex<…>>`.
 struct PendingState {
     /// Pending confirmations keyed by confirmation_id.
     pending: HashMap<String, PlanExecConfirmEntry>,
+}
+
+impl PendingState {
+    /// Evict entries older than 30 minutes (lazy cleanup).
+    fn evict_stale(&mut self) {
+        let cutoff = chrono::Utc::now() - chrono::Duration::minutes(30);
+        self.pending.retain(|_id, entry| entry.created_at > cutoff);
+    }
 }
 
 // ── PlanExecConfirmFlow ─────────────────────────────────────────────────
@@ -116,7 +126,11 @@ pub struct PlanExecConfirmFlow {
     /// Session manager for pushing pending messages.
     session_manager: Arc<dyn SessionLookup>,
     /// Callback invoked to notify the owner about a pending confirmation.
-    on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync>,
+    ///
+    /// Uses `OnceLock` so the gateway can install the real callback after
+    /// construction (via `set_notify_callback`) while sharing `Arc<PlanExecConfirmFlow>`
+    /// with other components.
+    on_notify: std::sync::OnceLock<Arc<dyn Fn(PlanExecNotification) + Send + Sync>>,
     /// Callback for creating child sessions (new-session path).
     create_child_session_fn: Option<CreateChildSessionFn>,
     /// Tokio runtime handle for spawning async tasks from sync closures.
@@ -130,12 +144,33 @@ impl PlanExecConfirmFlow {
         on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync>,
         runtime_handle: tokio::runtime::Handle,
     ) -> Self {
+        let lock = std::sync::OnceLock::new();
+        let _ = lock.set(on_notify);
         Self {
             state: TokioMutex::new(PendingState {
                 pending: HashMap::new(),
             }),
             session_manager,
-            on_notify,
+            on_notify: lock,
+            create_child_session_fn: None,
+            runtime_handle,
+        }
+    }
+
+    /// Create a new `PlanExecConfirmFlow` without an initial notify callback.
+    ///
+    /// Use [`set_notify_callback`](Self::set_notify_callback) to install
+    /// the real callback later (e.g., from the Gateway after plugins are registered).
+    pub fn new_without_notify(
+        session_manager: Arc<dyn SessionLookup>,
+        runtime_handle: tokio::runtime::Handle,
+    ) -> Self {
+        Self {
+            state: TokioMutex::new(PendingState {
+                pending: HashMap::new(),
+            }),
+            session_manager,
+            on_notify: std::sync::OnceLock::new(),
             create_child_session_fn: None,
             runtime_handle,
         }
@@ -146,9 +181,21 @@ impl PlanExecConfirmFlow {
         self.create_child_session_fn = Some(cb);
     }
 
-    /// Replace the owner notification callback.
-    pub fn set_notify_callback(&mut self, cb: Arc<dyn Fn(PlanExecNotification) + Send + Sync>) {
-        self.on_notify = cb;
+    /// Install the owner notification callback.
+    ///
+    /// Can only be called once (via `OnceLock`). Subsequent calls are silently
+    /// ignored. This allows the gateway to install the real callback after
+    /// construction while sharing the `Arc` with other components.
+    pub fn set_notify_callback(&self, cb: Arc<dyn Fn(PlanExecNotification) + Send + Sync>) {
+        let _ = self.on_notify.set(cb);
+    }
+
+    /// Returns a reference to the notification callback, if installed.
+    fn notify_cb(&self) -> &dyn Fn(PlanExecNotification) {
+        self.on_notify
+            .get()
+            .map(|arc| arc.as_ref() as &dyn Fn(PlanExecNotification))
+            .unwrap_or(&|_| {})
     }
 
     /// Return a snapshot of the pending entry metadata for a given confirmation id.
@@ -179,16 +226,18 @@ impl PlanExecConfirmFlow {
 
         {
             let mut state = self.state.lock().await;
+            state.evict_stale();
             state.pending.insert(
                 confirmation_id.clone(),
                 PlanExecConfirmEntry {
                     session_id: session_id.to_string(),
                     metadata: metadata.clone(),
+                    created_at: chrono::Utc::now(),
                 },
             );
         }
 
-        (self.on_notify)(PlanExecNotification {
+        (self.notify_cb())(PlanExecNotification {
             confirmation_id: confirmation_id.clone(),
             plan_file_path: metadata.plan_file_path,
             new_session: metadata.new_session,
@@ -207,6 +256,7 @@ impl PlanExecConfirmFlow {
     pub async fn confirm(&self, confirmation_id: &str) -> bool {
         let entry = {
             let mut state = self.state.lock().await;
+            state.evict_stale();
             state.pending.remove(confirmation_id)
         };
         let entry = match entry {
@@ -490,471 +540,5 @@ async fn invoke_create_child_session(
 // ── Tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use closeclaw_common::PlanState;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Mutex as StdMutex;
-
-    /// Shared observable state for the mock.
-    struct MockState {
-        pending_messages: Vec<(String, PendingMessage)>,
-        plan_states: HashMap<String, PlanState>,
-        modes: HashMap<String, SessionMode>,
-    }
-
-    /// Minimal mock implementing [`SessionLookup`] for unit tests.
-    struct MockSessionLookup {
-        inner: StdMutex<MockState>,
-    }
-
-    impl MockSessionLookup {
-        fn new() -> Self {
-            Self {
-                inner: StdMutex::new(MockState {
-                    pending_messages: Vec::new(),
-                    plan_states: HashMap::new(),
-                    modes: HashMap::new(),
-                }),
-            }
-        }
-
-        fn state(&self) -> std::sync::MutexGuard<'_, MockState> {
-            self.inner.lock().unwrap()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl SessionLookup for MockSessionLookup {
-        async fn get_parent_of(&self, _child_id: &str) -> Option<String> {
-            None
-        }
-
-        async fn get_chat_id(&self, _session_id: &str) -> Option<String> {
-            None
-        }
-
-        async fn push_pending_message(
-            &self,
-            session_id: &str,
-            msg: PendingMessage,
-        ) -> Result<(), String> {
-            self.state()
-                .pending_messages
-                .push((session_id.to_string(), msg));
-            Ok(())
-        }
-
-        async fn get_plan_state(&self, session_id: &str) -> Option<PlanState> {
-            self.state().plan_states.get(session_id).cloned()
-        }
-
-        async fn set_plan_state(&self, session_id: &str, plan_state: PlanState) {
-            self.state()
-                .plan_states
-                .insert(session_id.to_string(), plan_state);
-        }
-
-        async fn set_session_mode(&self, session_id: &str, mode: SessionMode) {
-            self.state().modes.insert(session_id.to_string(), mode);
-        }
-    }
-
-    /// Build a concrete mock + Arc<dyn> pair so tests can inspect state.
-    fn make_mock() -> (Arc<MockSessionLookup>, Arc<dyn SessionLookup>) {
-        let mock = Arc::new(MockSessionLookup::new());
-        let sm: Arc<dyn SessionLookup> = mock.clone();
-        (mock, sm)
-    }
-
-    fn make_test_meta(plan_file_path: &str) -> PlanExecMetadata {
-        PlanExecMetadata {
-            plan_file_path: plan_file_path.to_string(),
-            step_selection: None,
-            new_session: false,
-            additional_instruction: None,
-        }
-    }
-
-    fn insert_plan_state(mock: &MockSessionLookup, session_id: &str, path: &str) {
-        let mut ps = PlanState::new();
-        ps.plan_file_path = path.to_string();
-        mock.state().plan_states.insert(session_id.to_string(), ps);
-    }
-
-    #[tokio::test]
-    async fn submit_generates_id_and_stores_entry() {
-        let (_mock, sm) = make_mock();
-        let notify_count = Arc::new(AtomicUsize::new(0));
-        let nc = Arc::clone(&notify_count);
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(move |_| {
-            nc.fetch_add(1, Ordering::SeqCst);
-        });
-
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-        let meta = make_test_meta("/tmp/test_plan.md");
-        let id = flow.submit("session-1", meta).await;
-
-        assert!(!id.is_empty());
-        assert_eq!(notify_count.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn confirm_unknown_id_returns_false() {
-        let (_mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        assert!(!flow.confirm("nonexistent").await);
-    }
-
-    #[tokio::test]
-    async fn cancel_unknown_id_returns_false() {
-        let (_mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        assert!(!flow.cancel("nonexistent").await);
-    }
-
-    #[tokio::test]
-    async fn clear_removes_all_pending() {
-        let (_mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        let create_fn: CreateChildSessionFn =
-            Arc::new(|_, _, _| Box::pin(async { Ok("child-1".to_string()) }));
-        flow.set_create_child_session_fn(create_fn);
-
-        let meta = make_test_meta("/tmp/plan.md");
-        let id = flow.submit("session-1", meta).await;
-
-        flow.clear().await;
-
-        assert!(!flow.confirm(&id).await);
-    }
-
-    #[tokio::test]
-    async fn confirm_same_session_transitions_to_auto() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        insert_plan_state(&mock, "session-1", "/tmp/plan.md");
-
-        let meta = PlanExecMetadata {
-            plan_file_path: "/tmp/plan.md".to_string(),
-            step_selection: None,
-            new_session: false,
-            additional_instruction: None,
-        };
-        let id = flow.submit("session-1", meta).await;
-
-        assert!(flow.confirm(&id).await);
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        let state = mock.state();
-        assert_eq!(state.modes.get("session-1"), Some(&SessionMode::Auto));
-    }
-
-    #[tokio::test]
-    async fn confirm_same_session_with_additional_instruction() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        insert_plan_state(&mock, "session-1", "/tmp/plan.md");
-
-        let meta = PlanExecMetadata {
-            plan_file_path: "/tmp/plan.md".to_string(),
-            step_selection: None,
-            new_session: false,
-            additional_instruction: Some("请先阅读 CONTRIBUTING.md".to_string()),
-        };
-        let id = flow.submit("session-1", meta).await;
-
-        assert!(flow.confirm(&id).await);
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        let state = mock.state();
-        let session_msgs: Vec<&PendingMessage> = state
-            .pending_messages
-            .iter()
-            .filter(|(sid, _)| sid == "session-1")
-            .map(|(_, m)| m)
-            .collect();
-
-        assert_eq!(session_msgs.len(), 2);
-        assert!(session_msgs[0].content.contains("Auto Mode"));
-        assert_eq!(session_msgs[1].content, "请先阅读 CONTRIBUTING.md");
-        assert_eq!(session_msgs[1].role.as_deref(), Some("user"));
-    }
-
-    #[tokio::test]
-    async fn confirm_new_session_fallback_to_same_session() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        // Create a temp plan file so read_plan_file_for_injection succeeds
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let plan_path = tmp_dir.path().join("plan.md");
-        std::fs::write(&plan_path, "# Plan\nStep 1").unwrap();
-        let plan_path_str = plan_path.to_string_lossy().to_string();
-
-        insert_plan_state(&mock, "session-1", &plan_path_str);
-
-        let meta = PlanExecMetadata {
-            plan_file_path: plan_path_str,
-            step_selection: None,
-            new_session: true,
-            additional_instruction: None,
-        };
-        let id = flow.submit("session-1", meta).await;
-
-        assert!(flow.confirm(&id).await);
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        let state = mock.state();
-        let ps = state.plan_states.get("session-1").unwrap();
-        assert_eq!(ps.phase, PlanPhase::FinalPlan);
-    }
-
-    #[tokio::test]
-    async fn cancel_removes_entry_and_pushes_message() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        let meta = make_test_meta("/tmp/plan.md");
-        let id = flow.submit("session-1", meta).await;
-
-        assert!(flow.cancel(&id).await);
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        let state = mock.state();
-        let session_msgs: Vec<&str> = state
-            .pending_messages
-            .iter()
-            .filter(|(sid, _)| sid == "session-1")
-            .map(|(_, m)| m.content.as_str())
-            .collect();
-
-        assert!(session_msgs.iter().any(|m| m.contains("已取消执行 plan")));
-        assert!(!flow.confirm(&id).await);
-    }
-
-    #[tokio::test]
-    async fn confirm_idempotent_second_confirm_returns_false() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        insert_plan_state(&mock, "session-1", "/tmp/plan.md");
-
-        let meta = make_test_meta("/tmp/plan.md");
-        let id = flow.submit("session-1", meta).await;
-
-        assert!(flow.confirm(&id).await);
-        assert!(!flow.confirm(&id).await);
-    }
-
-    #[tokio::test]
-    async fn additional_instruction_whitespace_ignored() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        insert_plan_state(&mock, "session-1", "/tmp/plan.md");
-
-        let meta = PlanExecMetadata {
-            plan_file_path: "/tmp/plan.md".to_string(),
-            step_selection: None,
-            new_session: false,
-            additional_instruction: Some("   ".to_string()),
-        };
-        let id = flow.submit("session-1", meta).await;
-
-        assert!(flow.confirm(&id).await);
-
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        let state = mock.state();
-        let session_msgs: Vec<&PendingMessage> = state
-            .pending_messages
-            .iter()
-            .filter(|(sid, _)| sid == "session-1")
-            .map(|(_, m)| m)
-            .collect();
-
-        assert_eq!(session_msgs.len(), 1);
-        assert!(session_msgs[0].content.contains("Auto Mode"));
-    }
-
-    // ── Missing dimension: submit stores correct metadata ─────────────
-
-    #[tokio::test]
-    async fn submit_stores_correct_metadata_in_pending_map() {
-        let (_mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        let meta = PlanExecMetadata {
-            plan_file_path: "/plans/my-plan.md".to_string(),
-            step_selection: Some(vec![0, 2]),
-            new_session: true,
-            additional_instruction: Some("do X first".to_string()),
-        };
-        let id = flow.submit("sess-1", meta).await;
-
-        let stored = flow
-            .get_pending_metadata(&id)
-            .await
-            .expect("entry should exist");
-        assert_eq!(stored.plan_file_path, "/plans/my-plan.md");
-        assert_eq!(stored.step_selection, Some(vec![0, 2]));
-        assert!(stored.new_session);
-        assert_eq!(stored.additional_instruction.as_deref(), Some("do X first"));
-    }
-
-    #[tokio::test]
-    async fn submit_notifies_with_correct_payload() {
-        let (_mock, sm) = make_mock();
-        let captured: Arc<std::sync::Mutex<Vec<PlanExecNotification>>> =
-            Arc::new(std::sync::Mutex::new(Vec::new()));
-        let cc = Arc::clone(&captured);
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> =
-            Arc::new(move |n| cc.lock().unwrap().push(n));
-
-        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-        let meta = PlanExecMetadata {
-            plan_file_path: "/plans/demo.md".to_string(),
-            step_selection: None,
-            new_session: false,
-            additional_instruction: None,
-        };
-        let id = flow.submit("s", meta).await;
-
-        let notifications = captured.lock().unwrap();
-        assert_eq!(notifications.len(), 1);
-        assert_eq!(notifications[0].confirmation_id, id);
-        assert_eq!(notifications[0].plan_file_path, "/plans/demo.md");
-        assert!(!notifications[0].new_session);
-    }
-
-    // ── Missing dimension: new-session path with callback ─────────────
-
-    #[tokio::test]
-    async fn confirm_new_session_with_callback_creates_child() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        // Create a temp plan file so read_plan_file_for_injection succeeds.
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let plan_path = tmp_dir.path().join("plan.md");
-        std::fs::write(&plan_path, "# Plan\nStep 1").unwrap();
-        let plan_path_str = plan_path.to_string_lossy().to_string();
-
-        insert_plan_state(&mock, "parent-sess", &plan_path_str);
-
-        // Track callback invocation.
-        let callback_invoked = Arc::new(AtomicBool::new(false));
-        let ci = Arc::clone(&callback_invoked);
-        let captured_steps: Arc<std::sync::Mutex<Option<Vec<usize>>>> =
-            Arc::new(std::sync::Mutex::new(None));
-        let cs = Arc::clone(&captured_steps);
-        let create_fn: CreateChildSessionFn = Arc::new(move |parent, _plan, steps| {
-            ci.store(true, Ordering::SeqCst);
-            *cs.lock().unwrap() = steps;
-            Box::pin(async move { Ok(format!("child-of-{parent}")) })
-        });
-        flow.set_create_child_session_fn(create_fn);
-
-        let meta = PlanExecMetadata {
-            plan_file_path: plan_path_str,
-            step_selection: Some(vec![1, 3]),
-            new_session: true,
-            additional_instruction: None,
-        };
-        let id = flow.submit("parent-sess", meta).await;
-        assert!(flow.confirm(&id).await);
-
-        // Wait for the spawned task to complete.
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        assert!(
-            callback_invoked.load(Ordering::SeqCst),
-            "create_child_session_fn should have been called"
-        );
-        assert_eq!(
-            *captured_steps.lock().unwrap(),
-            Some(vec![1, 3]),
-            "step_selection should be forwarded to callback"
-        );
-
-        // Child session should have been set up.
-        let state = mock.state();
-        let child_id = "child-of-parent-sess";
-        assert_eq!(state.modes.get(child_id), Some(&SessionMode::Auto));
-        let child_ps = state.plan_states.get(child_id).expect("child plan state");
-        assert_eq!(child_ps.phase, PlanPhase::FinalPlan);
-    }
-
-    // ── Missing dimension: new-session path, step_selection None ──────
-
-    #[tokio::test]
-    async fn confirm_new_session_with_callback_no_step_selection() {
-        let (mock, sm) = make_mock();
-        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
-        let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let plan_path = tmp_dir.path().join("plan.md");
-        std::fs::write(&plan_path, "# Plan\nStep 1").unwrap();
-        let plan_path_str = plan_path.to_string_lossy().to_string();
-
-        insert_plan_state(&mock, "parent-sess", &plan_path_str);
-
-        let callback_invoked = Arc::new(AtomicBool::new(false));
-        let ci = Arc::clone(&callback_invoked);
-        let create_fn: CreateChildSessionFn = Arc::new(move |parent, _plan, _steps| {
-            ci.store(true, Ordering::SeqCst);
-            Box::pin(async move { Ok(format!("child-of-{parent}")) })
-        });
-        flow.set_create_child_session_fn(create_fn);
-
-        let meta = PlanExecMetadata {
-            plan_file_path: plan_path_str,
-            step_selection: None,
-            new_session: true,
-            additional_instruction: Some("inject me".to_string()),
-        };
-        let id = flow.submit("parent-sess", meta).await;
-        assert!(flow.confirm(&id).await);
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        assert!(callback_invoked.load(Ordering::SeqCst));
-        let state = mock.state();
-        let child_id = "child-of-parent-sess";
-        assert_eq!(state.modes.get(child_id), Some(&SessionMode::Auto));
-
-        // Additional instruction should be injected into child session.
-        let child_msgs: Vec<&PendingMessage> = state
-            .pending_messages
-            .iter()
-            .filter(|(sid, _)| sid == child_id)
-            .map(|(_, m)| m)
-            .collect();
-        assert!(
-            child_msgs.iter().any(|m| m.content == "inject me"),
-            "additional instruction should be injected into child session"
-        );
-    }
-}
+#[path = "plan_exec_confirm_tests.rs"]
+mod tests;

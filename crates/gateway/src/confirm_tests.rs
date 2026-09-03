@@ -1,5 +1,5 @@
 //! Unit tests for `try_handle_plan_confirm_command` prefix parsing and
-//! plan confirmation command interception (Step 1.3).
+//! plan confirmation command interception (Step 1.3 + Step 1.6 fixes).
 //!
 //! Test dimensions:
 //! 1. Normal path: `/confirm <id>` → returns Some(ApprovalProcessed), confirm called
@@ -11,6 +11,8 @@
 //! 7. Non-owner sender + `/cancel` → returns Some(ApprovalProcessed) + rejection message
 //! 8. None sender + `/confirm` → returns Some(ApprovalProcessed) + rejection message
 //! 9. No handler configured → returns None
+//! 10. UUID validation: invalid format → feedback + consumed (Step 1.6)
+//! 11. Feedback messages: success/failure feedback sent to owner (Step 1.6)
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -44,6 +46,20 @@ impl MockConfirmHandler {
             cancel_count: Arc::new(AtomicUsize::new(0)),
             confirm_result: true,
             cancel_result: true,
+        }
+    }
+
+    fn with_confirm_result(result: bool) -> Self {
+        Self {
+            confirm_result: result,
+            ..Self::new()
+        }
+    }
+
+    fn with_cancel_result(result: bool) -> Self {
+        Self {
+            cancel_result: result,
+            ..Self::new()
         }
     }
 }
@@ -172,8 +188,10 @@ async fn test_confirm_owner_routes_to_handler() {
     let handler = Arc::new(MockConfirmHandler::new());
     install_handler(&gw, handler.clone()).await;
 
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/confirm {}", valid_id);
     let result = gw
-        .try_handle_plan_confirm_command("s", "/confirm abc-123", Some("owner"), "p", "mock")
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "p", "mock")
         .await;
 
     assert!(matches!(result, Some(HandleResult::ApprovalProcessed)));
@@ -187,8 +205,10 @@ async fn test_cancel_owner_routes_to_handler() {
     let handler = Arc::new(MockConfirmHandler::new());
     install_handler(&gw, handler.clone()).await;
 
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/cancel {}", valid_id);
     let result = gw
-        .try_handle_plan_confirm_command("s", "/cancel abc-123", Some("owner"), "p", "mock")
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "p", "mock")
         .await;
 
     assert!(matches!(result, Some(HandleResult::ApprovalProcessed)));
@@ -299,8 +319,10 @@ async fn test_none_sender_confirm_rejected() {
 async fn test_no_handler_configured_returns_none() {
     let gw = make_gw();
 
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/confirm {}", valid_id);
     let result = gw
-        .try_handle_plan_confirm_command("s", "/confirm abc", Some("owner"), "p", "mock")
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "p", "mock")
         .await;
 
     assert!(result.is_none());
@@ -312,10 +334,176 @@ async fn test_confirm_with_whitespace_id() {
     let handler = Arc::new(MockConfirmHandler::new());
     install_handler(&gw, handler.clone()).await;
 
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/confirm   {}", valid_id);
     let result = gw
-        .try_handle_plan_confirm_command("s", "/confirm   id-1", Some("owner"), "p", "mock")
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "p", "mock")
         .await;
 
     assert!(matches!(result, Some(HandleResult::ApprovalProcessed)));
     assert!(handler.confirm_called.load(Ordering::SeqCst));
+}
+
+// ── Step 1.6: UUID validation tests ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_confirm_invalid_uuid_format_rejected() {
+    let gw = make_gw();
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    install_plugin(&gw, plugin.clone()).await;
+    let handler = Arc::new(MockConfirmHandler::new());
+    install_handler(&gw, handler.clone()).await;
+
+    let result = gw
+        .try_handle_plan_confirm_command("s", "/confirm not-a-uuid", Some("owner"), "peer1", "mock")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::ApprovalProcessed)));
+    assert!(!handler.confirm_called.load(Ordering::SeqCst));
+    let sent = plugin.take_sent();
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].1.contains("无效的 confirmation ID"));
+}
+
+#[tokio::test]
+async fn test_cancel_invalid_uuid_format_rejected() {
+    let gw = make_gw();
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    install_plugin(&gw, plugin.clone()).await;
+    let handler = Arc::new(MockConfirmHandler::new());
+    install_handler(&gw, handler.clone()).await;
+
+    let result = gw
+        .try_handle_plan_confirm_command("s", "/cancel bad-format", Some("owner"), "peer1", "mock")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::ApprovalProcessed)));
+    assert!(!handler.cancel_called.load(Ordering::SeqCst));
+    let sent = plugin.take_sent();
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].1.contains("无效的 confirmation ID"));
+}
+
+#[tokio::test]
+async fn test_confirm_valid_uuid_accepted() {
+    let gw = make_gw();
+    let handler = Arc::new(MockConfirmHandler::new());
+    install_handler(&gw, handler.clone()).await;
+
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/confirm {}", valid_id);
+    let result = gw
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "p", "mock")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::ApprovalProcessed)));
+    assert!(handler.confirm_called.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn test_cancel_valid_uuid_accepted() {
+    let gw = make_gw();
+    let handler = Arc::new(MockConfirmHandler::new());
+    install_handler(&gw, handler.clone()).await;
+
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/cancel {}", valid_id);
+    let result = gw
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "p", "mock")
+        .await;
+
+    assert!(matches!(result, Some(HandleResult::ApprovalProcessed)));
+    assert!(handler.cancel_called.load(Ordering::SeqCst));
+}
+
+// ── Step 1.6: Feedback message tests ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_confirm_success_sends_feedback() {
+    let gw = make_gw();
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    install_plugin(&gw, plugin.clone()).await;
+    let handler = Arc::new(MockConfirmHandler::new());
+    install_handler(&gw, handler.clone()).await;
+
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/confirm {}", valid_id);
+    let _result = gw
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "peer1", "mock")
+        .await;
+
+    let sent = plugin.take_sent();
+    assert!(!sent.is_empty(), "should send success feedback");
+    assert!(
+        sent.iter()
+            .any(|(_, text)| text.contains("✅ 已确认执行 plan")),
+        "feedback should mention plan confirmed"
+    );
+}
+
+#[tokio::test]
+async fn test_confirm_failure_sends_feedback() {
+    let gw = make_gw();
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    install_plugin(&gw, plugin.clone()).await;
+    let handler = Arc::new(MockConfirmHandler::with_confirm_result(false));
+    install_handler(&gw, handler.clone()).await;
+
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/confirm {}", valid_id);
+    let _result = gw
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "peer1", "mock")
+        .await;
+
+    let sent = plugin.take_sent();
+    assert!(!sent.is_empty(), "should send failure feedback");
+    assert!(
+        sent.iter().any(|(_, text)| text.contains("❌")),
+        "feedback should contain ❌ for failure"
+    );
+}
+
+#[tokio::test]
+async fn test_cancel_success_sends_feedback() {
+    let gw = make_gw();
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    install_plugin(&gw, plugin.clone()).await;
+    let handler = Arc::new(MockConfirmHandler::new());
+    install_handler(&gw, handler.clone()).await;
+
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/cancel {}", valid_id);
+    let _result = gw
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "peer1", "mock")
+        .await;
+
+    let sent = plugin.take_sent();
+    assert!(!sent.is_empty(), "should send cancel feedback");
+    assert!(
+        sent.iter()
+            .any(|(_, text)| text.contains("✅ 已取消执行 plan")),
+        "feedback should mention plan cancelled"
+    );
+}
+
+#[tokio::test]
+async fn test_cancel_failure_sends_feedback() {
+    let gw = make_gw();
+    let plugin = Arc::new(CapturingPlugin::new("mock"));
+    install_plugin(&gw, plugin.clone()).await;
+    let handler = Arc::new(MockConfirmHandler::with_cancel_result(false));
+    install_handler(&gw, handler.clone()).await;
+
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let cmd = format!("/cancel {}", valid_id);
+    let _result = gw
+        .try_handle_plan_confirm_command("s", &cmd, Some("owner"), "peer1", "mock")
+        .await;
+
+    let sent = plugin.take_sent();
+    assert!(!sent.is_empty(), "should send failure feedback");
+    assert!(
+        sent.iter().any(|(_, text)| text.contains("❌")),
+        "feedback should contain ❌ for failure"
+    );
 }

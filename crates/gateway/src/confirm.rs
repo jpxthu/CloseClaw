@@ -3,6 +3,12 @@
 //! Provides `try_handle_plan_confirm_command()` for intercepting
 //! `/confirm <id>` and `/cancel <id>` commands from the owner.
 //!
+//! The gateway stores the handler as `Arc<dyn PlanConfirmationHandler>`
+//! (from `closeclaw_common`). The notify callback is installed by the
+//! daemon (which has access to both the concrete `PlanExecConfirmFlow`
+//! and the Gateway's plugins), avoiding a circular dependency between
+//! the gateway and tools crates.
+//!
 //! This is independent of the permission approval flow — confirmation
 //! cards use 📋 prefix and are explicitly unrelated to dangerous-operation
 //! approvals (⚠️ prefix).
@@ -12,6 +18,9 @@ use closeclaw_common::plan_confirm_handler::PlanConfirmationHandler;
 
 pub(crate) type PlanConfirmHandler =
     std::sync::Arc<dyn closeclaw_common::plan_confirm_handler::PlanConfirmationHandler>;
+
+/// Invalid UUID format response sent when confirmation_id is not valid.
+const INVALID_UUID_MSG: &str = "无效的 confirmation ID 格式。请检查后重试（需为合法 UUID）。";
 
 impl Gateway {
     /// Set the plan execution confirmation handler.
@@ -88,9 +97,24 @@ impl Gateway {
             return None;
         }
 
+        // Validate UUID format
+        if confirmation_id.parse::<uuid::Uuid>().is_err() {
+            tracing::warn!(
+                session_id,
+                confirmation_id,
+                "invalid UUID format in plan confirm command"
+            );
+            if let Err(e) = self
+                .send_outbound_simplified(peer_id, channel, INVALID_UUID_MSG)
+                .await
+            {
+                tracing::warn!(session_id, error = %e, "failed to send invalid UUID message");
+            }
+            return Some(HandleResult::ApprovalProcessed);
+        }
+
         // Get the plan confirmation handler
-        let handler_guard: tokio::sync::RwLockReadGuard<'_, Option<PlanConfirmHandler>> =
-            self.plan_confirm_handler.read().await;
+        let handler_guard = self.plan_confirm_handler.read().await;
         let Some(handler) = handler_guard.as_ref() else {
             tracing::debug!(
                 session_id,
@@ -104,19 +128,63 @@ impl Gateway {
             let ok = handler.confirm(confirmation_id).await;
             if ok {
                 tracing::info!(session_id, confirmation_id, "plan execution confirmed");
+                if let Err(e) = self
+                    .send_outbound_simplified(
+                        peer_id,
+                        channel,
+                        "✅ 已确认执行 plan，进入 Auto Mode。",
+                    )
+                    .await
+                {
+                    tracing::warn!(session_id, error = %e, "failed to send confirm feedback");
+                }
             } else {
                 tracing::warn!(
                     session_id,
                     confirmation_id,
                     "plan confirm request not found or already resolved"
                 );
+                if let Err(e) = self
+                    .send_outbound_simplified(
+                        peer_id,
+                        channel,
+                        "❌ confirmation ID 不存在或已处理，请检查后重试。",
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        session_id,
+                        error = %e,
+                        "failed to send confirm failure feedback"
+                    );
+                }
             }
         } else {
             let ok = handler.cancel(confirmation_id).await;
             if ok {
                 tracing::info!(session_id, confirmation_id, "plan execution cancelled");
+                if let Err(e) = self
+                    .send_outbound_simplified(peer_id, channel, "✅ 已取消执行 plan。")
+                    .await
+                {
+                    tracing::warn!(session_id, error = %e, "failed to send cancel feedback");
+                }
             } else {
                 tracing::warn!(session_id, confirmation_id, "plan cancel request not found");
+                if let Err(e) = self
+                    .send_outbound_simplified(
+                        peer_id,
+                        channel,
+                        "❌ confirmation ID 不存在或已处理，请检查后重试。",
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        session_id,
+                        error = %e,
+                        "failed to send cancel failure feedback"
+                    );
+                }
             }
         }
 

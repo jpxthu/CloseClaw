@@ -7,6 +7,7 @@ pub mod chat_rpc;
 pub mod config_helpers;
 pub mod config_reload;
 pub mod config_watcher;
+pub mod confirm_notify;
 mod daemon_struct;
 pub mod dreaming_scheduler;
 pub mod gateway_restart;

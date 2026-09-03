@@ -644,17 +644,17 @@ impl Gateway {
             }
         }
         // Approval & plan-execution confirmation command interception.
-        if let Some(result) = [
-            self.try_handle_approval_command(session_id, content, sender_id, peer_id, channel)
-                .await,
-            self.try_handle_plan_confirm_command(session_id, content, sender_id, peer_id, channel)
-                .await,
-        ]
-        .into_iter()
-        .flatten()
-        .next()
+        if let Some(r) = self
+            .try_handle_approval_command(session_id, content, sender_id, peer_id, channel)
+            .await
         {
-            return Some(result);
+            return Some(r);
+        }
+        if let Some(r) = self
+            .try_handle_plan_confirm_command(session_id, content, sender_id, peer_id, channel)
+            .await
+        {
+            return Some(r);
         }
         None
     }

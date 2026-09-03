@@ -85,12 +85,8 @@ impl Daemon {
         let confirm_flow = {
             let sm_lookup: Arc<dyn closeclaw_common::SessionLookup> =
                 Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>;
-            let on_notify: Arc<
-                dyn Fn(closeclaw_tools::builtin::PlanExecNotification) + Send + Sync,
-            > = Arc::new(|_| {});
-            let mut cf = closeclaw_tools::builtin::PlanExecConfirmFlow::new(
+            let mut cf = closeclaw_tools::builtin::PlanExecConfirmFlow::new_without_notify(
                 sm_lookup,
-                on_notify,
                 tokio::runtime::Handle::current(),
             );
             let create_child_fn = Self::build_create_child_fn(
@@ -98,7 +94,11 @@ impl Daemon {
                 Arc::clone(&config_manager),
             );
             cf.set_create_child_session_fn(create_child_fn);
+            // Build the notify callback using gateway's plugins (mirrors set_approval_flow pattern).
+            let notify_cb = crate::confirm_notify::build_confirm_notify_callback(&gateway).await;
+            cf.set_notify_callback(notify_cb);
             let cf = Arc::new(cf);
+            // Store as PlanConfirmationHandler on the gateway.
             gateway.set_plan_confirm_handler(cf.clone()).await;
             cf
         };
