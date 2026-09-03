@@ -74,6 +74,8 @@ mod slash_executor_tests;
 pub mod slash_permission;
 pub mod slash_permission_handlers;
 #[cfg(test)]
+mod slash_permission_outbound_tests;
+#[cfg(test)]
 mod slash_permission_tests;
 #[cfg(test)]
 mod step1_4_e2e_tests;
