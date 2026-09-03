@@ -7,21 +7,19 @@ use crate::engine::ExecutionEngine;
 use crate::error::ExecutionError;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
-use crate::{ExecutionState, ExecutionStepStatus};
+use crate::ExecutionStepStatus;
 use async_trait::async_trait;
-use closeclaw_common::NoopNotifier;
-use std::sync::{Arc, Mutex};
 
 // ── Mock adapter ───────────────────────────────────────────────────────────
 
 struct MockAdapter {
-    results: Mutex<Vec<Result<SubAgentResult, ExecutionError>>>,
+    results: std::sync::Mutex<Vec<Result<SubAgentResult, ExecutionError>>>,
 }
 
 impl MockAdapter {
     fn new(results: Vec<Result<SubAgentResult, ExecutionError>>) -> Self {
         Self {
-            results: Mutex::new(results),
+            results: std::sync::Mutex::new(results),
         }
     }
 }
@@ -70,14 +68,7 @@ async fn test_step_selection_none_executes_all() {
             error_message: None,
         }),
     ]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(
-        plan_state,
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
+    let engine = ExecutionEngine::new(default_config(), adapter, None);
     let report = engine
         .execute(&["step A".into(), "step B".into()])
         .await
@@ -100,8 +91,7 @@ async fn test_step_selection_filters_single_step() {
         step_selection: Some(vec![1]),
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(config, adapter, None);
     let report = engine
         .execute(&["step A".into(), "step B".into(), "step C".into()])
         .await
@@ -119,8 +109,7 @@ async fn test_step_selection_empty_executes_nothing() {
         step_selection: Some(vec![]),
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(config, adapter, None);
     let report = engine
         .execute(&["step A".into(), "step B".into()])
         .await
@@ -137,8 +126,7 @@ async fn test_step_selection_out_of_bounds_returns_error() {
         step_selection: Some(vec![5]),
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(config, adapter, None);
     let result = engine.execute(&["step A".into(), "step B".into()]).await;
 
     assert!(result.is_err());
@@ -173,8 +161,7 @@ async fn test_step_selection_multiple_indices() {
         step_selection: Some(vec![0, 2]),
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(config, adapter, None);
     let report = engine
         .execute(&["step A".into(), "step B".into(), "step C".into()])
         .await
@@ -205,8 +192,7 @@ async fn test_step_selection_preserves_failure_behavior() {
         step_selection: Some(vec![0, 1]),
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(config, adapter, None);
     let report = engine
         .execute(&["step A".into(), "step B".into(), "step C".into()])
         .await

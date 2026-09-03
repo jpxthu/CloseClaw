@@ -252,7 +252,6 @@ mod tests {
                 ),
             ))),
             Box::new(crate::PlanToolsRegistrar::new(
-                Arc::new(std::sync::Mutex::new(closeclaw_common::PlanState::new())),
                 session_manager.clone(),
                 approval_flow.clone(),
             )),

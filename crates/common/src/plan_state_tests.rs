@@ -213,32 +213,3 @@ fn test_plan_state_serde_empty_object_produces_defaults() {
     assert!(state.pending_steps.is_empty());
     assert!(state.plan_file_path.is_empty());
 }
-
-// --- TransitionError tests (type stays in common) ---
-
-#[test]
-fn test_transition_error_display_out_of_bounds() {
-    let err = TransitionError::OutOfBounds { index: 5, len: 3 };
-    assert!(err.to_string().contains("5"));
-    assert!(err.to_string().contains("3"));
-}
-
-#[test]
-fn test_transition_error_display_invalid_transition() {
-    let err = TransitionError::InvalidTransition {
-        from: ExecutionStepStatus::Pending,
-        to: ExecutionStepStatus::Completed,
-    };
-    assert!(err.to_string().contains("Pending"));
-    assert!(err.to_string().contains("Completed"));
-}
-
-#[test]
-fn test_transition_error_display_skipped_step() {
-    let err = TransitionError::SkippedStep {
-        expected: 0,
-        got: 2,
-    };
-    assert!(err.to_string().contains("0"));
-    assert!(err.to_string().contains("2"));
-}

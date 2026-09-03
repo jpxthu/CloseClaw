@@ -3,20 +3,18 @@ use crate::error::ExecutionError;
 use crate::hook::{HookResult, HookRunner, StepHook};
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
-use crate::{ExecutionState, ExecutionStepStatus};
+use crate::ExecutionStepStatus;
 use async_trait::async_trait;
-use closeclaw_common::NoopNotifier;
-use std::sync::{Arc, Mutex};
 
 /// Mock spawn adapter that returns a configurable sequence of results.
 struct MockSpawnAdapter {
-    results: Mutex<Vec<Result<SubAgentResult, ExecutionError>>>,
+    results: std::sync::Mutex<Vec<Result<SubAgentResult, ExecutionError>>>,
 }
 
 impl MockSpawnAdapter {
     fn new(results: Vec<Result<SubAgentResult, ExecutionError>>) -> Self {
         Self {
-            results: Mutex::new(results),
+            results: std::sync::Mutex::new(results),
         }
     }
 }
@@ -46,14 +44,7 @@ fn default_config() -> ExecutionConfig {
 }
 
 fn new_engine(adapter: MockSpawnAdapter) -> ExecutionEngine<MockSpawnAdapter> {
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    ExecutionEngine::new(
-        plan_state,
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    )
+    ExecutionEngine::new(default_config(), adapter, None)
 }
 
 #[tokio::test]
@@ -122,14 +113,7 @@ async fn test_failure_stops_subsequent_steps() {
             message: "step1 fail".into(),
         }),
     ]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(
-        plan_state,
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
+    let engine = ExecutionEngine::new(default_config(), adapter, None);
     let report = engine
         .execute(&["step 0".into(), "step 1".into(), "step 2".into()])
         .await
@@ -155,11 +139,11 @@ async fn test_failure_stops_subsequent_steps() {
 
 /// Mock hook that records calls.
 struct RecordingHook {
-    call_count: Arc<Mutex<usize>>,
+    call_count: std::sync::Arc<std::sync::Mutex<usize>>,
 }
 
 impl RecordingHook {
-    fn new(call_count: Arc<Mutex<usize>>) -> Self {
+    fn new(call_count: std::sync::Arc<std::sync::Mutex<usize>>) -> Self {
         Self { call_count }
     }
 }
@@ -213,20 +197,12 @@ fn engine_with_hooks(
     for hook in hooks {
         runner.register(hook);
     }
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    ExecutionEngine::with_hook_runner(
-        plan_state,
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        runner,
-        None,
-    )
+    ExecutionEngine::with_hook_runner(default_config(), adapter, runner, None)
 }
 
 #[tokio::test]
 async fn test_hook_never_skips_hooks() {
-    let count = Arc::new(Mutex::new(0usize));
+    let count = std::sync::Arc::new(std::sync::Mutex::new(0usize));
     let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
         step_index: 0,
         status: ExecutionStepStatus::Completed,
@@ -251,7 +227,7 @@ async fn test_hook_never_skips_hooks() {
 
 #[tokio::test]
 async fn test_hook_always_triggers() {
-    let count = Arc::new(Mutex::new(0usize));
+    let count = std::sync::Arc::new(std::sync::Mutex::new(0usize));
     let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
         step_index: 0,
         status: ExecutionStepStatus::Completed,
@@ -313,46 +289,13 @@ async fn test_hook_failure_does_not_block_step() {
     assert!(report.steps[0].status == ExecutionStepStatus::Completed);
 }
 
-#[tokio::test]
-async fn test_plan_state_updated_after_execution() {
-    let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
-        step_index: 0,
-        status: ExecutionStepStatus::Completed,
-        summary: "done".into(),
-        changed_files: vec![],
-        error_message: None,
-    })]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(
-        plan_state.clone(),
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
-    let _ = engine.execute(&["only step".into()]).await.unwrap();
-
-    let state = plan_state.lock().unwrap();
-    assert_eq!(state.execution_steps.len(), 1);
-    assert!(matches!(
-        state.execution_steps[0].status,
-        ExecutionStepStatus::Completed
-    ));
-}
 // verify_trigger auto-construction tests (G3)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn test_new_engine_uses_config_verify_trigger() {
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(
-        plan_state,
-        default_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        None,
-    );
+    let engine = ExecutionEngine::new(default_config(), adapter, None);
 
     // new() should auto-construct a HookRunner with config.verify_trigger
     let hook_runner = engine
@@ -390,8 +333,7 @@ async fn test_new_engine_verify_trigger_always() {
         ..default_config()
     };
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(config, adapter, None);
 
     let hook_runner = engine
         .hook_runner_ref()
@@ -416,8 +358,7 @@ async fn test_new_engine_verify_trigger_never() {
         ..default_config()
     };
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None);
+    let engine = ExecutionEngine::new(config, adapter, None);
 
     let hook_runner = engine
         .hook_runner_ref()
@@ -442,19 +383,11 @@ async fn test_with_hook_runner_overrides_config_trigger() {
         ..default_config()
     };
     let adapter = MockSpawnAdapter::new(vec![]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
 
     // Build a hook runner with Always trigger (overrides config's Never)
     let custom_runner = HookRunner::new(VerifyTrigger::Always);
 
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state,
-        config,
-        adapter,
-        Arc::new(NoopNotifier),
-        custom_runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(config, adapter, custom_runner, None);
 
     let hook_runner = engine
         .hook_runner_ref()
@@ -553,7 +486,9 @@ async fn test_continue_hook_does_not_set_hook_blocked() {
     let engine = engine_with_hooks(
         adapter,
         VerifyTrigger::Always,
-        vec![Box::new(RecordingHook::new(Arc::new(Mutex::new(0))))],
+        vec![Box::new(RecordingHook::new(std::sync::Arc::new(
+            std::sync::Mutex::new(0),
+        )))],
     );
     let report = engine.execute(&["step 0".into()]).await.unwrap();
 
@@ -596,20 +531,12 @@ fn spawn_all_engine_with_hooks(
         mode: ExecutionMode::SpawnAllSteps,
         ..default_config()
     };
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    ExecutionEngine::with_hook_runner(
-        plan_state,
-        config,
-        adapter,
-        Arc::new(NoopNotifier),
-        runner,
-        None,
-    )
+    ExecutionEngine::with_hook_runner(config, adapter, runner, None)
 }
 
 #[tokio::test]
 async fn test_spawn_all_hook_triggered() {
-    let count = Arc::new(Mutex::new(0usize));
+    let count = std::sync::Arc::new(std::sync::Mutex::new(0usize));
     let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
         step_index: 0,
         status: ExecutionStepStatus::Completed,
@@ -685,7 +612,7 @@ async fn test_spawn_all_hook_block_propagates() {
 
 #[tokio::test]
 async fn test_spawn_all_failure_skips_hooks() {
-    let count = Arc::new(Mutex::new(0usize));
+    let count = std::sync::Arc::new(std::sync::Mutex::new(0usize));
     let adapter = MockSpawnAdapter::new(vec![Ok(SubAgentResult {
         step_index: 0,
         status: ExecutionStepStatus::Failed,

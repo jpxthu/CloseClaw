@@ -669,11 +669,7 @@ mod tests {
     // ── Step 1.8: ProgressTool call history fallback (layer 4) tests ──
 
     use crate::llm_session::SessionMessage;
-    use crate::persistence::ProgressToolCallRecord;
-    use crate::recovery::{
-        parse_progress_call_record, rebuild_execution_state_from_calls,
-        rebuild_progress_summary_from_calls, scan_progress_tool_calls,
-    };
+    use crate::recovery::{parse_progress_call_record, scan_progress_tool_calls};
     use closeclaw_common::ContentBlock;
     use closeclaw_execution::ExecutionStepStatus;
 
@@ -743,104 +739,6 @@ mod tests {
         assert_eq!(records[0].status, ExecutionStepStatus::InProgress);
         assert_eq!(records[1].status, ExecutionStepStatus::Completed);
         assert_eq!(records[1].summary.as_deref(), Some("done"));
-    }
-
-    #[test]
-    fn test_rebuild_plan_state_single_step() {
-        let calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: Some("done".to_string()),
-                error_message: None,
-            },
-        ];
-        let ps = rebuild_execution_state_from_calls(&calls);
-        assert_eq!(ps.execution_steps.len(), 1);
-        assert_eq!(ps.execution_steps[0].status, ExecutionStepStatus::Completed);
-        assert_eq!(ps.execution_steps[0].summary, "done");
-        assert_eq!(ps.current_step, Some(0));
-    }
-
-    #[test]
-    fn test_rebuild_plan_state_multi_step_and_invalid() {
-        // Valid: in_progress -> completed -> in_progress -> failed
-        let calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 1,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 1,
-                status: ExecutionStepStatus::Failed,
-                summary: None,
-                error_message: Some("oops".to_string()),
-            },
-        ];
-        let ps = rebuild_execution_state_from_calls(&calls);
-        assert_eq!(ps.execution_steps.len(), 2);
-        assert_eq!(ps.execution_steps[0].status, ExecutionStepStatus::Completed);
-        assert_eq!(ps.execution_steps[1].status, ExecutionStepStatus::Failed);
-        assert_eq!(ps.execution_steps[1].error_message.as_deref(), Some("oops"));
-        assert_eq!(ps.current_step, Some(1));
-        // Invalid: completed without in_progress → stays pending
-        let invalid = vec![ProgressToolCallRecord {
-            step_index: 0,
-            status: ExecutionStepStatus::Completed,
-            summary: None,
-            error_message: None,
-        }];
-        let ps2 = rebuild_execution_state_from_calls(&invalid);
-        assert_eq!(ps2.execution_steps[0].status, ExecutionStepStatus::Pending);
-    }
-
-    #[test]
-    fn test_rebuild_progress_summary_from_calls() {
-        let summary = rebuild_progress_summary_from_calls(&[]);
-        assert!(summary.is_empty());
-        let calls = vec![
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 0,
-                status: ExecutionStepStatus::Completed,
-                summary: None,
-                error_message: None,
-            },
-            ProgressToolCallRecord {
-                step_index: 1,
-                status: ExecutionStepStatus::InProgress,
-                summary: None,
-                error_message: None,
-            },
-        ];
-        let s = rebuild_progress_summary_from_calls(&calls);
-        assert!(s.contains("Step 1/2: completed"));
-        assert!(s.contains("in_progress"));
     }
 
     #[tokio::test]

@@ -155,7 +155,6 @@ mod tests {
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
     use crate::{CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
     use closeclaw_agent::registry::AgentRegistry;
-    use closeclaw_common::PlanState;
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::SpawnController;
     use closeclaw_gateway::{GatewayConfig, SessionManager};
@@ -167,7 +166,7 @@ mod tests {
     use closeclaw_session::tools::SessionToolsRegistrar;
     use closeclaw_skills::DiskSkillRegistry;
     use closeclaw_tasks::BackgroundTaskManager;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     fn test_permission_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
@@ -261,7 +260,6 @@ mod tests {
                 Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
             )))),
             Box::new(PlanToolsRegistrar::new(
-                Arc::new(Mutex::new(PlanState::new())),
                 session_manager.clone(),
                 approval_flow.clone(),
             )),
