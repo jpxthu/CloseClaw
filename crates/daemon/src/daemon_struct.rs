@@ -11,6 +11,7 @@ use closeclaw_permission::PermissionEngine;
 use closeclaw_session::storage::SqliteStorage;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_system_prompt::sections::SectionCache;
+use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use closeclaw_tools::ToolRegistry;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -55,6 +56,8 @@ pub struct Daemon {
     pub(crate) config_watcher_subscriber_handle: Option<tokio::task::JoinHandle<()>>,
     /// Daemon-level approval orchestrator
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    /// Plan execution confirmation flow (independent from permission approval)
+    pub confirm_flow: Arc<PlanExecConfirmFlow>,
     /// Admin RPC server task handle (drop cancels the task)
     #[allow(dead_code)]
     pub(crate) admin_handle: Option<tokio::task::JoinHandle<()>>,
@@ -150,6 +153,7 @@ pub(crate) struct Phase5Deps<'a> {
     pub session_manager: &'a Arc<SessionManager>,
     pub permission_engine: &'a Arc<tokio::sync::RwLock<PermissionEngine>>,
     pub approval_flow: &'a Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    pub confirm_flow: &'a Arc<PlanExecConfirmFlow>,
     pub gateway: &'a Arc<Gateway>,
     pub slash_registry: &'a Arc<closeclaw_slash::registry::HandlerRegistry>,
     pub shared_cache: &'a Arc<RwLock<SectionCache>>,

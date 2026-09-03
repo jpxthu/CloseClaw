@@ -76,11 +76,33 @@ impl Daemon {
             &gateway,
             &session_manager,
             &permission_engine,
-            &config_manager,
             config_dir,
             audit_logger,
         )
         .await;
+
+        // Create PlanExecConfirmFlow for independent plan-execution confirmation.
+        let confirm_flow = {
+            let sm_lookup: Arc<dyn closeclaw_common::SessionLookup> =
+                Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>;
+            let mut cf = closeclaw_tools::builtin::PlanExecConfirmFlow::new_without_notify(
+                sm_lookup,
+                tokio::runtime::Handle::current(),
+            );
+            let create_child_fn = Self::build_create_child_fn(
+                Arc::clone(&session_manager),
+                Arc::clone(&config_manager),
+            );
+            cf.set_create_child_session_fn(create_child_fn);
+            // Build the notify callback using gateway's plugins (mirrors set_approval_flow pattern).
+            let notify_cb = crate::confirm_notify::build_confirm_notify_callback(&gateway).await;
+            cf.set_notify_callback(notify_cb);
+            let cf = Arc::new(cf);
+            // Store as PlanConfirmationHandler on the gateway.
+            gateway.set_plan_confirm_handler(cf.clone()).await;
+            cf
+        };
+
         let (
             sweeper_tx,
             announce_sweeper_tx,
@@ -102,6 +124,7 @@ impl Daemon {
                 session_manager: &session_manager,
                 permission_engine: &permission_engine,
                 approval_flow: &approval_flow,
+                confirm_flow: &confirm_flow,
                 gateway: &gateway,
                 slash_registry: &slash_registry,
                 shared_cache: &shared_cache,
@@ -187,6 +210,7 @@ impl Daemon {
             config_watcher_subscriber_handle: None,
             config_manager: Arc::clone(&config_manager),
             approval_flow,
+            confirm_flow,
             admin_handle: Some(admin_handle),
             admin_socket_path: admin_sock_path,
             chat_handle: Arc::new(tokio::sync::Mutex::new(Some(chat_handle))),

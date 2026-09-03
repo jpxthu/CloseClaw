@@ -141,6 +141,7 @@ pub struct Gateway {
     checkpoint_manager: std::sync::RwLock<Option<Arc<CheckpointManager<dyn PersistenceService>>>>,
     session_handler: std::sync::OnceLock<Arc<SessionMessageHandler>>,
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,
+    plan_confirm_handler: RwLock<Option<confirm::PlanConfirmHandler>>,
     slash_dispatcher: RwLock<Option<Arc<dyn SlashRouter>>>,
     permission_engine: RwLock<Option<Arc<tokio::sync::RwLock<PermissionEngine>>>>,
     inbound_tx: std::sync::Mutex<Option<mpsc::Sender<inbound_queue::QueuedInbound>>>,
@@ -173,6 +174,7 @@ impl Gateway {
             checkpoint_manager: std::sync::RwLock::new(None),
             session_handler: std::sync::OnceLock::new(),
             approval_flow: RwLock::new(None),
+            plan_confirm_handler: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
             inbound_tx: std::sync::Mutex::new(None),
@@ -205,6 +207,7 @@ impl Gateway {
             checkpoint_manager: std::sync::RwLock::new(None),
             session_handler: std::sync::OnceLock::new(),
             approval_flow: RwLock::new(None),
+            plan_confirm_handler: RwLock::new(None),
             slash_dispatcher: RwLock::new(None),
             permission_engine: RwLock::new(None),
             inbound_tx: std::sync::Mutex::new(None),
@@ -640,12 +643,18 @@ impl Gateway {
                 return Some(result);
             }
         }
-        // Approval command interception.
-        if let Some(result) = self
+        // Approval & plan-execution confirmation command interception.
+        if let Some(r) = self
             .try_handle_approval_command(session_id, content, sender_id, peer_id, channel)
             .await
         {
-            return Some(result);
+            return Some(r);
+        }
+        if let Some(r) = self
+            .try_handle_plan_confirm_command(session_id, content, sender_id, peer_id, channel)
+            .await
+        {
+            return Some(r);
         }
         None
     }
@@ -727,6 +736,12 @@ impl Gateway {
         if is_slash {
             if let Some(result) = self
                 .try_handle_approval_command(session_id, &content, sender_id, peer_id, channel)
+                .await
+            {
+                return Some(result);
+            }
+            if let Some(result) = self
+                .try_handle_plan_confirm_command(session_id, &content, sender_id, peer_id, channel)
                 .await
             {
                 return Some(result);
@@ -928,6 +943,7 @@ mod anthropic_reasoning_chain_tests;
 pub mod binding_resolution_tests;
 #[cfg(test)]
 pub mod compute_session_key_tests;
+pub mod confirm;
 #[cfg(test)]
 pub mod construction_tests;
 #[cfg(test)]

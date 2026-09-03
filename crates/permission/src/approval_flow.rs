@@ -25,13 +25,8 @@
 #[path = "approval_flow_user_creation.rs"]
 mod approval_flow_user_creation;
 
-#[path = "approval_flow_plan.rs"]
-mod approval_flow_plan;
-
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::debug_log::{
@@ -102,46 +97,6 @@ fn is_heartbeat_operation(request: &PermissionRequestBody) -> bool {
     )
 }
 
-/// Callback type for creating a child session (new-session execution path).
-///
-/// The daemon layer injects this callback to provide session creation
-/// capability without introducing a direct dependency from the permission
-/// crate on the gateway crate.
-///
-/// # Arguments
-/// * `parent_session_id` — ID of the session that requested plan execution.
-/// * `plan_content` — Full content of the plan file to inject as initial context.
-/// * `step_selection` — Optional step indices to execute (passed through to plan state).
-///
-/// # Returns
-/// `Ok(new_session_id)` on success, `Err(message)` on failure.
-pub type CreateChildSessionFn = Arc<
-    dyn Fn(
-            String,
-            String,
-            Option<Vec<usize>>,
-        ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
-        + Send
-        + Sync,
->;
-
-/// Metadata for a plan execution approval request.
-///
-/// Stored by [`ApprovalFlow::set_plan_exec_metadata`] and consumed by
-/// [`ApprovalFlow::approve_request`] when the owner approves the request.
-#[derive(Debug, Clone)]
-pub struct PlanExecMetadata {
-    /// Path to the plan file to execute.
-    pub plan_file_path: String,
-    /// Optional step selection (0-based indices of steps to execute).
-    pub step_selection: Option<Vec<usize>>,
-    /// Whether to create a new child session for execution.
-    pub new_session: bool,
-    /// Optional additional instruction to inject as a user message
-    /// when the plan enters Auto Mode.
-    pub additional_instruction: Option<String>,
-}
-
 /// Daemon-level approval orchestrator.
 ///
 /// Holds the [`ApprovalQueue`], a reference to [`SessionManager`] for pushing
@@ -176,18 +131,6 @@ pub struct ApprovalFlow {
     /// simulate a hard-denial path where the approval flow does not
     /// accept the request for owner approval.
     force_deny: bool,
-    /// Plan execution metadata keyed by request_id.
-    ///
-    /// Stores metadata for plan execution approval requests (`new_session`,
-    /// `step_selection`). Consumed by `approve_request` when the approval
-    /// decision is made.
-    plan_exec_metadata: HashMap<String, PlanExecMetadata>,
-    /// Callback for creating child sessions (new-session execution path).
-    ///
-    /// Injected by the daemon layer to provide session creation capability
-    /// without a direct dependency on `SessionManager`. When `None`,
-    /// the new-session execution path falls back to same-session behavior.
-    create_child_session_fn: Option<CreateChildSessionFn>,
     /// Optional audit logger for recording approved and rejected
     /// permission requests in Auto Mode.
     audit_logger: Option<Arc<dyn AuditLogger>>,
@@ -245,8 +188,6 @@ impl ApprovalFlow {
             user_creation_requests: HashMap::new(),
             current_rules: initial_rules,
             force_deny: false,
-            plan_exec_metadata: HashMap::new(),
-            create_child_session_fn: None,
             audit_logger: None,
             debug_log: None,
             trace_id: generate_trace_id("permission"),
@@ -278,8 +219,6 @@ impl ApprovalFlow {
             user_creation_requests: HashMap::new(),
             current_rules: initial_rules,
             force_deny: true,
-            plan_exec_metadata: HashMap::new(),
-            create_child_session_fn: None,
             audit_logger: None,
             debug_log: None,
             trace_id: generate_trace_id("permission"),
@@ -332,38 +271,6 @@ impl ApprovalFlow {
     /// Used by the Daemon to inject the permission engine reload logic.
     pub fn set_whitelist_callback(&mut self, cb: Arc<dyn Fn(&str) + Send + Sync>) {
         self.on_whitelist_updated = cb;
-    }
-
-    /// Set the callback for creating child sessions.
-    ///
-    /// Called by the daemon layer to inject session creation capability
-    /// for the new-session execution path.
-    pub fn set_create_child_session_fn(&mut self, cb: CreateChildSessionFn) {
-        self.create_child_session_fn = Some(cb);
-    }
-
-    /// Store plan execution metadata for a pending approval request.
-    ///
-    /// Called by [`ExecutePlanTool`](crate) before returning
-    /// `approval_pending`. The metadata is consumed by [`approve_request`]
-    /// when the owner approves the request.
-    pub fn set_plan_exec_metadata(
-        &mut self,
-        request_id: &str,
-        plan_file_path: String,
-        step_selection: Option<Vec<usize>>,
-        new_session: bool,
-        additional_instruction: Option<String>,
-    ) {
-        self.plan_exec_metadata.insert(
-            request_id.to_string(),
-            PlanExecMetadata {
-                plan_file_path,
-                step_selection,
-                new_session,
-                additional_instruction,
-            },
-        );
     }
 }
 
@@ -699,8 +606,6 @@ impl ApprovalFlow {
         }
 
         self.persist_whitelist(request_id, &pending_info, final_mode, result);
-        self.handle_plan_exec_approval(request_id, &pending_info, result)
-            .await;
 
         Ok(result)
     }
@@ -893,8 +798,6 @@ impl ApprovalFlow {
         }
     }
 }
-
-// Plan approval flow logic extracted to approval_flow_plan.rs
 
 #[cfg(test)]
 mod tests;

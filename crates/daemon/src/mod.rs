@@ -7,6 +7,7 @@ pub mod chat_rpc;
 pub mod config_helpers;
 pub mod config_reload;
 pub mod config_watcher;
+pub mod confirm_notify;
 mod daemon_struct;
 pub mod dreaming_scheduler;
 pub mod gateway_restart;
@@ -476,7 +477,6 @@ impl Daemon {
         gateway: &Arc<Gateway>,
         session_manager: &Arc<SessionManager>,
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
-        config_manager: &Arc<closeclaw_config::ConfigManager>,
         config_dir: &str,
         audit_logger: Option<Arc<dyn closeclaw_permission::AuditLogger>>,
     ) -> (
@@ -501,11 +501,6 @@ impl Daemon {
             }
         });
 
-        // Build the child-session creation callback.
-        let sm_for_spawn = Arc::clone(session_manager);
-        let cm_for_spawn = Arc::clone(config_manager);
-        let create_child_fn = Self::build_create_child_fn(sm_for_spawn, cm_for_spawn);
-
         let mut af = ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
@@ -518,7 +513,6 @@ impl Daemon {
         if let Some(logger) = audit_logger {
             af = af.with_audit_logger(logger);
         }
-        af.set_create_child_session_fn(create_child_fn);
         let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
 
         // Sync approval flow snapshot with actual loaded rules.
@@ -546,11 +540,11 @@ impl Daemon {
         let ((), builtin_skill_registry) = tokio::join!(approval_fut, builtin_fut);
         (approval_flow, builtin_skill_registry)
     }
-    /// Build the child-session creation callback for the approval flow.
+    /// Build the child-session creation callback for plan execution.
     fn build_create_child_fn(
         sm: Arc<SessionManager>,
         cm: Arc<closeclaw_config::ConfigManager>,
-    ) -> closeclaw_permission::approval_flow::CreateChildSessionFn {
+    ) -> closeclaw_tools::builtin::CreateChildSessionFn {
         Arc::new(
             move |parent_session_id: String,
                   plan_content: String,
@@ -633,6 +627,7 @@ impl Daemon {
             session_manager,
             permission_engine,
             approval_flow,
+            confirm_flow,
             gateway,
             slash_registry,
             shared_cache,
@@ -676,6 +671,7 @@ impl Daemon {
             permission_engine,
             spawn_controller: Arc::clone(&spawn_controller),
             approval_flow,
+            confirm_flow,
             late_bound_session_manager: late_bound_session_manager.clone(),
             config_subdir: &config_subdir,
             data_dir,
