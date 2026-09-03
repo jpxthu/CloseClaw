@@ -700,9 +700,9 @@ async fn test_stream_error_propagates_as_stream_error() {
     }
 }
 
-/// StreamEvent::Error after partial content preserves content in error.
+/// StreamEvent::Error after partial content → empty partial_content.
 #[tokio::test]
-async fn test_stream_error_preserves_partial_content() {
+async fn test_stream_error_empty_partial_after_content() {
     let chain = Arc::new(MockChain::new());
     let plugin = Arc::new(CapturingPlugin::new("mock"));
     let (gw, _sm, sid) = setup(chain, plugin.clone()).await;
@@ -734,12 +734,9 @@ async fn test_stream_error_preserves_partial_content() {
             partial_content,
         } => {
             assert_eq!(message, "interrupted");
-            let has = partial_content
-                .iter()
-                .any(|b| matches!(b, ContentBlock::Text(t) if t.contains("Partial")));
             assert!(
-                has,
-                "partial_content should contain 'Partial', got: {:?}",
+                partial_content.is_empty(),
+                "Error should not produce incremental output, got: {:?}",
                 partial_content
             );
         }
