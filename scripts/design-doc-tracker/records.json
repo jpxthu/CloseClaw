@@ -233,9 +233,9 @@
   },
   {
     "path": "docs/design/im_adapter/media-store.md",
-    "commit": "de17bcd8e0868ef74ab078b592fee75355c21419",
-    "commit_time": "2026-09-01T20:04:21+08:00",
-    "confirmed_time": "2026-09-01T20:21:12.751864+08:00",
+    "commit": "8f0d79688146fc11debbf3aa2e27b38909becf85",
+    "commit_time": "2026-09-03T13:35:14+08:00",
+    "confirmed_time": "2026-09-03T13:56:18.042705+08:00",
     "comment": "",
     "blocked_reason": ""
   },
