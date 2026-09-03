@@ -309,14 +309,9 @@ async fn persist_streaming_checkpoint(
 
 /// Handle a streaming error by sending the error message to the sink.
 ///
-/// When a [`GatewayError::StreamError`] occurs mid-stream, no
-/// incremental output is produced (per design doc: "Error →
-/// 不产生增量输出"). Only the error message is sent.
-///
-/// Returns [`LLMError::PartialContent`] when the stream contained
-/// complete Thinking blocks, allowing callers to preserve them in
-/// conversation history. Other error variants map to
-/// [`LLMError::ApiError`].
+/// Per design doc: "Error → 不产生增量输出". The `partial_content`
+/// field is always empty; only the error message is sent.
+/// Returns [`LLMError::ApiError`] (no partial Thinking blocks to preserve).
 pub(crate) fn handle_stream_error(e: GatewayError, sink: &dyn StreamingSink) -> LLMError {
     let msg = e.to_string();
     if let GatewayError::StreamError { .. } = e {
@@ -337,6 +332,9 @@ fn map_stream_error_to_llm_error(e: GatewayError, msg: String) -> LLMError {
             ref partial_content,
             ..
         } => {
+            // NOTE: partial_content is currently always empty (Error → no flush),
+            // so this branch is dead code retained for structural consistency.
+            // Remove if partial_content is never repopulated in the future.
             let thinking_blocks: Vec<ContentBlock> = partial_content
                 .iter()
                 .filter(|b| matches!(b, ContentBlock::Thinking { .. }))
