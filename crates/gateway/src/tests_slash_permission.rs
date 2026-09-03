@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
+use crate::slash_permission_test_utils::*;
+use crate::{Gateway, HandleResult};
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Action, Defaults, Effect, Rule, RuleSet, Subject,
 };
-use closeclaw_session::persistence::ReasoningLevel;
 
 struct SimpleHandler {
     command: &'static str,
@@ -266,21 +266,7 @@ impl SlashRouter for ResultRouter {
         }
     }
 }
-fn make_gateway() -> Arc<Gateway> {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    Arc::new(Gateway::new(config, sm))
-}
+
 fn make_dispatcher() -> Arc<dyn SlashRouter> {
     Arc::new(DefaultTestRouter)
 }
@@ -300,57 +286,6 @@ fn capturing_dispatcher(
     last_ctx: Arc<Mutex<Option<SlashContext>>>,
 ) -> Arc<dyn SlashRouter> {
     Arc::new(CapturingRouter { command, last_ctx })
-}
-fn deny_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-    let rules = RuleSet {
-        rules: vec![Rule {
-            name: "deny-all".to_owned(),
-            subject: Subject::AgentOnly {
-                agent: "*".to_owned(),
-                match_type: Default::default(),
-            },
-            effect: Effect::Deny,
-            actions: vec![Action::All],
-            template: None,
-            priority: 100,
-        }],
-        defaults: Defaults::default(),
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        PermissionEngine::new_with_default_data_root(rules),
-    ))
-}
-fn allow_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
-    let rules = RuleSet {
-        rules: vec![Rule {
-            name: "allow-all".to_owned(),
-            subject: Subject::AgentOnly {
-                agent: "*".to_owned(),
-                match_type: Default::default(),
-            },
-            effect: Effect::Allow,
-            actions: vec![Action::All],
-            template: None,
-            priority: 100,
-        }],
-        defaults: Defaults {
-            file_read: Effect::Allow,
-            file_write: Effect::Allow,
-            exec: Effect::Allow,
-            network: Effect::Allow,
-            inter_agent: Effect::Allow,
-            config: Effect::Allow,
-            tool_call: Effect::Allow,
-            message: Effect::Allow,
-        },
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        PermissionEngine::new_with_default_data_root(rules),
-    ))
 }
 
 // --- Tests ---
@@ -679,9 +614,9 @@ async fn test_non_immediate_idle_executes_normally() {
 // 2. 边界值 — denial when permission engine is not configured
 // 3. 状态转换 — permission engine Denied → handler invoked, execute skipped
 //
-// Note: The "权限不足" text is sent via `send_reply_if_available` which
-// delegates to `SessionMessageHandler::send_reply()`. In unit tests the
-// session_handler is None, so the text is silently dropped. The behavioral
+// Note: The "权限不足" text is sent via `send_outbound_simplified` which
+// routes through the simplified outbound path. In unit tests the outbound
+// chain is typically unavailable, so the text is silently dropped. The behavioral
 // contract (handler skipped, dispatch returns SlashHandled) is verified
 // below.
 
@@ -844,157 +779,5 @@ async fn test_exec_no_permission_bypass() {
     assert!(
         matches!(result, Some(HandleResult::SlashHandled)),
         "Exec with requires_permission: false should be dispatched without permission check"
-    );
-}
-// ===========================================================================
-// Step 1.2: WorkdirHandler permission routing tests
-// ===========================================================================
-//
-// Simulates WorkdirHandler behavior: /git write commands require permission,
-// /git read-only commands and /cd, /pwd do not.
-//
-// These tests exercise the three-branch permission routing for the
-// specific case of the WorkdirHandler:
-// 1. /git commit → Exec { requires_permission: true } → deny engine blocks non-owner
-// 2. /git status → Exec { requires_permission: false } → bypasses permission engine
-// 3. /cd, /pwd → Reply(...) → unaffected by permission engine
-// 4. Owner on /git commit → owner short-circuits, bypasses engine
-
-/// WorkdirHandler mock: inspects git args to determine permission requirement.
-struct WorkdirHandler;
-#[async_trait::async_trait]
-impl SlashHandler for WorkdirHandler {
-    fn clone_box(&self) -> Box<dyn SlashHandler> {
-        Box::new(WorkdirHandler)
-    }
-
-    fn commands(&self) -> &[&str] {
-        &["git", "cd", "pwd"]
-    }
-    fn description(&self) -> &str {
-        "Workdir command handler"
-    }
-    async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
-        if args.starts_with("status")
-            || args.starts_with("log")
-            || args.starts_with("diff")
-            || args.starts_with("branch")
-            || args.starts_with("show")
-        {
-            SlashResult::Exec {
-                command: format!("git {args}"),
-                requires_permission: false,
-            }
-        } else if !args.is_empty() {
-            SlashResult::Exec {
-                command: format!("git {args}"),
-                requires_permission: true,
-            }
-        } else {
-            SlashResult::Reply("usage: /git <command>".to_owned())
-        }
-    }
-}
-struct WorkdirRouter;
-
-#[async_trait::async_trait]
-impl SlashRouter for WorkdirRouter {
-    async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
-        None
-    }
-    fn is_immediate(&self, _command: &str) -> bool {
-        false
-    }
-    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
-        match command {
-            "git" | "cd" | "pwd" => Some(Box::new(WorkdirHandler)),
-            _ => None,
-        }
-    }
-}
-/// /git commit (write command) triggers permission engine for non-owner.
-/// With a deny-all engine, the command is blocked (handler invoked but
-/// execute skipped).
-#[tokio::test]
-async fn test_git_commit_non_owner_triggers_permission_engine() {
-    let gw = make_gateway();
-    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
-    gw.set_permission_engine(deny_engine()).await;
-
-    let result = gw
-        .dispatch_slash(
-            "sess1",
-            "/git commit -m test",
-            Some("user1"),
-            "feishu",
-            Some("p"),
-        )
-        .await;
-
-    assert!(
-        matches!(result, Some(HandleResult::SlashHandled)),
-        "/git commit for non-owner with deny engine should be denied"
-    );
-}
-/// /git status (read-only command) does NOT trigger permission engine.
-/// Bypasses engine via Exec { requires_permission: false }.
-#[tokio::test]
-async fn test_git_status_readonly_bypasses_permission_engine() {
-    let gw = make_gateway();
-    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
-    gw.set_permission_engine(deny_engine()).await;
-
-    let result = gw
-        .dispatch_slash("sess2", "/git status", Some("user1"), "feishu", Some("p"))
-        .await;
-
-    assert!(
-        matches!(result, Some(HandleResult::SlashHandled)),
-        "/git status should bypass permission engine and succeed"
-    );
-}
-/// /cd and /pwd return Reply results, unaffected by permission engine.
-#[tokio::test]
-async fn test_cd_pwd_unaffected_by_permission_engine() {
-    let gw = make_gateway();
-    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
-    gw.set_permission_engine(deny_engine()).await;
-
-    let result_cd = gw
-        .dispatch_slash("sess3", "/cd /tmp", Some("user1"), "feishu", Some("p"))
-        .await;
-    assert!(
-        matches!(result_cd, Some(HandleResult::SlashHandled)),
-        "/cd should succeed regardless of permission engine"
-    );
-
-    let result_pwd = gw
-        .dispatch_slash("sess3", "/pwd", Some("user1"), "feishu", Some("p"))
-        .await;
-    assert!(
-        matches!(result_pwd, Some(HandleResult::SlashHandled)),
-        "/pwd should succeed regardless of permission engine"
-    );
-}
-/// Owner on /git commit still directly executes (owner short-circuit).
-/// Even with a deny-all engine, the owner's write command bypasses
-/// the permission engine.
-#[tokio::test]
-async fn test_git_commit_owner_bypasses_permission_engine() {
-    let gw = make_gateway();
-    gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
-    gw.set_permission_engine(deny_engine()).await;
-    let result = gw
-        .dispatch_slash(
-            "sess4",
-            "/git commit -m test",
-            Some("owner"),
-            "feishu",
-            Some("p"),
-        )
-        .await;
-    assert!(
-        matches!(result, Some(HandleResult::SlashHandled)),
-        "/git commit for owner should bypass permission engine"
     );
 }

@@ -20,6 +20,7 @@ use closeclaw_permission::engine::engine_types::{
 };
 use closeclaw_session::persistence::ReasoningLevel;
 
+use crate::slash_permission_test_utils::*;
 use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
 
 // ---------------------------------------------------------------------------
@@ -100,22 +101,6 @@ impl SlashRouter for NoMatchRouter {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn make_gateway() -> Arc<Gateway> {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    Arc::new(Gateway::new(config, sm))
-}
 
 /// Set up a gateway with a conversation session and a slash dispatcher
 /// for the given `SystemAppendAction`.
@@ -412,67 +397,6 @@ fn counting_router(
         requires_permission,
         counter,
     })
-}
-
-fn allow_engine(
-) -> Arc<tokio::sync::RwLock<closeclaw_permission::engine::engine_eval::PermissionEngine>> {
-    let rules = RuleSet {
-        rules: vec![Rule {
-            name: "allow-all".to_owned(),
-            subject: Subject::AgentOnly {
-                agent: "*".to_owned(),
-                match_type: Default::default(),
-            },
-            effect: Effect::Allow,
-            actions: vec![Action::All],
-            template: None,
-            priority: 100,
-        }],
-        defaults: Defaults {
-            file_read: Effect::Allow,
-            file_write: Effect::Allow,
-            exec: Effect::Allow,
-            network: Effect::Allow,
-            inter_agent: Effect::Allow,
-            config: Effect::Allow,
-            tool_call: Effect::Allow,
-            message: Effect::Allow,
-        },
-        user_defaults: Defaults::default(),
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
-            rules,
-        ),
-    ))
-}
-
-fn deny_engine(
-) -> Arc<tokio::sync::RwLock<closeclaw_permission::engine::engine_eval::PermissionEngine>> {
-    let rules = RuleSet {
-        rules: vec![Rule {
-            name: "deny-all".to_owned(),
-            subject: Subject::AgentOnly {
-                agent: "*".to_owned(),
-                match_type: Default::default(),
-            },
-            effect: Effect::Deny,
-            actions: vec![Action::All],
-            template: None,
-            priority: 100,
-        }],
-        defaults: Defaults::default(),
-        user_defaults: Defaults::default(),
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
-            rules,
-        ),
-    ))
 }
 
 struct MockModeQuery {

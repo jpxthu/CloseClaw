@@ -74,6 +74,8 @@ mod slash_executor_tests;
 pub mod slash_permission;
 pub mod slash_permission_handlers;
 #[cfg(test)]
+mod slash_permission_outbound_tests;
+#[cfg(test)]
 mod slash_permission_tests;
 #[cfg(test)]
 mod step1_4_e2e_tests;
@@ -92,6 +94,10 @@ pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;
 
+#[cfg(test)]
+mod slash_permission_routing_tests;
+#[cfg(test)]
+mod slash_permission_test_utils;
 #[cfg(test)]
 mod tests_slash_dispatcher_routing;
 #[cfg(feature = "full-tests")]

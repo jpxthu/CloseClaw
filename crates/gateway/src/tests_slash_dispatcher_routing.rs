@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
+use crate::slash_permission_test_utils::*;
+use crate::HandleResult;
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
-use closeclaw_session::persistence::ReasoningLevel;
 
 struct SimpleHandler {
     command: &'static str,
@@ -57,22 +57,6 @@ impl SlashRouter for DefaultTestRouter {
             _ => None,
         }
     }
-}
-
-fn make_gateway() -> Arc<Gateway> {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    Arc::new(Gateway::new(config, sm))
 }
 
 /// `/perm` enters SlashDispatcher (no longer intercepted at Gateway level).

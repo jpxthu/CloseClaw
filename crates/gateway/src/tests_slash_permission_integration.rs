@@ -6,9 +6,9 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::slash_permission_test_utils::*;
 use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
-use closeclaw_session::persistence::ReasoningLevel;
 
 // ---------------------------------------------------------------------------
 // Mock handlers
@@ -112,22 +112,6 @@ impl SlashRouter for EmptyRouter {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn make_gateway() -> Arc<Gateway> {
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        ..Default::default()
-    };
-    let sm = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    Arc::new(Gateway::new(config, sm))
-}
 
 fn counting_dispatcher(
     command: &'static str,
