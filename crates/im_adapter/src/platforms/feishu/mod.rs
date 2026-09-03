@@ -49,6 +49,8 @@ mod send_helpers;
 mod send_warn_tests;
 #[cfg(test)]
 mod step1_8_gap_tests;
+#[cfg(test)]
+mod streaming_render_tests;
 pub(crate) mod streaming_send;
 #[cfg(test)]
 mod style_tests;
@@ -69,6 +71,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
+use closeclaw_common::streaming::DefaultStreamingRenderer;
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
@@ -352,6 +355,8 @@ pub struct FeishuPlugin {
     identity_resolver: Option<Arc<dyn IdentityResolver>>,
     /// Cardkit streaming renderer for incremental card updates.
     cardkit_streaming: std::sync::Mutex<CardkitStreamingRenderer>,
+    /// Default streaming renderer for text line-buffering and block accumulation.
+    streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
     /// Debug log framework instance for structured event logging.
     debug_log: Option<Arc<DebugLog>>,
 }
@@ -363,6 +368,7 @@ impl FeishuPlugin {
             adapter,
             identity_resolver: None,
             cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
             debug_log: None,
         }
     }
@@ -376,6 +382,7 @@ impl FeishuPlugin {
             adapter,
             identity_resolver,
             cardkit_streaming: std::sync::Mutex::new(CardkitStreamingRenderer::new()),
+            streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
             debug_log: None,
         }
     }
@@ -383,6 +390,17 @@ impl FeishuPlugin {
     /// Inject a [`DebugLog`] instance for structured event logging.
     pub fn set_debug_log(&mut self, debug_log: Arc<DebugLog>) {
         self.debug_log = Some(debug_log);
+    }
+
+    /// Return the current cardkit pending text (test-only).
+    #[cfg(test)]
+    pub(crate) fn cardkit_pending_text(&self) -> String {
+        self.cardkit_streaming
+            .lock()
+            .expect("cardkit lock poisoned")
+            .state
+            .pending_text
+            .clone()
     }
 
     /// Get the identity resolver for cross-platform account mapping.
@@ -774,70 +792,8 @@ impl IMPlugin for FeishuPlugin {
         Ok(())
     }
 
-    fn handle_stream_event(
-        &self,
-        event: closeclaw_common::processor::StreamEvent,
-    ) -> closeclaw_common::im_plugin::StreamingOutput {
-        use closeclaw_common::processor::{ContentBlockType, ContentDelta, StreamEvent};
-        let mut state = self
-            .cardkit_streaming
-            .lock()
-            .expect("cardkit streaming lock poisoned");
-
-        match event {
-            StreamEvent::BlockStart { block_type, .. } => {
-                if block_type == ContentBlockType::Text {
-                    state.handle_block_start_text();
-                }
-            }
-            StreamEvent::BlockDelta { delta, .. } => {
-                if let ContentDelta::Text { text } = delta {
-                    state.handle_text_delta(&text);
-                }
-            }
-            StreamEvent::BlockEnd { block_type, .. } => {
-                if block_type == ContentBlockType::Text {
-                    state.handle_block_end_text();
-                }
-            }
-            StreamEvent::MessageEnd { .. } | StreamEvent::Error { .. } => {}
-        }
-
-        // Return empty output — text is batched internally for cardkit updates.
-        // Non-text blocks (Thinking/Tool) are handled by the Gateway's
-        // normal flow via render_blocks (returned as empty here).
-        closeclaw_common::im_plugin::StreamingOutput::default()
-    }
-
-    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
-        let mut state = self
-            .cardkit_streaming
-            .lock()
-            .expect("cardkit streaming lock poisoned");
-        let remaining = state.flush();
-        if remaining.is_empty() {
-            return closeclaw_common::im_plugin::StreamingOutput::default();
-        }
-        // Return remaining text for the Gateway to dispatch.
-        // During streaming, send() will intercept and route to cardkit.
-        closeclaw_common::im_plugin::StreamingOutput {
-            text_messages: vec![remaining],
-            render_blocks: Vec::new(),
-        }
-    }
-
-    fn check_stream_timeout(&self) -> closeclaw_common::im_plugin::StreamingOutput {
-        let mut state = self
-            .cardkit_streaming
-            .lock()
-            .expect("cardkit streaming lock poisoned");
-        match state.check_timeout() {
-            Some(text) => closeclaw_common::im_plugin::StreamingOutput {
-                text_messages: vec![text],
-                render_blocks: Vec::new(),
-            },
-            None => closeclaw_common::im_plugin::StreamingOutput::default(),
-        }
+    fn streaming_renderer(&self) -> Option<&std::sync::Mutex<DefaultStreamingRenderer>> {
+        Some(&self.streaming_renderer)
     }
 
     fn clean_content(&self, raw: &str) -> String {
