@@ -150,6 +150,24 @@ impl PlanExecConfirmFlow {
     pub fn set_notify_callback(&mut self, cb: Arc<dyn Fn(PlanExecNotification) + Send + Sync>) {
         self.on_notify = cb;
     }
+
+    /// Return a snapshot of the pending entry metadata for a given confirmation id.
+    ///
+    /// Only available in test builds.
+    #[cfg(test)]
+    pub async fn get_pending_metadata(&self, id: &str) -> Option<PlanExecMetadata> {
+        let state = self.state.lock().await;
+        state.pending.get(id).map(|e| e.metadata.clone())
+    }
+
+    /// Return the number of currently pending confirmations.
+    ///
+    /// Only available in test builds.
+    #[cfg(test)]
+    pub async fn pending_count(&self) -> usize {
+        let state = self.state.lock().await;
+        state.pending.len()
+    }
 }
 
 // ── Submit ──────────────────────────────────────────────────────────────
@@ -475,7 +493,7 @@ async fn invoke_create_child_session(
 mod tests {
     use super::*;
     use closeclaw_common::PlanState;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex as StdMutex;
 
     /// Shared observable state for the mock.
@@ -776,5 +794,167 @@ mod tests {
 
         assert_eq!(session_msgs.len(), 1);
         assert!(session_msgs[0].content.contains("Auto Mode"));
+    }
+
+    // ── Missing dimension: submit stores correct metadata ─────────────
+
+    #[tokio::test]
+    async fn submit_stores_correct_metadata_in_pending_map() {
+        let (_mock, sm) = make_mock();
+        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
+        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
+
+        let meta = PlanExecMetadata {
+            plan_file_path: "/plans/my-plan.md".to_string(),
+            step_selection: Some(vec![0, 2]),
+            new_session: true,
+            additional_instruction: Some("do X first".to_string()),
+        };
+        let id = flow.submit("sess-1", meta).await;
+
+        let stored = flow
+            .get_pending_metadata(&id)
+            .await
+            .expect("entry should exist");
+        assert_eq!(stored.plan_file_path, "/plans/my-plan.md");
+        assert_eq!(stored.step_selection, Some(vec![0, 2]));
+        assert!(stored.new_session);
+        assert_eq!(stored.additional_instruction.as_deref(), Some("do X first"));
+    }
+
+    #[tokio::test]
+    async fn submit_notifies_with_correct_payload() {
+        let (_mock, sm) = make_mock();
+        let captured: Arc<std::sync::Mutex<Vec<PlanExecNotification>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let cc = Arc::clone(&captured);
+        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> =
+            Arc::new(move |n| cc.lock().unwrap().push(n));
+
+        let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
+        let meta = PlanExecMetadata {
+            plan_file_path: "/plans/demo.md".to_string(),
+            step_selection: None,
+            new_session: false,
+            additional_instruction: None,
+        };
+        let id = flow.submit("s", meta).await;
+
+        let notifications = captured.lock().unwrap();
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].confirmation_id, id);
+        assert_eq!(notifications[0].plan_file_path, "/plans/demo.md");
+        assert!(!notifications[0].new_session);
+    }
+
+    // ── Missing dimension: new-session path with callback ─────────────
+
+    #[tokio::test]
+    async fn confirm_new_session_with_callback_creates_child() {
+        let (mock, sm) = make_mock();
+        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
+        let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
+
+        // Create a temp plan file so read_plan_file_for_injection succeeds.
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let plan_path = tmp_dir.path().join("plan.md");
+        std::fs::write(&plan_path, "# Plan\nStep 1").unwrap();
+        let plan_path_str = plan_path.to_string_lossy().to_string();
+
+        insert_plan_state(&mock, "parent-sess", &plan_path_str);
+
+        // Track callback invocation.
+        let callback_invoked = Arc::new(AtomicBool::new(false));
+        let ci = Arc::clone(&callback_invoked);
+        let captured_steps: Arc<std::sync::Mutex<Option<Vec<usize>>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let cs = Arc::clone(&captured_steps);
+        let create_fn: CreateChildSessionFn = Arc::new(move |parent, _plan, steps| {
+            ci.store(true, Ordering::SeqCst);
+            *cs.lock().unwrap() = steps;
+            Box::pin(async move { Ok(format!("child-of-{parent}")) })
+        });
+        flow.set_create_child_session_fn(create_fn);
+
+        let meta = PlanExecMetadata {
+            plan_file_path: plan_path_str,
+            step_selection: Some(vec![1, 3]),
+            new_session: true,
+            additional_instruction: None,
+        };
+        let id = flow.submit("parent-sess", meta).await;
+        assert!(flow.confirm(&id).await);
+
+        // Wait for the spawned task to complete.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(
+            callback_invoked.load(Ordering::SeqCst),
+            "create_child_session_fn should have been called"
+        );
+        assert_eq!(
+            *captured_steps.lock().unwrap(),
+            Some(vec![1, 3]),
+            "step_selection should be forwarded to callback"
+        );
+
+        // Child session should have been set up.
+        let state = mock.state();
+        let child_id = "child-of-parent-sess";
+        assert_eq!(state.modes.get(child_id), Some(&SessionMode::Auto));
+        let child_ps = state.plan_states.get(child_id).expect("child plan state");
+        assert_eq!(child_ps.phase, PlanPhase::FinalPlan);
+    }
+
+    // ── Missing dimension: new-session path, step_selection None ──────
+
+    #[tokio::test]
+    async fn confirm_new_session_with_callback_no_step_selection() {
+        let (mock, sm) = make_mock();
+        let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
+        let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let plan_path = tmp_dir.path().join("plan.md");
+        std::fs::write(&plan_path, "# Plan\nStep 1").unwrap();
+        let plan_path_str = plan_path.to_string_lossy().to_string();
+
+        insert_plan_state(&mock, "parent-sess", &plan_path_str);
+
+        let callback_invoked = Arc::new(AtomicBool::new(false));
+        let ci = Arc::clone(&callback_invoked);
+        let create_fn: CreateChildSessionFn = Arc::new(move |parent, _plan, _steps| {
+            ci.store(true, Ordering::SeqCst);
+            Box::pin(async move { Ok(format!("child-of-{parent}")) })
+        });
+        flow.set_create_child_session_fn(create_fn);
+
+        let meta = PlanExecMetadata {
+            plan_file_path: plan_path_str,
+            step_selection: None,
+            new_session: true,
+            additional_instruction: Some("inject me".to_string()),
+        };
+        let id = flow.submit("parent-sess", meta).await;
+        assert!(flow.confirm(&id).await);
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert!(callback_invoked.load(Ordering::SeqCst));
+        let state = mock.state();
+        let child_id = "child-of-parent-sess";
+        assert_eq!(state.modes.get(child_id), Some(&SessionMode::Auto));
+
+        // Additional instruction should be injected into child session.
+        let child_msgs: Vec<&PendingMessage> = state
+            .pending_messages
+            .iter()
+            .filter(|(sid, _)| sid == child_id)
+            .map(|(_, m)| m)
+            .collect();
+        assert!(
+            child_msgs.iter().any(|m| m.content == "inject me"),
+            "additional instruction should be injected into child session"
+        );
     }
 }

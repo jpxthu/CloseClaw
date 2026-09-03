@@ -8,11 +8,12 @@
 //! in unit tests. The error paths verify the tool's validation logic covers
 //! the dimensions specified in the plan.
 
+use crate::builtin::plan_exec_confirm::PlanExecMetadata;
+use crate::builtin::PlanExecConfirmFlow;
 use crate::{Tool, ToolCallError, ToolContext, WorkdirContext};
 use closeclaw_common::SessionMode;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
-use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -506,4 +507,94 @@ async fn test_call_plan_mode_no_plan_info_returns_error() {
         }
         other => panic!("expected InvalidArgs, got: {other:?}"),
     }
+}
+
+// ── Pending map metadata assertion ──────────────────────────────────────
+
+/// Verify that after submit the PlanExecConfirmFlow pending map stores
+/// the full metadata (plan_file_path, step_selection, new_session,
+/// additional_instruction).
+#[tokio::test]
+async fn test_submit_stores_metadata_in_pending_map() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-meta", SessionMode::Normal).await;
+
+    let sm_arc: Arc<dyn closeclaw_common::SessionLookup> = sm.clone();
+    let flow = Arc::new(PlanExecConfirmFlow::new(
+        sm_arc,
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+    ));
+    let tool = crate::builtin::execute_plan::ExecutePlanTool::new(sm, flow.clone());
+
+    let (tmp, plan_name) = setup_workspace_with_plan();
+    let ctx = make_ctx_with_workdir(Some("sess-meta"), tmp.path());
+
+    let result = tool
+        .call(
+            json!({
+                "plan_name": &plan_name,
+                "step_selection": [0, 2],
+                "new_session": true,
+                "additional_instruction": "focus on tests"
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok());
+    let tr = result.unwrap();
+    let cid = tr.data["confirmation_id"].as_str().unwrap();
+
+    let stored: PlanExecMetadata = flow
+        .get_pending_metadata(cid)
+        .await
+        .expect("entry should exist");
+    assert!(
+        stored.plan_file_path.ends_with("my-plan.md"),
+        "plan_file_path should resolve to the plan file: {}",
+        stored.plan_file_path
+    );
+    assert_eq!(stored.step_selection, Some(vec![0, 2]));
+    assert!(stored.new_session);
+    assert_eq!(
+        stored.additional_instruction.as_deref(),
+        Some("focus on tests")
+    );
+}
+
+/// Verify that empty additional_instruction is filtered out before submit.
+#[tokio::test]
+async fn test_submit_filters_empty_additional_instruction() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-empty-ai", SessionMode::Normal).await;
+
+    let sm_arc: Arc<dyn closeclaw_common::SessionLookup> = sm.clone();
+    let flow = Arc::new(PlanExecConfirmFlow::new(
+        sm_arc,
+        Arc::new(|_| {}),
+        tokio::runtime::Handle::current(),
+    ));
+    let tool = crate::builtin::execute_plan::ExecutePlanTool::new(sm, flow.clone());
+
+    let (tmp, plan_name) = setup_workspace_with_plan();
+    let ctx = make_ctx_with_workdir(Some("sess-empty-ai"), tmp.path());
+
+    let result = tool
+        .call(
+            json!({
+                "plan_name": &plan_name,
+                "additional_instruction": "   "
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok());
+    let tr = result.unwrap();
+    let cid = tr.data["confirmation_id"].as_str().unwrap();
+
+    let stored: PlanExecMetadata = flow.get_pending_metadata(cid).await.unwrap();
+    assert!(
+        stored.additional_instruction.is_none(),
+        "whitespace-only additional_instruction should be filtered"
+    );
 }
