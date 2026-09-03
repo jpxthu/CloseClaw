@@ -11,6 +11,7 @@ use super::cardkit_streaming::CardkitStreamingRenderer;
 use super::FeishuPlugin;
 use crate::plugin::IMPlugin;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
 use closeclaw_common::StreamingOutput;
 use std::sync::Arc;
 
@@ -346,14 +347,18 @@ fn check_stream_timeout_empty_returns_empty() {
     assert!(out.render_blocks.is_empty());
 }
 
-/// check_stream_timeout returns buffered text after timeout elapses.
+/// check_stream_timeout returns buffered text when timeout elapses.
+///
+/// Uses a zero-timeout DefaultStreamingRenderer to avoid `std::thread::sleep`.
 #[test]
 fn check_stream_timeout_returns_buffered_text() {
-    let plugin = make_plugin();
-    plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
-    plugin.handle_stream_event(text_delta(0, "buffered"));
-    std::thread::sleep(std::time::Duration::from_millis(250));
-    let out = plugin.check_stream_timeout();
+    let mut renderer =
+        DefaultStreamingRenderer::new().with_timeout(Some(std::time::Duration::from_millis(0)));
+    // Feed text that stays in the buffer (no terminator, under threshold).
+    renderer.handle_event(block_start(0, ContentBlockType::Text));
+    renderer.handle_event(text_delta(0, "buffered"));
+    // With zero timeout, check_timeout triggers immediately.
+    let out = renderer.check_timeout();
     assert!(
         !out.text_messages.is_empty(),
         "Expected text from timeout, got: {:?}",

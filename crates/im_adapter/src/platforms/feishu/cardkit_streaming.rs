@@ -4,6 +4,12 @@
 //! 1. Create a streaming card (`POST /cardkit/v1/cards`, `streaming_mode: true`)
 //! 2. Send a card-reference message (card_json with `card_id`)
 //! 3. Batch-update card element content (`PUT /cardkit/v1/cards/{card_id}/elements/{element_id}/content`)
+//!
+//! Text line-buffering is delegated to [`DefaultStreamingRenderer`]
+//! (via [`super::FeishuPlugin::streaming_renderer`]). This module
+//! is only responsible for the cardkit protocol layer: card creation,
+//! reference sending, element updates, update frequency limiting,
+//! and the `pending_text` buffer for batch cardkit updates.
 
 use std::time::{Duration, Instant};
 
@@ -60,29 +66,6 @@ impl CardkitStreamingRenderer {
         Self {
             state: FeishuStreamingState::default(),
         }
-    }
-
-    /// Check if there is pending text that needs to be sent.
-    ///
-    /// Returns the pending text if non-empty, `None` otherwise.
-    /// Text accumulation is handled by the default streaming renderer;
-    /// this method only drains the cardkit `pending_text` buffer.
-    #[allow(dead_code)] // Kept per plan; consumed via FeishuPlugin::check_stream_timeout
-    pub(crate) fn check_timeout(&mut self) -> Option<String> {
-        if self.state.pending_text.is_empty() {
-            None
-        } else {
-            Some(std::mem::take(&mut self.state.pending_text))
-        }
-    }
-
-    /// Flush all remaining pending text.
-    ///
-    /// Called at MessageEnd to drain accumulated text for cardkit updates.
-    /// Text accumulation is handled by the default streaming renderer.
-    #[allow(dead_code)] // Kept per plan; consumed via FeishuPlugin::flush_stream
-    pub(crate) fn flush(&mut self) -> String {
-        std::mem::take(&mut self.state.pending_text)
     }
 
     /// Check if a card update should be sent based on timing.
@@ -271,34 +254,18 @@ mod tests {
     }
 
     #[test]
-    fn flush_returns_all_pending() {
-        let mut r = make_renderer();
-        push_text(&mut r, "Hello");
-        let result = r.flush();
-        assert_eq!(result, "Hello");
-        assert!(r.state.pending_text.is_empty());
+    fn pending_text_empty_initially() {
+        let r = make_renderer();
+        assert!(r.pending_text().is_empty());
     }
 
     #[test]
-    fn flush_empty_returns_empty() {
+    fn pending_text_cleared_by_reset() {
         let mut r = make_renderer();
-        let result = r.flush();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn check_timeout_returns_none_when_empty() {
-        let mut r = make_renderer();
-        assert!(r.check_timeout().is_none());
-    }
-
-    #[test]
-    fn check_timeout_returns_pending_text() {
-        let mut r = make_renderer();
-        push_text(&mut r, "partial content。");
-        let result = r.check_timeout();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), "partial content。");
+        push_text(&mut r, "some content。");
+        assert!(!r.state.pending_text.is_empty());
+        r.state.reset();
+        assert!(r.pending_text().is_empty());
     }
 
     // =========================================================================
@@ -386,48 +353,6 @@ mod tests {
         assert!(!state.is_active);
     }
 
-    #[test]
-    fn pending_text_cleared_on_flush() {
-        let mut r = make_renderer();
-        push_text(&mut r, "some content。");
-        assert!(!r.state.pending_text.is_empty());
-        let flushed = r.flush();
-        assert_eq!(flushed, "some content。");
-        assert!(r.state.pending_text.is_empty());
-    }
-
-    // =========================================================================
-    // Flush and check_timeout behavior
-    // =========================================================================
-
-    #[test]
-    fn multiple_flushes_drain_incrementally() {
-        let mut r = make_renderer();
-        push_text(&mut r, "Block 1。");
-        let block1 = r.flush();
-        assert_eq!(block1, "Block 1。");
-        push_text(&mut r, "Block 2。");
-        let block2 = r.flush();
-        assert_eq!(block2, "Block 2。");
-    }
-
-    #[test]
-    fn check_timeout_after_flush_returns_none() {
-        let mut r = make_renderer();
-        push_text(&mut r, "done。");
-        r.flush();
-        assert!(r.check_timeout().is_none());
-    }
-
-    #[test]
-    fn check_timeout_with_pending_text_returns_some() {
-        let mut r = make_renderer();
-        push_text(&mut r, "partial content。");
-        let result = r.check_timeout();
-        assert!(result.is_some());
-        assert!(result.unwrap().contains("partial content。"));
-    }
-
     // =========================================================================
     // Reset during active streaming
     // =========================================================================
@@ -444,13 +369,5 @@ mod tests {
         assert_eq!(r.state.sequence, 0);
         assert!(!r.state.is_active);
         assert!(r.state.pending_text.is_empty());
-    }
-
-    #[test]
-    fn flush_after_reset_returns_empty() {
-        let mut r = make_renderer();
-        push_text(&mut r, "content。");
-        r.state.reset();
-        assert!(r.flush().is_empty());
     }
 }

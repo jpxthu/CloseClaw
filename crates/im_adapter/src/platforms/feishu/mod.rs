@@ -71,7 +71,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
-use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
+use closeclaw_common::streaming::DefaultStreamingRenderer;
 use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
@@ -794,35 +794,6 @@ impl IMPlugin for FeishuPlugin {
 
     fn streaming_renderer(&self) -> Option<&std::sync::Mutex<DefaultStreamingRenderer>> {
         Some(&self.streaming_renderer)
-    }
-
-    fn handle_stream_event(
-        &self,
-        event: closeclaw_common::processor::StreamEvent,
-    ) -> closeclaw_common::im_plugin::StreamingOutput {
-        // Delegate text processing to the default renderer and return output directly.
-        // Gateway dispatch_text → send() → send_streaming_text_with_target handles
-        // cardkit routing and batched updates.
-        self.streaming_renderer
-            .lock()
-            .expect("streaming renderer lock poisoned")
-            .handle_event(event)
-    }
-
-    fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
-        // Delegate flush to the default renderer and return output directly.
-        self.streaming_renderer
-            .lock()
-            .expect("streaming renderer lock poisoned")
-            .flush()
-    }
-
-    fn check_stream_timeout(&self) -> closeclaw_common::im_plugin::StreamingOutput {
-        // Delegate timeout check to the default renderer and return output directly.
-        self.streaming_renderer
-            .lock()
-            .expect("streaming renderer lock poisoned")
-            .check_timeout()
     }
 
     fn clean_content(&self, raw: &str) -> String {
