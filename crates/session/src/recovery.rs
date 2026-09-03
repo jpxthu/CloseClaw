@@ -2,12 +2,14 @@
 //!
 //! Provides functionality to recover sessions from persisted checkpoints
 //! during gateway startup, including spawn_tree reconstruction.
-use crate::llm_session::PROGRESS_APPEND_PREFIX;
 use crate::persistence::{
     ApprovalToolCallRecord, PersistenceError, PersistenceService, ProgressToolCallRecord,
     SessionCheckpoint,
 };
 use std::collections::{HashMap, HashSet};
+
+/// Prefix marker for progress-related entries in `system_appends`.
+pub const PROGRESS_APPEND_PREFIX: &str = "__progress__:";
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -846,85 +848,6 @@ pub(crate) fn parse_progress_call_record(input: &str) -> Option<ProgressToolCall
         summary,
         error_message,
     })
-}
-
-/// Rebuild an [`ExecutionState`] from a list of [`ProgressToolCallRecord`]s.
-///
-/// Applies each record in order, skipping records that would violate the
-/// step state machine. Returns the reconstructed `ExecutionState` with
-/// `execution_steps` populated.
-#[cfg(test)]
-pub fn rebuild_execution_state_from_calls(
-    calls: &[ProgressToolCallRecord],
-) -> closeclaw_execution::ExecutionState {
-    use closeclaw_execution::{ExecutionStep, ExecutionStepStatus};
-    let mut exec_state = closeclaw_execution::ExecutionState::new();
-    if calls.is_empty() {
-        return exec_state;
-    }
-
-    // Determine the maximum step index to size the steps vec
-    let max_step = calls.iter().map(|c| c.step_index).max().unwrap_or(0);
-    let total_steps = max_step + 1;
-    // Initialize all steps as Pending
-    exec_state.execution_steps = (0..total_steps)
-        .map(|i| ExecutionStep {
-            step_index: i,
-            status: ExecutionStepStatus::Pending,
-            summary: String::new(),
-            error_message: None,
-        })
-        .collect();
-    // Apply each call in order, ignoring invalid transitions
-    for record in calls {
-        let idx = record.step_index;
-        if idx >= exec_state.execution_steps.len() {
-            continue;
-        }
-
-        // Try the transition; skip if invalid (e.g., skipping steps)
-        if closeclaw_execution::validate_transition(&exec_state, idx, &record.status).is_err() {
-            continue;
-        }
-
-        exec_state.execution_steps[idx].status = record.status;
-        if let Some(ref summary) = record.summary {
-            exec_state.execution_steps[idx].summary = summary.clone();
-        }
-        if let Some(ref error) = record.error_message {
-            exec_state.execution_steps[idx].error_message = Some(error.clone());
-        }
-
-        // Update current_step
-        if matches!(
-            record.status,
-            ExecutionStepStatus::Completed | ExecutionStepStatus::Skipped
-        ) {
-            let next = idx + 1;
-            if next < exec_state.execution_steps.len() {
-                exec_state.current_step = Some(next);
-            }
-        } else if matches!(record.status, ExecutionStepStatus::InProgress) {
-            exec_state.current_step = Some(idx);
-        }
-    }
-
-    exec_state
-}
-
-/// Rebuild a human-readable progress summary from ProgressTool call records.
-///
-/// Scans calls in reverse to find the latest status for each step,
-/// then formats a summary suitable for injection into `system_appends`.
-/// Returns an empty string when `calls` is empty.
-#[cfg(test)]
-pub fn rebuild_progress_summary_from_calls(calls: &[ProgressToolCallRecord]) -> String {
-    if calls.is_empty() {
-        return String::new();
-    }
-
-    let exec_state = rebuild_execution_state_from_calls(calls);
-    closeclaw_execution::progress_summary(&exec_state)
 }
 
 // ---------------------------------------------------------------------------

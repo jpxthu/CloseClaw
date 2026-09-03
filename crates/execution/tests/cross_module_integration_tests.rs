@@ -1,20 +1,17 @@
 //! Cross-module integration tests for Step 1.6.
 //!
-//! Verifies the complete flow: step completion → hook triggers →
-//! progress notification → system prompt update. Also tests retry
-//! scenarios where hooks only fire on final completion.
+//! Verifies the complete flow: step completion → hook triggers.
+//! Also tests retry scenarios where hooks only fire on final completion.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use closeclaw_common::{NoopNotifier, PlanStateNotifier};
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::hook::{HookError, HookResult, HookRunner, NotifyHook, StepHook};
 use closeclaw_execution::spawn::SpawnAdapter;
 use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
-use closeclaw_execution::ExecutionState;
 use closeclaw_execution::ExecutionStepStatus;
 use closeclaw_execution::{ExecutionEngine, StepResult};
 
@@ -45,43 +42,6 @@ impl SpawnAdapter for SequenceMock {
 
     async fn spawn_session(&self, _task: &str, _context: &str) -> Result<String, ExecutionError> {
         Ok("mock-session".into())
-    }
-}
-
-// ── Mock PlanStateNotifier that tracks calls ──────────────────────────────
-
-#[allow(dead_code)]
-struct RecordingNotifier {
-    summaries: Arc<Mutex<Vec<String>>>,
-    call_count: Arc<AtomicUsize>,
-}
-
-#[allow(dead_code)]
-impl RecordingNotifier {
-    fn new() -> Self {
-        Self {
-            summaries: Arc::new(Mutex::new(Vec::new())),
-            call_count: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    fn summaries(&self) -> Vec<String> {
-        self.summaries.lock().unwrap().clone()
-    }
-
-    fn call_count(&self) -> usize {
-        self.call_count.load(Ordering::SeqCst)
-    }
-}
-
-#[async_trait]
-impl PlanStateNotifier for RecordingNotifier {
-    async fn on_progress_changed(&self, progress_summary: &str) {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
-        self.summaries
-            .lock()
-            .unwrap()
-            .push(progress_summary.to_string());
     }
 }
 
@@ -143,57 +103,6 @@ impl StepHook for RecordingHookSimple {
     }
 }
 
-// ── Simulates session layer's system_appends behavior ────────────────────
-
-/// Simulates the session layer's system_appends behavior:
-/// receives progress summaries via the notifier and tracks them
-/// as if they were appended to the system prompt.
-struct MockSystemAppends {
-    appends: Mutex<Vec<String>>,
-}
-
-impl MockSystemAppends {
-    fn new() -> Self {
-        Self {
-            appends: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn appends(&self) -> Vec<String> {
-        self.appends.lock().unwrap().clone()
-    }
-}
-
-#[async_trait]
-impl PlanStateNotifier for MockSystemAppends {
-    async fn on_progress_changed(&self, progress_summary: &str) {
-        let mut appends = self.appends.lock().unwrap();
-        // Simulate the session layer: replace existing progress entry
-        // (identified by prefix) or append new one.
-        let tagged = format!("__progress__:{}", progress_summary);
-        if let Some(slot) = appends.iter_mut().find(|s| s.starts_with("__progress__:")) {
-            *slot = tagged;
-        } else {
-            appends.push(tagged);
-        }
-    }
-}
-
-/// Notifier that appends to the shared order vec for tracking execution order.
-struct TrackingNotifier {
-    order: Arc<Mutex<Vec<String>>>,
-}
-
-#[async_trait]
-impl PlanStateNotifier for TrackingNotifier {
-    async fn on_progress_changed(&self, progress_summary: &str) {
-        self.order
-            .lock()
-            .unwrap()
-            .push(format!("notifier:{progress_summary}"));
-    }
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 fn spawn_per_step_config() -> ExecutionConfig {
@@ -229,13 +138,12 @@ fn new_engine_with_config(
     adapter: impl SpawnAdapter + 'static,
     config: ExecutionConfig,
 ) -> ExecutionEngine<impl SpawnAdapter> {
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    ExecutionEngine::new(plan_state, config, adapter, Arc::new(NoopNotifier), None)
+    ExecutionEngine::new(config, adapter, None)
 }
 
 // ===========================================================================
 // Integration Test 1: Full flow
-// Steps completed → hook triggers → progress notification → system prompt update
+// Steps completed → hook triggers
 // ===========================================================================
 
 #[tokio::test]
@@ -250,23 +158,12 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
     let mut runner = HookRunner::new(VerifyTrigger::Always);
     runner.register(Box::new(hook));
 
-    let system_appends = Arc::new(MockSystemAppends::new());
-    let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
-
     let adapter = SequenceMock::new(vec![
         Ok(success_result(0, "implement feature A")),
         Ok(success_result(1, "write tests")),
     ]);
 
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state.clone(),
-        spawn_per_step_config(),
-        adapter,
-        notifier,
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let report = engine
         .execute(&["implement feature A".into(), "write tests".into()])
@@ -291,29 +188,10 @@ async fn test_full_flow_completed_hook_notifies_system_prompt() {
         .events
         .iter()
         .any(|e| matches!(e, ExecutionEvent::HookExecuted { step_index: 1 })));
-
-    // 4. System appends reflect progress updates
-    let appends = system_appends.appends();
-    assert_eq!(appends.len(), 1); // only one entry (replaced each time)
-                                  // Final state should show step 2/2 completed
-    assert!(appends[0].contains("Step 2/2: completed"));
-    assert!(appends[0].starts_with("__progress__:"));
-
-    // 5. Plan state is updated
-    let state = plan_state.lock().unwrap();
-    assert!(matches!(
-        state.execution_steps[0].status,
-        ExecutionStepStatus::Completed
-    ));
-    assert!(matches!(
-        state.execution_steps[1].status,
-        ExecutionStepStatus::Completed
-    ));
 }
 
 // ===========================================================================
-// Integration Test 2: Retry scenario
-// failed → retry → completed, hook only fires on final completed
+// Integration Test 2: Hook fires on each completed step
 // ===========================================================================
 
 #[tokio::test]
@@ -328,24 +206,12 @@ async fn test_hook_fires_on_each_completed_step() {
     let mut runner = HookRunner::new(VerifyTrigger::Always);
     runner.register(Box::new(hook));
 
-    let system_appends = Arc::new(MockSystemAppends::new());
-    let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
-
-    // Both steps succeed on first attempt
     let adapter = SequenceMock::new(vec![
         Ok(success_result(0, "step 0 done")),
         Ok(success_result(1, "step 1 done")),
     ]);
 
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state.clone(),
-        spawn_per_step_config(),
-        adapter,
-        notifier,
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let report = engine
         .execute(&["step 0".into(), "step 1".into()])
@@ -358,16 +224,10 @@ async fn test_hook_fires_on_each_completed_step() {
     assert_eq!(hook_count.load(Ordering::SeqCst), 2);
     let indices = hook_indices.lock().unwrap();
     assert_eq!(*indices, vec![0, 1]);
-
-    // Progress shows final state
-    let appends = system_appends.appends();
-    assert_eq!(appends.len(), 1);
-    assert!(appends[0].contains("Step 2/2: completed"));
 }
 
 // ===========================================================================
 // Integration Test 3: Hook + Notifier coordination
-// Serial hooks execute before the final step completes and notifies
 // ===========================================================================
 
 #[tokio::test]
@@ -387,27 +247,12 @@ async fn test_hook_and_notifier_coordination() {
     let mut runner = HookRunner::new(VerifyTrigger::Always);
     runner.register(Box::new(hook));
 
-    let notifier_order = event_order.clone();
-    let tracking_notifier = Arc::new(TrackingNotifier {
-        order: notifier_order,
-    });
-
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "step done"))]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state,
-        spawn_per_step_config(),
-        adapter,
-        tracking_notifier,
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let _report = engine.execute(&["step A".into()]).await.unwrap();
 
     let order = event_order.lock().unwrap();
-    // Hook fires during complete_step, then notifier fires after mark_step_status
-    // Order: hook:0:step done (hook callback), notifier (progress update)
     assert!(
         order.iter().any(|e| e.starts_with("hook:0:")),
         "hook callback should have been recorded"
@@ -415,7 +260,7 @@ async fn test_hook_and_notifier_coordination() {
 }
 
 // ===========================================================================
-// Integration Test 4: Hook failure does not block notification
+// Integration Test 4: Hook failure does not block execution
 // ===========================================================================
 
 #[tokio::test]
@@ -427,19 +272,8 @@ async fn test_hook_failure_does_not_block_notifier() {
         call_count: hook_count.clone(),
     }));
 
-    let system_appends = Arc::new(MockSystemAppends::new());
-    let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
-
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "done"))]);
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state,
-        spawn_per_step_config(),
-        adapter,
-        notifier,
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let report = engine.execute(&["step".into()]).await.unwrap();
 
@@ -452,15 +286,10 @@ async fn test_hook_failure_does_not_block_notifier() {
         .any(|e| matches!(e, ExecutionEvent::HookFailed { step_index: 0, .. })));
     // Second hook (after failure) should NOT run (block stops subsequent)
     assert_eq!(hook_count.load(Ordering::SeqCst), 0);
-    // Notifier was still called (progress updated)
-    let appends = system_appends.appends();
-    assert_eq!(appends.len(), 1);
-    assert!(appends[0].contains("completed"));
 }
 
 // ===========================================================================
-// Integration Test 5: NonTrivial trigger + hook + progress
-// Only non-trivial steps (with changed_files) trigger hooks
+// Integration Test 5: NonTrivial trigger + hook
 // ===========================================================================
 
 #[tokio::test]
@@ -473,9 +302,6 @@ async fn test_nontrivial_hook_with_progress_tracking() {
 
     let mut runner = HookRunner::new(VerifyTrigger::NonTrivial);
     runner.register(Box::new(hook));
-
-    let system_appends = Arc::new(MockSystemAppends::new());
-    let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
 
     // Step 0 has changed files (non-trivial), step 1 does not (trivial)
     let adapter = SequenceMock::new(vec![
@@ -495,15 +321,7 @@ async fn test_nontrivial_hook_with_progress_tracking() {
         }),
     ]);
 
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state,
-        spawn_per_step_config(),
-        adapter,
-        notifier,
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let report = engine
         .execute(&["implement".into(), "document".into()])
@@ -521,15 +339,10 @@ async fn test_nontrivial_hook_with_progress_tracking() {
         .events
         .iter()
         .any(|e| matches!(e, ExecutionEvent::HookExecuted { step_index: 1, .. })));
-    // Progress still updated for both steps
-    let appends = system_appends.appends();
-    assert_eq!(appends.len(), 1);
-    assert!(appends[0].contains("Step 2/2: completed"));
 }
 
 // ===========================================================================
-// Integration Test 6: Retry with hook failure
-// Step fails, hook fails during retry completion, but step still completes
+// Integration Test 6: Hook failure does not prevent step completion
 // ===========================================================================
 
 #[tokio::test]
@@ -537,20 +350,9 @@ async fn test_hook_failure_does_not_prevent_step_completion() {
     let mut runner = HookRunner::new(VerifyTrigger::Always);
     runner.register(Box::new(BlockingHook));
 
-    let system_appends = Arc::new(MockSystemAppends::new());
-    let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
-
     let adapter = SequenceMock::new(vec![Ok(success_result(0, "done"))]);
 
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state.clone(),
-        spawn_per_step_config(),
-        adapter,
-        notifier,
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let report = engine.execute(&["step".into()]).await.unwrap();
 
@@ -561,15 +363,10 @@ async fn test_hook_failure_does_not_prevent_step_completion() {
         .events
         .iter()
         .any(|e| matches!(e, ExecutionEvent::HookFailed { step_index: 0, .. })));
-    // Progress updated
-    let appends = system_appends.appends();
-    assert_eq!(appends.len(), 1);
-    assert!(appends[0].contains("completed"));
 }
 
 // ===========================================================================
 // Integration Test 7: Multi-step with mixed hook results
-// Hook blocks on step 0 (Continue recorded as HookFailed), step 1 hooks succeed
 // ===========================================================================
 
 #[tokio::test]
@@ -582,23 +379,12 @@ async fn test_multi_step_mixed_hook_results() {
         call_count: hook0_count.clone(),
     })); // blocked
 
-    let system_appends = Arc::new(MockSystemAppends::new());
-    let notifier: Arc<dyn PlanStateNotifier> = system_appends.clone();
-
     let adapter = SequenceMock::new(vec![
         Ok(success_result(0, "step 0 done")),
         // Step 1 should never be executed due to hook block on step 0
     ]);
 
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state,
-        spawn_per_step_config(),
-        adapter,
-        notifier,
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let report = engine
         .execute(&["step 0".into(), "step 1".into()])
@@ -632,16 +418,10 @@ async fn test_multi_step_mixed_hook_results() {
         .any(|e| matches!(e, ExecutionEvent::HookFailed { step_index: 1, .. })));
     // The second hook never ran (blocked by first)
     assert_eq!(hook0_count.load(Ordering::SeqCst), 0);
-    // Progress shows only step 0 completed (step 1 was never reached)
-    let appends = system_appends.appends();
-    assert_eq!(appends.len(), 1);
-    assert!(appends[0].contains("Step 1/2: completed"));
 }
 
 // ===========================================================================
 // Integration Test 8: Sub-agent Skipped status → treated as failure
-// When a sub-agent returns Skipped, the engine converts it to Failed
-// and stops execution (same as any non-Completed result).
 // ===========================================================================
 
 #[tokio::test]
@@ -673,9 +453,7 @@ async fn test_sub_agent_skipped_treated_as_failure() {
 }
 
 // ===========================================================================
-// Integration Test 10: Mixed statuses with hooks
-// Steps: Completed, Skipped (from sub-agent → treated as Failed), Completed
-// Hook fires for Completed steps; Skipped sub-agent stops execution.
+// Integration Test 10: Sub-agent Skipped stops execution
 // ===========================================================================
 
 #[tokio::test]
@@ -702,15 +480,7 @@ async fn test_sub_agent_skipped_stops_execution() {
         // Step 2 should never be reached
     ]);
 
-    let plan_state = Arc::new(Mutex::new(ExecutionState::new()));
-    let engine = ExecutionEngine::with_hook_runner(
-        plan_state.clone(),
-        spawn_per_step_config(),
-        adapter,
-        Arc::new(NoopNotifier),
-        runner,
-        None,
-    );
+    let engine = ExecutionEngine::with_hook_runner(spawn_per_step_config(), adapter, runner, None);
 
     let report = engine
         .execute(&["s0".into(), "s1".into(), "s2".into()])
@@ -734,13 +504,4 @@ async fn test_sub_agent_skipped_stops_execution() {
     assert_eq!(hook_count.load(Ordering::SeqCst), 1);
     let indices = hook_indices.lock().unwrap();
     assert_eq!(*indices, vec![0]);
-
-    // Plan state: step 0 Completed, step 1 stays InProgress (fail_step doesn't update plan state)
-    let state = plan_state.lock().unwrap();
-    assert!(matches!(
-        state.execution_steps[0].status,
-        ExecutionStepStatus::Completed
-    ));
-    // fail_step doesn't call mark_step_status, so plan state stays InProgress
-    // even though the StepResult shows Failed
 }

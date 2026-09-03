@@ -26,9 +26,6 @@ pub mod llm_types;
 pub mod media_store;
 pub mod metrics;
 pub mod middleware;
-pub mod notifier;
-#[cfg(test)]
-pub mod notifier_tests;
 pub mod path_utils;
 pub mod permission_check;
 pub mod permission_op;
@@ -78,7 +75,7 @@ pub mod verbosity;
 pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery};
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
-pub use execution_types::{ExecutionStep, ExecutionStepStatus, TransitionError};
+pub use execution_types::{ExecutionStep, ExecutionStepStatus};
 pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use hook_config::{HookConfig, HookParams, HookType};
 pub use identity::IdentityResolver;
@@ -94,7 +91,6 @@ pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinitio
 pub use media_store::{MediaStoreAccess, MediaStoreError};
 pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
 pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
-pub use notifier::{NoopNotifier, PlanStateNotifier};
 pub use path_utils::canonicalize_or_clone;
 pub use permission_check::{
     ExecutionPermissionCheck, PermissionChecker, PermissionDenied, SpawnPermissionError,

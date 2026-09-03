@@ -1,15 +1,13 @@
 //! Core execution engine — orchestrates step-by-step execution with
 //! state management.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crate::execution_state::ExecutionState;
 use crate::execution_types::ExecutionStepStatus;
-use closeclaw_common::{ExecutionPermissionCheck, PlanStateNotifier};
+use closeclaw_common::ExecutionPermissionCheck;
 
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
-use crate::execution_state::{apply_transition, init_execution_steps, progress_summary};
 use crate::hook::HookRunner;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult};
@@ -51,14 +49,10 @@ pub struct ExecutionReport {
 /// Core execution engine — drives the step-by-step scheduling loop.
 /// Generic over `S: SpawnAdapter` so the dispatch mechanism can be swapped.
 pub struct ExecutionEngine<S> {
-    /// Shared execution state, protected by a mutex for interior mutability.
-    execution_state: Arc<Mutex<ExecutionState>>,
     /// Execution configuration (mode, retries, etc.).
     config: ExecutionConfig,
     /// Adapter used to dispatch step execution.
     adapter: S,
-    /// Notifier for progress changes — called after each status transition.
-    notifier: Arc<dyn PlanStateNotifier>,
     /// Optional hook runner for post-step actions.
     hook_runner: Option<HookRunner>,
     /// Optional permission checker — called before each step dispatch.
@@ -71,18 +65,14 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// When no hook runner is provided via [`with_hook_runner`], a default
     /// [`HookRunner`] is constructed using `config.verify_trigger`.
     pub fn new(
-        execution_state: Arc<Mutex<ExecutionState>>,
         config: ExecutionConfig,
         adapter: S,
-        notifier: Arc<dyn PlanStateNotifier>,
         permission: Option<Arc<dyn ExecutionPermissionCheck>>,
     ) -> Self {
         let hook_runner = Some(Self::build_default_hook_runner(&config));
         Self {
-            execution_state,
             config,
             adapter,
-            notifier,
             hook_runner,
             permission,
         }
@@ -90,18 +80,14 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
 
     /// Create a new execution engine with a hook runner.
     pub fn with_hook_runner(
-        execution_state: Arc<Mutex<ExecutionState>>,
         config: ExecutionConfig,
         adapter: S,
-        notifier: Arc<dyn PlanStateNotifier>,
         hook_runner: HookRunner,
         permission: Option<Arc<dyn ExecutionPermissionCheck>>,
     ) -> Self {
         Self {
-            execution_state,
             config,
             adapter,
-            notifier,
             hook_runner: Some(hook_runner),
             permission,
         }
@@ -115,14 +101,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// [`ExecutionError::InvalidStepSelection`].
     pub async fn execute(&self, steps: &[String]) -> Result<ExecutionReport, ExecutionError> {
         let filtered = self.filter_steps(steps)?;
-
-        {
-            let mut state = self
-                .execution_state
-                .lock()
-                .expect("execution state lock poisoned");
-            init_execution_steps(&mut state, filtered.clone());
-        }
 
         match self.config.mode {
             ExecutionMode::SpawnAllSteps => self.execute_spawn_all(&filtered).await,
@@ -151,14 +129,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             }
             None => Ok(steps.to_vec()),
         }
-    }
-
-    /// Access a snapshot of the current plan state.
-    pub fn execution_state_snapshot(&self) -> ExecutionState {
-        self.execution_state
-            .lock()
-            .expect("execution state lock poisoned")
-            .clone()
     }
 
     /// Build a default [`HookRunner`] from the given config.
@@ -212,7 +182,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         if all_completed {
             tracing::info!("all {} steps completed successfully", steps_owned.len());
             events.push(ExecutionEvent::AllCompleted);
-            self.notifier.on_plan_completed().await;
         } else if let Some(idx) = failed_step {
             tracing::warn!("execution stopped at step {idx}");
         }
@@ -234,6 +203,15 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         &self,
         steps_owned: &[String],
     ) -> Result<ExecutionReport, ExecutionError> {
+        if steps_owned.is_empty() {
+            return Ok(ExecutionReport {
+                steps: Vec::new(),
+                all_completed: true,
+                failed_step: None,
+                hook_blocked: false,
+                events: Vec::new(),
+            });
+        }
         let mut events: Vec<ExecutionEvent> = Vec::new();
         let task = steps_owned.join("\n");
 
@@ -277,9 +255,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             });
         }
 
-        self.mark_step_status(0, ExecutionStepStatus::InProgress)
-            .await?;
-
         match self.adapter.spawn_run(&task, "").await {
             Ok(sub_result) => {
                 self.handle_spawn_all_success(steps_owned, sub_result, &mut events)
@@ -320,7 +295,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         let hook_blocked = results.iter().any(|r| r.hook_blocked.is_some());
         if all_completed {
             events.push(ExecutionEvent::AllCompleted);
-            self.notifier.on_plan_completed().await;
         }
 
         Ok(ExecutionReport {
@@ -345,8 +319,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
     ) -> Result<Option<usize>, ExecutionError> {
         let mut failed_step = None;
         if step0_failed {
-            self.mark_step_status(0, ExecutionStepStatus::Failed)
-                .await?;
             Self::emit_event(
                 events,
                 ExecutionEvent::StepFailed {
@@ -356,8 +328,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
             );
             failed_step = Some(0);
         } else {
-            self.mark_step_status(0, ExecutionStepStatus::Completed)
-                .await?;
             Self::emit_event(
                 events,
                 ExecutionEvent::StepCompleted {
@@ -445,8 +415,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         error: ExecutionError,
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<ExecutionReport, ExecutionError> {
-        self.mark_step_status(0, ExecutionStepStatus::Failed)
-            .await?;
         let results: Vec<StepResult> = steps_owned
             .iter()
             .enumerate()
@@ -490,8 +458,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<StepResult, ExecutionError> {
         Self::emit_event(events, ExecutionEvent::StepStarted { step_index });
-        self.mark_step_status(step_index, ExecutionStepStatus::InProgress)
-            .await?;
         tracing::info!(step_index, "dispatching step");
 
         match self.dispatch_step(step_index, description, events).await {
@@ -606,8 +572,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         sub_result: &SubAgentResult,
         events: &mut Vec<ExecutionEvent>,
     ) -> Result<StepResult, ExecutionError> {
-        self.mark_step_status(step_index, ExecutionStepStatus::Completed)
-            .await?;
         tracing::info!(step_index, "step completed");
         Self::emit_event(
             events,
@@ -722,37 +686,6 @@ impl<S: SpawnAdapter> ExecutionEngine<S> {
         } else {
             None
         }
-    }
-
-    /// Apply a status transition to the given step in plan state.
-    /// After a successful transition, notifies the progress listener.
-    async fn mark_step_status(
-        &self,
-        step_index: usize,
-        status: ExecutionStepStatus,
-    ) -> Result<(), ExecutionError> {
-        let summary = {
-            let mut state = self
-                .execution_state
-                .lock()
-                .expect("execution state lock poisoned");
-
-            if matches!(status, ExecutionStepStatus::InProgress) {
-                state.current_step = Some(step_index);
-            }
-
-            apply_transition(&mut state, step_index, status).map_err(|e| {
-                ExecutionError::InvalidResult {
-                    message: format!("state transition failed: {e}"),
-                }
-            })?;
-
-            progress_summary(&state)
-        };
-
-        self.notifier.on_progress_changed(&summary).await;
-
-        Ok(())
     }
 
     /// Emit an execution event — logs it and appends to the events list.

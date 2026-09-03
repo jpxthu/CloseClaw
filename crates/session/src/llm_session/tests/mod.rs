@@ -18,6 +18,7 @@ mod llm_busy_count_tests;
 mod llm_gate_check_tests;
 mod manual_background_tests;
 mod memory_injection_dedup_tests;
+mod progress_removal_session_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;
 mod session_exec_tests;

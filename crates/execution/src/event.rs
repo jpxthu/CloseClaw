@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Events emitted by the execution engine as steps progress.
 ///
-/// Used by the engine to notify callers (e.g., ProgressTool, UI) of
+/// Used by the engine to notify callers (e.g., UI) of
 /// step lifecycle changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExecutionEvent {

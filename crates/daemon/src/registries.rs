@@ -5,7 +5,6 @@ use crate::config_watcher;
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
 use closeclaw_agent::AgentConfigLookup;
-use closeclaw_common::PlanState;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
@@ -18,7 +17,7 @@ use closeclaw_tools::{
     CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
 };
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 
 /// Bundles all references needed by [`populate_registries`].
@@ -254,7 +253,6 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     let skills_registrar = SkillsToolsRegistrar::new(skill_tool);
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
     let plan_registrar = PlanToolsRegistrar::new(
-        Arc::new(Mutex::new(PlanState::new())),
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.approval_flow),
     );

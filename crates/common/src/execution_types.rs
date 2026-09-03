@@ -1,11 +1,9 @@
 //! Execution-related pure data types shared across crates.
 //!
-//! Contains `ExecutionStep`, `ExecutionStepStatus`, and `TransitionError`
-//! which are consumed by the execution engine, tools (ProgressTool),
-//! and session (recovery/persistence).
+//! Contains `ExecutionStep` and `ExecutionStepStatus`
+//! which are consumed by the execution engine and session (recovery/persistence).
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 /// 执行步骤状态枚举
 ///
@@ -41,23 +39,4 @@ pub struct ExecutionStep {
     /// 失败时的错误信息
     #[serde(default)]
     pub error_message: Option<String>,
-}
-
-/// 步骤状态转换错误类型
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum TransitionError {
-    /// 步骤索引不存在
-    #[error("step not found: index {index} out of range (len {len})")]
-    OutOfBounds { index: usize, len: usize },
-
-    /// 非法步骤状态转换
-    #[error("invalid transition: {from:?} -> {to:?}")]
-    InvalidTransition {
-        from: ExecutionStepStatus,
-        to: ExecutionStepStatus,
-    },
-
-    /// 跳步：目标步骤索引必须是 current_step 或 0（首次）
-    #[error("skipped step: expected {expected}, got {got}")]
-    SkippedStep { expected: usize, got: usize },
 }
