@@ -3,7 +3,9 @@
 
 use crate::Message;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
-use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
+use closeclaw_session::persistence::{
+    PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
+};
 use closeclaw_session::workspace;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -227,21 +229,16 @@ pub(super) async fn load_checkpoint(
 /// Clear `plan_state` in the checkpoint for a session.
 ///
 /// Loads the checkpoint, sets `plan_state` to `None`, and saves.
-/// No-op if storage is unavailable or checkpoint does not exist.
+/// Returns `Ok(())` on success or no-op (no checkpoint exists).
+/// Returns `Err` if the save fails.
 pub(super) async fn clear_plan_state_checkpoint(
     cm: &CheckpointManager<dyn PersistenceService>,
     session_id: &str,
-) {
+) -> Result<(), PersistenceError> {
     let mut cp = match cm.load(session_id).await {
         Ok(Some(cp)) => cp,
-        _ => return,
+        _ => return Ok(()),
     };
     cp.plan_state = None;
-    if let Err(e) = cm.save_raw(&cp).await {
-        warn!(
-            session_id = %session_id,
-            "failed to clear plan_state: {}",
-            e
-        );
-    }
+    cm.save_raw(&cp).await
 }

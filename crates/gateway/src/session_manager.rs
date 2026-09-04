@@ -786,20 +786,22 @@ impl SessionManager {
     }
 
     /// Clear the plan state for a session, destroying any active plan.
-    ///
-    /// Clears `plan_state` in the checkpoint and `plan_file_path` in the
-    /// `ConversationSession` so that subsequent system prompt builds do
-    /// not inject stale plan context.
-    ///
     /// Called when exiting Plan Mode (e.g. `/mode normal`, `/auto`).
     pub async fn clear_plan_state(&self, session_id: &str) {
+        // Clear checkpoint first; skip ConversationSession if checkpoint fails.
+        let cm = self.checkpoint_manager.read().await;
+        if let Some(cm) = cm.as_ref() {
+            if session_helpers::clear_plan_state_checkpoint(cm, session_id)
+                .await
+                .is_err()
+            {
+                warn!(session_id = %session_id, "failed to clear plan_state checkpoint");
+                return;
+            }
+        }
         if let Some(cs) = self.get_conversation_session(session_id).await {
             let mut cs = cs.write().await;
             cs.set_plan_file_path(None);
-        }
-        let cm = self.checkpoint_manager.read().await;
-        if let Some(cm) = cm.as_ref() {
-            session_helpers::clear_plan_state_checkpoint(cm.as_ref(), session_id).await;
         }
     }
 
