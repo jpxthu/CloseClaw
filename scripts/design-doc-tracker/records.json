@@ -401,11 +401,11 @@
   },
   {
     "path": "docs/design/mode/plan-mode.md",
-    "commit": "a15aa179b7f33c39da5f888728cb8a899717d91a",
-    "commit_time": "2026-08-23T17:05:33+08:00",
-    "confirmed_time": "2026-09-04T22:13:03.212978+08:00",
+    "commit": "7a0276e232e7cb32f9432868481515cc117d1668",
+    "commit_time": "2026-09-04T22:15:08+08:00",
+    "confirmed_time": "2026-09-04T22:39:17.093870+08:00",
     "comment": "",
-    "blocked_reason": "Interview 路径探索语义文档内部矛盾：plan-mode.md 主文档（双路径架构节及 Interview 数据流节）要求循环中 spawn Explore Agent 探索，而同文档 §Agent 类型/模块内关系声明 prompt 模板逐字定义于 references/prompts.md §7；该文件 Interview prompt（Iterative Planning Workflow）明确指示父 Agent 直接使用只读工具探索（'Use read-only tools to read code'），无 spawn 语义——两份设计文档对同一行为给出相反规范，且 prompts.md 标准路径明确写有 'Launch Explore sub-agents IN PARALLEL'，说明 Interview 省略 spawn 是有意为之而非笔误。代码 mode_prompts.rs 逐字实现 prompts.md，无法同时对齐两份文档，需 Owner 裁决 Interview 路径的探索语义（父 Agent 只读探索 vs spawn Explore 子 Agent）并统一文档。"
+    "blocked_reason": "文档内部矛盾：shared-types.md 将 Interview 定义为 PlanPhase 枚举阶段值（5 值枚举），plan-mode.md 明确「Interview 路径：无固定阶段」——两文档对 Interview 建模冲突，代码无法同时对齐（当前代码按 plan-mode.md 语义实现 4 值枚举）。另 PlanState.pending_steps 文档承诺 compaction 保护/恢复用途但代码无实现路径，待文档矛盾澄清后处理"
   },
   {
     "path": "docs/design/mode/references/prompts.md",
