@@ -3,9 +3,7 @@
 
 use crate::Message;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
-use closeclaw_session::persistence::{
-    PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
-};
+use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionStatus};
 use closeclaw_session::workspace;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -210,19 +208,6 @@ pub(super) async fn try_restore_archived_session_inner(
     RestoreResult {
         restored: true,
         notification_chat_id,
-    }
-}
-
-/// Load a session checkpoint from storage.
-///
-/// Returns `None` if storage is unavailable or checkpoint does not exist.
-pub(super) async fn load_checkpoint(
-    cm: &CheckpointManager<dyn PersistenceService>,
-    session_id: &str,
-) -> Option<SessionCheckpoint> {
-    match cm.load(session_id).await {
-        Ok(Some(cp)) => Some(cp),
-        _ => None,
     }
 }
 

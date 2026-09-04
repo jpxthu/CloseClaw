@@ -289,6 +289,7 @@ impl SessionManager {
         let result =
             session_helpers::try_restore_archived_session_inner(&storage_arc, session_id, channel)
                 .await;
+        // Store the notification chat_id for Gateway to send via outbound chain.
         if let Some(chat_id) = result.notification_chat_id {
             let mut pending = self.pending_restore_notifications.write().await;
             pending.insert(session_id.to_string(), (chat_id, None));
@@ -379,6 +380,8 @@ impl SessionManager {
         message: &Message,
         account_id: Option<&str>,
     ) -> Result<String, ProcessError> {
+        // Channel-level override: if a channel has an active session
+        // (e.g. from /new), route directly to it.
         let channel_override = {
             let channel_map = self.channel_active_sessions.read().await;
             if let Some(active_id) = channel_map.get(channel) {
@@ -416,11 +419,13 @@ impl SessionManager {
             .collect()
     }
 
+    /// Get all active sessions.
     pub async fn get_all_sessions(&self) -> Vec<Session> {
         let sessions = self.sessions.read().await;
         sessions.values().cloned().collect()
     }
 
+    /// Check if a session with the given ID exists.
     pub async fn has_session(&self, session_id: &str) -> bool {
         let sessions = self.sessions.read().await;
         sessions.contains_key(session_id)
@@ -508,6 +513,7 @@ impl SessionManager {
             // Load existing checkpoint to preserve fields like thread_id (Bug #904).
             let mut cp = match cm.load(session_id).await {
                 Ok(Some(mut cp)) => {
+                    // Update fields from active session state
                     cp.status = SessionStatus::Active;
                     cp.platform = Some(session.channel.clone());
                     cp.peer_id = Some(session.agent_id.clone());
@@ -625,6 +631,7 @@ impl SessionManager {
             let registry = self.key_registry.read().await;
             registry.get(&routing_key).cloned()
         }?;
+        // Verify the session is still active (exists in sessions map).
         let exists = {
             let sessions = self.sessions.read().await;
             sessions.contains_key(&session_id)
@@ -720,29 +727,29 @@ impl SessionManager {
     pub async fn get_thread_id(&self, session_id: &str) -> Option<String> {
         let cm = self.checkpoint_manager.read().await;
         let cm = cm.as_ref()?;
-        session_helpers::load_checkpoint(cm.as_ref(), session_id)
-            .await
-            .map(|cp| cp.thread_id)
-            .flatten()
+        match cm.load(session_id).await {
+            Ok(Some(cp)) => cp.thread_id,
+            _ => None,
+        }
     }
 
     pub async fn get_reply_ref(&self, session_id: &str) -> Option<String> {
         let cm = self.checkpoint_manager.read().await;
         let cm = cm.as_ref()?;
-        session_helpers::load_checkpoint(cm.as_ref(), session_id)
-            .await
-            .map(|cp| cp.reply_ref)
-            .flatten()
+        match cm.load(session_id).await {
+            Ok(Some(cp)) => cp.reply_ref,
+            _ => None,
+        }
     }
 
     /// Get the sender_id (user ID) for a session from its checkpoint.
     pub async fn get_sender_id(&self, session_id: &str) -> Option<String> {
         let cm = self.checkpoint_manager.read().await;
         let cm = cm.as_ref()?;
-        session_helpers::load_checkpoint(cm.as_ref(), session_id)
-            .await
-            .map(|cp| cp.sender_id)
-            .flatten()
+        match cm.load(session_id).await {
+            Ok(Some(cp)) => cp.sender_id,
+            _ => None,
+        }
     }
 
     /// Get the plan_state from the session checkpoint.
@@ -750,15 +757,20 @@ impl SessionManager {
     pub async fn get_plan_state(&self, session_id: &str) -> Option<closeclaw_common::PlanState> {
         let cm = self.checkpoint_manager.read().await;
         let cm = cm.as_ref()?;
-        session_helpers::load_checkpoint(cm.as_ref(), session_id)
-            .await
-            .and_then(|cp| cp.plan_state)
+        match cm.load(session_id).await {
+            Ok(Some(cp)) => cp.plan_state,
+            _ => None,
+        }
     }
 
     /// Set plan_state on the session checkpoint.
     pub async fn set_plan_state(&self, session_id: &str, plan_state: closeclaw_common::PlanState) {
-        let plan_file_path =
-            (!plan_state.plan_file_path.is_empty()).then(|| plan_state.plan_file_path.clone());
+        // Sync plan_file_path to ConversationSession for Auto Mode injection.
+        let plan_file_path = if plan_state.plan_file_path.is_empty() {
+            None
+        } else {
+            Some(plan_state.plan_file_path.clone())
+        };
         if let Some(cs) = self.get_conversation_session(session_id).await {
             let mut cs = cs.write().await;
             cs.set_plan_file_path(plan_file_path);
@@ -785,8 +797,7 @@ impl SessionManager {
         }
     }
 
-    /// Clear the plan state for a session, destroying any active plan.
-    /// Called when exiting Plan Mode (e.g. `/mode normal`, `/auto`).
+    /// Clear plan state when exiting Plan Mode (e.g. `/mode normal`, `/auto`).
     pub async fn clear_plan_state(&self, session_id: &str) {
         // Clear checkpoint first; skip ConversationSession if checkpoint fails.
         let cm = self.checkpoint_manager.read().await;
@@ -806,8 +817,6 @@ impl SessionManager {
     }
 
     /// Rebuild the system prompt for a session.
-    /// Delegates to `ConversationSession::rebuild_system_prompt` which
-    /// uses the session's own builder and overrides.
     pub async fn rebuild_system_prompt_for_session(&self, session_id: &str) {
         let cs = match self.get_conversation_session(session_id).await {
             Some(cs) => cs,
@@ -826,25 +835,14 @@ impl SessionManager {
             .await;
     }
 
-    /// Notify all active sessions that a configuration section has been updated.
-    ///
-    /// Iterates through all active sessions and rebuilds their system prompt
-    /// so the next LLM request picks up the latest config values (tools,
-    /// skills, system-prompt sections, etc.). Sessions themselves are not
-    /// rebuilt; only the cached system prompt is invalidated.
-    ///
-    /// Sessions already observe the latest config values through the shared
-    /// `Arc<ConfigManager>` reference, so this notification is the only
-    /// explicit refresh needed to invalidate derived caches.
-    ///
-    /// The `snapshot` parameter carries the latest config snapshot for
-    /// downstream reference-swap semantics (fully utilised in Step 1.3).
+    /// Notify all active sessions that a config section changed.
     pub async fn notify_config_changed(&self, section: ConfigSection, snapshot: ConfigSnapshot) {
         tracing::info!(
             section = %section,
             snapshot_sections = snapshot.len(),
             "session_manager: config change notification received"
         );
+        // Swap in the new config snapshot (old one auto-released).
         self.swap_config_snapshot(snapshot).await;
         let session_ids: Vec<String> = {
             let sessions = self.sessions.read().await;
