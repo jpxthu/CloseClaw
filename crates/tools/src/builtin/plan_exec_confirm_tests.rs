@@ -504,3 +504,103 @@ async fn concurrent_confirm_same_id_only_once() {
         r2
     );
 }
+
+// ── Step 1.3: Plan Mode → Auto pending transition ─────────────────────
+// Validates: Plan Mode 下自然语言触发执行 → 退出 Plan + pending Auto
+// (execution.md L120: session 标记 Auto Mode，切换不立即生效)
+
+#[tokio::test]
+async fn confirm_plan_mode_sets_pending_auto_not_immediate() {
+    let (mock, sm) = make_mock();
+    let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
+    let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
+
+    // Set up session in Plan mode with a plan state
+    let mut ps = PlanState::new();
+    ps.plan_file_path = "/tmp/plan.md".to_string();
+    mock.state()
+        .plan_states
+        .insert("session-plan".to_string(), ps);
+    mock.state()
+        .modes
+        .insert("session-plan".to_string(), SessionMode::Plan);
+
+    let meta = PlanExecMetadata {
+        plan_file_path: "/tmp/plan.md".to_string(),
+        step_selection: None,
+        new_session: false,
+        additional_instruction: None,
+    };
+    let id = flow.submit("session-plan", meta).await;
+
+    assert!(flow.confirm(&id).await);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let state = mock.state();
+    // Mode should be written to pending_modes (lazy), not modes (immediate)
+    assert_eq!(
+        state.pending_modes.get("session-plan"),
+        Some(&SessionMode::Auto),
+        "same-session confirm should set pending_session_mode to Auto (not immediate)"
+    );
+    // Immediate mode should NOT be changed (still Plan until lazy apply)
+    assert_eq!(
+        state.modes.get("session-plan"),
+        Some(&SessionMode::Plan),
+        "immediate mode should remain Plan until lazy application"
+    );
+    // Plan state should be updated to FinalPlan
+    let ps = state.plan_states.get("session-plan").unwrap();
+    assert_eq!(ps.phase, PlanPhase::FinalPlan);
+}
+
+// ── Step 1.3: New-session path → immediate Auto ────────────────────────
+// Validates: 新 session 路径 → 立即 Auto (execution.md L134)
+// This test anchors the contrast: new-session sets modes (immediate),
+// same-session sets pending_modes (lazy).
+
+#[tokio::test]
+async fn confirm_new_session_sets_immediate_auto() {
+    let (mock, sm) = make_mock();
+    let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
+    let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
+
+    let tmp_dir = tempfile::tempdir().unwrap();
+    let plan_path = tmp_dir.path().join("plan.md");
+    std::fs::write(&plan_path, "# Plan\nStep 1").unwrap();
+    let plan_path_str = plan_path.to_string_lossy().to_string();
+
+    insert_plan_state(&mock, "parent-sess", &plan_path_str);
+    mock.state()
+        .modes
+        .insert("parent-sess".to_string(), SessionMode::Plan);
+
+    let create_fn: CreateChildSessionFn =
+        Arc::new(|parent, _plan, _steps| Box::pin(async move { Ok(format!("child-of-{parent}")) }));
+    flow.set_create_child_session_fn(create_fn);
+
+    let meta = PlanExecMetadata {
+        plan_file_path: plan_path_str,
+        step_selection: None,
+        new_session: true,
+        additional_instruction: None,
+    };
+    let id = flow.submit("parent-sess", meta).await;
+    assert!(flow.confirm(&id).await);
+
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let state = mock.state();
+    let child_id = "child-of-parent-sess";
+    // New session: mode is set immediately (not pending)
+    assert_eq!(
+        state.modes.get(child_id),
+        Some(&SessionMode::Auto),
+        "new-session path should set mode to Auto immediately"
+    );
+    // pending_modes should NOT have an entry for child (it goes through set_session_mode)
+    assert!(
+        !state.pending_modes.contains_key(child_id),
+        "new-session path should not use pending_mode (immediate application)"
+    );
+}

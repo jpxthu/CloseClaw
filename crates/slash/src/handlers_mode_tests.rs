@@ -648,6 +648,77 @@ async fn test_mode_handler_no_args_shows_current_mode() {
 // NOTE: test_mode_handler_invalid_exact_match removed — it duplicates
 // test_mode_handler_invalid_mode which already asserts the exact doc format.
 
+// ── /mode edge cases: case-insensitive rejection (Step 1.3) ───────────
+
+#[tokio::test]
+async fn test_mode_handler_auto_uppercase_returns_invalid_mode() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
+    match h.handle("AUTO", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert_eq!(
+                text, "无效模式。可用：normal, plan",
+                "/mode AUTO should return invalid mode error (case-insensitive)"
+            );
+        }
+        other => panic!("expected Reply error for /mode AUTO, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_mode_handler_auto_mixed_case_returns_invalid_mode() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
+    match h.handle("Auto", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert_eq!(
+                text, "无效模式。可用：normal, plan",
+                "/mode Auto should return invalid mode error (case-insensitive)"
+            );
+        }
+        other => panic!("expected Reply error for /mode Auto, got {other:?}"),
+    }
+}
+
+// ── /mode (no-args) query across modes: mode unchanged (Step 1.3) ────
+
+#[tokio::test]
+async fn test_mode_handler_no_args_does_not_change_mode() {
+    let sm = make_session_manager_with_storage();
+    let h = ModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    // Query from Plan mode — mode should remain Plan after query
+    let sid = create_session_with_plan_mode(&sm).await;
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Plan"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+    // Verify mode is still Plan (no side effect)
+    let mode = sm.get_session_mode(&sid).await;
+    assert_eq!(
+        mode,
+        Some(closeclaw_common::SessionMode::Plan),
+        "/mode (no-args) should not change the session mode"
+    );
+    // Query from Auto mode — mode should remain Auto after query
+    let sid = create_session_with_auto_mode(&sm).await;
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Auto"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+    let mode = sm.get_session_mode(&sid).await;
+    assert_eq!(
+        mode,
+        Some(closeclaw_common::SessionMode::Auto),
+        "/mode (no-args) should not change the session mode"
+    );
+}
+
 // ── PlanModeHandler transition tests (Step 1.3 — Gap 1 transitions) ─────
 
 // ── Auto mode helper (for tests that need sessions in auto mode) ────────
