@@ -87,7 +87,7 @@ mod tests {
         let ctx = SideEffectContext {
             session_id: "smoke-test-session".into(),
             channel: "test".into(),
-            session_manager: std::sync::Arc::new(MockLookup),
+            session_lookup: std::sync::Arc::new(MockLookup),
             reply_tx: tx,
             executor: std::sync::Arc::new(MockExecutor),
         };

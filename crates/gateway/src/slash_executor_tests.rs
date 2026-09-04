@@ -190,7 +190,7 @@ fn make_ctx() -> (
     let ctx = SideEffectContext {
         session_id: "sess-1".into(),
         channel: "feishu".into(),
-        session_manager: lookup,
+        session_lookup: lookup,
         reply_tx: tx,
         executor: executor.clone(),
     };
@@ -492,7 +492,7 @@ async fn test_exec_failure_forwards_error_to_user() {
     let ctx = SideEffectContext {
         session_id: "sess-fail".into(),
         channel: "feishu".into(),
-        session_manager: Arc::new(MockSessionLookup::new()),
+        session_lookup: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor,
     };
@@ -761,7 +761,7 @@ async fn test_side_effect_context_closed_channel_no_panic() {
     let ctx = SideEffectContext {
         session_id: "sess-closed".into(),
         channel: "feishu".into(),
-        session_manager: Arc::new(MockSessionLookup::new()),
+        session_lookup: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor,
     };
@@ -781,7 +781,7 @@ async fn test_side_effect_context_new_session_closed_channel() {
     let ctx = SideEffectContext {
         session_id: "sess-closed-ns".into(),
         channel: "telegram".into(),
-        session_manager: Arc::new(MockSessionLookup::new()),
+        session_lookup: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor: executor.clone(),
     };

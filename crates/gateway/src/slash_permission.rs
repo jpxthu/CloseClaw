@@ -356,7 +356,7 @@ impl Gateway {
         let side_effect_ctx = SideEffectContext {
             session_id: session_id.to_owned(),
             channel: channel.to_owned(),
-            session_manager: session_mgr,
+            session_lookup: session_mgr,
             reply_tx,
             executor,
         };

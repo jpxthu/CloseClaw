@@ -102,7 +102,7 @@ fn make_counting_ctx(
     let ctx = SideEffectContext {
         session_id: "sess-counting".into(),
         channel: "feishu".into(),
-        session_manager: Arc::new(MockSessionLookup),
+        session_lookup: Arc::new(MockSessionLookup),
         reply_tx: tx,
         executor: exec,
     };
@@ -217,7 +217,7 @@ async fn test_system_append_clear_zero_items() {
     let ctx = SideEffectContext {
         session_id: "sess-zero".into(),
         channel: "feishu".into(),
-        session_manager: Arc::new(MockSessionLookup),
+        session_lookup: Arc::new(MockSessionLookup),
         reply_tx: tx,
         executor: Arc::new(ZeroClearMockExecutor),
     };
