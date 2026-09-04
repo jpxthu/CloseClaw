@@ -97,9 +97,9 @@
   },
   {
     "path": "docs/design/common/shared-types.md",
-    "commit": "44bb94ded88faaf9100611bfccaf9354239f4fed",
-    "commit_time": "2026-08-30T18:48:14+08:00",
-    "confirmed_time": "2026-08-30T18:54:29.705630+08:00",
+    "commit": "7feafc21c4dc1f65c5955a6b401b4d3f5494f592",
+    "commit_time": "2026-09-04T13:42:19+08:00",
+    "confirmed_time": "2026-09-04T13:54:05.902234+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -257,9 +257,9 @@
   },
   {
     "path": "docs/design/llm/README.md",
-    "commit": "67449a3f72645743045900fc04bde6efa435ce6e",
-    "commit_time": "2026-09-04T01:06:07+08:00",
-    "confirmed_time": "2026-09-04T03:02:27.006953+08:00",
+    "commit": "1b1580cdeadb5442a3ef164eb10f724308f1051b",
+    "commit_time": "2026-09-04T13:55:15+08:00",
+    "confirmed_time": "2026-09-04T14:11:34.916213+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -313,11 +313,11 @@
   },
   {
     "path": "docs/design/llm/providers/mimo.md",
-    "commit": "583064d333e431424fc71c9bcd3f6ae3333cd1ec",
-    "commit_time": "2026-09-03T22:40:36+08:00",
-    "confirmed_time": "2026-09-03T23:04:10.351986+08:00",
+    "commit": "7feafc21c4dc1f65c5955a6b401b4d3f5494f592",
+    "commit_time": "2026-09-04T13:42:19+08:00",
+    "confirmed_time": "2026-09-04T13:45:06.543876+08:00",
     "comment": "",
-    "blocked_reason": "F2b 第 3 轮仲裁仍无法收敛：文档「thinking 行为」称 Anthropic 协议 signature 始终为空字符串，但未界定语义层级——wire format 层代码为 Some(\"\")（一致），统一响应层经 MimoInterpreter(preserve_signature=false) 归一为 None（不一致）；且该 Anthropic 解析路径当前为死代码（call_chain 仅注册 OpenAiProtocol），无法确定代码应对齐的目标形态，需 Owner 澄清文档语义"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/llm/providers/minimax.md",
