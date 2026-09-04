@@ -49,7 +49,7 @@ mod handlers_tests_system;
 #[cfg(test)]
 mod handlers_git_tests;
 #[cfg(test)]
-mod handlers_mode_tests;
+pub mod handlers_mode_tests;
 #[cfg(test)]
 mod handlers_permission_tests;
 

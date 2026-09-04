@@ -237,7 +237,7 @@ pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
             .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "cannot insert access timestamp: title heading not found",
+                    "cannot insert access timestamp: plan file must start with a '# Title' heading",
                 )
             })?;
         content.insert_str(insert_pos, &format!("{marker}\n"));

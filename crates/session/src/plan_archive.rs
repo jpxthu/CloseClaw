@@ -103,32 +103,14 @@ impl PlanArchiver {
                 Ok(Some(access_ts)) => now.signed_duration_since(access_ts) > threshold,
                 Ok(None) => {
                     // Legacy plan without access timestamp — fallback to mtime
-                    let metadata = std::fs::metadata(&path)?;
-                    let mtime = metadata
-                        .modified()
-                        .ok()
-                        .map(|t| {
-                            let dt: chrono::DateTime<chrono::Utc> = t.into();
-                            dt
-                        })
-                        .unwrap_or_else(chrono::Utc::now);
-                    now.signed_duration_since(mtime) > threshold
+                    is_mtime_exceeded(&path, now, threshold)?
                 }
                 Err(e) => {
                     warn!(
                         "failed to read access timestamp for {}: {e}, falling back to mtime",
                         path.display()
                     );
-                    let metadata = std::fs::metadata(&path)?;
-                    let mtime = metadata
-                        .modified()
-                        .ok()
-                        .map(|t| {
-                            let dt: chrono::DateTime<chrono::Utc> = t.into();
-                            dt
-                        })
-                        .unwrap_or_else(chrono::Utc::now);
-                    now.signed_duration_since(mtime) > threshold
+                    is_mtime_exceeded(&path, now, threshold)?
                 }
             };
 
@@ -148,6 +130,27 @@ impl PlanArchiver {
 
         Ok(archived_count)
     }
+}
+
+/// Check whether the filesystem mtime of `path` exceeds the given threshold.
+///
+/// Returns `Ok(true)` when the file is old enough to archive, `Ok(false)`
+/// otherwise.  Propagates I/O errors from reading metadata.
+fn is_mtime_exceeded(
+    path: &Path,
+    now: chrono::DateTime<chrono::Utc>,
+    threshold: chrono::Duration,
+) -> Result<bool, ArchiveError> {
+    let metadata = std::fs::metadata(path)?;
+    let mtime = metadata
+        .modified()
+        .ok()
+        .map(|t| {
+            let dt: chrono::DateTime<chrono::Utc> = t.into();
+            dt
+        })
+        .unwrap_or_else(chrono::Utc::now);
+    Ok(now.signed_duration_since(mtime) > threshold)
 }
 
 /// Archive completed plans in a workspace.

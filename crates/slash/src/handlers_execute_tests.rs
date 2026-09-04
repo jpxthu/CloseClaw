@@ -434,7 +434,7 @@ async fn test_execute_non_plan_mode_with_name_and_instruction() {
 // ── Access timestamp refresh tests (Step 1.3 touch-point) ──────────────
 
 /// Helper: create a plan file with a known old access timestamp marker.
-fn write_plan_with_old_timestamp(workdir: &std::path::Path, stem: &str) {
+pub(crate) fn write_plan_with_old_timestamp(workdir: &std::path::Path, stem: &str) {
     let plans = workdir.join("plans");
     std::fs::create_dir_all(&plans).unwrap();
     std::fs::write(

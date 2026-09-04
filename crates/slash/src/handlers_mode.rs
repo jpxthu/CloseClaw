@@ -2,6 +2,7 @@
 //!
 //! `/plan` enters Plan Mode; `/mode` queries or switches session mode.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::context::SlashContext;
@@ -147,6 +148,31 @@ pub(crate) fn parse_execute_args(args: &str) -> (String, Option<String>) {
     }
 }
 
+/// Resolve a relative plan file path to absolute and refresh its
+/// application-layer access timestamp.
+///
+/// Failures are logged as warnings but do not propagate — the caller
+/// should continue regardless of whether the touch succeeded.
+fn refresh_plan_access_timestamp(plan_file_path: Option<&Path>, workdir: Option<&Path>) {
+    let Some(path) = plan_file_path else {
+        return;
+    };
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        workdir
+            .map(|wd| wd.join(path))
+            .unwrap_or_else(|| path.to_path_buf())
+    };
+    if let Err(e) = plan_file::touch_access_timestamp(&abs_path) {
+        tracing::warn!(
+            plan_file = %abs_path.display(),
+            error = %e,
+            "failed to touch access timestamp in /execute"
+        );
+    }
+}
+
 // ── AutoModeHandler ──────────────────────────────────────────────────────
 
 /// `/auto` — directly enter Auto Mode.
@@ -250,22 +276,7 @@ impl ExecuteHandler {
             }
         };
         // Refresh access timestamp so the plan does not get archived prematurely
-        if let Some(ref path) = plan_file_path {
-            let abs_path = if path.is_absolute() {
-                path.clone()
-            } else {
-                workdir
-                    .map(|wd| wd.join(path))
-                    .unwrap_or_else(|| path.clone())
-            };
-            if let Err(e) = plan_file::touch_access_timestamp(&abs_path) {
-                tracing::warn!(
-                    plan_file = %abs_path.display(),
-                    error = %e,
-                    "failed to touch access timestamp in /execute"
-                );
-            }
-        }
+        refresh_plan_access_timestamp(plan_file_path.as_deref(), workdir);
 
         SlashResult::SetMode {
             mode: "auto".to_owned(),
@@ -301,20 +312,7 @@ impl ExecuteHandler {
             }
         };
         // Refresh access timestamp so the plan does not get archived prematurely
-        let abs_path = if plan_file_path.is_absolute() {
-            plan_file_path.clone()
-        } else {
-            workdir
-                .map(|wd| wd.join(&plan_file_path))
-                .unwrap_or_else(|| plan_file_path.clone())
-        };
-        if let Err(e) = plan_file::touch_access_timestamp(&abs_path) {
-            tracing::warn!(
-                plan_file = %abs_path.display(),
-                error = %e,
-                "failed to touch access timestamp in /execute"
-            );
-        }
+        refresh_plan_access_timestamp(Some(&plan_file_path), workdir);
 
         SlashResult::SetMode {
             mode: "auto".to_owned(),

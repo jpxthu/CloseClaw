@@ -528,16 +528,7 @@ async fn test_view_plan_file_not_readable() {
 
 // ── Access timestamp NOT refreshed on browse (Step 1.3) ────────────────
 
-/// Helper: create a plan file with a known old access timestamp marker.
-fn write_plan_with_old_timestamp(workdir: &std::path::Path, stem: &str) {
-    let plans = workdir.join("plans");
-    std::fs::create_dir_all(&plans).unwrap();
-    std::fs::write(
-        plans.join(format!("{stem}.md")),
-        "# Old Plan\n<!-- accessed: 2020-01-01T00:00:00Z -->\n\n## Tasks\n\n- [ ] step1\n",
-    )
-    .unwrap();
-}
+use crate::handlers_mode_tests::handlers_execute_tests::write_plan_with_old_timestamp;
 
 #[tokio::test]
 async fn test_list_plans_does_not_refresh_access_timestamp() {
