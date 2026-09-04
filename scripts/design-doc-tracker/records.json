@@ -385,9 +385,9 @@
   },
   {
     "path": "docs/design/mode/execution.md",
-    "commit": "f638ec63ac2b11ec32781a4097c4f0535b08e6cd",
-    "commit_time": "2026-08-19T11:43:13+08:00",
-    "confirmed_time": "2026-08-19T11:55:16.903691+08:00",
+    "commit": "fead42d5f3e213439b7a3027e465b63c7a2f4bbc",
+    "commit_time": "2026-09-04T12:40:02+08:00",
+    "confirmed_time": "2026-09-04T12:49:48.658648+08:00",
     "comment": "",
     "blocked_reason": ""
   },
