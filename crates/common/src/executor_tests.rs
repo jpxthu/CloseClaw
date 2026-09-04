@@ -150,6 +150,8 @@ struct MockSessionLookup {
     plan_state: Arc<Mutex<Option<crate::PlanState>>>,
     /// Tracks whether `clear_plan_state` was called.
     clear_called: Arc<Mutex<bool>>,
+    /// Tracks `set_plan_state` call count.
+    set_plan_state_calls: Arc<Mutex<u32>>,
 }
 
 impl MockSessionLookup {
@@ -159,6 +161,7 @@ impl MockSessionLookup {
             chat_id,
             plan_state: Arc::new(Mutex::new(None)),
             clear_called: Arc::new(Mutex::new(false)),
+            set_plan_state_calls: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -168,6 +171,7 @@ impl MockSessionLookup {
             chat_id: None,
             plan_state: Arc::new(Mutex::new(None)),
             clear_called: Arc::new(Mutex::new(false)),
+            set_plan_state_calls: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -179,6 +183,7 @@ impl MockSessionLookup {
             chat_id: None,
             plan_state: plan.clone(),
             clear_called: Arc::new(Mutex::new(false)),
+            set_plan_state_calls: Arc::new(Mutex::new(0)),
         };
         (mock, plan)
     }
@@ -186,6 +191,11 @@ impl MockSessionLookup {
     /// Return a handle to the clear_called flag for test assertions.
     fn clear_called_handle(&self) -> Arc<Mutex<bool>> {
         self.clear_called.clone()
+    }
+
+    /// Return a handle to the set_plan_state call count.
+    fn set_plan_state_calls_handle(&self) -> Arc<Mutex<u32>> {
+        self.set_plan_state_calls.clone()
     }
 }
 
@@ -214,6 +224,7 @@ impl SessionLookup for MockSessionLookup {
 
     async fn set_plan_state(&self, _session_id: &str, plan_state: crate::PlanState) {
         *self.plan_state.lock().unwrap() = Some(plan_state);
+        *self.set_plan_state_calls.lock().unwrap() += 1;
     }
 
     async fn clear_plan_state(&self, _session_id: &str) {
@@ -952,4 +963,38 @@ async fn test_plan_file_path_cleared_in_non_plan_mode() {
     // When plan_state is None, plan_file_path is implicitly None too,
     // satisfying the design doc requirement that plan_file_path is
     // cleared on non-plan mode exit.
+}
+
+// ── Test: mode=auto + plan_file_path Some does not persist PlanState ──
+
+/// When `mode` is `"auto"` (not `"plan"`), `clear_plan_state` is called
+/// immediately after `set_plan_state`, so the final PlanState should be
+/// `None` even though `plan_file_path` was provided.
+#[tokio::test]
+async fn test_set_mode_auto_with_plan_file_path_does_not_persist_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(crate::PlanState::new());
+    let set_calls = mock_sl.set_plan_state_calls_handle();
+    let clear_handle = mock_sl.clear_called_handle();
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-auto-no-plan", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "auto".into(),
+        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/auto-plan.md")),
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    // set_plan_state was called (plan_file_path was provided).
+    assert_eq!(*set_calls.lock().unwrap(), 1);
+    // clear_plan_state was also called (mode != "plan").
+    assert!(*clear_handle.lock().unwrap());
+    // Final state: PlanState is None.
+    assert!(
+        plan_handle.lock().unwrap().is_none(),
+        "plan_state should be None because mode=auto triggers clear"
+    );
 }
