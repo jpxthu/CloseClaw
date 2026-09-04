@@ -21,8 +21,6 @@ pub enum PlanPhase {
     Review,
     /// 最终计划阶段
     FinalPlan,
-    /// 访谈阶段
-    Interview,
 }
 
 /// Plan Mode 状态 — 管理规划阶段、待办步骤和 plan 文件路径
