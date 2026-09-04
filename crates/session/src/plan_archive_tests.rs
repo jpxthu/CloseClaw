@@ -629,3 +629,158 @@ fn test_archiver_content_preserved_with_access_ts() {
     assert!(archived_content.contains("<!-- accessed:"));
     assert!(archived_content.contains("- [x] Do thing"));
 }
+
+// ── Branch tests: archive rename failure, malformed timestamp fallback ──
+
+/// When `read_access_timestamp` returns an error (e.g., permission denied,
+/// corrupted file), the archiver should fall back to mtime, not crash.
+#[test]
+fn test_archiver_read_access_ts_error_fallback_to_mtime() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_file(dir.path(), "err-ts.md", &["- [x] Step 1", "- [x] Step 2"]);
+    // Corrupt the marker so read_access_timestamp fails with InvalidData
+    let mut content = fs::read_to_string(&path).unwrap();
+    content.insert_str(
+        content.find('\n').unwrap() + 1,
+        "<!-- accessed: NOT-A-VALID-TIMESTAMP\n",
+    );
+    fs::write(&path, &content).unwrap();
+    // Set old mtime so fallback path should archive
+    set_old_mtime(&path);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(
+        count, 1,
+        "should archive via mtime fallback when access ts is corrupt"
+    );
+    assert!(!path.exists());
+    assert!(dir.path().join("plans/archive/err-ts.md").exists());
+}
+
+/// A plan with a malformed access timestamp marker (no closing `-->`)
+/// should fall back to mtime, not panic.
+#[test]
+fn test_archiver_malformed_marker_fallback_to_mtime() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_file(dir.path(), "malform.md", &["- [x] Done"]);
+    let mut content = fs::read_to_string(&path).unwrap();
+    // Insert malformed marker (missing closing -->)
+    let insert_pos = content.find("\n# ").map(|p| p + 1).unwrap_or(0);
+    content.insert_str(insert_pos, "<!-- accessed: 2020-01-01T00:00:00Z\n");
+    fs::write(&path, &content).unwrap();
+    set_old_mtime(&path);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(
+        count, 1,
+        "should archive via mtime fallback when marker is malformed"
+    );
+    assert!(!path.exists());
+}
+
+/// When archive directory is read-only, the archiver should return an error
+/// (rename fails) and not crash.
+#[test]
+fn test_archiver_rename_failure_returns_error() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_file(dir.path(), "fail-rename.md", &["- [x] Done"]);
+    set_old_mtime(&path);
+
+    // Create archive dir and a read-only destination file to block the rename
+    let archive_dir = dir.path().join("plans/archive");
+    fs::create_dir_all(&archive_dir).unwrap();
+    let dest = archive_dir.join("fail-rename.md");
+    fs::write(&dest, "existing").unwrap();
+    // Make the destination file read-only
+    let mut perms = fs::metadata(&dest).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&dest, perms).unwrap();
+    // Also make the archive dir read-only so rename can't replace
+    let mut dir_perms = fs::metadata(&archive_dir).unwrap().permissions();
+    dir_perms.set_readonly(true);
+    fs::set_permissions(&archive_dir, dir_perms).unwrap();
+
+    let archiver = PlanArchiver::new(7);
+    let result = archiver.archive(dir.path());
+    assert!(
+        result.is_err(),
+        "rename should fail when destination is read-only"
+    );
+    assert!(
+        path.exists(),
+        "original file should remain when rename fails"
+    );
+
+    // Cleanup: restore permissions so tempfile can delete
+    let mut p = fs::metadata(&dest).unwrap().permissions();
+    p.set_readonly(false);
+    fs::set_permissions(&dest, p).unwrap();
+    let mut dp = fs::metadata(&archive_dir).unwrap().permissions();
+    dp.set_readonly(false);
+    fs::set_permissions(&archive_dir, dp).unwrap();
+}
+
+/// When `std::fs::rename` fails (read-only destination), the archiver should
+/// propagate the error without panicking and leave the source file intact.
+#[test]
+fn test_archiver_rename_io_error_does_not_panic() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_file(dir.path(), "no-panic.md", &["- [x] Done"]);
+    set_old_mtime(&path);
+
+    // Create archive dir with a read-only file to block rename
+    let archive_dir = dir.path().join("plans/archive");
+    fs::create_dir_all(&archive_dir).unwrap();
+    let dest = archive_dir.join("no-panic.md");
+    fs::write(&dest, "block").unwrap();
+    let mut perms = fs::metadata(&dest).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&dest, perms).unwrap();
+    let mut dir_perms = fs::metadata(&archive_dir).unwrap().permissions();
+    dir_perms.set_readonly(true);
+    fs::set_permissions(&archive_dir, dir_perms).unwrap();
+
+    let archiver = PlanArchiver::new(7);
+    let result = archiver.archive(dir.path());
+    assert!(result.is_err());
+    assert!(path.exists(), "source should remain when rename fails");
+
+    // Cleanup: restore permissions so tempfile can delete
+    let mut p = fs::metadata(&dest).unwrap().permissions();
+    p.set_readonly(false);
+    fs::set_permissions(&dest, p).unwrap();
+    let mut dp = fs::metadata(&archive_dir).unwrap().permissions();
+    dp.set_readonly(false);
+    fs::set_permissions(&archive_dir, dp).unwrap();
+}
+
+/// Verify that `parse_step_markers` handles edge cases without panicking.
+#[test]
+fn test_parse_step_markers_empty_content() {
+    let states = parse_step_markers("");
+    assert!(states.is_empty());
+}
+
+#[test]
+fn test_parse_step_markers_only_brackets() {
+    let states = parse_step_markers("- []\n- [x]\n");
+    // Empty bracket `[]` should be ignored (unknown marker)
+    assert_eq!(states, vec![StepState::Done]);
+}
+
+/// Verify that `is_completed_plan` returns false for a plan with no tasks
+/// section (avoids archiving empty or never-started plans).
+#[test]
+fn test_is_completed_plan_no_tasks_section() {
+    let content = "# Plan\n\n## Context\n\nSome context.\n";
+    assert!(!is_completed_plan(content));
+}
+
+/// Verify that a plan with only `- [-]` (in-progress) steps is NOT completed.
+#[test]
+fn test_is_not_completed_all_in_progress() {
+    let content = "## Tasks\n\n- [-] Step 1\n- [-] Step 2\n";
+    assert!(!is_completed_plan(content));
+}

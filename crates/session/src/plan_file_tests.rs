@@ -991,3 +991,4 @@ fn test_touch_replaces_existing_marker() {
         1
     );
 }
+// Branch tests for access timestamp are in plan_file_access_timestamp_tests.rs
