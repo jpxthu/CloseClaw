@@ -73,7 +73,7 @@ LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发�
 - [minimax](providers/minimax.md) — Anthropic 协议，M2.7 下 thinking 独立内容块（M3 下不输出），支持 cache_control
 - [glm](providers/glm.md) — OpenAI 协议，reasoning_content 独立字段，Anthropic 下 thinking 易丢失
 - [deepseek](providers/deepseek.md) — 双协议，Anthropic 略优（signature 可追溯），thinking 无法关闭
-- [mimo](providers/mimo.md) — OpenAI 协议（略优），thinking 默认行为，signature 为空
+- [mimo](providers/mimo.md) — 双协议，OpenAI 略优（signature 为空），thinking 二元开关
 
 ## 数据流
 
