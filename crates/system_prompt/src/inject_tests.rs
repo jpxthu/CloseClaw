@@ -114,7 +114,7 @@ fn test_plan_mode_renders_standard_path() {
         .find(|s| s.name() == "mode_instruction")
         .unwrap()
         .render();
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Research"));
     assert!(rendered.contains("Phase 4: Final Plan"));
     // Full path selection includes both paths
     assert!(rendered.contains("pair-planning"));
@@ -133,7 +133,7 @@ fn test_plan_mode_renders_interview_path() {
     assert!(rendered.contains("pair-planning"));
     assert!(rendered.contains("The Loop"));
     // Full path selection includes both paths
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Research"));
 }
 
 /// Plan mode auto-analysis with a clear bug-fix input renders full path selection.
@@ -152,7 +152,7 @@ fn test_plan_mode_auto_analysis_clear_input() {
         .unwrap()
         .render();
     // Full path selection always renders all paths
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Research"));
     assert!(rendered.contains("Phase 4: Final Plan"));
     assert!(rendered.contains("pair-planning"));
 }
@@ -173,7 +173,7 @@ fn test_plan_mode_auto_analysis_ambiguous_input() {
     // Full path selection always renders all paths
     assert!(rendered.contains("pair-planning"));
     assert!(rendered.contains("The Loop"));
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Research"));
 }
 
 // ── Path selection rules injection tests ───────────────────────────────────
@@ -196,7 +196,7 @@ fn test_plan_mode_includes_path_selection_rules() {
     assert!(rendered.contains("Standard 4-phase workflow"));
     assert!(rendered.contains("Interview (iterative) workflow"));
     // Should also contain both paths (standard and interview)
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Research"));
     assert!(rendered.contains("pair-planning"));
 }
 

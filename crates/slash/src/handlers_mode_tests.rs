@@ -204,6 +204,84 @@ async fn test_plan_mode_handler_no_args_enters_plan_mode() {
     );
 }
 
+// ── PlanModeHandler IdentifierFormat tests (Step 1.4) ─────────────────────
+
+#[tokio::test]
+async fn test_plan_handler_timestamp_format_creates_timestamp_plan_file() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::Timestamp,
+    );
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("实现一个新功能", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+            ..
+        } => {
+            assert_eq!(mode, "plan");
+            let path = plan_file_path.expect("plan_file_path should be Some");
+            let name = path
+                .file_stem()
+                .expect("should have file stem")
+                .to_string_lossy();
+            // Timestamp format: yyyy-MM-dd-HH-mm-ss-{slug}
+            assert!(
+                name.contains("-"),
+                "timestamp identifier should contain hyphens, got: {}",
+                name
+            );
+            // Should NOT be random words (3 words separated by hyphens only)
+            assert!(
+                name.len() > 20,
+                "timestamp identifier should be longer than random words, got: {}",
+                name
+            );
+            assert!(path.exists(), "plan file should exist on disk");
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_plan_handler_random_words_format_creates_random_plan_file() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::RandomWords,
+    );
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("实现一个新功能", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+            ..
+        } => {
+            assert_eq!(mode, "plan");
+            let path = plan_file_path.expect("plan_file_path should be Some");
+            let name = path
+                .file_stem()
+                .expect("should have file stem")
+                .to_string_lossy();
+            // Random words format: {adjective}-{noun}-{noun}
+            let parts: Vec<&str> = name.split('-').collect();
+            assert_eq!(
+                parts.len(),
+                3,
+                "random words identifier should have 3 parts, got: {}",
+                name
+            );
+            assert!(path.exists(), "plan file should exist on disk");
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
 // ── ModeHandler tests ──────────────────────────────────────────────────────
 
 #[test]

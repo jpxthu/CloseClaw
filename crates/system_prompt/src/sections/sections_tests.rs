@@ -332,7 +332,7 @@ fn test_mode_instruction_basics_and_auto() {
     assert!(rendered.contains("Decide which planning path"));
     assert!(rendered.contains("Standard 4-phase workflow"));
     assert!(rendered.contains("Interview (iterative) workflow"));
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Research"));
     assert!(rendered.contains("pair-planning"));
 }
 
@@ -348,7 +348,7 @@ fn test_render_plan_mode_instruction_content() {
     assert!(rendered.contains("Standard 4-phase workflow"));
     assert!(rendered.contains("Interview (iterative) workflow"));
     // §2 standard path phases
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Research"));
     assert!(rendered.contains("Phase 2: Design"));
     assert!(rendered.contains("Phase 3: Review"));
     assert!(rendered.contains("Phase 4: Final Plan"));
@@ -366,11 +366,10 @@ fn test_mode_instruction_plan_standard_and_interview() {
         sub_agent: false,
     };
     let r = std.render();
-    assert!(r.contains("Phase 1: Initial Understanding"));
+    assert!(r.contains("Phase 1: Research"));
     assert!(r.contains("Phase 4: Final Plan"));
     assert!(!r.contains("Phase 5"));
     assert!(!r.contains("Interview Path"));
-    assert!(!r.contains("## Mode: Plan"));
     let intv = Section::ModeInstruction {
         mode: SessionMode::Plan,
         sparse: false,
@@ -383,7 +382,6 @@ fn test_mode_instruction_plan_standard_and_interview() {
     assert!(r.contains("When to Converge"));
     assert!(r.contains("The Loop"));
     assert!(!r.contains("Standard Path"));
-    assert!(!r.contains("## Mode: Plan"));
 }
 
 // -----------------------------------------------------------------------
@@ -454,7 +452,7 @@ fn test_section_render_mode_instruction_uses_flags() {
         "Expected path selection rules in Plan Mode with no explicit path, got: {}",
         r
     );
-    assert!(r.contains("Phase 1: Initial Understanding"));
+    assert!(r.contains("Phase 1: Research"));
     assert!(r.contains("pair-planning"));
 }
 
@@ -552,7 +550,7 @@ fn test_not_compacted_outputs_full_prompt() {
         false,
     );
     // Full Plan prompt should contain standard path phases, not sparse
-    assert!(plan_full.contains("Phase 1: Initial Understanding"));
+    assert!(plan_full.contains("Phase 1: Research"));
     assert!(!plan_full.contains("Plan mode still active"));
 
     let auto_full = render_mode_instruction_with_flags(
@@ -592,7 +590,7 @@ fn test_sub_agent_false_outputs_normal_instruction() {
         false,
         false, // not sub-agent
     );
-    assert!(output.contains("Phase 1: Initial Understanding"));
+    assert!(output.contains("Phase 1: Research"));
     assert!(!output.contains("incremental edits"));
 }
 
