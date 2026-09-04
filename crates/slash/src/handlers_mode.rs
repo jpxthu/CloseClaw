@@ -10,6 +10,7 @@ use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
 use closeclaw_common::{PlanPhase, PlanState};
+use closeclaw_config::IdentifierFormat;
 use closeclaw_execution::PlanPath;
 use closeclaw_session::plan_file;
 use tracing;
@@ -25,12 +26,19 @@ use tracing;
 #[derive(Clone)]
 pub struct PlanModeHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
+    identifier_format: IdentifierFormat,
 }
 
 impl PlanModeHandler {
     /// Create a new PlanModeHandler with access to session state.
-    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<dyn SlashSessionQuery>,
+        identifier_format: IdentifierFormat,
+    ) -> Self {
+        Self {
+            session_manager,
+            identifier_format,
+        }
     }
 }
 
@@ -71,7 +79,7 @@ impl SlashHandler for PlanModeHandler {
         }
 
         let plan_file_path = if let Some(ref workdir) = workdir {
-            match plan_file::create_plan_file(workdir, title) {
+            match plan_file::create_plan_file_with_format(workdir, title, self.identifier_format) {
                 Ok(path) => Some(path),
                 Err(e) => {
                     tracing::warn!(
