@@ -637,7 +637,7 @@ Plan Mode 结束时销毁 PlanState
 
 ### StreamEvent
 
-- **生产者**：LLM 模块（Protocol 层 + ModelInterpreter 将各协议 SSE 事件归一化为 StreamEvent，映射规则见 [llm protocol-mapping](../llm/protocol-mapping.md)）
+- **生产者**：LLM 模块（Protocol 层解析各协议 SSE 原生事件，ModelInterpreter 归一化为 StreamEvent，映射规则见 [llm protocol-mapping](../llm/protocol-mapping.md)）
 - **消费者**：流式出站链路——Session（接收事件流并转发 Gateway）、Gateway（增量阶段调度 Processor Chain 与 IM Adapter 流式渲染）、Processor Chain 出站（VerbosityFilter 按块边界逐事件过滤、DslParser 透传）、IM Adapter 流式渲染器（逐事件消费，Text 块依赖 BlockDelta 携带的 [ContentDelta](#contentdelta) 逐行输出）
 - **无关**：入站链路（入站不产生流式事件）、SlashDispatcher（斜杠指令回复为完整 ContentBlock[]，走批量模式）
 

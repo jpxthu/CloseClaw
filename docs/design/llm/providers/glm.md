@@ -2,7 +2,7 @@
 
 ## 概述
 
-GLM 供应商对接使用 **OpenAI 协议**。在 Anthropic 协议下，简单对话场景会丢失 thinking block——响应中只有 `type: text` 内容块，推理过程不返回。OpenAI 协议下 `reasoning_content` 为独立字段，thinking 与文本回复干净分离。
+GLM 供应商的推荐协议为 **OpenAI**。OpenAI 协议下 `reasoning_content` 为独立字段，thinking 与文本回复干净分离。若 User 覆盖为 Anthropic 协议，简单对话场景会丢失 thinking block——响应中只有 `type: text` 内容块，推理过程不返回，属能力丢失风险。
 
 ## 架构
 
@@ -17,7 +17,7 @@ OpenAI。理由：
 ### thinking 行为
 
 - **OpenAI 协议**：通过 `extra_body.thinking.type` 控制。设为 `"enabled"` 时 `reasoning_content` 字段出现；设为 `"disabled"` 时 `reasoning_content` 为空
-- **Anthropic 协议**：需传 `thinking` 参数主动启用；不传时 simple 场景 thinking block 完全丢失，仅 tool-use 场景可能返回
+- **Anthropic 协议**（覆盖场景，能力丢失风险）：需传 `thinking` 参数主动启用；不传时 simple 场景 thinking block 完全丢失，仅 tool-use 场景可能返回
 - 极短的 reasoning_content（如仅空白或零散字符）不视为推理块，按普通文本处理
 
 ### 用量/配额
@@ -34,7 +34,7 @@ Session 层构建请求
     → Provider 层发送至 GLM API
 
 ← 非流式响应：Provider 返回 JSON → Protocol 层解析为内部响应结构 → ModelInterpreter 归一化为统一响应
-← 流式响应（SSE）：Provider 以 SSE 流读取原始数据块 → Protocol 层解析为统一流式事件 → ModelInterpreter 额外归一化，推理以 reasoning_content 承载
+← 流式响应（SSE）：Provider 以 SSE 流读取原始数据块 → Protocol 层解析 SSE 原生事件 → ModelInterpreter 归一化为统一流式事件，推理以 reasoning_content 承载
 ```
 
 ## 模块关系
