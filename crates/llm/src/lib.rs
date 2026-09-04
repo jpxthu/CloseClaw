@@ -75,6 +75,7 @@ pub use deepseek::DeepSeekProvider;
 pub use glm::{GlmPlugin, GlmProvider};
 pub use http_client::{HttpClient, ReqwestHttpClient};
 pub use knowledge::{ModelRecommendParams, ProviderModelKnowledge, ReasoningLevels};
+pub use mimo::plugin::MimoPlugin;
 pub use mimo::MimoProvider;
 pub use minimax::MiniMaxProvider;
 pub use minimax::{MiniMaxM2Plugin, MiniMaxM3Plugin};

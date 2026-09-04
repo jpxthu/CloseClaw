@@ -12,6 +12,8 @@ use serde::Deserialize;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
 
+pub mod plugin;
+
 use crate::provider::{Provider, ProviderError, Result, SseStream};
 use crate::types::{
     InternalRequest, InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage,

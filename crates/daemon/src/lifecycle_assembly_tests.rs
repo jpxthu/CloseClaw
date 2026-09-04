@@ -341,7 +341,7 @@ fn test_glm_plugin_max_downgrades_to_high() {
     );
 }
 
-// ── 4. Mimo: OpenAiProtocol + DefaultInterpreter + empty pipeline ──────────
+// ── 4. Mimo: OpenAiProtocol + MimoInterpreter + MimoPlugin ─────────────
 
 #[test]
 fn test_mimo_uses_openai_protocol() {
@@ -365,25 +365,38 @@ fn test_mimo_interpreter_is_mimo() {
 }
 
 #[test]
-fn test_mimo_pipeline_is_empty() {
+fn test_mimo_pipeline_has_mimo_plugin() {
     let (_, _, pipeline) = assemble_llm_components("mimo");
-    assert!(
-        pipeline.is_empty(),
-        "mimo pipeline should be empty (no plugins)"
+    assert_eq!(
+        pipeline.len(),
+        1,
+        "mimo pipeline should have 1 plugin (MimoPlugin)"
     );
 }
 
 #[test]
-fn test_mimo_empty_pipeline_does_not_modify_request() {
+fn test_mimo_plugin_injects_thinking_high_enabled() {
     let (_, _, pipeline) = assemble_llm_components("mimo");
     let mut req = make_request();
     req.reasoning_level = ReasoningLevel::High;
     let model = req.model.clone();
     pipeline.before_request(&mut req, &model);
-    assert!(
-        req.extra_body.is_empty(),
-        "empty pipeline should not inject anything"
-    );
+
+    let thinking = req.extra_body.get("thinking");
+    assert!(thinking.is_some(), "MimoPlugin should inject thinking type");
+    assert_eq!(thinking.unwrap(), &serde_json::json!({"type": "enabled"}));
+}
+
+#[test]
+fn test_mimo_plugin_injects_thinking_off_disabled() {
+    let (_, _, pipeline) = assemble_llm_components("mimo");
+    let mut req = make_request();
+    req.reasoning_level = ReasoningLevel::Off;
+    let model = req.model.clone();
+    pipeline.before_request(&mut req, &model);
+
+    let thinking = req.extra_body.get("thinking").unwrap();
+    assert_eq!(thinking, &serde_json::json!({"type": "disabled"}));
 }
 
 // ── 5. Unknown provider → default branch ───────────────────────────────────
