@@ -46,7 +46,7 @@ Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时
 
 **推理强度档位**：Low、Medium、High、Max 四个档位，High 为各 provider 默认值。不支持的档位在网关层解析**实际生效档位**时自动降级（见「实际生效档位」节）。
 
-**关闭推理请求**：档位之外，用户可通过 `off` 请求关闭推理输出。off 不是档位，实际效果取决于供应商能力（需求 [llm §F4](../../requirements/llm.md)）：支持关闭推理的 provider 真正关闭推理输出；不支持关闭的 provider（含设计上总输出推理内容的模型，如 DeepSeek 的 thinking 无法真正关闭）不视为错误，仅将推理强度降至最低可用档位。降级判定同样发生在网关层解析实际生效档位时。
+**关闭推理请求**：档位之外，用户可通过 `off` 请求关闭推理输出。off 不是档位，实际效果取决于供应商能力（需求 [llm §F4](../../requirements/llm.md)）：支持关闭推理的 provider 真正关闭推理输出；不支持关闭的 provider（含设计上总输出推理内容的模型，如 DeepSeek 的 thinking 无法真正关闭、MiMo 在所有场景下均输出推理）不视为错误，仅将推理强度降至最低可用档位。降级判定同样发生在网关层解析实际生效档位时。
 
 **两级入口**：
 - **Config 配置**：`llm.reasoning_level` 设置全局默认档位

@@ -2,25 +2,23 @@
 
 ## 概述
 
-MiMo（小米 MiMo 开放平台）供应商对接**两种协议均可**，推荐 **OpenAI 协议**（略优）。thinking 由 `thinking.type` 二元开关控制，主模型默认启用、flash 默认禁用，无分级档位（无需 `glm-thinking` 或 `deepseek-thinking-high` 这类独立场景）。
+MiMo（小米 MiMo 开放平台）供应商对接**两种协议均可**，推荐 **OpenAI 协议**（略优）。MiMo 在所有场景下 thinking 是默认行为——`reasoning_content` 始终存在于 OpenAI 响应，thinking block 始终存在于 Anthropic 响应，无需 `glm-thinking` 或 `deepseek-thinking-high` 这类独立场景。
 
 ## 架构
 
 ### 推荐协议
 
 OpenAI（略优）。理由：
-- OpenAI 协议下 `reasoning_content` 为顶层独立字段，与 `content` 干净分离
+- OpenAI 协议下 `reasoning_content` 为顶层独立字段，始终存在
 - Anthropic 协议下 thinking block 独立但 `signature` 为空（无可追溯签名），优势不明显
 - OpenAI 路径实现与 GLM 共享代码路径
 - 标准协议映射见 [protocol-mapping](../protocol-mapping.md)
 
 ### thinking 行为
 
-- **控制方式**：`thinking.type` 二元开关（enabled / disabled），无分级档位
-- **档位映射**：low / medium / high / max 降级为 enabled（最高档）；off 映射为 disabled
-- **供应商默认**（未显式传 `thinking.type` 时）：主模型（mimo-v2.5-pro / mimo-v2.5 / mimo-v2-pro / mimo-v2-omni）enabled；mimo-v2-flash disabled
-- **OpenAI 协议**：enabled 时 `reasoning_content` 字段返回；disabled 时不返回
-- **Anthropic 协议**：enabled 时 `content[].type: thinking` 存在，`signature` 为空（无可追溯签名）；disabled 时不返回
+- **默认行为**：thinking 在所有场景下都存在，不需要额外参数启用
+- **OpenAI 协议**：`reasoning_content` 字段始终返回，即使未显式启用 thinking 也会有短推理内容
+- **Anthropic 协议**：`content[].type: thinking` 始终存在，`signature` 为空（无可追溯签名）
 
 ### 缓存机制
 
