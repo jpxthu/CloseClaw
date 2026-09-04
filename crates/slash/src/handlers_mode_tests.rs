@@ -833,4 +833,4 @@ async fn test_mode_delegation_equivalence() {
 // Split into handlers_execute_tests.rs to keep this file under
 // the 1000-line limit.
 #[path = "handlers_execute_tests.rs"]
-mod handlers_execute_tests;
+pub mod handlers_execute_tests;

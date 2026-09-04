@@ -895,4 +895,63 @@ mod tests {
             .unwrap();
         assert!(notif.contains("发起于"), "got: {}", notif);
     }
+
+    // ── Access timestamp refresh test (Step 1.3 touch-point) ──────────
+
+    /// Helper: create a plan file with a known old access timestamp marker.
+    fn write_plan_with_old_timestamp(dir: &std::path::Path, stem: &str) {
+        let plans = dir.join("plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        std::fs::write(
+            plans.join(format!("{stem}.md")),
+            "# Old Plan\n<!-- accessed: 2020-01-01T00:00:00Z -->\n\n## Tasks\n\n- [ ] step1\n",
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_inject_plan_tasks_refreshes_access_timestamp() {
+        use crate::persistence::PlanState;
+        use crate::recovery::SessionRecoveryService;
+        use crate::storage::memory::MemoryStorage;
+        use closeclaw_common::plan_state::PlanPhase;
+        use std::sync::Arc;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        write_plan_with_old_timestamp(tmp.path(), "ts-plan");
+        let plan_path = tmp.path().join("plans/ts-plan.md");
+
+        // Verify old timestamp exists before injection
+        let before = crate::plan_file::read_access_timestamp(&plan_path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            before,
+            chrono::DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+        );
+
+        // Build checkpoint with plan_state pointing to the plan file
+        let mut cp = create_test_checkpoint("ts-session");
+        cp.plan_state = Some(PlanState {
+            phase: PlanPhase::FinalPlan,
+            pending_steps: vec!["step1".to_string()],
+            plan_file_path: plan_path.to_string_lossy().into_owned(),
+        });
+
+        // Create recovery service and call inject_plan_tasks
+        let storage = Arc::new(MemoryStorage::new());
+        let service = SessionRecoveryService::new(storage);
+        service.inject_plan_tasks("ts-session", &mut cp);
+
+        // Assert timestamp was refreshed
+        let after = crate::plan_file::read_access_timestamp(&plan_path)
+            .unwrap()
+            .unwrap();
+        assert!(
+            after > before,
+            "access timestamp should be refreshed: before={before}, after={after}"
+        );
+    }
 }

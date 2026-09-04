@@ -598,3 +598,58 @@ async fn test_submit_filters_empty_additional_instruction() {
         "whitespace-only additional_instruction should be filtered"
     );
 }
+
+// ── Access timestamp refresh test (Step 1.3 touch-point) ───────────────
+
+/// Helper: create a plan file with a known old access timestamp marker.
+fn write_plan_with_old_timestamp(workdir: &std::path::Path, stem: &str) {
+    let plans = workdir.join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    std::fs::write(
+        plans.join(format!("{stem}.md")),
+        "# Old Plan\n<!-- accessed: 2020-01-01T00:00:00Z -->\n\n## Tasks\n\n- [ ] step1\n",
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_execute_plan_tool_refreshes_access_timestamp() {
+    let sm = make_session_manager();
+    register_session(&sm, "sess-ts-touch", SessionMode::Normal).await;
+
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    write_plan_with_old_timestamp(tmp.path(), "ts-plan");
+
+    let ctx = make_ctx_with_workdir(Some("sess-ts-touch"), tmp.path());
+
+    // Verify old timestamp exists before triggering
+    let plan_path = tmp.path().join("plans/ts-plan.md");
+    let before_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        before_content.contains("<!-- accessed: 2020-01-01T00:00:00Z -->"),
+        "plan file should contain old timestamp marker"
+    );
+
+    // Trigger execute_plan tool
+    let result = tool.call(json!({"plan_name": "ts-plan"}), &ctx).await;
+    assert!(result.is_ok(), "should succeed with valid plan_name");
+
+    // Assert timestamp was refreshed (marker string changed)
+    let after_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        after_content.contains("<!-- accessed:"),
+        "plan file should still have access timestamp marker"
+    );
+    assert_ne!(
+        before_content, after_content,
+        "plan file content should change after touch"
+    );
+    // The old marker should be gone
+    assert!(
+        !after_content.contains("2020-01-01T00:00:00Z"),
+        "old timestamp marker should be replaced"
+    );
+}

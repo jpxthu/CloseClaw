@@ -3,7 +3,7 @@
 //! Provides functions to generate plan identifiers and create plan files
 //! in the `plans/` directory of a workspace.
 
-use chrono::Local;
+use chrono::{DateTime, Local, Utc};
 use closeclaw_config::IdentifierFormat;
 use rand::seq::SliceRandom;
 use std::io;
@@ -167,6 +167,95 @@ pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error>
             format!("update time line not found in plan file: {plan_file_path}"),
         )),
     }
+}
+
+// ── Application-layer access timestamp ───────────────────────────────────
+
+/// HTML comment marker prefix for the access timestamp in plan files.
+///
+/// Stored as `<!-- accessed: {ISO-8601 UTC} -->` on the line immediately
+/// after the `# {title}` heading.  The marker is portable: it travels with
+/// the file across renames (archive) and requires no external storage.
+const ACCESS_TIMESTAMP_MARKER_PREFIX: &str = "<!-- accessed: ";
+const ACCESS_TIMESTAMP_MARKER_SUFFIX: &str = " -->";
+
+/// Read the application-layer access timestamp from a plan file.
+///
+/// Looks for an `<!-- accessed: {ISO-8601 UTC} -->` marker after the
+/// title heading.  Returns `None` if the file has no marker (legacy /
+/// newly-created plans).
+///
+/// # Errors
+/// Returns an error if the file cannot be read.
+pub fn read_access_timestamp(plan_path: &Path) -> Result<Option<DateTime<Utc>>, std::io::Error> {
+    let content = std::fs::read_to_string(plan_path)?;
+    Ok(parse_access_timestamp(&content))
+}
+
+/// Update (or insert) the access timestamp in a plan file.
+///
+/// If the marker already exists, its value is replaced.  If it does not
+/// exist, a new marker is inserted on the line immediately after the
+/// title heading (`# …`).  Plan files without a title heading are
+/// rejected with an error.
+///
+/// # Errors
+/// Returns an error if the file cannot be read/written, or if the
+/// title heading line is missing.
+pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
+    let mut content = std::fs::read_to_string(plan_path)?;
+    let now = Utc::now().to_rfc3339();
+    let marker = format!("<!-- accessed: {now} -->");
+
+    if let Some(idx) = content.find(ACCESS_TIMESTAMP_MARKER_PREFIX) {
+        let start = idx;
+        let end = match content[start..].find(ACCESS_TIMESTAMP_MARKER_SUFFIX) {
+            Some(e) => start + e + ACCESS_TIMESTAMP_MARKER_SUFFIX.len(),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "malformed access timestamp marker in plan file",
+                ));
+            }
+        };
+        content.replace_range(start..end, &marker);
+    } else {
+        // Insert after the `# {title}` heading line.
+        // The heading may be at the very start of the file (no leading newline)
+        // or preceded by a newline.
+        let insert_pos = content
+            .find("\n# ")
+            .map(|p| p + 1) // after the first newline, before "# "
+            .or_else(|| {
+                // Title heading at the very start of the file
+                if content.starts_with("# ") {
+                    content.find('\n').map(|p| p + 1) // right after the title line's newline
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "cannot insert access timestamp: plan file must start with a '# Title' heading",
+                )
+            })?;
+        content.insert_str(insert_pos, &format!("{marker}\n"));
+    }
+
+    std::fs::write(plan_path, content)
+}
+
+/// Parse the access timestamp marker from plan file content.
+fn parse_access_timestamp(content: &str) -> Option<DateTime<Utc>> {
+    let idx = content.find(ACCESS_TIMESTAMP_MARKER_PREFIX)?;
+    let start = idx + ACCESS_TIMESTAMP_MARKER_PREFIX.len();
+    let rest = &content[start..];
+    let end = rest.find(ACCESS_TIMESTAMP_MARKER_SUFFIX)?;
+    let ts_str = &rest[..end];
+    DateTime::parse_from_rfc3339(ts_str)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 /// Resolve a plan file path by name within a workspace.
