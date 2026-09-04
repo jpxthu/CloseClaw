@@ -249,6 +249,16 @@ impl ExecuteHandler {
                 return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
             }
         };
+        // Refresh access timestamp so the plan does not get archived prematurely
+        if let Some(ref path) = plan_file_path {
+            if let Err(e) = plan_file::touch_access_timestamp(path) {
+                tracing::warn!(
+                    plan_file = %path.display(),
+                    error = %e,
+                    "failed to touch access timestamp in /execute"
+                );
+            }
+        }
 
         SlashResult::SetMode {
             mode: "auto".to_owned(),
@@ -283,6 +293,14 @@ impl ExecuteHandler {
                 return SlashResult::Reply("没有工作目录，无法按名称定位 plan。".to_owned());
             }
         };
+        // Refresh access timestamp so the plan does not get archived prematurely
+        if let Err(e) = plan_file::touch_access_timestamp(&plan_file_path) {
+            tracing::warn!(
+                plan_file = %plan_file_path.display(),
+                error = %e,
+                "failed to touch access timestamp in /execute"
+            );
+        }
 
         SlashResult::SetMode {
             mode: "auto".to_owned(),
