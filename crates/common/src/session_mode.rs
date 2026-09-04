@@ -94,6 +94,36 @@ mod tests {
         assert_eq!(SessionMode::from_str_opt(""), None);
     }
 
+    // ── Step 1.3 edge cases: from_str_opt boundary values ─────────────
+
+    #[test]
+    fn test_session_mode_from_str_opt_auto_case_insensitive() {
+        // /execute path depends on from_str_opt("auto") returning Some(Auto).
+        // Ensure various casings all resolve correctly.
+        assert_eq!(SessionMode::from_str_opt("auto"), Some(SessionMode::Auto));
+        assert_eq!(SessionMode::from_str_opt("AUTO"), Some(SessionMode::Auto));
+        assert_eq!(SessionMode::from_str_opt("Auto"), Some(SessionMode::Auto));
+        assert_eq!(SessionMode::from_str_opt("aUtO"), Some(SessionMode::Auto));
+    }
+
+    #[test]
+    fn test_session_mode_from_str_opt_empty_and_whitespace() {
+        // Empty and whitespace should return None (not panic)
+        assert_eq!(SessionMode::from_str_opt(""), None);
+        assert_eq!(SessionMode::from_str_opt(" "), None);
+        assert_eq!(SessionMode::from_str_opt("  auto  "), None);
+        assert_eq!(SessionMode::from_str_opt("\t"), None);
+    }
+
+    #[test]
+    fn test_session_mode_from_str_opt_partial_match() {
+        // Partial strings should NOT match
+        assert_eq!(SessionMode::from_str_opt("aut"), None);
+        assert_eq!(SessionMode::from_str_opt("pl"), None);
+        assert_eq!(SessionMode::from_str_opt("norm"), None);
+        assert_eq!(SessionMode::from_str_opt("automatic"), None);
+    }
+
     #[test]
     fn test_session_mode_invalid_deserialize() {
         let result = serde_json::from_str::<SessionMode>("\"unknown\"");

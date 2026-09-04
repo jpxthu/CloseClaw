@@ -134,6 +134,13 @@ pub trait SessionLookup: Send + Sync {
     /// Switch the session mode (e.g. plan → auto).
     async fn set_session_mode(&self, session_id: &str, mode: crate::SessionMode);
 
+    /// Set a pending session mode that will be applied lazily on the next
+    /// user message (one-message delay). Used by same-session execution
+    /// confirmation to avoid immediate mode switch.
+    ///
+    /// Default implementation is a no-op for backward compatibility.
+    async fn set_pending_session_mode(&self, _session_id: &str, _mode: crate::SessionMode) {}
+
     /// Clear the plan state for a session, destroying any active plan.
     ///
     /// Called when exiting Plan Mode (e.g. `/mode normal`, `/auto`).
