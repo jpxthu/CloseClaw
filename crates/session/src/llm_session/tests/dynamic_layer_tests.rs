@@ -41,7 +41,6 @@ struct CapturedContext {
     appends_count: usize,
     session_mode: String,
     has_overrides: bool,
-    user_input: Option<String>,
 }
 
 impl FakeDynamicBuilder {
@@ -72,7 +71,6 @@ impl DynamicPromptBuilder for FakeDynamicBuilder {
             appends_count: context.system_appends.len(),
             session_mode: format!("{:?}", context.session_mode),
             has_overrides: context.overrides.is_some(),
-            user_input: context.user_input.map(|s| s.to_string()),
         };
         *self.last_ctx.lock().unwrap() = Some(captured);
         (self.static_val.clone(), self.dynamic_val.clone())
@@ -317,24 +315,6 @@ fn test_request_context_set_get_roundtrip() {
     assert_eq!(got.sender_id, "ou_new");
     assert_eq!(got.channel, "slack");
     assert_eq!(got.timestamp, 7777);
-}
-
-/// Builder receives user_input from the last user message.
-#[tokio::test]
-async fn test_dynamic_builder_receives_user_input() {
-    let mut session = ConversationSession::new("s_dl8".into(), "m".into(), tmp_path());
-    let builder = Arc::new(FakeDynamicBuilder::new(None, None));
-    let builder_ref = builder.clone();
-    session.set_dynamic_prompt_builder(builder);
-    let fake = FakeLlmCaller::new();
-    let caller_ref: Arc<dyn LlmCaller> = fake.clone();
-    session.set_llm_caller(caller_ref);
-
-    session.set_request_context(RequestContext::default());
-    let _ = session.invoke_llm("fix the compile error").await.unwrap();
-
-    let ctx = builder_ref.last_context().unwrap();
-    assert_eq!(ctx.user_input.as_deref(), Some("fix the compile error"));
 }
 
 /// Builder receives prompt_overrides when set on the session.

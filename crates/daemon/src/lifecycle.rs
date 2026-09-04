@@ -964,7 +964,10 @@ impl Daemon {
         slash_registry.register(Arc::new(NewSessionHandler));
         slash_registry.register(Arc::new(StopHandler));
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&sm_query))));
-        let plan_handler = Arc::new(PlanModeHandler::new(Arc::clone(&sm_query)));
+        let plan_handler = Arc::new(PlanModeHandler::new(
+            Arc::clone(&sm_query),
+            closeclaw_config::IdentifierFormat::default(),
+        ));
         let auto_handler = Arc::new(AutoModeHandler::new(Arc::clone(&sm_query)));
         slash_registry.register(plan_handler.clone() as Arc<dyn closeclaw_common::SlashHandler>);
         slash_registry.register(Arc::new(ModeHandler::with_handlers(

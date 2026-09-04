@@ -86,7 +86,6 @@ fn test_dynamic_prompt_context_fields() {
         session_created_at: 999,
         session_mode: super::SessionMode::Normal,
         overrides: None,
-        user_input: None,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
@@ -98,7 +97,6 @@ fn test_dynamic_prompt_context_fields() {
     assert_eq!(dpctx.ctx.channel, "feishu");
     assert_eq!(dpctx.ctx.timestamp, 1000);
     assert_eq!(dpctx.session_mode, super::SessionMode::Normal);
-    assert!(dpctx.user_input.is_none());
 }
 
 #[test]
@@ -118,7 +116,6 @@ fn test_dynamic_prompt_context_with_appends_and_overrides() {
         session_created_at: 0,
         session_mode: super::SessionMode::Plan,
         overrides: Some(&overrides),
-        user_input: Some("fix the bug"),
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
@@ -129,6 +126,5 @@ fn test_dynamic_prompt_context_with_appends_and_overrides() {
     assert_eq!(dpctx.system_appends.len(), 2);
     assert_eq!(dpctx.system_appends[0], "append1");
     assert!(dpctx.overrides.is_some());
-    assert_eq!(dpctx.user_input, Some("fix the bug"));
     assert_eq!(dpctx.session_mode, super::SessionMode::Plan);
 }

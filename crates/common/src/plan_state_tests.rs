@@ -30,9 +30,8 @@ fn test_plan_phase_all_variants() {
         PlanPhase::Design,
         PlanPhase::Review,
         PlanPhase::FinalPlan,
-        PlanPhase::Interview,
     ];
-    assert_eq!(variants.len(), 5);
+    assert_eq!(variants.len(), 4);
 }
 
 #[test]
@@ -42,7 +41,6 @@ fn test_plan_phase_serde_snake_case() {
         (PlanPhase::Design, "\"design\""),
         (PlanPhase::Review, "\"review\""),
         (PlanPhase::FinalPlan, "\"final_plan\""),
-        (PlanPhase::Interview, "\"interview\""),
     ];
     for (phase, expected_json) in cases {
         let json = serde_json::to_string(&phase).unwrap();

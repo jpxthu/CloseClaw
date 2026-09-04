@@ -273,7 +273,7 @@ any other instructions you have received.";
 
 /// Known-good snapshot of STANDARD_PATH_PHASES first & last lines.
 const STANDARD_PATH_PHASES_START: &str = "\
-### Phase 1: Initial Understanding";
+### Phase 1: Research";
 const STANDARD_PATH_PHASES_END: &str = "test the changes end-to-end.\n";
 
 #[test]
@@ -296,7 +296,7 @@ fn test_standard_path_phases_regression() {
     );
     // Should contain all 4 phases
     for phase in &[
-        "Phase 1: Initial Understanding",
+        "Phase 1: Research",
         "Phase 2: Design",
         "Phase 3: Review",
         "Phase 4: Final Plan",

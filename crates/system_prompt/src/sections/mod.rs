@@ -10,7 +10,6 @@ use std::time::SystemTime;
 
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::system_prompt::ModeTransition;
-use closeclaw_execution::PlanPath;
 
 mod mode_prompts;
 
@@ -33,11 +32,10 @@ pub enum Section {
     GitStatus(String),
     WorkingDirectory(String),
     /// Mode-specific instruction section, injected when session mode is
-    /// not Normal. For Plan mode, `plan_path` determines which
-    /// path-specific instruction to inject.
+    /// not Normal. In Plan mode, the Agent reads the task description
+    /// and decides which path to follow.
     ModeInstruction {
         mode: SessionMode,
-        plan_path: Option<PlanPath>,
         sparse: bool,
         sub_agent: bool,
     },
@@ -97,10 +95,9 @@ impl Section {
             }
             Section::ModeInstruction {
                 mode,
-                plan_path,
                 sparse,
                 sub_agent,
-            } => render_mode_instruction_with_flags(*mode, *plan_path, *sparse, *sub_agent),
+            } => render_mode_instruction_with_flags(*mode, *sparse, *sub_agent),
             Section::ModeTransition(transition) => render_mode_transition(*transition),
             Section::PlanFile { path, content } => {
                 format!("## Plan File\n路径：{}\n\n{}\n", path, content)
@@ -116,16 +113,12 @@ impl Section {
 /// Render mode-specific instructions based on session mode.
 ///
 /// - Normal: no extra instructions (returns empty string)
-/// - Plan: Plan Mode workflow instructions
+/// - Plan: Plan Mode workflow instructions (full path selection)
 /// - Auto: Auto Mode execution instructions
-fn render_mode_instruction(mode: SessionMode, plan_path: Option<PlanPath>) -> String {
+fn render_mode_instruction(mode: SessionMode) -> String {
     match mode {
         SessionMode::Normal => String::new(),
-        SessionMode::Plan => match plan_path {
-            Some(PlanPath::Standard) => render_standard_path_instruction(),
-            Some(PlanPath::Interview) => render_interview_path_instruction(),
-            None => render_plan_mode_instruction(),
-        },
+        SessionMode::Plan => render_plan_mode_instruction(),
         SessionMode::Auto => {
             format!("## Mode: Auto\n\n{}\n", AUTO_MODE_PROMPT)
         }
@@ -141,7 +134,6 @@ fn render_mode_instruction(mode: SessionMode, plan_path: Option<PlanPath>) -> St
 /// Otherwise delegates to the full `render_mode_instruction`.
 pub(crate) fn render_mode_instruction_with_flags(
     mode: SessionMode,
-    plan_path: Option<PlanPath>,
     sparse: bool,
     sub_agent: bool,
 ) -> String {
@@ -154,7 +146,7 @@ pub(crate) fn render_mode_instruction_with_flags(
             _ => STANDARD_SPARSE.to_string(),
         };
     }
-    render_mode_instruction(mode, plan_path)
+    render_mode_instruction(mode)
 }
 
 /// Render Plan Mode instructions with path selection rules.
@@ -173,6 +165,7 @@ fn render_plan_mode_instruction() -> String {
 ///
 /// Uses verbatim prompt content from design doc section 1 (global
 /// constraint) and section 2 (Phase 1–4).
+#[cfg(test)]
 fn render_standard_path_instruction() -> String {
     format!("{}\n\n{}\n", PLAN_MODE_CONSTRAINT, STANDARD_PATH_PHASES)
 }
@@ -182,6 +175,7 @@ fn render_standard_path_instruction() -> String {
 /// Used when the user request is ambiguous and requires iterative
 /// exploration and clarification before a plan can be formed.
 /// Content verbatim from design doc section 3.
+#[cfg(test)]
 fn render_interview_path_instruction() -> String {
     format!("{}\n\n{}\n", PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT)
 }

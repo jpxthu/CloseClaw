@@ -13,7 +13,6 @@ pub mod adapter;
 pub mod builder;
 pub mod fragment;
 pub mod inject;
-pub mod plan_path;
 pub mod providers;
 pub mod sections;
 pub mod workdir;
@@ -23,8 +22,6 @@ pub mod test_adapters;
 
 #[cfg(test)]
 pub mod inject_tests;
-#[cfg(test)]
-pub mod plan_path_tests;
 
 pub use builder::{
     build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,

@@ -10,7 +10,7 @@ use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
 use closeclaw_common::{PlanPhase, PlanState};
-use closeclaw_execution::PlanPath;
+use closeclaw_config::IdentifierFormat;
 use closeclaw_session::plan_file;
 use tracing;
 
@@ -20,17 +20,23 @@ use tracing;
 ///
 /// - With arguments: creates a plan file in the session's workdir,
 ///   returns `SlashResult::SetMode` with the plan file path.
-/// - Without arguments (or `--path` without title): enters Plan Mode
-///   without creating a plan file.
+/// - Without arguments: enters Plan Mode without creating a plan file.
 #[derive(Clone)]
 pub struct PlanModeHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
+    identifier_format: IdentifierFormat,
 }
 
 impl PlanModeHandler {
     /// Create a new PlanModeHandler with access to session state.
-    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<dyn SlashSessionQuery>,
+        identifier_format: IdentifierFormat,
+    ) -> Self {
+        Self {
+            session_manager,
+            identifier_format,
+        }
     }
 }
 
@@ -49,9 +55,8 @@ impl SlashHandler for PlanModeHandler {
     }
 
     async fn handle(&self, args: &str, ctx: &SlashContext) -> SlashResult {
-        // Parse --path argument and extract task title
-        let (_explicit_path, title) = parse_plan_path_arg(args.trim());
-        let has_title = !title.trim().is_empty();
+        let title = args.trim();
+        let has_title = !title.is_empty();
 
         // Read workdir via trait method.
         let workdir = self.session_manager.get_workdir(&ctx.session_id).await;
@@ -59,8 +64,7 @@ impl SlashHandler for PlanModeHandler {
         // Mode transition injection removed (design doc §6 — transition prompts
         // are no longer injected via System Prompt sections).
 
-        // No title (either no args or --path without title): enter Plan Mode
-        // without creating a plan file.
+        // No title: enter Plan Mode without creating a plan file.
         if !has_title {
             return SlashResult::SetMode {
                 mode: "plan".to_owned(),
@@ -71,7 +75,7 @@ impl SlashHandler for PlanModeHandler {
         }
 
         let plan_file_path = if let Some(ref workdir) = workdir {
-            match plan_file::create_plan_file(workdir, title) {
+            match plan_file::create_plan_file_with_format(workdir, title, self.identifier_format) {
                 Ok(path) => Some(path),
                 Err(e) => {
                     tracing::warn!(
@@ -106,49 +110,6 @@ impl SlashHandler for PlanModeHandler {
 
     fn clone_box(&self) -> Box<dyn SlashHandler> {
         Box::new(self.clone())
-    }
-}
-
-/// Parse `--path` argument from the `/plan` command.
-///
-/// Returns `(Some(PlanPath), remaining_title)` when `--path standard` or
-/// `--path interview` is found; `(None, original_args)` otherwise.
-/// The task title is the remaining args after stripping `--path <value>`.
-pub(crate) fn parse_plan_path_arg(args: &str) -> (Option<PlanPath>, &str) {
-    let trimmed = args.trim();
-    if let Some(rest) = trimmed.strip_prefix("--path") {
-        let rest = rest.trim_start();
-        if let Some(value_end) = rest.find(|c: char| c.is_whitespace()) {
-            let value = &rest[..value_end];
-            let title = rest[value_end..].trim();
-            let path = match value {
-                "standard" => Some(PlanPath::Standard),
-                "interview" => Some(PlanPath::Interview),
-                _ => {
-                    tracing::warn!(
-                        path_value = %value,
-                        "Invalid --path value, ignoring"
-                    );
-                    None
-                }
-            };
-            (path, title)
-        } else if rest.is_empty() {
-            // --path with nothing after it
-            (None, trimmed)
-        } else if matches!(rest, "standard" | "interview") {
-            // --path with a recognized value but no title following
-            let path = match rest {
-                "standard" => Some(PlanPath::Standard),
-                _ => Some(PlanPath::Interview),
-            };
-            (path, "")
-        } else {
-            // --path with unrecognized value (no title) — treat as invalid path, rest is title
-            (None, rest)
-        }
-    } else {
-        (None, trimmed)
     }
 }
 

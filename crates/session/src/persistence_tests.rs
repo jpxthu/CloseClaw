@@ -663,7 +663,7 @@ mod tests {
         let manager = CheckpointManager::new(storage);
 
         let plan = PlanState {
-            phase: PlanPhase::Interview,
+            phase: PlanPhase::Design,
             pending_steps: vec!["todo1".into()],
             plan_file_path: "/workspace/plan.md".into(),
             ..Default::default()
@@ -675,7 +675,7 @@ mod tests {
         let loaded = manager.load("session-plan").await.unwrap();
         assert!(loaded.is_some());
         let ps = loaded.unwrap().plan_state.unwrap();
-        assert_eq!(ps.phase, PlanPhase::Interview);
+        assert_eq!(ps.phase, PlanPhase::Design);
         assert_eq!(ps.pending_steps, vec!["todo1"]);
         assert_eq!(ps.plan_file_path, "/workspace/plan.md");
     }
