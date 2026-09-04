@@ -38,9 +38,8 @@ pub struct ProcessorChainConfig {
 fn default_inbound_chain() -> Vec<ProcessorConfig> {
     vec![
         ProcessorConfig::RawLog {
-            enabled: true,
-            dir: default_log_dir(),
-            retention_days: default_retention_days(),
+            enabled: false,
+            dir: None,
         },
         ProcessorConfig::SessionRouter,
         ProcessorConfig::ContentNormalizer,
@@ -69,12 +68,8 @@ pub enum ProcessorConfig {
         /// Whether to write log files regardless of log level (default: `false`).
         #[serde(default)]
         enabled: bool,
-        /// Directory to write log files into (default: `/tmp/processor_chain_logs`).
-        #[serde(default = "default_log_dir")]
-        dir: PathBuf,
-        /// Number of days to retain log files (default: `7`).
-        #[serde(default = "default_retention_days")]
-        retention_days: u32,
+        /// Directory to write log files into (default: `None`).
+        dir: Option<PathBuf>,
     },
     /// [`ContentNormalizer`](super::content_normalizer::ContentNormalizer) — strips
     /// feishu platform fields, extracts clean text, and normalises markdown.
@@ -91,21 +86,9 @@ pub enum ProcessorConfig {
         /// Whether to write log files regardless of log level (default: `false`).
         #[serde(default)]
         enabled: bool,
-        /// Directory to write log files into (default: `/tmp/processor_chain_logs`).
-        #[serde(default = "default_log_dir")]
-        dir: PathBuf,
-        /// Number of days to retain log files (default: `7`).
-        #[serde(default = "default_retention_days")]
-        retention_days: u32,
+        /// Directory to write log files into (default: `None`).
+        dir: Option<PathBuf>,
     },
-}
-
-fn default_log_dir() -> PathBuf {
-    PathBuf::from("/tmp/processor_chain_logs")
-}
-
-fn default_retention_days() -> u32 {
-    7
 }
 
 /// Loads a [`ProcessorRegistry`] from a [`ProcessorChainConfig`].
@@ -143,26 +126,16 @@ impl ProcessorChainLoader {
         config: &ProcessorConfig,
     ) -> Result<std::sync::Arc<dyn MessageProcessor>, ProcessError> {
         match config {
-            ProcessorConfig::RawLog {
-                enabled,
-                dir,
-                retention_days,
-            } => {
-                let cfg = RawLogConfig::new(*enabled, dir.clone(), *retention_days);
-                let processor = RawLogProcessor::new(cfg).map_err(|e| {
-                    ProcessError::chain_failed(format!("failed to create RawLogProcessor: {e}"))
-                })?;
+            ProcessorConfig::RawLog { enabled, dir } => {
+                let cfg = RawLogConfig::new(*enabled, dir.clone());
+                let processor = RawLogProcessor::new(cfg);
                 Ok(std::sync::Arc::new(processor))
             }
             ProcessorConfig::ContentNormalizer => Ok(std::sync::Arc::new(ContentNormalizer::new())),
             ProcessorConfig::SessionRouter => Ok(std::sync::Arc::new(SessionRouter::new())),
             ProcessorConfig::DslParser => Ok(std::sync::Arc::new(DslParser)),
-            ProcessorConfig::OutboundRawLog {
-                enabled,
-                dir,
-                retention_days,
-            } => {
-                let cfg = RawLogConfig::new(*enabled, dir.clone(), *retention_days);
+            ProcessorConfig::OutboundRawLog { enabled, dir } => {
+                let cfg = RawLogConfig::new(*enabled, dir.clone());
                 let processor = OutboundRawLogProcessor::new(cfg);
                 Ok(std::sync::Arc::new(processor))
             }
@@ -199,8 +172,7 @@ mod tests {
         let config = ProcessorChainConfig {
             inbound: vec![ProcessorConfig::RawLog {
                 enabled: true,
-                dir: tmp.path().to_path_buf(),
-                retention_days: 7,
+                dir: Some(tmp.path().to_path_buf()),
             }],
             outbound: vec![],
         };
@@ -225,8 +197,7 @@ mod tests {
             inbound: vec![
                 ProcessorConfig::RawLog {
                     enabled: false,
-                    dir: tmp.path().to_path_buf(),
-                    retention_days: 7,
+                    dir: Some(tmp.path().to_path_buf()),
                 },
                 ProcessorConfig::ContentNormalizer,
             ],
@@ -259,17 +230,12 @@ mod tests {
 
     #[test]
     fn test_raw_log_config_deserialization() {
-        let json = r#"{"type":"raw_log","enabled":true,"dir":"/tmp/logs","retention_days":14}"#;
+        let json = r#"{"type":"raw_log","enabled":true,"dir":"/tmp/logs"}"#;
         let config: ProcessorConfig = serde_json::from_str(json).unwrap();
         match config {
-            ProcessorConfig::RawLog {
-                enabled,
-                dir,
-                retention_days,
-            } => {
+            ProcessorConfig::RawLog { enabled, dir } => {
                 assert!(enabled);
-                assert_eq!(dir, PathBuf::from("/tmp/logs"));
-                assert_eq!(retention_days, 14);
+                assert_eq!(dir, Some(PathBuf::from("/tmp/logs")));
             }
             _ => panic!("expected RawLog variant"),
         }
@@ -297,18 +263,12 @@ mod tests {
 
     #[test]
     fn test_outbound_raw_log_deserialization() {
-        let json =
-            r#"{"type":"outbound_raw_log","enabled":true,"dir":"/tmp/out","retention_days":3}"#;
+        let json = r#"{"type":"outbound_raw_log","enabled":true,"dir":"/tmp/out"}"#;
         let config: ProcessorConfig = serde_json::from_str(json).unwrap();
         match config {
-            ProcessorConfig::OutboundRawLog {
-                enabled,
-                dir,
-                retention_days,
-            } => {
+            ProcessorConfig::OutboundRawLog { enabled, dir } => {
                 assert!(enabled);
-                assert_eq!(dir, PathBuf::from("/tmp/out"));
-                assert_eq!(retention_days, 3);
+                assert_eq!(dir, Some(PathBuf::from("/tmp/out")));
             }
             _ => panic!("expected OutboundRawLog variant"),
         }
@@ -319,14 +279,9 @@ mod tests {
         let json = r#"{"type":"outbound_raw_log"}"#;
         let config: ProcessorConfig = serde_json::from_str(json).unwrap();
         match config {
-            ProcessorConfig::OutboundRawLog {
-                enabled,
-                dir,
-                retention_days,
-            } => {
+            ProcessorConfig::OutboundRawLog { enabled, dir } => {
                 assert!(!enabled);
-                assert_eq!(dir, PathBuf::from("/tmp/processor_chain_logs"));
-                assert_eq!(retention_days, 7);
+                assert_eq!(dir, None);
             }
             _ => panic!("expected OutboundRawLog variant"),
         }
@@ -339,8 +294,7 @@ mod tests {
             inbound: vec![],
             outbound: vec![ProcessorConfig::OutboundRawLog {
                 enabled: true,
-                dir: tmp.path().to_path_buf(),
-                retention_days: 5,
+                dir: Some(tmp.path().to_path_buf()),
             }],
         };
         let registry = ProcessorChainLoader::load(&config).unwrap();
@@ -356,8 +310,7 @@ mod tests {
                 ProcessorConfig::DslParser,
                 ProcessorConfig::OutboundRawLog {
                     enabled: false,
-                    dir: tmp.path().to_path_buf(),
-                    retention_days: 14,
+                    dir: Some(tmp.path().to_path_buf()),
                 },
             ],
         };

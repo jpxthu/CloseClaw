@@ -83,7 +83,7 @@ pub async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
     let config = DebugLogConfig {
         min_level: LogLevel::Trace,
         log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 1,
+        retention_days: 7,
         redaction_patterns: vec![],
     };
     DebugLog::new(config).await.expect("DebugLog::new failed")

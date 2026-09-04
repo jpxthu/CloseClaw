@@ -213,8 +213,7 @@ async fn test_processor_chain_applies_processors() {
     let proc_config = ProcessorChainConfig {
         inbound: vec![ProcessorConfig::RawLog {
             enabled: true,
-            dir: tmp.path().to_path_buf(),
-            retention_days: 7,
+            dir: Some(tmp.path().to_path_buf()),
         }],
         outbound: vec![],
     };
