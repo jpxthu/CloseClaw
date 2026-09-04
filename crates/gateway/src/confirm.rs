@@ -55,10 +55,9 @@ impl Gateway {
         // Check for /confirm or /cancel prefix.
         let (is_confirm, rest) = if let Some(r) = trimmed.strip_prefix("/confirm") {
             (true, r.trim())
-        } else if let Some(r) = trimmed.strip_prefix("/cancel") {
-            (false, r.trim())
         } else {
-            return None;
+            let r = trimmed.strip_prefix("/cancel")?;
+            (false, r.trim())
         };
 
         // Verify sender is the owner
