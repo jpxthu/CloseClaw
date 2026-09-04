@@ -917,3 +917,39 @@ async fn test_plan_state_create_destroy_recreate_cycle() {
         assert_eq!(ps.phase, crate::PlanPhase::Research);
     }
 }
+
+// ── Test: plan_file_path cleared when switching to non-plan mode ────
+
+/// Verifies that `plan_file_path` (embedded in PlanState) is implicitly
+/// cleared when switching to a non-plan mode, since PlanState is set to
+/// None by `clear_plan_state`.
+#[tokio::test]
+async fn test_plan_file_path_cleared_in_non_plan_mode() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let plan = crate::PlanState {
+        phase: crate::PlanPhase::Research,
+        pending_steps: vec![],
+        plan_file_path: "/tmp/plan.md".into(),
+    };
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-filepath-clear", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "normal".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    let stored = plan_handle.lock().unwrap();
+    assert!(
+        stored.is_none(),
+        "plan_state should be None after switching to normal mode"
+    );
+    // When plan_state is None, plan_file_path is implicitly None too,
+    // satisfying the design doc requirement that plan_file_path is
+    // cleared on non-plan mode exit.
+}
