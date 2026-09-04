@@ -1,8 +1,10 @@
 //! Plan file automatic archival.
 //!
 //! Scans the `plans/` directory for completed plan files and archives
-//! those whose last modification time exceeds a configurable threshold.
-//! Archived files are moved to `plans/archive/` via `std::fs::rename`.
+//! those whose application-layer access timestamp exceeds a configurable
+//! threshold.  For legacy plan files without an access timestamp the
+//! fallback is filesystem mtime.  Archived files are moved to
+//! `plans/archive/` via `std::fs::rename`.
 
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
@@ -13,7 +15,7 @@ pub const DEFAULT_THRESHOLD_DAYS: u64 = 7;
 /// Configuration for plan archival behavior.
 #[derive(Debug, Clone)]
 pub struct ArchiveConfig {
-    /// Number of days after last modification before archival.
+    /// Number of days before archival.
     pub threshold_days: u64,
 }
 
@@ -29,8 +31,8 @@ impl Default for ArchiveConfig {
 ///
 /// Scans `plans/` for `.md` files where all step markers are in
 /// terminal state (`[x]` done, `[!]` failed, or `[~]` skipped),
-/// and moves those older than the configured threshold to
-/// `plans/archive/`.
+/// and moves those whose access timestamp (or mtime for legacy plans)
+/// exceeds the configured threshold to `plans/archive/`.
 #[derive(Debug)]
 pub struct PlanArchiver {
     config: ArchiveConfig,
@@ -95,17 +97,42 @@ impl PlanArchiver {
                 continue;
             }
 
-            let metadata = std::fs::metadata(&path)?;
-            let mtime = metadata
-                .modified()
-                .ok()
-                .map(|t| {
-                    let dt: chrono::DateTime<chrono::Utc> = t.into();
-                    dt
-                })
-                .unwrap_or_else(chrono::Utc::now);
+            // Use application-layer access timestamp when present;
+            // fall back to filesystem mtime for legacy plans.
+            let age_exceeded = match super::plan_file::read_access_timestamp(&path) {
+                Ok(Some(access_ts)) => now.signed_duration_since(access_ts) > threshold,
+                Ok(None) => {
+                    // Legacy plan without access timestamp — fallback to mtime
+                    let metadata = std::fs::metadata(&path)?;
+                    let mtime = metadata
+                        .modified()
+                        .ok()
+                        .map(|t| {
+                            let dt: chrono::DateTime<chrono::Utc> = t.into();
+                            dt
+                        })
+                        .unwrap_or_else(chrono::Utc::now);
+                    now.signed_duration_since(mtime) > threshold
+                }
+                Err(e) => {
+                    warn!(
+                        "failed to read access timestamp for {}: {e}, falling back to mtime",
+                        path.display()
+                    );
+                    let metadata = std::fs::metadata(&path)?;
+                    let mtime = metadata
+                        .modified()
+                        .ok()
+                        .map(|t| {
+                            let dt: chrono::DateTime<chrono::Utc> = t.into();
+                            dt
+                        })
+                        .unwrap_or_else(chrono::Utc::now);
+                    now.signed_duration_since(mtime) > threshold
+                }
+            };
 
-            if now.signed_duration_since(mtime) > threshold {
+            if age_exceeded {
                 let file_name = path
                     .file_name()
                     .ok_or_else(|| ArchiveError::InvalidPath(path.clone()))?;

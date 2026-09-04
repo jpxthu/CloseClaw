@@ -426,3 +426,206 @@ fn test_archive_error_display() {
     let err = ArchiveError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
     assert!(err.to_string().contains("I/O error"));
 }
+
+// ===========================================================================
+// Access timestamp archival tests
+// ===========================================================================
+
+/// Helper: create a completed plan with an access timestamp set to the
+/// given number of seconds ago.
+fn create_completed_plan_with_access_ts(
+    dir: &Path,
+    name: &str,
+    seconds_ago: i64,
+) -> std::path::PathBuf {
+    let path = create_plan_file(dir, name, &["- [x] Step 1", "- [x] Step 2"]);
+    // Set access timestamp to seconds_ago in the past
+    let past_time = chrono::Utc::now() - chrono::Duration::seconds(seconds_ago);
+    let marker = format!("<!-- accessed: {} -->", past_time.to_rfc3339());
+    let mut content = fs::read_to_string(&path).unwrap();
+    // Insert marker after title heading
+    let insert_pos = content.find("\n# ").map(|p| p + 1).unwrap_or(0);
+    content.insert_str(insert_pos, &format!("{marker}\n"));
+    fs::write(&path, &content).unwrap();
+    path
+}
+
+/// Helper: create a completed plan with no access timestamp (legacy).
+fn create_completed_plan_legacy(dir: &Path, name: &str) -> std::path::PathBuf {
+    create_plan_file(dir, name, &["- [x] Step 1", "- [x] Step 2"])
+}
+
+#[test]
+fn test_archiver_access_ts_over_threshold_archives() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // 10 days ago access timestamp → should archive with 7-day threshold
+    let path = create_completed_plan_with_access_ts(dir.path(), "old-access.md", 10 * 86400);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 1);
+    assert!(!path.exists());
+    assert!(dir.path().join("plans/archive/old-access.md").exists());
+}
+
+#[test]
+fn test_archiver_access_ts_under_threshold_skips() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // 3 days ago access timestamp → should NOT archive with 7-day threshold
+    let path = create_completed_plan_with_access_ts(dir.path(), "recent-access.md", 3 * 86400);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 0);
+    assert!(path.exists());
+}
+
+#[test]
+fn test_archiver_no_access_ts_fallback_to_mtime() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // Legacy plan with no access timestamp, old mtime → should archive via mtime
+    let path = create_completed_plan_legacy(dir.path(), "legacy-old.md");
+    set_old_mtime(&path);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 1);
+    assert!(!path.exists());
+}
+
+#[test]
+fn test_archiver_no_access_ts_new_mtime_skips() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // Legacy plan with no access timestamp, recent mtime → should NOT archive
+    let path = create_completed_plan_legacy(dir.path(), "legacy-new.md");
+    // mtime is recent by default (just created)
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 0);
+    assert!(path.exists());
+}
+
+#[test]
+fn test_archiver_active_plan_with_old_access_ts_skips() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // Active plan (pending step) with old access timestamp → should NOT archive
+    let path = create_plan_file(
+        dir.path(),
+        "active-old.ts.md",
+        &["- [x] Step 1", "- [ ] Step 2"],
+    );
+    let past_time = chrono::Utc::now() - chrono::Duration::days(30);
+    let marker = format!("<!-- accessed: {} -->", past_time.to_rfc3339());
+    let mut content = fs::read_to_string(&path).unwrap();
+    let insert_pos = content.find("\n# ").map(|p| p + 1).unwrap_or(0);
+    content.insert_str(insert_pos, &format!("{marker}\n"));
+    fs::write(&path, &content).unwrap();
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 0);
+    assert!(path.exists());
+}
+
+#[test]
+fn test_archiver_completed_exactly_at_threshold_skips() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // Access timestamp just under threshold (6d 23h 59m) → should NOT archive
+    let path = create_plan_file(dir.path(), "boundary.md", &["- [x] Done"]);
+    let boundary_time = chrono::Utc::now() - chrono::Duration::hours(6 * 24 + 23);
+    let marker = format!("<!-- accessed: {} -->", boundary_time.to_rfc3339());
+    let mut content = fs::read_to_string(&path).unwrap();
+    let insert_pos = content.find("\n# ").map(|p| p + 1).unwrap_or(0);
+    content.insert_str(insert_pos, &format!("{marker}\n"));
+    fs::write(&path, &content).unwrap();
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 0);
+    assert!(path.exists());
+}
+
+#[test]
+fn test_archiver_access_ts_over_just_past_threshold_archives() {
+    let dir = tempfile::TempDir::new().unwrap();
+    // Access timestamp 7 days + 1 second ago → should archive
+    let path = create_plan_file(dir.path(), "just-over.md", &["- [x] Done"]);
+    let past_time = chrono::Utc::now() - chrono::Duration::days(7) - chrono::Duration::seconds(1);
+    let marker = format!("<!-- accessed: {} -->", past_time.to_rfc3339());
+    let mut content = fs::read_to_string(&path).unwrap();
+    let insert_pos = content.find("\n# ").map(|p| p + 1).unwrap_or(0);
+    content.insert_str(insert_pos, &format!("{marker}\n"));
+    fs::write(&path, &content).unwrap();
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 1);
+    assert!(!path.exists());
+}
+
+#[test]
+fn test_archiver_multiple_plans_mixed_access_ts_and_legacy() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let plans_dir = dir.path().join("plans");
+    fs::create_dir_all(&plans_dir).unwrap();
+
+    // Plan A: completed, access ts 10 days ago → archive
+    let path_a = plans_dir.join("a.md");
+    fs::write(&path_a, "# A\n\n## Tasks\n\n- [x] Done\n").unwrap();
+    let ts_a = chrono::Utc::now() - chrono::Duration::days(10);
+    let marker_a = format!("<!-- accessed: {} -->", ts_a.to_rfc3339());
+    let mut content_a = fs::read_to_string(&path_a).unwrap();
+    let pos_a = content_a.find("\n# ").map(|p| p + 1).unwrap_or(0);
+    content_a.insert_str(pos_a, &format!("{marker_a}\n"));
+    fs::write(&path_a, &content_a).unwrap();
+
+    // Plan B: completed, access ts 2 days ago → skip
+    let path_b = plans_dir.join("b.md");
+    fs::write(&path_b, "# B\n\n## Tasks\n\n- [x] Done\n").unwrap();
+    let ts_b = chrono::Utc::now() - chrono::Duration::days(2);
+    let marker_b = format!("<!-- accessed: {} -->", ts_b.to_rfc3339());
+    let mut content_b = fs::read_to_string(&path_b).unwrap();
+    let pos_b = content_b.find("\n# ").map(|p| p + 1).unwrap_or(0);
+    content_b.insert_str(pos_b, &format!("{marker_b}\n"));
+    fs::write(&path_b, &content_b).unwrap();
+
+    // Plan C: completed, no access ts, old mtime → archive (mtime fallback)
+    let path_c = plans_dir.join("c.md");
+    fs::write(&path_c, "# C\n\n## Tasks\n\n- [x] Done\n").unwrap();
+    set_old_mtime(&path_c);
+
+    // Plan D: active (pending), no access ts, old mtime → skip
+    let path_d = plans_dir.join("d.md");
+    fs::write(&path_d, "# D\n\n## Tasks\n\n- [x] Step 1\n- [ ] Step 2\n").unwrap();
+    set_old_mtime(&path_d);
+
+    let archiver = PlanArchiver::new(7);
+    let count = archiver.archive(dir.path()).unwrap();
+    assert_eq!(count, 2); // a + c archived
+    assert!(!path_a.exists());
+    assert!(path_b.exists());
+    assert!(!path_c.exists());
+    assert!(path_d.exists());
+}
+
+#[test]
+fn test_archiver_content_preserved_with_access_ts() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let content =
+        "# My Plan\n\n<!-- accessed: 2020-01-01T00:00:00Z -->\n\n## Tasks\n\n- [x] Do thing\n";
+    let plans_dir = dir.path().join("plans");
+    fs::create_dir_all(&plans_dir).unwrap();
+    let path = plans_dir.join("content-test.md");
+    fs::write(&path, content).unwrap();
+
+    let archiver = PlanArchiver::new(7);
+    archiver.archive(dir.path()).unwrap();
+
+    let dest = dir.path().join("plans/archive/content-test.md");
+    assert!(dest.exists());
+    let archived_content = fs::read_to_string(&dest).unwrap();
+    assert!(archived_content.contains("# My Plan"));
+    assert!(archived_content.contains("<!-- accessed:"));
+    assert!(archived_content.contains("- [x] Do thing"));
+}
