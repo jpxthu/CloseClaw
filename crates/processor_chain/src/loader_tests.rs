@@ -90,7 +90,7 @@ fn test_default_config_loads_three_processors() {
 // ── RawLog conditional registration: priority & sorting ──────────────────────
 
 #[test]
-fn test_raw_log_priority_is_10() {
+fn test_raw_log_registered_with_explicit_config() {
     let tmp = tempfile::tempdir().unwrap();
     let config = ProcessorChainConfig {
         inbound: vec![ProcessorConfig::RawLog {
@@ -101,10 +101,7 @@ fn test_raw_log_priority_is_10() {
     };
     let registry = ProcessorChainLoader::load(&config).unwrap();
     assert_eq!(registry.inbound_len(), 1);
-    // The registry stores processors in registration order, but process_inbound
-    // sorts by priority. Verify the processor's priority value directly.
-    // We can't access internals, but we can verify via a roundtrip: load a chain
-    // with RawLog, SessionRouter, ContentNormalizer and confirm the chain length.
+    // Verify a full chain with RawLog also registers correctly.
     let config_full = ProcessorChainConfig {
         inbound: vec![
             ProcessorConfig::RawLog {
@@ -254,4 +251,34 @@ fn test_default_config_fail_open_behavior() {
         result.metadata.contains_key("session_key"),
         "session_key should be computed by SessionRouter"
     );
+}
+
+// ── OutboundRawLog conditional registration ─────────────────────────────────
+
+#[test]
+fn test_outbound_raw_log_skipped_when_enabled_but_no_dir() {
+    let config = ProcessorChainConfig {
+        inbound: vec![ProcessorConfig::SessionRouter],
+        outbound: vec![ProcessorConfig::OutboundRawLog {
+            enabled: true,
+            dir: None,
+        }],
+    };
+    let registry = ProcessorChainLoader::load(&config).unwrap();
+    // enabled=true but dir=None → no output destination → skip
+    assert_eq!(registry.outbound_len(), 0);
+}
+
+#[test]
+fn test_outbound_raw_log_registered_with_explicit_config() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = ProcessorChainConfig {
+        inbound: vec![ProcessorConfig::SessionRouter],
+        outbound: vec![ProcessorConfig::OutboundRawLog {
+            enabled: true,
+            dir: Some(tmp.path().to_path_buf()),
+        }],
+    };
+    let registry = ProcessorChainLoader::load(&config).unwrap();
+    assert_eq!(registry.outbound_len(), 1);
 }

@@ -145,7 +145,7 @@ impl ProcessorChainLoader {
             ProcessorConfig::SessionRouter => Ok(Some(std::sync::Arc::new(SessionRouter::new()))),
             ProcessorConfig::DslParser => Ok(Some(std::sync::Arc::new(DslParser))),
             ProcessorConfig::OutboundRawLog { enabled, dir } => {
-                if !enabled && dir.is_none() {
+                if dir.is_none() {
                     return Ok(None);
                 }
                 let cfg = RawLogConfig::new(*enabled, dir.clone());
