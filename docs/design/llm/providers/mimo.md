@@ -17,7 +17,7 @@ OpenAI（略优）。理由：
 ### thinking 行为
 
 - **控制方式**：`thinking.type` 二元开关（enabled / disabled），无分级档位
-- **档位映射**：off / low 映射为 disabled；medium / high / max 映射为 enabled
+- **档位映射**：off → disabled；low / medium / high / max 降级为 enabled（最高档）
 - **供应商默认**（未显式传 `thinking.type` 时）：主模型（mimo-v2.5-pro / mimo-v2.5 / mimo-v2-pro / mimo-v2-omni）enabled；mimo-v2-flash disabled
 - **OpenAI 协议**：enabled 时 `reasoning_content` 字段返回；disabled 时不返回
 - **Anthropic 协议**：enabled 时 `content[].type: thinking` 存在，`signature` 为空（无可追溯签名）；disabled 时不返回
