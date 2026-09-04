@@ -313,9 +313,9 @@
   },
   {
     "path": "docs/design/llm/providers/mimo.md",
-    "commit": "7feafc21c4dc1f65c5955a6b401b4d3f5494f592",
-    "commit_time": "2026-09-04T13:42:19+08:00",
-    "confirmed_time": "2026-09-04T13:45:06.543876+08:00",
+    "commit": "0b88ba145897d01748234fe0dc3ce3b90b86e201",
+    "commit_time": "2026-09-05T01:59:29+08:00",
+    "confirmed_time": "2026-09-05T02:34:36.730125+08:00",
     "comment": "",
     "blocked_reason": ""
   },
