@@ -360,7 +360,7 @@ impl Gateway {
         });
         ctx.metadata = input.metadata;
         ctx.content_blocks = input.content_blocks;
-        let cfg = RawLogConfig::new(true, dir.clone(), 7);
+        let cfg = RawLogConfig::new(true, Some(dir.clone()));
         match OutboundRawLogProcessor::new(cfg).process(&ctx).await {
             Ok(Some(out)) => Ok(ProcessedMessage {
                 content_blocks: out.content_blocks,

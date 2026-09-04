@@ -27,7 +27,7 @@ fn make_ctx(content: &str, channel: &str) -> MessageContext {
 #[tokio::test]
 async fn test_outbound_phase_and_priority() {
     let tmp = TempDir::new().unwrap();
-    let config = RawLogConfig::new(false, tmp.path().to_path_buf(), 7);
+    let config = RawLogConfig::new(false, Some(tmp.path().to_path_buf()));
     let processor = OutboundRawLogProcessor::new(config);
     assert_eq!(processor.phase(), ProcessPhase::Outbound);
     assert_eq!(processor.priority(), 20);
@@ -37,7 +37,7 @@ async fn test_outbound_phase_and_priority() {
 #[tokio::test]
 async fn test_bypass_when_disabled_and_no_debug() {
     let tmp = TempDir::new().unwrap();
-    let config = RawLogConfig::new(false, tmp.path().to_path_buf(), 7);
+    let config = RawLogConfig::new(false, Some(tmp.path().to_path_buf()));
     let processor = OutboundRawLogProcessor::new(config);
 
     let ctx = make_ctx("hello", "terminal");
@@ -48,7 +48,7 @@ async fn test_bypass_when_disabled_and_no_debug() {
 #[tokio::test]
 async fn test_write_file_when_enabled() {
     let tmp = TempDir::new().unwrap();
-    let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
+    let config = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
     let processor = OutboundRawLogProcessor::new(config);
 
     let ctx = make_ctx("hi there", "feishu");
@@ -77,7 +77,7 @@ async fn test_write_file_when_enabled() {
 #[tokio::test]
 async fn test_write_file_with_message_id_metadata() {
     let tmp = TempDir::new().unwrap();
-    let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
+    let config = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
     let processor = OutboundRawLogProcessor::new(config);
 
     let mut ctx = make_ctx("hi there", "feishu");
@@ -101,9 +101,9 @@ async fn test_write_file_with_message_id_metadata() {
 #[tokio::test]
 async fn test_outbound_and_independent_from_inbound() {
     let tmp = TempDir::new().unwrap();
-    let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
+    let config = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
 
-    let inbound = super::super::raw_log_processor::RawLogProcessor::new(config.clone()).unwrap();
+    let inbound = super::super::raw_log_processor::RawLogProcessor::new(config.clone());
     let outbound = OutboundRawLogProcessor::new(config);
 
     let msg = NormalizedMessage {
@@ -146,9 +146,23 @@ async fn test_outbound_and_independent_from_inbound() {
 }
 
 #[tokio::test]
+async fn test_enabled_but_no_dir_returns_none() {
+    let config = RawLogConfig::new(true, None);
+    let processor = OutboundRawLogProcessor::new(config);
+
+    let ctx = make_ctx("hello", "terminal");
+    // enabled=true but dir=None should return None (same as disabled)
+    let result = processor.process(&ctx).await.unwrap();
+    assert!(
+        result.is_none(),
+        "enabled with no dir should be treated as disabled"
+    );
+}
+
+#[tokio::test]
 async fn test_preserves_content_and_blocks() {
     let tmp = TempDir::new().unwrap();
-    let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
+    let config = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
     let processor = OutboundRawLogProcessor::new(config);
 
     let mut ctx = make_ctx("output text", "terminal");

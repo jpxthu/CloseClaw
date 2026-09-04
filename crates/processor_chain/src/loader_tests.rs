@@ -19,8 +19,7 @@ fn test_load_full_inbound_chain_with_session_router() {
         inbound: vec![
             ProcessorConfig::RawLog {
                 enabled: true,
-                dir: tmp.path().to_path_buf(),
-                retention_days: 7,
+                dir: Some(tmp.path().to_path_buf()),
             },
             ProcessorConfig::SessionRouter,
             ProcessorConfig::ContentNormalizer,

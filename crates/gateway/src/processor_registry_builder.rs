@@ -34,20 +34,10 @@ pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
     if let Some(ref dir) = config.raw_log_dir {
         let raw_log_config = RawLogConfig {
             enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
+            dir: Some(dir.clone()),
         };
-        match RawLogProcessor::new(raw_log_config) {
-            Ok(processor) => {
-                registry.register(Arc::new(processor));
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "RawLogProcessor initialization failed — skipping inbound raw log processor"
-                );
-            }
-        }
+        let processor = RawLogProcessor::new(raw_log_config);
+        registry.register(Arc::new(processor));
     }
 
     // Inbound: SessionRouter (priority 20 — computes session_key)
@@ -66,8 +56,7 @@ pub fn build_processor_registry(config: &GatewayConfig) -> ProcessorRegistry {
     if let Some(ref dir) = config.raw_log_dir {
         let raw_log_config = RawLogConfig {
             enabled: true,
-            dir: dir.clone(),
-            retention_days: 7,
+            dir: Some(dir.clone()),
         };
         registry.register(Arc::new(OutboundRawLogProcessor::new(raw_log_config)));
     }

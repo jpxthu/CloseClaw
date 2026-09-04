@@ -388,18 +388,12 @@ fn test_outbound_raw_log_yaml_deserialization() {
 type: outbound_raw_log
 enabled: true
 dir: /var/log/outbound
-retention_days: 30
 "#;
     let config: ProcessorConfig = serde_yaml::from_str(yaml).unwrap();
     match config {
-        ProcessorConfig::OutboundRawLog {
-            enabled,
-            dir,
-            retention_days,
-        } => {
+        ProcessorConfig::OutboundRawLog { enabled, dir } => {
             assert!(enabled);
-            assert_eq!(dir, std::path::PathBuf::from("/var/log/outbound"));
-            assert_eq!(retention_days, 30);
+            assert_eq!(dir, Some(std::path::PathBuf::from("/var/log/outbound")));
         }
         other => panic!("expected OutboundRawLog variant, got: {other:?}"),
     }
@@ -412,14 +406,9 @@ type: outbound_raw_log
 "#;
     let config: ProcessorConfig = serde_yaml::from_str(yaml).unwrap();
     match config {
-        ProcessorConfig::OutboundRawLog {
-            enabled,
-            dir,
-            retention_days,
-        } => {
+        ProcessorConfig::OutboundRawLog { enabled, dir } => {
             assert!(!enabled);
-            assert_eq!(dir, std::path::PathBuf::from("/tmp/processor_chain_logs"));
-            assert_eq!(retention_days, 7);
+            assert_eq!(dir, None);
         }
         other => panic!("expected OutboundRawLog variant, got: {other:?}"),
     }
@@ -435,7 +424,6 @@ outbound:
   - type: outbound_raw_log
     enabled: true
     dir: /tmp/logs
-    retention_days: 14
 "#;
     let config: ProcessorChainConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.inbound.len(), 1);
@@ -449,8 +437,7 @@ fn test_config_loader_loads_outbound_raw_log() {
         inbound: vec![],
         outbound: vec![ProcessorConfig::OutboundRawLog {
             enabled: true,
-            dir: tmp.path().to_path_buf(),
-            retention_days: 5,
+            dir: Some(tmp.path().to_path_buf()),
         }],
     };
     let registry = ProcessorChainLoader::load(&config).unwrap();
@@ -466,8 +453,7 @@ fn test_config_loader_outbound_raw_log_with_all_types() {
             ProcessorConfig::DslParser,
             ProcessorConfig::OutboundRawLog {
                 enabled: true,
-                dir: tmp.path().to_path_buf(),
-                retention_days: 10,
+                dir: Some(tmp.path().to_path_buf()),
             },
         ],
     };
@@ -486,8 +472,7 @@ async fn test_config_loader_end_to_end_outbound() {
             ProcessorConfig::DslParser,
             ProcessorConfig::OutboundRawLog {
                 enabled: true,
-                dir: tmp.path().to_path_buf(),
-                retention_days: 7,
+                dir: Some(tmp.path().to_path_buf()),
             },
         ],
     };

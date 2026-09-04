@@ -1,14 +1,13 @@
 //! Outbound raw message logger processor.
 //!
-//! Writes outbound [`MessageContext`] to a JSON file when enabled or in Debug
-//! mode.  Mirrors [`super::raw_log_processor::RawLogProcessor`] but operates
+//! Writes outbound [`MessageContext`] to a JSON file when enabled.
+//! Mirrors [`super::raw_log_processor::RawLogProcessor`] but operates
 //! on the outbound phase.
 
 use std::collections::HashMap;
 
 use async_trait::async_trait;
 use tokio::fs;
-use tracing::level_enabled;
 
 use super::context::MessageContext;
 use super::error::ProcessError;
@@ -47,6 +46,7 @@ impl OutboundRawLogProcessor {
 
     /// Writes the snapshot to a JSON file under `self.config.dir`.
     async fn write_log(&self, snapshot: &OutboundSnapshot) -> std::io::Result<()> {
+        let dir = self.config.require_dir()?;
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
         let platform = snapshot
             .metadata
@@ -62,7 +62,7 @@ impl OutboundRawLogProcessor {
             "{}_outbound_{}_{}.json",
             platform, timestamp_millis, message_id,
         );
-        let path = self.config.dir.join(&filename);
+        let path = dir.join(&filename);
 
         let json = serde_json::to_string_pretty(snapshot)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -101,7 +101,7 @@ impl MessageProcessor for OutboundRawLogProcessor {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        let is_enabled = self.config.enabled || level_enabled!(tracing::Level::DEBUG);
+        let is_enabled = self.config.enabled && self.config.dir.is_some();
         if !is_enabled {
             return Ok(None);
         }
