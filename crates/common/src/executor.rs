@@ -98,7 +98,7 @@ pub struct SideEffectContext {
     /// Channel identifier (e.g. "feishu", "telegram").
     pub channel: String,
     /// Session manager for state queries.
-    pub session_manager: Arc<dyn SessionLookup>,
+    pub session_lookup: Arc<dyn SessionLookup>,
     /// Sender for [`ReplyAction`]s.
     pub reply_tx: mpsc::Sender<ReplyAction>,
     /// Executor for slash command side effects.
@@ -151,12 +151,12 @@ async fn execute_set_mode(
     if let Some(path) = plan_file_path {
         let path_str = path.to_string_lossy().to_string();
         let mut state = ctx
-            .session_manager
+            .session_lookup
             .get_plan_state(&ctx.session_id)
             .await
             .unwrap_or_else(crate::PlanState::new);
         state.plan_file_path = path_str;
-        ctx.session_manager
+        ctx.session_lookup
             .set_plan_state(&ctx.session_id, state)
             .await;
     }
@@ -172,7 +172,7 @@ async fn execute_set_mode(
             "user".to_string(),
         );
         if let Err(e) = ctx
-            .session_manager
+            .session_lookup
             .push_pending_message(&ctx.session_id, pending_msg)
             .await
         {
@@ -234,7 +234,7 @@ async fn execute_system_append(ctx: &SideEffectContext, action: SystemAppendActi
 /// Handle `SlashResult::Exec` — run a shell command.
 async fn execute_exec(ctx: &SideEffectContext, command: String) {
     let agent_id = ctx
-        .session_manager
+        .session_lookup
         .get_chat_id(&ctx.session_id)
         .await
         .unwrap_or_default();
