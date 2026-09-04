@@ -37,7 +37,7 @@ Session 层构建请求
     → Provider 层发送至 MiMo API
 
 ← 非流式响应：Provider 返回 JSON → Protocol 层解析为内部响应结构 → ModelInterpreter 归一化为统一响应
-← 流式响应（SSE）：Provider 以 SSE 流读取原始数据块 → Protocol 层解析为统一流式事件 → ModelInterpreter 额外归一化，推理以 reasoning_content 或 thinking block 承载
+← 流式响应（SSE）：Provider 以 SSE 流读取原始数据块 → Protocol 层解析 SSE 原生事件 → ModelInterpreter 归一化为统一流式事件，推理以 reasoning_content 或 thinking block 承载
 ```
 
 ## 模块关系
