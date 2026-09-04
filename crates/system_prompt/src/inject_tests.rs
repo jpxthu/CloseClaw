@@ -32,7 +32,6 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
         meta,
         workdir_path: None,
         session_mode,
-        user_input: None,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
@@ -136,16 +135,11 @@ fn test_plan_mode_renders_interview_path() {
     assert!(rendered.contains("Phase 1: Research"));
 }
 
-/// Plan mode auto-analysis with a clear bug-fix input renders full path selection.
+/// Plan mode full path selection always renders all paths regardless of input.
 #[test]
-fn test_plan_mode_auto_analysis_clear_input() {
+fn test_plan_mode_full_path_selection_clear_input() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        user_input: Some(
-            "Fix the bug in crates/system_prompt/src/sections.rs — should return None",
-        ),
-        ..make_params(&meta, SessionMode::Plan)
-    });
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
     let rendered = sections
         .iter()
         .find(|s| s.name() == "mode_instruction")
@@ -157,14 +151,11 @@ fn test_plan_mode_auto_analysis_clear_input() {
     assert!(rendered.contains("pair-planning"));
 }
 
-/// Plan mode auto-analysis with an ambiguous input renders full path selection.
+/// Plan mode full path selection always renders all paths regardless of input.
 #[test]
-fn test_plan_mode_auto_analysis_ambiguous_input() {
+fn test_plan_mode_full_path_selection_ambiguous_input() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        user_input: Some("Make it better"),
-        ..make_params(&meta, SessionMode::Plan)
-    });
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
     let rendered = sections
         .iter()
         .find(|s| s.name() == "mode_instruction")

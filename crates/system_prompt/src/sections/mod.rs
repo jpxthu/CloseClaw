@@ -166,7 +166,7 @@ fn render_plan_mode_instruction() -> String {
 /// Uses verbatim prompt content from design doc section 1 (global
 /// constraint) and section 2 (Phase 1–4).
 #[cfg(test)]
-pub(crate) fn render_standard_path_instruction() -> String {
+fn render_standard_path_instruction() -> String {
     format!("{}\n\n{}\n", PLAN_MODE_CONSTRAINT, STANDARD_PATH_PHASES)
 }
 
@@ -176,7 +176,7 @@ pub(crate) fn render_standard_path_instruction() -> String {
 /// exploration and clarification before a plan can be formed.
 /// Content verbatim from design doc section 3.
 #[cfg(test)]
-pub(crate) fn render_interview_path_instruction() -> String {
+fn render_interview_path_instruction() -> String {
     format!("{}\n\n{}\n", PLAN_MODE_CONSTRAINT, INTERVIEW_PATH_PROMPT)
 }
 

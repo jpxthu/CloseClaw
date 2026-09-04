@@ -450,15 +450,10 @@ impl ConversationSession {
     /// (full prompt as `system_static`, no dynamic layer).
     fn build_system_prompt_parts(
         &self,
-        messages: &[InternalMessage],
+        _messages: &[InternalMessage],
     ) -> (Option<String>, Option<String>) {
         if let Some(ref builder) = self.dynamic_prompt_builder {
             let ctx = self.request_context();
-            let user_input = messages
-                .iter()
-                .rev()
-                .find(|m| m.role == "user")
-                .map(|m| m.content.as_str());
             let context = DynamicPromptContext {
                 system_prompt: self.system_prompt.as_deref(),
                 ctx: &ctx,
@@ -467,7 +462,6 @@ impl ConversationSession {
                 session_created_at: self.created_at,
                 session_mode: self.session_mode(),
                 overrides: self.prompt_overrides.as_ref(),
-                user_input,
                 is_compacted: self.is_compacted,
                 is_sub_agent: self.is_sub_agent,
                 is_git_status_enabled: self.is_git_status_enabled,

@@ -25,8 +25,6 @@ pub struct DynamicSectionsParams<'a> {
     pub workdir_path: Option<&'a str>,
     /// Current session mode (Normal / Plan / Auto).
     pub session_mode: SessionMode,
-    /// User input text for automatic plan-path analysis.
-    pub user_input: Option<&'a str>,
     /// Whether the session context has been compacted (for sparse prompt injection).
     pub is_compacted: bool,
     /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
@@ -276,7 +274,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             meta: &meta,
             workdir_path: workdir_str.as_deref(),
             session_mode: context.session_mode,
-            user_input: context.user_input,
             is_compacted: context.is_compacted,
             is_sub_agent: context.is_sub_agent,
             is_git_status_enabled: context.is_git_status_enabled,

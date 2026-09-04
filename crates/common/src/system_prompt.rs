@@ -92,8 +92,6 @@ pub struct DynamicPromptContext<'a> {
     pub session_mode: SessionMode,
     /// Optional prompt overrides (agent / custom / override).
     pub overrides: Option<&'a PromptOverrides>,
-    /// The user's original input text, used for plan-path analysis.
-    pub user_input: Option<&'a str>,
     /// Whether the session context has been compacted (for sparse prompt injection).
     pub is_compacted: bool,
     /// Whether this prompt is for a sub-agent (for sub-agent sparse injection).
