@@ -180,12 +180,6 @@ User 通过以下斜杠指令查询或切换会话运行模式：
 
 > **交叉引用**：Plan Mode 下的 Agent 行为约束见 F2（标准路径）和 F3（Interview 路径）。Auto Mode 的行为约束见 F7。
 
-## 关联设计文档
-
-- [✓] mode/README.md
-- [✓] mode/plan-mode.md
-- [✓] mode/execution.md
-
 ## 非功能需求
 
 - **可靠性**：Plan Mode 下的写保护对所有操作和外部输入均不可绕过，Agent 在 Plan Mode 下无法执行写操作（plan 文件除外）

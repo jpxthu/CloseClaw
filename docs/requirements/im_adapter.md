@@ -113,13 +113,6 @@ IM 平台上的图片、文件等媒体在收发时落盘存储，使媒体内�
 
 > **交叉引用**：保留期属于媒体配置项，变更后自下一次清理扫描起生效；配置重载机制详见 [config §F4](config.md)（配置重载）。
 
-## 关联设计文档
-
-- [✓ im_adapter/README.md](../design/im_adapter/README.md)
-- [✓ im_adapter/code-render.md](../design/im_adapter/code-render.md)
-- [✓ im_adapter/streaming-render.md](../design/im_adapter/streaming-render.md)
-- [✓ im_adapter/media-store.md](../design/im_adapter/media-store.md)
-
 ## 非功能需求
 
 ### 可扩展性

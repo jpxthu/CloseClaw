@@ -156,22 +156,6 @@ Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。
 > **交叉引用**：启动语义与 workflow 模式进入详见 [workflow §F2](workflow.md)（workflow 启动）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
 
-## 关联设计文档
-
-- [✓] slash/README.md
-- [✓] slash/mode-switching.md
-- [✓] slash/plan-browse.md
-- [✓] slash/session-management.md
-- [✓] slash/status.md
-- [✓] slash/compact.md
-- [✓] slash/system-append.md
-- [✓] slash/workdir.md
-- [✓] slash/exec.md
-- [✓] slash/help.md
-- [✓] slash/reasoning.md
-- [✓] slash/verbose.md
-- [ ] slash/workflow.md
-
 ## 非功能需求
 
 - Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟：/stop、/status、/mode（无参数查询形态）、/reasoning、/verbose、/help

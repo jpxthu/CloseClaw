@@ -120,13 +120,6 @@ Owner 需要对定时任务等无直接用户交互的场景做权限降级处�
 
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)。
 
-## 关联设计文档
-
-- [权限系统 README](../design/permission/README.md)
-- [权限维度](../design/permission/permission-dimensions.md)
-- [权限配置管理](../design/permission/permission-configuration.md)
-- [审批工作流](../design/permission/approval-workflow.md)
-
 ## 非功能需求
 
 - 权限检查不应成为 Agent 操作的性能瓶颈——对单次工具调用的权限判定应在 100ms 以内完成。

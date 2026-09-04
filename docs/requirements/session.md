@@ -179,20 +179,6 @@ Session 模块在以下环节记录调试日志：
 
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)。
 
-## 关联设计文档
-
-- [session/README.md](../design/session/README.md)
-- [session/session-lifecycle.md](../design/session/session-lifecycle.md)
-- [session/session-execution.md](../design/session/session-execution.md)
-- [session/session-injection.md](../design/session/session-injection.md)
-- [session/working-directory.md](../design/session/working-directory.md)
-- [session/compact-process.md](../design/session/compact-process.md)
-- [session/llm-session-enhancements.md](../design/session/llm-session-enhancements.md)
-- [session/session-tools.md](../design/session/session-tools.md)
-- [session/run-health.md](../design/session/run-health.md)
-- [session/session-recovery.md](../design/session/session-recovery.md)
-- [session/spawn-tree.md](../design/session/spawn-tree.md)
-
 ## 非功能需求
 
 > 复杂度符号：A = 当前活跃 Session 数量，N = 历史会话总量（含已归档）。

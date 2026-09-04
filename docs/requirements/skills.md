@@ -89,13 +89,6 @@ User 也可通过斜杠命令直接调用声明了 user-invocable 的技能。
 
 Agent 可通过内置技能获得创建技能文件的指导。User 在对话中描述需求后，Agent 按该技能的指令创建符合规范的 SKILL.md 文件，包含正确的 frontmatter 和指令正文。
 
-## 关联设计文档
-
-- [✓] skills/README.md
-- [✓] skills/skill-definition.md
-- [✓] skills/skill-listing-injection.md
-- [✓] skills/skill-execution.md
-
 ## 非功能需求
 
 - **加载效率**：技能目录扫描和清单注入不应对 User 感知的 session 启动速度产生明显影响

@@ -97,15 +97,6 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 > **交叉引用**：三种会话类型由 session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的 spawn 参数（如是否精简模式），见 [agent §F7](agent.md)（子 Session 创建）。
 
-## 关联设计文档
-
-- [✓] system_prompt/README.md
-- [✓] system_prompt/static-layer.md
-- [✓] system_prompt/dynamic-layer.md
-- [✓] system_prompt/fragment-provider.md
-- [✓] system_prompt/kv-cache.md
-- [✓] system_prompt/appends.md
-
 ## 非功能需求
 
 ### 性能

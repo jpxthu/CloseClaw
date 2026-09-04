@@ -51,13 +51,6 @@ Owner 可以在 system prompt 或 bootstrap 中教会 Agent 使用预定义的 D
 
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)。
 
-## 关联设计文档
-
-- [✓] processor_chain/README.md
-- [✓] processor_chain/inbound-chain.md
-- [✓] processor_chain/outbound-chain.md
-- [✓] processor_chain/dsl-parser.md
-
 ## 非功能需求
 
 1. **处理不可阻塞消息流**：任何处理步骤异常时，必须回退到原始内容继续流转。不可因单个步骤失败导致消息丢失。

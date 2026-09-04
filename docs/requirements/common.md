@@ -12,13 +12,6 @@ Common 涉及的用户功能需求均在各归属业务模块的需求文档中�
 
 Common 无独立的用户功能需求。
 
-## 关联设计文档
-
-- [✓] common/README.md
-- [✓] common/shared-types.md
-- [✓] common/core-traits.md
-- [✓] common/data-flow.md
-
 ## 非功能需求
 
 Common 是纯定义层，不承载运行时行为，无非功能需求。

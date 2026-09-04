@@ -86,14 +86,6 @@ workflow 正常结束（jump 结果为 complete）或 Owner 终止后，Engine �
 - 清空 workflow 运行状态
 - Session 恢复为普通 Session，Agent 不再受 workflow 约束
 
-## 关联设计文档
-
-- [✓] README.md
-- [✓] workflow-definition.md
-- [✓] execution-engine.md
-- [✓] session-integration.md
-- [✓] workflow-tools.md
-
 ## 非功能需求
 
 - **执行进度不丢失**：系统重启后，运行中的 workflow 必须能从断点恢复，不丢失执行进度（当前步骤在最新定义中已不存在的，按 F7 转为暂停）；暂停中的 workflow 恢复后保持暂停，不丢失暂停原因与等待状态

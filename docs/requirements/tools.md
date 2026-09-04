@@ -142,20 +142,6 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 > **交叉引用**：子 Session 创建与完成的日志事件，详见 [session §F12](session.md)（调试日志）。
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
-## 关联设计文档
-
-- [✓] tools/README.md
-- [✓] tools/read-tool.md
-- [✓] tools/write-edit-tool.md
-- [✓] tools/bash-tool.md
-- [✓] tools/bash-security.md
-- [✓] tools/background-tasks.md
-- [✓] tools/multi-tool-calls.md
-- [✓] tools/tools-prompt-injection.md
-- [✓] tools/dynamic-prompt-generation.md
-- [✓] tools/tools-keywords.md
-- [✓] tools/tool-registrar.md
-
 ## 非功能需求
 
 - 文件读取、工具发现等高频工具操作在用户感知上瞬时完成

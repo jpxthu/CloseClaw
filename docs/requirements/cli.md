@@ -96,13 +96,6 @@ Owner 可以通过 CLI 查看权限规则——包括校验规则语法和列出
 
 跨平台一致性见 [platform §F5](platform.md)（系统差异隔离）及非功能需求。
 
-## 关联设计文档
-
-- [✓] cli/README.md
-- [✓] cli/chat.md
-- [✓] cli/renderer.md
-- [✓] cli/admin.md
-
 ## 非功能需求
 
 - 终端 ANSI 能力检测应覆盖所支持平台的主流终端模拟器，确保用户在不同终端环境下获得一致的格式化体验
