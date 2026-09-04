@@ -80,10 +80,6 @@ Fake LLM Server 配有一套 JSON 格式的协议 fixture，覆盖 OpenAI 与 An
 
 这套 fixture 用于单元测试：既验证 Fake LLM Server 生成的响应符合协议格式，也验证 CloseClaw 能正确解析这些响应。
 
-## 关联设计文档
-
-- [README](../design/fake_llm/README.md)
-
 ## 非功能需求
 
 ### 性能

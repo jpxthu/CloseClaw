@@ -110,18 +110,6 @@ LLM 模块在以下环节记录调试日志：
 
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
-## 关联设计文档
-
-- [README](../design/llm/README.md)
-- [protocol-mapping](../design/llm/protocol-mapping.md)
-- [cache-adapter](../design/llm/cache-adapter.md)
-- [model-discovery](../design/llm/model-discovery.md)
-- [provider-config-wizard](../design/llm/provider-config-wizard.md)
-- [providers/deepseek](../design/llm/providers/deepseek.md)
-- [providers/glm](../design/llm/providers/glm.md)
-- [providers/minimax](../design/llm/providers/minimax.md)
-- [providers/mimo](../design/llm/providers/mimo.md)
-
 ## 非功能需求
 
 ### 性能

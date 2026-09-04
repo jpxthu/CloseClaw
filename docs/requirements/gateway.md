@@ -79,12 +79,6 @@ Gateway 在以下环节记录调试日志，用于排查问题：
 
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
-## 关联设计文档
-
-- [gateway/README.md](../design/gateway/README.md)
-- [gateway/inbound-flow.md](../design/gateway/inbound-flow.md)
-- [gateway/outbound-flow.md](../design/gateway/outbound-flow.md)
-
 ## 非功能需求
 
 ### 可用性

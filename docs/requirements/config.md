@@ -80,13 +80,6 @@ API Key 等敏感凭据文件与业务配置文件分开存放，按服务商分
 
 CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常加载。配置中缺失的字段使用默认值加载，不再支持的旧字段被静默忽略，不阻塞启动。
 
-## 关联设计文档
-
-| 设计文档 | 说明 |
-|---------|------|
-| [config/README.md](../design/config/README.md) | 配置模块总体设计 |
-| [config/hot-reload.md](../design/config/hot-reload.md) | 配置重载设计 |
-
 ## 非功能需求
 
 - 配置写入操作不阻塞 Owner 的正常使用
