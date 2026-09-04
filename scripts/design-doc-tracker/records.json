@@ -305,9 +305,9 @@
   },
   {
     "path": "docs/design/llm/providers/glm.md",
-    "commit": "eef446dbfafb8b9a24664e9bf5785667405b6530",
-    "commit_time": "2026-09-03T21:16:39+08:00",
-    "confirmed_time": "2026-09-03T21:31:02.233618+08:00",
+    "commit": "4b6ea9f09f7c80183347dd98ec9c62272976e4a6",
+    "commit_time": "2026-09-04T14:34:49+08:00",
+    "confirmed_time": "2026-09-04T16:04:30.299141+08:00",
     "comment": "",
     "blocked_reason": ""
   },
