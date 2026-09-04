@@ -128,14 +128,6 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 > **交叉引用**：父子 Session 关系维护与查询（子 Session/子树/父 Session）、级联清理与重启降级恢复由 Session 模块负责。详见 [session §F1](session.md)（对话持久化与恢复）、[session §F4](session.md)（子 Session 委托与协调）。
 
-## 关联设计文档
-
-- agent/README.md
-- agent/agent-config.md
-- agent/agent-permissions.md
-- agent/agent-registry.md
-- agent/agent-spawn.md
-
 ## 非功能需求
 
 ### 性能

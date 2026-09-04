@@ -58,11 +58,6 @@ Owner 需要系统的后台定时任务在启动时自动运行、关闭时有�
 > **交叉引用**：重启类配置变更的判定与变更监听详见 [config §F4](config.md)（配置重载）。
 > **交叉引用**：重启执行期间的入站消息处理详见 [gateway §F6](gateway.md)（入站消息队列与过载保护）。
 
-## 关联设计文档
-
-- [daemon README](../design/daemon/README.md)
-- [daemon 关闭](../design/daemon/shutdown.md)
-
 ## 非功能需求
 
 - 系统从进程启动到接收第一条消息的初始化耗时不应让 Owner 感到等待过长
