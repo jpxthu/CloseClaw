@@ -430,3 +430,60 @@ async fn test_execute_non_plan_mode_with_name_and_instruction() {
         other => panic!("expected SetMode, got {other:?}"),
     }
 }
+
+// ── Access timestamp refresh tests (Step 1.3 touch-point) ──────────────
+
+/// Helper: create a plan file with a known old access timestamp marker.
+pub(crate) fn write_plan_with_old_timestamp(workdir: &std::path::Path, stem: &str) {
+    let plans = workdir.join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    std::fs::write(
+        plans.join(format!("{stem}.md")),
+        "# Old Plan\n<!-- accessed: 2020-01-01T00:00:00Z -->\n\n## Tasks\n\n- [ ] step1\n",
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_execute_refreshes_access_timestamp() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_plan_with_old_timestamp(tmp.path(), "ts-plan");
+
+    let sm = make_session_manager_with_storage();
+    let sid = create_session_with_plan_mode(&sm).await;
+    sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
+
+    let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+
+    // Verify old timestamp exists before triggering
+    let plan_path = tmp.path().join("plans/ts-plan.md");
+    let before_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        before_content.contains("<!-- accessed: 2020-01-01T00:00:00Z -->"),
+        "plan file should contain old timestamp marker"
+    );
+
+    // Trigger /execute path
+    match h.handle("ts-plan", &ctx).await {
+        SlashResult::SetMode { mode, .. } => assert_eq!(mode, "auto"),
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+
+    // Assert timestamp was refreshed (marker string changed)
+    let after_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        after_content.contains("<!-- accessed:"),
+        "plan file should still have access timestamp marker"
+    );
+    assert_ne!(
+        before_content, after_content,
+        "plan file content should change after touch"
+    );
+    // The old marker should be gone
+    assert!(
+        !after_content.contains("2020-01-01T00:00:00Z"),
+        "old timestamp marker should be replaced"
+    );
+}

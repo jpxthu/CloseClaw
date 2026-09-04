@@ -56,4 +56,6 @@ mod persistence_type_tests;
 #[cfg(test)]
 mod plan_archive_tests;
 #[cfg(test)]
+mod plan_file_access_timestamp_tests;
+#[cfg(test)]
 mod plan_file_tests;

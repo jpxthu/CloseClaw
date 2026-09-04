@@ -328,6 +328,18 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             Some(content) => content,
             None => return,
         };
+        // Refresh application-layer access timestamp so the plan
+        // does not get archived prematurely after recovery.
+        if let Err(e) =
+            crate::plan_file::touch_access_timestamp(std::path::Path::new(plan_file_path))
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                plan_file = %plan_file_path,
+                error = %e,
+                "failed to touch access timestamp during plan recovery"
+            );
+        }
         let tagged = format!("{}{}", PLAN_TASKS_PREFIX, tasks_content);
         if let Some(slot) = checkpoint
             .system_appends

@@ -144,6 +144,28 @@ impl Tool for ExecutePlanTool {
         };
         let effective_path =
             self.resolve_effective_path(&plan_name, &plan_file_path, plan_state.as_ref(), ctx)?;
+        // Refresh application-layer access timestamp so the plan
+        // does not get archived prematurely after being loaded.
+        {
+            let path = std::path::Path::new(&effective_path);
+            let abs_path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                ctx.workdir
+                    .as_ref()
+                    .map(|w| std::path::Path::new(&w.path).join(&effective_path))
+                    .unwrap_or_else(|| path.to_path_buf())
+            };
+            if abs_path.exists() {
+                if let Err(e) = closeclaw_session::plan_file::touch_access_timestamp(&abs_path) {
+                    tracing::warn!(
+                        plan_file = %effective_path,
+                        error = %e,
+                        "failed to touch access timestamp after plan load"
+                    );
+                }
+            }
+        }
         let step_selection = Self::parse_step_selection(&args);
         let new_session = Self::parse_new_session(&args);
 

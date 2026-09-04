@@ -525,3 +525,67 @@ async fn test_view_plan_file_not_readable() {
         std::fs::set_permissions(&bad_path, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 }
+
+// ── Access timestamp NOT refreshed on browse (Step 1.3) ────────────────
+
+use crate::handlers_mode_tests::handlers_execute_tests::write_plan_with_old_timestamp;
+
+#[tokio::test]
+async fn test_list_plans_does_not_refresh_access_timestamp() {
+    let dir = tempfile::TempDir::new().unwrap();
+    write_plan_with_old_timestamp(dir.path(), "ts-plan");
+    let plan_path = dir.path().join("plans/ts-plan.md");
+
+    let h = make_handler_with_workdir("test_session", dir.path().to_path_buf());
+    let ctx = dummy_ctx();
+
+    // Verify old timestamp exists before browsing
+    let before_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        before_content.contains("<!-- accessed: 2020-01-01T00:00:00Z -->"),
+        "plan file should contain old timestamp marker"
+    );
+
+    // Trigger /plans (list) path
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => assert!(text.contains("1 个 plan"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+
+    // Assert timestamp is unchanged
+    let after_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert_eq!(
+        before_content, after_content,
+        "list path must not refresh access timestamp"
+    );
+}
+
+#[tokio::test]
+async fn test_view_plan_does_not_refresh_access_timestamp() {
+    let dir = tempfile::TempDir::new().unwrap();
+    write_plan_with_old_timestamp(dir.path(), "ts-plan");
+    let plan_path = dir.path().join("plans/ts-plan.md");
+
+    let h = make_handler_with_workdir("test_session", dir.path().to_path_buf());
+    let ctx = dummy_ctx();
+
+    // Verify old timestamp exists before browsing
+    let before_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert!(
+        before_content.contains("<!-- accessed: 2020-01-01T00:00:00Z -->"),
+        "plan file should contain old timestamp marker"
+    );
+
+    // Trigger /plans <name> (view) path
+    match h.handle("ts-plan", &ctx).await {
+        SlashResult::Reply(text) => assert!(text.contains("# Old Plan"), "got: {text}"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+
+    // Assert timestamp is unchanged
+    let after_content = std::fs::read_to_string(&plan_path).unwrap();
+    assert_eq!(
+        before_content, after_content,
+        "view path must not refresh access timestamp"
+    );
+}
