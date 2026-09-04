@@ -10,6 +10,7 @@ struct MockState {
     pending_messages: Vec<(String, PendingMessage)>,
     plan_states: HashMap<String, PlanState>,
     modes: HashMap<String, SessionMode>,
+    pending_modes: HashMap<String, SessionMode>,
 }
 
 /// Minimal mock implementing [`SessionLookup`] for unit tests.
@@ -24,6 +25,7 @@ impl MockSessionLookup {
                 pending_messages: Vec::new(),
                 plan_states: HashMap::new(),
                 modes: HashMap::new(),
+                pending_modes: HashMap::new(),
             }),
         }
     }
@@ -66,6 +68,12 @@ impl SessionLookup for MockSessionLookup {
 
     async fn set_session_mode(&self, session_id: &str, mode: SessionMode) {
         self.state().modes.insert(session_id.to_string(), mode);
+    }
+
+    async fn set_pending_session_mode(&self, session_id: &str, mode: SessionMode) {
+        self.state()
+            .pending_modes
+            .insert(session_id.to_string(), mode);
     }
 }
 
@@ -165,7 +173,10 @@ async fn confirm_same_session_transitions_to_auto() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let state = mock.state();
-    assert_eq!(state.modes.get("session-1"), Some(&SessionMode::Auto));
+    assert_eq!(
+        state.pending_modes.get("session-1"),
+        Some(&SessionMode::Auto)
+    );
 }
 
 #[tokio::test]
