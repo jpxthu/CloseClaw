@@ -111,33 +111,46 @@ impl ProcessorChainLoader {
     pub fn load(config: &ProcessorChainConfig) -> Result<ProcessorRegistry, ProcessError> {
         let mut registry = ProcessorRegistry::new();
         for processor_config in &config.inbound {
-            let processor = Self::build_processor(processor_config)?;
-            registry.register(processor);
+            if let Some(processor) = Self::build_processor(processor_config)? {
+                registry.register(processor);
+            }
         }
         for processor_config in &config.outbound {
-            let processor = Self::build_processor(processor_config)?;
-            registry.register(processor);
+            if let Some(processor) = Self::build_processor(processor_config)? {
+                registry.register(processor);
+            }
         }
         Ok(registry)
     }
 
     /// Builds a concrete processor from its configuration variant.
+    ///
+    /// Returns `None` for processors that are effectively unconfigured
+    /// (e.g. `RawLog` with `enabled=false` and no `dir`).
     fn build_processor(
         config: &ProcessorConfig,
-    ) -> Result<std::sync::Arc<dyn MessageProcessor>, ProcessError> {
+    ) -> Result<Option<std::sync::Arc<dyn MessageProcessor>>, ProcessError> {
         match config {
             ProcessorConfig::RawLog { enabled, dir } => {
+                if dir.is_none() {
+                    return Ok(None);
+                }
                 let cfg = RawLogConfig::new(*enabled, dir.clone());
                 let processor = RawLogProcessor::new(cfg);
-                Ok(std::sync::Arc::new(processor))
+                Ok(Some(std::sync::Arc::new(processor)))
             }
-            ProcessorConfig::ContentNormalizer => Ok(std::sync::Arc::new(ContentNormalizer::new())),
-            ProcessorConfig::SessionRouter => Ok(std::sync::Arc::new(SessionRouter::new())),
-            ProcessorConfig::DslParser => Ok(std::sync::Arc::new(DslParser)),
+            ProcessorConfig::ContentNormalizer => {
+                Ok(Some(std::sync::Arc::new(ContentNormalizer::new())))
+            }
+            ProcessorConfig::SessionRouter => Ok(Some(std::sync::Arc::new(SessionRouter::new()))),
+            ProcessorConfig::DslParser => Ok(Some(std::sync::Arc::new(DslParser))),
             ProcessorConfig::OutboundRawLog { enabled, dir } => {
+                if !enabled && dir.is_none() {
+                    return Ok(None);
+                }
                 let cfg = RawLogConfig::new(*enabled, dir.clone());
                 let processor = OutboundRawLogProcessor::new(cfg);
-                Ok(std::sync::Arc::new(processor))
+                Ok(Some(std::sync::Arc::new(processor)))
             }
         }
     }
@@ -159,11 +172,49 @@ mod tests {
     }
 
     #[test]
-    fn test_default_config_has_three_inbound_processors() {
+    fn test_default_config_excludes_unconfigured_raw_log() {
+        // default_inbound_chain() includes RawLog { enabled: false, dir: None }
+        // which should be skipped during registration.
         let config = ProcessorChainConfig::default();
         let registry = ProcessorChainLoader::load(&config).unwrap();
-        assert_eq!(registry.inbound_len(), 3);
+        assert_eq!(registry.inbound_len(), 2);
         assert_eq!(registry.outbound_len(), 0);
+    }
+
+    #[test]
+    fn test_default_config_includes_raw_log_when_explicitly_configured() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = ProcessorChainConfig {
+            inbound: vec![
+                ProcessorConfig::RawLog {
+                    enabled: true,
+                    dir: Some(tmp.path().to_path_buf()),
+                },
+                ProcessorConfig::SessionRouter,
+                ProcessorConfig::ContentNormalizer,
+            ],
+            outbound: vec![],
+        };
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        assert_eq!(registry.inbound_len(), 3);
+    }
+
+    #[test]
+    fn test_raw_log_skipped_when_enabled_but_no_dir() {
+        let config = ProcessorChainConfig {
+            inbound: vec![
+                ProcessorConfig::RawLog {
+                    enabled: true,
+                    dir: None,
+                },
+                ProcessorConfig::SessionRouter,
+                ProcessorConfig::ContentNormalizer,
+            ],
+            outbound: vec![],
+        };
+        let registry = ProcessorChainLoader::load(&config).unwrap();
+        // enabled=true but dir=None → no output destination → skip
+        assert_eq!(registry.inbound_len(), 2);
     }
 
     #[test]

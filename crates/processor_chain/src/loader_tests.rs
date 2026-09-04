@@ -70,12 +70,14 @@ fn test_default_config_serde_roundtrip() {
 
 #[test]
 fn test_default_config_loads_three_processors() {
+    // default_inbound_chain() includes RawLog { enabled: false, dir: None }
+    // which is skipped during registration (no output destination).
     let config = ProcessorChainConfig::default();
     let registry = ProcessorChainLoader::load(&config).unwrap();
     assert_eq!(
         registry.inbound_len(),
-        3,
-        "default config should load 3 inbound processors"
+        2,
+        "default config should load 2 inbound processors (RawLog skipped)"
     );
     assert_eq!(
         registry.outbound_len(),
