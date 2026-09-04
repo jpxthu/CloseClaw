@@ -779,7 +779,7 @@ async fn test_new_session_executor_replies_with_session_id() {
     let side_effect_ctx = SideEffectContext {
         session_id: "test-sid".to_owned(),
         channel: "feishu".to_owned(),
-        session_manager: session_mgr,
+        session_lookup: session_mgr,
         reply_tx,
         executor,
     };

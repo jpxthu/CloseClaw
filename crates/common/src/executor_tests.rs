@@ -215,12 +215,12 @@ fn make_ctx(
     executor: Arc<MockSlashEffectExecutor>,
     session_id: &str,
     channel: &str,
-    session_manager: Arc<dyn SessionLookup>,
+    session_lookup: Arc<dyn SessionLookup>,
 ) -> SideEffectContext {
     SideEffectContext {
         session_id: session_id.to_string(),
         channel: channel.to_string(),
-        session_manager,
+        session_lookup,
         reply_tx: executor.reply_tx.clone(),
         executor,
     }
@@ -504,7 +504,7 @@ async fn test_compact_error_replies_with_failure_message() {
     let ctx = SideEffectContext {
         session_id: "s8".into(),
         channel: "feishu".into(),
-        session_manager: sm,
+        session_lookup: sm,
         reply_tx: tx,
         executor: Arc::new(mock),
     };
