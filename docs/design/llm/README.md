@@ -94,7 +94,7 @@ LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发�
 外部调用方将响应内容写入消息数组后，上层 Rendering Layer / processor_chain 负责读取并渲染（不在 LLM 模块范围内）。
 ```
 
-流式调用路径（请求阶段与标准链路一致：Session → CacheAdapter → Plugin before_request → Protocol → Provider）：Provider 以 SSE 流读取原始数据块 → Protocol 层通过状态机将原始事件转换为 [StreamEvent](../common/shared-types.md#streamevent) 统一流式事件 → ModelInterpreter 对流事件做额外归一化 → Plugin 对流事件做过滤/加工 → 上层逐事件消费。
+流式调用路径（请求阶段与标准链路一致：Session → CacheAdapter → Plugin before_request → Protocol → Provider）：Provider 以 SSE 流读取原始数据块 → Protocol 层解析 SSE 原生事件 → ModelInterpreter 归一化为 [StreamEvent](../common/shared-types.md#streamevent) 统一流式事件 → Plugin 对流事件做过滤/加工 → 上层逐事件消费。
 
 ## 模块关系
 
