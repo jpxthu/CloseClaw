@@ -97,7 +97,7 @@ pub struct SideEffectContext {
     pub session_id: String,
     /// Channel identifier (e.g. "feishu", "telegram").
     pub channel: String,
-    /// Session manager for state queries.
+    /// Session lookup for state queries.
     pub session_lookup: Arc<dyn SessionLookup>,
     /// Sender for [`ReplyAction`]s.
     pub reply_tx: mpsc::Sender<ReplyAction>,
