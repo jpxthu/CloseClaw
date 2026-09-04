@@ -473,9 +473,9 @@
   },
   {
     "path": "docs/design/processor_chain/inbound-chain.md",
-    "commit": "3b14691f55aec01b779fa5484b6b81b6e0cee139",
-    "commit_time": "2026-07-14T00:31:41+08:00",
-    "confirmed_time": "2026-07-14T00:41:40.256117+08:00",
+    "commit": "48888babd0c1cd1a9192f0e9ded4523ba46a5911",
+    "commit_time": "2026-09-05T04:40:42+08:00",
+    "confirmed_time": "2026-09-05T05:02:20.140221+08:00",
     "comment": "",
     "blocked_reason": ""
   },
