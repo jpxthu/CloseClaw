@@ -521,15 +521,13 @@ impl SessionManager {
                     cp.outbound_pending = pending;
                     cp
                 }
-                _ => {
-                    // No existing checkpoint — create a fresh one
-                    SessionCheckpoint::new(session_id.clone())
-                        .with_status(SessionStatus::Active)
-                        .with_platform(session.channel.clone())
-                        .with_peer_id(session.agent_id.clone())
-                        .with_agent_id(session.agent_id.clone())
-                        .with_outbound_pending(pending)
-                }
+                // No existing checkpoint — create a fresh one
+                _ => SessionCheckpoint::new(session_id.clone())
+                    .with_status(SessionStatus::Active)
+                    .with_platform(session.channel.clone())
+                    .with_peer_id(session.agent_id.clone())
+                    .with_agent_id(session.agent_id.clone())
+                    .with_outbound_pending(pending),
             };
             // Sync per-session append-section list from ConversationSession
             // (issue #860: archived session restore preserves append content).
@@ -765,45 +763,60 @@ impl SessionManager {
             _ => None,
         }
     }
-
     /// Set plan_state on the session checkpoint.
+    /// Writes the checkpoint first; updates ConversationSession on success.
     pub async fn set_plan_state(&self, session_id: &str, plan_state: closeclaw_common::PlanState) {
-        // Sync plan_file_path to the live ConversationSession so that
-        // build_system_prompt_parts can read it for Auto Mode injection.
+        // Write checkpoint first; skip ConversationSession if checkpoint fails.
         let plan_file_path = if plan_state.plan_file_path.is_empty() {
             None
         } else {
             Some(plan_state.plan_file_path.clone())
         };
-        if let Some(cs) = self.get_conversation_session(session_id).await {
-            let mut cs = cs.write().await;
-            cs.set_plan_file_path(plan_file_path);
-        }
-
-        let cm_guard = {
+        let cm = {
             let guard = self.checkpoint_manager.read().await;
             match guard.as_ref() {
                 Some(cm) => Arc::clone(cm),
                 None => return,
             }
         };
-        let mut cp = match cm_guard.load(session_id).await {
+        let mut cp = match cm.load(session_id).await {
             Ok(Some(cp)) => cp,
             _ => return,
         };
         cp.plan_state = Some(plan_state);
-        if let Err(e) = cm_guard.save_raw(&cp).await {
-            tracing::warn!(
-                session_id = %session_id,
-                "failed to save plan_state: {}",
-                e
-            );
+        if let Err(e) = cm.save_raw(&cp).await {
+            tracing::warn!(session_id = %session_id, "failed to save plan_state: {}", e);
+            return;
+        }
+        // Sync plan_file_path to ConversationSession for Auto Mode injection.
+        if let Some(cs) = self.get_conversation_session(session_id).await {
+            let mut cs = cs.write().await;
+            cs.set_plan_file_path(plan_file_path);
         }
     }
-
-    /// Rebuild the system prompt for a session.
-    /// Delegates to `ConversationSession::rebuild_system_prompt` which
-    /// uses the session's own builder and overrides.
+    /// Clear plan state when exiting Plan Mode (e.g. `/mode normal`, `/auto`).
+    pub async fn clear_plan_state(&self, session_id: &str) {
+        // Clone Arc before dropping the guard to avoid holding it across await.
+        let cm = {
+            let guard = self.checkpoint_manager.read().await;
+            guard.as_ref().map(Arc::clone)
+        };
+        if let Some(cm) = cm {
+            if session_helpers::clear_plan_state_checkpoint(&cm, session_id)
+                .await
+                .is_err()
+            {
+                warn!(session_id = %session_id, "failed to clear plan_state checkpoint");
+                return;
+            }
+        }
+        if let Some(cs) = self.get_conversation_session(session_id).await {
+            let mut cs = cs.write().await;
+            cs.set_plan_file_path(None);
+        }
+    }
+    /// Rebuild the system prompt for a session, delegating to
+    /// `ConversationSession::rebuild_system_prompt`.
     pub async fn rebuild_system_prompt_for_session(&self, session_id: &str) {
         let cs = match self.get_conversation_session(session_id).await {
             Some(cs) => cs,
@@ -822,19 +835,9 @@ impl SessionManager {
             .await;
     }
 
-    /// Notify all active sessions that a configuration section has been updated.
-    ///
-    /// Iterates through all active sessions and rebuilds their system prompt
-    /// so the next LLM request picks up the latest config values (tools,
-    /// skills, system-prompt sections, etc.). Sessions themselves are not
-    /// rebuilt; only the cached system prompt is invalidated.
-    ///
-    /// Sessions already observe the latest config values through the shared
-    /// `Arc<ConfigManager>` reference, so this notification is the only
-    /// explicit refresh needed to invalidate derived caches.
-    ///
-    /// The `snapshot` parameter carries the latest config snapshot for
-    /// downstream reference-swap semantics (fully utilised in Step 1.3).
+    /// Notify all active sessions that a configuration section has been
+    /// updated. Rebuilds each session's cached system prompt so the next
+    /// LLM request picks up the latest config values.
     pub async fn notify_config_changed(&self, section: ConfigSection, snapshot: ConfigSnapshot) {
         tracing::info!(
             section = %section,

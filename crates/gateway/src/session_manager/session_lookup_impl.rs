@@ -39,6 +39,10 @@ impl SessionLookup for SessionManager {
             );
         }
     }
+
+    async fn clear_plan_state(&self, session_id: &str) {
+        SessionManager::clear_plan_state(self, session_id).await;
+    }
 }
 
 /// Helper: get conversation session by ID.
