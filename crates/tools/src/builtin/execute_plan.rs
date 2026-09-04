@@ -148,8 +148,16 @@ impl Tool for ExecutePlanTool {
         // does not get archived prematurely after being loaded.
         {
             let path = std::path::Path::new(&effective_path);
-            if path.exists() {
-                if let Err(e) = closeclaw_session::plan_file::touch_access_timestamp(path) {
+            let abs_path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                ctx.workdir
+                    .as_ref()
+                    .map(|w| std::path::Path::new(&w.path).join(&effective_path))
+                    .unwrap_or_else(|| path.to_path_buf())
+            };
+            if abs_path.exists() {
+                if let Err(e) = closeclaw_session::plan_file::touch_access_timestamp(&abs_path) {
                     tracing::warn!(
                         plan_file = %effective_path,
                         error = %e,

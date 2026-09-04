@@ -251,9 +251,16 @@ impl ExecuteHandler {
         };
         // Refresh access timestamp so the plan does not get archived prematurely
         if let Some(ref path) = plan_file_path {
-            if let Err(e) = plan_file::touch_access_timestamp(path) {
+            let abs_path = if path.is_absolute() {
+                path.clone()
+            } else {
+                workdir
+                    .map(|wd| wd.join(path))
+                    .unwrap_or_else(|| path.clone())
+            };
+            if let Err(e) = plan_file::touch_access_timestamp(&abs_path) {
                 tracing::warn!(
-                    plan_file = %path.display(),
+                    plan_file = %abs_path.display(),
                     error = %e,
                     "failed to touch access timestamp in /execute"
                 );
@@ -294,9 +301,16 @@ impl ExecuteHandler {
             }
         };
         // Refresh access timestamp so the plan does not get archived prematurely
-        if let Err(e) = plan_file::touch_access_timestamp(&plan_file_path) {
+        let abs_path = if plan_file_path.is_absolute() {
+            plan_file_path.clone()
+        } else {
+            workdir
+                .map(|wd| wd.join(&plan_file_path))
+                .unwrap_or_else(|| plan_file_path.clone())
+        };
+        if let Err(e) = plan_file::touch_access_timestamp(&abs_path) {
             tracing::warn!(
-                plan_file = %plan_file_path.display(),
+                plan_file = %abs_path.display(),
                 error = %e,
                 "failed to touch access timestamp in /execute"
             );
