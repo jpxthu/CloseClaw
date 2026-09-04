@@ -55,7 +55,7 @@ pub fn assemble_llm_components(
         "mimo" => (
             Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
             InterpreterRegistry::new(vec![(Box::new(crate::MimoInterpreter), "mimo/*")]),
-            PluginPipeline::new(),
+            PluginPipeline::new().add(Box::new(crate::MimoPlugin)),
         ),
         _ => (
             Arc::new(OpenAiProtocol::new()) as Arc<dyn ChatProtocol>,
