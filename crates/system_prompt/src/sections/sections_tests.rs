@@ -307,7 +307,6 @@ fn test_section_cache_no_mtime_always_hits() {
 fn test_mode_instruction_basics_and_auto() {
     let s = Section::ModeInstruction {
         mode: SessionMode::Normal,
-        plan_path: None,
         sparse: false,
         sub_agent: false,
     };
@@ -315,7 +314,7 @@ fn test_mode_instruction_basics_and_auto() {
     assert!(!s.is_cacheable());
     assert_eq!(s.render(), "");
     // Auto mode renders all 6 rules
-    let rendered = render_mode_instruction(SessionMode::Auto, None);
+    let rendered = render_mode_instruction(SessionMode::Auto);
     assert!(rendered.contains("Auto Mode Active"));
     assert!(rendered.contains("Execute immediately"));
     assert!(rendered.contains("Minimize interruptions"));
@@ -323,10 +322,9 @@ fn test_mode_instruction_basics_and_auto() {
     assert!(rendered.contains("Expect course corrections"));
     assert!(rendered.contains("Do not take overly destructive actions"));
     assert!(rendered.contains("Avoid data exfiltration"));
-    // Default PlanPath=None renders plan mode instruction with path selection
+    // Plan mode renders full path selection instructions
     let s = Section::ModeInstruction {
         mode: SessionMode::Plan,
-        plan_path: None,
         sparse: false,
         sub_agent: false,
     };
@@ -341,7 +339,7 @@ fn test_mode_instruction_basics_and_auto() {
 /// Verify render_plan_mode_instruction() output contains all required sections.
 #[test]
 fn test_render_plan_mode_instruction_content() {
-    let rendered = render_mode_instruction(SessionMode::Plan, None);
+    let rendered = render_mode_instruction(SessionMode::Plan);
     // §1 global constraint
     assert!(rendered.contains("Plan mode is active"));
     assert!(rendered.contains("This supercedes any other instructions"));
@@ -364,7 +362,6 @@ fn test_render_plan_mode_instruction_content() {
 fn test_mode_instruction_plan_standard_and_interview() {
     let std = Section::ModeInstruction {
         mode: SessionMode::Plan,
-        plan_path: Some(PlanPath::Standard),
         sparse: false,
         sub_agent: false,
     };
@@ -376,7 +373,6 @@ fn test_mode_instruction_plan_standard_and_interview() {
     assert!(!r.contains("## Mode: Plan"));
     let intv = Section::ModeInstruction {
         mode: SessionMode::Plan,
-        plan_path: Some(PlanPath::Interview),
         sparse: false,
         sub_agent: false,
     };
@@ -397,30 +393,19 @@ fn test_mode_instruction_plan_standard_and_interview() {
 #[test]
 fn test_mode_instruction_sparse_and_sub_agent() {
     // Plan sparse → Standard Sparse text
-    let rendered = render_mode_instruction_with_flags(
-        SessionMode::Plan,
-        Some(PlanPath::Standard),
-        true,
-        false,
-    );
+    let rendered = render_mode_instruction_with_flags(SessionMode::Plan, true, false);
     assert!(rendered.contains("Plan mode still active"));
     assert!(rendered.contains("Read-only except plan file"));
     // Auto sparse → Auto Sparse text
-    let rendered = render_mode_instruction_with_flags(SessionMode::Auto, None, true, false);
+    let rendered = render_mode_instruction_with_flags(SessionMode::Auto, true, false);
     assert!(rendered.contains("Auto mode still active"));
     assert!(rendered.contains("Execute autonomously"));
     // Sub-agent → Sub-agent Sparse text
-    let rendered = render_mode_instruction_with_flags(
-        SessionMode::Plan,
-        Some(PlanPath::Standard),
-        false,
-        true,
-    );
+    let rendered = render_mode_instruction_with_flags(SessionMode::Plan, false, true);
     assert!(rendered.contains("Plan mode is active"));
     assert!(rendered.contains("READ-ONLY actions"));
     // sub_agent takes precedence over sparse
-    let rendered =
-        render_mode_instruction_with_flags(SessionMode::Plan, Some(PlanPath::Standard), true, true);
+    let rendered = render_mode_instruction_with_flags(SessionMode::Plan, true, true);
     assert!(rendered.contains("READ-ONLY actions"));
     assert!(!rendered.contains("Plan mode still active"));
 }
@@ -434,7 +419,6 @@ fn test_section_render_mode_instruction_uses_flags() {
     // When sparse=true, render() should output Standard Sparse text
     let s = Section::ModeInstruction {
         mode: SessionMode::Plan,
-        plan_path: Some(PlanPath::Standard),
         sparse: true,
         sub_agent: false,
     };
@@ -448,7 +432,6 @@ fn test_section_render_mode_instruction_uses_flags() {
     // When sub_agent=true, render() should output Sub-agent Sparse text
     let s = Section::ModeInstruction {
         mode: SessionMode::Plan,
-        plan_path: Some(PlanPath::Standard),
         sparse: false,
         sub_agent: true,
     };
@@ -459,10 +442,9 @@ fn test_section_render_mode_instruction_uses_flags() {
         r
     );
 
-    // When plan_path=None, render() should output plan mode with path selection rules
+    // Plan mode render() should output plan mode with path selection rules
     let s = Section::ModeInstruction {
         mode: SessionMode::Plan,
-        plan_path: None,
         sparse: false,
         sub_agent: false,
     };
@@ -521,7 +503,6 @@ fn test_standard_and_interview_share_plan_mode_constraint() {
 fn test_sparse_plan_mode_outputs_standard_sparse() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Plan,
-        Some(PlanPath::Standard),
         true,  // is_compacted
         false, // is_sub_agent
     );
@@ -538,7 +519,6 @@ fn test_sparse_plan_mode_outputs_standard_sparse() {
 fn test_sparse_auto_mode_outputs_auto_sparse() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Auto,
-        None,  // plan_path irrelevant for Auto
         true,  // is_compacted
         false, // is_sub_agent
     );
@@ -553,13 +533,8 @@ fn test_sparse_auto_mode_outputs_auto_sparse() {
 /// Plan sparse and Auto sparse produce different output
 #[test]
 fn test_sparse_plan_and_auto_produce_different_output() {
-    let plan_sparse = render_mode_instruction_with_flags(
-        SessionMode::Plan,
-        Some(PlanPath::Standard),
-        true,
-        false,
-    );
-    let auto_sparse = render_mode_instruction_with_flags(SessionMode::Auto, None, true, false);
+    let plan_sparse = render_mode_instruction_with_flags(SessionMode::Plan, true, false);
+    let auto_sparse = render_mode_instruction_with_flags(SessionMode::Auto, true, false);
     assert_ne!(
         plan_sparse, auto_sparse,
         "Plan sparse and Auto sparse should produce different outputs"
@@ -573,7 +548,6 @@ fn test_sparse_plan_and_auto_produce_different_output() {
 fn test_not_compacted_outputs_full_prompt() {
     let plan_full = render_mode_instruction_with_flags(
         SessionMode::Plan,
-        Some(PlanPath::Standard),
         false, // not compacted
         false,
     );
@@ -583,7 +557,6 @@ fn test_not_compacted_outputs_full_prompt() {
 
     let auto_full = render_mode_instruction_with_flags(
         SessionMode::Auto,
-        None,
         false, // not compacted
         false,
     );
@@ -599,7 +572,6 @@ fn test_not_compacted_outputs_full_prompt() {
 fn test_sub_agent_true_outputs_subagent_sparse() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Plan,
-        Some(PlanPath::Standard),
         false, // sparse irrelevant when sub_agent is true
         true,  // is_sub_agent
     );
@@ -617,7 +589,6 @@ fn test_sub_agent_true_outputs_subagent_sparse() {
 fn test_sub_agent_false_outputs_normal_instruction() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Plan,
-        Some(PlanPath::Standard),
         false,
         false, // not sub-agent
     );
@@ -630,7 +601,6 @@ fn test_sub_agent_false_outputs_normal_instruction() {
 fn test_sub_agent_precedence_over_sparse() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Plan,
-        Some(PlanPath::Standard),
         true, // compacted
         true, // sub-agent
     );
@@ -649,7 +619,6 @@ fn test_sub_agent_precedence_over_sparse() {
 fn test_auto_mode_sub_agent_true_not_injecting_subagent_sparse() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Auto,
-        None,  // plan_path irrelevant for Auto
         false, // not compacted
         true,  // sub-agent
     );
@@ -674,7 +643,6 @@ fn test_auto_mode_sub_agent_true_not_injecting_subagent_sparse() {
 fn test_auto_mode_sub_agent_true_sparse_outputs_auto_sparse() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Auto,
-        None, // plan_path irrelevant for Auto
         true, // compacted/sparse
         true, // sub-agent
     );
@@ -698,7 +666,6 @@ fn test_auto_mode_sub_agent_true_sparse_outputs_auto_sparse() {
 fn test_normal_mode_sub_agent_true_returns_empty() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Normal,
-        None,
         false,
         true, // sub-agent
     );
@@ -714,7 +681,6 @@ fn test_normal_mode_sub_agent_true_returns_empty() {
 fn test_auto_mode_sub_agent_false_regression() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Auto,
-        None,
         false, // not compacted
         false, // not sub-agent
     );
@@ -731,7 +697,6 @@ fn test_auto_mode_sub_agent_false_regression() {
 fn test_auto_mode_sub_agent_false_sparse_regression() {
     let output = render_mode_instruction_with_flags(
         SessionMode::Auto,
-        None,
         true,  // compacted/sparse
         false, // not sub-agent
     );
@@ -769,7 +734,6 @@ fn test_is_cacheable_all_remaining_variants() {
     assert!(!workdir.is_cacheable());
     let mode = Section::ModeInstruction {
         mode: SessionMode::Normal,
-        plan_path: None,
         sparse: false,
         sub_agent: false,
     };
@@ -790,7 +754,6 @@ fn test_section_name_all_variants() {
         Section::WorkingDirectory("w".to_string()).name(),
         Section::ModeInstruction {
             mode: SessionMode::Normal,
-            plan_path: None,
             sparse: false,
             sub_agent: false,
         }
@@ -825,19 +788,16 @@ fn test_section_render_no_panic_all_variants() {
         Section::WorkingDirectory("/tmp/work".to_string()),
         Section::ModeInstruction {
             mode: SessionMode::Plan,
-            plan_path: Some(PlanPath::Standard),
             sparse: false,
             sub_agent: false,
         },
         Section::ModeInstruction {
             mode: SessionMode::Auto,
-            plan_path: None,
             sparse: true,
             sub_agent: false,
         },
         Section::ModeInstruction {
             mode: SessionMode::Plan,
-            plan_path: None,
             sparse: false,
             sub_agent: false,
         },
@@ -918,7 +878,6 @@ fn test_plan_file_name_unique_among_all_variants() {
         Section::WorkingDirectory("w".into()).name(),
         Section::ModeInstruction {
             mode: SessionMode::Normal,
-            plan_path: None,
             sparse: false,
             sub_agent: false,
         }

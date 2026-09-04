@@ -9,7 +9,6 @@ pub mod event;
 pub mod execution_types;
 pub mod hook;
 pub mod notification;
-pub mod plan_path;
 pub mod spawn;
 pub mod types;
 
@@ -22,7 +21,6 @@ pub use hook::{
     CustomHook, HookError, HookResult, HookRunner, NotifyHook, StepHook, VerificationHook,
 };
 pub use notification::{parse_subagent_result, ParseError};
-pub use plan_path::PlanPath;
 pub use spawn::SpawnAdapter;
 pub use types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 

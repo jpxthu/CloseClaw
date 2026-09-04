@@ -15,7 +15,6 @@ closeclaw-llm = { path = "../llm" }
 closeclaw-session = { path = "../session" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-workflow = { path = "../workflow" }
-closeclaw-execution = { path = "../execution" }
 closeclaw-config = { path = "../config" }
 
 # Serialization

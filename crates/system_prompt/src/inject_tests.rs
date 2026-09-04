@@ -11,7 +11,6 @@
 use super::inject::{build_dynamic_sections, DynamicSectionsParams};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::system_prompt::ModeTransition;
-use closeclaw_execution::PlanPath;
 use closeclaw_gateway::session_handler::MessageMetadata;
 use std::collections::HashSet;
 
@@ -23,6 +22,7 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
         chat_name: String::new(),
         trace_id: None,
         session_key: None,
+        span_id: None,
     }
 }
 
@@ -32,7 +32,6 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
         meta,
         workdir_path: None,
         session_mode,
-        explicit_plan_path: None,
         user_input: None,
         is_compacted: false,
         is_sub_agent: false,
@@ -81,10 +80,7 @@ fn test_ordering_without_transition_channel_then_mode_instruction() {
 #[test]
 fn test_plan_mode_injects_instruction() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Standard),
-        ..make_params(&meta, SessionMode::Plan)
-    });
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
     let mode_sec = sections.iter().find(|s| s.name() == "mode_instruction");
     assert!(
         mode_sec.is_some(),
@@ -108,14 +104,11 @@ fn test_auto_mode_injects_instruction() {
     assert!(rendered.contains("Auto"));
 }
 
-/// Plan mode with explicit Standard path renders Standard path phases.
+/// Plan mode renders Standard path phases (via full path selection).
 #[test]
-fn test_plan_mode_explicit_standard_path() {
+fn test_plan_mode_renders_standard_path() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Standard),
-        ..make_params(&meta, SessionMode::Plan)
-    });
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
     let rendered = sections
         .iter()
         .find(|s| s.name() == "mode_instruction")
@@ -123,17 +116,15 @@ fn test_plan_mode_explicit_standard_path() {
         .render();
     assert!(rendered.contains("Phase 1: Initial Understanding"));
     assert!(rendered.contains("Phase 4: Final Plan"));
-    assert!(!rendered.contains("pair-planning"));
+    // Full path selection includes both paths
+    assert!(rendered.contains("pair-planning"));
 }
 
-/// Plan mode with explicit Interview path renders Interview path content.
+/// Plan mode renders Interview path content (via full path selection).
 #[test]
-fn test_plan_mode_explicit_interview_path() {
+fn test_plan_mode_renders_interview_path() {
     let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Interview),
-        ..make_params(&meta, SessionMode::Plan)
-    });
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
     let rendered = sections
         .iter()
         .find(|s| s.name() == "mode_instruction")
@@ -141,10 +132,11 @@ fn test_plan_mode_explicit_interview_path() {
         .render();
     assert!(rendered.contains("pair-planning"));
     assert!(rendered.contains("The Loop"));
-    assert!(!rendered.contains("Phase 1: Initial Understanding"));
+    // Full path selection includes both paths
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
 }
 
-/// Plan mode auto-analysis with a clear bug-fix input selects Standard Path.
+/// Plan mode auto-analysis with a clear bug-fix input renders full path selection.
 #[test]
 fn test_plan_mode_auto_analysis_clear_input() {
     let meta = make_meta("u", "ch", 0);
@@ -159,12 +151,13 @@ fn test_plan_mode_auto_analysis_clear_input() {
         .find(|s| s.name() == "mode_instruction")
         .unwrap()
         .render();
+    // Full path selection always renders all paths
     assert!(rendered.contains("Phase 1: Initial Understanding"));
     assert!(rendered.contains("Phase 4: Final Plan"));
-    assert!(!rendered.contains("pair-planning"));
+    assert!(rendered.contains("pair-planning"));
 }
 
-/// Plan mode auto-analysis with an ambiguous input selects Interview Path.
+/// Plan mode auto-analysis with an ambiguous input renders full path selection.
 #[test]
 fn test_plan_mode_auto_analysis_ambiguous_input() {
     let meta = make_meta("u", "ch", 0);
@@ -177,17 +170,17 @@ fn test_plan_mode_auto_analysis_ambiguous_input() {
         .find(|s| s.name() == "mode_instruction")
         .unwrap()
         .render();
+    // Full path selection always renders all paths
     assert!(rendered.contains("pair-planning"));
     assert!(rendered.contains("The Loop"));
-    assert!(!rendered.contains("Phase 1: Initial Understanding"));
+    assert!(rendered.contains("Phase 1: Initial Understanding"));
 }
 
 // ── Path selection rules injection tests ───────────────────────────────────
 
-/// Plan Mode with no explicit path and no user input includes path selection rules.
-/// Agent should decide which path to follow based on the task description.
+/// Plan Mode always includes path selection rules (Agent decides).
 #[test]
-fn test_plan_mode_no_explicit_path_includes_path_selection_rules() {
+fn test_plan_mode_includes_path_selection_rules() {
     let meta = make_meta("u", "ch", 0);
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Plan));
     let rendered = sections
@@ -198,67 +191,13 @@ fn test_plan_mode_no_explicit_path_includes_path_selection_rules() {
     // Should contain path selection rules
     assert!(
         rendered.contains("Decide which planning path to follow"),
-        "Plan Mode with no explicit path should include path selection rules"
+        "Plan Mode should include path selection rules"
     );
     assert!(rendered.contains("Standard 4-phase workflow"));
     assert!(rendered.contains("Interview (iterative) workflow"));
     // Should also contain both paths (standard and interview)
     assert!(rendered.contains("Phase 1: Initial Understanding"));
     assert!(rendered.contains("pair-planning"));
-}
-
-/// Plan Mode with explicit Standard path does NOT include path selection rules.
-/// Only the standard path content should be injected.
-#[test]
-fn test_plan_mode_explicit_standard_path_no_path_selection_rules() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Standard),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-    let rendered = sections
-        .iter()
-        .find(|s| s.name() == "mode_instruction")
-        .unwrap()
-        .render();
-    // Should NOT contain path selection rules
-    assert!(
-        !rendered.contains("Decide which planning path to follow"),
-        "Explicit Standard path should NOT include path selection rules"
-    );
-    // Should contain standard path content
-    assert!(rendered.contains("Phase 1: Initial Understanding"));
-    assert!(rendered.contains("Phase 4: Final Plan"));
-    // Should NOT contain interview content
-    assert!(!rendered.contains("pair-planning"));
-    assert!(!rendered.contains("The Loop"));
-}
-
-/// Plan Mode with explicit Interview path does NOT include path selection rules.
-/// Only the interview path content should be injected.
-#[test]
-fn test_plan_mode_explicit_interview_path_no_path_selection_rules() {
-    let meta = make_meta("u", "ch", 0);
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        explicit_plan_path: Some(PlanPath::Interview),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-    let rendered = sections
-        .iter()
-        .find(|s| s.name() == "mode_instruction")
-        .unwrap()
-        .render();
-    // Should NOT contain path selection rules
-    assert!(
-        !rendered.contains("Decide which planning path to follow"),
-        "Explicit Interview path should NOT include path selection rules"
-    );
-    // Should contain interview content
-    assert!(rendered.contains("pair-planning"));
-    assert!(rendered.contains("The Loop"));
-    // Should NOT contain standard path content
-    assert!(!rendered.contains("Phase 1: Initial Understanding"));
-    assert!(!rendered.contains("Phase 4: Final Plan"));
 }
 
 // ── ChannelContext chat_name tests ────────────────────────────────────────────
@@ -274,6 +213,7 @@ fn test_channel_context_renders_actual_chat_name() {
         chat_name: "Dev Team".to_string(),
         trace_id: None,
         session_key: None,
+        span_id: None,
     };
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     let channel_ctx = sections
@@ -303,6 +243,7 @@ fn test_channel_context_empty_chat_name_fallback() {
         chat_name: String::new(),
         trace_id: None,
         session_key: None,
+        span_id: None,
     };
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     let channel_ctx = sections
@@ -334,6 +275,7 @@ fn test_channel_context_chat_name_independent_of_channel_type() {
             chat_name: "My Group".to_string(),
             trace_id: None,
             session_key: None,
+            span_id: None,
         };
         let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
         let rendered = sections

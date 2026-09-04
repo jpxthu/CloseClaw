@@ -7,12 +7,10 @@
 //! belong to the `system_prompt` module.
 
 use crate::builder::PromptOverrides;
-use crate::plan_path::analyze_plan_path;
 use crate::sections::Section;
 use crate::workdir;
 use closeclaw_common::system_prompt::ModeTransition;
 use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, SessionMode};
-use closeclaw_execution::PlanPath;
 use closeclaw_gateway::session_handler::MessageMetadata;
 
 /// Parameters for [`build_dynamic_sections`].
@@ -27,8 +25,6 @@ pub struct DynamicSectionsParams<'a> {
     pub workdir_path: Option<&'a str>,
     /// Current session mode (Normal / Plan / Auto).
     pub session_mode: SessionMode,
-    /// Explicit plan path for Plan Mode (overrides auto-analysis).
-    pub explicit_plan_path: Option<PlanPath>,
     /// User input text for automatic plan-path analysis.
     pub user_input: Option<&'a str>,
     /// Whether the session context has been compacted (for sparse prompt injection).
@@ -75,20 +71,10 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
 
     // 3. ModeInstruction (when not Normal mode)
     if params.session_mode != SessionMode::Normal {
-        // In Plan Mode, resolve the path: explicit override or auto-analysis.
-        // When no explicit path and no user input, return None to inject
-        // path selection rules (design doc §1).
-        let resolved_plan_path = if params.session_mode == SessionMode::Plan {
-            params
-                .explicit_plan_path
-                .or_else(|| params.user_input.map(analyze_plan_path))
-        } else {
-            None
-        };
-
+        // In Plan Mode, always inject path selection rules so the Agent
+        // decides which path to follow (design doc §1).
         sections.push(Section::ModeInstruction {
             mode: params.session_mode,
-            plan_path: resolved_plan_path,
             sparse: params.is_compacted,
             sub_agent: params.is_sub_agent,
         });
@@ -290,7 +276,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             meta: &meta,
             workdir_path: workdir_str.as_deref(),
             session_mode: context.session_mode,
-            explicit_plan_path: None,
             user_input: context.user_input,
             is_compacted: context.is_compacted,
             is_sub_agent: context.is_sub_agent,
