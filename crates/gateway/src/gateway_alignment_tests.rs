@@ -196,7 +196,7 @@ async fn test_queue_full_rejection_emits_debug_event() {
     let debug_log = DebugLog::new(DebugLogConfig {
         min_level: LogLevel::Trace,
         log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 1,
+        retention_days: 7,
         redaction_patterns: vec![],
     })
     .await

@@ -4,26 +4,14 @@
 //!
 //! # Conditional execution
 //!
-//! Log files are only written when **either** of the following conditions is met:
+//! Log files are only written when [`RawLogConfig::enabled`] is `true`.
+//! When disabled the processor silently skips writing and passes
+//! the message through unchanged.
 //!
-//! - [`RawLogConfig::enabled`] is `true`, **or**
-//! - the current log level is `DEBUG` or more verbose (`level_enabled!(tracing::Level::DEBUG)`).
-//!
-//! When neither condition holds the processor silently skips writing and passes
-//! the message through unchanged. This design keeps production logging quiet by
-//! default while allowing developers to opt-in via the `enabled` flag or by
-//! setting the log level to `DEBUG`.
-//!
-//! # Lifecycle
-//!
-//! On construction ([`RawLogProcessor::new`]) stale log files older than
-//! `config.retention_days` are automatically purged.
-
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 use tokio::fs;
-use tracing::level_enabled;
 
 use super::context::MessageContext;
 use super::error::ProcessError;
@@ -36,20 +24,25 @@ use closeclaw_llm::types::ContentBlock;
 pub struct RawLogConfig {
     /// Whether to write log files regardless of log level.
     pub enabled: bool,
-    /// Directory to write log files into.
-    pub dir: PathBuf,
-    /// Number of days to retain log files.
-    pub retention_days: u32,
+    /// Directory to write log files into. When `None`, the processor is disabled
+    /// for writing even if `enabled` is `true` (no output destination).
+    pub dir: Option<PathBuf>,
 }
 
 impl RawLogConfig {
     /// Creates a new config with the given values.
-    pub fn new(enabled: bool, dir: PathBuf, retention_days: u32) -> Self {
-        Self {
-            enabled,
-            dir,
-            retention_days,
-        }
+    pub fn new(enabled: bool, dir: Option<PathBuf>) -> Self {
+        Self { enabled, dir }
+    }
+
+    /// Returns the log directory if configured, or an `InvalidData` error.
+    pub fn require_dir(&self) -> std::io::Result<&PathBuf> {
+        self.dir.as_ref().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "raw_log dir not configured",
+            )
+        })
     }
 }
 
@@ -61,56 +54,8 @@ pub struct RawLogProcessor {
 
 impl RawLogProcessor {
     /// Creates a new processor that writes to `config.dir`.
-    ///
-    /// Old log files older than `config.retention_days` are deleted on startup.
-    pub fn new(config: RawLogConfig) -> std::io::Result<Self> {
-        let processor = Self { config };
-        processor.retain_logs()?;
-        Ok(processor)
-    }
-
-    /// Deletes log files whose embedded timestamp is older than `retention_days`.
-    fn retain_logs(&self) -> std::io::Result<()> {
-        let dir = &self.config.dir;
-        if !dir.is_dir() {
-            return Ok(());
-        }
-
-        let cutoff = chrono::Utc::now()
-            .checked_sub_signed(chrono::Duration::days(self.config.retention_days as i64))
-            .expect("retention_days out of range");
-        let cutoff_secs = cutoff.timestamp();
-
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(e),
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(age) = self.parse_file_timestamp(&path) {
-                    if age < cutoff_secs {
-                        let _ = std::fs::remove_file(path);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Extracts the timestamp from a log filename.
-    ///
-    /// Expected format: `{platform}_{timestamp_millis}_{message_id}.json`
-    fn parse_file_timestamp(&self, path: &Path) -> Option<i64> {
-        let name = path.file_stem()?.to_str()?;
-        let segments: Vec<&str> = name.split('_').collect();
-        if segments.len() >= 2 {
-            segments[1].parse::<i64>().ok().map(|ms| ms / 1000)
-        } else {
-            None
-        }
+    pub fn new(config: RawLogConfig) -> Self {
+        Self { config }
     }
 
     /// Writes `msg` to a JSON file under `self.config.dir`.
@@ -120,8 +65,9 @@ impl RawLogProcessor {
         &self,
         msg: &closeclaw_common::im_plugin::NormalizedMessage,
     ) -> std::io::Result<()> {
+        let dir = self.config.require_dir()?;
         let filename = format!("{}_{}.json", msg.platform, msg.timestamp);
-        let path = self.config.dir.join(&filename);
+        let path = dir.join(&filename);
 
         let json = serde_json::to_string_pretty(msg)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -149,7 +95,7 @@ impl MessageProcessor for RawLogProcessor {
         &self,
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
-        let is_enabled = self.config.enabled || level_enabled!(tracing::Level::DEBUG);
+        let is_enabled = self.config.enabled && self.config.dir.is_some();
         if is_enabled {
             let raw = ctx.initial_normalized().ok_or_else(|| {
                 ProcessError::invalid_message("no initial raw message in context")
@@ -169,6 +115,7 @@ impl MessageProcessor for RawLogProcessor {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use tempfile::TempDir;
 
     use super::*;
@@ -199,8 +146,8 @@ mod tests {
     #[tokio::test]
     async fn test_passes_through_when_disabled() {
         let tmp = TempDir::new().unwrap();
-        let config = RawLogConfig::new(false, tmp.path().to_path_buf(), 7);
-        let processor = RawLogProcessor::new(config).unwrap();
+        let config = RawLogConfig::new(false, Some(tmp.path().to_path_buf()));
+        let processor = RawLogProcessor::new(config);
 
         let msg = make_normalized("feishu");
         let ctx = make_ctx(msg);
@@ -219,10 +166,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_enabled_but_no_dir_silently_skips() {
+        let config = RawLogConfig::new(true, None);
+        let processor = RawLogProcessor::new(config);
+
+        let msg = make_normalized("feishu");
+        let ctx = make_ctx(msg);
+
+        // enabled=true but dir=None should behave like disabled: pass through, no error
+        let result = processor.process(&ctx).await.unwrap();
+        let processed = result.expect("should pass through when dir is None");
+        assert_eq!(processed.content_blocks.len(), 1);
+        match &processed.content_blocks[0] {
+            ContentBlock::Text(t) => assert_eq!(t, "hello"),
+            other => panic!("expected Text block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_require_dir_returns_error_when_none() {
+        let config = RawLogConfig::new(true, None);
+        let err = config.require_dir().unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_require_dir_returns_path_when_some() {
+        let config = RawLogConfig::new(true, Some("/tmp/test".into()));
+        assert_eq!(config.require_dir().unwrap().to_str().unwrap(), "/tmp/test");
+    }
+
+    #[tokio::test]
     async fn test_write_file_when_enabled() {
         let tmp = TempDir::new().unwrap();
-        let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
-        let processor = RawLogProcessor::new(config).unwrap();
+        let config = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
+        let processor = RawLogProcessor::new(config);
 
         let msg = make_normalized("feishu");
         let ctx = make_ctx(msg.clone());
@@ -242,8 +220,8 @@ mod tests {
     #[tokio::test]
     async fn test_filename_format() {
         let tmp = TempDir::new().unwrap();
-        let config = RawLogConfig::new(true, tmp.path().to_path_buf(), 7);
-        let processor = RawLogProcessor::new(config.clone()).unwrap();
+        let config = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
+        let processor = RawLogProcessor::new(config.clone());
 
         let ts = chrono::Utc::now().timestamp_millis();
         let msg = NormalizedMessage {
@@ -288,8 +266,8 @@ mod tests {
         let dir = tmp.path().to_path_buf();
 
         // First call: disabled processor — should pass through, no log file
-        let config_off = RawLogConfig::new(false, dir.clone(), 7);
-        let processor_off = RawLogProcessor::new(config_off).unwrap();
+        let config_off = RawLogConfig::new(false, Some(dir.clone()));
+        let processor_off = RawLogProcessor::new(config_off);
         let msg1 = make_normalized("feishu");
         let ctx1 = make_ctx(msg1);
         let result1 = processor_off.process(&ctx1).await.unwrap();
@@ -298,8 +276,8 @@ mod tests {
         assert!(files_after_off.is_empty(), "no log files when disabled");
 
         // Second call: enabled processor — should write log and pass through
-        let config_on = RawLogConfig::new(true, dir.clone(), 7);
-        let processor_on = RawLogProcessor::new(config_on).unwrap();
+        let config_on = RawLogConfig::new(true, Some(dir.clone()));
+        let processor_on = RawLogProcessor::new(config_on);
         let msg2 = make_normalized("feishu");
         let ctx2 = make_ctx(msg2);
         let result2 = processor_on.process(&ctx2).await.unwrap();
@@ -314,8 +292,8 @@ mod tests {
         let dir = tmp.path().to_path_buf();
 
         // First call: enabled — write log
-        let config_on = RawLogConfig::new(true, dir.clone(), 7);
-        let processor_on = RawLogProcessor::new(config_on).unwrap();
+        let config_on = RawLogConfig::new(true, Some(dir.clone()));
+        let processor_on = RawLogProcessor::new(config_on);
         let msg1 = make_normalized("wecom");
         let ctx1 = make_ctx(msg1);
         let result1 = processor_on.process(&ctx1).await.unwrap();
@@ -324,8 +302,8 @@ mod tests {
         assert_eq!(files_after_on.len(), 1);
 
         // Second call: disabled — pass through only
-        let config_off = RawLogConfig::new(false, dir.clone(), 7);
-        let processor_off = RawLogProcessor::new(config_off).unwrap();
+        let config_off = RawLogConfig::new(false, Some(dir.clone()));
+        let processor_off = RawLogProcessor::new(config_off);
         let msg2 = make_normalized("wecom");
         let ctx2 = make_ctx(msg2);
         let result2 = processor_off.process(&ctx2).await.unwrap();
@@ -343,8 +321,8 @@ mod tests {
         // Use a non-existent subdirectory so write_log fails with ENOENT
         let base = TempDir::new().unwrap();
         let bad_dir = base.path().join("nonexistent_subdir");
-        let config = RawLogConfig::new(true, bad_dir, 7);
-        let processor = RawLogProcessor::new(config).unwrap();
+        let config = RawLogConfig::new(true, Some(bad_dir));
+        let processor = RawLogProcessor::new(config);
 
         let msg = make_normalized("feishu");
         let ctx = make_ctx(msg);
@@ -354,42 +332,6 @@ mod tests {
         assert!(
             err_str.contains("processor_failed") || err_str.contains("raw_log"),
             "expected processor error from write_log failure: {err_str}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_retain_logs_deletes_old_files() {
-        let tmp = TempDir::new().unwrap();
-        let dir = tmp.path().to_path_buf();
-
-        let now_ms = chrono::Utc::now().timestamp_millis();
-
-        // Write a "stale" file directly — timestamp in filename is 100 days ago
-        let stale_ts = now_ms - 100 * 86_400_000;
-        let stale_name = format!("feishu_{stale_ts}_stale_msg.json");
-        std::fs::write(dir.join(&stale_name), "{}").unwrap();
-
-        // Write a "fresh" file directly — timestamp in filename is 1 day ago
-        let fresh_ts = now_ms - 1 * 86_400_000;
-        let fresh_name = format!("feishu_{fresh_ts}_fresh_msg.json");
-        std::fs::write(dir.join(&fresh_name), "{}").unwrap();
-
-        let config = RawLogConfig::new(false, dir.clone(), 7);
-        let _processor = RawLogProcessor::new(config).unwrap();
-
-        let files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
-        let names: Vec<_> = files
-            .iter()
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .collect();
-
-        assert!(
-            names.iter().any(|n| n.contains("fresh_msg")),
-            "fresh file should remain: {names:?}"
-        );
-        assert!(
-            !names.iter().any(|n| n.contains("stale_msg")),
-            "stale file should be deleted: {names:?}"
         );
     }
 }
