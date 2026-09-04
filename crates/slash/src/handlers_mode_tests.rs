@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use crate::handlers_mode::{AutoModeHandler, ExecuteHandler, ModeHandler, PlanModeHandler};
+use crate::handlers_mode::{ExecuteHandler, ModeHandler, PlanModeHandler};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
 use closeclaw_config::IdentifierFormat;
@@ -44,10 +44,6 @@ fn make_plan_handler() -> PlanModeHandler {
         make_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>,
         IdentifierFormat::default(),
     )
-}
-
-fn make_auto_handler() -> AutoModeHandler {
-    AutoModeHandler::new(make_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>)
 }
 
 async fn create_test_session(sm: &SessionManager) -> String {
@@ -354,24 +350,18 @@ async fn test_mode_handler_set_plan() {
 }
 
 #[tokio::test]
-async fn test_mode_handler_auto_returns_set_mode() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    let h = ModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
+async fn test_mode_handler_auto_returns_invalid_mode() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
     match h.handle("auto", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            ..
-        } => {
-            assert_eq!(mode, "auto", "should switch to auto mode from normal mode");
-            assert!(plan_file_path.is_none(), "no plan file expected");
+        SlashResult::Reply(text) => {
+            assert_eq!(
+                text, "无效模式。可用：normal, plan",
+                "/mode auto should return invalid mode error"
+            );
         }
-        other => {
-            panic!("expected SetMode{{mode: \"auto\", plan_file_path: None}}, got {other:?}")
-        }
+        other => panic!("expected Reply error for /mode auto, got {other:?}"),
     }
 }
 
@@ -658,59 +648,80 @@ async fn test_mode_handler_no_args_shows_current_mode() {
 // NOTE: test_mode_handler_invalid_exact_match removed — it duplicates
 // test_mode_handler_invalid_mode which already asserts the exact doc format.
 
+// ── /mode edge cases: case-insensitive rejection (Step 1.3) ───────────
+
+#[tokio::test]
+async fn test_mode_handler_auto_uppercase_returns_invalid_mode() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
+    match h.handle("AUTO", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert_eq!(
+                text, "无效模式。可用：normal, plan",
+                "/mode AUTO should return invalid mode error (case-insensitive)"
+            );
+        }
+        other => panic!("expected Reply error for /mode AUTO, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_mode_handler_auto_mixed_case_returns_invalid_mode() {
+    let sm = make_session_manager();
+    let h = ModeHandler::new(sm as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
+    match h.handle("Auto", &ctx).await {
+        SlashResult::Reply(text) => {
+            assert_eq!(
+                text, "无效模式。可用：normal, plan",
+                "/mode Auto should return invalid mode error (case-insensitive)"
+            );
+        }
+        other => panic!("expected Reply error for /mode Auto, got {other:?}"),
+    }
+}
+
+// ── /mode (no-args) query across modes: mode unchanged (Step 1.3) ────
+
+#[tokio::test]
+async fn test_mode_handler_no_args_does_not_change_mode() {
+    let sm = make_session_manager_with_storage();
+    let h = ModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    // Query from Plan mode — mode should remain Plan after query
+    let sid = create_session_with_plan_mode(&sm).await;
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Plan"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+    // Verify mode is still Plan (no side effect)
+    let mode = sm.get_session_mode(&sid).await;
+    assert_eq!(
+        mode,
+        Some(closeclaw_common::SessionMode::Plan),
+        "/mode (no-args) should not change the session mode"
+    );
+    // Query from Auto mode — mode should remain Auto after query
+    let sid = create_session_with_auto_mode(&sm).await;
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid.clone();
+    match h.handle("", &ctx).await {
+        SlashResult::Reply(text) => assert_eq!(text, "当前模式：Auto"),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+    let mode = sm.get_session_mode(&sid).await;
+    assert_eq!(
+        mode,
+        Some(closeclaw_common::SessionMode::Auto),
+        "/mode (no-args) should not change the session mode"
+    );
+}
+
 // ── PlanModeHandler transition tests (Step 1.3 — Gap 1 transitions) ─────
 
-// ── AutoModeHandler tests ─────────────────────────────────────────────────
-
-#[test]
-fn test_auto_mode_handler_commands_and_description() {
-    let h = make_auto_handler();
-    assert_eq!(h.commands(), &["auto"]);
-    assert_eq!(h.description(), "直接进入 Auto Mode");
-}
-
-#[test]
-fn test_auto_mode_handler_not_immediate() {
-    let h = make_auto_handler();
-    assert!(!h.immediate("auto", ""));
-}
-
-#[tokio::test]
-async fn test_auto_no_args_enters_auto_mode() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    let h = AutoModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_none(), "no plan file expected");
-        }
-        other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn test_auto_already_in_auto_mode() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_session_with_auto_mode(&sm).await;
-    let h = AutoModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    match h.handle("", &ctx).await {
-        SlashResult::Reply(text) => {
-            assert!(text.contains("已在 Auto Mode"), "got: {text}");
-        }
-        other => panic!("expected Reply already in Auto Mode, got {other:?}"),
-    }
-}
-
-// ── AutoModeHandler helper (for Plan transition tests) ───────────────────
+// ── Auto mode helper (for tests that need sessions in auto mode) ────────
 
 async fn create_session_with_auto_mode(sm: &SessionManager) -> String {
     use closeclaw_gateway::Message;
@@ -783,13 +794,9 @@ async fn test_mode_delegation_equivalence() {
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
         IdentifierFormat::default(),
     ));
-    let auto_h = Arc::new(AutoModeHandler::new(
-        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>
-    ));
     let h = ModeHandler::with_handlers(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
         plan_h,
-        auto_h,
     );
     // /mode plan 任务 → equivalent to /plan 任务
     let mut ctx = dummy_ctx();
@@ -810,22 +817,18 @@ async fn test_mode_delegation_equivalence() {
         }
         other => panic!("expected SetMode for /mode plan 任务, got {other:?}"),
     }
-    // /mode auto → equivalent to /auto
+    // /mode auto → invalid mode error (auto not allowed via /mode)
     let sid = create_test_session(&sm).await;
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("auto", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            reply_message,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_none());
-            assert_eq!(reply_message.as_deref(), Some("已切换到 Auto 模式"));
+        SlashResult::Reply(text) => {
+            assert_eq!(
+                text, "无效模式。可用：normal, plan",
+                "/mode auto should return invalid mode error"
+            );
         }
-        other => panic!("expected SetMode for /mode auto, got {other:?}"),
+        other => panic!("expected Reply error for /mode auto, got {other:?}"),
     }
 }
 

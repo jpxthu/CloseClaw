@@ -17,7 +17,7 @@
 //!
 //! Owner replies /confirm <id>
 //!   → PlanExecConfirmFlow.confirm(id)
-//!   → same-session: set_plan_state → set_session_mode(Auto) →
+//!   → same-session: set_plan_state → set_pending_session_mode(Auto) →
 //!     mode-switch notification → inject additional_instruction
 //!   → new-session: read plan file → create_child_session_fn →
 //!     child session: plan_state + Auto + notification + instruction
@@ -439,7 +439,8 @@ async fn handle_same_session_path(
 ) {
     plan_state.phase = PlanPhase::FinalPlan;
     sm.set_plan_state(session_id, plan_state.clone()).await;
-    sm.set_session_mode(session_id, SessionMode::Auto).await;
+    sm.set_pending_session_mode(session_id, SessionMode::Auto)
+        .await;
     push_mode_switch_notification(sm, session_id, false).await;
     inject_additional_instruction(sm, session_id, plan_meta).await;
 }

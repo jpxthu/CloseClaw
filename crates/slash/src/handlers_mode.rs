@@ -173,62 +173,6 @@ fn refresh_plan_access_timestamp(plan_file_path: Option<&Path>, workdir: Option<
     }
 }
 
-// ── AutoModeHandler ──────────────────────────────────────────────────────
-
-/// `/auto` — directly enter Auto Mode.
-///
-/// `/auto` does not accept any arguments.
-/// - If already in Auto Mode: replies with a notification.
-/// - If in Plan Mode: injects `ExitPlan` transition before switching.
-#[derive(Clone)]
-pub struct AutoModeHandler {
-    session_manager: Arc<dyn SlashSessionQuery>,
-}
-
-impl AutoModeHandler {
-    /// Create a new AutoModeHandler with access to session state.
-    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
-        Self { session_manager }
-    }
-}
-
-#[async_trait::async_trait]
-impl SlashHandler for AutoModeHandler {
-    fn commands(&self) -> &[&str] {
-        &["auto"]
-    }
-
-    fn description(&self) -> &str {
-        "直接进入 Auto Mode"
-    }
-
-    fn immediate(&self, _cmd: &str, _args: &str) -> bool {
-        false
-    }
-
-    async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
-        let mode = match self.session_manager.get_session_mode(&ctx.session_id).await {
-            Some(m) => m,
-            None => return SlashResult::Reply("当前会话未激活".to_owned()),
-        };
-
-        if mode == SessionMode::Auto {
-            return SlashResult::Reply("已在 Auto Mode".to_owned());
-        }
-
-        SlashResult::SetMode {
-            mode: "auto".to_owned(),
-            plan_file_path: None,
-            initial_input: None,
-            reply_message: Some("已切换到 Auto 模式".to_owned()),
-        }
-    }
-
-    fn clone_box(&self) -> Box<dyn SlashHandler> {
-        Box::new(self.clone())
-    }
-}
-
 // ── ExecuteHandler ────────────────────────────────────────────────────────
 
 /// `/execute <plan名称> [附加指令]` — transition to Auto Mode execution.
@@ -365,13 +309,13 @@ impl SlashHandler for ExecuteHandler {
 /// `/mode` — query or switch the session mode.
 ///
 /// - No arguments: reads the current `SessionMode` and replies.
-/// - With an argument (`normal`, `plan`, `auto`): returns
+/// - With an argument (`normal`, `plan`): returns
 ///   `SlashResult::SetMode` to trigger the mode switch.
+/// - `auto` is not a valid `/mode` target (use `/execute` instead).
 #[derive(Clone)]
 pub struct ModeHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
     plan_handler: Option<Arc<PlanModeHandler>>,
-    auto_handler: Option<Arc<AutoModeHandler>>,
 }
 
 impl ModeHandler {
@@ -380,23 +324,20 @@ impl ModeHandler {
         Self {
             session_manager,
             plan_handler: None,
-            auto_handler: None,
         }
     }
 
-    /// Create a ModeHandler with delegated plan/auto handlers.
+    /// Create a ModeHandler with a delegated plan handler.
     ///
-    /// `/mode plan` and `/mode auto` are delegated to the corresponding
-    /// handlers so they produce the same side effects as `/plan` and `/auto`.
+    /// `/mode plan` is delegated to `PlanModeHandler` so it produces
+    /// the same side effects as `/plan`.
     pub fn with_handlers(
         session_manager: Arc<dyn SlashSessionQuery>,
         plan_handler: Arc<PlanModeHandler>,
-        auto_handler: Arc<AutoModeHandler>,
     ) -> Self {
         Self {
             session_manager,
             plan_handler: Some(plan_handler),
-            auto_handler: Some(auto_handler),
         }
     }
 }
@@ -442,17 +383,17 @@ impl SlashHandler for ModeHandler {
             return SlashResult::Reply("无效模式。可用：normal, plan".to_owned());
         };
 
-        // Delegate /mode plan and /mode auto to their dedicated handlers
-        // so the behavior is equivalent to /plan and /auto.
+        // `auto` is parsed by from_str_opt but is not a valid /mode target.
+        // Only normal and plan are allowed; auto must go through /execute.
+        if target_mode == SessionMode::Auto {
+            return SlashResult::Reply("无效模式。可用：normal, plan".to_owned());
+        }
+
+        // Delegate /mode plan to PlanModeHandler
+        // so the behavior is equivalent to /plan.
         if target_mode == SessionMode::Plan {
             if let Some(ref plan_handler) = self.plan_handler {
                 return plan_handler.handle(remaining_args, ctx).await;
-            }
-        }
-        if target_mode == SessionMode::Auto {
-            if let Some(ref auto_handler) = self.auto_handler {
-                // /auto no longer accepts args, so pass empty string.
-                return auto_handler.handle("", ctx).await;
             }
         }
 

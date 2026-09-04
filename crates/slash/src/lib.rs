@@ -21,7 +21,7 @@ pub use executor::{ReplyAction, SideEffectContext, SlashEffectExecutor, SlashRes
 pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};
 pub use handlers_bg::BackgroundHandler;
-pub use handlers_mode::{AutoModeHandler, ExecuteHandler, ModeHandler, PlanModeHandler};
+pub use handlers_mode::{ExecuteHandler, ModeHandler, PlanModeHandler};
 pub use handlers_permission::PermissionSlashHandler;
 pub use handlers_plans_browse::PlanBrowseHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
