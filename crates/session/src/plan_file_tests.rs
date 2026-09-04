@@ -327,30 +327,12 @@ fn test_create_plan_file_fills_both_timestamps() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = plan_file::create_plan_file(dir.path(), "Test").unwrap();
     let content = std::fs::read_to_string(&path).unwrap();
-
-    let create_lines: Vec<&str> = content.lines().filter(|l| l.contains("创建时间")).collect();
-    let update_lines: Vec<&str> = content.lines().filter(|l| l.contains("更新时间")).collect();
-    assert_eq!(
-        create_lines.len(),
-        1,
-        "should have exactly one 创建时间 line"
-    );
-    assert_eq!(
-        update_lines.len(),
-        1,
-        "should have exactly one 更新时间 line"
-    );
-    // Both should have a timestamp value (not just the placeholder)
-    assert!(
-        create_lines[0].contains("20"),
-        "创建时间 should have year, got: {}",
-        create_lines[0]
-    );
-    assert!(
-        update_lines[0].contains("20"),
-        "更新时间 should have year, got: {}",
-        update_lines[0]
-    );
+    let creates: Vec<_> = content.lines().filter(|l| l.contains("创建时间")).collect();
+    let updates: Vec<_> = content.lines().filter(|l| l.contains("更新时间")).collect();
+    assert_eq!(creates.len(), 1, "exactly one 创建时间 line");
+    assert_eq!(updates.len(), 1, "exactly one 更新时间 line");
+    assert!(creates[0].contains("20"), "year in 创建时间");
+    assert!(updates[0].contains("20"), "year in 更新时间");
 }
 
 // ── resolve_plan_by_name tests ──────────────────────────────────────────
@@ -932,4 +914,80 @@ fn test_append_to_plan_section_not_found() {
 fn test_read_plan_section_not_found() {
     let result = plan_file::read_plan_section(Path::new("/nonexistent/plan.md"), "Context");
     assert!(result.is_err());
+}
+
+// ── access timestamp tests ────────────────────────────────────────────
+
+#[test]
+fn test_access_timestamp_none_on_new_plan() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "New Plan").unwrap();
+    assert!(plan_file::read_access_timestamp(&path).unwrap().is_none());
+}
+
+#[test]
+fn test_touch_then_read_and_monotonic() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "Touch").unwrap();
+    plan_file::touch_access_timestamp(&path).unwrap();
+    let ts1 = plan_file::read_access_timestamp(&path).unwrap().unwrap();
+    let diff = (chrono::Utc::now() - ts1).num_seconds().abs();
+    assert!(diff < 10, "recent timestamp, diff={diff}s");
+    plan_file::touch_access_timestamp(&path).unwrap();
+    let ts2 = plan_file::read_access_timestamp(&path).unwrap().unwrap();
+    assert!(ts2 >= ts1, "monotonic");
+}
+
+#[test]
+fn test_touch_does_not_corrupt_plan_body() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "Body").unwrap();
+    plan_file::touch_access_timestamp(&path).unwrap();
+    let after = std::fs::read_to_string(&path).unwrap();
+    for s in &["# Body", "## Context", "## Tasks", "## Notes"] {
+        assert!(after.contains(*s), "missing {s}");
+    }
+    assert!(after.contains("<!-- accessed:"));
+    // Verify all original sections still present
+    for section in &[
+        "## Context\n\n",
+        "## Tasks\n\n",
+        "## Verification\n\n",
+        "## Notes\n\n",
+    ] {
+        assert!(after.contains(*section), "section lost: {section}");
+    }
+}
+
+#[test]
+fn test_touch_idempotent() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = plan_file::create_plan_file(dir.path(), "Idempotent").unwrap();
+    plan_file::touch_access_timestamp(&path).unwrap();
+    let c1 = std::fs::read_to_string(&path).unwrap();
+    plan_file::touch_access_timestamp(&path).unwrap();
+    let c2 = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(c1.matches("<!-- accessed:").count(), 1);
+    assert_eq!(c2.matches("<!-- accessed:").count(), 1);
+}
+
+#[test]
+fn test_touch_replaces_existing_marker() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("plan.md");
+    std::fs::write(&path, "# P\n<!-- accessed: 2000-01-01T00:00:00Z -->\nBody.").unwrap();
+    plan_file::touch_access_timestamp(&path).unwrap();
+    let ts = plan_file::read_access_timestamp(&path).unwrap().unwrap();
+    assert!(
+        ts > chrono::DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .matches("<!-- accessed:")
+            .count(),
+        1
+    );
 }
