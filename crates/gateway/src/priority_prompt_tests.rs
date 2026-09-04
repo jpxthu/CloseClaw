@@ -27,8 +27,6 @@ fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSect
         workdir_path: None,
         session_timestamp: None,
         session_mode,
-        explicit_plan_path: None,
-        user_input: None,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,

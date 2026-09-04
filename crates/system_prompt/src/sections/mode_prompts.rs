@@ -40,7 +40,7 @@ Follow the chosen path's instructions below.";
 // ---------------------------------------------------------------------------
 
 pub(crate) const STANDARD_PATH_PHASES: &str = "\
-### Phase 1: Initial Understanding\n\
+### Phase 1: Research\n\
 Goal: Gain a comprehensive understanding \
 of the user's request by reading through code \
 and asking them questions.\n\

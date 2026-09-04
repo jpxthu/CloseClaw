@@ -5,12 +5,10 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use crate::handlers_mode::{
-    parse_plan_path_arg, AutoModeHandler, ExecuteHandler, ModeHandler, PlanModeHandler,
-};
+use crate::handlers_mode::{AutoModeHandler, ExecuteHandler, ModeHandler, PlanModeHandler};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
-use closeclaw_execution::PlanPath;
+use closeclaw_config::IdentifierFormat;
 use closeclaw_gateway::session_manager::SessionManager;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -42,7 +40,10 @@ fn make_session_manager() -> Arc<SessionManager> {
 }
 
 fn make_plan_handler() -> PlanModeHandler {
-    PlanModeHandler::new(make_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>)
+    PlanModeHandler::new(
+        make_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::default(),
+    )
 }
 
 fn make_auto_handler() -> AutoModeHandler {
@@ -115,7 +116,10 @@ async fn test_plan_mode_handler_with_args_returns_set_mode() {
 async fn test_plan_mode_handler_with_args_sets_plan_file_path() {
     let sm = make_session_manager();
     let sid = create_test_session(&sm).await;
-    let h = PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let h = PlanModeHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::default(),
+    );
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
     match h.handle("实现一个新功能", &ctx).await {
@@ -147,7 +151,10 @@ async fn test_plan_mode_handler_with_args_sets_plan_file_path() {
 async fn test_plan_mode_handler_no_args_enters_plan_mode() {
     let sm = make_session_manager_with_storage();
     let sid = create_test_session(&sm).await;
-    let h = PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let h = PlanModeHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::default(),
+    );
     let mut ctx = dummy_ctx();
     ctx.session_id = sid.clone();
     // Empty args
@@ -195,6 +202,84 @@ async fn test_plan_mode_handler_no_args_enters_plan_mode() {
         sm.get_plan_state(&sid).await.is_none(),
         "PlanState should NOT be set when /plan is invoked with whitespace-only args"
     );
+}
+
+// ── PlanModeHandler IdentifierFormat tests (Step 1.4) ─────────────────────
+
+#[tokio::test]
+async fn test_plan_handler_timestamp_format_creates_timestamp_plan_file() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::Timestamp,
+    );
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("实现一个新功能", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+            ..
+        } => {
+            assert_eq!(mode, "plan");
+            let path = plan_file_path.expect("plan_file_path should be Some");
+            let name = path
+                .file_stem()
+                .expect("should have file stem")
+                .to_string_lossy();
+            // Timestamp format: yyyy-MM-dd-HH-mm-ss-{slug}
+            assert!(
+                name.contains("-"),
+                "timestamp identifier should contain hyphens, got: {}",
+                name
+            );
+            // Should NOT be random words (3 words separated by hyphens only)
+            assert!(
+                name.len() > 20,
+                "timestamp identifier should be longer than random words, got: {}",
+                name
+            );
+            assert!(path.exists(), "plan file should exist on disk");
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_plan_handler_random_words_format_creates_random_plan_file() {
+    let sm = make_session_manager_with_storage();
+    let sid = create_test_session(&sm).await;
+    let h = PlanModeHandler::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::RandomWords,
+    );
+    let mut ctx = dummy_ctx();
+    ctx.session_id = sid;
+    match h.handle("实现一个新功能", &ctx).await {
+        SlashResult::SetMode {
+            mode,
+            plan_file_path,
+            ..
+        } => {
+            assert_eq!(mode, "plan");
+            let path = plan_file_path.expect("plan_file_path should be Some");
+            let name = path
+                .file_stem()
+                .expect("should have file stem")
+                .to_string_lossy();
+            // Random words format: {adjective}-{noun}-{noun}
+            let parts: Vec<&str> = name.split('-').collect();
+            assert_eq!(
+                parts.len(),
+                3,
+                "random words identifier should have 3 parts, got: {}",
+                name
+            );
+            assert!(path.exists(), "plan file should exist on disk");
+        }
+        other => panic!("expected SetMode, got {other:?}"),
+    }
 }
 
 // ── ModeHandler tests ──────────────────────────────────────────────────────
@@ -347,48 +432,6 @@ async fn test_mode_handler_no_args_queries_current_mode() {
         SlashResult::Reply(text) => assert!(text.contains("当前会话未激活"), "got: {text}"),
         other => panic!("expected Reply, got {other:?}"),
     }
-}
-
-// ── parse_plan_path_arg tests ──────────────────────────────────────────────
-
-#[test]
-fn test_parse_plan_path_all_cases() {
-    // Valid path with title
-    assert_eq!(
-        parse_plan_path_arg("--path standard 实现登录功能"),
-        (Some(PlanPath::Standard), "实现登录功能")
-    );
-    assert_eq!(
-        parse_plan_path_arg("--path interview 优化性能"),
-        (Some(PlanPath::Interview), "优化性能")
-    );
-    // No --path
-    assert_eq!(parse_plan_path_arg("实现新功能"), (None, "实现新功能"));
-    // Path only (no title)
-    assert_eq!(
-        parse_plan_path_arg("--path standard"),
-        (Some(PlanPath::Standard), "")
-    );
-    assert_eq!(
-        parse_plan_path_arg("--path interview"),
-        (Some(PlanPath::Interview), "")
-    );
-    // Invalid path value
-    assert_eq!(
-        parse_plan_path_arg("--path invalid 任务标题"),
-        (None, "任务标题")
-    );
-    // Whitespace handling
-    assert_eq!(parse_plan_path_arg("--path  任务标题"), (None, "任务标题"));
-    assert_eq!(
-        parse_plan_path_arg("  --path standard  优化性能  "),
-        (Some(PlanPath::Standard), "优化性能")
-    );
-    // Chinese title
-    assert_eq!(
-        parse_plan_path_arg("--path standard 修复登录页面的样式问题"),
-        (Some(PlanPath::Standard), "修复登录页面的样式问题")
-    );
 }
 
 // ── ExecuteHandler tests ─────────────────────────────────────────────────
@@ -617,86 +660,6 @@ async fn test_mode_handler_no_args_shows_current_mode() {
 
 // ── PlanModeHandler transition tests (Step 1.3 — Gap 1 transitions) ─────
 
-// ── /plan --path tests (explicit_path removed from PlanState) ────────────
-
-#[tokio::test]
-async fn test_plan_path_no_title_enters_plan_mode() {
-    let sm = make_session_manager_with_storage();
-    for arg in &["--path interview", "--path standard"] {
-        let sid = create_test_session(&sm).await;
-        let h =
-            PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-        let mut ctx = dummy_ctx();
-        ctx.session_id = sid.clone();
-        match h.handle(arg, &ctx).await {
-            SlashResult::SetMode {
-                mode,
-                plan_file_path,
-                ..
-            } => {
-                assert_eq!(mode, "plan", "should enter Plan Mode for {arg}");
-                assert!(
-                    plan_file_path.is_none(),
-                    "no plan file for --path without title"
-                );
-            }
-            other => panic!("expected SetMode{{mode: \"plan\"}} for {arg}, got {other:?}"),
-        }
-    }
-}
-
-/// /plan --path should NOT write explicit_path to PlanState.
-/// The path is parsed by the handler but no longer stored in PlanState;
-/// it belongs in ExecutionState (set by the execution engine).
-#[tokio::test]
-async fn test_plan_path_does_not_write_explicit_path_to_plan_state() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    let h = PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid.clone();
-    // /plan --path standard task title
-    h.handle("--path standard 实现登录", &ctx).await;
-    let plan_state = sm.get_plan_state(&sid).await;
-    assert!(
-        plan_state.is_some(),
-        "plan state should exist after /plan with title"
-    );
-    let ps = plan_state.unwrap();
-    assert_eq!(ps.phase, closeclaw_common::PlanPhase::Research);
-    assert!(
-        !ps.plan_file_path.is_empty(),
-        "plan_file_path should be set"
-    );
-    // Verify no extra fields — serialize and check
-    let json = serde_json::to_value(&ps).unwrap();
-    let obj = json.as_object().unwrap();
-    assert!(
-        !obj.contains_key("explicit_path"),
-        "PlanState must NOT have explicit_path field"
-    );
-    assert!(
-        !obj.contains_key("step_selection"),
-        "PlanState must NOT have step_selection field"
-    );
-}
-
-/// /plan --path without title enters plan mode but does NOT create PlanState.
-#[tokio::test]
-async fn test_plan_path_no_title_no_plan_state() {
-    let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    let h = PlanModeHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid.clone();
-    h.handle("--path interview", &ctx).await;
-    let plan_state = sm.get_plan_state(&sid).await;
-    assert!(
-        plan_state.is_none(),
-        "no PlanState should be created for --path without title"
-    );
-}
-
 // ── AutoModeHandler tests ─────────────────────────────────────────────────
 
 #[test]
@@ -817,7 +780,8 @@ async fn test_mode_handler_normal_from_all_modes() {
 async fn test_mode_delegation_equivalence() {
     let sm = make_session_manager_with_storage();
     let plan_h = Arc::new(PlanModeHandler::new(
-        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
+        IdentifierFormat::default(),
     ));
     let auto_h = Arc::new(AutoModeHandler::new(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>
@@ -862,134 +826,6 @@ async fn test_mode_delegation_equivalence() {
             assert_eq!(reply_message.as_deref(), Some("已切换到 Auto 模式"));
         }
         other => panic!("expected SetMode for /mode auto, got {other:?}"),
-    }
-}
-
-// ── parse_execute_args tests ────────────────────────────────────────────
-
-use crate::handlers_mode::parse_execute_args;
-
-#[test]
-fn test_parse_execute_args_all_cases() {
-    // Empty / whitespace-only → empty name, no instruction
-    let (n, _i) = parse_execute_args("");
-    assert_eq!(n, "");
-    let (n, i) = parse_execute_args("   ");
-    assert_eq!(n, "");
-    assert!(i.is_none());
-    let (n, _i) = parse_execute_args("foo");
-    assert_eq!(n, "foo");
-    // Name + instruction
-    let (n, i) = parse_execute_args("foo bar baz");
-    assert_eq!(n, "foo");
-    assert_eq!(i.as_deref(), Some("bar baz"));
-    // Extra whitespace trimmed around name
-    let (n, i) = parse_execute_args("  foo  bar baz  ");
-    assert_eq!(n, "foo");
-    assert_eq!(i.as_deref(), Some("bar baz"));
-    // Whitespace-only instruction → None
-    let (n, i) = parse_execute_args("foo   ");
-    assert_eq!(n, "foo");
-    assert!(i.is_none());
-    // Name with .md suffix works
-    let (n, i) = parse_execute_args("plan.md instruction");
-    assert_eq!(n, "plan.md");
-    assert_eq!(i.as_deref(), Some("instruction"));
-    // Chinese name + instruction
-    let (n, i) = parse_execute_args("修复登录 请优先处理");
-    assert_eq!(n, "修复登录");
-    assert_eq!(i.as_deref(), Some("请优先处理"));
-}
-
-// ── ExecuteHandler with name/instruction tests ─────────────────────────
-
-#[tokio::test]
-async fn test_execute_plan_mode_with_name_resolves_plan() {
-    use std::fs;
-    let tmp = tempfile::tempdir().unwrap();
-    let plans_dir = tmp.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
-    let plan_file = plans_dir.join("my-plan.md");
-    fs::write(&plan_file, "# My Plan\n").unwrap();
-    let sm = make_session_manager_with_storage();
-    let sid = create_session_with_plan_mode(&sm).await;
-    sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
-    let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    // name only
-    match h.handle("my-plan", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            initial_input,
-            reply_message,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            let path = plan_file_path.unwrap();
-            assert!(path.to_string_lossy().ends_with("my-plan.md"));
-            assert!(initial_input.is_none());
-            assert_eq!(reply_message.as_deref(), Some("开始执行"));
-        }
-        other => panic!("expected SetMode{{mode: \"auto\", ..}}, got {other:?}"),
-    }
-    // name + instruction
-    match h.handle("my-plan 请优先处理", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            initial_input,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_some());
-            assert_eq!(initial_input.as_deref(), Some("请优先处理"));
-        }
-        other => panic!("expected SetMode, got {other:?}"),
-    }
-}
-#[tokio::test]
-async fn test_execute_non_plan_mode_with_name_and_instruction() {
-    use std::fs;
-    let tmp = tempfile::tempdir().unwrap();
-    let plans_dir = tmp.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
-    let plan_file = plans_dir.join("my-plan.md");
-    fs::write(&plan_file, "# My Plan\n").unwrap();
-    let sm = make_session_manager_with_storage();
-    let sid = create_test_session(&sm).await;
-    sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
-    let h = ExecuteHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
-    let mut ctx = dummy_ctx();
-    ctx.session_id = sid;
-    // name only → plan_file_path set, no instruction
-    match h.handle("my-plan", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            initial_input,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_some());
-            assert!(initial_input.is_none());
-        }
-        other => panic!("expected SetMode, got {other:?}"),
-    }
-    // name + instruction → both set
-    match h.handle("my-plan 请先完成 lint", &ctx).await {
-        SlashResult::SetMode {
-            mode,
-            plan_file_path,
-            initial_input,
-            ..
-        } => {
-            assert_eq!(mode, "auto");
-            assert!(plan_file_path.is_some());
-            assert_eq!(initial_input.as_deref(), Some("请先完成 lint"));
-        }
-        other => panic!("expected SetMode, got {other:?}"),
     }
 }
 

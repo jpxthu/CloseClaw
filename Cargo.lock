@@ -891,7 +891,6 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-debug-log",
- "closeclaw-execution",
  "closeclaw-gateway",
  "closeclaw-llm",
  "closeclaw-permission",
