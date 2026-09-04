@@ -11,6 +11,9 @@ pub use closeclaw_config::agents::{
     SubagentsConfig,
 };
 
+pub mod agent_type;
+pub use agent_type::{AgentType, AgentTypeError};
+
 #[cfg(test)]
 mod config_tests;
 

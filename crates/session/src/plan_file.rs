@@ -373,6 +373,125 @@ fn slugify(title: &str) -> String {
     }
 }
 
+// ── Incremental write API ───────────────────────────────────────────────
+
+/// Append content to a named section in a plan file.
+///
+/// The section is identified by the heading `## {section}`. Content is
+/// inserted after the section heading and before the next `##` heading
+/// (or end of file). If the section does not exist, a new section is
+/// appended at the end of the file.
+///
+/// After writing, the update timestamp is automatically refreshed.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or written, or if the
+/// timestamp update fails.
+pub fn append_to_plan_section(
+    plan_path: &Path,
+    section: &str,
+    content: &str,
+) -> Result<(), std::io::Error> {
+    let mut file_content = std::fs::read_to_string(plan_path)?;
+    let section_heading = format!("## {section}");
+
+    if let Some(insert_pos) = find_section_insert_position(&file_content, &section_heading) {
+        // Insert content before the next ## heading (or at end)
+        file_content.insert_str(insert_pos, content);
+    } else {
+        // Section doesn't exist; append at end
+        if !file_content.ends_with('\n') {
+            file_content.push('\n');
+        }
+        file_content.push_str(&format!("\n{section_heading}\n\n{content}"));
+    }
+
+    std::fs::write(plan_path, &file_content)?;
+    // Refresh update timestamp
+    let path_str = plan_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path"))?;
+    update_plan_timestamp(path_str)
+}
+
+/// Read the content of a named section in a plan file.
+///
+/// Returns the text between `## {section}` and the next `##` heading
+/// (or end of file), excluding the heading line itself. Returns an
+/// empty string if the section does not exist.
+///
+/// # Errors
+/// Returns an error if the file cannot be read.
+pub fn read_plan_section(plan_path: &Path, section: &str) -> Result<String, std::io::Error> {
+    let content = std::fs::read_to_string(plan_path)?;
+    let section_heading = format!("## {section}");
+
+    Ok(extract_section_content(&content, &section_heading))
+}
+
+/// Find the byte offset where new content should be inserted for a
+/// section. Returns the position after the section heading line and
+/// its trailing blank line, before the next `##` heading.
+///
+/// Returns `None` if the section heading is not found.
+fn find_section_insert_position(content: &str, section_heading: &str) -> Option<usize> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut in_section = false;
+    let mut byte_pos = 0usize;
+    let mut last_content_end = 0usize; // byte_pos after last non-empty content line
+
+    for line in &lines {
+        let line_len = line.len();
+        if line.trim() == section_heading {
+            in_section = true;
+            // Position after heading line + trailing newline
+            byte_pos += line_len + 1;
+            // Skip blank line after heading if present
+            if byte_pos < content.len() && content.as_bytes().get(byte_pos) == Some(&b'\n') {
+                byte_pos += 1;
+            }
+            last_content_end = byte_pos;
+            continue;
+        }
+        if in_section && line.trim().starts_with("## ") {
+            return Some(last_content_end);
+        }
+        byte_pos += line_len + 1; // +1 for newline
+        if in_section && !line.is_empty() {
+            last_content_end = byte_pos;
+        }
+    }
+    if in_section {
+        Some(last_content_end)
+    } else {
+        None
+    }
+}
+
+/// Extract the text content of a section, excluding the heading.
+fn extract_section_content(content: &str, section_heading: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut in_section = false;
+    let mut section_lines = Vec::new();
+
+    for line in &lines {
+        if line.trim() == section_heading {
+            in_section = true;
+            continue;
+        }
+        if in_section && line.trim().starts_with("## ") {
+            break;
+        }
+        if in_section {
+            section_lines.push(*line);
+        }
+    }
+
+    // Trim leading/trailing blank lines from extracted content
+    let trimmed = section_lines.join("\n");
+    trimmed.trim().to_string()
+}
+
 // ── Plan browsing functions ─────────────────────────────────────────────
 
 /// Summary information for a single plan file.
