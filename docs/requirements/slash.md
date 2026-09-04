@@ -51,7 +51,7 @@ Owner 和 User 可以随时查看当前会话的运行状态。
 > **交叉引用**：上下文用量、缓存命中率与 token 累计量见 [llm §F9](llm.md)（用量统计）。
 > **交叉引用**：子 Session 见 [session §F4](session.md)（子 Session 委托与协调）。
 > **交叉引用**：工作目录见 [session §F8](session.md)（工作目录）。
-> **交叉引用**：追加指令见 [system_prompt §F5](system_prompt.md)（动态指令管理）。
+> **交叉引用**：追加指令见 [system_prompt §F5](system_prompt.md)（追加指令管理）。
 
 ### F5. 上下文压缩
 
@@ -74,7 +74,7 @@ Owner 和 User 可以在运行时向 system prompt 的追加区动态添加指�
 
 追加内容超过 500 字符时，直接拒绝并向 User 返回错误提示，不进行截断。`/system add` 不带内容时，向 User 返回用法提示。
 
-> **交叉引用**：追加区在 system prompt 中的位置由 [system_prompt §F5](system_prompt.md)（动态指令管理）定义。
+> **交叉引用**：追加区在 system prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
 > **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的 system prompt 重建）定义。
 
 ### F7. 工作目录操作
