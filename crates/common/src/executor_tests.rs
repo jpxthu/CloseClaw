@@ -148,6 +148,10 @@ struct MockSessionLookup {
     pending_messages: Arc<Mutex<Vec<PendingMessage>>>,
     chat_id: Option<String>,
     plan_state: Arc<Mutex<Option<crate::PlanState>>>,
+    /// Tracks whether `clear_plan_state` was called.
+    clear_called: Arc<Mutex<bool>>,
+    /// Tracks `set_plan_state` call count.
+    set_plan_state_calls: Arc<Mutex<u32>>,
 }
 
 impl MockSessionLookup {
@@ -156,6 +160,8 @@ impl MockSessionLookup {
             pending_messages: Arc::new(Mutex::new(Vec::new())),
             chat_id,
             plan_state: Arc::new(Mutex::new(None)),
+            clear_called: Arc::new(Mutex::new(false)),
+            set_plan_state_calls: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -164,6 +170,8 @@ impl MockSessionLookup {
             pending_messages: pending,
             chat_id: None,
             plan_state: Arc::new(Mutex::new(None)),
+            clear_called: Arc::new(Mutex::new(false)),
+            set_plan_state_calls: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -174,8 +182,20 @@ impl MockSessionLookup {
             pending_messages: Arc::new(Mutex::new(Vec::new())),
             chat_id: None,
             plan_state: plan.clone(),
+            clear_called: Arc::new(Mutex::new(false)),
+            set_plan_state_calls: Arc::new(Mutex::new(0)),
         };
         (mock, plan)
+    }
+
+    /// Return a handle to the clear_called flag for test assertions.
+    fn clear_called_handle(&self) -> Arc<Mutex<bool>> {
+        self.clear_called.clone()
+    }
+
+    /// Return a handle to the set_plan_state call count.
+    fn set_plan_state_calls_handle(&self) -> Arc<Mutex<u32>> {
+        self.set_plan_state_calls.clone()
     }
 }
 
@@ -204,6 +224,12 @@ impl SessionLookup for MockSessionLookup {
 
     async fn set_plan_state(&self, _session_id: &str, plan_state: crate::PlanState) {
         *self.plan_state.lock().unwrap() = Some(plan_state);
+        *self.set_plan_state_calls.lock().unwrap() += 1;
+    }
+
+    async fn clear_plan_state(&self, _session_id: &str) {
+        *self.plan_state.lock().unwrap() = None;
+        *self.clear_called.lock().unwrap() = true;
     }
 
     async fn set_session_mode(&self, _session_id: &str, _mode: crate::SessionMode) {}
@@ -367,7 +393,7 @@ async fn test_set_mode_with_plan_file_path_writes_new_plan_state() {
     let ctx = make_ctx(Arc::clone(&mock), "s-plan-new", "feishu", sl_ref);
 
     SlashResult::SetMode {
-        mode: "auto".into(),
+        mode: "plan".into(),
         plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/my-plan.md")),
         initial_input: None,
         reply_message: None,
@@ -397,7 +423,7 @@ async fn test_set_mode_with_plan_file_path_updates_existing_plan_state() {
     let ctx = make_ctx(Arc::clone(&mock), "s-plan-upd", "feishu", sl_ref);
 
     SlashResult::SetMode {
-        mode: "auto".into(),
+        mode: "plan".into(),
         plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/updated.md")),
         initial_input: None,
         reply_message: None,
@@ -426,7 +452,7 @@ async fn test_set_mode_with_none_plan_file_path_does_not_touch_plan_state() {
     let ctx = make_ctx(Arc::clone(&mock), "s-plan-none", "feishu", sl_ref);
 
     SlashResult::SetMode {
-        mode: "normal".into(),
+        mode: "plan".into(),
         plan_file_path: None,
         initial_input: None,
         reply_message: None,
@@ -733,4 +759,242 @@ async fn test_unknown_command_replies_with_error() {
         other => panic!("expected Reply, got {other:?}"),
     }
     assert!(mock.calls.lock().unwrap().is_empty());
+}
+
+// ── Test: Plan Mode → Normal clears PlanState ────────────────────────
+
+#[tokio::test]
+async fn test_plan_mode_to_normal_clears_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let plan = crate::PlanState {
+        phase: crate::PlanPhase::Design,
+        pending_steps: vec!["step-1".into()],
+        plan_file_path: "/tmp/plan.md".into(),
+    };
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
+    let clear_handle = mock_sl.clear_called_handle();
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-clear-normal", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "normal".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    assert!(
+        *clear_handle.lock().unwrap(),
+        "clear_plan_state should be called"
+    );
+    assert!(
+        plan_handle.lock().unwrap().is_none(),
+        "plan_state should be None after switching to normal"
+    );
+}
+
+// ── Test: Plan Mode → Auto clears PlanState ──────────────────────────
+
+#[tokio::test]
+async fn test_plan_mode_to_auto_clears_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let plan = crate::PlanState {
+        phase: crate::PlanPhase::Review,
+        pending_steps: vec![],
+        plan_file_path: "/tmp/plan.md".into(),
+    };
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
+    let clear_handle = mock_sl.clear_called_handle();
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-clear-auto", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "auto".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    assert!(
+        *clear_handle.lock().unwrap(),
+        "clear_plan_state should be called"
+    );
+    assert!(
+        plan_handle.lock().unwrap().is_none(),
+        "plan_state should be None after switching to auto"
+    );
+}
+
+// ── Test: clear_plan_state in Normal Mode is idempotent ──────────────
+
+#[tokio::test]
+async fn test_clear_plan_state_idempotent_in_normal_mode() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    // No plan_state set — already in Normal Mode.
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(crate::PlanState::new());
+    // Clear so we start from None.
+    *plan_handle.lock().unwrap() = None;
+    let clear_handle = mock_sl.clear_called_handle();
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-idempotent", "feishu", sl_ref);
+
+    // First call — no-op, should not panic.
+    SlashResult::SetMode {
+        mode: "normal".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    assert!(*clear_handle.lock().unwrap());
+    assert!(plan_handle.lock().unwrap().is_none());
+
+    // Second call — still idempotent.
+    SlashResult::SetMode {
+        mode: "normal".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    assert!(plan_handle.lock().unwrap().is_none());
+}
+
+// ── Test: Create → Destroy → Re-create PlanState cycle ──────────────
+
+#[tokio::test]
+async fn test_plan_state_create_destroy_recreate_cycle() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(crate::PlanState::new());
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+
+    // 1. Enter Plan Mode — creates PlanState with plan_file_path.
+    {
+        let ctx = make_ctx(Arc::clone(&mock), "s-cycle", "feishu", Arc::clone(&sl_ref));
+        SlashResult::SetMode {
+            mode: "plan".into(),
+            plan_file_path: Some(std::path::PathBuf::from("/tmp/plan.md")),
+            initial_input: None,
+            reply_message: None,
+        }
+        .execute(&ctx)
+        .await;
+    }
+    {
+        let ps = plan_handle.lock().unwrap().clone().expect("should exist");
+        assert_eq!(ps.plan_file_path, "/tmp/plan.md");
+    }
+
+    // 2. Exit Plan Mode → Normal — PlanState destroyed.
+    {
+        let ctx = make_ctx(Arc::clone(&mock), "s-cycle", "feishu", Arc::clone(&sl_ref));
+        SlashResult::SetMode {
+            mode: "normal".into(),
+            plan_file_path: None,
+            initial_input: None,
+            reply_message: None,
+        }
+        .execute(&ctx)
+        .await;
+    }
+    assert!(
+        plan_handle.lock().unwrap().is_none(),
+        "plan_state should be None after exit"
+    );
+
+    // 3. Re-enter Plan Mode — PlanState re-created.
+    {
+        let ctx = make_ctx(Arc::clone(&mock), "s-cycle", "feishu", Arc::clone(&sl_ref));
+        SlashResult::SetMode {
+            mode: "plan".into(),
+            plan_file_path: Some(std::path::PathBuf::from("/tmp/plan-v2.md")),
+            initial_input: None,
+            reply_message: None,
+        }
+        .execute(&ctx)
+        .await;
+    }
+    {
+        let ps = plan_handle.lock().unwrap().clone().expect("should exist");
+        assert_eq!(ps.plan_file_path, "/tmp/plan-v2.md");
+        assert_eq!(ps.phase, crate::PlanPhase::Research);
+    }
+}
+
+// ── Test: plan_file_path cleared when switching to non-plan mode ────
+
+/// Verifies that `plan_file_path` (embedded in PlanState) is implicitly
+/// cleared when switching to a non-plan mode, since PlanState is set to
+/// None by `clear_plan_state`.
+#[tokio::test]
+async fn test_plan_file_path_cleared_in_non_plan_mode() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let plan = crate::PlanState {
+        phase: crate::PlanPhase::Research,
+        pending_steps: vec![],
+        plan_file_path: "/tmp/plan.md".into(),
+    };
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-filepath-clear", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "normal".into(),
+        plan_file_path: None,
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    let stored = plan_handle.lock().unwrap();
+    assert!(
+        stored.is_none(),
+        "plan_state should be None after switching to normal mode"
+    );
+    // When plan_state is None, plan_file_path is implicitly None too,
+    // satisfying the design doc requirement that plan_file_path is
+    // cleared on non-plan mode exit.
+}
+
+// ── Test: mode=auto + plan_file_path Some does not persist PlanState ──
+
+/// When `mode` is `"auto"` (not `"plan"`), `clear_plan_state` is called
+/// immediately after `set_plan_state`, so the final PlanState should be
+/// `None` even though `plan_file_path` was provided.
+#[tokio::test]
+async fn test_set_mode_auto_with_plan_file_path_does_not_persist_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(crate::PlanState::new());
+    let set_calls = mock_sl.set_plan_state_calls_handle();
+    let clear_handle = mock_sl.clear_called_handle();
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-auto-no-plan", "feishu", sl_ref);
+
+    SlashResult::SetMode {
+        mode: "auto".into(),
+        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/auto-plan.md")),
+        initial_input: None,
+        reply_message: None,
+    }
+    .execute(&ctx)
+    .await;
+
+    // set_plan_state was called (plan_file_path was provided).
+    assert_eq!(*set_calls.lock().unwrap(), 1);
+    // clear_plan_state was also called (mode != "plan").
+    assert!(*clear_handle.lock().unwrap());
+    // Final state: PlanState is None.
+    assert!(
+        plan_handle.lock().unwrap().is_none(),
+        "plan_state should be None because mode=auto triggers clear"
+    );
 }

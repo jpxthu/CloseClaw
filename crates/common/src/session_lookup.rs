@@ -133,4 +133,10 @@ pub trait SessionLookup: Send + Sync {
 
     /// Switch the session mode (e.g. plan → auto).
     async fn set_session_mode(&self, session_id: &str, mode: crate::SessionMode);
+
+    /// Clear the plan state for a session, destroying any active plan.
+    ///
+    /// Called when exiting Plan Mode (e.g. `/mode normal`, `/auto`).
+    /// Default implementation is a no-op for backward compatibility.
+    async fn clear_plan_state(&self, _session_id: &str) {}
 }

@@ -161,6 +161,11 @@ async fn execute_set_mode(
             .await;
     }
 
+    // Clear PlanState when exiting Plan Mode (mode != "plan").
+    if mode != "plan" {
+        ctx.session_lookup.clear_plan_state(&ctx.session_id).await;
+    }
+
     ctx.executor.execute_set_mode(&ctx.session_id, &mode).await;
     let reply = reply_message.unwrap_or_else(|| format!("Mode set to: {mode}"));
     send_reply(ctx, reply).await;
