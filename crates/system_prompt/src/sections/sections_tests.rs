@@ -358,30 +358,43 @@ fn test_render_plan_mode_instruction_content() {
     assert!(rendered.contains("When to Converge"));
 }
 
+/// Plan Mode always renders BOTH Standard and Interview path content.
+/// The Agent reads the task description and decides which path to follow,
+/// so both must be present in the system prompt.
 #[test]
 fn test_mode_instruction_plan_standard_and_interview() {
-    let std = Section::ModeInstruction {
+    let s = Section::ModeInstruction {
         mode: SessionMode::Plan,
         sparse: false,
         sub_agent: false,
     };
-    let r = std.render();
+    let r = s.render();
+
+    // §1: Global constraint and path selection rules
+    assert!(
+        r.contains("Plan mode is active"),
+        "Plan mode must include global constraint, got: {}",
+        r
+    );
+    assert!(
+        r.contains("Decide which planning path"),
+        "Plan mode must include path selection rules, got: {}",
+        r
+    );
+
+    // §2: Standard path — all 4 phases
     assert!(r.contains("Phase 1: Research"));
+    assert!(r.contains("Phase 2: Design"));
+    assert!(r.contains("Phase 3: Review"));
     assert!(r.contains("Phase 4: Final Plan"));
     assert!(!r.contains("Phase 5"));
-    assert!(!r.contains("Interview Path"));
-    let intv = Section::ModeInstruction {
-        mode: SessionMode::Plan,
-        sparse: false,
-        sub_agent: false,
-    };
-    let r = intv.render();
+
+    // §3: Interview path
     assert!(r.contains("pair-planning"));
     assert!(r.contains("Don't explore exhaustively before engaging the user"));
     assert!(r.contains("Never ask what you could find out by reading the code"));
     assert!(r.contains("When to Converge"));
     assert!(r.contains("The Loop"));
-    assert!(!r.contains("Standard Path"));
 }
 
 // -----------------------------------------------------------------------
