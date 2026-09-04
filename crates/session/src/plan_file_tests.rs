@@ -791,3 +791,145 @@ fn test_read_plan_content_chinese_content() {
     assert!(content.contains("中文标题"));
     assert!(content.contains("中文内容"));
 }
+
+// ── append_to_plan_section / read_plan_section tests ───────────────────
+
+fn create_plan_with_sections(dir: &Path) -> std::path::PathBuf {
+    let content = "# Test Plan\n\n| 字段 | 值 |\n|------|-----|\n| 创建时间 | 2026-01-01 00:00:00 |\n| 更新时间 | 2026-01-01 00:00:00 |\n\n## Context\n\nInitial context.\n\n## Tasks\n\n- [ ] Task 1\n\n## Verification\n\n## Notes\n\n";
+    let plans = dir.join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    let path = plans.join("test-plan.md");
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
+#[test]
+fn test_append_to_plan_section_existing_section() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    plan_file::append_to_plan_section(&path, "Context", "More context details.").unwrap();
+
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert!(content.contains("Initial context."));
+    assert!(content.contains("More context details."));
+    // Verify order: original before new
+    let ctx_pos = content.find("Initial context.").unwrap();
+    let new_pos = content.find("More context details.").unwrap();
+    assert!(ctx_pos < new_pos, "new content should come after existing");
+}
+
+#[test]
+fn test_append_to_plan_section_creates_new_section() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    plan_file::append_to_plan_section(&path, "CustomSection", "Custom content.").unwrap();
+
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert!(content.contains("## CustomSection"));
+    assert!(content.contains("Custom content."));
+}
+
+#[test]
+fn test_append_to_plan_section_preserves_other_sections() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    plan_file::append_to_plan_section(&path, "Context", "Added.").unwrap();
+
+    let content = std::fs::read_to_string(&path).unwrap();
+    // Tasks section should be unchanged
+    assert!(content.contains("- [ ] Task 1"));
+    assert!(content.contains("## Tasks"));
+    assert!(content.contains("## Verification"));
+    assert!(content.contains("## Notes"));
+}
+
+#[test]
+fn test_append_to_plan_section_updates_timestamp() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    // Seed a known timestamp
+    let content = std::fs::read_to_string(&path).unwrap();
+    let seeded = content.replace(
+        content.lines().find(|l| l.contains("更新时间")).unwrap(),
+        "| 更新时间 | 0000-00-00 00:00:00 |",
+    );
+    std::fs::write(&path, &seeded).unwrap();
+
+    plan_file::append_to_plan_section(&path, "Context", "New.").unwrap();
+
+    let updated = std::fs::read_to_string(&path).unwrap();
+    let ts_line = updated.lines().find(|l| l.contains("更新时间")).unwrap();
+    assert_ne!(ts_line, "| 更新时间 | 0000-00-00 00:00:00 |");
+    assert!(ts_line.contains("20"), "timestamp should be updated");
+}
+
+#[test]
+fn test_read_plan_section_existing() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    let ctx = plan_file::read_plan_section(&path, "Context").unwrap();
+    assert_eq!(ctx, "Initial context.");
+}
+
+#[test]
+fn test_read_plan_section_nonexistent() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    let result = plan_file::read_plan_section(&path, "Nonexistent").unwrap();
+    assert_eq!(result, "");
+}
+
+#[test]
+fn test_read_plan_section_empty_section() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    // Verification section is empty in the template
+    let result = plan_file::read_plan_section(&path, "Verification").unwrap();
+    assert_eq!(result, "");
+}
+
+#[test]
+fn test_read_plan_section_multiline() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let content = "# Plan\n\n## Tasks\n\n- [ ] Step 1\n- [ ] Step 2\n\n## Notes\n\nSome notes.\n";
+    let plans = dir.path().join("plans");
+    std::fs::create_dir_all(&plans).unwrap();
+    let path = plans.join("plan.md");
+    std::fs::write(&path, content).unwrap();
+
+    let tasks = plan_file::read_plan_section(&path, "Tasks").unwrap();
+    assert!(tasks.contains("- [ ] Step 1"));
+    assert!(tasks.contains("- [ ] Step 2"));
+}
+
+#[test]
+fn test_append_then_read_roundtrip() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = create_plan_with_sections(dir.path());
+
+    plan_file::append_to_plan_section(&path, "Context", "Roundtrip test.").unwrap();
+
+    let ctx = plan_file::read_plan_section(&path, "Context").unwrap();
+    assert!(ctx.contains("Initial context."));
+    assert!(ctx.contains("Roundtrip test."));
+}
+
+#[test]
+fn test_append_to_plan_section_not_found() {
+    let result =
+        plan_file::append_to_plan_section(Path::new("/nonexistent/plan.md"), "Context", "content");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_read_plan_section_not_found() {
+    let result = plan_file::read_plan_section(Path::new("/nonexistent/plan.md"), "Context");
+    assert!(result.is_err());
+}

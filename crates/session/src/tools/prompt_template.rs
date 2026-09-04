@@ -7,6 +7,8 @@
 use std::fmt;
 use std::str::FromStr;
 
+use closeclaw_agent::AgentType;
+
 /// Built-in prompt templates for sub-agent behavior modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PromptTemplate {
@@ -313,5 +315,43 @@ impl PromptTemplate {
             PromptTemplate::Executor => EXECUTOR_PREFIX,
             PromptTemplate::Validation => VALIDATION_PREFIX,
         }
+    }
+}
+
+impl From<AgentType> for PromptTemplate {
+    fn from(agent_type: AgentType) -> Self {
+        match agent_type {
+            AgentType::Explore => PromptTemplate::Explore,
+            AgentType::Plan => PromptTemplate::Plan,
+            AgentType::Executor => PromptTemplate::Executor,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_type_to_prompt_template_mapping() {
+        assert_eq!(
+            PromptTemplate::from(AgentType::Explore),
+            PromptTemplate::Explore
+        );
+        assert_eq!(PromptTemplate::from(AgentType::Plan), PromptTemplate::Plan);
+        assert_eq!(
+            PromptTemplate::from(AgentType::Executor),
+            PromptTemplate::Executor
+        );
+    }
+
+    #[test]
+    fn agent_type_into_prompt_template() {
+        let pt: PromptTemplate = AgentType::Explore.into();
+        assert_eq!(pt, PromptTemplate::Explore);
+        let pt: PromptTemplate = AgentType::Plan.into();
+        assert_eq!(pt, PromptTemplate::Plan);
+        let pt: PromptTemplate = AgentType::Executor.into();
+        assert_eq!(pt, PromptTemplate::Executor);
     }
 }
