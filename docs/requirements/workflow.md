@@ -26,7 +26,7 @@ workflow 有两种启动方式：
 
 - **Agent 工具调用**：Agent 在对话中判断需要执行某个 workflow 时，调用 `workflow_start` 工具启动
 
-启动后，当前 Session 进入 workflow 模式。Agent 收到注入的 workflow 上下文（位于 System Prompt 追加区，追加区机制详见 [system_prompt §F5](system_prompt.md)（动态指令管理）；注入时机见本节与 F7，移除时机见 F8），了解自己正在执行受控 workflow 以及需遵守的三阶段协议（收到步骤目标消息 → 执行；收到验收清单 → 验收；收到跳转问题 → 回答跳转）。
+启动后，当前 Session 进入 workflow 模式。Agent 收到注入的 workflow 上下文（位于 System Prompt 追加区，追加区机制详见 [system_prompt §F5](system_prompt.md)（追加指令管理）；注入时机见本节与 F7，移除时机见 F8），了解自己正在执行受控 workflow 以及需遵守的三阶段协议（收到步骤目标消息 → 执行；收到验收清单 → 验收；收到跳转问题 → 回答跳转）。
 
 一个 Session 同一时刻只能执行一个 workflow。workflow 开始后不可回退为普通 Session——必须由 Engine 判定 jump 结果为 complete 后正常结束，或由 Owner 主动终止。
 
