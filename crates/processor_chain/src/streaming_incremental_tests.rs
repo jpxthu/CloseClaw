@@ -139,10 +139,10 @@ async fn test_finish_phase_full_preserves_all_blocks() {
     ));
 }
 
-/// Streaming finish phase: Off verbosity with media blocks.
-/// Media blocks are always shown regardless of verbosity level.
+/// Streaming finish phase: Off verbosity with mixed blocks.
+/// Off level keeps only Text; filters Thinking, Image, Audio, File.
 #[tokio::test]
-async fn test_finish_phase_off_keeps_media_blocks() {
+async fn test_finish_phase_off_filters_media_blocks_keeps_text() {
     let registry = build_full_chain();
     let blocks = vec![
         thinking_block("hidden"),
