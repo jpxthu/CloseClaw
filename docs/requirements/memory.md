@@ -75,9 +75,9 @@ Agent 在跨会话的使用中积累对用户的认知——记住用户纠正�
 
 - 规则文件清晰列出当前生效的所有行为规则
 - 用户手动编辑后，Agent 在下次注入时使用最新内容
-- 规则文件是 Agent 的 system prompt 中记忆部分的唯一来源——日常搜索产出的浓缩摘要不进入 system prompt
+- 规则文件是 Agent 的 System Prompt 中记忆部分的唯一来源——日常搜索产出的浓缩摘要不进入 System Prompt
 
-> **交叉引用**：规则文件注入 system prompt 的机制详见 [system_prompt §F3](system_prompt.md)。
+> **交叉引用**：规则文件注入 System Prompt 的机制详见 [system_prompt §F3](system_prompt.md)。
 
 ### F6. 可选的叙事摘要
 
