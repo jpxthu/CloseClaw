@@ -16,6 +16,8 @@ use closeclaw_llm::types::ContentBlock;
 
 use super::dsl_parser::DslParser;
 use super::loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};
+use super::outbound_raw_log::OutboundRawLogProcessor;
+use super::raw_log_processor::RawLogConfig;
 use super::registry::ProcessorRegistry;
 use super::ProcessedMessage;
 
@@ -70,6 +72,17 @@ fn build_full_outbound_chain() -> ProcessorRegistry {
     let mut registry = ProcessorRegistry::new();
     registry.register(Arc::new(super::verbosity_filter::VerbosityFilter));
     registry.register(Arc::new(DslParser));
+    registry
+}
+
+/// Build a full outbound chain with OutboundRawLog disabled.
+/// Registers VerbosityFilter + DslParser + OutboundRawLog(enabled=false, dir=Some).
+fn build_full_chain_with_disabled_raw_log(dir: &std::path::Path) -> ProcessorRegistry {
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(super::verbosity_filter::VerbosityFilter));
+    registry.register(Arc::new(DslParser));
+    let config = RawLogConfig::new(false, Some(dir.to_path_buf()));
+    registry.register(Arc::new(OutboundRawLogProcessor::new(config)));
     registry
 }
 
@@ -484,4 +497,136 @@ async fn test_config_loader_end_to_end_outbound() {
     };
     let result = registry.process_outbound(output).await.unwrap();
     assert_eq!(result.text_content(), Some("Test output"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// E2-B: Full chain with OutboundRawLog disabled — long-chain integration tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Full chain with OutboundRawLog disabled: Normal verbosity filters Thinking,
+/// DslParser processes remaining Text, disabled OutboundRawLog passes through.
+/// Verifies DSL parsing still works and content_blocks pass through completely.
+#[tokio::test]
+async fn test_full_chain_disabled_raw_log_dsl_parsing_works() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = build_full_chain_with_disabled_raw_log(tmp.path());
+    let blocks = vec![
+        thinking_block("internal reasoning"),
+        text_block("::button[label:OK;action:submit]"),
+    ];
+    let output = make_llm_output(blocks, make_meta("normal"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // VerbosityFilter removes Thinking; DslParser extracts DSL; disabled raw log passes through
+    assert_eq!(result.content_blocks.len(), 1);
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+    // No log file written (disabled)
+    assert!(std::fs::read_dir(tmp.path()).unwrap().next().is_none());
+}
+
+/// Full chain with OutboundRawLog disabled: mixed content blocks are preserved.
+#[tokio::test]
+async fn test_full_chain_disabled_raw_log_preserves_blocks() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = build_full_chain_with_disabled_raw_log(tmp.path());
+    let blocks = vec![
+        thinking_block("step 1"),
+        text_block("Result here."),
+        text_block("::button[label:OK;action:ok]"),
+        tool_use_block("tool"),
+    ];
+    let output = make_llm_output(blocks, make_meta("normal"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Normal: Thinking filtered; DslParser: first Text kept, second Text (DSL) stripped, ToolUse passed
+    assert_eq!(result.content_blocks.len(), 2);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Result here."));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::ToolUse { .. }
+    ));
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
+}
+
+/// Full chain with OutboundRawLog disabled: Full verbosity keeps all blocks,
+/// disabled OutboundRawLog passes through.
+#[tokio::test]
+async fn test_full_chain_disabled_raw_log_full_verbosity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = build_full_chain_with_disabled_raw_log(tmp.path());
+    let blocks = vec![
+        text_block("Hello"),
+        thinking_block("reasoning"),
+        tool_use_block("search"),
+    ];
+    let output = make_llm_output(blocks, make_meta("full"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Full keeps all blocks; disabled raw log passes through unchanged
+    assert_eq!(result.content_blocks.len(), 3);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Thinking { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::ToolUse { .. }
+    ));
+}
+
+/// Full chain with OutboundRawLog disabled: Off verbosity keeps only Text,
+/// disabled OutboundRawLog passes through.
+#[tokio::test]
+async fn test_full_chain_disabled_raw_log_off_verbosity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = build_full_chain_with_disabled_raw_log(tmp.path());
+    let blocks = vec![
+        thinking_block("rm"),
+        text_block("Hello"),
+        tool_use_block("search"),
+    ];
+    let output = make_llm_output(blocks, make_meta("off"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Off keeps only Text; disabled raw log passes through
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Hello"));
+}
+
+/// Full chain with OutboundRawLog disabled: missing verbosity defaults to Normal.
+#[tokio::test]
+async fn test_full_chain_disabled_raw_log_missing_verbosity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = build_full_chain_with_disabled_raw_log(tmp.path());
+    let blocks = vec![thinking_block("reasoning"), text_block("Hello")];
+    let output = make_llm_output(blocks, HashMap::new());
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // No verbosity_level → Normal → Thinking filtered; disabled raw log passes through
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
+}
+
+/// Full chain with OutboundRawLog disabled: DSL parsing order is preserved
+/// in the presence of a downstream disabled processor.
+#[tokio::test]
+async fn test_full_chain_disabled_raw_log_dsl_ordering() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = build_full_chain_with_disabled_raw_log(tmp.path());
+    let blocks = vec![
+        thinking_block("internal"),
+        text_block("::button[label:A;action:a]"),
+        text_block("Plain text"),
+    ];
+    let output = make_llm_output(blocks, make_meta("normal"));
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Normal: Thinking filtered; DSL stripped; plain text kept; disabled raw log passes through
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "Plain text"));
+    let dsl = result.metadata.get("dsl_result").unwrap();
+    assert!(dsl.contains("button"));
 }
