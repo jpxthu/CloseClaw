@@ -120,7 +120,7 @@ fn test_plan_state_serde_backward_compat_old_checkpoint() {
     assert_eq!(state.plan_file_path, "/tmp/plan.md");
 }
 
-// --- PlanState 3-field closure verification ---
+// --- PlanState 2-field closure verification ---
 
 #[test]
 fn test_plan_state_serialization_has_exactly_two_fields() {
