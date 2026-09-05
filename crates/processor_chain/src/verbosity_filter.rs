@@ -5,7 +5,10 @@
 //! and filters `content_blocks` accordingly:
 //! - [`VerbosityLevel::Full`]: no filtering
 //! - [`VerbosityLevel::Normal`]: remove [`ContentBlock::Thinking`] blocks
-//! - [`VerbosityLevel::Off`]: keep [`ContentBlock::Text`] blocks only
+//! - [`VerbosityLevel::Off`]: remove all intermediate blocks ([`ContentBlock::Thinking`],
+//!   [`ContentBlock::ToolUse`], [`ContentBlock::ToolResult`]); keep deliverable blocks
+//!   ([`ContentBlock::Text`], [`ContentBlock::Image`], [`ContentBlock::Audio`],
+//!   [`ContentBlock::File`])
 //!
 //! Priority 5 — runs before [`DslParser`] (priority 10).
 
@@ -35,7 +38,14 @@ impl VerbosityFilter {
                 .collect(),
             VerbosityLevel::Off => blocks
                 .into_iter()
-                .filter(|b| matches!(b, ContentBlock::Text(_)))
+                .filter(|b| {
+                    !matches!(
+                        b,
+                        ContentBlock::Thinking { .. }
+                            | ContentBlock::ToolUse { .. }
+                            | ContentBlock::ToolResult { .. }
+                    )
+                })
                 .collect(),
         }
     }
@@ -46,7 +56,16 @@ impl VerbosityFilter {
     /// enables streaming-phase single-block checks without allocating a
     /// temporary `Vec`.
     pub fn should_keep_block(block: &ContentBlock, level: VerbosityLevel) -> bool {
-        !Self::filter(vec![block.clone()], level).is_empty()
+        match level {
+            VerbosityLevel::Full => true,
+            VerbosityLevel::Normal => !matches!(block, ContentBlock::Thinking { .. }),
+            VerbosityLevel::Off => !matches!(
+                block,
+                ContentBlock::Thinking { .. }
+                    | ContentBlock::ToolUse { .. }
+                    | ContentBlock::ToolResult { .. }
+            ),
+        }
     }
 
     /// Check whether a Thinking block should be kept at the given verbosity level.
