@@ -370,10 +370,7 @@ impl Gateway {
                 content_blocks: out.content_blocks,
                 metadata: out.metadata,
             }),
-            Ok(None) => Ok(ProcessedMessage {
-                content_blocks: ctx.content_blocks,
-                metadata: ctx.metadata,
-            }),
+            Ok(None) => unreachable!("processor always returns Some when enabled"),
             Err(e) => {
                 tracing::error!(
                     channel = %channel,
