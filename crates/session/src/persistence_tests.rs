@@ -602,14 +602,12 @@ mod tests {
 
         let plan = PlanState {
             phase: PlanPhase::Design,
-            pending_steps: vec!["step1".into(), "step2".into()],
             plan_file_path: "/tmp/plan.md".into(),
             ..Default::default()
         };
         let cp = SessionCheckpoint::new("s-plan-builder".into()).with_plan_state(plan.clone());
         let ps = cp.plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::Design);
-        assert_eq!(ps.pending_steps, vec!["step1", "step2"]);
         assert_eq!(ps.plan_file_path, "/tmp/plan.md");
     }
 
@@ -619,7 +617,6 @@ mod tests {
 
         let plan = PlanState {
             phase: PlanPhase::Review,
-            pending_steps: vec!["a".into()],
             plan_file_path: "/p.md".into(),
             ..Default::default()
         };
@@ -628,7 +625,6 @@ mod tests {
         let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
         let ps = parsed.plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::Review);
-        assert_eq!(ps.pending_steps, vec!["a"]);
         assert_eq!(ps.plan_file_path, "/p.md");
     }
 
@@ -664,7 +660,6 @@ mod tests {
 
         let plan = PlanState {
             phase: PlanPhase::Design,
-            pending_steps: vec!["todo1".into()],
             plan_file_path: "/workspace/plan.md".into(),
             ..Default::default()
         };
@@ -676,7 +671,6 @@ mod tests {
         assert!(loaded.is_some());
         let ps = loaded.unwrap().plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::Design);
-        assert_eq!(ps.pending_steps, vec!["todo1"]);
         assert_eq!(ps.plan_file_path, "/workspace/plan.md");
     }
 
@@ -693,7 +687,6 @@ mod tests {
         let storage = MemoryStorage::new();
         let plan = PlanState {
             phase: PlanPhase::Design,
-            pending_steps: vec!["s1".into(), "s2".into()],
             plan_file_path: "/plan.md".into(),
             ..Default::default()
         };
@@ -718,7 +711,6 @@ mod tests {
             .unwrap();
         let ps = after.plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::Design);
-        assert_eq!(ps.pending_steps, vec!["s1", "s2"]);
         assert_eq!(ps.plan_file_path, "/plan.md");
     }
 

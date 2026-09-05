@@ -541,7 +541,6 @@ mod tests {
 
         let plan = PlanState {
             phase: PlanPhase::Design,
-            pending_steps: vec!["step-a".into(), "step-b".into()],
             plan_file_path: "/plans/design.md".into(),
             ..Default::default()
         };
@@ -575,7 +574,6 @@ mod tests {
         // messages and must be preserved identically through compaction.
         let post_compact_plan = plan.clone();
         assert_eq!(post_compact_plan.phase, PlanPhase::Design);
-        assert_eq!(post_compact_plan.pending_steps, vec!["step-a", "step-b"]);
         assert_eq!(post_compact_plan.plan_file_path, "/plans/design.md");
     }
 
