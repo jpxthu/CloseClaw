@@ -281,7 +281,7 @@ fn test_three_step_mixed_blocks_with_dsl() {
 // Streaming error chunks preservation tests (Step 1.3)
 // ===========================================================================
 
-use crate::{GatewayConfig, OutboundMeta, SessionManager};
+use crate::{Gateway, GatewayConfig, OutboundMeta, SessionManager};
 use closeclaw_common::processor::{StreamEvent, UnifiedUsage};
 use closeclaw_common::StreamingRenderer;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -869,6 +869,42 @@ async fn test_thinking_indicator_stops_on_block_end() {
 
     let calls = calls_ref.lock().expect("lock").clone();
     assert_eq!(calls, vec![true, false]);
+}
+
+#[tokio::test]
+async fn test_process_outbound_raw_log_only_fail_open() {
+    // A non-existent directory triggers a write error in OutboundRawLogProcessor.
+    // The function must still return Ok with the original content_blocks.
+    let config = GatewayConfig {
+        name: "test-rawlog-fail-open".to_string(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        raw_log_dir: Some("/tmp/nonexistent_closeclaw_rawlog_dir".into()),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = Gateway::new(config, sm);
+
+    let blocks = vec![ContentBlock::Text("hello world".into())];
+    let result = gw
+        .process_outbound_raw_log_only("hello world", blocks, "mock")
+        .await;
+    assert!(
+        result.is_ok(),
+        "raw-log write failure should be fail-open, got {:?}",
+        result
+    );
+    let msg = result.unwrap();
+    assert_eq!(msg.content_blocks.len(), 1);
+    match &msg.content_blocks[0] {
+        ContentBlock::Text(t) => assert_eq!(t, "hello world"),
+        other => panic!("expected Text block, got {:?}", other),
+    }
 }
 
 /// Helper to provide default usage for tests that don't care about usage values.

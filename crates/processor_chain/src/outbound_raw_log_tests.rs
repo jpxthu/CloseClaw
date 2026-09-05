@@ -19,6 +19,10 @@ fn make_ctx(content: &str, channel: &str) -> MessageContext {
         ..Default::default()
     };
     let mut ctx = MessageContext::from_normalized(msg);
+    ctx.content_blocks
+        .push(closeclaw_llm::types::ContentBlock::Text(
+            content.to_string(),
+        ));
     ctx.metadata
         .insert("channel".to_string(), channel.to_string());
     ctx
@@ -35,14 +39,17 @@ async fn test_outbound_phase_and_priority() {
 }
 
 #[tokio::test]
-async fn test_bypass_when_disabled_and_no_debug() {
+async fn test_passthrough_when_disabled() {
     let tmp = TempDir::new().unwrap();
     let config = RawLogConfig::new(false, Some(tmp.path().to_path_buf()));
     let processor = OutboundRawLogProcessor::new(config);
 
     let ctx = make_ctx("hello", "terminal");
     let result = processor.process(&ctx).await.unwrap();
-    assert!(result.is_none());
+    let msg = result.expect("disabled processor should return Some (passthrough)");
+    assert_eq!(msg.text_content(), Some("hello"));
+    // no log file should be written
+    assert!(std::fs::read_dir(tmp.path()).unwrap().next().is_none());
 }
 
 #[tokio::test]
@@ -146,17 +153,14 @@ async fn test_outbound_and_independent_from_inbound() {
 }
 
 #[tokio::test]
-async fn test_enabled_but_no_dir_returns_none() {
+async fn test_enabled_but_no_dir_returns_passthrough() {
     let config = RawLogConfig::new(true, None);
     let processor = OutboundRawLogProcessor::new(config);
 
     let ctx = make_ctx("hello", "terminal");
-    // enabled=true but dir=None should return None (same as disabled)
     let result = processor.process(&ctx).await.unwrap();
-    assert!(
-        result.is_none(),
-        "enabled with no dir should be treated as disabled"
-    );
+    let msg = result.expect("enabled with no dir should passthrough (not None)");
+    assert_eq!(msg.text_content(), Some("hello"));
 }
 
 #[tokio::test]
@@ -180,4 +184,56 @@ async fn test_preserves_content_and_blocks() {
         Some("sess_1")
     );
     assert_eq!(result.content_blocks.len(), 1);
+}
+
+#[tokio::test]
+async fn test_error_when_dir_does_not_exist() {
+    let config = RawLogConfig::new(true, Some("/nonexistent/path".into()));
+    let processor = OutboundRawLogProcessor::new(config);
+
+    let ctx = make_ctx("hello", "terminal");
+    let err = processor.process(&ctx).await.unwrap_err();
+    assert!(
+        matches!(err, ProcessError::ProcessorFailed { .. }),
+        "write failure on missing dir should yield ProcessorFailed, got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_disabled_to_enabled_transition() {
+    // Start disabled — passthrough, no log
+    let tmp = TempDir::new().unwrap();
+    let config_off = RawLogConfig::new(false, Some(tmp.path().to_path_buf()));
+    let processor_off = OutboundRawLogProcessor::new(config_off);
+
+    let ctx1 = make_ctx("before", "feishu");
+    let result1 = processor_off.process(&ctx1).await.unwrap();
+    let msg1 = result1.unwrap();
+    assert_eq!(msg1.text_content(), Some("before"));
+    assert!(std::fs::read_dir(tmp.path()).unwrap().next().is_none());
+
+    // Switch to enabled — should write log
+    let config_on = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
+    let processor_on = OutboundRawLogProcessor::new(config_on);
+
+    let ctx2 = make_ctx("after", "feishu");
+    let result2 = processor_on.process(&ctx2).await.unwrap();
+    let msg2 = result2.unwrap();
+    assert_eq!(msg2.text_content(), Some("after"));
+    let files: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().flatten().collect();
+    assert_eq!(files.len(), 1, "should have one log file after enabling");
+}
+
+#[tokio::test]
+async fn test_disabled_with_dir_present_does_not_write() {
+    let tmp = TempDir::new().unwrap();
+    let config = RawLogConfig::new(false, Some(tmp.path().to_path_buf()));
+    let processor = OutboundRawLogProcessor::new(config);
+
+    let ctx = make_ctx("test", "terminal");
+    let result = processor.process(&ctx).await.unwrap();
+    let msg = result.unwrap();
+    assert_eq!(msg.text_content(), Some("test"));
+    // disabled + dir present → passthrough, no file written
+    assert!(std::fs::read_dir(tmp.path()).unwrap().next().is_none());
 }
