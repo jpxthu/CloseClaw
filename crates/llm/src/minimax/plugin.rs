@@ -2,8 +2,7 @@
 //!
 //! MiniMax models are split into two per-model plugins:
 //! - [`MiniMaxM3Plugin`] — applies to `MiniMax-M3*` models; injects
-//!   `thinking: {type: "enabled/disabled"}` based on reasoning level and
-//!   handles Max→High downgrade.
+//!   `thinking: {type: "enabled/disabled"}` based on reasoning level.
 //! - [`MiniMaxM2Plugin`] — applies to all other MiniMax models (e.g. M2.7);
 //!   conditionally injects `reasoning_split` for multi-turn tool-call
 //!   scenarios.
@@ -16,30 +15,15 @@ use crate::types::InternalRequest;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::{json, Value};
 
-/// MiniMax M3 supports High/Max (enabled) and Low/Medium (disabled).
-/// Max is equivalent to High; downgrade Max→High and log the downgrade.
-fn downgrade_max_to_high_m3(request: &mut InternalRequest) {
-    if request.reasoning_level == ReasoningLevel::Max {
-        tracing::info!(
-            provider = "minimax",
-            model = %request.model,
-            from = "max",
-            to = "high",
-            "reasoning level downgraded: Max is equivalent to High on MiniMax M3"
-        );
-        request.reasoning_level = ReasoningLevel::High;
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MiniMaxM3Plugin
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Plugin for MiniMax M3-family models (`MiniMax-M3*`).
 ///
-/// Injects `thinking: {type: "enabled"}` when reasoning level is High/Max
-/// (Max is downgraded to High first), or `thinking: {type: "disabled"}` when
-/// Low/Medium, as required by the MiniMax M3 API.
+/// Injects `thinking: {type: "enabled"}` when reasoning level is High/Max,
+/// or `thinking: {type: "disabled"}` when Low/Medium, as required by the
+/// MiniMax M3 API.
 ///
 /// Also injects `reasoning_split` for multi-turn tool-call scenarios (same as
 /// M2 — M3 also benefits from this flag when tool calls are present).
@@ -57,8 +41,7 @@ impl ModelPlugin for MiniMaxM3Plugin {
     fn before_request(&self, request: &mut InternalRequest) {
         // M3 requires explicit `thinking` parameter to produce thinking blocks.
         // High/Max → enabled, Low/Medium → disabled (binary toggle per design doc).
-        // Max is equivalent to High; downgrade Max→High and map explicitly.
-        downgrade_max_to_high_m3(request);
+        // No downgrade — gateway layer resolves effective level before invocation.
         let thinking_type = match request.reasoning_level {
             ReasoningLevel::High | ReasoningLevel::Max => "enabled",
             ReasoningLevel::Off | ReasoningLevel::Low | ReasoningLevel::Medium => "disabled",
