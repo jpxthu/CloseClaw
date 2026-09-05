@@ -97,9 +97,9 @@
   },
   {
     "path": "docs/design/common/shared-types.md",
-    "commit": "7feafc21c4dc1f65c5955a6b401b4d3f5494f592",
-    "commit_time": "2026-09-04T13:42:19+08:00",
-    "confirmed_time": "2026-09-04T13:54:05.902234+08:00",
+    "commit": "46f56070c4e19ceca04d7182d0714bd2617f695f",
+    "commit_time": "2026-09-06T04:11:25+08:00",
+    "confirmed_time": "2026-09-06T04:24:54.886562+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -401,11 +401,11 @@
   },
   {
     "path": "docs/design/mode/plan-mode.md",
-    "commit": "7a0276e232e7cb32f9432868481515cc117d1668",
-    "commit_time": "2026-09-04T22:15:08+08:00",
-    "confirmed_time": "2026-09-04T22:39:17.093870+08:00",
+    "commit": "46f56070c4e19ceca04d7182d0714bd2617f695f",
+    "commit_time": "2026-09-06T04:11:25+08:00",
+    "confirmed_time": "2026-09-06T04:14:29.195729+08:00",
     "comment": "",
-    "blocked_reason": "文档内部矛盾：shared-types.md 将 Interview 定义为 PlanPhase 枚举阶段值（5 值枚举），plan-mode.md 明确「Interview 路径：无固定阶段」——两文档对 Interview 建模冲突，代码无法同时对齐（当前代码按 plan-mode.md 语义实现 4 值枚举）。另 PlanState.pending_steps 文档承诺 compaction 保护/恢复用途但代码无实现路径，待文档矛盾澄清后处理"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/mode/references/prompts.md",
@@ -481,11 +481,11 @@
   },
   {
     "path": "docs/design/processor_chain/outbound-chain.md",
-    "commit": "9f0dbf1f3eed407919c5b62151812cb2e1932b3c",
-    "commit_time": "2026-08-27T09:22:36+08:00",
-    "confirmed_time": "2026-09-06T01:49:27.694523+08:00",
+    "commit": "46f56070c4e19ceca04d7182d0714bd2617f695f",
+    "commit_time": "2026-09-06T04:11:25+08:00",
+    "confirmed_time": "2026-09-06T04:14:29.224781+08:00",
     "comment": "",
-    "blocked_reason": "VerbosityLevel Off 等级过滤范围跨文档矛盾：outbound-chain.md 规定 Off 仅保留 Text 块（媒体块被过滤），shared-types.md VerbosityLevel 作用范围规定非文本媒体块（Image/Audio/File）在所有等级下均展示。两份设计文档对同一行为给出相反定义，无法确定 Off 模式下媒体块的产品形态，需 Owner 裁决"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/session/README.md",
