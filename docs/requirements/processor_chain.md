@@ -41,7 +41,7 @@ LLM 生成回复后、发送到 IM 平台之前，Owner 能按冗余等级控制
 
 Agent 的回复文本中可嵌入轻量级 DSL 指令来生成交互式 UI 元素（按钮、选择器等）。出站处理时自动识别并解析回复文本中的 DSL 指令，将指令部分从可见文本中剥离，解析结果随消息传递到渲染层。
 
-Owner 可以在 system prompt 或 bootstrap 中教会 Agent 使用预定义的 DSL 指令来生成交互元素。
+Owner 可以在 System Prompt 或 bootstrap 中教会 Agent 使用预定义的 DSL 指令来生成交互元素。
 
 ### F6. 调试日志
 
@@ -49,7 +49,7 @@ Owner 可以在 system prompt 或 bootstrap 中教会 Agent 使用预定义的 D
 - 入站：原始消息全文、session_key 计算结果、文本标准化结果
 - 出站：冗余过滤结果、DSL 解析结果、处理后的消息全文
 
-> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)。
+> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
 ## 非功能需求
 

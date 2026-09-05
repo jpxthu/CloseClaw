@@ -85,7 +85,7 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 
 Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：子 Session 在创建时将父 Session 的完整对话历史装载到对话消息区，使其理解已发生的上下文后再执行新任务；普通 Spawn 不装载父 Session 的对话历史。
 
-> **交叉引用**：任务描述的注入方式（注入 system prompt、不属于对话消息、压缩时不受影响）详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：任务描述的注入方式（注入 System Prompt、不属于对话消息、压缩时不受影响）详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ### F9. Spawn 创建控制
 

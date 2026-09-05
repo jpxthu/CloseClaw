@@ -16,21 +16,21 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 - 归档的 Session 被访问时自动恢复：
   - 若 Session 正在归档中，等待归档完成后自动恢复，恢复时提示 User「会话归档中，稍后恢复…」
   - 若 Session 已归档，恢复时提示 User「正在恢复会话…」
-  - 恢复后 system prompt 按最新配置重新注入，详见 F2
+  - 恢复后 System Prompt 按最新配置重新注入，详见 F2
 - 崩溃恢复详见 F7
 
 > **交叉引用**：新 Session 由 `/new` 指令触发创建，详见 [slash §F3](slash.md)（会话管理）。
 > **交叉引用**：系统崩溃后的恢复流程详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
 
-### F2. 恢复时的 system prompt 重建
+### F2. 恢复时的 System Prompt 重建
 
-Session 恢复时触发 Agent 的 system prompt 重新注入。
+Session 恢复时触发 Agent 的 System Prompt 重新注入。
 
-- User 追加的 system prompt 自定义指令持久化保存，归档恢复后完整保留
+- User 追加的 System Prompt 自定义指令持久化保存，归档恢复后完整保留
 
 > **交叉引用**：完整触发事件清单、缓存失效策略与文件变更的自动反映，详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 > **交叉引用**：技能清单的格式和技能文件变更的生效规则详见 [skills §F4](skills.md)（技能清单）、[skills §F5](skills.md)（技能文件变更）。
-> **交叉引用**：追加指令的交互方式（/system add/list/clear）详见 [slash §F6](slash.md)（system prompt 追加）。
+> **交叉引用**：追加指令的交互方式（/system add/list/clear）详见 [slash §F6](slash.md)（System Prompt 追加）。
 > **交叉引用**：bootstrap 文件的清单与注入顺序，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
 > **交叉引用**：子 Session 的文件加载范围，详见 [system_prompt §F8](system_prompt.md)（会话类型适配）。
 
@@ -43,7 +43,7 @@ Session 恢复时触发 Agent 的 system prompt 重新注入。
   - 告警阶段：剩余空间低于告警阈值时，提示 User 即将压缩。若后续剩余空间回升至告警阈值以上，告警自动取消
   - 压缩阶段：剩余空间低于压缩阈值时，自动执行压缩
   - 告警阈值大于压缩阈值（告警先于压缩触发），两个阈值均按上下文窗口百分比配置，每个 Agent 可独立设置
-- 压缩只处理 User 与 Agent 的对话消息，system prompt 内容完整保留
+- 压缩只处理 User 与 Agent 的对话消息，System Prompt 内容完整保留
 - 压缩结果为一条结构化摘要消息，覆盖六个维度：Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context
 - 连续压缩失败后自动进入保护暂停（仅阻止自动压缩再次触发，不影响活跃判定和归档），手动 `/compact` 成功后自动解除保护暂停
 > **交叉引用**：手动压缩由 `/compact` 指令触发，详见 [slash §F5](slash.md)（上下文压缩）。
@@ -51,9 +51,9 @@ Session 恢复时触发 Agent 的 system prompt 重新注入。
 
 ### F4. 子 Session 委托与协调
 
-Agent 可以将子任务委托给子 Session，并行委托多个子 Session，等待结果后继续决策。子 Session 的创建控制由 Agent 模块定义，详见 [agent §F7](agent.md)（子 Session 创建）。
+Agent 可以将子任务委托给子 Session，并行委托多个子 Session，等待结果后继续决策。子 Session 的创建控制由 Agent 模块定义，详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 
-- 子 Session 的任务描述注入到 system prompt 中，不属于对话消息，压缩时不受影响
+- 子 Session 的任务描述注入到 System Prompt 中，不属于对话消息，压缩时不受影响
 - Agent 可以向已有未完成的子 Session 发送新任务
 - Agent 可以终止子 Session，级联终止其所有后代
 - 子 Session 完成后结果通过统一消息队列注入父 Session（带去重保护）。子 Session 完成通知与其他消息类型（User 消息、后台任务结果、系统通知）一视同仁，统一按 F10 的排队规则处理，Agent 不需要轮询
@@ -62,7 +62,7 @@ Agent 可以将子任务委托给子 Session，并行委托多个子 Session，�
   - 子 Session 的运行时长达到设定的超时上限时，系统向父 Session 注入超时通知。通知内容包含：设定的超时时间、实际运行时长、上下文窗口使用情况及 token 用量
   - 若父 Agent 未终止该子 Session，系统在超时时间的 50% 间隔后再次注入通知，循环往复。间隔比例可配置
   - 父 Agent 收到通知后自行决定：终止子 Session、继续等待、或向 User 汇报
-  - 子 Session 的超时时间来源及优先级，详见 [agent §F7](agent.md)（子 Session 创建）。
+  - 子 Session 的超时时间来源及优先级，详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 - 父 Session 每轮对话开始时，系统注入当前活跃子 Session 摘要：正在执行的子 Session 数量及每个子 Session 的概要信息（Agent 标识、任务简述、已运行时长）
 
 > **交叉引用**：子 Session 结果注入与排队规则详见 [F9](#f9-消息注入)（消息注入）、[F10](#f10-消息排队)（消息排队）。
@@ -103,7 +103,7 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 - 每轮对话结束后自动检测：响应超时、空响应、结构化异常等问题
 - 可配置的自动质量检查：检测 Agent 是否陷入工具调用死循环
 - 可配置的自动质量检查：检测 Agent 是否只计划不执行
-- 对涉及对话历史完整性的操作（压缩、system prompt 修改），执行前自动创建对话备份，操作失败时可回滚到上一个安全状态
+- 对涉及对话历史完整性的操作（压缩、System Prompt 修改），执行前自动创建对话备份，操作失败时可回滚到上一个安全状态
 - 系统崩溃时，自动识别未完成的工具调用、子 Session 委托和未发送的出站消息。未发送的出站消息自动重投递；其余操作注入恢复通知，由 Agent 自行决定如何处理
 - 系统定时扫描子 Session（F4 的超时通知不排斥本项僵死兜底——父 Agent 选择继续等待的，仍受僵死判定保护）：
   - 已完成（四维活跃维度均为否且已产出最终 assistant 消息）但完成通知未成功送达父 Session 的，补推完成通知（若父 Session 已归档则跳过）
@@ -177,7 +177,7 @@ Session 模块在以下环节记录调试日志：
 - 消息注入事件（后台任务结果、记忆注入）
 - 健康检查与异常检测结果
 
-> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)。
+> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
 ## 非功能需求
 

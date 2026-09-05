@@ -57,8 +57,8 @@ Owner 可以在对话中通过指令管理 System Prompt 末尾的追加指令�
 System Prompt 末尾的追加区除 Owner 追加指令外，还承载系统注入的上下文（如 workflow 上下文）。系统注入内容的写入与移除由对应功能模块触发，注入与移除不触发 System Prompt 重新组装，也不清除 Owner 追加指令。
 
 > **交叉引用**：系统注入内容的一个实例——workflow 上下文的注入与移除，见 [workflow §F2](workflow.md)（workflow 启动）、[workflow §F8](workflow.md)（流程生命周期）。
-> **交叉引用**：追加指令的追加、查看、清除命令入口，见 [slash §F6](slash.md)（system prompt 追加）。
-> **交叉引用**：持久化由 [session §F2](session.md)（恢复时的 system prompt 重建）管理。本节仅定义 System Prompt 内容层的专属行为。
+> **交叉引用**：追加指令的追加、查看、清除命令入口，见 [slash §F6](slash.md)（System Prompt 追加）。
+> **交叉引用**：持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）管理。本节仅定义 System Prompt 内容层的专属行为。
 
 ### F6. 内容缓存与自动刷新
 
@@ -76,16 +76,16 @@ System Prompt 的组装触发时机是固定的，组装之间内容不变，利
 
 > **交叉引用**：bootstrap 文件等数据源变更的生效机制即本节组装边界规则。详见 [config §F4](config.md)（配置重载）。
 
-> **交叉引用**：重建触发的外部事件来源——新会话创建见 [session §F1](session.md)（对话持久化与恢复），归档恢复见 [session §F2](session.md)（恢复时的 system prompt 重建），上下文压缩行为见 [session §F3](session.md)（长对话压缩），Owner 清除追加指令见 [slash §F6](slash.md)（system prompt 追加）。
+> **交叉引用**：重建触发的外部事件来源——新会话创建见 [session §F1](session.md)（对话持久化与恢复），归档恢复见 [session §F2](session.md)（恢复时的 System Prompt 重建），上下文压缩行为见 [session §F3](session.md)（长对话压缩），Owner 清除追加指令见 [slash §F6](slash.md)（System Prompt 追加）。
 
 ### F7. API 前缀缓存利用
 
-System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机制，减少重复内容的 Token 计费：
+System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机制，减少重复内容的 token 计费：
 
 - System Prompt 中不变部分和变化部分之间有明确的分隔，使缓存层能识别可缓存的前缀范围
 - 每次请求变化的部分（动态上下文、追加指令）不参与前缀缓存
 
-> **交叉引用**：各服务商的具体缓存参数适配和 Token 统计，见 [llm §F8](llm.md)（缓存成本优化）、[llm §F9](llm.md)（用量统计）。本模块仅负责不变/变化内容的划分和前缀稳定性保证。
+> **交叉引用**：各服务商的具体缓存参数适配和 token 统计，见 [llm §F8](llm.md)（缓存成本优化）、[llm §F9](llm.md)（用量统计）。本模块仅负责不变/变化内容的划分和前缀稳定性保证。
 
 ### F8. 会话类型适配
 

@@ -43,7 +43,7 @@ Owner 和 User 可以创建新会话，以及终止当前会话运行。
 Owner 和 User 可以随时查看当前会话的运行状态。
 
 **指令**：
-- `/status`：查询会话状态（模式、模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、system prompt 追加指令列表）（Immediate）
+- `/status`：查询会话状态（模式、模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、System Prompt 追加指令列表）（Immediate）
 
 > **交叉引用**：模式见 [mode §F1](mode.md)（运行模式）。
 > **交叉引用**：当前模型见 [llm §F1](llm.md)（多供应商统一对话）。
@@ -63,9 +63,9 @@ Owner 和 User 可以手动触发对话历史的上下文压缩。
 
 > **交叉引用**：压缩引擎的压缩范围和行为定义在 [session §F3](session.md)（长对话压缩）。
 
-### F6. system prompt 追加
+### F6. System Prompt 追加
 
-Owner 和 User 可以在运行时向 system prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。
+Owner 和 User 可以在运行时向 System Prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。
 
 **指令**：
 - `/system add <内容>`：追加一条指令
@@ -74,8 +74,8 @@ Owner 和 User 可以在运行时向 system prompt 的追加区动态添加指�
 
 追加内容超过 500 字符时，直接拒绝并向 User 返回错误提示，不进行截断。`/system add` 不带内容时，向 User 返回用法提示。
 
-> **交叉引用**：追加区在 system prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
-> **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的 system prompt 重建）定义。
+> **交叉引用**：追加区在 System Prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
+> **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）定义。
 
 ### F7. 工作目录操作
 
