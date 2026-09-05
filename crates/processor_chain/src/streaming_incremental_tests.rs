@@ -162,6 +162,53 @@ async fn test_finish_phase_off_filters_media_blocks_keeps_text() {
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "response"));
 }
 
+/// Streaming finish phase: Off verbosity with text-only input.
+/// All text blocks should be preserved since Off keeps Text.
+#[tokio::test]
+async fn test_finish_phase_off_text_only_keeps_all() {
+    let registry = build_full_chain();
+    let blocks = vec![
+        text_block("first"),
+        text_block("second"),
+        text_block("third"),
+    ];
+    let output = ProcessedMessage {
+        content_blocks: blocks,
+        metadata: make_meta("off"),
+    };
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Off: all Text blocks preserved
+    assert_eq!(result.content_blocks.len(), 3);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "first"));
+    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "second"));
+    assert!(matches!(&result.content_blocks[2], ContentBlock::Text(s) if s == "third"));
+}
+
+/// Streaming finish phase: Off verbosity with media-only input.
+/// All media blocks (Image, Audio, File) and Thinking should be filtered.
+/// Since no Text blocks remain, DslParser wraps content as a single Text block.
+#[tokio::test]
+async fn test_finish_phase_off_media_only_filters_all() {
+    let registry = build_full_chain();
+    let blocks = vec![
+        thinking_block("internal"),
+        image_block("photo.png"),
+        audio_block("voice.wav"),
+        file_block("report.pdf"),
+    ];
+    let output = ProcessedMessage {
+        content_blocks: blocks,
+        metadata: make_meta("off"),
+    };
+    let result = registry.process_outbound(output).await.unwrap();
+
+    // Off: no Text blocks in input → all filtered out
+    // DslParser fallback: wraps content as Text when blocks are empty
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
+}
+
 /// Streaming finish phase: Normal verbosity filters Thinking, preserves ToolUse.
 #[tokio::test]
 async fn test_finish_phase_normal_filters_thinking_preserves_tools() {
