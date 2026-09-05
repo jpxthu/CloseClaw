@@ -11,7 +11,6 @@ fn test_plan_phase_default_is_research() {
 fn test_plan_state_default() {
     let state = PlanState::default();
     assert_eq!(state.phase, PlanPhase::Research);
-    assert!(state.pending_steps.is_empty());
     assert!(state.plan_file_path.is_empty());
 }
 
@@ -19,7 +18,6 @@ fn test_plan_state_default() {
 fn test_plan_state_new() {
     let state = PlanState::new();
     assert_eq!(state.phase, PlanPhase::Research);
-    assert!(state.pending_steps.is_empty());
     assert!(state.plan_file_path.is_empty());
 }
 
@@ -58,13 +56,11 @@ fn test_plan_phase_serde_snake_case() {
 fn test_plan_state_serde_roundtrip() {
     let state = PlanState {
         phase: PlanPhase::Design,
-        pending_steps: vec!["step1".into(), "step2".into()],
         plan_file_path: "/tmp/plan.md".into(),
     };
     let json = serde_json::to_string(&state).unwrap();
     let deserialized: PlanState = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.phase, PlanPhase::Design);
-    assert_eq!(deserialized.pending_steps, vec!["step1", "step2"]);
     assert_eq!(deserialized.plan_file_path, "/tmp/plan.md");
 }
 
@@ -73,7 +69,6 @@ fn test_plan_state_serde_default_fields() {
     let json = "{}";
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
-    assert!(state.pending_steps.is_empty());
     assert!(state.plan_file_path.is_empty());
 }
 
@@ -82,7 +77,6 @@ fn test_plan_state_serialization_field_names_snake_case() {
     let state = PlanState::new();
     let json = serde_json::to_value(&state).unwrap();
     assert!(json.get("phase").is_some());
-    assert!(json.get("pending_steps").is_some());
     assert!(json.get("plan_file_path").is_some());
 }
 
@@ -114,7 +108,6 @@ fn test_plan_state_serde_backward_compat_with_extra_fields() {
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
     assert_eq!(state.plan_file_path, "/tmp/plan.md");
-    assert!(state.pending_steps.is_empty());
 }
 
 #[test]
@@ -125,18 +118,16 @@ fn test_plan_state_serde_backward_compat_old_checkpoint() {
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
     assert_eq!(state.plan_file_path, "/tmp/plan.md");
-    assert!(state.pending_steps.is_empty());
 }
 
 // --- PlanState 3-field closure verification ---
 
 #[test]
-fn test_plan_state_serialization_has_exactly_three_fields() {
-    // PlanState should serialize to exactly: phase, pending_steps, plan_file_path.
-    // No extra fields (explicit_path, step_selection, execution_steps, current_step).
+fn test_plan_state_serialization_has_exactly_two_fields() {
+    // PlanState should serialize to exactly: phase, plan_file_path.
+    // No extra fields (explicit_path, step_selection, execution_steps, current_step, pending_steps).
     let state = PlanState {
         phase: PlanPhase::Design,
-        pending_steps: vec!["s1".into()],
         plan_file_path: "/tmp/p.md".into(),
     };
     let json = serde_json::to_value(&state).unwrap();
@@ -145,14 +136,17 @@ fn test_plan_state_serialization_has_exactly_three_fields() {
         .expect("PlanState should serialize to JSON object");
     assert_eq!(
         obj.len(),
-        3,
-        "PlanState must have exactly 3 fields, got: {:?}",
+        2,
+        "PlanState must have exactly 2 fields, got: {:?}",
         obj.keys().collect::<Vec<_>>()
     );
     assert!(obj.contains_key("phase"));
-    assert!(obj.contains_key("pending_steps"));
     assert!(obj.contains_key("plan_file_path"));
     // These fields must NOT exist
+    assert!(
+        !obj.contains_key("pending_steps"),
+        "PlanState must not contain pending_steps"
+    );
     assert!(
         !obj.contains_key("explicit_path"),
         "PlanState must not contain explicit_path"
@@ -178,7 +172,7 @@ fn test_plan_state_default_serialization_has_exactly_three_fields() {
     let obj = json
         .as_object()
         .expect("default PlanState should serialize to JSON object");
-    assert_eq!(obj.len(), 3, "default PlanState must have exactly 3 fields");
+    assert_eq!(obj.len(), 2, "default PlanState must have exactly 2 fields");
 }
 
 // --- PlanState old checkpoint: all old fields combined ---
@@ -197,17 +191,12 @@ fn test_plan_state_serde_backward_compat_all_old_fields() {
     }"#;
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Design);
-    assert_eq!(state.pending_steps, vec!["a", "b"]);
     assert_eq!(state.plan_file_path, "/tmp/plan.md");
-    // Removed fields must be silently ignored
-    assert_eq!(state.phase, PlanPhase::Design);
-    assert!(state.pending_steps.len() == 2);
 }
 
 #[test]
 fn test_plan_state_serde_empty_object_produces_defaults() {
     let state: PlanState = serde_json::from_str("{}").unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
-    assert!(state.pending_steps.is_empty());
     assert!(state.plan_file_path.is_empty());
 }
