@@ -43,7 +43,7 @@ pub struct PlanState {
 }
 
 impl PlanState {
-    /// 创建新的 PlanState，使用默认值（Research 阶段、空步骤、空路径）
+    /// 创建新的 PlanState，使用默认值（Research 阶段、空路径）
     pub fn new() -> Self {
         Self::default()
     }

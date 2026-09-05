@@ -166,7 +166,7 @@ fn test_plan_state_serialization_has_exactly_two_fields() {
 }
 
 #[test]
-fn test_plan_state_default_serialization_has_exactly_three_fields() {
+fn test_plan_state_default_serialization_has_exactly_two_fields() {
     let state = PlanState::default();
     let json = serde_json::to_value(&state).unwrap();
     let obj = json
