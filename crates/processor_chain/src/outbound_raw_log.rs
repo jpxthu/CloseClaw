@@ -1,8 +1,10 @@
 //! Outbound raw message logger processor.
 //!
 //! Writes outbound [`MessageContext`] to a JSON file when enabled.
-//! Mirrors [`super::raw_log_processor::RawLogProcessor`] but operates
-//! on the outbound phase.
+//! When disabled (or dir is missing), the message is passed through
+//! unchanged — consistent with the inbound
+//! [`super::raw_log_processor::RawLogProcessor`] and the fail-open
+//! principle documented in the design doc.
 
 use std::collections::HashMap;
 
@@ -102,15 +104,12 @@ impl MessageProcessor for OutboundRawLogProcessor {
         ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
         let is_enabled = self.config.enabled && self.config.dir.is_some();
-        if !is_enabled {
-            return Ok(None);
+        if is_enabled {
+            let snapshot = Self::build_snapshot(ctx);
+            self.write_log(&snapshot)
+                .await
+                .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
         }
-
-        let snapshot = Self::build_snapshot(ctx);
-
-        self.write_log(&snapshot)
-            .await
-            .map_err(|e| ProcessError::processor_failed(self.name(), e))?;
 
         Ok(Some(ProcessedMessage {
             content_blocks: ctx.content_blocks.clone(),
