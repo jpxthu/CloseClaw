@@ -342,6 +342,10 @@ impl Gateway {
     }
 
     /// Run only the outbound raw-log processor, bypassing the full chain.
+    ///
+    /// On write failure the error is logged and the original content is
+    /// forwarded unchanged (fail-open), so the message is never blocked
+    /// by raw-log issues.
     pub(crate) async fn process_outbound_raw_log_only(
         &self,
         raw_output: &str,
@@ -366,14 +370,18 @@ impl Gateway {
                 content_blocks: out.content_blocks,
                 metadata: out.metadata,
             }),
-            Ok(None) => Ok(ProcessedMessage {
-                content_blocks: ctx.content_blocks,
-                metadata: ctx.metadata,
-            }),
-            Err(e) => Err(GatewayError::OutboundError(format!(
-                "raw log processor: {}",
-                e
-            ))),
+            Ok(None) => unreachable!("processor always returns Some when enabled"),
+            Err(e) => {
+                tracing::error!(
+                    channel = %channel,
+                    error = %e,
+                    "outbound raw-log write failed, forwarding original content"
+                );
+                Ok(ProcessedMessage {
+                    content_blocks: ctx.content_blocks,
+                    metadata: ctx.metadata,
+                })
+            }
         }
     }
 
