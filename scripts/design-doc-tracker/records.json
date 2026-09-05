@@ -457,9 +457,9 @@
   },
   {
     "path": "docs/design/processor_chain/README.md",
-    "commit": "fb09b895ce1ee0b2438c1d852ed81ca5e680a066",
-    "commit_time": "2026-08-27T09:42:25+08:00",
-    "confirmed_time": "2026-08-27T09:51:48.013585+08:00",
+    "commit": "ff1dff6233907940e3d0984e8cd06f13c891b34a",
+    "commit_time": "2026-09-06T04:38:08+08:00",
+    "confirmed_time": "2026-09-06T04:46:41.268004+08:00",
     "comment": "",
     "blocked_reason": ""
   },
