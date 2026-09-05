@@ -125,7 +125,8 @@ fn test_plan_state_serde_backward_compat_old_checkpoint() {
 #[test]
 fn test_plan_state_serialization_has_exactly_two_fields() {
     // PlanState should serialize to exactly: phase, plan_file_path.
-    // No extra fields (explicit_path, step_selection, execution_steps, current_step, pending_steps).
+    // No extra fields (explicit_path, step_selection, execution_steps,
+    // current_step, pending_steps).
     let state = PlanState {
         phase: PlanPhase::Design,
         plan_file_path: "/tmp/p.md".into(),
