@@ -160,6 +160,6 @@ Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。
 
 ## 非功能需求
 
-- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟。全部 Immediate 指令：/stop、/status、/mode（无参数查询形态）、/reasoning（各形态）、/verbose（各形态）、/help
+- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟。全部 Immediate 指令：/stop、/status、/mode（无参数查询形态）、/reasoning（各形态）、/verbose（各形态）、/help、审批指令（/approve-once、/approve-whitelist、/deny，Immediate 可达性由 Gateway 层保证）
 
 > **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
