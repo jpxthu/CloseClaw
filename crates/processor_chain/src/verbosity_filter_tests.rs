@@ -73,6 +73,7 @@ fn test_filter_normal_keeps_tool_use_and_result() {
     assert_eq!(result.len(), 3);
 }
 
+/// Off mode with mixed blocks keeps deliverables, removes intermediates.
 #[test]
 fn test_filter_off_keeps_text_only() {
     let blocks = vec![
@@ -95,11 +96,19 @@ fn test_filter_off_keeps_text_only() {
         },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 2);
+    assert_eq!(
+        result.len(),
+        5,
+        "Off keeps Text + Image + Audio + File, removes Thinking/ToolUse/ToolResult"
+    );
     assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
     assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
+    assert!(matches!(&result[2], ContentBlock::Image { .. }));
+    assert!(matches!(&result[3], ContentBlock::Audio { .. }));
+    assert!(matches!(&result[4], ContentBlock::File { .. }));
 }
 
+/// Empty blocks input returns empty at all levels.
 #[test]
 fn test_filter_empty_blocks() {
     let result = VerbosityFilter::filter(vec![], VerbosityLevel::Full);
@@ -182,9 +191,10 @@ fn test_filter_normal_all_thinking_produces_empty() {
     );
 }
 
-/// Off mode with mixed content types should keep only Text blocks.
+/// Off mode with mixed content types keeps deliverable blocks,
+/// removes intermediate blocks (Thinking/ToolUse/ToolResult).
 #[test]
-fn test_filter_off_mixed_content_keeps_text_only() {
+fn test_filter_off_mixed_content_keeps_deliverables() {
     let blocks = vec![
         thinking_block("thinking"),
         text_block("hello"),
@@ -206,9 +216,13 @@ fn test_filter_off_mixed_content_keeps_text_only() {
         },
     ];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert_eq!(result.len(), 2, "Off mode should keep Text blocks only");
+    // Off removes Thinking, ToolUse, ToolResult; keeps Text, Image, Audio, File
+    assert_eq!(result.len(), 5, "Off mode should keep deliverable blocks");
     assert!(matches!(&result[0], ContentBlock::Text(t) if t == "hello"));
     assert!(matches!(&result[1], ContentBlock::Text(t) if t == "world"));
+    assert!(matches!(&result[2], ContentBlock::Image { .. }));
+    assert!(matches!(&result[3], ContentBlock::Audio { .. }));
+    assert!(matches!(&result[4], ContentBlock::File { .. }));
 }
 
 /// Normal mode preserves ToolUse and ToolResult alongside Text.
@@ -229,40 +243,43 @@ fn test_filter_normal_preserves_tool_blocks() {
     assert!(matches!(&result[3], ContentBlock::Text(t) if t == "after"));
 }
 
-/// Off mode with only Image block should filter it (Off keeps Text only).
+/// Off mode with only Image block keeps it (Image is a deliverable).
 #[test]
-fn test_filter_off_filters_image_block() {
+fn test_filter_off_keeps_image_block() {
     let blocks = vec![ContentBlock::Image {
         name: "photo.jpg".to_string(),
         url: "https://example.com/photo.jpg".to_string(),
     }];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert!(result.is_empty(), "Off mode should filter Image blocks");
+    assert_eq!(result.len(), 1, "Off mode should keep Image blocks");
+    assert!(matches!(&result[0], ContentBlock::Image { .. }));
 }
 
-/// Off mode with only Audio block should filter it (Off keeps Text only).
+/// Off mode with only Audio block keeps it (Audio is a deliverable).
 #[test]
-fn test_filter_off_filters_audio_block() {
+fn test_filter_off_keeps_audio_block() {
     let blocks = vec![ContentBlock::Audio {
         name: "voice.mp3".to_string(),
         url: "https://example.com/voice.mp3".to_string(),
     }];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert!(result.is_empty(), "Off mode should filter Audio blocks");
+    assert_eq!(result.len(), 1, "Off mode should keep Audio blocks");
+    assert!(matches!(&result[0], ContentBlock::Audio { .. }));
 }
 
-/// Off mode with only File block should filter it (Off keeps Text only).
+/// Off mode with only File block keeps it (File is a deliverable).
 #[test]
-fn test_filter_off_filters_file_block() {
+fn test_filter_off_keeps_file_block() {
     let blocks = vec![ContentBlock::File {
         name: "report.csv".to_string(),
         url: "https://example.com/report.csv".to_string(),
     }];
     let result = VerbosityFilter::filter(blocks, VerbosityLevel::Off);
-    assert!(result.is_empty(), "Off mode should filter File blocks");
+    assert_eq!(result.len(), 1, "Off mode should keep File blocks");
+    assert!(matches!(&result[0], ContentBlock::File { .. }));
 }
 
-/// Off mode with all intermediate blocks should produce empty.
+/// Off mode with only intermediate blocks produces empty.
 #[test]
 fn test_filter_off_all_intermediate_produces_empty() {
     let blocks = vec![
@@ -295,6 +312,59 @@ fn test_filter_full_no_filtering() {
 // Streaming consistency: should_keep_block / should_keep_thinking
 // must agree with batch filter() for individual blocks
 // -----------------------------------------------------------------------
+
+/// should_keep_block returns true for deliverable blocks (Image/Audio/File)
+/// at Off level, and false for intermediate blocks (Thinking/ToolUse/ToolResult).
+#[test]
+fn test_should_keep_block_off_deliverables_and_intermediates() {
+    let image = ContentBlock::Image {
+        name: "img.png".to_string(),
+        url: "https://example.com/img.png".to_string(),
+    };
+    let audio = ContentBlock::Audio {
+        name: "audio.wav".to_string(),
+        url: "https://example.com/audio.wav".to_string(),
+    };
+    let file = ContentBlock::File {
+        name: "doc.pdf".to_string(),
+        url: "https://example.com/doc.pdf".to_string(),
+    };
+    let thinking = thinking_block("t");
+    let tool_use = tool_use_block("search");
+    let tool_result = tool_result_block("result");
+    let text = text_block("hello");
+
+    // Deliverables should be kept at Off
+    assert!(VerbosityFilter::should_keep_block(
+        &image,
+        VerbosityLevel::Off
+    ));
+    assert!(VerbosityFilter::should_keep_block(
+        &audio,
+        VerbosityLevel::Off
+    ));
+    assert!(VerbosityFilter::should_keep_block(
+        &file,
+        VerbosityLevel::Off
+    ));
+    assert!(VerbosityFilter::should_keep_block(
+        &text,
+        VerbosityLevel::Off
+    ));
+    // Intermediates should be filtered at Off
+    assert!(!VerbosityFilter::should_keep_block(
+        &thinking,
+        VerbosityLevel::Off
+    ));
+    assert!(!VerbosityFilter::should_keep_block(
+        &tool_use,
+        VerbosityLevel::Off
+    ));
+    assert!(!VerbosityFilter::should_keep_block(
+        &tool_result,
+        VerbosityLevel::Off
+    ));
+}
 
 /// Verify that `should_keep_block` returns the same result as `filter`
 /// for every (block_type, verbosity_level) combination.

@@ -140,7 +140,8 @@ async fn test_finish_phase_full_preserves_all_blocks() {
 }
 
 /// Streaming finish phase: Off verbosity with mixed blocks.
-/// Off level keeps only Text; filters Thinking, Image, Audio, File.
+/// Off level keeps deliverables (Text + Image + Audio + File);
+/// filters Thinking (intermediate).
 #[tokio::test]
 async fn test_finish_phase_off_filters_media_blocks_keeps_text() {
     let registry = build_full_chain();
@@ -157,9 +158,21 @@ async fn test_finish_phase_off_filters_media_blocks_keeps_text() {
     };
     let result = registry.process_outbound(output).await.unwrap();
 
-    // Off: keep Text only, filter Thinking + Image + Audio + File
-    assert_eq!(result.content_blocks.len(), 1);
+    // Off: filter Thinking, keep Text + Image + Audio + File
+    assert_eq!(result.content_blocks.len(), 4);
     assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "response"));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Image { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::Audio { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[3],
+        ContentBlock::File { .. }
+    ));
 }
 
 /// Streaming finish phase: Off verbosity with text-only input.
@@ -185,9 +198,9 @@ async fn test_finish_phase_off_text_only_keeps_all() {
     assert!(matches!(&result.content_blocks[2], ContentBlock::Text(s) if s == "third"));
 }
 
-/// Streaming finish phase: Off verbosity with media-only input.
-/// All media blocks (Image, Audio, File) and Thinking should be filtered.
-/// Since no Text blocks remain, DslParser wraps content as a single Text block.
+/// Streaming finish phase: Off verbosity with media + thinking input.
+/// Off filters Thinking (intermediate), keeps Image/Audio/File (deliverables).
+/// No Text blocks → media blocks pass through directly.
 #[tokio::test]
 async fn test_finish_phase_off_media_only_filters_all() {
     let registry = build_full_chain();
@@ -203,10 +216,20 @@ async fn test_finish_phase_off_media_only_filters_all() {
     };
     let result = registry.process_outbound(output).await.unwrap();
 
-    // Off: no Text blocks in input → all filtered out
-    // DslParser fallback: wraps content as Text when blocks are empty
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(_)));
+    // Off: filter Thinking, keep Image + Audio + File
+    assert_eq!(result.content_blocks.len(), 3);
+    assert!(matches!(
+        &result.content_blocks[0],
+        ContentBlock::Image { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Audio { .. }
+    ));
+    assert!(matches!(
+        &result.content_blocks[2],
+        ContentBlock::File { .. }
+    ));
 }
 
 /// Streaming finish phase: Normal verbosity filters Thinking, preserves ToolUse.
@@ -477,8 +500,8 @@ async fn test_default_impl_delegates_to_full_chain() {
 }
 
 /// Incremental phase with Off verbosity: VerbosityFilter runs first,
-/// removing all non-Text blocks. DslParser is zero-overhead passthrough
-/// (no parse, no metadata write); content blocks stay unchanged.
+/// removing intermediate blocks (Thinking). DslParser is zero-overhead
+/// passthrough (no parse, no metadata write); deliverable blocks preserved.
 #[tokio::test]
 async fn test_incremental_off_verbosity_filters_then_dsl_passthrough() {
     let mut registry = ProcessorRegistry::new();
@@ -497,9 +520,9 @@ async fn test_incremental_off_verbosity_filters_then_dsl_passthrough() {
     };
     let result = registry.process_outbound_incremental(msg).await.unwrap();
 
-    // Off: VerbosityFilter removes Thinking + Image, keeps 2 Text blocks.
+    // Off: VerbosityFilter removes Thinking, keeps Text + Image.
     // DslParser zero-overhead: DSL line preserved, no metadata written.
-    assert_eq!(result.content_blocks.len(), 2);
+    assert_eq!(result.content_blocks.len(), 3);
     assert!(
         matches!(
             &result.content_blocks[0],
@@ -508,7 +531,11 @@ async fn test_incremental_off_verbosity_filters_then_dsl_passthrough() {
         ),
         "DSL line must be preserved in zero-overhead passthrough mode"
     );
-    assert!(matches!(&result.content_blocks[1], ContentBlock::Text(s) if s == "Plain response"));
+    assert!(matches!(
+        &result.content_blocks[1],
+        ContentBlock::Image { .. }
+    ));
+    assert!(matches!(&result.content_blocks[2], ContentBlock::Text(s) if s == "Plain response"));
     // DslParser zero-overhead: no dsl_result in metadata.
     assert!(
         !result.metadata.contains_key("dsl_result"),
