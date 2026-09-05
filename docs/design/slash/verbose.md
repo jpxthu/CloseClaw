@@ -12,7 +12,9 @@ Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，p
 
 - `full`（默认）：展示全部——思考过程、工具调用、工具结果、最终回复
 - `normal`：展示工具调用和结果作为进度提示，隐藏思考过程
-- `off`：仅展示最终回复，隐藏所有中间过程
+- `off`：仅展示最终回复（含作为交付物的媒体块），隐藏思考/工具调用/工具结果等全部中间过程
+
+Verbosity 过滤的仅是 Agent 的中间产物，不影响对用户的最终交付内容——最终回复文本与作为交付内容的媒体块（Image/Audio/File）在任意等级下均展示。中间产物与最终回复内容块的划分、各等级过滤语义见 [common/shared-types VerbosityLevel](../common/shared-types.md#verbositylevel)。
 
 展示等级由 Session 存储，出站过滤层作为 Processor Chain 的第一个 Processor 读取并过滤。切换等级不影响当前正在输出的消息——只对后续新消息生效。
 
@@ -48,7 +50,7 @@ Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，p
 2. 读取 Session 存储的展示等级，按等级过滤：
    - `full` → 不过滤，全部内容块通过
    - `normal` → 移除 Thinking 内容块，保留工具调用、工具结果和最终回复文本
-   - `off` → 仅保留文本块，移除思考/工具调用/工具结果
+   - `off` → 移除思考/工具调用/工具结果等中间产物块，仅保留最终回复内容（文本与作为交付物的媒体块）
 3. 过滤后内容继续进入 Processor Chain 后续处理
 4. Processor Chain 处理（DslParser → OutboundRawLog）
 5. Gateway 记录出站日志

@@ -351,15 +351,19 @@ StreamingOutput 是渲染过程的中间产物，生命周期止于本次流式�
 
 VerbosityLevel 是出站信息展示等级的枚举，控制 VerbosityFilter 对 ContentBlock 的过滤策略。由 `/verbose` 指令设置，Session 存储，出站 Processor Chain 的第一道过滤（VerbosityFilter，priority 5）消费。
 
-三个等级：
+**过滤对象边界**：Verbosity 控制的是 Agent 工作过程中的**中间产物**，不影响交付给用户的**最终回复内容**。结合上文 [ContentBlock](#contentblock) 的分类：
+- **中间产物块**：Thinking（思考过程）、ToolUse（工具调用请求）、ToolResult（工具执行结果）——记录 Agent 内部工作过程与进度，是 Verbosity 各等级按档位显隐的对象
+- **最终回复内容块**：Text，以及作为交付物出现的 Image / Audio / File——是对用户的实际交付，不属于中间产物，不随展示等级被过滤，在任意等级下均展示
+
+只有中间产物块参与等级过滤，最终回复内容块恒定时展示。三个等级：
 
 | 等级 | 值 | 过滤行为 |
 |------|---|---------|
-| full | `"full"` | 展示全部：思考过程、工具调用、工具结果、最终回复 |
-| normal | `"normal"` | 展示工具调用和结果作为进度提示，隐藏思考过程 |
-| off | `"off"` | 仅展示最终回复，隐藏所有中间过程 |
+| full | `"full"` | 展示全部：思考过程、工具调用与结果等中间产物与最终回复内容均展示，不过滤 |
+| normal | `"normal"` | 保留工具调用与结果作为进度提示，隐藏思考过程（Thinking） |
+| off | `"off"` | 移除全部中间产物（Thinking / ToolUse / ToolResult），仅展示最终回复内容（Text 与作为交付物的 Image / Audio / File） |
 
-**作用范围**：Verbosity 控制展示内容，不影响 LLM 推理深度和 Agent 行为模式。仅有 `/verbose` 指令通过 VerboseHandler 写入 Session 的 Verbosity 字段，无其他写入者。切换等级不影响当前正在输出的消息——仅对后续新消息生效。非文本媒体块（Image/Audio/File）属于最终回复的一部分，不受 VerbosityLevel 过滤——在所有等级下均展示。
+**作用范围**：Verbosity 控制展示内容，不影响 LLM 推理深度和 Agent 行为模式。仅有 `/verbose` 指令通过 VerboseHandler 写入 Session 的 Verbosity 字段，无其他写入者。切换等级不影响当前正在输出的消息——仅对后续新消息生效。
 
 ### PlanState
 

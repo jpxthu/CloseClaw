@@ -15,8 +15,8 @@ Gateway 从 Session 读取 ContentBlock[]，构造 [ProcessedMessage](../common/
   ↓
 Processor 链（出站，按 priority 升序执行）
   1. VerbosityFilter（priority 5）
-     → 按 Session 当前 Verbosity 等级逐块过滤 ContentBlock[]
-     → Full：不过滤；Normal：移除 Thinking 块；Off：仅保留 Text 块
+     → 按 Session 当前 Verbosity 等级逐项过滤 ContentBlock（仅中间产物块按等级显隐，最终回复内容块恒展示，等级语义见 [common VerbosityLevel](../common/shared-types.md#verbositylevel)）
+     → Full：不过滤；Normal：移除 Thinking 块；Off：移除全部中间产物块、保留最终回复内容块
   2. DslParser（priority 10）
      → 遍历 ContentBlock[] 中的 Text 块
      → 匹配并解析 DSL 指令行（::button[...] 等）
@@ -68,7 +68,7 @@ LLM 输出 UnifiedResponse（含 ContentBlock[]）
 Verbosity 过滤等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)。
 
 关键判断点：
-- VerbosityFilter 以单个 ContentBlock 为粒度过滤，Full 不过滤、Normal 移除 Thinking、Off 仅保留 Text 块
+- VerbosityFilter 以单个 ContentBlock 为粒度过滤：仅中间产物块（Thinking / ToolUse / ToolResult）按等级显隐，最终回复内容块（Text 与作为交付物的 Image/Audio/File）恒定时展示。Full 不过滤；Normal 移除 Thinking；Off 移除全部中间产物块，仅保留最终回复内容块。等级语义与分类见 [common VerbosityLevel](../common/shared-types.md#verbositylevel)
 - DslParser 仅处理 ContentBlock::Text 类型，其他块透传
 - 无 DSL 指令时 DslParser 输出与输入一致（零开销透传）
 - OutboundRawLog 仅在 raw_log_dir 配置时注册，未配置时链中只有 VerbosityFilter + DslParser
