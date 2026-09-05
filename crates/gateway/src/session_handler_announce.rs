@@ -7,9 +7,12 @@ use super::OutputTx;
 use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
 use crate::Gateway;
+use closeclaw_common::MetricsEmitter;
+use closeclaw_common::RequestContext;
 use closeclaw_llm::resolve_anthropic_effective as resolve_anthropic_effective_shared;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_llm::LLMError;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::RecoverableAction;
@@ -132,10 +135,10 @@ impl SessionMessageHandler {
     pub(super) async fn finish_llm(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        result: Result<StreamResult, closeclaw_llm::LLMError>,
+        result: Result<StreamResult, LLMError>,
         turn_start: Instant,
         output_tx: &OutputTx,
-        metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        metrics_emitter: &Option<Arc<dyn MetricsEmitter>>,
         gateway: Option<&Arc<crate::Gateway>>,
     ) {
         let turn_metrics = TurnMetrics {
@@ -200,10 +203,10 @@ impl SessionMessageHandler {
     async fn clear_busy_and_send(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        result: Result<StreamResult, closeclaw_llm::LLMError>,
+        result: Result<StreamResult, LLMError>,
         turn_metrics: TurnMetrics,
         output_tx: &OutputTx,
-        metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        metrics_emitter: &Option<Arc<dyn MetricsEmitter>>,
         gateway: Option<&Arc<crate::Gateway>>,
     ) -> bool {
         if let Some(cs) = session_manager.get_conversation_session(session_id).await {
@@ -248,16 +251,6 @@ impl SessionMessageHandler {
                         );
                     }
                     cs_write.accumulate_usage(&stream_result.usage);
-
-                    // Resolve effective reasoning level (post-provider-downgrade).
-                    if let Some(knowledge) = gateway.and_then(|g| g.model_knowledge()) {
-                        let effective = resolve_effective_reasoning_level(
-                            cs_write.model(),
-                            cs_write.reasoning_level(),
-                            knowledge,
-                        );
-                        cs_write.set_effective_reasoning_level(effective);
-                    }
 
                     // Run health check at turn boundary.
                     let mut recovery_action = None;
@@ -332,7 +325,7 @@ impl SessionMessageHandler {
         session_manager: &Arc<SessionManager>,
         session_id: &str,
         output_tx: &OutputTx,
-        metrics_emitter: &Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        metrics_emitter: &Option<Arc<dyn MetricsEmitter>>,
         gateway: Option<&Arc<Gateway>>,
     ) {
         Self::drain_announces_rest(session_manager, session_id, gateway).await;
@@ -349,15 +342,16 @@ impl SessionMessageHandler {
                 cs.set_llm_state(LlmState::Requesting);
             }
 
-            // Non-streaming path: delegate to ConversationSession.
-            // Set default request context (no inbound metadata for queued messages).
+            // Non-streaming path with pre-call reasoning resolution.
             if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                 cs.read()
                     .await
-                    .set_request_context(closeclaw_common::RequestContext::default());
+                    .set_request_context(RequestContext::default());
             }
+            super::session_handler_reasoning::resolve_before_llm_call(session_manager, session_id)
+                .await;
             let turn_start = Instant::now();
-            let result: Result<StreamResult, closeclaw_llm::LLMError> = {
+            let result: Result<StreamResult, LLMError> = {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                     cs.write()
                         .await
@@ -365,9 +359,7 @@ impl SessionMessageHandler {
                         .await
                         .map(Into::into)
                 } else {
-                    Err(closeclaw_llm::LLMError::InvalidRequest(
-                        "session not found".to_string(),
-                    ))
+                    Err(LLMError::InvalidRequest("session not found".to_string()))
                 }
             };
             let turn_metrics = TurnMetrics {
@@ -393,18 +385,13 @@ impl SessionMessageHandler {
         }
     }
 
-    /// Handle a recovery action from the health check pipeline.
-    ///
-    /// Returns `true` if the caller should skip `drain_pending_loop`.
-    ///
-    /// Uses `Box::pin` to break the recursive async call cycle:
-    /// `handle_recovery_action` → `clear_busy_and_send` → `handle_recovery_action`.
+    /// Handle recovery action; uses `Box::pin` to break recursive async cycle.
     fn handle_recovery_action(
         session_manager: Arc<SessionManager>,
         session_id: String,
         action: RecoverableAction,
         output_tx: OutputTx,
-        metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        metrics_emitter: Option<Arc<dyn MetricsEmitter>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>> {
         Box::pin(Self::handle_recovery_action_impl(
             session_manager,
@@ -415,13 +402,12 @@ impl SessionMessageHandler {
         ))
     }
 
-    /// Inner implementation of recovery action handling.
     async fn handle_recovery_action_impl(
         session_manager: Arc<SessionManager>,
         session_id: String,
         action: RecoverableAction,
         output_tx: OutputTx,
-        metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        metrics_emitter: Option<Arc<dyn MetricsEmitter>>,
     ) -> bool {
         match action {
             RecoverableAction::NotifyUser { message } => {
@@ -445,12 +431,7 @@ impl SessionMessageHandler {
         }
     }
 
-    /// Handle NotifyUser: inject transcript + send message to user, don't
-    /// skip drain.
-    ///
-    /// Writes the notification as an assistant message to the transcript
-    /// (design-doc §失败类别与处理) and simultaneously sends it to the
-    /// user via `output_tx`.
+    /// Handle NotifyUser: inject transcript + send message to user.
     async fn handle_notify_user(
         session_manager: Arc<SessionManager>,
         session_id: &str,
@@ -500,7 +481,7 @@ impl SessionMessageHandler {
         delay_ms: u64,
         instruction: Option<String>,
         output_tx: OutputTx,
-        metrics_emitter: Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        metrics_emitter: Option<Arc<dyn MetricsEmitter>>,
     ) -> bool {
         tracing::warn!(
             session_id = %session_id,
@@ -518,17 +499,19 @@ impl SessionMessageHandler {
                 drop(cs_write);
             }
         }
-        // 3. Re-invoke LLM. Empty content — conversation history has
-        //    the original user request.
-        // Set default request context (no inbound metadata for retry).
-        let result: Result<StreamResult, closeclaw_llm::LLMError> = {
+        // 3. Re-invoke LLM with pre-call reasoning resolution.
+        if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
+            cs.read()
+                .await
+                .set_request_context(RequestContext::default());
+        }
+        super::session_handler_reasoning::resolve_before_llm_call(&session_manager, &session_id)
+            .await;
+        let result: Result<StreamResult, LLMError> = {
             if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
-                cs.read()
-                    .await
-                    .set_request_context(closeclaw_common::RequestContext::default());
                 cs.write().await.invoke_llm("").await.map(Into::into)
             } else {
-                Err(closeclaw_llm::LLMError::InvalidRequest(
+                Err(LLMError::InvalidRequest(
                     "session not found for retry".to_string(),
                 ))
             }
@@ -556,7 +539,7 @@ impl SessionMessageHandler {
         session_id: &'a str,
         action: RecoverableAction,
         output_tx: &'a OutputTx,
-        metrics_emitter: &'a Option<Arc<dyn closeclaw_common::MetricsEmitter>>,
+        metrics_emitter: &'a Option<Arc<dyn MetricsEmitter>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
         let sm = Arc::clone(session_manager);
         let sid = session_id.to_string();
@@ -565,19 +548,13 @@ impl SessionMessageHandler {
         Box::pin(async move { Self::handle_recovery_action(sm, sid, action, tx, me).await })
     }
 
-    /// Write complete Thinking blocks from a streaming error to
-    /// conversation history.
-    ///
-    /// When a [`LLMError::PartialContent`] carries complete Thinking
-    /// blocks, they are appended as an assistant message so subsequent
-    /// LLM calls can reference the reasoning chain. Incomplete Text
-    /// fragments are intentionally excluded.
+    /// Write complete Thinking blocks from streaming error to history.
     async fn write_partial_thinking(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        err: &closeclaw_llm::LLMError,
+        err: &LLMError,
     ) {
-        let closeclaw_llm::LLMError::PartialContent {
+        let LLMError::PartialContent {
             ref thinking_blocks,
             ..
         } = err
@@ -617,10 +594,7 @@ impl SessionMessageHandler {
             .await;
     }
 
-    /// Drain pending workflow blocked notification and send to owner (Step 1.6).
-    ///
-    /// After each LLM turn, checks if the workflow handler has queued a
-    /// blocked notification and sends it to the owner via the Gateway's
+    /// Drain pending workflow blocked notification and send to owner.
     /// outbound channel (IM plugin).
     pub(super) async fn drain_workflow_notification(
         session_manager: &Arc<SessionManager>,
@@ -671,13 +645,7 @@ impl SessionMessageHandler {
         }
     }
 
-    /// Step 1.4: drain Now-priority announces before user message processing.
-    ///
-    /// Injects session announces with `NotificationPriority::Now` into the
-    /// conversation so the agent sees urgent notifications before the next
-    /// LLM call. Task notifications are not drained here — they are always
-    /// drained at turn start via [`drain_announces_rest`] since
-    /// `TaskManager::drain_notifications` consumes all at once.
+    /// Drain Now-priority announces before user message processing.
     pub(super) async fn drain_announces_now(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
@@ -692,12 +660,7 @@ impl SessionMessageHandler {
             .await;
     }
 
-    /// Step 1.4: drain Next + Later priority announces at turn start.
-    ///
-    /// Injects session announces with `NotificationPriority::Next` or
-    /// `NotificationPriority::Later` and all background task completion
-    /// notifications. Called at the start of `drain_pending_loop` after
-    /// Now-priority events have already been injected.
+    /// Drain Next + Later priority announces at turn start.
     pub(super) async fn drain_announces_rest(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
@@ -734,10 +697,7 @@ impl SessionMessageHandler {
             .await;
     }
 
-    /// Inject running task summary into the conversation session as a
-    /// system message. Task completion notifications are now routed
-    /// through the unified queue (Step 1.5); only the running-task
-    /// digest is injected directly here.
+    /// Inject running task summary as a system message.
     async fn inject_running_tasks_summary(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
