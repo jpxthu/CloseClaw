@@ -365,13 +365,12 @@ VerbosityLevel 是出站信息展示等级的枚举，控制 VerbosityFilter 对
 
 PlanState 是 Plan Mode 下的规划状态结构，由 mode 模块管理，Session 持久化。Compaction 对此状态做隔离保护（不压缩 plan 相关消息），Session 恢复时重建 PlanState。
 
-PlanState 描述当前规划的阶段和未完成步骤列表：
+PlanState 描述当前规划所处阶段：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `phase` | enum | 当前阶段：Research / Design / Review / FinalPlan / Interview |
-| `pending_steps` | list(string) | 未完成的规划步骤标识列表，用于 compaction 保护和恢复后继续 |
-| `plan_file_path` | string | plan 文件的路径，Agent 写入和读取的唯一可写目标 |
+| `phase` | enum | 当前阶段：Research / Design / Review / FinalPlan（标准路径四阶段，阶段流转语义见 [mode/plan-mode.md](../mode/plan-mode.md)） |
+| `plan_file_path` | string | plan 文件路径，规划阶段 Agent 写入与读取的唯一目标 |
 
 **边界**：PlanState 仅承载会话恢复和 compaction 隔离保护所需的最小状态。执行步骤的完成状态（未开始/进行中/已完成/失败/已跳过）由 Agent 写在 plan 文件中管理，系统不介入进度判断——PlanState 不包含执行步骤状态机（执行步骤状态定义见 [mode 执行引擎](../mode/execution.md)）。
 
