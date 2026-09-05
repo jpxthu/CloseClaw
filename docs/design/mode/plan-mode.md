@@ -24,15 +24,15 @@ Plan Mode 将任务规划与代码执行强制分离——规划阶段 Agent 只
 | Review | 展示方案 + 澄清模糊点 | User 审阅方案、提出修改意见。不是一次性审批——User 可反复审阅，Agent 持续调整 plan |
 | Final Plan | 写入 plan 文件 | Agent 将最终方案写入 plan 文件，唯一可写操作 |
 
-**Interview 路径**：无固定阶段。Agent 循环"spawn Explore Agent 探索 → 父 Agent 根据探索结果增量更新 plan 文件 → 向 User 提问澄清"直到需求收敛，然后对接标准路径的 Review 和 Final Plan 阶段。每轮探索后由父 Agent（非子 Agent）增量写入 plan 文件。
+**Interview 路径**：无固定阶段。Agent 循环"用只读工具探索代码 → 增量更新 plan 文件 → 向 User 提问澄清"直到需求收敛，然后对接标准路径的 Review 和 Final Plan 阶段。探索由父 Agent 直接执行（只读、而非 spawn 子 Agent）。
 
 **需求清晰度判断**：Agent 在进入 Plan Mode 时读取任务描述自行判断——含明确文件/模块/接口引用且有可量化验收条件 → 标准路径；否则 → Interview 路径。
 
-**阶段切换**：由 Agent 自行判断，阶段之间无系统强制卡点。Research 和 Design 阶段 Agent 可 spawn 子 Agent 并行工作；阶段推进时由 mode 模块据此更新 PlanState.phase（见 [common/shared-types.md](../common/shared-types.md)）。
+**阶段切换**：由 Agent 自行判断，阶段之间无系统强制卡点。Research 和 Design 阶段 Agent 可 spawn 子 Agent 并行工作；标准路径下阶段推进时由 mode 模块据此更新 PlanState.phase。Interview 路径的澄清循环无固定阶段，phase 不在其中推进；待模糊点消除、收敛进入标准后段（Review 与 Final Plan）时，phase 随标准阶段正常流转（见 [common/shared-types.md](../common/shared-types.md)）。
 
 ### Agent 类型
 
-Plan Mode 各阶段通过 spawn 子 Agent + 特定 system prompt 实现不同角色。每种 Agent 类型由 Agent 模块提供 spawn 注入框架，具体 prompt 模板由 mode 模块定义（详见 [references/prompts.md](references/prompts.md) §7），工具白名单由模式系统自身执行：
+标准路径各阶段通过 spawn 子 Agent + 特定 system prompt 实现不同角色（Interview 路径由父 Agent 直接承担以只读工具探索，不 spawn）。每种 Agent 类型由 Agent 模块提供 spawn 注入框架，具体 prompt 模板由 mode 模块定义（详见 [references/prompts.md](references/prompts.md) §7），工具白名单由模式系统自身执行：
 
 | 类型 | 阶段 | 能力 | 职责 |
 |------|------|------|------|
@@ -123,10 +123,10 @@ plan 文件（`workspace/plans/`）是**执行进度**（plan 的 Context/Tasks/
 ### Interview 路径
 
 进入循环：
-1. spawn Explore Agent 探索 → 父 Agent 根据结果增量更新 plan 文件 → 向 User 提问
+1. 父 Agent 用只读工具探索代码 → 增量更新 plan 文件 → 向 User 提问
 2. User 回复 → 评估模糊点
 3. 仍有模糊点 → 回到步骤 1
-4. 模糊点消除 → 对接标准路径的 Review + Final Plan 阶段
+4. 模糊点消除 → 对接标准路径的 Review 和 Final Plan 阶段
 
 ### 触发执行
 
@@ -157,7 +157,7 @@ plan 文件（`workspace/plans/`）是**执行进度**（plan 的 Context/Tasks/
 
 | 模块 | 调用关系 |
 |------|---------|
-| Agent | 各阶段 spawn Explore/Plan 子 Agent |
+| Agent | 标准路径 Research/Design 阶段 spawn Explore/Plan 子 Agent；Interview 路径由父 Agent 直接只读探索 |
 | Session | 会话模式（normal/plan/auto）持久化、压缩保护 |
 | System Prompt | 双路径指令注入 |
 | Permission | Auto Mode 下运行时审查危险操作 |

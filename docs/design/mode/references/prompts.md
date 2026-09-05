@@ -49,7 +49,7 @@ Follow the chosen path's instructions below.
 
 标准路径，适用于任务描述中含明确文件/接口引用和可量化验收条件的场景。
 
-### Phase 1: 初步理解（探索代码库）
+### Phase 1: Research（初步理解，探索代码库）
 
 ```
 ### Phase 1: Initial Understanding
@@ -81,7 +81,7 @@ reading through code and asking them questions.
 - 默认 1 个即可，多个仅用于范围不确定的场景
 - 强调复用已有代码模式，避免重复造轮子
 
-### Phase 2: 设计（生成方案）
+### Phase 2: Design（设计，生成方案）
 
 ```
 ### Phase 2: Design
