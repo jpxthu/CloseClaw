@@ -828,3 +828,58 @@ fn test_service_shutdown_receivers_destructure_like_spawn() {
     let _ = announce_sweeper_rx.borrow();
     let _ = dreaming_rx.borrow();
 }
+
+// ── Step 1.3: daemon knowledge wiring ─────────────────────────────────────
+
+/// SessionMessageHandler with model_knowledge returns Some from getter.
+/// Locks the Step 1.3 daemon wiring invariant.
+#[test]
+fn session_handler_model_knowledge_returns_some() {
+    use closeclaw_common::CompactConfig;
+    use closeclaw_gateway::session_handler::ActiveSearcherLlmCaller;
+    use closeclaw_gateway::{SessionManager, SessionMessageHandler};
+    use closeclaw_llm::knowledge::ProviderModelKnowledge;
+    use closeclaw_llm::plugin::PluginPipeline;
+    use closeclaw_llm::protocol::OpenAiProtocol;
+    use closeclaw_llm::retry::CooldownManager;
+    use closeclaw_llm::stub::StubProvider;
+    use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+    use closeclaw_llm::{InterpreterRegistry, UnifiedChatClient};
+
+    let sm = Arc::new(SessionManager::new(
+        &GatewayConfig::default(),
+        None,
+        None,
+        closeclaw_common::ReasoningLevel::default(),
+    ));
+    let provider: Arc<dyn closeclaw_llm::provider::Provider> = Arc::new(StubProvider::new());
+    let client = Arc::new(UnifiedChatClient::new(
+        provider,
+        Arc::new(OpenAiProtocol::new()),
+        InterpreterRegistry::default(),
+        PluginPipeline::new(),
+        Arc::new(closeclaw_llm::cache_adapter::NoopCacheAdapter),
+    ));
+    let entry = ChainEntry {
+        provider_id: "stub".into(),
+        model_id: "stub".into(),
+        client,
+    };
+    let fallback_client = Arc::new(UnifiedFallbackClient::new(
+        vec![entry],
+        Arc::new(CooldownManager::new()),
+    ));
+    let caller = Arc::new(ActiveSearcherLlmCaller {
+        caller: fallback_client.clone() as Arc<dyn closeclaw_common::LlmCaller>,
+        model: String::new(),
+    });
+    let handler = SessionMessageHandler::new(
+        sm,
+        fallback_client,
+        tokio::sync::mpsc::channel(1).0,
+        caller,
+        CompactConfig::default(),
+    )
+    .with_model_knowledge(ProviderModelKnowledge::new());
+    assert!(handler.model_knowledge().is_some());
+}
