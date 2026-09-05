@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// - `Full`: no filtering
 /// - `Normal`: remove `Thinking` content blocks (default)
-/// - `Off`: keep Text content blocks only; filter out Thinking, ToolUse, ToolResult, Image, Audio, File
+/// - `Off`: remove intermediate blocks (Thinking, ToolUse, ToolResult);
+///   keep deliverable blocks (Text, Image, Audio, File)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VerbosityLevel {
@@ -18,7 +19,8 @@ pub enum VerbosityLevel {
     /// Remove Thinking content blocks. (default)
     #[default]
     Normal,
-    /// Keep Text content blocks only; filter out Thinking, ToolUse, ToolResult, Image, Audio, File.
+    /// Remove intermediate blocks (Thinking, ToolUse, ToolResult); keep deliverable blocks
+    /// (Text, Image, Audio, File).
     Off,
 }
 
