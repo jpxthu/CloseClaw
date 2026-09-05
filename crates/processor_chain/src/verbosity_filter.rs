@@ -56,7 +56,16 @@ impl VerbosityFilter {
     /// enables streaming-phase single-block checks without allocating a
     /// temporary `Vec`.
     pub fn should_keep_block(block: &ContentBlock, level: VerbosityLevel) -> bool {
-        !Self::filter(vec![block.clone()], level).is_empty()
+        match level {
+            VerbosityLevel::Full => true,
+            VerbosityLevel::Normal => !matches!(block, ContentBlock::Thinking { .. }),
+            VerbosityLevel::Off => !matches!(
+                block,
+                ContentBlock::Thinking { .. }
+                    | ContentBlock::ToolUse { .. }
+                    | ContentBlock::ToolResult { .. }
+            ),
+        }
     }
 
     /// Check whether a Thinking block should be kept at the given verbosity level.

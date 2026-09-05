@@ -143,7 +143,7 @@ async fn test_finish_phase_full_preserves_all_blocks() {
 /// Off level keeps deliverables (Text + Image + Audio + File);
 /// filters Thinking (intermediate).
 #[tokio::test]
-async fn test_finish_phase_off_filters_media_blocks_keeps_text() {
+async fn test_finish_phase_off_keeps_deliverables_filters_thinking() {
     let registry = build_full_chain();
     let blocks = vec![
         thinking_block("hidden"),
@@ -202,7 +202,7 @@ async fn test_finish_phase_off_text_only_keeps_all() {
 /// Off filters Thinking (intermediate), keeps Image/Audio/File (deliverables).
 /// No Text blocks → media blocks pass through directly.
 #[tokio::test]
-async fn test_finish_phase_off_media_only_filters_all() {
+async fn test_finish_phase_off_media_only_keeps_deliverables() {
     let registry = build_full_chain();
     let blocks = vec![
         thinking_block("internal"),

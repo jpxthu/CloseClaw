@@ -75,7 +75,7 @@ fn test_filter_normal_keeps_tool_use_and_result() {
 
 /// Off mode with mixed blocks keeps deliverables, removes intermediates.
 #[test]
-fn test_filter_off_keeps_text_only() {
+fn test_filter_off_keeps_deliverable_blocks() {
     let blocks = vec![
         text_block("hello"),
         thinking_block("thinking"),
