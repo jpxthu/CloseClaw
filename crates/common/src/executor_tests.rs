@@ -405,7 +405,6 @@ async fn test_set_mode_with_plan_file_path_writes_new_plan_state() {
     let ps = stored.expect("plan_state should be set");
     assert_eq!(ps.plan_file_path, "/tmp/plans/my-plan.md");
     assert_eq!(ps.phase, crate::PlanPhase::Research);
-    assert!(ps.pending_steps.is_empty());
 }
 
 // ── Test: SetMode with plan_file_path updates existing plan_state ─────
@@ -415,7 +414,6 @@ async fn test_set_mode_with_plan_file_path_updates_existing_plan_state() {
     let mock = Arc::new(MockSlashEffectExecutor::new());
     let existing = crate::PlanState {
         phase: crate::PlanPhase::Design,
-        pending_steps: vec!["step-1".into()],
         plan_file_path: String::new(),
     };
     let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(existing);
@@ -437,9 +435,8 @@ async fn test_set_mode_with_plan_file_path_updates_existing_plan_state() {
         .clone()
         .expect("plan_state should be set");
     assert_eq!(ps.plan_file_path, "/tmp/plans/updated.md");
-    // Existing phase and pending_steps must be preserved.
+    // Existing phase must be preserved.
     assert_eq!(ps.phase, crate::PlanPhase::Design);
-    assert_eq!(ps.pending_steps, vec!["step-1"]);
 }
 
 // ── Test: SetMode with None plan_file_path does not touch plan_state ──
@@ -768,7 +765,6 @@ async fn test_plan_mode_to_normal_clears_plan_state() {
     let mock = Arc::new(MockSlashEffectExecutor::new());
     let plan = crate::PlanState {
         phase: crate::PlanPhase::Design,
-        pending_steps: vec!["step-1".into()],
         plan_file_path: "/tmp/plan.md".into(),
     };
     let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
@@ -802,7 +798,6 @@ async fn test_plan_mode_to_auto_clears_plan_state() {
     let mock = Arc::new(MockSlashEffectExecutor::new());
     let plan = crate::PlanState {
         phase: crate::PlanPhase::Review,
-        pending_steps: vec![],
         plan_file_path: "/tmp/plan.md".into(),
     };
     let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
@@ -939,7 +934,6 @@ async fn test_plan_file_path_cleared_in_non_plan_mode() {
     let mock = Arc::new(MockSlashEffectExecutor::new());
     let plan = crate::PlanState {
         phase: crate::PlanPhase::Research,
-        pending_steps: vec![],
         plan_file_path: "/tmp/plan.md".into(),
     };
     let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);

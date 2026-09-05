@@ -1,7 +1,7 @@
 //! Plan Mode state types — shared across session and mode modules.
 //!
 //! `PlanState` is the minimal state structure for plan mode,
-//! containing only `phase`, `pending_steps`, and `plan_file_path`.
+//! containing only `phase` and `plan_file_path`.
 
 use serde::{Deserialize, Serialize};
 
@@ -23,11 +23,12 @@ pub enum PlanPhase {
     FinalPlan,
 }
 
-/// Plan Mode 状态 — 管理规划阶段、待办步骤和 plan 文件路径
+/// Plan Mode 状态 — 管理规划阶段和 plan 文件路径
 ///
 /// 由 mode 模块创建，Session 持久化，Compaction 隔离保护，
 /// Session 恢复时从 checkpoint 重建。
 ///
+/// PlanState 仅承载会话恢复和 compaction 隔离保护所需的最小状态。
 /// 执行步骤的完成状态由 Agent 写在 plan 文件中管理，系统不介入
 /// 进度判断。执行步骤状态机相关的类型和方法在
 /// `closeclaw_execution` crate 中。
@@ -36,16 +37,13 @@ pub struct PlanState {
     /// 当前规划阶段
     #[serde(default)]
     pub phase: PlanPhase,
-    /// 未完成的规划步骤标识列表
-    #[serde(default)]
-    pub pending_steps: Vec<String>,
     /// plan 文件路径 — Agent 写入和读取的唯一可写目标
     #[serde(default)]
     pub plan_file_path: String,
 }
 
 impl PlanState {
-    /// 创建新的 PlanState，使用默认值（Research 阶段、空步骤、空路径）
+    /// 创建新的 PlanState，使用默认值（Research 阶段、空路径）
     pub fn new() -> Self {
         Self::default()
     }
