@@ -483,9 +483,9 @@
     "path": "docs/design/processor_chain/outbound-chain.md",
     "commit": "9f0dbf1f3eed407919c5b62151812cb2e1932b3c",
     "commit_time": "2026-08-27T09:22:36+08:00",
-    "confirmed_time": "2026-08-27T09:41:06.020918+08:00",
+    "confirmed_time": "2026-09-06T01:49:27.694523+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "VerbosityLevel Off 等级过滤范围跨文档矛盾：outbound-chain.md 规定 Off 仅保留 Text 块（媒体块被过滤），shared-types.md VerbosityLevel 作用范围规定非文本媒体块（Image/Audio/File）在所有等级下均展示。两份设计文档对同一行为给出相反定义，无法确定 Off 模式下媒体块的产品形态，需 Owner 裁决"
   },
   {
     "path": "docs/design/session/README.md",
