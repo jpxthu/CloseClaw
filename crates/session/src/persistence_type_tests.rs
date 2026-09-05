@@ -789,7 +789,6 @@ mod tests {
         let mut cp = SessionCheckpoint::new("s-pfp".into());
         cp.plan_state = Some(PlanState {
             phase: closeclaw_common::PlanPhase::Research,
-            pending_steps: vec![],
             plan_file_path: "/workspace/plan.md".into(),
         });
 
@@ -828,7 +827,6 @@ mod tests {
         let mut cp = SessionCheckpoint::new("s-epfp".into());
         cp.plan_state = Some(PlanState {
             phase: closeclaw_common::PlanPhase::Research,
-            pending_steps: vec![],
             plan_file_path: String::new(),
         });
 

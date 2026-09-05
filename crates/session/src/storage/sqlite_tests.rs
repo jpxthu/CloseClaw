@@ -576,7 +576,6 @@ mod tests {
 
         let plan = PlanState {
             phase: PlanPhase::FinalPlan,
-            pending_steps: vec!["step-a".into(), "step-b".into()],
             plan_file_path: "/workspace/plan.md".into(),
             ..Default::default()
         };
@@ -588,7 +587,6 @@ mod tests {
         assert!(loaded.is_some(), "checkpoint should exist");
         let ps = loaded.unwrap().plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::FinalPlan);
-        assert_eq!(ps.pending_steps, vec!["step-a", "step-b"]);
         assert_eq!(ps.plan_file_path, "/workspace/plan.md");
     }
 
@@ -616,7 +614,6 @@ mod tests {
         // Save with Research phase
         let plan1 = PlanState {
             phase: PlanPhase::Research,
-            pending_steps: vec![],
             plan_file_path: String::new(),
             ..Default::default()
         };
@@ -627,7 +624,6 @@ mod tests {
         // Update to Design phase
         let plan2 = PlanState {
             phase: PlanPhase::Design,
-            pending_steps: vec!["analyze".into()],
             plan_file_path: "/tmp/p.md".into(),
             ..Default::default()
         };
@@ -641,7 +637,6 @@ mod tests {
             .unwrap();
         let ps = loaded.plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::Design);
-        assert_eq!(ps.pending_steps, vec!["analyze"]);
         assert_eq!(ps.plan_file_path, "/tmp/p.md");
     }
 

@@ -936,7 +936,6 @@ mod tests {
         let mut cp = create_test_checkpoint("ts-session");
         cp.plan_state = Some(PlanState {
             phase: PlanPhase::FinalPlan,
-            pending_steps: vec!["step1".to_string()],
             plan_file_path: plan_path.to_string_lossy().into_owned(),
         });
 
