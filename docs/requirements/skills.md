@@ -50,9 +50,9 @@ System Prompt 每次组装时，系统从技能注册中心读取当前可用技
 清单中仅包含已声明 user-invocable 的技能（声明了 paths 的技能遵循 F6 条件激活规则，默认不在清单中）。
 
 > **交叉引用**：System Prompt 组装触发时机见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
-> **交叉引用**：System Prompt 各组成部分按固定顺序排列、配置不变时多次组装结果完全相同，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
-> **交叉引用**：System Prompt 组装结果在事件之间不变，确保模型服务端缓存持续命中，详见 [system_prompt §F7](system_prompt.md)（API 前缀缓存利用）。
-> **交叉引用**：对话压缩不触碰 System Prompt，详见 [session §F3](session.md)（长对话压缩）。
+> **交叉引用**：System Prompt 各组成部分按固定顺序排列、配置不变时多次组装结果完全相同。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：System Prompt 组装结果在事件之间不变，确保模型服务端缓存持续命中。详见 [system_prompt §F7](system_prompt.md)（API 前缀缓存利用）。
+> **交叉引用**：对话压缩不触碰 System Prompt。详见 [session §F3](session.md)（长对话压缩）。
 
 清单按技能层级优先级排序（高优先级在前），同层级内按名称字母序排列。技能清单为空时不注入对应段落。
 
@@ -69,7 +69,7 @@ User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更�
 
 条件激活的注入条目与技能清单保持相同格式。仅注入清单条目（不含正文），正文在调用时按需加载（详见 F7）。激活标记的生命周期限于当前 session，session 结束时清空。
 
-> **交叉引用**：上下文压缩完成后 System Prompt 重新组装时，技能清单包含当前 session 已激活的条件技能，详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：上下文压缩完成后 System Prompt 重新组装时，技能清单包含当前 session 已激活的条件技能。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 ### F7. 技能调用
 

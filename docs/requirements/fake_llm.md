@@ -46,7 +46,7 @@ Fake LLM Server 可在每次响应中返回完整的 token 用量信息——输
 
 用量字段可缺失（模拟不返回缓存字段的响应）。
 
-> **交叉引用**：字段缺失时 CloseClaw 的显示行为，详见 [llm §F9](llm.md)（用量统计）。
+> **交叉引用**：字段缺失时 CloseClaw 的显示行为。详见 [llm §F9](llm.md)（用量统计）。
 
 ### F7. KV cache 前缀缓存模拟
 

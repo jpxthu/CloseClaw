@@ -18,7 +18,7 @@ Owner 在 workspace 目录下通过一系列配置文件（统称 bootstrap 文�
 - 边界说明：心跳工作流配置也位于 workspace 目录下，但**不属于 System Prompt 注入范围**——心跳由独立的周期性机制定时触发，触发时按需读取配置，不进入日常会话的 System Prompt
 
 > **交叉引用**：bootstrap 文件的加载模式（Full/Minimal）和所在目录路径，由 [agent §F1](agent.md)（Agent 配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。
-> **交叉引用**：会话创建/恢复/上下文压缩完成时的重建触发，见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
+> **交叉引用**：会话创建/恢复/上下文压缩完成时的重建触发。见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
 > **交叉引用**：压缩行为本身见 [session §F3](session.md)（长对话压缩）。
 
 ### F2. 工具清单注入
@@ -34,7 +34,7 @@ Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在�
 
 Agent 应能获取跨会话保留的长期记忆内容。长期记忆在主 Agent 会话启动时加载，作为 System Prompt 的组成部分；子 Session 不加载（见 F8 与安全性小节）。
 
-> **交叉引用**：记忆的存储路径和写入机制，见 [memory §F1](memory.md)（会话结束后自动挖掘记忆）。
+> **交叉引用**：记忆的存储路径和写入机制。见 [memory §F1](memory.md)（会话结束后自动挖掘记忆）。
 > **交叉引用**：记忆内容的搜索策略详见 [memory §F4](memory.md)（对话中自动注入相关记忆）。
 
 ### F4. 运行时上下文注入
@@ -56,8 +56,8 @@ Owner 可以在对话中通过指令管理 System Prompt 末尾的追加指令�
 
 System Prompt 末尾的追加区除 Owner 追加指令外，还承载系统注入的上下文（如 workflow 上下文）。系统注入内容的写入与移除由对应功能模块触发，注入与移除不触发 System Prompt 重新组装，也不清除 Owner 追加指令。
 
-> **交叉引用**：系统注入内容的一个实例——workflow 上下文的注入与移除，见 [workflow §F2](workflow.md)（workflow 启动）、[workflow §F8](workflow.md)（流程生命周期）。
-> **交叉引用**：追加指令的追加、查看、清除命令入口，见 [slash §F6](slash.md)（System Prompt 追加）。
+> **交叉引用**：系统注入内容的一个实例——workflow 上下文的注入与移除。见 [workflow §F2](workflow.md)（workflow 启动）、[workflow §F8](workflow.md)（流程生命周期）。
+> **交叉引用**：追加指令的追加、查看、清除命令入口。见 [slash §F6](slash.md)（System Prompt 追加）。
 > **交叉引用**：持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）管理。本节仅定义 System Prompt 内容层的专属行为。
 
 ### F6. 内容缓存与自动刷新
@@ -85,7 +85,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 - System Prompt 中不变部分和变化部分之间有明确的分隔，使缓存层能识别可缓存的前缀范围
 - 每次请求变化的部分（动态上下文、追加指令）不参与前缀缓存
 
-> **交叉引用**：各服务商的具体缓存参数适配和 token 统计，见 [llm §F8](llm.md)（缓存成本优化）、[llm §F9](llm.md)（用量统计）。本模块仅负责不变/变化内容的划分和前缀稳定性保证。
+> **交叉引用**：各服务商的具体缓存参数适配和 token 统计。见 [llm §F8](llm.md)（缓存成本优化）、[llm §F9](llm.md)（用量统计）。本模块仅负责不变/变化内容的划分和前缀稳定性保证。
 
 ### F8. 会话类型适配
 
@@ -97,7 +97,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 > **注**：F4 运行时上下文（频道、工作目录）对所有会话类型均加载。
 
-> **交叉引用**：三种会话类型由 session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的 spawn 参数（如是否精简模式），见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
+> **交叉引用**：三种会话类型由 session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的 spawn 参数（如是否精简模式）。见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 
 ## 非功能需求
 

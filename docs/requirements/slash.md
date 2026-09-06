@@ -14,7 +14,7 @@ Owner 和 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对�
 
 各指令的 Immediate 标记在后续各功能域中分别标注；未标注 Immediate 的指令默认为非 Immediate。
 
-> **交叉引用**：斜杠指令的拦截、分派与 Immediate 排队语义由 Gateway 负责，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：斜杠指令的拦截、分派与 Immediate 排队语义由 Gateway 负责。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：排队条件定义详见 [session §F10](session.md)（消息排队）。
 > **交叉引用**：Session 活跃维度详见 [session §F11](session.md)（Session 活跃维度）。
 > **交叉引用**：不以 `/` 开头的普通消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
@@ -97,7 +97,7 @@ Owner 可以执行任意 Shell 命令，Owner 调用默认放行，不经审批�
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
 
-> **交叉引用**：命令执行的权限评估由 Permission 模块负责，详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：命令执行的权限评估由 Permission 模块负责。详见 [permission §F3](permission.md)（权限决策模型）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
 > **交叉引用**：User 默认权限见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：权限规则修改与授权方式见 [permission §F6](permission.md)（权限配置管理）。
@@ -162,4 +162,4 @@ Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。
 
 - Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟。全部 Immediate 指令：/stop、/status、/mode（无参数查询形态）、/reasoning（各形态）、/verbose（各形态）、/help、审批指令（/approve-once、/approve-whitelist、/deny，Immediate 可达性由 Gateway 层保证）
 
-> **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
