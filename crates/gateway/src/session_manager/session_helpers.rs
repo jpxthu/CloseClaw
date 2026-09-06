@@ -211,6 +211,44 @@ pub(super) async fn try_restore_archived_session_inner(
     }
 }
 
+/// Attempt to restore a migrating session checkpoint.
+///
+/// Tries `restore_checkpoint` first (handles active/migrating sessions).
+/// Falls back to `load_archived_checkpoint` + `restore_checkpoint` for
+/// cases where the transcript was already moved to the archived directory.
+///
+/// Returns `Ok(true)` on success, `Ok(false)` on failure.
+pub(super) async fn try_restore_migrating_checkpoint(
+    storage: &dyn PersistenceService,
+    session_id: &str,
+) -> Result<bool, PersistenceError> {
+    // Primary: restore_checkpoint handles both active/migrating states.
+    match storage.restore_checkpoint(session_id).await {
+        Ok(_) => return Ok(true),
+        Err(e) => {
+            warn!(
+                session_id = %session_id,
+                error = %e,
+                "restore_checkpoint failed, trying load_archived_checkpoint fallback"
+            );
+        }
+    }
+    // Fallback: transcript may already be in archived dir.
+    if let Ok(Some(_)) = storage.load_archived_checkpoint(session_id).await {
+        match storage.restore_checkpoint(session_id).await {
+            Ok(_) => return Ok(true),
+            Err(e2) => {
+                warn!(
+                    session_id = %session_id,
+                    error = %e2,
+                    "restore_checkpoint failed after load_archived_checkpoint"
+                );
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// Clear `plan_state` in the checkpoint for a session.
 ///
 /// Loads the checkpoint, sets `plan_state` to `None`, and saves.

@@ -211,11 +211,11 @@ async fn test_resolve_migrating_registry_hit_archive_completes() {
     );
 }
 
-// ── Timeout path: archive does not complete ─────────────────────────────────
+// ── Timeout path: archive does not complete → restore migrating session ────
 
 /// When a registry-hit session is migrating and the Sweeper does NOT
-/// complete archiving within the 5-second poll window, resolve() should
-/// create a new session (fallback).
+/// complete archiving within the poll window, resolve() should restore
+/// the migrating session via checkpoint restore (not create a new one).
 #[tokio::test]
 async fn test_resolve_migrating_registry_hit_timeout_creates_new() {
     let session_id = "migrating-timeout".to_string();
@@ -260,35 +260,27 @@ async fn test_resolve_migrating_registry_hit_timeout_creates_new() {
     }
 
     // resolve(): Path 1 detects migrating → polls → timeout →
-    // falls through to Path 3 → creates new session.
+    // restores migrating session via checkpoint restore.
     let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
 
-    // Should create a new session (different from the migrating one)
-    assert_ne!(
+    // Should restore the migrating session (resolved == session_id)
+    assert_eq!(
         resolved, session_id,
-        "should create a new session after timeout"
-    );
-    assert!(
-        resolved.starts_with("agent-b_"),
-        "new session format: {}",
-        resolved
+        "should restore migrating session after timeout, not create new"
     );
 
-    // The old session should be removed from in-memory sessions map
+    // The restored session should exist in memory
     assert!(
-        !mgr.has_session(&session_id).await,
-        "old migrating session should be removed"
+        mgr.has_session(&session_id).await,
+        "restored session should exist"
     );
-
-    // The new session should exist
-    assert!(mgr.has_session(&resolved).await, "new session should exist");
 }
 
-// ── Migrating session never directly restored ───────────────────────────────
+// ── Migrating session restored after timeout (not directly) ─────────────────
 
-/// Verify that a migrating session in the registry is never directly
-/// returned without going through the polling wait. The polling ensures
-/// the session transitions to archived before attempting restore.
+/// Verify that a migrating session in the registry goes through the
+/// polling wait before being returned. After timeout, the migrating
+/// session is restored via checkpoint restore (resolved == session_id).
 #[tokio::test]
 async fn test_resolve_migrating_not_directly_restored() {
     let session_id = "migrating-no-direct".to_string();
@@ -331,12 +323,12 @@ async fn test_resolve_migrating_not_directly_restored() {
         );
     }
 
-    // resolve() should NOT return the migrating session_id directly.
-    // It should timeout and create a new session.
+    // resolve() goes through polling wait. After timeout, the migrating
+    // session is restored via checkpoint restore (resolved == session_id).
     let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    assert_ne!(
+    assert_eq!(
         resolved, session_id,
-        "migrating session should not be returned directly"
+        "migrating session should be restored after timeout, not replaced"
     );
 }
 

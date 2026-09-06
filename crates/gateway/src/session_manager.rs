@@ -31,7 +31,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::warn;
-
 mod announce;
 mod channel;
 pub mod communication;
@@ -43,6 +42,7 @@ mod ops_impl;
 mod recovery_injection;
 pub mod register_tools;
 mod resolve;
+mod restore_helpers;
 mod session_helpers;
 mod session_lookup_impl;
 mod setters;

@@ -84,7 +84,7 @@ impl SessionManager {
                                     session_id = %session_id,
                                     routing_key = %routing_key,
                                     status = %cp.status,
-                                    "session in registry is migrating, waiting for archive to complete"
+                                    "migrating session in registry, waiting for archive"
                                 );
                                 // Inject archiving notification (consumed by Gateway
                                 // before this resolve returns).
@@ -108,24 +108,46 @@ impl SessionManager {
                                         session_key = %session_key,
                                         session_id = %session_id,
                                         routing_key = %routing_key,
-                                        "migrating session finished archiving, restoring archived session"
+                                        "migrating session archived, restoring"
                                     );
                                 } else {
                                     warn!(
                                         session_key = %session_key,
                                         session_id = %session_id,
                                         routing_key = %routing_key,
-                                        "migrating session archive timed out after 5 s, falling through to create new session"
+                                        "migrating session archive timed out"
                                     );
+                                    // Remove stale registry entry and in-memory
+                                    // session; they will be re-created on
+                                    // successful restore.
+                                    {
+                                        let mut registry = self.key_registry.write().await;
+                                        registry.remove(&routing_key);
+                                    }
+                                    self.remove_session(&session_id).await;
+                                    // Attempt restore via shared helper.
+                                    match self
+                                        .restore_migrating_on_timeout(
+                                            cm,
+                                            &session_id,
+                                            &routing_key,
+                                            channel,
+                                            message,
+                                        )
+                                        .await
+                                    {
+                                        Ok(restored_id) => return Ok(restored_id),
+                                        Err(e) => {
+                                            warn!(
+                                                session_key = %session_key,
+                                                session_id = %session_id,
+                                                routing_key = %routing_key,
+                                                error = %e,
+                                                "migrating restore failed, creating new session"
+                                            );
+                                        }
+                                    }
                                 }
-                                // Remove stale registry entry and in-memory session.
-                                {
-                                    let mut registry = self.key_registry.write().await;
-                                    registry.remove(&routing_key);
-                                }
-                                self.remove_session(&session_id).await;
-                                // Fall through to Path 3.  If archived, the
-                                // archived check there will pick it up.
                             }
                             SessionStatus::Archived => {
                                 warn!(
@@ -193,154 +215,8 @@ impl SessionManager {
                 };
                 if let Some(cm) = cm_arc {
                     if let Some(cp) = cm.load(&session_id).await.ok().flatten() {
-                        // Ensure ConversationSession exists
-                        let needs_conv = {
-                            let cs = self.conversation_sessions.read().await;
-                            !cs.contains_key(&session_id)
-                        };
-                        if needs_conv {
-                            let agent_id =
-                                cp.agent_id.clone().unwrap_or_else(|| message.to.clone());
-                            let workdir_path = session_helpers::compute_session_workdir(
-                                true,
-                                &session_id,
-                                message,
-                                &self.workspace_dir,
-                                cm.as_ref(),
-                            )
+                        self.rebuild_session_from_checkpoint(&session_id, &cp, message)
                             .await?;
-
-                            let mut conv_session = ConversationSession::new(
-                                session_id.clone(),
-                                "default".to_string(),
-                                workdir_path,
-                            )
-                            .with_system_prompt("")
-                            .with_reasoning_level(self.default_reasoning_level);
-                            self.apply_default_cache_break_thresholds(&mut conv_session);
-                            // Wire shutdown handle for busy-count tracking.
-                            if let Some(sh) = self.get_shutdown_handle().await {
-                                conv_session.set_shutdown_handle(sh);
-                            }
-                            // Inject LLM caller and system prompt builder for delegation.
-                            let agent_hooks = self
-                                .get_agent_config(&agent_id)
-                                .await
-                                .map(|c| c.hooks)
-                                .unwrap_or_default();
-                            if let Some(caller) = self.get_llm_caller().await {
-                                conv_session.set_llm_caller(caller.clone());
-                                conv_session.init_health_checker(caller, agent_hooks);
-                            }
-                            if let Some(builder) = self.get_system_prompt_builder().await {
-                                conv_session.set_system_prompt_builder(builder);
-                            }
-                            conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
-                            // Inject dynamic prompt builder for per-request
-                            // dynamic-layer injection (ChannelContext, etc.).
-                            if let Some(dpb) = self.get_dynamic_prompt_builder().await {
-                                conv_session.set_dynamic_prompt_builder(dpb);
-                            }
-                            // Inject skill listing provider and agent skills.
-                            self.wire_skill_listing_deps(&mut conv_session, &agent_id)
-                                .await;
-                            // Query bootstrap mode from AgentRegistry and cache.
-                            let bootstrap_mode = self
-                                .query_agent_bootstrap_mode(&agent_id)
-                                .await
-                                .unwrap_or(BootstrapMode::Full);
-                            conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
-                            // Build initial system prompt via session's own builder.
-                            info!(
-                                session_id = %session_id,
-                                event = "session_injection",
-                                trigger = "archived_session_restore",
-                                "full injection for archived session (new ConversationSession)"
-                            );
-                            conv_session
-                                .rebuild_system_prompt(&session_id, &agent_id, Some(bootstrap_mode))
-                                .await;
-                            // Inject snapshot meta store for persistence.
-                            self.inject_snapshot_meta_store(&session_id, &mut conv_session)
-                                .await;
-                            // Inject checkpoint storage for pending-operation persistence.
-                            self.inject_checkpoint_storage(&mut conv_session).await;
-                            // Apply session config (git_status switch).
-                            if let Some(cfg) = self.get_session_config_for_agent(&agent_id).await {
-                                conv_session.set_git_status(cfg.is_git_status_enabled);
-                            }
-                            {
-                                let mut cs = self.conversation_sessions.write().await;
-                                cs.insert(session_id.clone(), Arc::new(RwLock::new(conv_session)));
-                            }
-                        } else {
-                            info!(
-                                session_id = %session_id,
-                                event = "session_injection",
-                                trigger = "archived_session_restore",
-                                "rebuilding prompt for archived session in memory"
-                            );
-                            self.rebuild_archived_session_prompt(&session_id, &cp, message)
-                                .await;
-                        }
-
-                        // Restore pending messages, system_appends, verbosity_level,
-                        // and communication_config from checkpoint.
-                        // NOTE: system_appends must be restored AFTER rebuild_system_prompt
-                        // so that user appends layer on top of the rebuilt prompt.
-                        {
-                            let cs = self.conversation_sessions.read().await;
-                            if let Some(cs) = cs.get(&session_id) {
-                                let mut cs = cs.write().await;
-                                cs.restore_pending_messages(cp.outbound_pending.clone());
-                                cs.restore_system_appends(cp.system_appends.clone());
-                                cs.set_verbosity_level(cp.verbosity_level);
-                                // Restore communication config for spawned sessions.
-                                if let Some(ref comm_config) = cp.communication_config {
-                                    cs.set_communication_config(comm_config.clone());
-                                }
-                                Self::sync_plan_file_path_from_checkpoint(&mut cs, &cp);
-                                // Restore transcript from checkpoint ("transcript is the
-                                // single source of truth" per design doc).
-                                if !cp.pending_messages.is_empty() {
-                                    cs.apply_transcript_op(
-                                        TranscriptOp::Rewrite,
-                                        cp.pending_messages.clone(),
-                                    );
-                                }
-                            }
-                        }
-
-                        // Inject recovery notifications and tool failure results
-                        // from checkpoint (set by SessionRecoveryService during startup).
-                        if let Some(ref notification) = cp.recovery_notification {
-                            let cs = self.conversation_sessions.read().await;
-                            if let Some(cs) = cs.get(&session_id) {
-                                let mut cs = cs.write().await;
-                                cs.inject_system_message(notification.clone());
-                                for failure in &cp.pending_tool_failures {
-                                    // Extract op_id from the JSON failure string to use
-                                    // as tool_call_id.  Falls back to "recovery" if parsing
-                                    // fails (defensive — the JSON is built by the recovery
-                                    // service and always contains op_id).
-                                    let tool_call_id =
-                                        serde_json::from_str::<serde_json::Value>(failure)
-                                            .ok()
-                                            .and_then(|v| {
-                                                v.get("op_id")?.as_str().map(String::from)
-                                            })
-                                            .unwrap_or_else(|| "recovery".to_string());
-                                    cs.inject_tool_result(&tool_call_id, failure);
-                                }
-                                info!(
-                                    session_key = %session_key,
-                                    session_id = %session_id,
-                                    routing_key = %routing_key,
-                                    "injected recovery notification and {} tool failure(s)",
-                                    cp.pending_tool_failures.len()
-                                );
-                            }
-                        }
 
                         // Create Session entry
                         {
@@ -537,8 +413,30 @@ impl SessionManager {
                         session_key = %session_key,
                         session_id = %migrating_id,
                         routing_key = %routing_key,
-                        "migrating session archive timed out, creating new session"
+                        "migrating session archive timed out, restoring migrating session"
                     );
+                    // Attempt restore via shared helper.
+                    match self
+                        .restore_migrating_on_timeout(
+                            cm,
+                            &migrating_id,
+                            &routing_key,
+                            channel,
+                            message,
+                        )
+                        .await
+                    {
+                        Ok(restored_id) => return Ok(restored_id),
+                        Err(e) => {
+                            warn!(
+                                session_key = %session_key,
+                                session_id = %migrating_id,
+                                routing_key = %routing_key,
+                                error = %e,
+                                "migrating restore failed, creating new session"
+                            );
+                        }
+                    }
                 }
             }
             // Fall through to archived check; if archived, it will
@@ -898,6 +796,91 @@ impl SessionManager {
         );
         Ok(session_id)
     }
+
+    /// Restore a migrating session after archive timeout.
+    /// Clears notification, restores checkpoint, rebuilds session,
+    /// re-registers routing key, and injects recovery notification.
+    async fn restore_migrating_on_timeout(
+        &self,
+        cm: &CheckpointManager<dyn PersistenceService>,
+        session_id: &str,
+        routing_key: &str,
+        channel: &str,
+        message: &Message,
+    ) -> Result<String, ProcessError> {
+        // Clear stale archiving notification.
+        {
+            self.pending_restore_notifications
+                .write()
+                .await
+                .remove(session_id);
+        }
+        // Restore checkpoint - moves transcript back and marks DB Active.
+        let restored = session_helpers::try_restore_migrating_checkpoint(cm.storage(), session_id)
+            .await
+            .unwrap_or(false);
+        if !restored {
+            return Err(ProcessError::ChainFailed(format!(
+                "restore migrating checkpoint failed for {}",
+                session_id
+            )));
+        }
+        info!(
+            session_key = %routing_key,
+            session_id = %session_id,
+            routing_key = %routing_key,
+            "migrating session restored on timeout"
+        );
+        // Reload checkpoint, rebuild session, create Session entry.
+        self.reload_and_rebuild_restored_session(cm, session_id, message, channel)
+            .await?;
+        // Re-register routing key and inject recovery notification.
+        self.re_register_routing_key_and_notify(session_id, routing_key, channel)
+            .await;
+        self.update_checkpoint_fields(session_id, &message.thread_id, &message.reply_ref)
+            .await;
+        Ok(session_id.to_string())
+    }
+
+    /// Reload checkpoint, rebuild session, create Session entry.
+    async fn reload_and_rebuild_restored_session(
+        &self,
+        cm: &CheckpointManager<dyn PersistenceService>,
+        session_id: &str,
+        message: &Message,
+        channel: &str,
+    ) -> Result<(), ProcessError> {
+        if let Some(cp) = cm.load(session_id).await.ok().flatten() {
+            self.rebuild_session_from_checkpoint(session_id, &cp, message)
+                .await?;
+            let mut sessions = self.sessions.write().await;
+            if !sessions.contains_key(session_id) {
+                sessions.insert(
+                    session_id.to_string(),
+                    session_helpers::create_new_session(session_id, message, channel),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-register the routing key in the registry and inject a
+    /// recovery notification for the restored session.
+    async fn re_register_routing_key_and_notify(
+        &self,
+        session_id: &str,
+        routing_key: &str,
+        channel: &str,
+    ) {
+        self.key_registry
+            .write()
+            .await
+            .insert(routing_key.to_string(), session_id.to_string());
+        self.pending_restore_notifications.write().await.insert(
+            session_id.to_string(),
+            (channel.to_string(), Some("正在恢复会话…".to_string())),
+        );
+    }
     /// Poll cm.load(session_id) every 500ms for up to 5s until Archived.
     async fn wait_for_archive_completion(
         cm: &CheckpointManager<dyn PersistenceService>,
@@ -910,7 +893,7 @@ impl SessionManager {
                 return true;
             }
         }
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             match cm.load(session_id).await {
@@ -925,7 +908,7 @@ impl SessionManager {
         }
     }
     /// Rebuild system prompt for archived session with in-memory ConversationSession.
-    async fn rebuild_archived_session_prompt(
+    pub(super) async fn rebuild_archived_session_prompt(
         &self,
         session_id: &str,
         cp: &SessionCheckpoint,
@@ -990,7 +973,10 @@ impl SessionManager {
     }
     /// Sync `plan_file_path` from checkpoint into ConversationSession
     /// so Auto Mode plan injection survives process restarts.
-    fn sync_plan_file_path_from_checkpoint(conv: &mut ConversationSession, cp: &SessionCheckpoint) {
+    pub(super) fn sync_plan_file_path_from_checkpoint(
+        conv: &mut ConversationSession,
+        cp: &SessionCheckpoint,
+    ) {
         if let Some(ref ps) = cp.plan_state {
             if !ps.plan_file_path.is_empty() {
                 conv.set_plan_file_path(Some(ps.plan_file_path.clone()));
