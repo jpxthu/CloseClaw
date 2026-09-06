@@ -4,7 +4,7 @@
 //! - Normal path: registry miss + migrating in SQLite → poll detects archived →
 //!   archived restore → returns original session_id
 //! - Timeout path: registry miss + migrating in SQLite → poll times out →
-//!   creates new session
+//!   restores migrating session (checkpoint restore, not new session)
 //! - Migrating/Archived query isolation: each query returns only its status
 
 use super::tests::test_config;
@@ -94,14 +94,20 @@ impl PersistenceService for MigratingMissMock {
                 // Transitioned to archived
                 Ok(Some(
                     SessionCheckpoint::new("session".to_string())
-                        .with_status(SessionStatus::Archived),
+                        .with_status(SessionStatus::Archived)
+                        .with_platform("feishu".to_string())
+                        .with_peer_id("agent-b".to_string())
+                        .with_agent_id("agent-b".to_string()),
                 ))
             }
             _ => {
                 // Still migrating
                 Ok(Some(
                     SessionCheckpoint::new("session".to_string())
-                        .with_status(SessionStatus::Migrating),
+                        .with_status(SessionStatus::Migrating)
+                        .with_platform("feishu".to_string())
+                        .with_peer_id("agent-b".to_string())
+                        .with_agent_id("agent-b".to_string()),
                 ))
             }
         }
@@ -218,11 +224,11 @@ async fn test_resolve_miss_migrating_archive_completes() {
     }
 }
 
-// ── Timeout path: migrate → poll times out → create new ────────────────────
+// ── Timeout path: migrate → poll times out → restore migrating session ─────
 
 /// Registry miss + migrating session in SQLite → notification injected →
-/// poll times out (still migrating after 5 s) → creates new session →
-/// verify returned session_id is a new session (different from migrating).
+/// poll times out (still migrating after 30 s) → restores migrating session
+/// via checkpoint restore → verify returned session_id equals migrating_id.
 #[tokio::test]
 async fn test_resolve_miss_migrating_timeout_creates_new() {
     let migrating_id = "migrating-miss-timeout".to_string();
@@ -241,29 +247,27 @@ async fn test_resolve_miss_migrating_timeout_creates_new() {
     }
 
     // resolve(): Path 3 → active miss → migrating hit → poll timeout →
-    // archived miss → create new session.
+    // restore migrating session (not create new).
     let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
 
-    // Should create a new session (different from the migrating one)
-    assert_ne!(
+    // Should restore the migrating session (resolved == migrating_id)
+    assert_eq!(
         resolved, migrating_id,
-        "should create a new session after poll timeout"
-    );
-    assert!(
-        resolved.starts_with("agent-b_"),
-        "new session format: {}",
-        resolved
+        "should restore migrating session after poll timeout, not create new"
     );
 
-    // Pending notification should still have been injected
+    // Pending notification should have been injected (restoring prompt)
     let notification = mgr.take_restore_notification(&migrating_id).await;
     assert!(
         notification.is_some(),
-        "pending restore notification should be present even on timeout"
+        "pending restore notification should be present after timeout restore"
     );
 
-    // The new session should exist in memory
-    assert!(mgr.has_session(&resolved).await, "new session should exist");
+    // The restored session should exist in memory
+    assert!(
+        mgr.has_session(&migrating_id).await,
+        "restored session should exist"
+    );
 }
 
 // ── Migrating/Archived query isolation ──────────────────────────────────────
