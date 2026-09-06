@@ -85,6 +85,67 @@ mod tests {
         }
     }
 
+    /// Configurable mock for reasoning return values.
+    struct ReasoningMockExecutor {
+        effective: std::sync::Mutex<Option<closeclaw_common::ReasoningLevel>>,
+    }
+
+    impl ReasoningMockExecutor {
+        fn new(effective: Option<closeclaw_common::ReasoningLevel>) -> Self {
+            Self {
+                effective: std::sync::Mutex::new(effective),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SlashEffectExecutor for ReasoningMockExecutor {
+        async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+        async fn execute_new_session(&self, _: &str, _: &str) -> String {
+            "mock-id".into()
+        }
+        async fn execute_compact(
+            &self,
+            _: &str,
+            _: Option<String>,
+        ) -> Result<CompactionResult, CompactionError> {
+            unimplemented!()
+        }
+        async fn execute_system_append(
+            &self,
+            _: &str,
+            _: &closeclaw_common::slash_router::SystemAppendAction,
+        ) -> usize {
+            0
+        }
+        async fn execute_set_reasoning(
+            &self,
+            _: &str,
+            _: closeclaw_common::ReasoningLevel,
+        ) -> Option<closeclaw_common::ReasoningLevel> {
+            *self.effective.lock().unwrap()
+        }
+        async fn execute_set_verbosity(&self, _: &str, _: closeclaw_common::VerbosityLevel) {}
+        async fn execute_set_mode(&self, _: &str, _: &str) {}
+        async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {
+            vec![]
+        }
+    }
+
+    fn make_reasoning_ctx(
+        exec: std::sync::Arc<ReasoningMockExecutor>,
+    ) -> (SideEffectContext, tokio::sync::mpsc::Receiver<ReplyAction>) {
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        let ctx = SideEffectContext {
+            session_id: "slash-reasoning-test".into(),
+            channel: "test".into(),
+            session_lookup: std::sync::Arc::new(MockLookup),
+            reply_tx: tx,
+            executor: exec,
+        };
+        (ctx, rx)
+    }
+
     /// Smoke test: verify re-exported types are usable and that
     /// `SlashResult::Reply` can be dispatched through `SlashResultExecutor`.
     #[tokio::test]
@@ -107,6 +168,112 @@ mod tests {
                     ContentBlock::Text(t) => assert_eq!(t, "hello from smoke test"),
                     other => panic!("expected ContentBlock::Text, got {:?}", other),
                 }
+            }
+            other => panic!("expected ReplyAction::Reply, got {:?}", other),
+        }
+    }
+
+    /// No downgrade: requested == effective → "推理深度已设为 {effective}".
+    #[tokio::test]
+    async fn test_set_reasoning_no_downgrade_slash() {
+        let exec = std::sync::Arc::new(ReasoningMockExecutor::new(Some(
+            closeclaw_common::ReasoningLevel::High,
+        )));
+        let (ctx, mut rx) = make_reasoning_ctx(exec);
+        SlashResult::SetReasoning {
+            level: closeclaw_common::ReasoningLevel::High,
+        }
+        .execute(&ctx)
+        .await;
+        drop(ctx);
+
+        let action = rx.recv().await.expect("expected a ReplyAction");
+        match action {
+            ReplyAction::Reply(blocks) => {
+                assert!(
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High"),
+                    "no-downgrade reply should be '推理深度已设为 High', got: {:?}",
+                    &blocks[0],
+                );
+            }
+            other => panic!("expected ReplyAction::Reply, got {:?}", other),
+        }
+    }
+
+    /// Downgrade: requested=Max, effective=High → downgrade explanation.
+    #[tokio::test]
+    async fn test_set_reasoning_downgrade_slash() {
+        let exec = std::sync::Arc::new(ReasoningMockExecutor::new(Some(
+            closeclaw_common::ReasoningLevel::High,
+        )));
+        let (ctx, mut rx) = make_reasoning_ctx(exec);
+        SlashResult::SetReasoning {
+            level: closeclaw_common::ReasoningLevel::Max,
+        }
+        .execute(&ctx)
+        .await;
+        drop(ctx);
+
+        let action = rx.recv().await.expect("expected a ReplyAction");
+        match action {
+            ReplyAction::Reply(blocks) => {
+                assert!(
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（原请求 Max 已按供应商能力降级）"),
+                    "downgrade reply should contain effective level and explanation, got: {:?}",
+                    &blocks[0],
+                );
+            }
+            other => panic!("expected ReplyAction::Reply, got {:?}", other),
+        }
+    }
+
+    /// Off + provider supports closing → "推理输出已关闭".
+    #[tokio::test]
+    async fn test_set_reasoning_off_provider_supports_closing_slash() {
+        let exec = std::sync::Arc::new(ReasoningMockExecutor::new(Some(
+            closeclaw_common::ReasoningLevel::Off,
+        )));
+        let (ctx, mut rx) = make_reasoning_ctx(exec);
+        SlashResult::SetReasoning {
+            level: closeclaw_common::ReasoningLevel::Off,
+        }
+        .execute(&ctx)
+        .await;
+        drop(ctx);
+
+        let action = rx.recv().await.expect("expected a ReplyAction");
+        match action {
+            ReplyAction::Reply(blocks) => {
+                assert!(
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
+                    "Off+supports-closing should reply '推理输出已关闭', got: {:?}",
+                    &blocks[0],
+                );
+            }
+            other => panic!("expected ReplyAction::Reply, got {:?}", other),
+        }
+    }
+
+    /// None (session not found) → legacy fallback.
+    #[tokio::test]
+    async fn test_set_reasoning_none_fallback_slash() {
+        let exec = std::sync::Arc::new(ReasoningMockExecutor::new(None));
+        let (ctx, mut rx) = make_reasoning_ctx(exec);
+        SlashResult::SetReasoning {
+            level: closeclaw_common::ReasoningLevel::Max,
+        }
+        .execute(&ctx)
+        .await;
+        drop(ctx);
+
+        let action = rx.recv().await.expect("expected a ReplyAction");
+        match action {
+            ReplyAction::Reply(blocks) => {
+                assert!(
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"),
+                    "None fallback should use legacy reply, got: {:?}",
+                    &blocks[0],
+                );
             }
             other => panic!("expected ReplyAction::Reply, got {:?}", other),
         }

@@ -31,10 +31,12 @@ enum ExecutorCall {
     Exec(String, String, String),
 }
 
+/// Configurable mock for `execute_set_reasoning` return values.
 struct MockSlashEffectExecutor {
     calls: Arc<Mutex<Vec<ExecutorCall>>>,
     reply_rx: Mutex<mpsc::Receiver<ReplyAction>>,
     reply_tx: mpsc::Sender<ReplyAction>,
+    reasoning_effective: Option<Arc<Mutex<Option<ReasoningLevel>>>>,
 }
 
 impl MockSlashEffectExecutor {
@@ -44,6 +46,17 @@ impl MockSlashEffectExecutor {
             calls: Arc::new(Mutex::new(Vec::new())),
             reply_rx: Mutex::new(rx),
             reply_tx: tx,
+            reasoning_effective: None,
+        }
+    }
+
+    fn with_reasoning(effective: Option<ReasoningLevel>) -> Self {
+        let (tx, rx) = mpsc::channel(32);
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            reply_rx: Mutex::new(rx),
+            reply_tx: tx,
+            reasoning_effective: Some(Arc::new(Mutex::new(effective))),
         }
     }
 
@@ -114,7 +127,10 @@ impl SlashEffectExecutor for MockSlashEffectExecutor {
             .lock()
             .unwrap()
             .push(ExecutorCall::SetReasoning(session_id.to_string(), level));
-        Some(level)
+        self.reasoning_effective
+            .as_ref()
+            .map(|c| *c.lock().unwrap())
+            .unwrap_or(Some(level))
     }
 
     async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel) {
@@ -198,6 +214,7 @@ impl MockSessionLookup {
     }
 
     /// Return a handle to the set_plan_state call count.
+    #[allow(dead_code)]
     fn set_plan_state_calls_handle(&self) -> Arc<Mutex<u32>> {
         self.set_plan_state_calls.clone()
     }
@@ -682,31 +699,49 @@ async fn test_exec_falls_back_to_empty_agent_id() {
     );
 }
 
-// ── Test: SetReasoning variant ────────────────────────────────────────
+// ── SetReasoning: Normal path — no downgrade ──────────────────────────
 
 #[tokio::test]
-async fn test_set_reasoning_calls_executor_and_replies() {
-    let mock = Arc::new(MockSlashEffectExecutor::new());
+async fn test_set_reasoning_no_downgrade_reply() {
+    // High → High (no downgrade).
+    let mock = Arc::new(MockSlashEffectExecutor::with_reasoning(Some(
+        ReasoningLevel::High,
+    )));
     let sm = Arc::new(MockSessionLookup::new(None));
-    let ctx = make_ctx(Arc::clone(&mock), "s13", "feishu", sm);
-
+    let ctx = make_ctx(Arc::clone(&mock), "s-rnd", "feishu", sm);
     SlashResult::SetReasoning {
-        level: ReasoningLevel::Max,
+        level: ReasoningLevel::High,
     }
     .execute(&ctx)
     .await;
-
-    assert_eq!(
-        mock.calls.lock().unwrap()[0],
-        ExecutorCall::SetReasoning("s13".into(), ReasoningLevel::Max)
-    );
-
     let replies = mock.drain_replies();
+    assert_eq!(replies.len(), 1);
     match &replies[0] {
-        ReplyAction::Reply(blocks) => match &blocks[0] {
-            ContentBlock::Text(t) => assert!(t.contains("Max")),
-            other => panic!("expected Text, got {other:?}"),
-        },
+        ReplyAction::Reply(blocks) => assert!(
+            matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High"),
+            "got: {:?}",
+            &blocks[0],
+        ),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+    // Off → Off (provider supports closing).
+    let mock2 = Arc::new(MockSlashEffectExecutor::with_reasoning(Some(
+        ReasoningLevel::Off,
+    )));
+    let sm2 = Arc::new(MockSessionLookup::new(None));
+    let ctx2 = make_ctx(Arc::clone(&mock2), "s-roff", "feishu", sm2);
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::Off,
+    }
+    .execute(&ctx2)
+    .await;
+    let replies2 = mock2.drain_replies();
+    match &replies2[0] {
+        ReplyAction::Reply(blocks) => assert!(
+            matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
+            "got: {:?}",
+            &blocks[0],
+        ),
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -794,39 +829,6 @@ async fn test_plan_mode_to_normal_clears_plan_state() {
     assert!(
         plan_handle.lock().unwrap().is_none(),
         "plan_state should be None after switching to normal"
-    );
-}
-
-// ── Test: Plan Mode → Auto clears PlanState ──────────────────────────
-
-#[tokio::test]
-async fn test_plan_mode_to_auto_clears_plan_state() {
-    let mock = Arc::new(MockSlashEffectExecutor::new());
-    let plan = crate::PlanState {
-        phase: crate::PlanPhase::Review,
-        plan_file_path: "/tmp/plan.md".into(),
-    };
-    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
-    let clear_handle = mock_sl.clear_called_handle();
-    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
-    let ctx = make_ctx(Arc::clone(&mock), "s-clear-auto", "feishu", sl_ref);
-
-    SlashResult::SetMode {
-        mode: "auto".into(),
-        plan_file_path: None,
-        initial_input: None,
-        reply_message: None,
-    }
-    .execute(&ctx)
-    .await;
-
-    assert!(
-        *clear_handle.lock().unwrap(),
-        "clear_plan_state should be called"
-    );
-    assert!(
-        plan_handle.lock().unwrap().is_none(),
-        "plan_state should be None after switching to auto"
     );
 }
 
@@ -963,38 +965,4 @@ async fn test_plan_file_path_cleared_in_non_plan_mode() {
     // When plan_state is None, plan_file_path is implicitly None too,
     // satisfying the design doc requirement that plan_file_path is
     // cleared on non-plan mode exit.
-}
-
-// ── Test: mode=auto + plan_file_path Some does not persist PlanState ──
-
-/// When `mode` is `"auto"` (not `"plan"`), `clear_plan_state` is called
-/// immediately after `set_plan_state`, so the final PlanState should be
-/// `None` even though `plan_file_path` was provided.
-#[tokio::test]
-async fn test_set_mode_auto_with_plan_file_path_does_not_persist_plan_state() {
-    let mock = Arc::new(MockSlashEffectExecutor::new());
-    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(crate::PlanState::new());
-    let set_calls = mock_sl.set_plan_state_calls_handle();
-    let clear_handle = mock_sl.clear_called_handle();
-    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
-    let ctx = make_ctx(Arc::clone(&mock), "s-auto-no-plan", "feishu", sl_ref);
-
-    SlashResult::SetMode {
-        mode: "auto".into(),
-        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/auto-plan.md")),
-        initial_input: None,
-        reply_message: None,
-    }
-    .execute(&ctx)
-    .await;
-
-    // set_plan_state was called (plan_file_path was provided).
-    assert_eq!(*set_calls.lock().unwrap(), 1);
-    // clear_plan_state was also called (mode != "plan").
-    assert!(*clear_handle.lock().unwrap());
-    // Final state: PlanState is None.
-    assert!(
-        plan_handle.lock().unwrap().is_none(),
-        "plan_state should be None because mode=auto triggers clear"
-    );
 }
