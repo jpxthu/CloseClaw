@@ -730,3 +730,83 @@ async fn test_two_step_both_pass_creates_child() {
         "create_child_session should be called"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Step 1.2: input_schema task description alignment with design doc
+// ═══════════════════════════════════════════════════════════════════════
+
+/// The `task` parameter description in `input_schema` must faithfully
+/// reflect design doc §sessions_spawn 参数表: task is injected into the
+/// child session's system prompt (AppendSection), not a conversation
+/// message, unaffected by compaction.
+#[test]
+fn test_input_schema_task_description_aligns_with_design_doc() {
+    let tool = make_tool();
+    let schema = tool.input_schema();
+
+    let task_desc = schema
+        .pointer("/properties/task/description")
+        .expect("schema must have /properties/task/description")
+        .as_str()
+        .expect("description must be a string");
+
+    // Positive: must convey system prompt injection semantics
+    assert!(
+        task_desc.to_lowercase().contains("system prompt"),
+        "task description must mention system prompt injection, got: {task_desc}"
+    );
+
+    // Positive: must convey not-a-conversation-message semantics
+    assert!(
+        task_desc
+            .to_lowercase()
+            .contains("not a conversation message"),
+        "task description must state it is not a conversation message, got: {task_desc}"
+    );
+
+    // Positive: must convey compaction-unaffected semantics
+    assert!(
+        task_desc
+            .to_lowercase()
+            .contains("unaffected by compaction"),
+        "task description must state it is unaffected by compaction, got: {task_desc}"
+    );
+
+    // Negative: must NOT contain "first message" (implies conversation injection)
+    assert!(
+        !task_desc.to_lowercase().contains("first message"),
+        "task description must NOT contain 'first message' (implies conversation injection), got: {task_desc}"
+    );
+}
+
+/// Regression guard: the description must never revert to the old wording
+/// that implied task is injected as the child's first conversation message.
+#[test]
+fn test_input_schema_task_description_no_old_wording() {
+    let tool = make_tool();
+    let schema = tool.input_schema();
+
+    let task_desc = schema
+        .pointer("/properties/task/description")
+        .expect("schema must have /properties/task/description")
+        .as_str()
+        .expect("description must be a string");
+
+    let lower = task_desc.to_lowercase();
+
+    // Old wording variants that must never appear
+    let banned = [
+        "first message",
+        "first conversation",
+        "as the child's first",
+        "as the child\'s first",
+        "as the childs first",
+        "injected as the child",
+    ];
+    for phrase in &banned {
+        assert!(
+            !lower.contains(phrase),
+            "task description must not contain banned phrase '{phrase}', got: {task_desc}"
+        );
+    }
+}
