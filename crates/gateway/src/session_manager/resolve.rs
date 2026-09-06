@@ -910,7 +910,7 @@ impl SessionManager {
                 return true;
             }
         }
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             match cm.load(session_id).await {
