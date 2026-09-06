@@ -156,7 +156,13 @@ impl HookReviewer {
                 hook_type: config.hook_type.clone(),
             },
             Err(err) => HookVerdict {
-                // LLM failure is treated as not-flagging (graceful degradation).
+                // Design intent: the design document (docs/design/session/run-health.md)
+                // does not define a handling strategy for hook LLM call failures.
+                // We adopt silent degradation here — flag=false — because hooks are
+                // optional quality gates. A hook's own infrastructure failure (e.g. LLM
+                // timeout, network error) should not block the normal turn flow or
+                // cause the session to be marked unhealthy for a transient issue
+                // outside the turn's actual behavior.
                 flag: false,
                 reason: format!("{:?} review failed: {err}", config.hook_type),
                 hook_type: config.hook_type.clone(),
