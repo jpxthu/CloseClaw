@@ -77,7 +77,7 @@ Agent 在跨会话的使用中积累对用户的认知——记住用户纠正�
 - 用户手动编辑后，Agent 在下次注入时使用最新内容
 - 规则文件是 Agent 的 System Prompt 中记忆部分的唯一来源——日常搜索产出的浓缩摘要不进入 System Prompt
 
-> **交叉引用**：规则文件注入 System Prompt 的机制详见 [system_prompt §F3](system_prompt.md)。
+> **交叉引用**：规则文件注入 System Prompt 的机制详见 [system_prompt §F3](system_prompt.md)（长期记忆注入）。
 
 ### F6. 可选的叙事摘要
 
@@ -97,7 +97,7 @@ Agent 在跨会话的使用中积累对用户的认知——记住用户纠正�
 - 各子功能使用的 LLM 模型可独立配置，不强制使用主对话模型
 - 搜索超时时间、上下文轮数、摘要长度、事件产出上限等参数均可按需调整
 
-> **交叉引用**：配置体系的目录结构详见 [config §F1](config.md)；重载机制与生效规则详见 [config §F4](config.md)（配置重载）。
+> **交叉引用**：配置体系的目录结构详见 [config §F1](config.md)（多文件配置结构）；重载机制与生效规则详见 [config §F4](config.md)（配置重载）。
 
 ### F8. 记忆的自然遗忘
 

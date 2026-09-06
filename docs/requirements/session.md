@@ -12,14 +12,14 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 
 - User 发送消息时，系统自动查找该对话对应的 Session——若存在则复用，若已归档则恢复，否则创建新 Session
 - Session 由平台、发送者、会话对端、账号四个维度共同标识，字段定义见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。相同标识下可以有多个历史 Session，当前活跃的是最后活跃时间最近的一个
-- 会话在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)），再按上述四维标识查找 Session
+- 会话在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)（普通消息路由到对话）），再按上述四维标识查找 Session
 - 归档的 Session 被访问时自动恢复：
   - 若 Session 正在归档中，等待归档完成后自动恢复，恢复时提示 User「会话归档中，稍后恢复…」
   - 若 Session 已归档，恢复时提示 User「正在恢复会话…」
   - 恢复后 System Prompt 按最新配置重新注入，详见 F2
 - 崩溃恢复详见 F7
 
-> **交叉引用**：新 Session 由 `/new` 指令触发创建，详见 [slash §F3](slash.md)（会话管理）。
+> **交叉引用**：新 Session 由 `/new` 指令触发创建。详见 [slash §F3](slash.md)（会话管理）。
 > **交叉引用**：系统崩溃后的恢复流程详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
 
 ### F2. 恢复时的 System Prompt 重建
@@ -28,11 +28,11 @@ Session 恢复时触发 Agent 的 System Prompt 重新注入。
 
 - User 追加的 System Prompt 自定义指令持久化保存，归档恢复后完整保留
 
-> **交叉引用**：完整触发事件清单、缓存失效策略与文件变更的自动反映，详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：完整触发事件清单、缓存失效策略与文件变更的自动反映。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 > **交叉引用**：技能清单的格式和技能文件变更的生效规则详见 [skills §F4](skills.md)（技能清单）、[skills §F5](skills.md)（技能文件变更）。
 > **交叉引用**：追加指令的交互方式（/system add/list/clear）详见 [slash §F6](slash.md)（System Prompt 追加）。
-> **交叉引用**：bootstrap 文件的清单与注入顺序，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
-> **交叉引用**：子 Session 的文件加载范围，详见 [system_prompt §F8](system_prompt.md)（会话类型适配）。
+> **交叉引用**：bootstrap 文件的清单与注入顺序。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：子 Session 的文件加载范围。详见 [system_prompt §F8](system_prompt.md)（会话类型适配）。
 
 ### F3. 长对话压缩
 
@@ -46,12 +46,12 @@ Session 恢复时触发 Agent 的 System Prompt 重新注入。
 - 压缩只处理 User 与 Agent 的对话消息，System Prompt 内容完整保留
 - 压缩结果为一条结构化摘要消息，覆盖六个维度：Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context
 - 连续压缩失败后自动进入保护暂停（仅阻止自动压缩再次触发，不影响活跃判定和归档），手动 `/compact` 成功后自动解除保护暂停
-> **交叉引用**：手动压缩由 `/compact` 指令触发，详见 [slash §F5](slash.md)（上下文压缩）。
+> **交叉引用**：手动压缩由 `/compact` 指令触发。详见 [slash §F5](slash.md)（上下文压缩）。
 > **交叉引用**：压缩前自动备份的通用机制详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
 
 ### F4. 子 Session 委托与协调
 
-Agent 可以将子任务委托给子 Session，并行委托多个子 Session，等待结果后继续决策。子 Session 的创建控制由 Agent 模块定义，详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
+Agent 可以将子任务委托给子 Session，并行委托多个子 Session，等待结果后继续决策。子 Session 的创建控制由 Agent 模块定义。详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 
 - 子 Session 的任务描述注入到 System Prompt 中，不属于对话消息，压缩时不受影响
 - Agent 可以向已有未完成的子 Session 发送新任务
@@ -62,12 +62,12 @@ Agent 可以将子任务委托给子 Session，并行委托多个子 Session，�
   - 子 Session 的运行时长达到设定的超时上限时，系统向父 Session 注入超时通知。通知内容包含：设定的超时时间、实际运行时长、上下文窗口使用情况及 token 用量
   - 若父 Agent 未终止该子 Session，系统在超时时间的 50% 间隔后再次注入通知，循环往复。间隔比例可配置
   - 父 Agent 收到通知后自行决定：终止子 Session、继续等待、或向 User 汇报
-  - 子 Session 的超时时间来源及优先级，详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
+  - 子 Session 的超时时间来源及优先级。详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 - 父 Session 每轮对话开始时，系统注入当前活跃子 Session 摘要：正在执行的子 Session 数量及每个子 Session 的概要信息（Agent 标识、任务简述、已运行时长）
 
 > **交叉引用**：子 Session 结果注入与排队规则详见 [F9](#f9-消息注入)（消息注入）、[F10](#f10-消息排队)（消息排队）。
 > **交叉引用**：子 Session 完成通知的送达保证和僵死检测详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
-> **交叉引用**：`/stop` 指令触发 Session 终止，详见 [slash §F3](slash.md)（会话管理）。
+> **交叉引用**：`/stop` 指令触发 Session 终止。详见 [slash §F3](slash.md)（会话管理）。
 
 ### F5. 推理强度控制
 
@@ -76,8 +76,8 @@ User 控制 LLM 调用的推理强度。
 - 推理强度的设置在会话内持续生效
 
 > **交叉引用**：推理强度档位定义、默认值、优先级和模型能力降级策略详见 [llm §F4](llm.md)（推理强度控制）。
-> **交叉引用**：运行时设置由 `/reasoning` 指令完成，详见 [slash §F10](slash.md)（推理强度控制）。
-> **交叉引用**：`/verbose` 指令控制信息展示等级，详见 [slash §F11](slash.md)（展示等级）。
+> **交叉引用**：运行时设置由 `/reasoning` 指令完成。详见 [slash §F10](slash.md)（推理强度控制）。
+> **交叉引用**：`/verbose` 指令控制信息展示等级。详见 [slash §F11](slash.md)（展示等级）。
 
 ### F6. 会话归档与清理
 
@@ -120,7 +120,7 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 
 > **交叉引用**：工作目录的强制授权机制（不受任何 Deny 规则影响）详见 [permission §F3](permission.md)（权限决策模型）。
 
-> **交叉引用**：工作目录的查看与变更由 `/pwd`、`/cd`、`/git` 指令完成，详见 [slash §F7](slash.md)（工作目录操作）。
+> **交叉引用**：工作目录的查看与变更由 `/pwd`、`/cd`、`/git` 指令完成。详见 [slash §F7](slash.md)（工作目录操作）。
 
 ### F9. 消息注入
 
@@ -147,7 +147,7 @@ User 消息按以下阻塞规则分派。判定条件使用 F11 的四维活跃�
   - 满足排队条件时：同批积压的非 User 消息（按到达时间先后）优先注入，随后注入排队中的 User 消息
   - 不满足排队条件时：非 User 消息立即注入
 
-> **交叉引用**：斜杠指令的排队/立即语义由 Gateway 路由决策决定，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：斜杠指令的排队/立即语义由 Gateway 路由决策决定。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F11. Session 活跃维度
 

@@ -55,7 +55,7 @@ plan 写完后，User 可以通过以下方式触发执行：
 
 **自然语言**：Agent 提供执行触发工具，参数与 `/execute` 相同（`plan名称` + 可选附加指令）。该工具调用时自动向 User 发起确认（y/n）——系统直接拦截并展示确认卡片。User 确认后进入 Auto Mode 开始执行。自然语言路径需要确认，因为该方式由对话上下文触发，无法像显式命令那样排除误触。
 
-> **交叉引用**：执行触发工具的注册通过工具扩展接入机制完成，详见 [tools §F9](tools.md)（工具扩展接入）。
+> **交叉引用**：执行触发工具的注册通过工具扩展接入机制完成。详见 [tools §F9](tools.md)（工具扩展接入）。
 
 **执行路径**：
 - 同 session 执行：当前 session 进入 Auto Mode（若处于 Plan Mode 则先退出），继承规划上下文
@@ -119,7 +119,7 @@ Agent 在 Auto Mode 下的行为原则：
 
 Auto Mode 下 Agent 的工具集恢复到完整状态（写工具可见）。
 
-> **交叉引用**：运行时危险操作审查由权限系统提供，详见 [permission §F2](permission.md)（权限维度）、[permission §F5](permission.md)（审批工作流）。
+> **交叉引用**：运行时危险操作审查由权限系统提供。详见 [permission §F2](permission.md)（权限维度）、[permission §F5](permission.md)（审批工作流）。
 
 ### F8. 执行拒绝日志
 

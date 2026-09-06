@@ -20,7 +20,7 @@ Owner 可以在终端中与 Agent 进行文本对话。
 
 - 使用 `/stop` 结束当前对话
 
-> **交叉引用**：`/stop` 的完整语义见 slash 需求文档；不活跃会话的自动归档与清理见 [session §F6](session.md)。
+> **交叉引用**：`/stop` 的完整语义见 [slash §F3](slash.md)（会话管理）；不活跃会话的自动归档与清理见 [session §F6](session.md)（会话归档与清理）。
 
 ### F2. 终端输出渲染
 
@@ -56,7 +56,7 @@ Owner 可以通过 CLI 命令管理 daemon 进程的启停。
 
 - daemon 已运行时执行 `closeclaw run` 应拒绝启动新实例
 
-> **交叉引用**：PID 文件机制见 [platform §F1](platform.md)；daemon 启动与关闭过程的完整需求见 [daemon §F1–F2](daemon.md)。
+> **交叉引用**：PID 文件机制见 [platform §F1](platform.md)（跨平台进程生命周期管理）；daemon 启动与关闭过程的完整需求见 [daemon §F1–F2](daemon.md)（系统启动、优雅关闭）。
 
 ### F4. 配置管理
 
@@ -72,25 +72,25 @@ Owner 可以通过 CLI 管理 CloseClaw 的配置文件。
 
 - **配置校验**：校验现有配置文件格式的合法性，输出校验结果
 
-> **交叉引用**：配置文件结构、安全写入、重载等需求见 [config §F1–F6](config.md)。
+> **交叉引用**：配置文件结构、安全写入、重载等需求见 [config §F1–F6](config.md)（多文件配置结构至配置版本兼容）。
 
 ### F5. Agent 管理
 
 Owner 可以通过 CLI 查询和管理 Agent 实例。此功能依赖 daemon 已运行。
 
-> **交叉引用**：Agent 配置档案的创建、查询、列表等完整需求见 [agent §F1](agent.md)。
+> **交叉引用**：Agent 配置档案的创建、查询、列表等完整需求见 [agent §F1](agent.md)（Agent 配置档案）。
 
 ### F6. Skill 管理
 
 Owner 可以通过 CLI 查询 Skill 列表，或触发 daemon 重新扫描技能目录加载新 Skill。此功能依赖 daemon 已运行。
 
-> **交叉引用**：Skill 即插即用的完整语义见 [skills §F1](skills.md)。
+> **交叉引用**：Skill 即插即用的完整语义见 [skills §F1](skills.md)（技能即插即用）。
 
 ### F7. 权限规则查看
 
 Owner 可以通过 CLI 查看权限规则——包括校验规则语法和列出已有规则。
 
-> **交叉引用**：CLI 提供规则语法校验与列表入口（只读）；权限规则的修改通过斜杠指令完成，详见 [permission §F6](permission.md)。
+> **交叉引用**：CLI 提供规则语法校验与列表入口（只读）；权限规则的修改通过斜杠指令完成。详见 [permission §F6](permission.md)（权限配置管理）。
 
 ### F8. 跨平台支持
 
