@@ -5,6 +5,7 @@
 
 mod archive_support;
 mod consistency_check;
+mod snapshot_meta_support;
 
 #[cfg(test)]
 mod bug904_tests;
@@ -13,13 +14,17 @@ mod consistency_check_tests;
 #[cfg(test)]
 mod migrating_archive_tests;
 #[cfg(test)]
+mod snapshot_meta_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::persistence::{
     ConsistencyCheckResult, PersistenceError, PersistenceService, SessionCheckpoint,
 };
+use crate::run_health::SnapshotMeta;
 use async_trait::async_trait;
 use rusqlite::{params, Connection};
+#[cfg(test)]
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
@@ -184,6 +189,23 @@ impl SqliteStorage {
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
+        // Snapshot metadata table — independent from SessionCheckpoint.
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS snapshot_metas (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_snapshot_metas_session_id
+                ON snapshot_metas(session_id);
+            "#,
+        )
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+
         for (col, col_type) in [
             ("thread_id", "TEXT"),
             ("sender_id", "TEXT"),
@@ -313,16 +335,8 @@ impl Clone for SqliteStorage {
     }
 }
 
-/// Convert SessionStatus to/from database string representation
-fn status_to_db(s: &crate::persistence::SessionStatus) -> &'static str {
-    match s {
-        crate::persistence::SessionStatus::Active => "active",
-        crate::persistence::SessionStatus::Migrating => "migrating",
-        crate::persistence::SessionStatus::Archived => "archived",
-    }
-}
-
 /// Convert ReasonMode to/from database string representation
+#[cfg(test)]
 fn mode_to_db(m: &crate::persistence::ReasoningMode) -> &'static str {
     match m {
         crate::persistence::ReasoningMode::Direct => "direct",
@@ -487,103 +501,9 @@ impl PersistenceService for SqliteStorage {
         let data_dir = self.data_dir.clone();
         let checkpoint = checkpoint.clone();
 
-        spawn_blocking(move || {
-            let conn = Connection::open(data_dir.join("sessions.sqlite"))
-                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-
-            let status = status_to_db(&checkpoint.status);
-            let mode_state_json = serde_json::to_string(&checkpoint.mode_state)
-                .map_err(PersistenceError::Serialization)?;
-            let pending_json = serde_json::to_string(&checkpoint.outbound_pending)
-                .map_err(PersistenceError::Serialization)?;
-            let system_appends_json = serde_json::to_string(&checkpoint.system_appends)
-                .map_err(PersistenceError::Serialization)?;
-            let metadata_json = json!({
-                "reasoning_mode": mode_to_db(&checkpoint.reasoning_mode),
-                "mode_state": mode_state_json,
-                "outbound_pending": pending_json,
-                "system_appends": system_appends_json,
-                "session_mode": checkpoint.session_mode.to_string(),
-            })
-            .to_string();
-
-            let last_msg_ts = checkpoint
-                .last_message_at
-                .map(|dt| dt.timestamp())
-                .unwrap_or(0);
-
-            let dreaming_status_str =
-                crate::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
-            let mined_str = if checkpoint.mined { "1" } else { "0" };
-            let mined_at_val = checkpoint.mined_at;
-            let plan_state_json = checkpoint
-                .plan_state
-                .as_ref()
-                .map(|ps| serde_json::to_string(ps).map_err(PersistenceError::Serialization))
-                .transpose()?;
-
-            let last_user_activity_ts = checkpoint.last_user_activity_at.map(|dt| dt.timestamp());
-
-            conn.execute(
-                "INSERT OR REPLACE INTO sessions
-                 (id, agent_id, role, channel, chat_id, status, title,
-                  last_message_at, created_at, archived_at, message_count, metadata, thread_id,
-                  sender_id, platform, peer_id, account_id, parent_session_id, depth,
-                  mined, dreaming_status, plan_state, mined_at, last_user_activity_at)
-                 VALUES (
-                     ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-                     ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19,
-                     ?20, ?21, ?22, ?23, ?24
-                 )",
-                params![
-                    checkpoint.session_id,
-                    checkpoint.agent_id.as_deref().unwrap_or("unknown"),
-                    checkpoint
-                        .role
-                        .map(|r| match r {
-                            crate::persistence::AgentRole::MainAgent => "main_agent",
-                            crate::persistence::AgentRole::SubAgent => "sub_agent",
-                        })
-                        .unwrap_or("main_agent"),
-                    // Backward-compat: write platform value to old channel column
-                    checkpoint.platform.as_deref().unwrap_or(""),
-                    // Backward-compat: write peer_id value to old chat_id column
-                    checkpoint.peer_id.as_deref().unwrap_or(""),
-                    status,
-                    Option::<&str>::None, // title
-                    last_msg_ts,
-                    checkpoint.created_at.timestamp(),
-                    Option::<i64>::None, // archived_at
-                    checkpoint.message_count as i64,
-                    metadata_json,
-                    checkpoint.thread_id.as_deref(),
-                    checkpoint.sender_id.as_deref(),
-                    // New columns
-                    checkpoint.platform.as_deref(),
-                    checkpoint.peer_id.as_deref(),
-                    checkpoint.account_id.as_deref(),
-                    checkpoint.parent_session_id.as_deref(),
-                    checkpoint.depth,
-                    mined_str,
-                    dreaming_status_str,
-                    plan_state_json.as_deref(),
-                    mined_at_val,
-                    last_user_activity_ts,
-                ],
-            )
-            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-
-            // Write transcript to sessions/<id>.jsonl
-            let transcript_path = data_dir
-                .join("sessions")
-                .join(format!("{}.jsonl", checkpoint.session_id));
-            archive_support::write_transcript(&transcript_path, &checkpoint)?;
-
-            Ok(())
-        })
-        .await
-        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+        spawn_blocking(move || archive_support::save_checkpoint_inner(&data_dir, &checkpoint))
+            .await
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
     }
 
     /// Load a session checkpoint from the database. Transcript is read from
@@ -949,6 +869,40 @@ impl PersistenceService for SqliteStorage {
                 .collect();
 
             Ok(ids)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn save_snapshot_metas(
+        &self,
+        session_id: &str,
+        metas: &[SnapshotMeta],
+    ) -> Result<(), PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let session_id = session_id.to_string();
+        let metas = metas.to_vec();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            snapshot_meta_support::save_snapshot_metas_inner(&conn, &session_id, &metas)
+        })
+        .await
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+    }
+
+    async fn load_snapshot_metas(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<SnapshotMeta>, PersistenceError> {
+        let data_dir = self.data_dir.clone();
+        let session_id = session_id.to_string();
+
+        spawn_blocking(move || {
+            let conn = Connection::open(data_dir.join("sessions.sqlite"))
+                .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+            snapshot_meta_support::load_snapshot_metas_inner(&conn, &session_id)
         })
         .await
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
