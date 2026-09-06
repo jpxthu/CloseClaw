@@ -17,7 +17,7 @@ pub struct FragmentContext {
     ///
     /// Maintained by the Session module and passed into the provider via
     /// value semantics during SP rebuild. Used by
-    /// [`SkillsFragmentProvider`](crate::skills_fragment_provider::SkillsFragmentProvider)
+    /// `SkillsFragmentProvider` (in the skills crate)
     /// to include activated conditional skills in the generated listing.
     ///
     /// This field is only meaningful for the SP rebuild path; per-turn
