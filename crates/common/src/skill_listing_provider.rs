@@ -57,6 +57,43 @@ pub trait SkillListingProvider: Send + Sync {
         agent_skills: Option<&[String]>,
     ) -> String;
 
+    /// Generate a skill listing that includes both the base (non-conditional)
+    /// skills and any condition skills whose names appear in `activated`.
+    ///
+    /// The output is the union of:
+    /// - all non-conditional skills (same as
+    ///   [`generate_listing_excluding_conditional`])
+    /// - all conditional skills whose name is in `activated`
+    ///
+    /// Activated conditional skills are included **regardless** of their
+    /// `user-invocable` declaration (the activation override takes
+    /// precedence). Non-conditional skills are still filtered by
+    /// `user-invocable` as usual.
+    ///
+    /// The default implementation falls back to
+    /// [`generate_listing_excluding_conditional`], ignoring the activated
+    /// set. Production implementations must override this to merge in
+    /// activated conditional skills.
+    ///
+    /// # Arguments
+    ///
+    /// * `agent_id` - Optional agent identifier for filtering.
+    /// * `agent_skills` - Optional whitelist of skill names.
+    /// * `activated` - Names of condition skills currently activated in the
+    ///   session.
+    fn generate_listing_with_activated(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+        activated: &[String],
+    ) -> String {
+        // Default: ignore activated set, return base listing only.
+        // Production impls (e.g. SkillListingProviderWrapper) override this
+        // to merge in activated conditional skills.
+        let _ = activated;
+        self.generate_listing_excluding_conditional(agent_id, agent_skills)
+    }
+
     /// Find conditional skills whose glob patterns match the given file
     /// paths.
     ///

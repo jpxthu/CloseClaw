@@ -342,3 +342,151 @@ async fn test_adapter_multiple_providers_priority() {
     assert!(boot_pos < tool_pos);
     assert!(tool_pos < mem_pos);
 }
+
+// ------------------------------------------------------------------
+// Dimension: build_prompt_with_activated — adapter passes activated
+// skills through to the provider pipeline
+// ------------------------------------------------------------------
+
+/// Mock provider that records the activated_skills it received via
+/// FragmentContext, for integration testing.
+struct ActivationRecordingProvider {
+    recorded: std::sync::Arc<tokio::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl PromptFragmentProvider for ActivationRecordingProvider {
+    fn name(&self) -> &str {
+        "activation_recorder"
+    }
+
+    fn priority(&self) -> u32 {
+        3 // same as SkillsFragmentProvider
+    }
+
+    async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        let mut guard = self.recorded.lock().await;
+        *guard = ctx.activated_skills.clone();
+        if ctx.activated_skills.is_empty() {
+            return Some(PromptFragment {
+                section_title: "## Skills".to_string(),
+                section_type: SectionType::Skills,
+                content: "- **base_skill**: base".to_string(),
+            });
+        }
+        let skills_text: Vec<String> = ctx
+            .activated_skills
+            .iter()
+            .map(|s| format!("- **{}**: activated", s))
+            .collect();
+        let mut content = "- **base_skill**: base".to_string();
+        for s in &skills_text {
+            content.push('\n');
+            content.push_str(s);
+        }
+        Some(PromptFragment {
+            section_title: "## Skills".to_string(),
+            section_type: SectionType::Skills,
+            content,
+        })
+    }
+
+    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+        None
+    }
+}
+
+#[tokio::test]
+async fn test_build_prompt_with_activated_passes_skills_to_provider() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let provider = ActivationRecordingProvider {
+        recorded: recorded.clone(),
+    };
+
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    // Build with activated skills
+    let activated = vec!["cond_skill_a".to_string(), "cond_skill_b".to_string()];
+    let result = adapter
+        .build_prompt_with_activated("session-1", agent_id, None, None, activated.clone())
+        .await;
+
+    // Verify the provider received the activated skills
+    let guard = recorded.lock().await;
+    assert_eq!(*guard, activated);
+    drop(guard);
+
+    // Verify the output contains the activated skills
+    assert!(result.contains("cond_skill_a"));
+    assert!(result.contains("cond_skill_b"));
+    assert!(result.contains("base_skill"));
+}
+
+#[tokio::test]
+async fn test_build_prompt_without_activated_empty_ctx() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let provider = ActivationRecordingProvider {
+        recorded: recorded.clone(),
+    };
+
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    // Build without activated skills (empty vec)
+    let result = adapter
+        .build_prompt_with_activated("session-1", agent_id, None, None, vec![])
+        .await;
+
+    // Provider should receive empty activated_skills
+    let guard = recorded.lock().await;
+    assert!(guard.is_empty());
+    drop(guard);
+
+    // Output should only contain base skill
+    assert!(result.contains("base_skill"));
+    assert!(!result.contains("cond_skill"));
+}
+
+#[tokio::test]
+async fn test_build_prompt_vs_with_activated_different_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let provider = ActivationRecordingProvider {
+        recorded: recorded.clone(),
+    };
+
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    // Build without activated skills
+    let result_base = adapter
+        .build_prompt("session-1", agent_id, None, None)
+        .await;
+
+    // Build with activated skills
+    let result_activated = adapter
+        .build_prompt_with_activated(
+            "session-1",
+            agent_id,
+            None,
+            None,
+            vec!["cond_skill".to_string()],
+        )
+        .await;
+
+    // Results should differ because activated skills change the output
+    assert_ne!(result_base, result_activated);
+    assert!(result_activated.contains("cond_skill"));
+}

@@ -627,12 +627,16 @@ impl ConversationSession {
             );
             return String::new();
         };
+        // Pass activated conditional skills so that SkillsFragmentProvider
+        // includes them in the rebuilt listing (SP rebuild path).
+        let activated: Vec<String> = self.activated_conditional_skills.iter().cloned().collect();
         let prompt = builder
-            .build_prompt(
+            .build_prompt_with_activated(
                 session_id,
                 agent_id,
                 self.prompt_overrides.as_ref(),
                 bootstrap_mode_override,
+                activated,
             )
             .await;
         self.replace_system_prompt(prompt.clone());

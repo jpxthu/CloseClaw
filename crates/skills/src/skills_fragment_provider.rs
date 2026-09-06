@@ -48,9 +48,11 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
             .await
             .ok();
 
-        let content = self
-            .listing
-            .generate_listing_excluding_conditional(Some(&ctx.agent_id), None);
+        let content = self.listing.generate_listing_with_activated(
+            Some(&ctx.agent_id),
+            None,
+            &ctx.activated_skills,
+        );
 
         if content.is_empty() {
             return None;
@@ -64,7 +66,15 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
     }
 
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
-        Some(format!("skill_listing:{}", ctx.agent_id))
+        // Include activated skills fingerprint so different activation
+        // states produce distinct cache entries.
+        let mut sorted_activated = ctx.activated_skills.clone();
+        sorted_activated.sort();
+        Some(format!(
+            "skill_listing:{}:{}",
+            ctx.agent_id,
+            sorted_activated.join(",")
+        ))
     }
 }
 
@@ -126,7 +136,11 @@ mod tests {
         }));
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-xyz".to_string();
-        assert_eq!(provider.cache_key(&ctx).unwrap(), "skill_listing:agent-xyz");
+        // Empty activated skills → trailing colon + empty string
+        assert_eq!(
+            provider.cache_key(&ctx).unwrap(),
+            "skill_listing:agent-xyz:"
+        );
     }
 
     #[test]
@@ -142,6 +156,49 @@ mod tests {
         ctx_b.agent_id = "agent-b".to_string();
 
         assert_ne!(provider.cache_key(&ctx_a), provider.cache_key(&ctx_b));
+    }
+
+    #[test]
+    fn test_cache_key_varies_with_activated_skills() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+
+        let mut ctx_empty = FragmentContext::test_default();
+        ctx_empty.agent_id = "agent-1".to_string();
+
+        let mut ctx_activated = FragmentContext::test_default();
+        ctx_activated.agent_id = "agent-1".to_string();
+        ctx_activated.activated_skills = vec!["skill-a".to_string(), "skill-b".to_string()];
+
+        assert_ne!(
+            provider.cache_key(&ctx_empty),
+            provider.cache_key(&ctx_activated),
+            "different activation sets must produce different cache keys"
+        );
+    }
+
+    #[test]
+    fn test_cache_key_sorts_activated_skills() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+
+        let mut ctx_a = FragmentContext::test_default();
+        ctx_a.agent_id = "agent-1".to_string();
+        ctx_a.activated_skills = vec!["b".to_string(), "a".to_string()];
+
+        let mut ctx_b = FragmentContext::test_default();
+        ctx_b.agent_id = "agent-1".to_string();
+        ctx_b.activated_skills = vec!["a".to_string(), "b".to_string()];
+
+        assert_eq!(
+            provider.cache_key(&ctx_a),
+            provider.cache_key(&ctx_b),
+            "same activation set in different order must produce same cache key"
+        );
     }
 
     #[tokio::test]
@@ -187,5 +244,235 @@ mod tests {
             rescan_flag.load(Ordering::SeqCst),
             "rescan() should have been called during generate()"
         );
+    }
+
+    /// A mock that returns different output based on the activated set,
+    /// simulating real generate_listing_with_activated behavior.
+    struct ActivatedMockProvider {
+        base_listing: String,
+        activated_listing: String,
+    }
+
+    impl SkillListingProvider for ActivatedMockProvider {
+        fn rescan(&self) {}
+
+        fn generate_listing(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.activated_listing.clone()
+        }
+
+        fn generate_listing_excluding_conditional(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.base_listing.clone()
+        }
+
+        fn generate_listing_with_activated(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+            activated: &[String],
+        ) -> String {
+            if activated.is_empty() {
+                self.base_listing.clone()
+            } else {
+                self.activated_listing.clone()
+            }
+        }
+
+        fn find_conditional_matches(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+            vec![]
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Normal path — activated conditional skills in output
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_generate_includes_activated_conditional_skills() {
+        let mock = ActivatedMockProvider {
+            base_listing: "- **base_skill**: A base skill".to_string(),
+            activated_listing:
+                "- **base_skill**: A base skill\n- **cond_skill**: ⚡ A conditional skill"
+                    .to_string(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let mut ctx = FragmentContext::test_default();
+        ctx.activated_skills = vec!["cond_skill".to_string()];
+
+        let frag = provider.generate(&ctx).await.expect("expected fragment");
+        assert!(
+            frag.content.contains("cond_skill"),
+            "activated conditional skill should appear"
+        );
+        assert!(
+            frag.content.contains("base_skill"),
+            "base skill should still appear"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_excludes_unactivated_conditional_skills() {
+        // Mock returns only base when no activated conditional skills match.
+        let mock = ActivatedMockProvider {
+            base_listing: "- **base_skill**: A base skill".to_string(),
+            activated_listing: "- **base_skill**: A base skill".to_string(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let mut ctx = FragmentContext::test_default();
+        ctx.activated_skills = vec!["nonexistent_skill".to_string()];
+
+        let frag = provider.generate(&ctx).await.expect("expected fragment");
+        assert!(
+            frag.content.contains("base_skill"),
+            "base skill should appear"
+        );
+        assert!(
+            !frag.content.contains("nonexistent_skill"),
+            "nonexistent skill must not appear"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Empty activation set — regresses to base listing
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_generate_empty_activated_set_matches_excluding_conditional() {
+        let base = "- **alpha**: desc alpha\n- **beta**: desc beta".to_string();
+        let mock = ActivatedMockProvider {
+            base_listing: base.clone(),
+            activated_listing: base.clone(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let ctx = FragmentContext::test_default(); // activated_skills is empty
+
+        let frag = provider.generate(&ctx).await.expect("expected fragment");
+        assert_eq!(
+            frag.content, base,
+            "empty activated set must produce base listing"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_empty_activated_set_no_conditional_leak() {
+        let mock = ActivatedMockProvider {
+            base_listing: "- **plain**: A plain skill".to_string(),
+            activated_listing: "- **plain**: A plain skill\n- **cond**: ⚡ conditional".to_string(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let ctx = FragmentContext::test_default();
+
+        let frag = provider.generate(&ctx).await.expect("expected fragment");
+        assert!(
+            !frag.content.contains("cond"),
+            "conditional skill must not leak with empty activated set"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Error/boundary — nonexistent skill in activated set
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_generate_nonexistent_activated_skill_no_panic() {
+        let mock = ActivatedMockProvider {
+            base_listing: "- **real_skill**: exists".to_string(),
+            activated_listing: "- **real_skill**: exists".to_string(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let mut ctx = FragmentContext::test_default();
+        ctx.activated_skills = vec!["deleted_skill".to_string()];
+
+        // Should not panic; provider passes activated set to listing which silently ignores unknowns.
+        let result = provider.generate(&ctx).await;
+        assert!(
+            result.is_some(),
+            "should still produce fragment for base skills"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Cache key includes activation fingerprint
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_cache_key_distinct_for_different_activated_sets() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+
+        let mut ctx_empty = FragmentContext::test_default();
+        ctx_empty.agent_id = "agent-1".to_string();
+
+        let mut ctx_a = FragmentContext::test_default();
+        ctx_a.agent_id = "agent-1".to_string();
+        ctx_a.activated_skills = vec!["skill-x".to_string()];
+
+        let mut ctx_b = FragmentContext::test_default();
+        ctx_b.agent_id = "agent-1".to_string();
+        ctx_b.activated_skills = vec!["skill-x".to_string(), "skill-y".to_string()];
+
+        assert_ne!(
+            provider.cache_key(&ctx_empty),
+            provider.cache_key(&ctx_a),
+            "empty vs single activation must differ"
+        );
+        assert_ne!(
+            provider.cache_key(&ctx_a),
+            provider.cache_key(&ctx_b),
+            "different activation sets must differ"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cache_key_order_independent() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+
+        let mut ctx_1 = FragmentContext::test_default();
+        ctx_1.agent_id = "agent-1".to_string();
+        ctx_1.activated_skills = vec!["b".to_string(), "a".to_string()];
+
+        let mut ctx_2 = FragmentContext::test_default();
+        ctx_2.agent_id = "agent-1".to_string();
+        ctx_2.activated_skills = vec!["a".to_string(), "b".to_string()];
+
+        assert_eq!(
+            provider.cache_key(&ctx_1),
+            provider.cache_key(&ctx_2),
+            "same set in different order must produce same cache key"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Fragment section metadata is correct
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_generate_activated_fragment_has_skills_section_type() {
+        let mock = ActivatedMockProvider {
+            base_listing: "- **skill1**: desc".to_string(),
+            activated_listing: "- **skill1**: desc\n- **cond1**: ⚡ cond".to_string(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let mut ctx = FragmentContext::test_default();
+        ctx.activated_skills = vec!["cond1".to_string()];
+
+        let frag = provider.generate(&ctx).await.expect("expected fragment");
+        assert_eq!(frag.section_title, "## Skills");
+        assert_eq!(frag.section_type, SectionType::Skills);
     }
 }

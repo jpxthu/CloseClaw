@@ -48,16 +48,19 @@ fn test_fragment_context_all_fields() {
         agent_id: "my-agent".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/home/user/project"),
+        activated_skills: vec!["skill-a".into(), "skill-b".into()],
     };
     assert_eq!(ctx.agent_id, "my-agent");
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
     assert_eq!(ctx.bootstrap_dir, String::from("/home/user/project"));
-    // Verify struct has exactly 3 fields — adding or removing a field here
+    assert_eq!(ctx.activated_skills, vec!["skill-a", "skill-b"]);
+    // Verify struct has exactly 4 fields — adding or removing a field here
     // will cause a compile error, enforcing alignment with design doc.
     let FragmentContext {
         agent_id: _,
         bootstrap_mode: _,
         bootstrap_dir: _,
+        activated_skills: _,
     } = ctx;
 }
 
@@ -67,11 +70,13 @@ fn test_fragment_context_clone() {
         agent_id: "clone-test".to_string(),
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/clone"),
+        activated_skills: vec!["activated-skill".into()],
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
     assert_eq!(ctx.bootstrap_mode, cloned.bootstrap_mode);
     assert_eq!(ctx.bootstrap_dir, cloned.bootstrap_dir);
+    assert_eq!(ctx.activated_skills, cloned.activated_skills);
 }
 
 #[test]
@@ -158,6 +163,7 @@ async fn test_mock_provider_generates_with_valid_fields() {
         agent_id: "test-agent".into(),
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/workspace"),
+        activated_skills: Vec::new(),
     };
     let frag = provider.generate(&ctx).await.unwrap();
     assert_eq!(frag.section_type, SectionType::Bootstrap);
@@ -174,6 +180,34 @@ fn test_mock_provider_cache_key_includes_agent_id() {
         ..FragmentContext::test_default()
     };
     assert_eq!(provider.cache_key(&ctx).as_deref(), Some("mock:agent-99"));
+}
+
+// ---------------------------------------------------------------------------
+// activated_skills field
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_fragment_context_activated_skills_default_empty() {
+    let ctx = FragmentContext::test_default();
+    assert!(ctx.activated_skills.is_empty());
+}
+
+#[test]
+fn test_fragment_context_activated_skills_preserved_by_clone() {
+    let ctx = FragmentContext {
+        activated_skills: vec!["a".into(), "b".into(), "c".into()],
+        ..FragmentContext::test_default()
+    };
+    let cloned = ctx.clone();
+    assert_eq!(cloned.activated_skills, vec!["a", "b", "c"]);
+}
+
+#[test]
+fn test_fragment_context_activated_skills_is_independent_of_default() {
+    let mut ctx = FragmentContext::test_default();
+    ctx.activated_skills.push("x".into());
+    let fresh = FragmentContext::test_default();
+    assert!(fresh.activated_skills.is_empty());
 }
 
 // ---------------------------------------------------------------------------

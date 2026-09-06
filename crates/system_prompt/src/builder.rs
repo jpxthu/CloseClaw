@@ -166,6 +166,13 @@ pub struct WorkspaceBuildConfig {
     /// Agent ID — passed through to [`FragmentContext`] so providers can
     /// perform per-agent filtering (tool white/blacklists, skill filtering).
     pub agent_id: Option<String>,
+    /// Names of condition skills currently activated in the session.
+    ///
+    /// Passed through to [`FragmentContext`] so that
+    /// [`SkillsFragmentProvider`] can include activated conditional skills
+    /// in the generated listing. Empty Vec means no activated skills
+    /// (default behavior).
+    pub activated_skills: Vec<String>,
 }
 
 // --- Private helpers -------------------------------------------------------
@@ -203,6 +210,7 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
         agent_id: config.agent_id.clone().unwrap_or_default(),
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
         bootstrap_dir: root.to_string_lossy().to_string(),
+        activated_skills: config.activated_skills,
     };
 
     let builder = match shared_cache {
@@ -309,6 +317,7 @@ mod tests {
             append_section: None,
             bootstrap_mode_override: None,
             agent_id: None,
+            activated_skills: vec![],
         };
         assert!(config.providers.is_empty());
     }
