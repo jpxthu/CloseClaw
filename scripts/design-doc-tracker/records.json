@@ -521,17 +521,17 @@
   },
   {
     "path": "docs/design/session/session-execution.md",
-    "commit": "2c0950ab7571e182b28ae1736033657acac5ec0b",
-    "commit_time": "2026-08-28T09:08:45+08:00",
-    "confirmed_time": "2026-08-28T09:23:19.085555+08:00",
+    "commit": "56e5ffa49e4a5d41c6c830c4c2c8c55adca795fa",
+    "commit_time": "2026-09-06T18:28:25+08:00",
+    "confirmed_time": "2026-09-06T18:41:17.843992+08:00",
     "comment": "",
     "blocked_reason": ""
   },
   {
     "path": "docs/design/session/session-injection.md",
-    "commit": "8188812ff8ef768dd9042bde1e708c705a89c1de",
-    "commit_time": "2026-08-29T12:22:17+08:00",
-    "confirmed_time": "2026-08-29T12:30:03.335658+08:00",
+    "commit": "d69b337b4977d0e7f6eb17fc1d0644982ced2dfd",
+    "commit_time": "2026-09-06T18:42:19+08:00",
+    "confirmed_time": "2026-09-06T18:57:08.120329+08:00",
     "comment": "",
     "blocked_reason": ""
   },
