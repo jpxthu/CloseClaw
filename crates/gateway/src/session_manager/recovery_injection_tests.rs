@@ -185,6 +185,22 @@ async fn test_inject_tool_failures() {
         }
         other => panic!("expected ToolResult block, got {:?}", other),
     }
+
+    // Verify injection order: tool result must appear before system
+    // notification, matching the design doc requirement.
+    let tool_idx = msgs
+        .iter()
+        .position(|m| m.role == "tool")
+        .expect("should have tool message");
+    let sys_idx = msgs
+        .iter()
+        .position(|m| m.role == "system")
+        .expect("should have system message");
+    assert!(
+        tool_idx < sys_idx,
+        "tool result (index {tool_idx}) must appear before system \
+         notification (index {sys_idx}) per design doc"
+    );
 }
 
 /// Verify that recovery data is cleared from the checkpoint after
