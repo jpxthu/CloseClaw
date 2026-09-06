@@ -292,7 +292,7 @@ impl Daemon {
         // pending_operations, and persist recovery notifications/failure
         // results into checkpoints so resolve.rs can inject them when
         // sessions are restored.
-        let dirty_sessions_for_drain: Vec<String> = {
+        let (dirty_sessions_for_drain, migrated_sessions): (Vec<String>, Vec<String>) = {
             use closeclaw_session::recovery::SessionRecoveryService;
             let recovery_svc =
                 SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
@@ -313,21 +313,21 @@ impl Daemon {
                             "recovery scan complete — no dirty sessions"
                         );
                     }
-                    report.dirty_sessions
+                    (report.dirty_sessions, report.migrated_sessions)
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(error = %e, "recovery scan failed — continuing without recovery");
-                    Vec::new()
+                    (Vec::new(), Vec::new())
                 }
-                Err(_elapsed) => {
-                    tracing::warn!(
-                        timeout_secs = 10,
-                        "recovery scan timed out — continuing without recovery"
-                    );
-                    Vec::new()
+                Err(_) => {
+                    tracing::warn!("recovery scan timed out (10s) — continuing without recovery");
+                    (Vec::new(), Vec::new())
                 }
             }
         };
+        for sid in &migrated_sessions {
+            session_manager.remove_stale_key_registry_entries(sid).await;
+        }
         if let Err(e) = session_manager.rebuild_key_registry().await {
             tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
         }
