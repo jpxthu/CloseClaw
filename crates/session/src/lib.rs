@@ -48,6 +48,8 @@ mod compaction_integration_tests;
 #[cfg(test)]
 mod compaction_tests;
 #[cfg(test)]
+mod pending_operations_outbound_tests;
+#[cfg(test)]
 mod pending_operations_tests;
 #[cfg(test)]
 mod persistence_tests;

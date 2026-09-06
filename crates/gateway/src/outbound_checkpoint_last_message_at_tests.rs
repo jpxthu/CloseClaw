@@ -186,8 +186,7 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_existing() {
     persist.saves.lock().unwrap().push(old_cp);
 
     let msg = make_msg(&session_id);
-    gw.persist_outbound_checkpoint(&session_id, &msg, true)
-        .await;
+    crate::outbound_helpers::persist_outbound_checkpoint(&gw, &session_id, &msg, true).await;
 
     // Wait for the spawned save task.
     for _ in 0..5 {
@@ -222,8 +221,7 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_new() {
     register_conv_session(&sm, &session_id).await;
 
     let msg = make_msg(&session_id);
-    gw.persist_outbound_checkpoint(&session_id, &msg, true)
-        .await;
+    crate::outbound_helpers::persist_outbound_checkpoint(&gw, &session_id, &msg, true).await;
 
     for _ in 0..5 {
         tokio::task::yield_now().await;
@@ -250,8 +248,7 @@ async fn test_outbound_checkpoint_presend_sets_last_message_at() {
     register_conv_session(&sm, &session_id).await;
 
     let msg = make_msg(&session_id);
-    gw.persist_outbound_checkpoint(&session_id, &msg, false)
-        .await;
+    crate::outbound_helpers::persist_outbound_checkpoint(&gw, &session_id, &msg, false).await;
 
     for _ in 0..5 {
         tokio::task::yield_now().await;
@@ -275,8 +272,7 @@ async fn test_outbound_checkpoint_postsend_updates_last_message_at() {
     let msg = make_msg(&session_id);
 
     // First persist (pre-send).
-    gw.persist_outbound_checkpoint(&session_id, &msg, false)
-        .await;
+    crate::outbound_helpers::persist_outbound_checkpoint(&gw, &session_id, &msg, false).await;
     for _ in 0..5 {
         tokio::task::yield_now().await;
     }
@@ -286,8 +282,7 @@ async fn test_outbound_checkpoint_postsend_updates_last_message_at() {
     let first_lma = first_save.last_message_at.unwrap();
 
     // Second persist (post-send).
-    gw.persist_outbound_checkpoint(&session_id, &msg, true)
-        .await;
+    crate::outbound_helpers::persist_outbound_checkpoint(&gw, &session_id, &msg, true).await;
     for _ in 0..5 {
         tokio::task::yield_now().await;
     }

@@ -78,26 +78,17 @@ impl ConversationSession {
         }
     }
 
+    /// Outbound message tracking is handled at the checkpoint layer
+    /// via `record_outbound_pending_op` / `clear_outbound_pending_op`.
+    /// ConversationSession has no independent outbound queue — the
+    /// unified queue holds inbound user messages, not outbound agent
+    /// deliveries. This collector is intentionally a no-op to avoid
+    /// emitting spurious OutboundMessage ops from unsent queue entries.
     fn collect_pending_outbound(
         &self,
-        ops: &mut Vec<PendingOperation>,
+        _ops: &mut Vec<PendingOperation>,
         _now: chrono::DateTime<Utc>,
     ) {
-        for pm in self.unified_queue.pending_user_messages() {
-            if !pm.sent {
-                let delivery_status = "pending";
-                ops.push(PendingOperation {
-                    op_id: pm.message_id.clone(),
-                    op_type: PendingOperationType::OutboundMessage,
-                    status: PendingOperationStatus::Running,
-                    detail: PoDetail::OutboundMessage {
-                        target_channel: pm.target_channel.clone(),
-                        message_id: pm.message_id.clone(),
-                        delivery_status: delivery_status.to_string(),
-                    },
-                    created_at: pm.created_at,
-                });
-            }
-        }
+        // no-op: outbound tracking lives in checkpoint.pending_operations
     }
 }

@@ -479,3 +479,114 @@ async fn test_persist_no_storage_is_noop() {
     <ConversationSession as ToolSession>::deregister_child_state(&session, "child_nop".into())
         .await;
 }
+
+// ── Regression: #1 write-ahead ops not lost by persist_pending_checkpoint ─
+
+/// Verify that `persist_pending_checkpoint` preserves OutboundMessage ops
+/// already present in the checkpoint. Previously, the function overwrote
+/// `pending_operations` entirely with `collect_pending_operations()` result,
+/// which has no outbound queue — causing write-ahead OutboundMessage ops
+/// to be silently dropped (race condition).
+#[tokio::test]
+async fn test_persist_preserves_outbound_message_ops() {
+    let (session, storage) = session_with_storage("outbound_race");
+
+    // Pre-seed checkpoint with an OutboundMessage pending op
+    // (simulating write-ahead from gateway).
+    let mut preloaded = SessionCheckpoint::new("outbound_race".into());
+    preloaded
+        .pending_operations
+        .push(crate::persistence::PendingOperation {
+            op_id: "out-msg-1".into(),
+            op_type: PendingOperationType::OutboundMessage,
+            status: Default::default(),
+            detail: crate::persistence::PendingOperationDetail::OutboundMessage {
+                target_channel: "feishu".into(),
+                message_id: "out-msg-1".into(),
+                delivery_status: "pending".into(),
+            },
+            created_at: chrono::Utc::now(),
+        });
+    // Store the preloaded checkpoint so load_checkpoint returns it.
+    storage.saves.lock().unwrap().push(preloaded);
+
+    // Now trigger persist_pending_checkpoint via register_tool_call.
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "tool-1".into(),
+        "bash".into(),
+        "echo test".into(),
+    )
+    .await;
+
+    // The saved checkpoint should contain BOTH the OutboundMessage op
+    // and the new ToolCall op — the OutboundMessage must NOT be lost.
+    let cp = storage.last_checkpoint().expect("checkpoint was saved");
+    let outbound_ops: Vec<_> = cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+    assert_eq!(
+        outbound_ops.len(),
+        1,
+        "OutboundMessage op must survive persist_pending_checkpoint"
+    );
+    assert_eq!(outbound_ops[0].op_id, "out-msg-1");
+
+    let tool_ops: Vec<_> = cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::ToolCall)
+        .collect();
+    assert_eq!(tool_ops.len(), 1, "ToolCall op should be added");
+    assert_eq!(tool_ops[0].op_id, "tool-1");
+}
+
+// ── Regression: #1 multiple OutboundMessage ops preserved ────────────────
+
+/// Verify that multiple pre-existing OutboundMessage ops are all preserved
+/// after persist_pending_checkpoint adds new ToolCall ops.
+#[tokio::test]
+async fn test_persist_preserves_multiple_outbound_ops() {
+    let (session, storage) = session_with_storage("outbound_multi");
+
+    let mut preloaded = SessionCheckpoint::new("outbound_multi".into());
+    for i in 0..3 {
+        preloaded
+            .pending_operations
+            .push(crate::persistence::PendingOperation {
+                op_id: format!("out-{}", i),
+                op_type: PendingOperationType::OutboundMessage,
+                status: Default::default(),
+                detail: crate::persistence::PendingOperationDetail::OutboundMessage {
+                    target_channel: "feishu".into(),
+                    message_id: format!("out-{}", i),
+                    delivery_status: "pending".into(),
+                },
+                created_at: chrono::Utc::now(),
+            });
+    }
+    storage.saves.lock().unwrap().push(preloaded);
+
+    // Trigger persist via register_tool_call.
+    <ConversationSession as ToolSession>::register_tool_call(
+        &session,
+        "tool-multi".into(),
+        "bash".into(),
+        "echo multi".into(),
+    )
+    .await;
+
+    let cp = storage.last_checkpoint().expect("checkpoint was saved");
+    let outbound_ops: Vec<_> = cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+    assert_eq!(
+        outbound_ops.len(),
+        3,
+        "all 3 OutboundMessage ops must be preserved"
+    );
+}

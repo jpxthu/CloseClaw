@@ -247,7 +247,6 @@ impl Gateway {
         &self,
         ctx: DispatchCtx<'_>,
     ) -> Result<SendOutcome, GatewayError> {
-        // Run outbound middleware chain (render → middleware → send).
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(ctx.session_id, ctx.channel, &ctx.chat_id);
@@ -257,7 +256,42 @@ impl Gateway {
                     .map(|()| SendOutcome::Sent);
             }
         }
-        // Send via plugin — on failure, notify user and skip outbound history.
+        let message_id = format!("out-{}", chrono::Utc::now().timestamp_millis());
+        if let Err(e) = self
+            .run_write_ahead(ctx.session_id, &message_id, ctx.channel)
+            .await
+        {
+            tracing::warn!(
+                session_id = ctx.session_id,
+                message_id = %message_id,
+                error = %e,
+                "write-ahead persist failed, skipping plugin.send"
+            );
+            return Ok(SendOutcome::Notified);
+        }
+        self.send_and_record(ctx, &message_id).await
+    }
+
+    /// Write-ahead: record OutboundMessage pending op before send.
+    ///
+    /// Per design doc: persistence must succeed before the actual send.
+    /// On failure the caller must NOT proceed with `plugin.send`.
+    async fn run_write_ahead(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        channel: &str,
+    ) -> Result<(), GatewayError> {
+        crate::outbound_helpers::record_outbound_pending_op(self, session_id, message_id, channel)
+            .await
+    }
+
+    /// Send via plugin, then ack-clear and persist the outbound checkpoint.
+    async fn send_and_record(
+        &self,
+        ctx: DispatchCtx<'_>,
+        message_id: &str,
+    ) -> Result<SendOutcome, GatewayError> {
         let send_start = std::time::Instant::now();
         let send_result = ctx
             .plugin
@@ -277,14 +311,24 @@ impl Gateway {
                 ctx.channel,
                 &ctx.chat_id,
                 send_duration_ms,
-                None, // outbound send event, no parent context needed
+                None,
             );
         }
         if let Err(e) = send_result {
             notify_batch_send_failure(self, ctx.channel, &ctx.chat_id, e).await;
             return Ok(SendOutcome::Notified);
         }
-        // Extract content for checkpoint based on msg_type.
+        self.ack_clear_and_record(ctx, message_id).await
+    }
+
+    /// Ack-clear: remove OutboundMessage pending op after successful send,
+    /// then persist the outbound delivery record to checkpoint.
+    async fn ack_clear_and_record(
+        &self,
+        ctx: DispatchCtx<'_>,
+        message_id: &str,
+    ) -> Result<SendOutcome, GatewayError> {
+        crate::outbound_helpers::clear_outbound_pending_op(self, ctx.session_id, message_id).await;
         let content = crate::outbound_helpers::extract_content_for_checkpoint(
             ctx.rendered,
             ctx.fallback_text,
@@ -292,53 +336,24 @@ impl Gateway {
         let msg = Self::make_outbound_msg(
             ctx.channel,
             ctx.chat_id.clone(),
+            message_id.to_string(),
             content,
             Some(ctx.channel.to_string()),
             ctx.dsl_result.clone(),
             ctx.content_blocks.clone(),
         );
-        self.persist_outbound_checkpoint(ctx.session_id, &msg, true)
+        crate::outbound_helpers::persist_outbound_checkpoint(self, ctx.session_id, &msg, true)
             .await;
-        self.emit_send_completed_log(
+        crate::outbound_helpers::emit_send_completed_log(
+            self,
             ctx.session_id,
             ctx.channel,
             &ctx.chat_id,
             ctx.trace_id.as_deref(),
             ctx.session_key.as_deref(),
-            None, // outbound send event, no parent context needed
+            None,
         );
         Ok(SendOutcome::Sent)
-    }
-
-    /// Emit a unified `send.completed` debug log event.
-    ///
-    /// Extracted from the text/interactive branches in
-    /// [`dispatch_and_persist`] to eliminate duplicated emit code.
-    /// When `trace_id` is `None`, the emit is skipped.
-    fn emit_send_completed_log(
-        &self,
-        _session_id: &str,
-        channel: &str,
-        peer_id: &str,
-        trace_id: Option<&str>,
-        session_key: Option<&str>,
-        parent: Option<&closeclaw_debug_log::TraceContext>,
-    ) {
-        let Some(tid) = trace_id else {
-            return;
-        };
-        let guard = self.debug_log.read().unwrap_or_else(|e| e.into_inner());
-        crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-            ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), tid, session_key),
-            level: closeclaw_debug_log::LogLevel::Info,
-            source_module: "gateway",
-            event_type: "send.completed",
-            payload: serde_json::json!({
-                "channel": channel,
-                "peer_id": peer_id,
-            }),
-            parent,
-        });
     }
 
     /// Run only the outbound raw-log processor, bypassing the full chain.
@@ -471,13 +486,14 @@ impl Gateway {
     fn make_outbound_msg(
         channel: &str,
         to: String,
+        id: String,
         content: String,
         platform: Option<String>,
         dsl_result: Option<String>,
         content_blocks: Option<String>,
     ) -> Message {
         Message {
-            id: format!("out-{}", chrono::Utc::now().timestamp_millis()),
+            id,
             from: "agent".to_string(),
             to,
             content,
@@ -489,62 +505,6 @@ impl Gateway {
             platform,
             dsl_result,
             content_blocks,
-        }
-    }
-
-    /// Persist outbound message to checkpoint if checkpoint_manager is configured.
-    ///
-    /// When `mark_sent` is `true`, the pending message is marked as sent
-    /// (checkpoint saved after successful delivery). When `false`, the
-    /// pending message is persisted without the sent flag, serving as a
-    /// pre-send checkpoint so recovery can detect the pending operation.
-    pub(crate) async fn persist_outbound_checkpoint(
-        &self,
-        session_id: &str,
-        msg: &Message,
-        mark_sent: bool,
-    ) {
-        let cm = self.checkpoint_manager.read().unwrap().clone();
-        let Some(cm) = cm else {
-            return;
-        };
-        let checkpoint = match cm.load(session_id).await {
-            Ok(Some(cp)) => cp,
-            Ok(None) => {
-                closeclaw_session::persistence::SessionCheckpoint::new(session_id.to_string())
-            }
-            Err(e) => {
-                tracing::warn!(session_id, "failed to load checkpoint: {}", e);
-                return;
-            }
-        };
-        let mut pending = closeclaw_session::persistence::PendingMessage::with_role(
-            msg.id.clone(),
-            msg.content.clone(),
-            "assistant".to_string(),
-        );
-        pending.target_channel = msg.channel.clone();
-        pending.platform = msg.platform.clone();
-        pending.dsl_result = msg.dsl_result.clone();
-        pending.content_blocks = msg.content_blocks.clone();
-        if mark_sent {
-            pending.mark_sent();
-        }
-        let mut cp = checkpoint.add_outbound_pending(pending);
-        // Sync per-session append-section list from ConversationSession
-        // (issue #860: archived session restore preserves append content).
-        if let Some(cs) = self
-            .session_manager
-            .get_conversation_session(session_id)
-            .await
-        {
-            let cs = cs.read().await;
-            cp.system_appends = cs.user_system_appends().to_vec();
-        }
-        cp.touch();
-        cp.last_message_at = Some(chrono::Utc::now());
-        if let Err(e) = cm.save(cp).await {
-            tracing::warn!(session_id, "failed to save checkpoint: {}", e);
         }
     }
 
@@ -737,16 +697,17 @@ impl Gateway {
             .collect::<Vec<_>>()
             .join("");
         let content_blocks_json = serde_json::to_string(&result.content_blocks).unwrap_or_default();
+        let msg_id = format!("out-{}", chrono::Utc::now().timestamp_millis());
         let msg = Self::make_outbound_msg(
             channel,
             chat_id,
+            msg_id,
             text,
             Some(channel.to_string()),
             result.dsl_result.clone(),
             Some(content_blocks_json),
         );
-        self.persist_outbound_checkpoint(session_id, &msg, true)
-            .await;
+        crate::outbound_helpers::persist_outbound_checkpoint(self, session_id, &msg, true).await;
 
         Ok(result)
     }

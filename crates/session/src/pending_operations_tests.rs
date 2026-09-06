@@ -1,10 +1,11 @@
 //! Unit tests for pending_operations recovery mechanism.
 //!
 //! Covers:
-//! - collect_pending_operations collects three op_types
-//! - Checkpoint serialization/deserialization of pending_operations
+//! - collect_pending_operations collects ToolCall + SubSessionSpawn ops
 //! - Recovery injection with non-empty pending_operations
 //! - Recovery flow unaffected when pending_operations is empty
+//!
+//! Outbound-specific tests are in pending_operations_outbound_tests.rs.
 
 use crate::llm_session::ConversationSession;
 use crate::persistence::{
@@ -112,7 +113,7 @@ fn test_collect_pending_operations_child_sessions() {
 }
 
 #[test]
-fn test_collect_pending_operations_outbound_messages() {
+fn test_collect_pending_operations_outbound_messages_are_not_collected() {
     let temp = tempfile::tempdir().expect("temp dir");
     let mut cs = ConversationSession::new(
         "sess_outbound".into(),
@@ -120,7 +121,9 @@ fn test_collect_pending_operations_outbound_messages() {
         temp.path().to_path_buf(),
     );
 
-    // Use restore_pending_messages to add unsent messages
+    // Use restore_pending_messages to add unsent messages.
+    // These are inbound user messages in the unified queue —
+    // collect_pending_outbound must NOT emit them as OutboundMessage ops.
     use crate::persistence::PendingMessage;
     let messages = vec![
         {
@@ -130,7 +133,7 @@ fn test_collect_pending_operations_outbound_messages() {
         },
         {
             let mut pm = PendingMessage::new("msg_2".into(), "content_2".into());
-            pm.sent = true; // This one is sent — should be skipped
+            pm.sent = true;
             pm
         },
         {
@@ -146,15 +149,11 @@ fn test_collect_pending_operations_outbound_messages() {
         .iter()
         .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
         .collect();
-    // Only unsent messages should be collected
     assert_eq!(
         outbound_ops.len(),
-        2,
-        "should collect 2 unsent outbound message ops"
+        0,
+        "unsent queue messages must NOT produce OutboundMessage ops"
     );
-    let ids: Vec<&str> = outbound_ops.iter().map(|op| op.op_id.as_str()).collect();
-    assert!(ids.contains(&"msg_1"));
-    assert!(ids.contains(&"msg_3"));
 }
 
 #[test]
@@ -166,7 +165,7 @@ fn test_collect_pending_operations_mixed_types() {
         temp.path().to_path_buf(),
     );
 
-    // Add one of each type
+    // Add tool + child ops (no outbound — those come from checkpoint layer)
     {
         let mut tool_states = cs.tool_states.write().unwrap();
         tool_states.insert(
@@ -178,6 +177,7 @@ fn test_collect_pending_operations_mixed_types() {
         let mut child_states = cs.child_states.write().unwrap();
         child_states.insert("child_1".to_string(), (ChildSessionState::Running, None));
     }
+    // Add a pending user message — must NOT produce OutboundMessage op
     {
         use crate::persistence::PendingMessage;
         let mut pm = PendingMessage::new("msg_1".into(), "content".into());
@@ -186,158 +186,14 @@ fn test_collect_pending_operations_mixed_types() {
     }
 
     let ops = cs.collect_pending_operations();
-    assert_eq!(ops.len(), 3, "should collect one of each op_type");
+    // Only ToolCall + SubSessionSpawn (no OutboundMessage from queue)
+    assert_eq!(ops.len(), 2, "should collect tool + child ops only");
 
     let op_types: Vec<&PendingOperationType> = ops.iter().map(|op| &op.op_type).collect();
     assert!(op_types.contains(&&PendingOperationType::ToolCall));
     assert!(op_types.contains(&&PendingOperationType::SubSessionSpawn));
-    assert!(op_types.contains(&&PendingOperationType::OutboundMessage));
-}
-
-// ── checkpoint serialization/deserialization ──────────────────
-
-#[test]
-fn test_checkpoint_pending_operations_roundtrip_empty() {
-    let cp = SessionCheckpoint::new("sess_rt_empty".into());
-    assert!(cp.pending_operations.is_empty());
-
-    let json = serde_json::to_string(&cp).unwrap();
-    let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
-    assert!(parsed.pending_operations.is_empty());
-}
-
-#[test]
-fn test_checkpoint_pending_operations_roundtrip_with_ops() {
-    let now = chrono::Utc::now();
-    let ops = vec![
-        PendingOperation {
-            status: PendingOperationStatus::Running,
-            op_id: "tool_call_1".into(),
-            op_type: PendingOperationType::ToolCall,
-            detail: PendingOperationDetail::ToolCall {
-                tool_name: "bash".into(),
-                args_summary: r#"{"command":"ls"}"#.into(),
-            },
-            created_at: now,
-        },
-        PendingOperation {
-            status: PendingOperationStatus::Running,
-            op_id: "child_1".into(),
-            op_type: PendingOperationType::SubSessionSpawn,
-            detail: PendingOperationDetail::SubSessionSpawn {
-                child_session_id: "sub-agent-1".into(),
-                agent_id: String::new(),
-                task_summary: String::new(),
-            },
-            created_at: now,
-        },
-        PendingOperation {
-            status: PendingOperationStatus::Running,
-            op_id: "msg_1".into(),
-            op_type: PendingOperationType::OutboundMessage,
-            detail: PendingOperationDetail::OutboundMessage {
-                target_channel: "outbound-chat".into(),
-                message_id: "msg_1".into(),
-                delivery_status: "hello world".into(),
-            },
-            created_at: now,
-        },
-    ];
-
-    let cp = SessionCheckpoint::new("sess_rt_ops".into()).with_pending_operations(ops);
-    let json = serde_json::to_string(&cp).unwrap();
-    let parsed: SessionCheckpoint = serde_json::from_str(&json).unwrap();
-
-    assert_eq!(parsed.pending_operations.len(), 3);
-    assert_eq!(
-        parsed.pending_operations[0].op_type,
-        PendingOperationType::ToolCall
-    );
-    assert_eq!(
-        parsed.pending_operations[0].detail.tool_name(),
-        Some("bash")
-    );
-    assert_eq!(
-        parsed.pending_operations[0].detail.args_summary(),
-        Some(r#"{"command":"ls"}"#)
-    );
-    assert_eq!(
-        parsed.pending_operations[1].op_type,
-        PendingOperationType::SubSessionSpawn
-    );
-    assert_eq!(
-        parsed.pending_operations[2].op_type,
-        PendingOperationType::OutboundMessage
-    );
-    assert_eq!(
-        parsed.pending_operations[2].detail.delivery_status(),
-        Some("hello world")
-    );
-}
-
-#[test]
-fn test_checkpoint_pending_operations_missing_json_defaults_empty() {
-    // Old checkpoint JSON without pending_operations field should default
-    // to empty Vec
-    let cp = SessionCheckpoint::new("sess_old".into());
-    let mut json_value: serde_json::Value = serde_json::to_value(&cp).unwrap();
-    json_value
-        .as_object_mut()
-        .unwrap()
-        .remove("pending_operations");
-    let json_str = serde_json::to_string(&json_value).unwrap();
-    let parsed: SessionCheckpoint = serde_json::from_str(&json_str).unwrap();
-    assert!(
-        parsed.pending_operations.is_empty(),
-        "old data without pending_operations should default to empty Vec"
-    );
-}
-
-#[test]
-fn test_pending_operation_type_serde_roundtrip() {
-    for op_type in [
-        PendingOperationType::ToolCall,
-        PendingOperationType::SubSessionSpawn,
-        PendingOperationType::OutboundMessage,
-    ] {
-        let json = serde_json::to_string(&op_type).unwrap();
-        let parsed: PendingOperationType = serde_json::from_str(&json).unwrap();
-        assert_eq!(op_type, parsed);
-    }
-}
-
-#[test]
-fn test_pending_operation_type_serde_values() {
-    assert_eq!(
-        serde_json::to_string(&PendingOperationType::ToolCall).unwrap(),
-        "\"tool_call\""
-    );
-    assert_eq!(
-        serde_json::to_string(&PendingOperationType::SubSessionSpawn).unwrap(),
-        "\"sub_session_spawn\""
-    );
-    assert_eq!(
-        serde_json::to_string(&PendingOperationType::OutboundMessage).unwrap(),
-        "\"outbound_message\""
-    );
-}
-
-#[test]
-fn test_checkpoint_with_pending_operations_builder() {
-    let ops = vec![PendingOperation {
-        op_id: "op_1".into(),
-        op_type: PendingOperationType::ToolCall,
-        status: PendingOperationStatus::Running,
-        detail: PendingOperationDetail::ToolCall {
-            tool_name: "test_tool".into(),
-            args_summary: String::new(),
-        },
-        created_at: chrono::Utc::now(),
-    }];
-
-    let cp = SessionCheckpoint::new("sess_builder".into()).with_pending_operations(ops);
-    assert_eq!(cp.pending_operations.len(), 1);
-    assert_eq!(cp.pending_operations[0].op_id, "op_1");
+    // OutboundMessage must NOT appear — dirty detection is not polluted by queue backlog
+    assert!(!op_types.contains(&&PendingOperationType::OutboundMessage));
 }
 
 // ── recovery injection ────────────────────────────────────────
@@ -555,13 +411,6 @@ async fn test_recovery_report_dirty_sessions_count() {
 
 #[tokio::test]
 async fn test_recovery_callback_receives_notification_and_tool_failures() {
-    use crate::persistence::{
-        PendingOperation, PendingOperationDetail, PendingOperationStatus, PendingOperationType,
-        PersistenceService, SessionCheckpoint,
-    };
-    use crate::storage::memory::MemoryStorage;
-    use std::sync::Arc;
-
     let storage = Arc::new(MemoryStorage::new());
     let now = chrono::Utc::now();
     let cp = SessionCheckpoint::new("notif_cb".into()).with_pending_operations(vec![
