@@ -4,7 +4,7 @@
 
 Agent 模块定义每个 AI Agent 的身份和能力边界，通过配置档案提供差异化的 Agent，并通过 Agent 间的层级协作完成复杂任务。
 
-Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Session 模块定义。本文档中的 spawn 指以目标 Agent 的身份创建子 Session——创建控制由本文档定义，创建后的运行时行为由 Session 模块定义（详见 [session](session.md)）。
+Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Session 模块定义。本文档中的 spawn 指以目标 Agent 的身份创建子 Session——创建控制由本文档定义，创建后的运行时行为由 Session 模块定义（详见 [session §F1](session.md)（对话持久化与恢复））。
 
 ## 功能需求
 
@@ -36,7 +36,7 @@ Agent 的能力配置和身份人格是两层独立的概念：
 
 Agent 的身份人格文件通过配置指定，包括身份加载模式和 Bootstrap 文件目录。
 
-> **交叉引用**：完整模式加载哪些文件、精简模式只加载哪些文件，详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：完整模式加载哪些文件、精简模式只加载哪些文件。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
 
 ### F3. Agent 能力组合
 
@@ -59,9 +59,9 @@ Agent 的能力边界由配置字段组合与权限基线共同决定，不依�
 
 ### F6. 运行时配置查询
 
-系统运行时，各模块通过 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、工具白名单/黑名单、技能白名单、子 Agent 控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力——如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)）。
+系统运行时，各模块通过 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、工具白名单/黑名单、技能白名单、子 Agent 控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力——如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
 
-配置变更的检测与重载通知由 Config 模块负责，详见 [config §F4](config.md)（配置重载）。注册清单与 Agent 配置变更后，新创建的 Session 使用最新配置，已运行的 Session 沿用创建时的配置。
+配置变更的检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。注册清单与 Agent 配置变更后，新创建的 Session 使用最新配置，已运行的 Session 沿用创建时的配置。
 
 ### F7. 子 Session 创建（Spawn）
 
@@ -114,7 +114,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 ### F13. 工作目录权限
 
 > **交叉引用**：工作目录的强制授权机制（不受任何 Deny 规则影响）详见 [permission §F3](permission.md)（权限决策模型）。
-> **交叉引用**：工作目录的解析顺序由 Session 模块确定，详见 [session §F8](session.md)（工作目录）。
+> **交叉引用**：工作目录的解析顺序由 Session 模块确定。详见 [session §F8](session.md)（工作目录）。
 
 ### F14. 父子 Session 通信
 
@@ -134,7 +134,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 - Agent 配置查询延迟不导致 Session 创建出现可感知等待
 - 权限与 Agent 配置变更的生效机制详见 [config §F7](config.md)（生效机制与重启类判定）
-- 子 Session 结果自动回传，父 Agent 不阻塞等待（详见 [session §F4](session.md)）
+- 子 Session 结果自动回传，父 Agent 不阻塞等待（详见 [session §F4](session.md)（子 Session 委托与协调））
 
 ### 安全性
 

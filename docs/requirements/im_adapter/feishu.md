@@ -36,6 +36,7 @@
 入站解析后输出归一化消息。各字段语义见 [im_adapter §F2](../im_adapter.md)（入站消息归一化），其中取值为：
 
 - 平台标识：固定为 feishu
+- 发送者标识：飞书 open_id，按接收方机器人应用语境取值
 - 账号标识：经身份映射得到的 CloseClaw 用户 ID
 
 接收消息的机器人身份不进入归一化字段，原则见 [im_adapter §F2](../im_adapter.md)（入站消息归一化）。机器人到 Agent 的绑定与路由逻辑详见 [gateway §F4](../gateway.md)（普通消息路由到对话）。
