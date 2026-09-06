@@ -117,92 +117,35 @@ impl SessionManager {
                                         routing_key = %routing_key,
                                         "migrating session archive timed out, restoring migrating session"
                                     );
-                                    // Archive timed out — restore the migrating
-                                    // session directly instead of falling through
-                                    // to create a new one (context preservation).
-                                    //
-                                    // Step 1: clear the stale archiving notification.
+                                    // Remove stale registry entry and in-memory
+                                    // session; they will be re-created on
+                                    // successful restore.
                                     {
-                                        let mut pending =
-                                            self.pending_restore_notifications.write().await;
-                                        pending.remove(&session_id);
+                                        let mut registry = self.key_registry.write().await;
+                                        registry.remove(&routing_key);
                                     }
-                                    // Step 2: attempt restore_checkpoint — moves
-                                    // transcript back from archived/active dir and
-                                    // marks DB status as Active.
-                                    let storage_ref = cm.storage();
-                                    let restored =
-                                        session_helpers::try_restore_migrating_checkpoint(
-                                            storage_ref,
+                                    self.remove_session(&session_id).await;
+                                    // Attempt restore via shared helper.
+                                    match self
+                                        .restore_migrating_on_timeout(
+                                            cm,
                                             &session_id,
+                                            &routing_key,
+                                            channel,
+                                            message,
                                         )
                                         .await
-                                        .unwrap_or(false);
-                                    if !restored {
-                                        warn!(
-                                            session_key = %session_key,
-                                            session_id = %session_id,
-                                            routing_key = %routing_key,
-                                            "failed to restore migrating session, falling through to create new session"
-                                        );
-                                        // Remove stale registry entry and in-memory
-                                        // session, then fall through to Path 3.
-                                        {
-                                            let mut registry = self.key_registry.write().await;
-                                            registry.remove(&routing_key);
-                                        }
-                                        self.remove_session(&session_id).await;
-                                    } else {
-                                        // Restore succeeded — rebuild session.
-                                        info!(
-                                            session_key = %session_key,
-                                            session_id = %session_id,
-                                            routing_key = %routing_key,
-                                            "migrating session restored on timeout"
-                                        );
-                                        // Remove stale registry entry and in-memory
-                                        // session; they will be re-created below.
-                                        {
-                                            let mut registry = self.key_registry.write().await;
-                                            registry.remove(&routing_key);
-                                        }
-                                        self.remove_session(&session_id).await;
-                                        // Reload checkpoint and rebuild session
-                                        // from checkpoint (shared helper).
-                                        if let Some(cp) = cm.load(&session_id).await.ok().flatten()
-                                        {
-                                            self.rebuild_session_from_checkpoint(
-                                                &session_id,
-                                                &cp,
-                                                message,
-                                            )
-                                            .await?;
-                                        }
-                                        // Re-register routing_key.
-                                        {
-                                            let mut registry = self.key_registry.write().await;
-                                            registry
-                                                .insert(routing_key.clone(), session_id.clone());
-                                        }
-                                        // Inject recovery notification.
-                                        {
-                                            let mut pending =
-                                                self.pending_restore_notifications.write().await;
-                                            pending.insert(
-                                                session_id.clone(),
-                                                (
-                                                    channel.to_string(),
-                                                    Some("正在恢复会话…".to_string()),
-                                                ),
+                                    {
+                                        Ok(restored_id) => return Ok(restored_id),
+                                        Err(e) => {
+                                            warn!(
+                                                session_key = %session_key,
+                                                session_id = %session_id,
+                                                routing_key = %routing_key,
+                                                error = %e,
+                                                "failed to restore migrating session, falling through to create new session"
                                             );
                                         }
-                                        self.update_checkpoint_fields(
-                                            &session_id,
-                                            &message.thread_id,
-                                            &message.reply_ref,
-                                        )
-                                        .await;
-                                        return Ok(session_id);
                                     }
                                 }
                             }
@@ -470,8 +413,30 @@ impl SessionManager {
                         session_key = %session_key,
                         session_id = %migrating_id,
                         routing_key = %routing_key,
-                        "migrating session archive timed out, creating new session"
+                        "migrating session archive timed out, restoring migrating session"
                     );
+                    // Attempt restore via shared helper.
+                    match self
+                        .restore_migrating_on_timeout(
+                            cm,
+                            &migrating_id,
+                            &routing_key,
+                            channel,
+                            message,
+                        )
+                        .await
+                    {
+                        Ok(restored_id) => return Ok(restored_id),
+                        Err(e) => {
+                            warn!(
+                                session_key = %session_key,
+                                session_id = %migrating_id,
+                                routing_key = %routing_key,
+                                error = %e,
+                                "failed to restore migrating session, falling through to create new session"
+                            );
+                        }
+                    }
                 }
             }
             // Fall through to archived check; if archived, it will
@@ -830,6 +795,64 @@ impl SessionManager {
             "created new session"
         );
         Ok(session_id)
+    }
+
+    /// Restore a migrating session after archive timeout.
+    /// Clears notification, restores checkpoint, rebuilds session,
+    /// re-registers routing key, and injects recovery notification.
+    async fn restore_migrating_on_timeout(
+        &self,
+        cm: &CheckpointManager<dyn PersistenceService>,
+        session_id: &str,
+        routing_key: &str,
+        channel: &str,
+        message: &Message,
+    ) -> Result<String, ProcessError> {
+        // Clear stale archiving notification.
+        {
+            self.pending_restore_notifications
+                .write()
+                .await
+                .remove(session_id);
+        }
+        // Restore checkpoint - moves transcript back and marks DB Active.
+        let restored = session_helpers::try_restore_migrating_checkpoint(cm.storage(), session_id)
+            .await
+            .unwrap_or(false);
+        if !restored {
+            return Err(ProcessError::ChainFailed(format!(
+                "restore migrating checkpoint failed for {}",
+                session_id
+            )));
+        }
+        info!(
+            session_key = %routing_key,
+            session_id = %session_id,
+            routing_key = %routing_key,
+            "migrating session restored on timeout"
+        );
+        // Reload checkpoint and rebuild session.
+        if let Some(cp) = cm.load(session_id).await.ok().flatten() {
+            self.rebuild_session_from_checkpoint(session_id, &cp, message)
+                .await?;
+        }
+        // Re-register routing key.
+        {
+            self.key_registry
+                .write()
+                .await
+                .insert(routing_key.to_string(), session_id.to_string());
+        }
+        // Inject recovery notification.
+        {
+            self.pending_restore_notifications.write().await.insert(
+                session_id.to_string(),
+                (channel.to_string(), Some("正在恢复会话…".to_string())),
+            );
+        }
+        self.update_checkpoint_fields(session_id, &message.thread_id, &message.reply_ref)
+            .await;
+        Ok(session_id.to_string())
     }
     /// Poll cm.load(session_id) every 500ms for up to 5s until Archived.
     async fn wait_for_archive_completion(
