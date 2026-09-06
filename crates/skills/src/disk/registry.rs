@@ -492,6 +492,67 @@ impl DiskSkillRegistry {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Listing generation with activated conditional skills
+// ---------------------------------------------------------------------------
+
+impl DiskSkillRegistry {
+    /// Generate a skill listing that includes both the base (non-conditional,
+    /// user-invocable) skills and any conditional skills whose names appear in
+    /// `activated`.
+    ///
+    /// Activated conditional skills are included **regardless** of their
+    /// `user_invocable` declaration (activation overrides the filter).
+    /// Non-conditional skills are still filtered by `user_invocable` as usual.
+    ///
+    /// Sorting: by source priority ascending (Project > Agent > Global >
+    /// ExtraDirs > Bundled), then by name alphabetically.
+    pub fn generate_listing_with_activated(
+        &self,
+        agent_id: Option<&str>,
+        skills_whitelist: Option<&[String]>,
+        activated: &[String],
+    ) -> String {
+        let resolved_whitelist = match skills_whitelist {
+            Some(w) => Some(w.to_vec()),
+            None => self.lookup_whitelist_from_agent_skills_query(agent_id),
+        };
+        let resolved_ref = resolved_whitelist.as_deref();
+        let use_whitelist = resolved_ref
+            .filter(|w| !(w.len() == 1 && w[0] == "*"))
+            .map(|w| w.iter().cloned().collect::<std::collections::HashSet<_>>());
+        let activated_set: std::collections::HashSet<&str> =
+            activated.iter().map(|s| s.as_str()).collect();
+        let mut filtered: Vec<&DiskSkill> = self
+            .skills
+            .iter()
+            .filter(|s| {
+                let in_whitelist = match &use_whitelist {
+                    Some(set) => set.contains(s.manifest.name.as_str()),
+                    None => true,
+                };
+                if !in_whitelist {
+                    return false;
+                }
+                if s.manifest.paths.is_empty() {
+                    s.manifest.user_invocable
+                } else {
+                    activated_set.contains(s.manifest.name.as_str())
+                }
+            })
+            .collect();
+        filtered.sort_by(|a, b| {
+            a.source
+                .cmp(&b.source)
+                .then_with(|| a.manifest.name.cmp(&b.manifest.name))
+        });
+        if filtered.is_empty() {
+            return String::new();
+        }
+        Self::render_listing(&mut filtered)
+    }
+}
+
 #[cfg(test)]
 #[path = "registry_tests/mod.rs"]
 mod tests;

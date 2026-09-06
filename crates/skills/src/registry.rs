@@ -253,6 +253,36 @@ impl BuiltinSkillRegistry {
         lines.join("\n")
     }
 
+    /// Generate a skill listing that includes both the base (non-conditional,
+    /// user-invocable) skills and any conditional skills whose names appear in
+    /// `activated`.
+    ///
+    /// Activated conditional skills are included **regardless** of their
+    /// `user_invocable` declaration (activation overrides the filter).
+    /// Non-conditional skills are still filtered by `user_invocable` as usual.
+    ///
+    /// Builtin skills do not currently define conditional activation paths
+    /// in practice, so this method falls back to the non-conditional listing.
+    /// If builtin manifests gain `paths` support in the future, this method
+    /// will need updating to apply the same activation-aware logic.
+    pub async fn generate_listing_with_activated(&self, activated: &[String]) -> String {
+        let activated_set: std::collections::HashSet<&str> =
+            activated.iter().map(|s| s.as_str()).collect();
+        let entries = self.sorted_skills().await;
+        let lines: Vec<String> = entries
+            .iter()
+            .filter(|(m, meta)| {
+                if meta.paths.is_empty() {
+                    meta.user_invocable
+                } else {
+                    activated_set.contains(m.name.as_str())
+                }
+            })
+            .map(|(m, meta)| Self::render_single_listing(m, meta))
+            .collect();
+        lines.join("\n")
+    }
+
     /// Find conditional skills whose glob patterns match the given file
     /// paths.
     ///

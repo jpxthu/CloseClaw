@@ -48,9 +48,11 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
             .await
             .ok();
 
-        let content = self
-            .listing
-            .generate_listing_excluding_conditional(Some(&ctx.agent_id), None);
+        let content = self.listing.generate_listing_with_activated(
+            Some(&ctx.agent_id),
+            None,
+            &ctx.activated_skills,
+        );
 
         if content.is_empty() {
             return None;
@@ -64,7 +66,15 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
     }
 
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
-        Some(format!("skill_listing:{}", ctx.agent_id))
+        // Include activated skills fingerprint so different activation
+        // states produce distinct cache entries.
+        let mut sorted_activated = ctx.activated_skills.clone();
+        sorted_activated.sort();
+        Some(format!(
+            "skill_listing:{}:{}",
+            ctx.agent_id,
+            sorted_activated.join(",")
+        ))
     }
 }
 
@@ -126,7 +136,11 @@ mod tests {
         }));
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-xyz".to_string();
-        assert_eq!(provider.cache_key(&ctx).unwrap(), "skill_listing:agent-xyz");
+        // Empty activated skills → trailing colon + empty string
+        assert_eq!(
+            provider.cache_key(&ctx).unwrap(),
+            "skill_listing:agent-xyz:"
+        );
     }
 
     #[test]
@@ -142,6 +156,49 @@ mod tests {
         ctx_b.agent_id = "agent-b".to_string();
 
         assert_ne!(provider.cache_key(&ctx_a), provider.cache_key(&ctx_b));
+    }
+
+    #[test]
+    fn test_cache_key_varies_with_activated_skills() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+
+        let mut ctx_empty = FragmentContext::test_default();
+        ctx_empty.agent_id = "agent-1".to_string();
+
+        let mut ctx_activated = FragmentContext::test_default();
+        ctx_activated.agent_id = "agent-1".to_string();
+        ctx_activated.activated_skills = vec!["skill-a".to_string(), "skill-b".to_string()];
+
+        assert_ne!(
+            provider.cache_key(&ctx_empty),
+            provider.cache_key(&ctx_activated),
+            "different activation sets must produce different cache keys"
+        );
+    }
+
+    #[test]
+    fn test_cache_key_sorts_activated_skills() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+
+        let mut ctx_a = FragmentContext::test_default();
+        ctx_a.agent_id = "agent-1".to_string();
+        ctx_a.activated_skills = vec!["b".to_string(), "a".to_string()];
+
+        let mut ctx_b = FragmentContext::test_default();
+        ctx_b.agent_id = "agent-1".to_string();
+        ctx_b.activated_skills = vec!["a".to_string(), "b".to_string()];
+
+        assert_eq!(
+            provider.cache_key(&ctx_a),
+            provider.cache_key(&ctx_b),
+            "same activation set in different order must produce same cache key"
+        );
     }
 
     #[tokio::test]
