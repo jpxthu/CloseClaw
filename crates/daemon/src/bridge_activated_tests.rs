@@ -4,12 +4,10 @@
 
 use super::*;
 use async_trait::async_trait;
-use closeclaw_common::AgentSkillsQuery;
 use closeclaw_common::SkillListingProvider;
 use closeclaw_skills::disk::types::{DiskSkill, SkillSource};
 use closeclaw_skills::DiskSkillRegistry;
 use closeclaw_skills::{SkillListingMeta, SkillManifest};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
