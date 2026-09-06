@@ -47,6 +47,10 @@ pub(crate) struct StreamState {
     /// the incremental phase (design doc). Full DSL parsing is deferred to
     /// the finish phase via `process_outbound_without_verbosity`.
     pub dsl_instructions: Vec<closeclaw_common::processor::DslInstruction>,
+    /// Original content blocks accumulated before VerbosityFilter runs.
+    /// Used only in the streaming error path to preserve complete Thinking
+    /// blocks for conversation history (design doc §流式输出).
+    pub error_partial_blocks: Vec<ContentBlock>,
 }
 
 impl StreamState {
@@ -65,6 +69,7 @@ impl StreamState {
             media_name: None,
             media_url: None,
             dsl_instructions: Vec::new(),
+            error_partial_blocks: Vec::new(),
         }
     }
 
@@ -159,7 +164,9 @@ pub(crate) async fn dispatch_text(
 ) -> Result<(), GatewayError> {
     for text in out.text_messages {
         send_text(ctx, &text).await?;
-        state.content_blocks.push(ContentBlock::Text(text));
+        let block = ContentBlock::Text(text);
+        state.error_partial_blocks.push(block.clone());
+        state.content_blocks.push(block);
     }
     Ok(())
 }
