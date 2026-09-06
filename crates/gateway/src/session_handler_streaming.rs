@@ -63,6 +63,11 @@ impl SessionMessageHandler {
         cs.read()
             .await
             .set_request_context(_meta.to_request_context());
+
+        // Pre-call reasoning level resolution (gateway-layer).
+        super::session_handler_reasoning::resolve_before_llm_call(session_manager, session_id)
+            .await;
+
         let session_stream: SessionStream = cs.write().await.invoke_llm_streaming(content).await?;
 
         // Retrieve the session's streaming sink (if any) for delta notifications.

@@ -62,6 +62,7 @@ pub mod session_handler;
 mod session_handler_announce;
 mod session_handler_compact;
 mod session_handler_dispatch;
+pub(crate) mod session_handler_reasoning;
 mod session_handler_streaming;
 pub mod session_manager;
 mod shutdown_card;
@@ -75,6 +76,10 @@ pub mod slash_permission;
 pub mod slash_permission_handlers;
 #[cfg(test)]
 mod slash_permission_outbound_tests;
+#[cfg(test)]
+mod slash_permission_routing_tests;
+#[cfg(test)]
+mod slash_permission_test_utils;
 #[cfg(test)]
 mod slash_permission_tests;
 #[cfg(test)]
@@ -93,11 +98,6 @@ mod sweeper_tests;
 pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;
-
-#[cfg(test)]
-mod slash_permission_routing_tests;
-#[cfg(test)]
-mod slash_permission_test_utils;
 #[cfg(test)]
 mod tests_slash_dispatcher_routing;
 #[cfg(feature = "full-tests")]

@@ -155,13 +155,16 @@ impl Daemon {
             chain_len = fallback_client.chain().len(),
             "LLM call chain injected into SessionManager (layer 4)"
         );
-        let session_handler = Arc::new(closeclaw_gateway::SessionMessageHandler::new(
-            Arc::clone(&session_manager),
-            Arc::clone(&fallback_client),
-            output_tx,
-            active_searcher_llm_caller,
-            closeclaw_common::CompactConfig::default(),
-        ));
+        let session_handler = Arc::new(
+            closeclaw_gateway::SessionMessageHandler::new(
+                Arc::clone(&session_manager),
+                Arc::clone(&fallback_client),
+                output_tx,
+                active_searcher_llm_caller,
+                closeclaw_common::CompactConfig::default(),
+            )
+            .with_model_knowledge(closeclaw_llm::ProviderModelKnowledge::new()),
+        );
         gateway.set_session_handler(session_handler);
 
         // Inject recovery notifications into dirty sessions at startup.

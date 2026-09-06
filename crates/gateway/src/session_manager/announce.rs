@@ -83,8 +83,7 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Drain all queued announce events. System notifications go to
-    /// `DrainResult::system_notifications` (simplified outbound path).
+    /// Drain all queued announce events.
     pub(crate) async fn drain_announces(&self, session_id: &str) -> DrainResult {
         let Some(cs) = self.get_conversation_session(session_id).await else {
             warn!(session_id = %session_id, "drain_announces: session not found");
@@ -117,8 +116,7 @@ impl SessionManager {
         }
     }
 
-    /// Drain and inject announce events. System notifications route
-    /// via simplified outbound path; announce events inject as system messages.
+    /// Drain and inject announce events.
     pub async fn drain_and_inject_announces(
         &self,
         session_id: &str,
@@ -142,9 +140,7 @@ impl SessionManager {
         }
     }
 
-    /// Drain announce events matching a predicate.
-    /// Non-matching events are re-inserted. System notifications go to
-    /// `DrainResult::system_notifications`.
+    /// Drain announce events matching a predicate. Non-matching re-inserted.
     pub(crate) async fn drain_announces_filtered(
         &self,
         session_id: &str,
@@ -187,8 +183,7 @@ impl SessionManager {
         }
     }
 
-    /// Drain and inject filtered announce events. Non-matching events
-    /// stay in the queue. System notifications route via simplified outbound.
+    /// Drain and inject filtered announce events.
     pub async fn drain_and_inject_announces_filtered(
         &self,
         session_id: &str,
@@ -216,7 +211,6 @@ impl SessionManager {
     }
 
     /// Route system notifications via simplified outbound path.
-    /// Falls back to warn log when gateway is None or send fails.
     async fn route_system_notifications(
         &self,
         session_id: &str,
@@ -430,8 +424,7 @@ impl SessionManager {
 // ── try_push_announce + private helpers ─────────────────────────────────────
 
 impl SessionManager {
-    /// Push announce from completed child to parent's queue. Best-effort,
-    /// errors logged but not propagated.
+    /// Push announce from completed child to parent's queue.
     pub async fn try_push_announce(&self, child_session_id: &str, priority: NotificationPriority) {
         let Some((parent_session_id, child_agent_id)) =
             self.find_run_mode_parent(child_session_id).await
@@ -596,8 +589,7 @@ impl SessionManager {
         self.maybe_recover_yielded_session(&parent_session_id).await;
     }
 
-    /// Find run-mode parent for a child session. Returns None for
-    /// non-children or session-mode children.
+    /// Find run-mode parent for a child session.
     async fn find_run_mode_parent(&self, child_session_id: &str) -> Option<(String, String)> {
         let children = self.children.read().await;
         children
@@ -606,7 +598,7 @@ impl SessionManager {
             .map(|info| (info.parent_session_id.clone(), info.agent_id.clone()))
     }
 
-    /// Extract concatenated Text blocks from child's last assistant message.
+    /// Extract text from child's last assistant message.
     async fn extract_last_assistant_text(&self, child_session_id: &str) -> Option<String> {
         let child_cs = self
             .get_conversation_session(child_session_id)
@@ -863,11 +855,11 @@ impl SessionManager {
                     cs_write.set_llm_busy(true);
                     cs_write.set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
                 }
-                // Invoke LLM for the queued message.
-                // Set default request context (no inbound metadata for queued messages).
+                // Invoke LLM with pre-call reasoning resolution.
                 cs.read()
                     .await
                     .set_request_context(closeclaw_common::RequestContext::default());
+                crate::session_handler_reasoning::resolve_before_llm_call(self, session_id).await;
                 let result = cs.write().await.invoke_llm(&pending.content).await;
                 // Clear busy state.
                 {
@@ -910,7 +902,6 @@ impl SessionManager {
 }
 
 // ── Private helpers ─────────────────────────────────────────────────────────
-
 /// Inject announce events as system messages with priority prefixes.
 ///
 /// Each event is formatted as:

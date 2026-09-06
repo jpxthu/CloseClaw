@@ -409,13 +409,16 @@ impl crate::Daemon {
                 model: String::new(),
             },
         );
-        let session_handler = Arc::new(closeclaw_gateway::SessionMessageHandler::new(
-            Arc::clone(&self.session_manager),
-            Arc::clone(&self.fallback_client),
-            output_tx,
-            active_searcher,
-            closeclaw_common::CompactConfig::default(),
-        ));
+        let session_handler = Arc::new(
+            closeclaw_gateway::SessionMessageHandler::new(
+                Arc::clone(&self.session_manager),
+                Arc::clone(&self.fallback_client),
+                output_tx,
+                active_searcher,
+                closeclaw_common::CompactConfig::default(),
+            )
+            .with_model_knowledge(closeclaw_llm::ProviderModelKnowledge::new()),
+        );
         new_gw.set_session_handler(session_handler);
         let _ = output_rx;
 

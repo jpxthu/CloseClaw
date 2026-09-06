@@ -436,7 +436,7 @@ impl ConversationSession {
             system_blocks: None,
             tools: None,
             session_id: None,
-            reasoning_level: self.reasoning_level,
+            reasoning_level: self.effective_reasoning_level(),
             turn_count: None,
         }
     }
