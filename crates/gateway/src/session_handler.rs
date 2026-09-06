@@ -454,3 +454,7 @@ pub(crate) async fn apply_compact_result(
         sm.complete_pre_compaction_snapshot(session_id, sid).await;
     }
 }
+
+#[cfg(test)]
+#[path = "session_handler_reasoning_tests.rs"]
+pub mod session_handler_reasoning_tests;

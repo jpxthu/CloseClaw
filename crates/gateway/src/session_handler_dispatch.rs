@@ -562,6 +562,10 @@ impl SessionMessageHandler {
             if let Some(cs) = sm.get_conversation_session(&session_id).await {
                 cs.read().await.set_request_context(request_ctx);
             }
+
+            // Pre-call reasoning level resolution (gateway-layer).
+            super::session_handler_reasoning::resolve_before_llm_call(&sm, &session_id).await;
+
             let result = Self::execute_llm_call(
                 &cs,
                 &content,

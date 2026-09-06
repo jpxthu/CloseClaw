@@ -515,6 +515,92 @@ fn test_build_llm_request_default_reasoning_level_is_high() {
     assert_eq!(session.reasoning_level(), ReasoningLevel::High);
 }
 
+// ── Step 1.4: build_llm_request uses effective_reasoning_level ────────
+
+/// When `effective_reasoning_level` is set (post-provider-downgrade),
+/// `build_llm_request` should carry the effective level, not the
+/// original request level.
+#[tokio::test]
+async fn test_build_llm_request_uses_effective_reasoning_level() {
+    use closeclaw_common::ReasoningLevel;
+
+    let mut session = ConversationSession::new("s_eff1".into(), "test-model".into(), tmp_path());
+    let fake = Arc::new(FakeLlmCaller::new(canned_response("ok")));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Set request level to Max, effective to Low (simulating downgrade)
+    session.set_reasoning_level(ReasoningLevel::Max);
+    session.set_effective_reasoning_level(ReasoningLevel::Low);
+
+    let result = session.invoke_llm("hello").await;
+    assert!(result.is_ok(), "invoke_llm should succeed");
+
+    let req = fake_ref.last_request().expect("request captured");
+    assert_eq!(
+        req.reasoning_level,
+        ReasoningLevel::Low,
+        "request should carry effective (downgraded) level, not request level"
+    );
+}
+
+/// When `effective_reasoning_level` is None (not yet resolved),
+/// `build_llm_request` should fall back to the session's `reasoning_level`.
+#[tokio::test]
+async fn test_build_llm_request_falls_back_to_reasoning_level_when_effective_is_none() {
+    use closeclaw_common::ReasoningLevel;
+
+    let mut session = ConversationSession::new("s_eff2".into(), "test-model".into(), tmp_path());
+    let fake = Arc::new(FakeLlmCaller::new(canned_response("ok")));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // Only set request level, effective is None (not yet resolved)
+    session.set_reasoning_level(ReasoningLevel::Medium);
+    // effective_reasoning_level is None by default
+
+    let result = session.invoke_llm("hello").await;
+    assert!(result.is_ok(), "invoke_llm should succeed");
+
+    let req = fake_ref.last_request().expect("request captured");
+    assert_eq!(
+        req.reasoning_level,
+        ReasoningLevel::Medium,
+        "request should fall back to reasoning_level when effective is None"
+    );
+}
+
+/// After `set_reasoning_level` resets effective to None, the next
+/// request should use the new reasoning_level (not a stale effective).
+#[tokio::test]
+async fn test_build_llm_request_after_set_reasoning_level_resets_effective() {
+    use closeclaw_common::ReasoningLevel;
+
+    let mut session = ConversationSession::new("s_eff3".into(), "test-model".into(), tmp_path());
+    let fake = Arc::new(FakeLlmCaller::new(canned_response("ok")));
+    let fake_ref = fake.clone();
+    session.set_llm_caller(fake);
+
+    // First call: effective is Low (downgraded from Max)
+    session.set_reasoning_level(ReasoningLevel::Max);
+    session.set_effective_reasoning_level(ReasoningLevel::Low);
+
+    let _ = session.invoke_llm("first").await;
+    let req1 = fake_ref.last_request().expect("request captured");
+    assert_eq!(req1.reasoning_level, ReasoningLevel::Low);
+
+    // User changes level to High → effective is reset to None
+    session.set_reasoning_level(ReasoningLevel::High);
+
+    let _ = session.invoke_llm("second").await;
+    let req2 = fake_ref.last_request().expect("request captured");
+    assert_eq!(
+        req2.reasoning_level,
+        ReasoningLevel::High,
+        "after set_reasoning_level, effective resets to None → falls back to new level"
+    );
+}
+
 // ── build_llm_messages_with_listing: history injection (Step 1.1) ────────
 
 /// Verify that `build_llm_messages_with_listing` includes conversation

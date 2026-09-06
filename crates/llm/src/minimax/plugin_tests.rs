@@ -262,30 +262,17 @@ fn test_m3_max_reasoning_injects_thinking() {
     assert_eq!(
         req.extra_body.get("thinking"),
         Some(&json!({"type": "enabled"})),
-        "M3 + Max should inject thinking enabled (after downgrade to High)"
+        "M3 + Max should inject thinking enabled"
     );
 }
 
 #[test]
-fn test_m3_max_downgrades_to_high() {
+fn test_m3_max_remains_max_no_downgrade() {
     let plugin = MiniMaxM3Plugin;
     let mut req = make_m3_request(ReasoningLevel::Max);
     assert_eq!(req.reasoning_level, ReasoningLevel::Max);
     plugin.before_request(&mut req);
-    assert_eq!(req.reasoning_level, ReasoningLevel::High);
-}
-
-#[test]
-fn test_m3_max_downgrade_triggers_logging_path() {
-    let plugin = MiniMaxM3Plugin;
-    let mut req = make_m3_request(ReasoningLevel::Max);
     assert_eq!(req.reasoning_level, ReasoningLevel::Max);
-    plugin.before_request(&mut req);
-    assert_eq!(req.reasoning_level, ReasoningLevel::High);
-    assert_eq!(
-        req.extra_body.get("thinking"),
-        Some(&json!({"type": "enabled"}))
-    );
 }
 
 #[test]

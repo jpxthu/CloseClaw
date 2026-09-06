@@ -1,11 +1,11 @@
-//! Step 1.3 — Integration tests for Anthropic reasoning level downgrade chain.
+//! Step 1.3 — Integration tests for Anthropic reasoning level chain.
 //!
 //! Verifies the full pipeline: AnthropicPlugin → protocol build_request →
-//! final request body, and that `resolve_effective_reasoning_level` returns
-//! the correct effective level for Anthropic models.
+//! final request body. Downgrade logic is now handled at the gateway layer;
+//! the plugin is a no-op and passes all levels through unchanged.
 //!
 //! These tests are cross-crate integration tests covering:
-//! - Plugin downgrade semantics (Off→Low, non-High→High)
+//! - Plugin passthrough semantics (all levels unchanged)
 //! - Protocol layer no longer injects thinking parameters
 //! - `resolve_effective_reasoning_level` Anthropic fallback
 //! - No regression for minimax/deepseek/glm
@@ -44,18 +44,18 @@ fn make_request(level: ReasoningLevel) -> InternalRequest {
 // Full-chain integration: AnthropicPlugin → protocol → request body
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Off → plugin downgrades to Low → OpenAiProtocol body has no thinking injection.
+/// Off → plugin passes through (no-op) → OpenAiProtocol body has no thinking injection.
 ///
 /// Anthropic provider uses OpenAiProtocol (via call_chain default branch).
-/// After plugin downgrade, the protocol builds a clean body.
+/// The plugin is now a no-op; downgrade is handled at the gateway layer.
 #[test]
 fn test_anthropic_off_full_chain_openai_protocol() {
     let plugin = AnthropicPlugin;
     let mut req = make_request(ReasoningLevel::Off);
 
-    // Plugin downgrades Off → Low
+    // Plugin is a no-op; reasoning_level stays Off
     plugin.before_request(&mut req);
-    assert_eq!(req.reasoning_level, ReasoningLevel::Low);
+    assert_eq!(req.reasoning_level, ReasoningLevel::Off);
 
     // OpenAiProtocol builds the body (no thinking params for OpenAI)
     let protocol = OpenAiProtocol::new();
@@ -80,7 +80,7 @@ fn test_anthropic_off_full_chain_openai_protocol() {
     assert!(body.get("messages").unwrap().is_array());
 }
 
-/// Non-High (Max/Medium/Low) → plugin downgrades to High → body clean.
+/// Non-High (Max/Medium/Low) → plugin passes through (no-op) → body clean.
 #[test]
 fn test_anthropic_non_high_full_chain_openai_protocol() {
     let plugin = AnthropicPlugin;
@@ -93,7 +93,7 @@ fn test_anthropic_non_high_full_chain_openai_protocol() {
     ] {
         let mut req = make_request(level);
         plugin.before_request(&mut req);
-        assert_eq!(req.reasoning_level, ReasoningLevel::High);
+        assert_eq!(req.reasoning_level, level);
 
         let body = protocol.build_request(&req).unwrap();
         assert!(
@@ -107,7 +107,7 @@ fn test_anthropic_non_high_full_chain_openai_protocol() {
     }
 }
 
-/// High → plugin passthrough → body clean.
+/// High → plugin passthrough (no-op) → body clean.
 #[test]
 fn test_anthropic_high_full_chain_openai_protocol() {
     let plugin = AnthropicPlugin;
@@ -122,14 +122,14 @@ fn test_anthropic_high_full_chain_openai_protocol() {
 }
 
 /// Full chain through AnthropicProtocol (used by minimax/deepseek path).
-/// Off → plugin Low → AnthropicProtocol body has no thinking injection.
+/// Off → plugin passes through (no-op) → AnthropicProtocol body has no thinking injection.
 #[test]
 fn test_anthropic_off_full_chain_anthropic_protocol() {
     let plugin = AnthropicPlugin;
     let mut req = make_request(ReasoningLevel::Off);
 
     plugin.before_request(&mut req);
-    assert_eq!(req.reasoning_level, ReasoningLevel::Low);
+    assert_eq!(req.reasoning_level, ReasoningLevel::Off);
 
     let protocol = AnthropicProtocol::new();
     let body = protocol.build_request(&req).unwrap();
