@@ -34,7 +34,7 @@ Agent 在 session 内可运行于以下模式之一，每种模式决定了 Agen
 
 阶段切换由 Agent 自行判断，阶段之间无系统强制卡点。Review 不是一次性审批——User 可以反复审阅并给出修改意见，Agent 不断调整 plan，直到 User 满意并决定执行。Research 和 Design 阶段 Agent 可以 spawn 子 Session 并行工作；spawn 出的子 Session 在 Plan Mode 下也只读（详见 [permission §F9](permission.md)（子 Session 权限继承））。
 
-> **交叉引用**：子 Session spawn 的并发上限和创建控制详见 [agent §F9](agent.md)（Spawn 创建控制）。
+> **交叉引用**：子 Session spawn 的并发上限和创建控制详见 [agent §F9](agent.md)（子 Session 创建控制）。
 
 ### F3. Plan Mode — Interview 路径
 
