@@ -14,14 +14,15 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同 IM 平台的消
 
 - 空文本消息在接入阶段丢弃，不进入后续处理
 
-> **交叉引用**：入站消息文本标准化由 Processor Chain 模块负责，详见 [processor_chain §F3](processor_chain.md)（文本内容标准化）。
+> **交叉引用**：入站消息文本标准化由 Processor Chain 模块负责。详见 [processor_chain §F3](processor_chain.md)（文本内容标准化）。
 
 ### F3. 消息类型识别与非文本处理
 
 - 系统能识别文本、图片、文件、音频等多种消息类型
 - 文本消息进入正常对话链路
-- 非文本消息（图片、文件、音频等）的上下文形态，详见 [im_adapter §F9](im_adapter.md)（媒体文件收发与存储）「Agent 上下文形态」——图片在未超过大小阈值时以图片内容进入 LLM 上下文；超过大小阈值的图片及其他媒体以媒体引用进入 LLM 上下文
 - 平台侧无法提供媒体内容的（如下载失败、超出大小上限），向 User 提示「该消息内容无法获取」，不进入 LLM 对话
+
+> **交叉引用**：非文本消息进入 LLM 上下文的形态（图片内容或媒体引用）详见 [im_adapter §F9](im_adapter.md)（媒体文件收发与存储）。
 
 ### F4. 普通消息路由到对话
 
@@ -29,24 +30,24 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同 IM 平台的消
 - 消息路由到接收该消息的机器人所绑定的 Agent——机器人与 Agent 的绑定关系由配置定义
 - 绑定关系存于配置文件，属重启生效类：变更确认后由配置模块触发网关择机重启，重启后新绑定生效（重启前已接收的消息不受影响，见 [§F6](#f6-入站消息队列与过载保护)）
 - 在命中 Agent 后，Session 查找、创建与归档恢复由 Session 模块负责（含向 User 展示的提示语），Gateway 不参与查找、创建与归档恢复，命中 Session 后进入 LLM 对话流程
+- Session 查找异常或创建失败时，系统向 User 回复错误提示
 
 > **交叉引用**：会话查找、创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：Session 活跃状态判定与消息排队行为详见 [session §F10](session.md)（消息排队）。
-- Session 查找异常或创建失败时，系统向 User 回复错误提示
-> **交叉引用**：绑定配置详见 [config §F1](config.md)（多文件配置结构）；生效机制详见 [config §F4](config.md)（配置重载）、[config §F7](config.md)（生效机制与重启类判定）。
+> **交叉引用**：绑定配置详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：配置重载详见 [config §F4](config.md)（配置重载）。
+> **交叉引用**：生效机制与重启类判定详见 [config §F7](config.md)（生效机制与重启类判定）。
 
 ### F5. 斜杠指令拦截与分派
 
 - User 可以发送以 `/` 开头的斜杠指令，指令在进入 LLM 对话之前被拦截，不追加到对话历史
 - 非 Owner 调用 `/approve-once`、`/approve-whitelist`、`/deny` 时收到权限不足提示
-
-> **交叉引用**：审批指令的 Owner 专用语义详见 [slash §F13](slash.md)（审批指令）。
 - Immediate 指令绕过排队条件，立即受理；待审批操作的执行结果在 Owner 审批完成后送达
-
-> **交叉引用**：各指令的 Immediate 标记由 Slash 模块逐指令定义，详见 [slash §F1](slash.md)（斜杠指令入口）。
-> **交叉引用**：审批指令的等待与回调机制详见 [permission §F5](permission.md)（审批工作流）。
 - 非 Immediate 斜杠指令在不满足排队条件时直接执行，在满足排队条件时进入该 Session 的待处理队列
 
+> **交叉引用**：审批指令的 Owner 专用语义详见 [slash §F13](slash.md)（审批指令）。
+> **交叉引用**：各指令的 Immediate 标记由 Slash 模块逐指令定义。详见 [slash §F1](slash.md)（斜杠指令入口）。
+> **交叉引用**：审批指令的等待与回调机制详见 [permission §F5](permission.md)（审批工作流）。
 > **交叉引用**：排队条件与排队提示详见 [session §F10](session.md)（消息排队）。
 > **交叉引用**：Session 活跃维度详见 [session §F11](session.md)（Session 活跃维度）。
 
@@ -54,17 +55,19 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同 IM 平台的消
 
 - 高并发入站消息按到达顺序排队处理
 - 队列满时拒绝新消息，立即向 User 回复「服务繁忙，请稍后重试」
-- 系统决定执行重启时，入站新消息不再走排队与拒绝逻辑，全部暂存，重启完成后按原到达顺序补投（暂存与补投的触发时机详见 [daemon §F6](daemon.md)（配置触发的网关重启））
+- 系统决定执行重启时，入站新消息不再走排队与拒绝逻辑，全部暂存，重启完成后按原到达顺序补投
 - 重启时仍驻留在入站队列、尚未完成处理的消息不会丢失
+
+> **交叉引用**：暂存与补投的触发时机详见 [daemon §F6](daemon.md)（配置触发的网关重启）。
 
 ### F7. 出站消息统一处理
 
 - LLM 回复和斜杠指令回复均走同一条出站消息处理流程
-
-> **交叉引用**：出站消息按目标平台的要求展示，格式自动选择由 IM Adapter 模块负责，详见 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）。
 - 出站消息发送前经过频率限制、敏感操作审计等检查，被拦截的消息不发送
 - 回复过程中出错或中断时统一降级处理：已发送给 User 的部分保留，未生成部分以错误提示类系统通知替代，不追加不完整的新增量
 - LLM 回复和斜杠指令回复发送后保存到 Session 历史记录；排队提示、错误提示等系统通知不保存
+
+> **交叉引用**：出站消息按目标平台的要求展示，格式自动选择由 IM Adapter 模块负责。详见 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）。
 
 ### F8. 调试日志
 
@@ -73,9 +76,9 @@ Gateway 在以下环节记录调试日志，用于排查问题：
 - 路由决策结果（斜杠指令识别 / 普通对话分发 / 排队状态）
 - 频率限制、审计等拦截事件
 
-> **交叉引用**：入站消息原始内容日志由 Processor Chain 模块负责，详见 [processor_chain §F6](processor_chain.md)（调试日志）。
-> **交叉引用**：Session 查找与生命周期事件日志由 Session 模块负责，详见 [session §F12](session.md)（调试日志）。
-> **交叉引用**：出站渲染与平台 API 发送结果日志由 IM Adapter 模块负责，详见 [im_adapter §F8](im_adapter.md)（调试日志）。
+> **交叉引用**：入站消息原始内容日志由 Processor Chain 模块负责。详见 [processor_chain §F6](processor_chain.md)（调试日志）。
+> **交叉引用**：Session 查找与生命周期事件日志由 Session 模块负责。详见 [session §F12](session.md)（调试日志）。
+> **交叉引用**：出站渲染与平台 API 发送结果日志由 IM Adapter 模块负责。详见 [im_adapter §F8](im_adapter.md)（调试日志）。
 
 > **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
 
