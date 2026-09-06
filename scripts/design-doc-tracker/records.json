@@ -561,9 +561,9 @@
   },
   {
     "path": "docs/design/session/spawn-tree.md",
-    "commit": "4b514a6094adc06d3bd64292097e50cad78e3eb6",
-    "commit_time": "2026-08-29T13:18:00+08:00",
-    "confirmed_time": "2026-08-29T13:34:24.481086+08:00",
+    "commit": "16d0eaf457e723705a0a0ff99a443f4313b92161",
+    "commit_time": "2026-09-07T04:26:42+08:00",
+    "confirmed_time": "2026-09-07T04:35:42.236642+08:00",
     "comment": "",
     "blocked_reason": ""
   },
