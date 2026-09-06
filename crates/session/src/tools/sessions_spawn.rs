@@ -219,7 +219,7 @@ impl Tool for SessionsSpawnTool {
                 },
                 "task": {
                     "type": "string",
-                    "description": "Task description, injected as the child's first message"
+                    "description": "Task description, injected into the child session's system prompt (not a conversation message, unaffected by compaction)"
                 },
                 "mode": {
                     "type": "string",
