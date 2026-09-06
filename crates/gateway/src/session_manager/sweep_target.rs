@@ -117,4 +117,9 @@ impl AnnounceSweepTarget for SessionManager {
     async fn sweep_reclaim(&self) {
         sweep_spawn_tree_reclaim(self).await;
     }
+
+    async fn reclaim_child_node(&self, child_id: &str) {
+        let mut tree = self.children.write().await;
+        tree.remove_descendant_entries(&[child_id.to_string()]);
+    }
 }

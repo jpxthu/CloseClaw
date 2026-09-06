@@ -101,6 +101,17 @@ pub trait AnnounceSweepTarget: Send + Sync {
     /// Default implementation is a no-op; gateway overrides with
     /// [`closeclaw_gateway::spawn_reclaim_gc::sweep_spawn_tree_reclaim`].
     async fn sweep_reclaim(&self) {}
+
+    /// Reclaim a single child node from the spawn tree.
+    ///
+    /// Called when the parent session is archived but the child node
+    /// is still present. The node should be removed from the tree
+    /// without killing the child session (it is already idle/completed)
+    /// and without injecting a notification (parent is archived).
+    ///
+    /// Default implementation is a no-op; gateway overrides with
+    /// spawn tree removal logic.
+    async fn reclaim_child_node(&self, _child_id: &str) {}
 }
 
 /// Background sweeper that ensures completion announces from run-mode
@@ -288,6 +299,7 @@ impl AnnounceSweeper {
                 "AnnounceSweeper: parent archived, \
                     skipping announce and reclaiming node"
             );
+            self.target.reclaim_child_node(child_id).await;
             return;
         }
 

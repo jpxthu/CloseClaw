@@ -34,6 +34,8 @@ struct MockTarget {
     terminated_children: RwLock<Vec<(String, String)>>,
     /// Count of `sweep_reclaim` calls.
     sweep_reclaim_count: RwLock<usize>,
+    /// Record of `child_id` calls to `reclaim_child_node`.
+    reclaimed_nodes: RwLock<Vec<String>>,
     /// Sessions that have a final assistant message.
     has_assistant_message: RwLock<Vec<String>>,
 }
@@ -49,6 +51,7 @@ impl MockTarget {
             archived_parents: RwLock::new(Vec::new()),
             terminated_children: RwLock::new(Vec::new()),
             sweep_reclaim_count: RwLock::new(0),
+            reclaimed_nodes: RwLock::new(Vec::new()),
             has_assistant_message: RwLock::new(Vec::new()),
         }
     }
@@ -111,6 +114,11 @@ impl MockTarget {
             .await
             .push(session_id.to_string());
     }
+
+    /// Return the list of `child_id` calls to `reclaim_child_node`.
+    async fn reclaimed_nodes(&self) -> Vec<String> {
+        self.reclaimed_nodes.read().await.clone()
+    }
 }
 
 #[async_trait]
@@ -167,6 +175,13 @@ impl AnnounceSweepTarget for MockTarget {
 
     async fn sweep_reclaim(&self) {
         *self.sweep_reclaim_count.write().await += 1;
+    }
+
+    async fn reclaim_child_node(&self, child_id: &str) {
+        self.reclaimed_nodes
+            .write()
+            .await
+            .push(child_id.to_string());
     }
 }
 
@@ -665,13 +680,13 @@ async fn test_sweeper_grace_period_no_abort_when_completed() {
 // Step 1.2: Announce pre-condition validation tests
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── 15. Parent archived → skip announce ─────────────────────────────────
+// ── 15. Parent archived → skip announce + reclaim node ──────────────────
 
 /// When the parent session is archived, the sweeper must skip the
 /// announce push and reclaim the node (design doc: "若父 Session 已归档
 /// 则跳过补推并回收节点").
 #[tokio::test]
-async fn test_sweep_child_parent_archived_skips_announce() {
+async fn test_sweep_child_parent_archived_skips_announce_and_reclaims() {
     let target = Arc::new(MockTarget::new());
     target.add_child("child-arch", "parent-arch").await;
     target.set_idle("child-arch").await;
@@ -683,6 +698,13 @@ async fn test_sweep_child_parent_archived_skips_announce() {
 
     let pushed = target.pushed_announces().await;
     assert!(pushed.is_empty(), "no announce when parent is archived");
+    let reclaimed = target.reclaimed_nodes().await;
+    assert_eq!(
+        reclaimed.len(),
+        1,
+        "node should be reclaimed when parent is archived"
+    );
+    assert_eq!(reclaimed[0], "child-arch");
 }
 
 // ── 16. No final assistant message → skip announce ──────────────────────
@@ -726,12 +748,12 @@ async fn test_sweep_child_both_conditions_met_pushes() {
     assert_eq!(pushed[0], "child-ok");
 }
 
-// ── 18. Parent archived + has assistant message → still skips ────────────
+// ── 18. Parent archived + has assistant message → still skips + reclaims ─
 
 /// Even when the child has an assistant message, an archived parent
-/// means the announce should be skipped.
+/// means the announce should be skipped and the node reclaimed.
 #[tokio::test]
-async fn test_sweep_child_archived_parent_with_msg_skips() {
+async fn test_sweep_child_archived_parent_with_msg_skips_and_reclaims() {
     let target = Arc::new(MockTarget::new());
     target.add_child("child-both", "parent-arch").await;
     target.set_idle("child-both").await;
@@ -746,6 +768,13 @@ async fn test_sweep_child_archived_parent_with_msg_skips() {
         pushed.is_empty(),
         "no announce when parent archived, even with assistant message"
     );
+    let reclaimed = target.reclaimed_nodes().await;
+    assert_eq!(
+        reclaimed.len(),
+        1,
+        "node should be reclaimed even with assistant message"
+    );
+    assert_eq!(reclaimed[0], "child-both");
 }
 
 // ── 19. Active parent + no assistant message → still skips ──────────────
