@@ -181,6 +181,33 @@ pub trait PersistenceService: Send + Sync {
         Ok(())
     }
 
+    /// Save snapshot metadata independently from [`SessionCheckpoint`].
+    ///
+    /// Replaces all snapshot metadata for the given session. The metadata
+    /// is stored in its own persistence path, ensuring storage semantics
+    /// and lifecycle are not shared with the session checkpoint.
+    ///
+    /// The default implementation is a no-op (returns `Ok(())`). Concrete
+    /// storage backends should override this to persist to their storage.
+    async fn save_snapshot_metas(
+        &self,
+        _session_id: &str,
+        _metas: &[crate::run_health::SnapshotMeta],
+    ) -> Result<(), PersistenceError> {
+        Ok(())
+    }
+
+    /// Load snapshot metadata for a session from the independent store.
+    ///
+    /// Returns all snapshot metadata entries for the given session.
+    /// The default implementation returns an empty vec.
+    async fn load_snapshot_metas(
+        &self,
+        _session_id: &str,
+    ) -> Result<Vec<crate::run_health::SnapshotMeta>, PersistenceError> {
+        Ok(Vec::new())
+    }
+
     /// Explicitly close the storage backend and release resources.
     ///
     /// Called during Phase 6 of daemon shutdown. The default implementation

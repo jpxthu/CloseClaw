@@ -419,6 +419,12 @@ impl SnapshotMetaStore for CountingMetaStore {
         self.save_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
+    async fn load_metas(&self) -> Result<Vec<SnapshotMeta>, String> {
+        Ok(Vec::new())
+    }
+    async fn delete_meta(&self, _meta_id: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[tokio::test]
@@ -469,18 +475,13 @@ async fn test_no_meta_store_no_save() {
 }
 
 // =====================================================================
-// PersistenceMetaStore — happy path
+// PersistenceMetaStore — happy path (independent storage)
 // =====================================================================
 
 #[tokio::test]
 async fn test_persistence_meta_store_save_meta() {
     let storage = Arc::new(MemoryStorage::new());
     let session_id = "sess-pms-1";
-    // Pre-create checkpoint so load_checkpoint succeeds.
-    storage
-        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
-        .await
-        .unwrap();
     let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
     let meta = SnapshotMeta {
         id: "snap-1".into(),
@@ -490,19 +491,16 @@ async fn test_persistence_meta_store_save_meta() {
         status: SnapshotStatus::Pending,
     };
     pms.save_meta(&meta).await.unwrap();
-    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(cp.snapshot_metas.len(), 1);
-    assert_eq!(cp.snapshot_metas[0].id, "snap-1");
+    // Metadata is stored independently — verify via load_snapshot_metas.
+    let metas = storage.load_snapshot_metas(session_id).await.unwrap();
+    assert_eq!(metas.len(), 1);
+    assert_eq!(metas[0].id, "snap-1");
 }
 
 #[tokio::test]
 async fn test_persistence_meta_store_appends_multiple() {
     let storage = Arc::new(MemoryStorage::new());
     let session_id = "sess-pms-multi";
-    storage
-        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
-        .await
-        .unwrap();
     let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
     for i in 0..3 {
         let meta = SnapshotMeta {
@@ -514,25 +512,36 @@ async fn test_persistence_meta_store_appends_multiple() {
         };
         pms.save_meta(&meta).await.unwrap();
     }
-    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(cp.snapshot_metas.len(), 3);
-    assert_eq!(cp.snapshot_metas[2].id, "snap-2");
+    let metas = storage.load_snapshot_metas(session_id).await.unwrap();
+    assert_eq!(metas.len(), 3);
+    assert_eq!(metas[2].id, "snap-2");
 }
 
 #[tokio::test]
-async fn test_persistence_meta_store_checkpoint_not_found() {
+async fn test_persistence_meta_store_independent_from_checkpoint() {
     let storage = Arc::new(MemoryStorage::new());
-    let pms = PersistenceMetaStore::new(storage, "nonexistent".into());
+    let session_id = "sess-independent";
+    // Pre-create a checkpoint with empty snapshot_metas.
+    storage
+        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
+        .await
+        .unwrap();
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
     let meta = SnapshotMeta {
-        id: "x".into(),
-        reason: "r".into(),
+        id: "snap-ind".into(),
+        reason: "test".into(),
         created_at: Utc::now(),
-        session_id: "nonexistent".into(),
+        session_id: session_id.into(),
         status: SnapshotStatus::Pending,
     };
-    let result = pms.save_meta(&meta).await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("not found"));
+    pms.save_meta(&meta).await.unwrap();
+    // The checkpoint should NOT be modified.
+    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert!(cp.snapshot_metas.is_empty());
+    // The metadata should be in the independent store.
+    let metas = storage.load_snapshot_metas(session_id).await.unwrap();
+    assert_eq!(metas.len(), 1);
+    assert_eq!(metas[0].id, "snap-ind");
 }
 
 // =====================================================================
@@ -543,10 +552,6 @@ async fn test_persistence_meta_store_checkpoint_not_found() {
 async fn test_persistence_meta_store_fills_session_id() {
     let storage = Arc::new(MemoryStorage::new());
     let session_id = "sess-fill-id";
-    storage
-        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
-        .await
-        .unwrap();
     let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
     let meta = SnapshotMeta {
         id: "snap-fill".into(),
@@ -556,20 +561,16 @@ async fn test_persistence_meta_store_fills_session_id() {
         status: SnapshotStatus::Pending,
     };
     pms.save_meta(&meta).await.unwrap();
-    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(cp.snapshot_metas.len(), 1);
+    let metas = storage.load_snapshot_metas(session_id).await.unwrap();
+    assert_eq!(metas.len(), 1);
     // The persisted meta should have the store's session_id, not empty.
-    assert_eq!(cp.snapshot_metas[0].session_id, session_id);
+    assert_eq!(metas[0].session_id, session_id);
 }
 
 #[tokio::test]
 async fn test_persistence_meta_store_overwrites_empty_session_id() {
     let storage = Arc::new(MemoryStorage::new());
     let session_id = "sess-overwrite";
-    storage
-        .save_checkpoint(&SessionCheckpoint::new(session_id.into()))
-        .await
-        .unwrap();
     let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
     // Save two metas — first with empty session_id, second with wrong session_id.
     for (i, bad_id) in ["", "wrong-id"].iter().enumerate() {
@@ -582,11 +583,93 @@ async fn test_persistence_meta_store_overwrites_empty_session_id() {
         };
         pms.save_meta(&meta).await.unwrap();
     }
-    let cp = storage.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(cp.snapshot_metas.len(), 2);
+    let metas = storage.load_snapshot_metas(session_id).await.unwrap();
+    assert_eq!(metas.len(), 2);
     // Both should have the store's session_id.
-    assert_eq!(cp.snapshot_metas[0].session_id, session_id);
-    assert_eq!(cp.snapshot_metas[1].session_id, session_id);
+    assert_eq!(metas[0].session_id, session_id);
+    assert_eq!(metas[1].session_id, session_id);
+}
+
+// =====================================================================
+// PersistenceMetaStore — load_metas
+// =====================================================================
+
+#[tokio::test]
+async fn test_persistence_meta_store_load_metas() {
+    let storage = Arc::new(MemoryStorage::new());
+    let session_id = "sess-load";
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
+    // Empty on start.
+    let metas = pms.load_metas().await.unwrap();
+    assert!(metas.is_empty());
+    // Save one.
+    pms.save_meta(&SnapshotMeta {
+        id: "s1".into(),
+        reason: "r1".into(),
+        created_at: Utc::now(),
+        session_id: String::new(),
+        status: SnapshotStatus::Pending,
+    })
+    .await
+    .unwrap();
+    let metas = pms.load_metas().await.unwrap();
+    assert_eq!(metas.len(), 1);
+    assert_eq!(metas[0].id, "s1");
+}
+
+// =====================================================================
+// PersistenceMetaStore — delete_meta
+// =====================================================================
+
+#[tokio::test]
+async fn test_persistence_meta_store_delete_meta() {
+    let storage = Arc::new(MemoryStorage::new());
+    let session_id = "sess-del";
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
+    // Save two metas.
+    pms.save_meta(&SnapshotMeta {
+        id: "s1".into(),
+        reason: "r1".into(),
+        created_at: Utc::now(),
+        session_id: String::new(),
+        status: SnapshotStatus::Pending,
+    })
+    .await
+    .unwrap();
+    pms.save_meta(&SnapshotMeta {
+        id: "s2".into(),
+        reason: "r2".into(),
+        created_at: Utc::now(),
+        session_id: String::new(),
+        status: SnapshotStatus::Pending,
+    })
+    .await
+    .unwrap();
+    assert_eq!(pms.load_metas().await.unwrap().len(), 2);
+    // Delete s1.
+    pms.delete_meta("s1").await.unwrap();
+    let metas = pms.load_metas().await.unwrap();
+    assert_eq!(metas.len(), 1);
+    assert_eq!(metas[0].id, "s2");
+}
+
+#[tokio::test]
+async fn test_persistence_meta_store_delete_nonexistent_is_noop() {
+    let storage = Arc::new(MemoryStorage::new());
+    let session_id = "sess-del-nop";
+    let pms = PersistenceMetaStore::new(storage.clone(), session_id.into());
+    pms.save_meta(&SnapshotMeta {
+        id: "s1".into(),
+        reason: "r1".into(),
+        created_at: Utc::now(),
+        session_id: String::new(),
+        status: SnapshotStatus::Pending,
+    })
+    .await
+    .unwrap();
+    // Delete nonexistent — should not error.
+    pms.delete_meta("nonexistent").await.unwrap();
+    assert_eq!(pms.load_metas().await.unwrap().len(), 1);
 }
 
 // =====================================================================
@@ -614,6 +697,13 @@ impl RecordingMetaStore {
 impl SnapshotMetaStore for RecordingMetaStore {
     async fn save_meta(&self, meta: &SnapshotMeta) -> Result<(), String> {
         self.recorded.lock().unwrap().push(meta.clone());
+        Ok(())
+    }
+    async fn load_metas(&self) -> Result<Vec<SnapshotMeta>, String> {
+        Ok(self.recorded.lock().unwrap().clone())
+    }
+    async fn delete_meta(&self, meta_id: &str) -> Result<(), String> {
+        self.recorded.lock().unwrap().retain(|m| m.id != meta_id);
         Ok(())
     }
 }
