@@ -2,10 +2,10 @@ use super::super::types::{ScanConfig, SkillContext, SkillEffort, SkillManifest, 
 use super::DiskSkill;
 use super::DiskSkillRegistry;
 use std::path::{Path, PathBuf};
-
 mod refactor_verify;
 mod replace_skills;
 mod user_invocable;
+mod with_activated;
 
 pub(crate) fn skill(name: &str, source: SkillSource) -> DiskSkill {
     DiskSkill {

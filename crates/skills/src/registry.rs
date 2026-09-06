@@ -988,3 +988,7 @@ mod tests {
         assert_eq!(entries.len(), 2);
     }
 }
+
+#[path = "registry_with_activated_tests.rs"]
+#[cfg(test)]
+mod with_activated_tests;

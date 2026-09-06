@@ -894,3 +894,7 @@ mod tests {
         });
     }
 }
+
+#[path = "bridge_activated_tests.rs"]
+#[cfg(test)]
+mod activated_tests;
