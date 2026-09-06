@@ -84,7 +84,7 @@ impl SessionManager {
                                     session_id = %session_id,
                                     routing_key = %routing_key,
                                     status = %cp.status,
-                                    "session in registry is migrating, waiting for archive to complete"
+                                    "migrating session in registry, waiting for archive"
                                 );
                                 // Inject archiving notification (consumed by Gateway
                                 // before this resolve returns).
@@ -108,14 +108,14 @@ impl SessionManager {
                                         session_key = %session_key,
                                         session_id = %session_id,
                                         routing_key = %routing_key,
-                                        "migrating session finished archiving, restoring archived session"
+                                        "migrating session archived, restoring"
                                     );
                                 } else {
                                     warn!(
                                         session_key = %session_key,
                                         session_id = %session_id,
                                         routing_key = %routing_key,
-                                        "migrating session archive timed out, restoring migrating session"
+                                        "migrating session archive timed out"
                                     );
                                     // Remove stale registry entry and in-memory
                                     // session; they will be re-created on
@@ -143,7 +143,7 @@ impl SessionManager {
                                                 session_id = %session_id,
                                                 routing_key = %routing_key,
                                                 error = %e,
-                                                "failed to restore migrating session, falling through to create new session"
+                                                "migrating restore failed, creating new session"
                                             );
                                         }
                                     }
@@ -433,7 +433,7 @@ impl SessionManager {
                                 session_id = %migrating_id,
                                 routing_key = %routing_key,
                                 error = %e,
-                                "failed to restore migrating session, falling through to create new session"
+                                "migrating restore failed, creating new session"
                             );
                         }
                     }
@@ -831,38 +831,55 @@ impl SessionManager {
             routing_key = %routing_key,
             "migrating session restored on timeout"
         );
-        // Reload checkpoint and rebuild session.
-        if let Some(cp) = cm.load(session_id).await.ok().flatten() {
-            self.rebuild_session_from_checkpoint(session_id, &cp, message)
-                .await?;
-            // Create Session entry
-            {
-                let mut sessions = self.sessions.write().await;
-                if !sessions.contains_key(session_id) {
-                    sessions.insert(
-                        session_id.to_string(),
-                        session_helpers::create_new_session(session_id, message, channel),
-                    );
-                }
-            }
-        }
-        // Re-register routing key.
-        {
-            self.key_registry
-                .write()
-                .await
-                .insert(routing_key.to_string(), session_id.to_string());
-        }
-        // Inject recovery notification.
-        {
-            self.pending_restore_notifications.write().await.insert(
-                session_id.to_string(),
-                (channel.to_string(), Some("正在恢复会话…".to_string())),
-            );
-        }
+        // Reload checkpoint, rebuild session, create Session entry.
+        self.reload_and_rebuild_restored_session(cm, session_id, message, channel)
+            .await?;
+        // Re-register routing key and inject recovery notification.
+        self.re_register_routing_key_and_notify(session_id, routing_key, channel)
+            .await;
         self.update_checkpoint_fields(session_id, &message.thread_id, &message.reply_ref)
             .await;
         Ok(session_id.to_string())
+    }
+
+    /// Reload checkpoint, rebuild session, create Session entry.
+    async fn reload_and_rebuild_restored_session(
+        &self,
+        cm: &CheckpointManager<dyn PersistenceService>,
+        session_id: &str,
+        message: &Message,
+        channel: &str,
+    ) -> Result<(), ProcessError> {
+        if let Some(cp) = cm.load(session_id).await.ok().flatten() {
+            self.rebuild_session_from_checkpoint(session_id, &cp, message)
+                .await?;
+            let mut sessions = self.sessions.write().await;
+            if !sessions.contains_key(session_id) {
+                sessions.insert(
+                    session_id.to_string(),
+                    session_helpers::create_new_session(session_id, message, channel),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-register the routing key in the registry and inject a
+    /// recovery notification for the restored session.
+    async fn re_register_routing_key_and_notify(
+        &self,
+        session_id: &str,
+        routing_key: &str,
+        channel: &str,
+    ) {
+        self.key_registry
+            .write()
+            .await
+            .insert(routing_key.to_string(), session_id.to_string());
+        self.pending_restore_notifications.write().await.insert(
+            session_id.to_string(),
+            (channel.to_string(), Some("正在恢复会话…".to_string())),
+        );
     }
     /// Poll cm.load(session_id) every 500ms for up to 5s until Archived.
     async fn wait_for_archive_completion(
