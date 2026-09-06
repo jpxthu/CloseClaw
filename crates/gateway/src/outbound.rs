@@ -847,7 +847,7 @@ impl Gateway {
                 );
                 return Err(GatewayError::StreamError {
                     message,
-                    partial_content: std::mem::take(&mut state.content_blocks),
+                    partial_content: std::mem::take(&mut state.error_partial_blocks),
                 });
             }
             StreamEvent::BlockStart { index, block_type } => {
@@ -935,6 +935,10 @@ impl Gateway {
         state: &mut StreamState,
     ) -> Result<(), GatewayError> {
         for block in render_blocks {
+            // Track original blocks for error-path preservation before
+            // VerbosityFilter runs (design doc §流式输出: complete Thinking
+            // blocks are retained in conversation history on streaming error).
+            state.error_partial_blocks.push(block.clone());
             if let Some(registry) = ctx.registry {
                 match process_single_through_chain(registry.as_ref(), block, state.verbosity_level)
                     .await
