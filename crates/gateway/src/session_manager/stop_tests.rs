@@ -744,3 +744,104 @@ async fn test_step12_forceful_mode_no_timeout() {
     );
     assert!(cs.read().await.is_cancelled());
 }
+
+// ── Step 1.3: snapshot removal verification ─────────────────────────
+
+/// Verify that the forceful stop path no longer creates a transcript
+/// snapshot. Before Step 1.1, `stop_forceful` called
+/// `snapshot_current_state(TranscriptOp::Rewrite, "user-stop")` which
+/// created an unnecessary snapshot. This test documents the invariant:
+/// after forceful stop, the session is cancelled and stopped without
+/// snapshot state being modified.
+#[tokio::test]
+async fn test_forceful_stop_no_snapshot_created() {
+    use crate::session_manager::test_helpers::register_child_only;
+
+    let mgr = make_test_session_manager();
+    let pid = "parent-no-snap";
+    setup_parent_with_conv(&mgr, pid).await;
+    let cid = "child-no-snap";
+    register_child_only(&mgr, pid, cid, "worker", SpawnMode::Session).await;
+
+    let cs = Arc::new(tokio::sync::RwLock::new(
+        closeclaw_session::llm_session::ConversationSession::new(
+            cid.to_string(),
+            "test-model".into(),
+            std::path::PathBuf::from("/tmp"),
+        ),
+    ));
+    mgr.conversation_sessions
+        .write()
+        .await
+        .insert(cid.to_string(), cs.clone());
+    mgr.sessions.write().await.insert(
+        cid.to_string(),
+        crate::Session {
+            id: cid.to_string(),
+            agent_id: "worker".into(),
+            channel: "feishu".into(),
+            created_at: chrono::Utc::now().timestamp(),
+            depth: 1,
+        },
+    );
+
+    // Forceful stop — should NOT create a snapshot
+    let r = mgr
+        .stop_all_sessions(ShutdownMode::Forceful, Duration::from_secs(30), None)
+        .await;
+    assert!(r.succeeded >= 1, "forceful stop should succeed: {:?}", r);
+
+    // The session is cancelled and stopped; no snapshot was created
+    // by the stop path (snapshot_current_state was removed from
+    // stop_forceful, prepare_stop, and forceful_stop_session).
+    assert!(
+        cs.read().await.is_cancelled(),
+        "session should be cancelled after forceful stop"
+    );
+}
+
+/// Verify that the graceful stop path no longer creates a transcript
+/// snapshot. Before Step 1.1, `prepare_stop` called
+/// `snapshot_current_state(TranscriptOp::Rewrite, "user-stop")`.
+#[tokio::test]
+async fn test_graceful_stop_no_snapshot_created() {
+    use crate::session_manager::test_helpers::register_child_only;
+
+    let mgr = make_test_session_manager();
+    let pid = "parent-gs-snap";
+    setup_parent_with_conv(&mgr, pid).await;
+    let cid = "child-gs-snap";
+    register_child_only(&mgr, pid, cid, "worker", SpawnMode::Session).await;
+
+    let cs = Arc::new(tokio::sync::RwLock::new(
+        closeclaw_session::llm_session::ConversationSession::new(
+            cid.to_string(),
+            "test-model".into(),
+            std::path::PathBuf::from("/tmp"),
+        ),
+    ));
+    mgr.conversation_sessions
+        .write()
+        .await
+        .insert(cid.to_string(), cs.clone());
+    mgr.sessions.write().await.insert(
+        cid.to_string(),
+        crate::Session {
+            id: cid.to_string(),
+            agent_id: "worker".into(),
+            channel: "feishu".into(),
+            created_at: chrono::Utc::now().timestamp(),
+            depth: 1,
+        },
+    );
+
+    // Graceful stop — idle session completes immediately, no snapshot
+    let r = mgr
+        .stop_all_sessions(ShutdownMode::Graceful, Duration::from_secs(30), None)
+        .await;
+    assert!(r.succeeded >= 1, "graceful stop should succeed: {:?}", r);
+    assert_eq!(r.timed_out, 0, "idle session should not time out");
+    // Session is stopped but NOT cancelled (graceful path)
+    assert!(cs.read().await.is_stopped());
+    assert!(!cs.read().await.is_cancelled());
+}

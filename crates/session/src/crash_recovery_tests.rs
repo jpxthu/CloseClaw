@@ -155,8 +155,12 @@ async fn test_crash_recovery_notification_detail_fields() {
     assert!(notif.contains("sub-proc-99"), "child_id: {}", notif);
     assert!(notif.contains("已运行"), "duration: {}", notif);
 
-    // OutboundMessage: message_id
-    assert!(notif.contains("msg_xyz"), "msg_id: {}", notif);
+    // OutboundMessage is excluded from notification (auto-redelivered on startup)
+    assert!(
+        !notif.contains("msg_xyz"),
+        "outbound msg should be excluded: {}",
+        notif
+    );
 
     // Tool failures: only ToolCall ops produce failure results
     assert_eq!(loaded.pending_tool_failures.len(), 1);
@@ -232,7 +236,11 @@ async fn test_crash_recovery_mixed_operations_all_detected() {
     assert!(notif.contains("bash"));
     assert!(notif.contains("child_a"));
     assert!(notif.contains("已运行"));
-    assert!(notif.contains("m1"));
+    // OutboundMessage is excluded from notification (auto-redelivered on startup)
+    assert!(
+        !notif.contains("m1"),
+        "outbound msg should be excluded from notification"
+    );
 
     // 2 tool calls → 2 failure results
     assert_eq!(loaded.pending_tool_failures.len(), 2);
