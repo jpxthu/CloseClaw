@@ -56,6 +56,8 @@ mod outbound_streaming_dsl_checkpoint_tests;
 mod outbound_streaming_error_tests;
 #[cfg(test)]
 mod outbound_tests;
+#[cfg(test)]
+mod outbound_writeahead_integration_tests;
 mod processor_registry_builder;
 #[cfg(test)]
 mod receiving_transition_tests;
@@ -230,7 +232,6 @@ impl Gateway {
     pub fn set_rebuild_mode(&self, enabled: bool) {
         self.rebuild_stash.set_rebuild_mode(enabled);
     }
-
     /// Drain all stashed inbound requests in FIFO order.
     pub fn take_rebuild_stashed(&self) -> Vec<InboundRequest> {
         self.rebuild_stash.take_stashed()
@@ -248,7 +249,6 @@ impl Gateway {
     pub async fn get_config_dir(&self) -> Option<std::path::PathBuf> {
         self.config_dir.read().await.clone()
     }
-
     /// Configure a CheckpointManager for session snapshot persistence.
     pub fn with_checkpoint_manager(
         self,
@@ -933,10 +933,8 @@ impl Gateway {
 
 /// Build a [`ProcessorRegistry`] with the standard inbound/outbound chains.
 pub use processor_registry_builder::build_processor_registry;
-
 /// Register the built-in outbound middlewares on a [`Gateway`].
 use processor_registry_builder::register_default_middlewares;
-
 #[cfg(test)]
 mod anthropic_reasoning_chain_tests;
 #[cfg(test)]

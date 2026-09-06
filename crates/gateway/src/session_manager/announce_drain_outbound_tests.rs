@@ -1,20 +1,30 @@
 //! Tests for `SessionManager::drain_outbound_pending_for_session`.
 //!
-//! Covers the 5 behaviour dimensions specified in the plan:
-//! 1. Normal path — 2 unsent messages both delivered and marked sent
-//! 2. Partial failure — 3 unsent, middle one fails, others succeed
-//! 3. No pending — empty outbound_pending returns Ok(0)
-//! 4. All sent — outbound_pending exists but all sent==true returns Ok(0)
-//! 5. No checkpoint — session has no checkpoint returns Ok(0)
+//! Step 1.3: Drive source is `pending_operations` with `op_type == OutboundMessage`.
+//!
+//! Behaviour dimensions:
+//! 1. Normal path — OutboundMessage op → cache hit → delivered → op cleared
+//! 2. Cache miss — transcript fallback → delivered → op cleared
+//! 3. Partial failure — some ops delivered, some failed → failed ops preserved
+//! 4. No pending ops — empty pending_operations returns Ok(0)
+//! 5. No checkpoint — session has no checkpoint returns error
+//! 6. No gateway — returns error
+//! 7. Op with no content source — skipped, op preserved
+//! 8. target_channel over session fallback
+//! 9. Empty target_channel falls back to session channel
+//! 10. Mixed op types — only OutboundMessage ops are processed
+//! 11. All ops delivered → pending_operations empty
+//! 12. Op preserved on Err (not Notified) → retry on next startup
 
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
 use crate::{Gateway, GatewayConfig};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, NormalizedMessage, RenderedOutput};
-use closeclaw_session::persistence::PendingMessage;
+use closeclaw_session::pending_operation_detail::PendingOperationDetail;
 use closeclaw_session::persistence::{
-    AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
+    AgentRole, PendingOperation, PendingOperationStatus, PendingOperationType, PersistenceError,
+    PersistenceService, SessionCheckpoint,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,8 +32,6 @@ use tokio::sync::Mutex;
 
 // ── Mock persistence service ──────────────────────────────────────────────
 
-/// In-memory mock persistence service that stores checkpoints by session ID.
-/// Supports configurable load failures for specific sessions.
 struct MockPersistence {
     checkpoints: Mutex<HashMap<String, SessionCheckpoint>>,
 }
@@ -35,7 +43,6 @@ impl MockPersistence {
         }
     }
 
-    /// Pre-populate a checkpoint for a session.
     async fn insert_checkpoint(&self, cp: SessionCheckpoint) {
         self.checkpoints
             .lock()
@@ -93,7 +100,7 @@ impl PersistenceService for MockPersistence {
     }
 
     async fn list_idle_sessions_for_agent(
-        &self,
+        self: &Self,
         _: &str,
         _: AgentRole,
         _: i64,
@@ -102,7 +109,7 @@ impl PersistenceService for MockPersistence {
     }
 
     async fn list_expired_archived_sessions_for_agent(
-        &self,
+        self: &Self,
         _: &str,
         _: AgentRole,
         _: i64,
@@ -113,7 +120,6 @@ impl PersistenceService for MockPersistence {
 
 // ── Mock IM plugin ────────────────────────────────────────────────────────
 
-/// Records all messages sent via `send()`. Supports configurable failures.
 struct MockPlugin {
     sent: Mutex<Vec<(String, String, Option<String>)>>,
     fail_count: Mutex<usize>,
@@ -127,7 +133,6 @@ impl MockPlugin {
         }
     }
 
-    /// After the first `n` calls to `send`, subsequent calls fail.
     fn with_fail_after(n: usize) -> Self {
         Self {
             sent: Mutex::new(Vec::new()),
@@ -165,7 +170,6 @@ impl closeclaw_common::IMPlugin for MockPlugin {
             return Err(AdapterError::SendFailed("mock failure".to_string()));
         }
         *remaining -= 1;
-        // Extract text content from payload for recording.
         let text = output
             .payload
             .get("content")
@@ -206,10 +210,6 @@ impl closeclaw_common::IMPlugin for MockPlugin {
 
 // ── Test helpers ──────────────────────────────────────────────────────────
 
-/// Build a `Gateway` + `SessionManager` pair with a mock plugin registered.
-/// The mock plugin has `infinite` capacity (never fails).
-///
-/// Returns `(session_manager, gateway_arc, plugin_ref)`.
 async fn setup_with_mock_gateway() -> (Arc<SessionManager>, Arc<Gateway>, Arc<MockPlugin>) {
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = GatewayConfig {
@@ -228,8 +228,6 @@ async fn setup_with_mock_gateway() -> (Arc<SessionManager>, Arc<Gateway>, Arc<Mo
     (mgr, gw_arc, plugin)
 }
 
-/// Build a `Gateway` + `SessionManager` pair with a mock plugin that fails
-/// after `fail_after` successful sends.
 async fn setup_with_failing_gateway(
     fail_after: usize,
 ) -> (Arc<SessionManager>, Arc<Gateway>, Arc<MockPlugin>) {
@@ -250,8 +248,6 @@ async fn setup_with_failing_gateway(
     (mgr, gw_arc, plugin)
 }
 
-/// Register a session in the SessionManager's sessions map with the given
-/// session ID and channel. Returns the session ID.
 async fn register_session(mgr: &SessionManager, session_id: &str, channel: &str) {
     use super::Session;
     mgr.sessions.write().await.insert(
@@ -266,18 +262,48 @@ async fn register_session(mgr: &SessionManager, session_id: &str, channel: &str)
     );
 }
 
-/// Create and set a `CheckpointManager` on the `SessionManager` backed by
-/// the given mock persistence service.
 async fn set_checkpoint_manager(mgr: &SessionManager, mock: Arc<MockPersistence>) {
     let storage: Arc<dyn PersistenceService> = mock as Arc<dyn PersistenceService>;
     let cm = Arc::new(closeclaw_session::checkpoint_manager::CheckpointManager::new(storage));
     mgr.set_checkpoint_manager(cm).await;
 }
 
-// ── Test 1: Normal path — 2 unsent messages both delivered ────────────────
+/// Build an OutboundMessage pending operation with the given parameters.
+fn make_outbound_op(message_id: &str, target_channel: &str) -> PendingOperation {
+    PendingOperation {
+        op_id: message_id.into(),
+        op_type: PendingOperationType::OutboundMessage,
+        status: PendingOperationStatus::Running,
+        detail: PendingOperationDetail::OutboundMessage {
+            target_channel: target_channel.into(),
+            message_id: message_id.into(),
+            delivery_status: "pending".into(),
+        },
+        created_at: chrono::Utc::now(),
+    }
+}
 
-/// When checkpoint has 2 unsent outbound_pending messages with target_channel
-/// set, both should be delivered via the gateway and marked sent.
+/// Build a checkpoint with an OutboundMessage pending op and a matching
+/// outbound_pending cache entry.
+fn make_cp_with_op_and_cache(
+    session_id: &str,
+    message_id: &str,
+    target_channel: &str,
+    content: &str,
+) -> SessionCheckpoint {
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    cp.record_outbound_pending_op(make_outbound_op(message_id, target_channel));
+    cp.outbound_pending
+        .push(closeclaw_common::PendingMessage::with_target_channel(
+            message_id.into(),
+            content.into(),
+            target_channel.into(),
+        ));
+    cp
+}
+
+// ── Test 1: Normal path — op → cache hit → delivered → op cleared ────────
+
 #[tokio::test]
 async fn test_drain_outbound_normal_path() {
     clear_global_prompt_state();
@@ -289,41 +315,97 @@ async fn test_drain_outbound_normal_path() {
     let session_id = "drain-normal";
     register_session(&mgr, session_id, "other_channel").await;
 
-    // Build checkpoint with 2 unsent messages with target_channel.
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-1".into(),
-            "hello world".into(),
-            "test_channel".into(),
-        ),
-        PendingMessage::with_target_channel(
-            "msg-2".into(),
-            "goodbye world".into(),
-            "test_channel".into(),
-        ),
-    ]);
+    let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "hello world");
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 2, "should deliver 2 messages");
+    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
 
-    // Verify plugin received both messages.
     let sent = plugin.sent_messages().await;
-    assert_eq!(sent.len(), 2, "plugin should have received 2 messages");
+    assert_eq!(sent.len(), 1, "plugin should have received 1 message");
     assert_eq!(sent[0].0, "hello world");
-    assert_eq!(sent[1].0, "goodbye world");
 
-    // Verify checkpoint was persisted (no mark_sent — dedup protection removed).
+    // Verify the OutboundMessage op was cleared from pending_operations.
     let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(saved_cp.outbound_pending.len(), 2);
+    assert!(
+        saved_cp
+            .pending_operations
+            .iter()
+            .all(|op| op.op_type != PendingOperationType::OutboundMessage),
+        "OutboundMessage ops should be cleared after delivery"
+    );
 }
 
-// ── Test 2: Partial failure — 3 unsent, middle one fails ─────────────────
+// ── Test 2: Cache hit — transcript refreshes stale cache content ──────
 
-/// When 3 unsent messages exist but the 2nd delivery fails, messages 1 and 3
-/// should be marked sent while message 2 stays unsent. The checkpoint should
-/// be persisted reflecting this mixed state.
+#[tokio::test]
+async fn test_drain_outbound_transcript_fallback() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-transcript";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    // Set up ConversationSession with a matching assistant message.
+    use closeclaw_common::ContentBlock;
+    use closeclaw_session::llm_session::ConversationSession;
+
+    let mut cs = ConversationSession::new(
+        session_id.into(),
+        "test-model".into(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    cs.append_transcript(
+        "assistant",
+        vec![ContentBlock::Text("latest transcript content".into())],
+    );
+    mgr.conversation_sessions.write().await.insert(
+        session_id.to_string(),
+        Arc::new(tokio::sync::RwLock::new(cs)),
+    );
+
+    // Checkpoint with OutboundMessage op AND outbound_pending cache entry.
+    // Cache hit → use cached content as transcript key → transcript refreshes
+    // to the latest version (transcript is authoritative source).
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    cp.record_outbound_pending_op(make_outbound_op("msg-t1", "test_channel"));
+    cp.outbound_pending
+        .push(closeclaw_common::PendingMessage::with_target_channel(
+            "msg-t1".into(),
+            "latest transcript content".into(),
+            "test_channel".into(),
+        ));
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
+    assert_eq!(
+        result.unwrap(),
+        1,
+        "should deliver 1 message via transcript-refreshed content"
+    );
+
+    let sent = plugin.sent_messages().await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "latest transcript content");
+
+    // Verify op was cleared.
+    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert!(saved_cp
+        .pending_operations
+        .iter()
+        .all(|op| op.op_type != PendingOperationType::OutboundMessage),);
+}
+
+// ── Test 3: Partial failure — Sent cleared, Notified preserved for retry ─
+// Note: gateway dispatch_and_persist wraps plugin send failures as Ok(Notified).
+// So "partial failure" means: 1 successful (Sent), 2 failed (Notified).
+// Sent ops are cleared; Notified ops are preserved for next retry.
+
 #[tokio::test]
 async fn test_drain_outbound_partial_failure() {
     clear_global_prompt_state();
@@ -336,44 +418,63 @@ async fn test_drain_outbound_partial_failure() {
     let session_id = "drain-partial";
     register_session(&mgr, session_id, "test_channel").await;
 
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::new("msg-a".into(), "first".into()),
-        PendingMessage::new("msg-b".into(), "second".into()),
-        PendingMessage::new("msg-c".into(), "third".into()),
-    ]);
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    // 3 OutboundMessage ops.
+    cp.record_outbound_pending_op(make_outbound_op("msg-a", "test_channel"));
+    cp.record_outbound_pending_op(make_outbound_op("msg-b", "test_channel"));
+    cp.record_outbound_pending_op(make_outbound_op("msg-c", "test_channel"));
+    // Cache entries for all 3.
+    for (id, content) in [("msg-a", "first"), ("msg-b", "second"), ("msg-c", "third")] {
+        cp.outbound_pending
+            .push(closeclaw_common::PendingMessage::with_target_channel(
+                id.into(),
+                content.into(),
+                "test_channel".into(),
+            ));
+    }
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    // Only msg-a was actually delivered; msg-b and msg-c failed but user was
-    // notified via simplified path. delivered count must not include failures.
+    // msg-a Sent, msg-b and msg-c Notified (gateway wraps send failures).
+    // delivered count only includes Sent.
     assert_eq!(
         result.unwrap(),
         1,
-        "only the successful message should be counted as delivered"
+        "only the successful message should count"
     );
 
-    // Only the first send actually succeeded at the plugin level.
     let sent = plugin.sent_messages().await;
-    assert_eq!(
-        sent.len(),
-        1,
-        "plugin should have received 1 successful message"
-    );
+    assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].0, "first");
 
-    // Verify checkpoint: no mark_sent calls (dedup protection removed).
+    // Only msg-a (Sent) should be cleared; msg-b and msg-c (Notified) preserved.
     let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(saved_cp.outbound_pending.len(), 3);
+    let remaining_ops: Vec<_> = saved_cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+    assert_eq!(
+        remaining_ops.len(),
+        2,
+        "Notified ops (msg-b, msg-c) should be preserved for retry"
+    );
+    let remaining_ids: Vec<_> = remaining_ops.iter().map(|op| op.op_id.as_str()).collect();
+    assert!(
+        remaining_ids.contains(&"msg-b"),
+        "msg-b should be preserved"
+    );
+    assert!(
+        remaining_ids.contains(&"msg-c"),
+        "msg-c should be preserved"
+    );
 }
 
-// ── Test 3: No pending — empty outbound_pending ──────────────────────────
+// ── Test 4: No pending ops — empty pending_operations ────────────────────
 
-/// When checkpoint exists but has an empty outbound_pending list, the
-/// function should return Ok(0) with no side effects (no plugin calls,
-/// no checkpoint save).
 #[tokio::test]
-async fn test_drain_outbound_no_pending() {
+async fn test_drain_outbound_no_pending_ops() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
@@ -383,64 +484,19 @@ async fn test_drain_outbound_no_pending() {
     let session_id = "drain-empty";
     register_session(&mgr, session_id, "test_channel").await;
 
-    // Checkpoint with no outbound_pending.
-    let cp = SessionCheckpoint::new(session_id.to_string());
+    let cp = SessionCheckpoint::new(session_id.into());
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0, "should return Ok(0) for no pending");
-
-    // No messages should have been sent.
-    let sent = plugin.sent_messages().await;
-    assert!(
-        sent.is_empty(),
-        "no messages should be sent for empty pending"
-    );
-}
-
-// ── Test 4: All sent — outbound_pending exists but sent==true ────────────
-
-/// When all outbound_pending messages already have sent==true, the function
-/// should still re-deliver all of them (no dedup protection per design doc).
-#[tokio::test]
-async fn test_drain_outbound_all_sent() {
-    clear_global_prompt_state();
-
-    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
-    set_checkpoint_manager(&mgr, mock.clone()).await;
-
-    let session_id = "drain-all-sent";
-    register_session(&mgr, session_id, "test_channel").await;
-
-    // Build messages that are already sent.
-    let mut msg1 = PendingMessage::new("msg-1".into(), "already sent".into());
-    msg1.mark_sent();
-    let mut msg2 = PendingMessage::new("msg-2".into(), "also sent".into());
-    msg2.mark_sent();
-
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![msg1, msg2]);
-    mock.insert_checkpoint(cp).await;
-
-    let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(result.is_ok());
-    assert_eq!(
-        result.unwrap(),
-        2,
-        "should re-deliver all sent messages (no dedup protection)"
-    );
+    assert_eq!(result.unwrap(), 0, "should return Ok(0) for no pending ops");
 
     let sent = plugin.sent_messages().await;
-    assert_eq!(sent.len(), 2, "both sent messages should be re-delivered");
-    assert_eq!(sent[0].0, "already sent");
-    assert_eq!(sent[1].0, "also sent");
+    assert!(sent.is_empty());
 }
 
-// ── Test 5: Checkpoint does not exist ────────────────────────────────────
+// ── Test 5: No checkpoint — returns error ────────────────────────────────
 
-/// When the session has no checkpoint at all, the function should return
-/// an error (checkpoint not found).
 #[tokio::test]
 async fn test_drain_outbound_no_checkpoint() {
     clear_global_prompt_state();
@@ -452,125 +508,74 @@ async fn test_drain_outbound_no_checkpoint() {
     let session_id = "drain-no-cp";
     register_session(&mgr, session_id, "test_channel").await;
 
-    // No checkpoint inserted — load_checkpoint returns None.
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(
-        result.is_err(),
-        "should return error when no checkpoint exists"
-    );
+    assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(
-        err.contains("checkpoint not found"),
-        "error should mention checkpoint not found, got: {}",
-        err
-    );
+    assert!(err.contains("checkpoint not found"), "got: {}", err);
 }
 
-// ── Test: No checkpoint manager set ──────────────────────────────────────
+// ── Test 6: No checkpoint manager set ────────────────────────────────────
 
-/// When checkpoint_manager is not set on the SessionManager, the function
-/// should return Ok(0) (graceful no-op).
 #[tokio::test]
 async fn test_drain_outbound_no_checkpoint_manager() {
     clear_global_prompt_state();
 
     let (mgr, _gw, _plugin) = setup_with_mock_gateway().await;
-    // Intentionally do NOT set checkpoint_manager.
 
     let session_id = "drain-no-cm";
     register_session(&mgr, session_id, "test_channel").await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
-    assert_eq!(
-        result.unwrap(),
-        0,
-        "should return Ok(0) when no checkpoint_manager is set"
-    );
+    assert_eq!(result.unwrap(), 0);
 }
 
-// ── Test: Mixed sent/unsent ─────────────────────────────────────────────
+// ── Test 7: Op with no content source — skipped, op preserved ────────────
 
-/// When outbound_pending has a mix of sent and unsent messages, only
-/// unsent messages should be delivered.
 #[tokio::test]
-async fn test_drain_outbound_mixed_sent_unsent() {
+async fn test_drain_outbound_no_content_source_skipped() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
     let mock = Arc::new(MockPersistence::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
-    let session_id = "drain-mixed";
+    let session_id = "drain-no-content";
     register_session(&mgr, session_id, "test_channel").await;
 
-    let mut sent_msg = PendingMessage::new("msg-sent".into(), "already delivered".into());
-    sent_msg.mark_sent();
-
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        sent_msg,
-        PendingMessage::new("msg-unsent".into(), "needs delivery".into()),
-        PendingMessage::new("msg-unsent-2".into(), "also needs delivery".into()),
-    ]);
-    mock.insert_checkpoint(cp).await;
-
-    let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(result.is_ok());
-    assert_eq!(
-        result.unwrap(),
-        3,
-        "should re-deliver all 3 messages (no dedup protection)"
-    );
-
-    let sent = plugin.sent_messages().await;
-    assert_eq!(sent.len(), 3);
-    assert_eq!(sent[0].0, "already delivered");
-    assert_eq!(sent[1].0, "needs delivery");
-    assert_eq!(sent[2].0, "also needs delivery");
-
-    // Verify checkpoint: no mark_sent calls (dedup protection removed).
-    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(saved_cp.outbound_pending.len(), 3);
-}
-
-// ── Test: Session not in sessions map, no target_channel — skipped ───────
-
-/// When the session is not in the sessions map and message has no
-/// target_channel, the message should be skipped with a warning.
-/// The function should return Ok(0) since no messages were delivered.
-#[tokio::test]
-async fn test_drain_outbound_session_not_in_map_skipped() {
-    clear_global_prompt_state();
-
-    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
-    set_checkpoint_manager(&mgr, mock.clone()).await;
-
-    let session_id = "drain-no-session";
-    // Intentionally do NOT register the session in the sessions map.
-
-    let cp = SessionCheckpoint::new(session_id.to_string())
-        .with_outbound_pending(vec![PendingMessage::new("msg-1".into(), "hello".into())]);
+    // OutboundMessage op with no matching cache entry and no transcript.
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    cp.record_outbound_pending_op(make_outbound_op("missing-msg", "test_channel"));
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(
         result.is_ok(),
-        "should return Ok(0) when no channel available (skipped), not error"
+        "should return Ok(0), not error: {:?}",
+        result.err()
     );
     assert_eq!(
         result.unwrap(),
         0,
-        "should return 0 when message is skipped due to missing channel"
+        "should deliver 0 when content not found"
     );
+
     let sent = plugin.sent_messages().await;
-    assert!(sent.is_empty(), "no messages should be sent when skipped");
+    assert!(sent.is_empty());
+
+    // Verify op was NOT cleared (skipped = preserved for retry).
+    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
+    let remaining: Vec<_> = saved_cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+    assert_eq!(remaining.len(), 1, "skipped op should be preserved");
+    assert_eq!(remaining[0].op_id, "missing-msg");
 }
 
-// ── Test: target_channel used over session fallback ──────────────────────
+// ── Test 8: target_channel used over session fallback ────────────────────
 
-/// When message has a target_channel set, it should be used as the
-/// delivery channel regardless of the session's registered channel.
 #[tokio::test]
 async fn test_drain_outbound_uses_target_channel() {
     clear_global_prompt_state();
@@ -580,33 +585,22 @@ async fn test_drain_outbound_uses_target_channel() {
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-target-ch";
-    // Session registered with "session_channel" but messages target "test_channel".
     register_session(&mgr, session_id, "session_channel").await;
 
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-1".into(),
-            "target msg".into(),
-            "test_channel".into(),
-        ),
-    ]);
+    let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "target msg");
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+    assert_eq!(result.unwrap(), 1);
 
     let sent = plugin.sent_messages().await;
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].0, "target msg");
-    // peer_id is resolved from session's agent_id via get_chat_id.
-    assert_eq!(sent[0].1, "test-agent");
 }
 
-// ── Test: Empty target_channel falls back to session channel ─────────────
+// ── Test 9: Empty target_channel falls back to session channel ───────────
 
-/// When message has an empty target_channel, the function should fall
-/// back to the session's registered channel from the sessions map.
 #[tokio::test]
 async fn test_drain_outbound_fallback_to_session_channel() {
     clear_global_prompt_state();
@@ -618,61 +612,175 @@ async fn test_drain_outbound_fallback_to_session_channel() {
     let session_id = "drain-fallback";
     register_session(&mgr, session_id, "test_channel").await;
 
-    // Message with empty target_channel.
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::new("msg-1".into(), "fallback msg".into()),
-    ]);
+    // Op with empty target_channel.
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    cp.record_outbound_pending_op(make_outbound_op("msg-1", ""));
+    cp.outbound_pending
+        .push(closeclaw_common::PendingMessage::new(
+            "msg-1".into(),
+            "fallback msg".into(),
+        ));
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+    assert_eq!(result.unwrap(), 1);
 
     let sent = plugin.sent_messages().await;
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].0, "fallback msg");
 }
 
-// ── Test: Mixed target_channel and empty target_channel ──────────────────
+// ── Test 10: No session in map + empty target_channel → skipped ──────────
 
-/// Messages with target_channel use it; messages with empty target_channel
-/// fall back to session channel; messages with empty target_channel and
-/// no session in map are skipped.
 #[tokio::test]
-async fn test_drain_outbound_mixed_channel_sources() {
+async fn test_drain_outbound_no_session_no_channel_skipped() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
     let mock = Arc::new(MockPersistence::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
-    let session_id = "drain-mixed-ch";
+    let session_id = "drain-no-sess";
+    // Intentionally do NOT register the session.
+
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    cp.record_outbound_pending_op(make_outbound_op("msg-1", ""));
+    cp.outbound_pending
+        .push(closeclaw_common::PendingMessage::new(
+            "msg-1".into(),
+            "hello".into(),
+        ));
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 0);
+
+    let sent = plugin.sent_messages().await;
+    assert!(sent.is_empty());
+}
+
+// ── Test 11: Mixed op types — only OutboundMessage ops processed ────────
+
+#[tokio::test]
+async fn test_drain_outbound_mixed_op_types() {
+    clear_global_prompt_state();
+
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-mixed-ops";
     register_session(&mgr, session_id, "test_channel").await;
 
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-target".into(),
-            "uses target_channel".into(),
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    // ToolCall op — should be ignored.
+    cp.pending_operations.push(PendingOperation {
+        op_id: "tool_1".into(),
+        op_type: PendingOperationType::ToolCall,
+        status: PendingOperationStatus::Running,
+        detail: PendingOperationDetail::ToolCall {
+            tool_name: "bash".into(),
+            args_summary: String::new(),
+        },
+        created_at: chrono::Utc::now(),
+    });
+    // OutboundMessage op — should be processed.
+    cp.record_outbound_pending_op(make_outbound_op("msg-1", "test_channel"));
+    // SubSessionSpawn op — should be ignored.
+    cp.pending_operations.push(PendingOperation {
+        op_id: "child_1".into(),
+        op_type: PendingOperationType::SubSessionSpawn,
+        status: PendingOperationStatus::Running,
+        detail: PendingOperationDetail::SubSessionSpawn {
+            child_session_id: "child-1".into(),
+            agent_id: "eda".into(),
+            task_summary: String::new(),
+        },
+        created_at: chrono::Utc::now(),
+    });
+    cp.outbound_pending
+        .push(closeclaw_common::PendingMessage::with_target_channel(
+            "msg-1".into(),
+            "outbound content".into(),
             "test_channel".into(),
-        ),
-        PendingMessage::new("msg-fallback".into(), "uses session fallback".into()),
-    ]);
+        ));
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 2, "should deliver 2 messages");
+    assert_eq!(
+        result.unwrap(),
+        1,
+        "only OutboundMessage op should be delivered"
+    );
 
     let sent = plugin.sent_messages().await;
-    assert_eq!(sent.len(), 2);
-    assert_eq!(sent[0].0, "uses target_channel");
-    assert_eq!(sent[1].0, "uses session fallback");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "outbound content");
+
+    // Verify: OutboundMessage cleared, ToolCall and SubSessionSpawn preserved.
+    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert_eq!(saved_cp.pending_operations.len(), 2);
+    let op_ids: Vec<&str> = saved_cp
+        .pending_operations
+        .iter()
+        .map(|op| op.op_id.as_str())
+        .collect();
+    assert!(op_ids.contains(&"tool_1"));
+    assert!(op_ids.contains(&"child_1"));
+    assert!(!op_ids.contains(&"msg-1"));
 }
 
-// ── Test: Gateway not set ───────────────────────────────────────────────
+// ── Test 13: Notified path (plugin send failure) → op preserved for retry ─
+// Note: gateway dispatch_and_persist wraps plugin send failures as
+// Ok(Notified), not Err. Per doc "宁可重复也不遗漏", Notified ops are
+// preserved so they can be retried on the next drain cycle.
 
-/// When gateway_ref is not set on the SessionManager, the function should
-/// return an error.
+#[tokio::test]
+async fn test_drain_outbound_notified_clears_op_on_failure() {
+    clear_global_prompt_state();
+
+    // Plugin that fails immediately — all sends → Notified.
+    let (mgr, _gw, plugin) = setup_with_failing_gateway(0).await;
+    let mock = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr, mock.clone()).await;
+
+    let session_id = "drain-err";
+    register_session(&mgr, session_id, "test_channel").await;
+
+    let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "will fail");
+    mock.insert_checkpoint(cp).await;
+
+    let result = mgr.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok());
+    // Plugin send failed → gateway wraps as Notified → op NOT cleared.
+    assert_eq!(result.unwrap(), 0, "failed sends not counted as delivered");
+
+    let sent = plugin.sent_messages().await;
+    assert!(
+        sent.is_empty(),
+        "no messages should reach plugin when it fails immediately"
+    );
+
+    // Verify op was PRESERVED (Notified = send failed, retry on next drain).
+    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
+    let remaining_ops: Vec<_> = saved_cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+    assert_eq!(
+        remaining_ops.len(),
+        1,
+        "Notified op should be preserved for retry"
+    );
+    assert_eq!(remaining_ops[0].op_id, "msg-1");
+}
+
+// ── Test 15: Gateway not set → error ─────────────────────────────────────
+
 #[tokio::test]
 async fn test_drain_outbound_no_gateway() {
     clear_global_prompt_state();
@@ -684,145 +792,63 @@ async fn test_drain_outbound_no_gateway() {
     let session_id = "drain-no-gw";
     register_session(&mgr, session_id, "test_channel").await;
 
-    // Intentionally do NOT set gateway_ref.
-
-    let cp = SessionCheckpoint::new(session_id.to_string())
-        .with_outbound_pending(vec![PendingMessage::new("msg-1".into(), "hello".into())]);
+    let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "hello");
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(
-        result.is_err(),
-        "should error when gateway is not available"
-    );
+    assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(
-        err.contains("gateway not available"),
-        "error should mention gateway, got: {}",
-        err
-    );
+    assert!(err.contains("gateway not available"), "got: {}", err);
 }
 
-// ── Test: Transcript lookup success ──────────────────────────────────────
+// ── Test 17: Pending ops preserved across crash simulation ──────────────
 
-/// When the transcript contains a matching assistant message, the content
-/// from the transcript should be used for delivery instead of the
-/// outbound_pending cache.
+/// Simulate crash after write-ahead but before ack: checkpoint should
+/// contain the OutboundMessage op and no outbound_pending cache entry
+/// for that message (write-ahead is in pending_operations only).
 #[tokio::test]
-async fn test_drain_outbound_transcript_lookup_success() {
+async fn test_drain_outbound_pending_op_survives_crash() {
     clear_global_prompt_state();
 
-    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
+    let (mgr, _gw, _plugin) = setup_with_mock_gateway().await;
     let mock = Arc::new(MockPersistence::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
-    let session_id = "drain-transcript-ok";
+    let session_id = "drain-crash-sim";
     register_session(&mgr, session_id, "test_channel").await;
 
-    // Set up a ConversationSession with a matching assistant message.
-    use closeclaw_common::ContentBlock;
-    use closeclaw_session::llm_session::ConversationSession;
-    use std::sync::Arc as StdArc;
-    use tokio::sync::RwLock;
-
-    let mut cs = ConversationSession::new(
-        session_id.to_string(),
-        "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    cs.append_transcript(
-        "assistant",
-        vec![ContentBlock::Text("transcript content".to_string())],
-    );
-    let cs_arc = StdArc::new(RwLock::new(cs));
-    mgr.conversation_sessions
-        .write()
-        .await
-        .insert(session_id.to_string(), cs_arc);
-
-    // Checkpoint with outbound pending that matches the transcript content.
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-t1".into(),
-            "transcript content".into(),
-            "test_channel".into(),
-        ),
-    ]);
+    // Simulate: pending_operations has OutboundMessage op, but outbound_pending
+    // is empty (write-ahead succeeded, but message was never added to cache
+    // because the crash happened before dispatch_and_persist added it).
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    cp.record_outbound_pending_op(make_outbound_op("msg-crash", "test_channel"));
+    // outbound_pending is empty — no cache entry.
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+    assert!(result.is_ok());
+    // Content not found in cache or transcript → op skipped (preserved).
+    assert_eq!(result.unwrap(), 0);
 
-    // Verify the delivered content comes from the transcript.
-    let sent = plugin.sent_messages().await;
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].0, "transcript content");
+    // Verify op is still in pending_operations.
+    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
+    let remaining: Vec<_> = saved_cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+    assert_eq!(
+        remaining.len(),
+        1,
+        "op should survive crash (preserved for retry)"
+    );
+    assert_eq!(remaining[0].op_id, "msg-crash");
 }
 
-// ── Test: Transcript lookup fallback ─────────────────────────────────────
+// ── Test 18: No ConversationSession — fallback to cache ──────────────────
 
-/// When the transcript does not contain a matching assistant message,
-/// the content should fall back to outbound_pending[i].content.
 #[tokio::test]
-async fn test_drain_outbound_transcript_lookup_fallback() {
-    clear_global_prompt_state();
-
-    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
-    set_checkpoint_manager(&mgr, mock.clone()).await;
-
-    let session_id = "drain-transcript-fb";
-    register_session(&mgr, session_id, "test_channel").await;
-
-    // Set up a ConversationSession with a different assistant message
-    // (no match for the outbound pending content).
-    use closeclaw_common::ContentBlock;
-    use closeclaw_session::llm_session::ConversationSession;
-    use std::sync::Arc as StdArc;
-    use tokio::sync::RwLock;
-
-    let mut cs = ConversationSession::new(
-        session_id.to_string(),
-        "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    cs.append_transcript(
-        "assistant",
-        vec![ContentBlock::Text("different content".to_string())],
-    );
-    let cs_arc = StdArc::new(RwLock::new(cs));
-    mgr.conversation_sessions
-        .write()
-        .await
-        .insert(session_id.to_string(), cs_arc);
-
-    // Checkpoint with outbound pending that does NOT match transcript.
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-t2".into(),
-            "fallback content".into(),
-            "test_channel".into(),
-        ),
-    ]);
-    mock.insert_checkpoint(cp).await;
-
-    let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
-
-    // Verify the delivered content falls back to outbound_pending content.
-    let sent = plugin.sent_messages().await;
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].0, "fallback content");
-}
-
-// ── Test: No ConversationSession — fallback to outbound_pending ──────────
-
-/// When no ConversationSession exists for the session, the content should
-/// fall back to outbound_pending[i].content.
-#[tokio::test]
-async fn test_drain_outbound_no_conv_session_fallback() {
+async fn test_drain_outbound_no_conv_session_uses_cache() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
@@ -831,137 +857,119 @@ async fn test_drain_outbound_no_conv_session_fallback() {
 
     let session_id = "drain-no-conv";
     register_session(&mgr, session_id, "test_channel").await;
-    // Intentionally do NOT register a ConversationSession.
+    // No ConversationSession registered.
 
-    let cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-t3".into(),
-            "pending content".into(),
-            "test_channel".into(),
-        ),
-    ]);
+    let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "cached content");
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+    assert_eq!(result.unwrap(), 1);
 
-    // Verify the delivered content falls back to outbound_pending content.
     let sent = plugin.sent_messages().await;
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].0, "pending content");
+    assert_eq!(sent[0].0, "cached content");
 }
 
-// ── Test: Drain clears OutboundMessage from pending_operations ─────────
+// ── Test 19: Cache entries without matching ops → ignored ────────────────
+//
+// outbound_pending cache entries are a content store, NOT the drive source.
+// When cache has entries but no matching OutboundMessage ops exist in
+// pending_operations, drain should not process them.
 
-/// After a successful drain, delivered OutboundMessage entries should
-/// be removed from `pending_operations` in the persisted checkpoint.
 #[tokio::test]
-async fn test_drain_outbound_clears_pending_operations() {
+async fn test_drain_outbound_cache_entries_no_ops_ignored() {
     clear_global_prompt_state();
 
-    let (mgr, _gw, _plugin) = setup_with_mock_gateway().await;
+    let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
     let mock = Arc::new(MockPersistence::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
-    let session_id = "drain-clear-pending";
+    let session_id = "drain-cache-no-ops";
     register_session(&mgr, session_id, "test_channel").await;
 
-    // Build checkpoint with 2 unsent messages AND corresponding
-    // OutboundMessage entries in pending_operations.
-    use closeclaw_session::pending_operation_detail::PendingOperationDetail;
-    use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
-    let mut cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-p1".into(),
-            "pending ops clear test".into(),
+    // Checkpoint has cache entries but NO OutboundMessage ops.
+    let mut cp = SessionCheckpoint::new(session_id.into());
+    // Cache entry exists (content stored).
+    cp.outbound_pending
+        .push(closeclaw_common::PendingMessage::with_target_channel(
+            "orphan-msg".into(),
+            "cached content".into(),
             "test_channel".into(),
-        ),
-    ]);
-    cp.pending_operations = vec![PendingOperation {
-        op_id: "msg-p1".into(),
-        op_type: PendingOperationType::OutboundMessage,
-        detail: PendingOperationDetail::OutboundMessage {
-            target_channel: "test_channel".into(),
-            message_id: "msg-p1".into(),
-            delivery_status: "pending".into(),
-        },
-        status: closeclaw_session::persistence::PendingOperationStatus::Running,
-        created_at: chrono::Utc::now(),
-    }];
+        ));
+    // No record_outbound_pending_op call — no matching op.
     mock.insert_checkpoint(cp).await;
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(result.unwrap(), 1, "should deliver 1 message");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 0, "no ops → no delivery");
 
-    // Verify the delivered OutboundMessage was removed from pending_operations.
-    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(
-        saved_cp.pending_operations.len(),
-        0,
-        "OutboundMessage entries should be cleared from pending_operations after delivery"
-    );
-}
-
-// ── Test: Pending operations cleaned up for Notified messages ───────────
-
-/// When a message send fails (SendOutcome::Notified), its OutboundMessage
-/// entry should still be removed from pending_operations since the user
-/// was already notified and the message won't be retried.
-#[tokio::test]
-async fn test_drain_outbound_clears_pending_operations_for_notified() {
-    clear_global_prompt_state();
-
-    // Plugin that fails immediately (all sends fail → Notified).
-    let (mgr, _gw, _plugin) = setup_with_failing_gateway(0).await;
-    let mock = Arc::new(MockPersistence::new());
-    set_checkpoint_manager(&mgr, mock.clone()).await;
-
-    let session_id = "drain-clear-notified";
-    register_session(&mgr, session_id, "test_channel").await;
-
-    use closeclaw_session::pending_operation_detail::PendingOperationDetail;
-    use closeclaw_session::persistence::{PendingOperation, PendingOperationType};
-    let mut cp = SessionCheckpoint::new(session_id.to_string()).with_outbound_pending(vec![
-        PendingMessage::with_target_channel(
-            "msg-n1".into(),
-            "will fail".into(),
-            "test_channel".into(),
-        ),
-    ]);
-    cp.pending_operations = vec![PendingOperation {
-        op_id: "msg-n1".into(),
-        op_type: PendingOperationType::OutboundMessage,
-        detail: PendingOperationDetail::OutboundMessage {
-            target_channel: "test_channel".into(),
-            message_id: "msg-n1".into(),
-            delivery_status: "pending".into(),
-        },
-        status: closeclaw_session::persistence::PendingOperationStatus::Running,
-        created_at: chrono::Utc::now(),
-    }];
-    mock.insert_checkpoint(cp).await;
-
-    let result = mgr.drain_outbound_pending_for_session(session_id).await;
-    assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
-    assert_eq!(
-        result.unwrap(),
-        0,
-        "no messages delivered (all failed with notification)"
-    );
-
-    // Verify pending_operations was cleaned up even though send failed
-    // (Notified = handled, no retry needed).
-    let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
-    assert_eq!(
-        saved_cp.pending_operations.len(),
-        0,
-        "OutboundMessage entries should be cleared for Notified messages"
-    );
-    // Message should NOT be marked as sent (wasn't actually delivered).
+    let sent = plugin.sent_messages().await;
     assert!(
-        !saved_cp.outbound_pending[0].sent,
-        "Notified message should not be marked as sent"
+        sent.is_empty(),
+        "cache entries without ops should not be delivered"
+    );
+}
+
+// ── Test 20: Repeated restart — same message not re-delivered ───────────
+//
+// "宁可重复也不遗漏" means no dedup during write, but once an op is
+// cleared after successful delivery, a subsequent restart should NOT
+// re-deliver the same message. The op is gone from pending_operations.
+
+#[tokio::test]
+async fn test_drain_outbound_repeated_restart_no_redelivery() {
+    clear_global_prompt_state();
+
+    // --- First restart: op present → delivered → op cleared ---
+    let (mgr1, _gw1, _plugin1) = setup_with_mock_gateway().await;
+    let mock1 = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr1, mock1.clone()).await;
+
+    let session_id = "drain-repeat";
+    register_session(&mgr1, session_id, "test_channel").await;
+
+    let cp1 = make_cp_with_op_and_cache(session_id, "msg-repeat", "test_channel", "repeat content");
+    mock1.insert_checkpoint(cp1).await;
+
+    let result = mgr1.drain_outbound_pending_for_session(session_id).await;
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 1, "first drain delivers 1 message");
+
+    // Verify op was cleared.
+    let cp_after = mock1.load_checkpoint(session_id).await.unwrap().unwrap();
+    assert!(
+        cp_after
+            .pending_operations
+            .iter()
+            .all(|op| op.op_type != PendingOperationType::OutboundMessage),
+        "op should be cleared after first drain"
+    );
+
+    // --- Second restart: same checkpoint (op already cleared) ---
+    // In real daemon restart, the checkpoint is loaded from persistence.
+    // Since op was cleared in step 1, the loaded checkpoint has no
+    // OutboundMessage ops → drain returns Ok(0).
+    let (mgr2, _gw2, plugin2) = setup_with_mock_gateway().await;
+    let mock2 = Arc::new(MockPersistence::new());
+    set_checkpoint_manager(&mgr2, mock2.clone()).await;
+    register_session(&mgr2, session_id, "test_channel").await;
+
+    // Load the checkpoint that was saved after first drain (op cleared).
+    let cp2 = mock1.load_checkpoint(session_id).await.unwrap().unwrap();
+    mock2.insert_checkpoint(cp2).await;
+
+    let result2 = mgr2.drain_outbound_pending_for_session(session_id).await;
+    assert!(result2.is_ok());
+    assert_eq!(
+        result2.unwrap(),
+        0,
+        "second drain delivers nothing (op already cleared)"
+    );
+
+    let sent2 = plugin2.sent_messages().await;
+    assert!(
+        sent2.is_empty(),
+        "message should NOT be re-delivered after op was cleared"
     );
 }

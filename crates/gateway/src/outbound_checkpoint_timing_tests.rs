@@ -1,8 +1,8 @@
 //! Tests for outbound checkpoint persistence timing.
 //!
-//! Verifies that `dispatch_and_persist` persists the checkpoint *after*
-//! successful delivery (mark_sent=true). Pre-send checkpoints are not used
-//! (design doc: checkpoint is written after send succeeds).
+//! Verifies that `dispatch_and_persist` writes a write-ahead pending
+//! operation *before* `plugin.send`, and clears it *after* successful
+//! delivery (ack). On failure the pending op remains for recovery retry.
 
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::im_plugin::{
@@ -11,7 +11,7 @@ use closeclaw_common::im_plugin::{
 use closeclaw_common::processor::{ContentBlock, DslParseResult, StreamEvent};
 use closeclaw_common::{IMPlugin, StreamingRenderer};
 use closeclaw_session::persistence::{
-    PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
+    PendingOperationType, PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,6 +29,7 @@ struct TimingMockPersist {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct SaveRecord {
     session_id: String,
     pending_count: usize,
@@ -249,10 +250,11 @@ async fn setup_timing_gw(persist: Arc<TimingMockPersist>) -> SetupResult {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Verify that `dispatch_and_persist` persists the checkpoint only *after*
-/// successful delivery (mark_sent=true). No pre-send checkpoint is written.
+/// Verify that `dispatch_and_persist` writes a write-ahead pending
+/// operation before `plugin.send`, then clears it after successful
+/// delivery. Two checkpoint saves occur: write-ahead + ack-clear.
 #[tokio::test]
-async fn test_checkpoint_persisted_after_send_only() {
+async fn test_writeahead_before_send_and_ackclear_after() {
     let persist = Arc::new(TimingMockPersist::new());
     let setup = setup_timing_gw(Arc::clone(&persist)).await;
 
@@ -265,33 +267,86 @@ async fn test_checkpoint_persisted_after_send_only() {
             .await
     });
 
-    // Wait for send() to be entered. No persist should have happened yet.
+    // Wait for send() to be entered. Write-ahead persist should have
+    // happened (pending_operations contains OutboundMessage op).
     setup.entered_send.notified().await;
 
-    // At this point, send() is entered but no pre-send checkpoint exists.
-    let saves = persist.get_saves().await;
-    assert_eq!(
-        saves.len(),
-        0,
-        "no persist should happen before send completes"
-    );
+    {
+        let saves = persist.get_saves().await;
+        assert_eq!(saves.len(), 1, "write-ahead persist should have happened");
+    }
+    // Verify write-ahead wrote an OutboundMessage pending op.
+    {
+        let cp = persist
+            .checkpoints
+            .lock()
+            .await
+            .get(&setup.session_id)
+            .cloned()
+            .expect("checkpoint should exist");
+        let has_outbound_op = cp
+            .pending_operations
+            .iter()
+            .any(|op| op.op_type == PendingOperationType::OutboundMessage);
+        assert!(
+            has_outbound_op,
+            "write-ahead should record OutboundMessage pending op"
+        );
+    }
 
-    // Let send() complete. The task will continue and do the persist.
+    // Let send() complete. The ack-clear persist should follow.
     setup.ok_to_return.notify_one();
     let result = handle.await.expect("task should not panic");
     assert!(result.is_ok(), "send_outbound should succeed");
 
-    // After send completes, verify the persist (mark_sent=true).
-    let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 1, "should have 1 save after send completes");
-    assert_eq!(saves[0].session_id, setup.session_id);
-    assert_eq!(saves[0].pending_count, 1);
-    assert!(saves[0].last_pending_sent, "persist should be marked sent");
+    // After send completes, verify three persists happened:
+    // 1. write-ahead (pending op recorded)
+    // 2. ack-clear (pending op cleared)
+    // 3. outbound_pending (delivery record persisted)
+    {
+        let saves = persist.get_saves().await;
+        assert_eq!(
+            saves.len(),
+            3,
+            "should have write-ahead + ack-clear + delivery record saves"
+        );
+        assert_eq!(saves[0].session_id, setup.session_id);
+        assert_eq!(saves[1].session_id, setup.session_id);
+        assert_eq!(saves[2].session_id, setup.session_id);
+    }
+    // Verify ack-clear removed the OutboundMessage pending op.
+    {
+        let cp = persist
+            .checkpoints
+            .lock()
+            .await
+            .get(&setup.session_id)
+            .cloned()
+            .expect("checkpoint should exist");
+        let has_outbound_op = cp
+            .pending_operations
+            .iter()
+            .any(|op| op.op_type == PendingOperationType::OutboundMessage);
+        assert!(
+            !has_outbound_op,
+            "ack-clear should remove OutboundMessage pending op"
+        );
+        // But outbound_pending (delivery record) should still exist.
+        assert_eq!(
+            cp.outbound_pending.len(),
+            1,
+            "delivery record should persist"
+        );
+        assert!(
+            cp.outbound_pending[0].sent,
+            "delivery record should be marked sent"
+        );
+    }
 }
 
-/// Verify that interactive message types also persist only after send.
+/// Verify that interactive message types also write-ahead and ack-clear.
 #[tokio::test]
-async fn test_interactive_message_persist_after_send() {
+async fn test_interactive_message_writeahead_and_ackclear() {
     let persist = Arc::new(TimingMockPersist::new());
     let sm = Arc::new(SessionManager::new(
         &test_config(),
@@ -335,18 +390,30 @@ async fn test_interactive_message_persist_after_send() {
             .await
     });
 
+    // Write-ahead persist should have happened.
     entered.notified().await;
+    {
+        let saves = persist.get_saves().await;
+        assert_eq!(saves.len(), 1, "write-ahead persist should have happened");
+    }
 
-    let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 0, "no persist before send completes");
-
+    // Let send complete. Ack-clear persist + delivery record persist follow.
     ok.notify_one();
     let result = handle.await.expect("task should not panic");
     assert!(result.is_ok());
 
-    let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 1, "should have 1 save after send");
-    assert!(saves[0].last_pending_sent, "should be marked sent");
+    {
+        let saves = persist.get_saves().await;
+        assert_eq!(
+            saves.len(),
+            3,
+            "should have write-ahead + ack-clear + delivery record saves"
+        );
+        assert!(
+            saves[2].last_pending_sent,
+            "delivery record should be marked sent"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +503,11 @@ async fn test_checkpoint_persists_platform_dsl_result_content_blocks() {
 
     // After send completes, the checkpoint should have the new fields.
     let saves = persist.get_saves().await;
-    assert_eq!(saves.len(), 1);
+    assert_eq!(
+        saves.len(),
+        3,
+        "should have write-ahead + ack-clear + delivery record saves"
+    );
 
     // Load the checkpoint and inspect the pending message fields.
     let cp = persist
@@ -496,4 +567,235 @@ fn test_pending_message_legacy_json_defaults() {
     assert_eq!(pm.platform, None);
     assert_eq!(pm.dsl_result, None);
     assert_eq!(pm.content_blocks, None);
+}
+
+// ---------------------------------------------------------------------------
+// Failure path and crash simulation tests
+// ---------------------------------------------------------------------------
+
+/// Mock plugin that always fails on send.
+struct FailingMockPlugin {
+    platform: String,
+    entered_send: Arc<Notify>,
+    ok_to_return: Arc<Notify>,
+    /// Tracks whether the first send call has been made.
+    first_called: Arc<tokio::sync::Mutex<bool>>,
+}
+
+#[async_trait::async_trait]
+impl IMPlugin for FailingMockPlugin {
+    fn platform(&self) -> &str {
+        &self.platform
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        let mut called = self.first_called.lock().await;
+        if !*called {
+            *called = true;
+            drop(called);
+            self.entered_send.notify_one();
+            self.ok_to_return.notified().await;
+        }
+        Err(AdapterError::SendFailed("mock send failure".into()))
+    }
+
+    fn send_thinking_indicator(&self, _active: bool) {}
+
+    fn handle_stream_event(&self, _event: StreamEvent) -> StreamingOutput {
+        StreamingOutput::default()
+    }
+
+    fn flush_stream(&self) -> StreamingOutput {
+        StreamingOutput::default()
+    }
+}
+
+/// Set up a Gateway with a failing mock plugin.
+async fn setup_failing_gw(
+    persist: Arc<TimingMockPersist>,
+) -> (crate::Gateway, String, Arc<Notify>, Arc<Notify>) {
+    let session_id = "sess-fail-1".to_string();
+    let sm = Arc::new(SessionManager::new(
+        &test_config(),
+        Some(Arc::clone(&persist) as Arc<dyn PersistenceService>),
+        None,
+        ReasoningLevel::default(),
+    ));
+    sm.sessions.write().await.insert(
+        session_id.clone(),
+        crate::Session {
+            id: session_id.clone(),
+            agent_id: "chat_fail".to_string(),
+            channel: "mock".to_string(),
+            created_at: 0,
+            depth: 0,
+        },
+    );
+    let cm = Arc::new(
+        closeclaw_session::checkpoint_manager::CheckpointManager::new(
+            Arc::clone(&persist) as Arc<dyn PersistenceService>
+        ),
+    );
+    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+
+    let entered = Arc::new(Notify::new());
+    let ok = Arc::new(Notify::new());
+    let plugin: Arc<dyn IMPlugin> = Arc::new(FailingMockPlugin {
+        platform: "mock".to_string(),
+        entered_send: Arc::clone(&entered),
+        ok_to_return: Arc::clone(&ok),
+        first_called: Arc::new(tokio::sync::Mutex::new(false)),
+    });
+    gw.register_plugin(plugin).await;
+
+    (gw, session_id, entered, ok)
+}
+
+/// Send failure: write-ahead op is recorded, send fails,
+/// pending op remains in checkpoint for recovery retry.
+#[tokio::test]
+async fn test_send_failure_op_remains_for_retry() {
+    let persist = Arc::new(TimingMockPersist::new());
+    let (gw, session_id, entered, ok) = setup_failing_gw(Arc::clone(&persist)).await;
+
+    let gw_arc = Arc::new(gw);
+    let sid = session_id.clone();
+    let gw_clone = Arc::clone(&gw_arc);
+    let handle = tokio::spawn(async move {
+        gw_clone
+            .send_outbound(&sid, "mock", "will fail", vec![], None, None)
+            .await
+    });
+
+    // Wait for send() to be entered. Write-ahead persist should have happened.
+    entered.notified().await;
+    {
+        let saves = persist.get_saves().await;
+        assert_eq!(saves.len(), 1, "write-ahead persist should have happened");
+    }
+
+    // Let send() fail.
+    ok.notify_one();
+    let result = handle.await.expect("task should not panic");
+    assert!(
+        result.is_ok(),
+        "send_outbound returns Ok(SendOutcome::Notified) on send failure"
+    );
+
+    // No ack-clear persist should have happened (only 1 save total).
+    {
+        let saves = persist.get_saves().await;
+        assert_eq!(saves.len(), 1, "only write-ahead persist, no ack-clear");
+    }
+
+    // Verify the pending op remains in checkpoint.
+    {
+        let cp = persist
+            .checkpoints
+            .lock()
+            .await
+            .get(&session_id)
+            .cloned()
+            .expect("checkpoint should exist");
+        let outbound_ops: Vec<_> = cp
+            .pending_operations
+            .iter()
+            .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+            .collect();
+        assert_eq!(
+            outbound_ops.len(),
+            1,
+            "OutboundMessage pending op should remain after send failure"
+        );
+    }
+}
+
+/// Crash simulation: write-ahead is persisted, then the process "crashes"
+/// before ack-clear. On "restart" (loading from persistence), the
+/// OutboundMessage pending op should still be present.
+#[tokio::test]
+async fn test_crash_simulation_op_survives() {
+    let persist = Arc::new(TimingMockPersist::new());
+    let setup = setup_timing_gw(Arc::clone(&persist)).await;
+
+    let gw_arc = Arc::new(setup.gw);
+    let sid = setup.session_id.clone();
+    let gw_clone = Arc::clone(&gw_arc);
+    let handle = tokio::spawn(async move {
+        gw_clone
+            .send_outbound(&sid, "mock", "crash me", vec![], None, None)
+            .await
+    });
+
+    // Wait for send() to be entered (write-ahead done, send in progress).
+    setup.entered_send.notified().await;
+
+    // Simulate crash: do NOT let send() complete (no ok_to_return).
+    // Instead, just abort the task.
+    handle.abort();
+    // Give the task a moment to be cancelled.
+    tokio::task::yield_now().await;
+
+    // The write-ahead persist should have happened.
+    {
+        let saves = persist.get_saves().await;
+        assert_eq!(saves.len(), 1, "write-ahead persist should have happened");
+    }
+
+    // Simulate restart: load checkpoint from persistence.
+    let cp = persist
+        .checkpoints
+        .lock()
+        .await
+        .get(&setup.session_id)
+        .cloned()
+        .expect("checkpoint should exist after crash");
+
+    // The OutboundMessage pending op should survive the crash.
+    let outbound_ops: Vec<_> = cp
+        .pending_operations
+        .iter()
+        .filter(|op| op.op_type == PendingOperationType::OutboundMessage)
+        .collect();
+    assert_eq!(
+        outbound_ops.len(),
+        1,
+        "OutboundMessage pending op should survive crash"
+    );
+    assert_eq!(
+        outbound_ops[0].status,
+        closeclaw_session::persistence::PendingOperationStatus::Running
+    );
 }
