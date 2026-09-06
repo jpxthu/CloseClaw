@@ -178,49 +178,8 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
     ) -> String {
-        // Step 1: Resolve bootstrap_mode.
-        let bootstrap_mode = match bootstrap_mode_override {
-            Some(mode) => mode,
-            None => {
-                let guard = self.agent_registry.read().await;
-                guard
-                    .query_bootstrap_mode(agent_id)
-                    .await
-                    .unwrap_or(BootstrapMode::Full)
-            }
-        };
-
-        // Step 2: Construct workspace path.
-        let workspace_path = self.workspace_dir.join("agents").join(agent_id);
-
-        // Step 3: Build static layer via Provider pipeline.
-        // Wrap Arc providers into Box for PromptBuilder.
-        let providers: Vec<Box<dyn PromptFragmentProvider>> = self
-            .providers
-            .iter()
-            .map(|p| {
-                Box::new(ArcProviderAdapter::new(Arc::clone(p))) as Box<dyn PromptFragmentProvider>
-            })
-            .collect();
-
-        let config = WorkspaceBuildConfig {
-            providers,
-            dynamic_sections: vec![],
-            append_section: None,
-            bootstrap_mode_override: Some(bootstrap_mode),
-            agent_id: Some(agent_id.to_string()),
-            activated_skills: vec![],
-        };
-
-        let static_layer = crate::builder::build_from_workspace_with_cache(
-            &workspace_path,
-            config,
-            Some(Arc::clone(&self.shared_cache)),
-        )
-        .await;
-
-        // Step 4: Apply PromptOverrides (override > agent > custom).
-        apply_overrides(&static_layer, overrides)
+        self.build_prompt_inner(agent_id, overrides, bootstrap_mode_override, vec![])
+            .await
     }
 
     /// Invalidate all cached prompt sections.
@@ -241,6 +200,30 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
     async fn build_prompt_with_activated(
         &self,
         _session_id: &str,
+        agent_id: &str,
+        overrides: Option<&PromptOverrides>,
+        bootstrap_mode_override: Option<BootstrapMode>,
+        activated_skills: Vec<String>,
+    ) -> String {
+        self.build_prompt_inner(
+            agent_id,
+            overrides,
+            bootstrap_mode_override,
+            activated_skills,
+        )
+        .await
+    }
+}
+
+impl SystemPromptBuilderAdapter {
+    /// Shared implementation for both [`build_prompt`] and
+    /// [`build_prompt_with_activated`].
+    ///
+    /// Resolves the bootstrap mode, constructs the workspace path,
+    /// builds the static layer via the provider pipeline with the
+    /// given `activated_skills`, and applies overrides.
+    async fn build_prompt_inner(
+        &self,
         agent_id: &str,
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,

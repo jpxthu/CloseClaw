@@ -541,11 +541,8 @@ impl DiskSkillRegistry {
                 }
             })
             .collect();
-        filtered.sort_by(|a, b| {
-            a.source
-                .cmp(&b.source)
-                .then_with(|| a.manifest.name.cmp(&b.manifest.name))
-        });
+        // Note: render_listing handles sorting by (source, name).
+        // No pre-sort needed here — consistent with generate_listing_inner.
         if filtered.is_empty() {
             return String::new();
         }
