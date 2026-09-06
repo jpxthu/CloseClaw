@@ -505,9 +505,9 @@
   },
   {
     "path": "docs/design/session/llm-session-enhancements.md",
-    "commit": "1fad9d5a585d932ff29fa95c50ade03e3d5d7351",
-    "commit_time": "2026-08-29T11:46:27+08:00",
-    "confirmed_time": "2026-08-29T12:03:57.258218+08:00",
+    "commit": "3b983c655f132f7271990a1e54ee362c75d8c983",
+    "commit_time": "2026-09-06T13:31:36+08:00",
+    "confirmed_time": "2026-09-06T13:44:05.343886+08:00",
     "comment": "",
     "blocked_reason": ""
   },

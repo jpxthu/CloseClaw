@@ -53,6 +53,8 @@ mod outbound_streaming_checkpoint_tests;
 #[cfg(test)]
 mod outbound_streaming_dsl_checkpoint_tests;
 #[cfg(test)]
+mod outbound_streaming_error_tests;
+#[cfg(test)]
 mod outbound_tests;
 mod processor_registry_builder;
 #[cfg(test)]
@@ -106,12 +108,6 @@ mod tests_slash_permission;
 mod tests_slash_permission_integration;
 pub mod types;
 pub mod workflow_owner;
-use inbound_queue::InboundDebugCtx;
-pub use outbound::OutboundMeta;
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::processor::{ContentBlock, ProcessedMessage};
 use closeclaw_common::shutdown::ShutdownMode;
@@ -124,13 +120,17 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
+use inbound_queue::InboundDebugCtx;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
+pub use outbound::OutboundMeta;
 pub(crate) use rebuild_stash::RebuildStash;
-pub use types::*;
-
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+pub use types::*;
 
 /// Routes messages between IM plugins and agents.
 pub struct Gateway {
