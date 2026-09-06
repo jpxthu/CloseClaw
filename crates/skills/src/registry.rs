@@ -44,6 +44,14 @@ impl Default for BuiltinSkillRegistry {
     }
 }
 
+/// Convert an optional whitelist slice to a `HashSet` for O(1) lookups.
+/// Treats `["*"]` and empty as `None` (no filter).
+fn resolve_whitelist_set(whitelist: Option<&[String]>) -> Option<std::collections::HashSet<&str>> {
+    whitelist
+        .filter(|w| !(w.len() == 1 && w[0] == "*"))
+        .map(|w| w.iter().map(|s| s.as_str()).collect())
+}
+
 impl BuiltinSkillRegistry {
     pub fn new() -> Self {
         Self {
@@ -94,50 +102,6 @@ impl BuiltinSkillRegistry {
     // Listing generation
     // -----------------------------------------------------------------------
 
-    /// Return filtered, sorted, rendered listing entries suitable for
-    /// merge into the combined listing.
-    ///
-    /// Each entry is `(listing_line, SkillSource)`. The list is
-    /// sorted by `(source, name)` for consistent merge ordering.
-    /// All builtin skills have source [`SkillSource::Bundled`].
-    ///
-    /// When `exclude_conditional` is `true`, skills with non-empty
-    /// `paths` are excluded. When `false`, all qualifying skills
-    /// (including conditional) are included.
-    pub async fn listing_entries(
-        &self,
-        skills_whitelist: Option<&[String]>,
-        exclude_conditional: bool,
-    ) -> Vec<(String, SkillSource)> {
-        let entries = self.sorted_skills().await;
-        let use_whitelist = skills_whitelist
-            .filter(|w| !(w.len() == 1 && w[0] == "*"))
-            .map(|w| {
-                w.iter()
-                    .map(|s| s.as_str())
-                    .collect::<std::collections::HashSet<_>>()
-            });
-
-        let mut filtered: Vec<(String, SkillSource)> = entries
-            .into_iter()
-            .filter(|m| {
-                m.user_invocable
-                    && (!exclude_conditional || m.paths.is_empty())
-                    && match &use_whitelist {
-                        Some(set) => set.contains(m.name.as_str()),
-                        None => true,
-                    }
-            })
-            .map(|m| {
-                let line = Self::render_single_listing(&m);
-                (line, SkillSource::Bundled)
-            })
-            .collect();
-
-        filtered.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
-        filtered
-    }
-
     /// Return structured listing entries `(name, source, line)` suitable
     /// for merge into the combined listing in bridge.rs.
     ///
@@ -151,13 +115,7 @@ impl BuiltinSkillRegistry {
         activated: Option<&[String]>,
     ) -> Vec<(String, SkillSource, String)> {
         let entries = self.sorted_skills().await;
-        let use_whitelist = skills_whitelist
-            .filter(|w| !(w.len() == 1 && w[0] == "*"))
-            .map(|w| {
-                w.iter()
-                    .map(|s| s.as_str())
-                    .collect::<std::collections::HashSet<_>>()
-            });
+        let use_whitelist = resolve_whitelist_set(skills_whitelist);
         let activated_set: std::collections::HashSet<&str> = activated
             .map(|a| a.iter().map(|s| s.as_str()).collect())
             .unwrap_or_default();
