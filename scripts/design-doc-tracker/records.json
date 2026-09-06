@@ -656,6 +656,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/slash/plan-browse.md",
+    "commit": "67cdb58100167733e0ad753a8a0f4c2498449985",
+    "commit_time": "2026-09-07T06:35:28+08:00",
+    "confirmed_time": "2026-09-07T06:41:22.056055+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/slash/reasoning.md",
     "commit": "e8ce7e6f00ea256d6218882a4ace14d6dccc7629",
     "commit_time": "2026-07-29T04:03:45+08:00",
