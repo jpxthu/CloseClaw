@@ -54,14 +54,11 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
         let files = load_bootstrap_files(&bootstrap_dir, mode).ok()?;
 
         // Traverse files in the doc-defined fixed order from
-        // `bootstrap_file_list`. Skip MEMORY.md (handled by
-        // MemoryFragmentProvider) and any missing files.
+        // `bootstrap_file_list`. MEMORY.md is excluded from the list
+        // (handled by MemoryFragmentProvider). Skip any missing files.
         let ordered_names = bootstrap_file_list(mode);
         let mut entries: Vec<(&str, &String)> = Vec::new();
         for name in ordered_names {
-            if name == "MEMORY.md" {
-                continue;
-            }
             if let Some(body) = files.get(name) {
                 entries.push((name, body));
             }
@@ -221,7 +218,7 @@ mod tests {
     #[tokio::test]
     async fn test_generate_multi_files_fixed_order_full_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        // Create all Full-mode files (except MEMORY.md which is filtered)
+        // Create all Full-mode files (6 files, MEMORY.md is not in bootstrap list)
         fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
         fs::write(tmp.path().join("SOUL.md"), "soul content").unwrap();
         fs::write(tmp.path().join("IDENTITY.md"), "identity content").unwrap();
@@ -322,6 +319,9 @@ mod tests {
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await.unwrap();
+        // MEMORY.md is not in bootstrap_file_list(Full), so it is never loaded
+        // into the bootstrap result map. The generate() loop only iterates
+        // files from bootstrap_file_list, so MEMORY.md content is excluded.
         assert!(!fragment.content.contains("memory content"));
         assert!(fragment.content.contains("agents content"));
     }

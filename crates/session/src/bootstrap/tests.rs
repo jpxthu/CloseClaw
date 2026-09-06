@@ -166,9 +166,10 @@ fn test_bootstrap_protection_with_mode_full() {
             "USER.md",
             "TOOLS.md",
             "BOOTSTRAP.md",
-            "MEMORY.md"
         ]
     );
+    // MEMORY.md is excluded — handled by MemoryFragmentProvider
+    assert!(!files.contains(&"MEMORY.md".to_string()));
 }
 
 #[test]
@@ -180,10 +181,8 @@ fn test_bootstrap_protection_default_uses_full_mode() {
         files.contains(&"BOOTSTRAP.md".to_string()),
         "default should include BOOTSTRAP.md (Full mode)"
     );
-    assert!(
-        files.contains(&"MEMORY.md".to_string()),
-        "default should include MEMORY.md (Full mode)"
-    );
+    // MEMORY.md is excluded — handled by MemoryFragmentProvider
+    assert!(!files.contains(&"MEMORY.md".to_string()));
     assert!(!files.contains(&"HEARTBEAT.md".to_string()));
 }
 

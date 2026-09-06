@@ -16,8 +16,14 @@
 //! | USER.md    | ✅      | ✅   |
 //! | TOOLS.md   | ✅      | ✅   |
 //! | BOOTSTRAP.md| ❌     | ✅   |
-//! | MEMORY.md  | ❌      | ✅   |
+//! | MEMORY.md  | ❌      | ❌（不属于 bootstrap 集合——由 system_prompt 模块的 MemoryFragmentProvider 单独处理，见 docs/design/system_prompt/static-layer.md）|
 //! | HEARTBEAT.md| ❌     | ❌（不加载，由 agent 按需读取）|
+//!
+//! # MEMORY.md 不属于 bootstrap 的原因
+//!
+//! MEMORY.md 由 system_prompt 模块的 MemoryFragmentProvider 单独处理，
+//! 不属于 bootstrap 文件集合。设计文档 static-layer.md 明确 bootstrap 文件与
+//! MEMORY.md 的 Section 缓存相互独立，详见 docs/design/system_prompt/static-layer.md。
 //!
 //! # HEARTBEAT.md 不属于 bootstrap 的原因
 //!
@@ -75,7 +81,6 @@ pub fn bootstrap_file_list(mode: BootstrapMode) -> Vec<&'static str> {
                 "USER.md",
                 "TOOLS.md",
                 "BOOTSTRAP.md",
-                "MEMORY.md",
             ]
         }
     }
@@ -98,8 +103,14 @@ pub fn bootstrap_file_list(mode: BootstrapMode) -> Vec<&'static str> {
 /// | USER.md    | ✅      | ✅   |
 /// | TOOLS.md   | ✅      | ✅   |
 /// | BOOTSTRAP.md| ❌     | ✅   |
-/// | MEMORY.md  | ❌      | ✅   |
+/// | MEMORY.md  | ❌      | ❌（不属于 bootstrap 集合——由 system_prompt 模块的 MemoryFragmentProvider 单独处理，见 docs/design/system_prompt/static-layer.md）|
 /// | HEARTBEAT.md| ❌     | ❌（不加载，由 agent 按需读取）|
+///
+/// # MEMORY.md 不属于 bootstrap 的原因
+///
+/// MEMORY.md 由 system_prompt 模块的 MemoryFragmentProvider 单独处理，
+/// 不属于 bootstrap 文件集合。设计文档 static-layer.md 明确 bootstrap 文件与
+/// MEMORY.md 的 Section 缓存相互独立，详见 docs/design/system_prompt/static-layer.md。
 ///
 /// # HEARTBEAT.md 不属于 bootstrap 的原因
 ///
@@ -176,7 +187,6 @@ mod tests {
                 "USER.md",
                 "TOOLS.md",
                 "BOOTSTRAP.md",
-                "MEMORY.md",
             ]
         );
     }
@@ -206,13 +216,16 @@ mod tests {
     #[test]
     fn test_load_bootstrap_files_full_mode() {
         let tmp = TempDir::new().unwrap();
-        create_test_files(tmp.path(), &["AGENTS.md", "BOOTSTRAP.md", "MEMORY.md"]);
+        create_test_files(tmp.path(), &["AGENTS.md", "BOOTSTRAP.md"]); // MEMORY.md is excluded
 
         let result = load_bootstrap_files(tmp.path(), BootstrapMode::Full).unwrap();
-        assert_eq!(result.len(), 3);
+        assert_eq!(result.len(), 2);
         assert!(result.contains_key("AGENTS.md"));
         assert!(result.contains_key("BOOTSTRAP.md"));
-        assert!(result.contains_key("MEMORY.md"));
+        assert!(
+            !result.contains_key("MEMORY.md"),
+            "MEMORY.md is not a bootstrap file"
+        );
     }
 
     #[test]
