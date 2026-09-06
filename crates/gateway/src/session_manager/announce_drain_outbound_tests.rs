@@ -314,11 +314,9 @@ async fn test_drain_outbound_normal_path() {
     assert_eq!(sent[0].0, "hello world");
     assert_eq!(sent[1].0, "goodbye world");
 
-    // Verify checkpoint was persisted with both marked sent.
+    // Verify checkpoint was persisted (no mark_sent — dedup protection removed).
     let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
     assert_eq!(saved_cp.outbound_pending.len(), 2);
-    assert!(saved_cp.outbound_pending[0].sent, "msg-1 should be sent");
-    assert!(saved_cp.outbound_pending[1].sent, "msg-2 should be sent");
 }
 
 // ── Test 2: Partial failure — 3 unsent, middle one fails ─────────────────
@@ -364,19 +362,9 @@ async fn test_drain_outbound_partial_failure() {
     );
     assert_eq!(sent[0].0, "first");
 
-    // Verify checkpoint: only msg-a is marked as sent. msg-b and msg-c stay
-    // unsent (SendOutcome::Notified does not call mark_sent).
+    // Verify checkpoint: no mark_sent calls (dedup protection removed).
     let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
     assert_eq!(saved_cp.outbound_pending.len(), 3);
-    assert!(saved_cp.outbound_pending[0].sent, "msg-a should be sent");
-    assert!(
-        !saved_cp.outbound_pending[1].sent,
-        "msg-b should NOT be marked sent (send failed, user notified)"
-    );
-    assert!(
-        !saved_cp.outbound_pending[2].sent,
-        "msg-c should NOT be marked sent (send failed, user notified)"
-    );
 }
 
 // ── Test 3: No pending — empty outbound_pending ──────────────────────────
@@ -414,7 +402,7 @@ async fn test_drain_outbound_no_pending() {
 // ── Test 4: All sent — outbound_pending exists but sent==true ────────────
 
 /// When all outbound_pending messages already have sent==true, the function
-/// should return Ok(0) without attempting delivery.
+/// should still re-deliver all of them (no dedup protection per design doc).
 #[tokio::test]
 async fn test_drain_outbound_all_sent() {
     clear_global_prompt_state();
@@ -439,15 +427,14 @@ async fn test_drain_outbound_all_sent() {
     assert!(result.is_ok());
     assert_eq!(
         result.unwrap(),
-        0,
-        "should return Ok(0) when all messages are already sent"
+        2,
+        "should re-deliver all sent messages (no dedup protection)"
     );
 
     let sent = plugin.sent_messages().await;
-    assert!(
-        sent.is_empty(),
-        "no messages should be sent when all are already sent"
-    );
+    assert_eq!(sent.len(), 2, "both sent messages should be re-delivered");
+    assert_eq!(sent[0].0, "already sent");
+    assert_eq!(sent[1].0, "also sent");
 }
 
 // ── Test 5: Checkpoint does not exist ────────────────────────────────────
@@ -531,30 +518,19 @@ async fn test_drain_outbound_mixed_sent_unsent() {
     assert!(result.is_ok());
     assert_eq!(
         result.unwrap(),
-        2,
-        "should deliver only the 2 unsent messages"
+        3,
+        "should re-deliver all 3 messages (no dedup protection)"
     );
 
     let sent = plugin.sent_messages().await;
-    assert_eq!(sent.len(), 2);
-    assert_eq!(sent[0].0, "needs delivery");
-    assert_eq!(sent[1].0, "also needs delivery");
+    assert_eq!(sent.len(), 3);
+    assert_eq!(sent[0].0, "already delivered");
+    assert_eq!(sent[1].0, "needs delivery");
+    assert_eq!(sent[2].0, "also needs delivery");
 
-    // Verify checkpoint: sent_msg still sent, others now sent.
+    // Verify checkpoint: no mark_sent calls (dedup protection removed).
     let saved_cp = mock.load_checkpoint(session_id).await.unwrap().unwrap();
     assert_eq!(saved_cp.outbound_pending.len(), 3);
-    assert!(
-        saved_cp.outbound_pending[0].sent,
-        "msg-sent should remain sent"
-    );
-    assert!(
-        saved_cp.outbound_pending[1].sent,
-        "msg-unsent should now be sent"
-    );
-    assert!(
-        saved_cp.outbound_pending[2].sent,
-        "msg-unsent-2 should now be sent"
-    );
 }
 
 // ── Test: Session not in sessions map, no target_channel — skipped ───────

@@ -278,16 +278,11 @@ impl SessionManager {
         if cp.outbound_pending.is_empty() {
             return Ok(0);
         }
-        // 3. Collect unsent message indices.
-        let unsent_indices: Vec<usize> = cp
-            .outbound_pending
-            .iter()
-            .enumerate()
-            .filter(|(_, m)| !m.sent)
-            .map(|(i, _)| i)
-            .collect();
+        // 3. Collect all pending message indices (no sent-filtering).
+        //    Design doc: "补投不加去重保护，采用'宁可重复也不遗漏'的策略".
+        let all_indices: Vec<usize> = (0..cp.outbound_pending.len()).collect();
 
-        if unsent_indices.is_empty() {
+        if all_indices.is_empty() {
             return Ok(0);
         }
         // 4. Fallback channel from sessions map (when target_channel is empty).
@@ -336,11 +331,11 @@ impl SessionManager {
             } else {
                 HashMap::new()
             };
-        // 7. Deliver each unsent message. Channel: target_channel → session fallback.
+        // 7. Deliver each pending message. Channel: target_channel → session fallback.
         //    Content: transcript O(1) lookup → outbound_pending cache fallback.
         let mut delivered = 0usize;
         let mut handled_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for idx in &unsent_indices {
+        for idx in &all_indices {
             // Clone fields before any mutable access to avoid borrow conflicts.
             let (msg_id, target_channel, content_cache) = {
                 let pm = &cp.outbound_pending[*idx];
@@ -373,7 +368,8 @@ impl SessionManager {
                 .await
             {
                 Ok(crate::outbound::SendOutcome::Sent) => {
-                    cp.outbound_pending[*idx].mark_sent();
+                    // No mark_sent(): design doc requires all outbound_pending
+                    // messages to be re-delivered on restart (no dedup protection).
                     delivered += 1;
                     handled_ids.insert(msg_id);
                 }
