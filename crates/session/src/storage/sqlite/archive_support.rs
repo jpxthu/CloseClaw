@@ -590,3 +590,152 @@ pub fn list_expired_archived_sessions_for_agent_inner(
         .collect();
     Ok(ids)
 }
+
+/// Save a checkpoint to the database and write its transcript.
+/// Extracted from SqliteStorage to keep sqlite.rs under 1000 lines.
+pub fn save_checkpoint_inner(
+    data_dir: &Path,
+    checkpoint: &SessionCheckpoint,
+) -> Result<(), PersistenceError> {
+    let conn = Connection::open(data_dir.join("sessions.sqlite"))
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+    let data = serialize_checkpoint_data(checkpoint)?;
+    insert_session(&conn, checkpoint, &data)?;
+    let transcript_path = data_dir
+        .join("sessions")
+        .join(format!("{}.jsonl", checkpoint.session_id));
+    write_transcript(&transcript_path, checkpoint)?;
+    Ok(())
+}
+
+/// Intermediate data produced by serializing checkpoint fields for SQL insertion.
+struct CheckpointData<'a> {
+    status: &'a str,
+    role_str: &'a str,
+    metadata_json: String,
+    last_msg_ts: i64,
+    dreaming_status_str: &'static str,
+    mined_str: &'a str,
+    mined_at_val: Option<i64>,
+    plan_state_json: Option<String>,
+    last_user_activity_ts: Option<i64>,
+}
+
+fn reasoning_mode_to_str(mode: crate::persistence::ReasoningMode) -> &'static str {
+    match mode {
+        crate::persistence::ReasoningMode::Direct => "direct",
+        crate::persistence::ReasoningMode::Plan => "plan",
+        crate::persistence::ReasoningMode::Stream => "stream",
+        crate::persistence::ReasoningMode::Hidden => "hidden",
+    }
+}
+
+/// Serialize checkpoint fields into strings and JSON values for SQL insertion.
+fn serialize_checkpoint_data<'a>(
+    checkpoint: &'a SessionCheckpoint,
+) -> Result<CheckpointData<'a>, PersistenceError> {
+    let status = match checkpoint.status {
+        crate::persistence::SessionStatus::Active => "active",
+        crate::persistence::SessionStatus::Migrating => "migrating",
+        crate::persistence::SessionStatus::Archived => "archived",
+    };
+    let role_str = checkpoint
+        .role
+        .map(|r| match r {
+            crate::persistence::AgentRole::MainAgent => "main_agent",
+            crate::persistence::AgentRole::SubAgent => "sub_agent",
+        })
+        .unwrap_or("main_agent");
+    let metadata_json = build_metadata_json(checkpoint)?;
+    let last_msg_ts = checkpoint
+        .last_message_at
+        .map(|dt| dt.timestamp())
+        .unwrap_or(0);
+    let dreaming_status_str =
+        crate::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
+    let mined_str = if checkpoint.mined { "1" } else { "0" };
+    let plan_state_json = checkpoint
+        .plan_state
+        .as_ref()
+        .map(|ps| serde_json::to_string(ps).map_err(PersistenceError::Serialization))
+        .transpose()?;
+    let last_user_activity_ts = checkpoint.last_user_activity_at.map(|dt| dt.timestamp());
+    Ok(CheckpointData {
+        status,
+        role_str,
+        metadata_json,
+        last_msg_ts,
+        dreaming_status_str,
+        mined_str,
+        mined_at_val: checkpoint.mined_at,
+        plan_state_json,
+        last_user_activity_ts,
+    })
+}
+
+/// Build the metadata JSON string from checkpoint fields.
+fn build_metadata_json(checkpoint: &SessionCheckpoint) -> Result<String, PersistenceError> {
+    let mode_state_json =
+        serde_json::to_string(&checkpoint.mode_state).map_err(PersistenceError::Serialization)?;
+    let pending_json = serde_json::to_string(&checkpoint.outbound_pending)
+        .map_err(PersistenceError::Serialization)?;
+    let system_appends_json = serde_json::to_string(&checkpoint.system_appends)
+        .map_err(PersistenceError::Serialization)?;
+    serde_json::to_string(&serde_json::json!({
+        "reasoning_mode": reasoning_mode_to_str(checkpoint.reasoning_mode),
+        "mode_state": mode_state_json,
+        "outbound_pending": pending_json,
+        "system_appends": system_appends_json,
+        "session_mode": checkpoint.session_mode.to_string(),
+    }))
+    .map_err(PersistenceError::Serialization)
+}
+
+/// Execute the INSERT OR REPLACE statement for a session checkpoint.
+fn insert_session(
+    conn: &Connection,
+    checkpoint: &SessionCheckpoint,
+    data: &CheckpointData,
+) -> Result<(), PersistenceError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO sessions
+         (id, agent_id, role, channel, chat_id, status, title,
+          last_message_at, created_at, archived_at, message_count, metadata, thread_id,
+          sender_id, platform, peer_id, account_id, parent_session_id, depth,
+          mined, dreaming_status, plan_state, mined_at, last_user_activity_at)
+         VALUES (
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+             ?8, ?9, ?10, ?11, ?12, ?13,
+             ?14, ?15, ?16, ?17, ?18, ?19,
+             ?20, ?21, ?22, ?23, ?24
+         )",
+        params![
+            checkpoint.session_id,
+            checkpoint.agent_id.as_deref().unwrap_or("unknown"),
+            data.role_str,
+            checkpoint.platform.as_deref().unwrap_or(""),
+            checkpoint.peer_id.as_deref().unwrap_or(""),
+            data.status,
+            Option::<&str>::None,
+            data.last_msg_ts,
+            checkpoint.created_at.timestamp(),
+            Option::<i64>::None,
+            checkpoint.message_count as i64,
+            data.metadata_json,
+            checkpoint.thread_id.as_deref(),
+            checkpoint.sender_id.as_deref(),
+            checkpoint.platform.as_deref(),
+            checkpoint.peer_id.as_deref(),
+            checkpoint.account_id.as_deref(),
+            checkpoint.parent_session_id.as_deref(),
+            checkpoint.depth,
+            data.mined_str,
+            data.dreaming_status_str,
+            data.plan_state_json.as_deref(),
+            data.mined_at_val,
+            data.last_user_activity_ts,
+        ],
+    )
+    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+    Ok(())
+}

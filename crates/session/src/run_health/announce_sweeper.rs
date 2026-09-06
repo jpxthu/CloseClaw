@@ -73,6 +73,12 @@ pub trait AnnounceSweepTarget: Send + Sync {
     /// injecting a stale-child notification.
     async fn is_parent_archived(&self, parent_id: &str) -> bool;
 
+    /// Check whether a child session has produced a final assistant
+    /// message. Required by the design doc: the announce path should
+    /// only fire when the child has both completed execution (idle)
+    /// AND produced a final assistant message.
+    async fn has_final_assistant_message(&self, child_id: &str) -> bool;
+
     /// Terminate a stale child session and all its descendants.
     ///
     /// Contract:
@@ -95,6 +101,17 @@ pub trait AnnounceSweepTarget: Send + Sync {
     /// Default implementation is a no-op; gateway overrides with
     /// [`closeclaw_gateway::spawn_reclaim_gc::sweep_spawn_tree_reclaim`].
     async fn sweep_reclaim(&self) {}
+
+    /// Reclaim a single child node from the spawn tree.
+    ///
+    /// Called when the parent session is archived but the child node
+    /// is still present. The node should be removed from the tree
+    /// without killing the child session (it is already idle/completed)
+    /// and without injecting a notification (parent is archived).
+    ///
+    /// Default implementation is a no-op; gateway overrides with
+    /// spawn tree removal logic.
+    async fn reclaim_child_node(&self, _child_id: &str) {}
 }
 
 /// Background sweeper that ensures completion announces from run-mode
@@ -208,7 +225,7 @@ impl AnnounceSweeper {
 
         let now = now.unwrap_or_else(|| chrono::Utc::now().timestamp());
         for (child_id, parent_id) in &children {
-            self.try_sweep_child(child_id).await;
+            self.try_sweep_child(child_id, parent_id).await;
             self.try_detect_stale(parent_id, child_id, now).await;
         }
     }
@@ -254,7 +271,14 @@ impl AnnounceSweeper {
 
     /// Check a single child session and deliver its announce if it
     /// has completed but the announce hasn't been pushed yet.
-    async fn try_sweep_child(&self, child_id: &str) {
+    ///
+    /// Two pre-conditions must be satisfied (design doc §补推):
+    /// 1. Parent session must NOT be archived — if archived, the
+    ///    announce is meaningless; reclaim the node instead.
+    /// 2. Child must have produced a final assistant message —
+    ///    idle without a final message means the child terminated
+    ///    prematurely (e.g. killed or errored before responding).
+    async fn try_sweep_child(&self, child_id: &str, parent_id: &str) {
         // Verify the child is still in the children table.
         // If it's been removed, the announce was already delivered.
         if self.target.is_child_removed(child_id).await {
@@ -267,7 +291,33 @@ impl AnnounceSweeper {
             return;
         }
 
-        // Session is idle but still in children table — deliver announce.
+        // Pre-condition 1: Parent archived → skip announce, reclaim node.
+        if self.target.is_parent_archived(parent_id).await {
+            warn!(
+                child_session_id = %child_id,
+                parent_session_id = %parent_id,
+                "AnnounceSweeper: parent archived, \
+                    skipping announce and reclaiming node"
+            );
+            self.target.reclaim_child_node(child_id).await;
+            return;
+        }
+
+        // Pre-condition 2: No final assistant message → skip announce.
+        // The child completed (idle) but never produced a final assistant
+        // message — likely killed or errored before responding. There is
+        // nothing meaningful to announce to the parent.
+        if !self.target.has_final_assistant_message(child_id).await {
+            warn!(
+                child_session_id = %child_id,
+                parent_session_id = %parent_id,
+                "AnnounceSweeper: child idle but no final \
+                    assistant message, skipping announce"
+            );
+            return;
+        }
+
+        // Both conditions met — deliver announce.
         info!(
             child_session_id = %child_id,
             "AnnounceSweeper: child session idle \
