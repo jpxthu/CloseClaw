@@ -13,7 +13,7 @@ Owner 需要系统区分两种独立身份：
 - **Agent 身份**：每个 Agent 有独立的权限边界。新建 Agent 默认只能收发消息，无文件读写、无命令行、无网络访问。Agent 的操作始终在某个 User 上下文中执行——不存在无 User 上下文的操作。
 - **User 身份**：每个 User 通过 IM 渠道 + IM User ID 的组合绑定到系统。一个 User 可以绑定多个 IM 渠道（如飞书 open_id + Telegram User ID），映射为同一个人。新建 User 默认无任何权限，收发消息也需 Owner 显式授予。不区分用户组，所有权限以个人为单位。
 
-User 上下文的来源由场景决定：IM 消息来自发送者、定时任务使用任务配置中指定的 User ID、子 Agent 继承父 Agent 的 User 上下文。CLI 渠道的 User 上下文见 [cli §F1](cli.md)（终端对话）。
+User 上下文的来源由场景决定：IM 消息来自发送者、定时任务使用任务配置中指定的 User ID、子 Session 继承父 Session 的 User 上下文。CLI 渠道的 User 上下文见 [cli §F1](cli.md)（终端对话）。
 
 Owner 的 User ID 固定为 `owner`。
 
@@ -56,7 +56,7 @@ Owner 在权限决策中享有以下特权：
 
 当 Agent 操作被权限系统拒绝时，Owner 不希望直接阻断——需要一个可控的审批通道：
 
-- **审批触发**：操作被拒绝时按场景分流处理（子 Agent 场景见 F9）——定时任务的拒绝按任务配置处理（静默跳过/通知/进入审批流程）、其余场景自动创建审批请求并推送给 Owner。
+- **审批触发**：操作被拒绝时按场景分流处理（子 Session 场景见 F9）——定时任务的拒绝按任务配置处理（静默跳过/通知/进入审批流程）、其余场景自动创建审批请求并推送给 Owner。
 - **去重**：同一个调用方 + 同一个操作的重复申请直接拒绝，不重复推送审批。
 - **审批信息**：推送的审批信息需包含发起操作的 Agent ID、当前 User ID、操作类型和参数、风险等级提示、审批请求唯一 ID。审批 ID 为当前 Session 内的递增数字，从 1 开始，每个 Session 独立计数。审批指令的 Session 上下文由消息通道提供——在哪个对话中发审批，即对应哪个 Session 的审批请求。
 - **Owner 决策**：Owner 可选择单次放行（仅本次操作，不持久化）、加入白名单（写入永久规则）、或拒绝。Owner 通过审批指令表达决策——双路径（交互卡片或斜杠指令）均走同一审批处理逻辑。
@@ -94,14 +94,14 @@ Owner 需要以下安全保障：
 - **Workspace 路径安全**：Agent 和 User ID 拼接到路径时需防止路径穿越攻击（如 `../`）。并发创建 workspace 目录时不得产生竞态条件。
 - **最小信息原则**：Agent 被拒绝时仅收到操作结果，不暴露规则名称、优先级或配置路径等内部信息。
 
-### F9. 子 Agent 权限继承
+### F9. 子 Session 权限继承
 
-Owner 需要子 Agent 的权限不超出父 Agent：
+Owner 需要子 Session 的权限不超出父 Agent：
 
-- 父 Agent 派生子 Agent 时，子 Agent 的实际权限 = 子 Agent 自身权限 ∩ 父 Agent 权限 ∩ 继承的 User 权限。
+- 父 Agent 派生子 Session 时，子 Session 的实际权限 = 目标 Agent 配置权限 ∩ 父 Session 实际权限 ∩ 继承的 User 权限。
 - 权限沿 spawn 链路只能变窄，不能变宽。
-- 链路中所有父 Agent 的 Deny 规则沿链路向子 Agent 传播——每增加一级深度，Deny 约束只增不减。子 Agent 的权限评估除交集计算外，还需额外检查父 Agent 传入的 Deny 约束。
-- 子 Agent 被拒绝时静默返回，不触发审批流程。
+- 链路中所有父 Agent 的 Deny 规则沿链路向子 Session 传播——每增加一级深度，Deny 约束只增不减。子 Session 的权限评估除交集计算外，还需额外检查父 Agent 传入的 Deny 约束。
+- 子 Session 被拒绝时静默返回，不触发审批流程。
 
 ### F10. 无直接用户交互场景的降级处理
 

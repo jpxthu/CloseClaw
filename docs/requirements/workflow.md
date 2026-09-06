@@ -10,7 +10,7 @@
 
 User 可以定义 workflow，描述一个多步骤流程的结构化信息：包含哪些步骤、每步要完成什么、如何验收、完成后如何分支。
 
-每个 workflow 是一个独立定义文件，定义文件分两部分：正文给 Agent 阅读（原则和注意事项），结构化定义给 Engine 读取（步骤、验收、跳转规则）。定义文件按优先级查找：Agent workspace 的 `workflows/` 目录 > 全局 `workflows/` 目录 > 系统内置。
+每个 workflow 是一个独立定义文件，定义文件分两部分：正文给 Agent 阅读（原则和注意事项），结构化定义给 Engine 读取（步骤、验收、跳转规则）。定义文件按优先级查找：Agent 专属目录下的 `workflows/` 目录 > 全局 `workflows/` 目录 > 系统内置。Agent 专属目录为该 Agent 独有、对其全部 User 共享，与技能隔离同维度（详见 [skills §F8](skills.md)（多 Agent 隔离））。
 
 User 通过 create-workflow skill 创建和修改 workflow 定义。定义产出时需通过内置校验——至少覆盖：步骤编号合法性、跳转规则合法性（无重复条件、有兜底分支、目标步骤存在）、验收清单完整性、枚举选项规范性。workflow 定义文件变更后，自下一次 workflow 启动时生效；执行中的 workflow 不受定义变更影响，中断续跑的恢复视为一次启动（见 F7）。
 
