@@ -341,27 +341,6 @@ impl DiskSkillRegistry {
             .collect()
     }
 
-    /// Return filtered and sorted skills suitable for listing generation.
-    ///
-    /// Skills are filtered by `user_invocable`, whitelist membership, and
-    /// exclusion of conditional skills (those with non-empty `paths`).
-    /// Result is sorted by `(source, name)` for consistent merge ordering.
-    pub fn sorted_skills_for_listing(
-        &self,
-        skills_whitelist: Option<&[String]>,
-    ) -> Vec<(DiskSkill, SkillSource)> {
-        let mut filtered: Vec<(DiskSkill, SkillSource)> = self
-            .filter_skills_inner(skills_whitelist, true, None)
-            .into_iter()
-            .map(|s| (s.clone(), s.source))
-            .collect();
-        filtered.sort_by(|a, b| {
-            a.1.cmp(&b.1)
-                .then_with(|| a.0.manifest.name.cmp(&b.0.manifest.name))
-        });
-        filtered
-    }
-
     /// Return structured listing entries `(name, source, line)` suitable
     /// for merge into the combined listing in bridge.rs.
     ///
@@ -392,10 +371,12 @@ impl DiskSkillRegistry {
     /// Return structured listing entries `(name, source, line)` suitable
     /// for merge into the combined listing in bridge.rs.
     ///
-    /// When `exclude_conditional` is `true`, skills with non-empty
-    /// `paths` are excluded (unless their name appears in `activated`).
-    /// When `false`, all qualifying skills (including conditional)
-    /// are included.
+    /// Includes base non-conditional user-invocable skills plus any
+    /// conditional skills whose names appear in `activated`. Activated
+    /// conditional skills are included **regardless** of their
+    /// `user_invocable` declaration (activation overrides the filter).
+    /// Each entry carries the real [`SkillSource`] for accurate merge
+    /// ordering.
     pub fn listing_entries_with_activated(
         &self,
         skills_whitelist: Option<&[String]>,
