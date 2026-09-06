@@ -178,7 +178,57 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
     ) -> String {
-        // Step 1: Resolve bootstrap_mode.
+        self.build_prompt_inner(agent_id, overrides, bootstrap_mode_override, vec![])
+            .await
+    }
+
+    /// Invalidate all cached prompt sections.
+    ///
+    /// Called when workspace files, tools, or skills change so the next
+    /// `build_prompt()` call regenerates the static layer.
+    async fn invalidate_cache(&self) {
+        self.shared_cache.write().unwrap().invalidate_all();
+    }
+
+    /// Build a system prompt with activated conditional skills.
+    ///
+    /// Same as [`build_prompt`](Self::build_prompt) but passes the
+    /// activated skill set through to the provider pipeline via
+    /// [`FragmentContext::activated_skills`]. This is the SP rebuild
+    /// path: [`SkillsFragmentProvider`] reads the activation set to
+    /// include activated conditional skills in the listing.
+    async fn build_prompt_with_activated(
+        &self,
+        _session_id: &str,
+        agent_id: &str,
+        overrides: Option<&PromptOverrides>,
+        bootstrap_mode_override: Option<BootstrapMode>,
+        activated_skills: Vec<String>,
+    ) -> String {
+        self.build_prompt_inner(
+            agent_id,
+            overrides,
+            bootstrap_mode_override,
+            activated_skills,
+        )
+        .await
+    }
+}
+
+impl SystemPromptBuilderAdapter {
+    /// Shared implementation for both [`build_prompt`] and
+    /// [`build_prompt_with_activated`].
+    ///
+    /// Resolves the bootstrap mode, constructs the workspace path,
+    /// builds the static layer via the provider pipeline with the
+    /// given `activated_skills`, and applies overrides.
+    async fn build_prompt_inner(
+        &self,
+        agent_id: &str,
+        overrides: Option<&PromptOverrides>,
+        bootstrap_mode_override: Option<BootstrapMode>,
+        activated_skills: Vec<String>,
+    ) -> String {
         let bootstrap_mode = match bootstrap_mode_override {
             Some(mode) => mode,
             None => {
@@ -190,11 +240,8 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             }
         };
 
-        // Step 2: Construct workspace path.
         let workspace_path = self.workspace_dir.join("agents").join(agent_id);
 
-        // Step 3: Build static layer via Provider pipeline.
-        // Wrap Arc providers into Box for PromptBuilder.
         let providers: Vec<Box<dyn PromptFragmentProvider>> = self
             .providers
             .iter()
@@ -209,6 +256,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             append_section: None,
             bootstrap_mode_override: Some(bootstrap_mode),
             agent_id: Some(agent_id.to_string()),
+            activated_skills,
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(
@@ -218,16 +266,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         )
         .await;
 
-        // Step 4: Apply PromptOverrides (override > agent > custom).
         apply_overrides(&static_layer, overrides)
-    }
-
-    /// Invalidate all cached prompt sections.
-    ///
-    /// Called when workspace files, tools, or skills change so the next
-    /// `build_prompt()` call regenerates the static layer.
-    async fn invalidate_cache(&self) {
-        self.shared_cache.write().unwrap().invalidate_all();
     }
 }
 
