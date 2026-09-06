@@ -22,7 +22,6 @@ async fn test_file_ops_manifest() {
     let skill = FileOpsSkill::new();
     let m = skill.manifest();
     assert_eq!(m.name, "file_ops");
-    assert_eq!(m.version, "1.0.0");
     assert!(!m.description.is_empty());
 }
 

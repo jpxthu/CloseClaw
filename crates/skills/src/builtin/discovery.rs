@@ -1,7 +1,7 @@
 //! Skill discovery skill - allows agents to search and install
 //! skills from ClawHub
 use crate::disk::types::SkillEffort;
-use crate::registry::{Skill, SkillError, SkillListingMeta, SkillManifest};
+use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use serde_json::json;
 use tokio::task::spawn_blocking;
@@ -114,13 +114,17 @@ impl Skill for SkillDiscoverySkill {
     fn manifest(&self) -> SkillManifest {
         SkillManifest {
             name: "skill_discovery".to_string(),
-            version: "1.0.0".to_string(),
             description: "Search, install, and manage skills from \
                 ClawHub marketplace. Use find to search, install to \
                 add, list to see installed, update to upgrade."
                 .to_string(),
-            author: Some("CloseClaw Team".to_string()),
-            dependencies: vec!["clawhub".to_string()],
+            when_to_use: "Use when the agent needs to search, install, \
+                or manage skills from ClawHub marketplace"
+                .to_string(),
+            context: crate::disk::types::SkillContext::default(),
+            effort: SkillEffort::Small,
+            paths: vec![],
+            user_invocable: true,
         }
     }
 
@@ -168,17 +172,6 @@ Always confirm before installing or updating skills."#
             Some(other) => Err(SkillError::InvalidArgs(format!(
                 "unknown action '{other}', supported: find, install, list, update"
             ))),
-        }
-    }
-
-    fn listing_meta(&self) -> SkillListingMeta {
-        SkillListingMeta {
-            when_to_use: "Use when the agent needs to search, install, \
-                or manage skills from ClawHub marketplace"
-                .to_string(),
-            user_invocable: true,
-            paths: vec![],
-            effort: SkillEffort::Small,
         }
     }
 }

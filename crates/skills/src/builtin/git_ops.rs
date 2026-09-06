@@ -1,6 +1,6 @@
 //! Git operations skill
 use crate::disk::types::SkillEffort;
-use crate::registry::{Skill, SkillError, SkillListingMeta, SkillManifest};
+use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use serde_json::json;
 use std::path::Path;
@@ -112,10 +112,14 @@ impl Skill for GitOpsSkill {
     fn manifest(&self) -> SkillManifest {
         SkillManifest {
             name: "git_ops".to_string(),
-            version: "1.0.0".to_string(),
             description: "Git operations: status, log, diff".to_string(),
-            author: Some("CloseClaw Team".to_string()),
-            dependencies: vec![],
+            when_to_use: "Use when the agent needs to perform git \
+                operations like commit, push, pull, or diff"
+                .to_string(),
+            context: crate::disk::types::SkillContext::default(),
+            effort: SkillEffort::Small,
+            paths: vec![],
+            user_invocable: false,
         }
     }
 
@@ -165,17 +169,6 @@ operations (force push, reset) with the user."#
             Some(other) => Err(SkillError::InvalidArgs(format!(
                 "unknown action '{other}', supported: status, log, diff"
             ))),
-        }
-    }
-
-    fn listing_meta(&self) -> SkillListingMeta {
-        SkillListingMeta {
-            when_to_use: "Use when the agent needs to perform git \
-                operations like commit, push, pull, or diff"
-                .to_string(),
-            user_invocable: false,
-            paths: vec![],
-            effort: SkillEffort::Small,
         }
     }
 }

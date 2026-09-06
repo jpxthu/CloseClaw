@@ -3,7 +3,7 @@
 //! This skill helps agents create SKILL.md files for CloseClaw.
 
 use crate::disk::types::SkillEffort;
-use crate::registry::{Skill, SkillError, SkillListingMeta, SkillManifest};
+use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -111,11 +111,15 @@ impl Skill for SkillCreatorSkill {
     fn manifest(&self) -> SkillManifest {
         SkillManifest {
             name: "skill_creator".to_string(),
-            version: "1.0.0".to_string(),
             description: "Helps agents understand how to create new skills for CloseClaw"
                 .to_string(),
-            author: Some("CloseClaw Team".to_string()),
-            dependencies: vec![],
+            when_to_use: "Use when the agent needs to create or understand \
+                how to create new skills for CloseClaw"
+                .to_string(),
+            context: crate::disk::types::SkillContext::default(),
+            effort: SkillEffort::Small,
+            paths: vec![],
+            user_invocable: true,
         }
     }
 
@@ -207,16 +211,5 @@ A valid SKILL.md must:
 2. Include a `description` field in frontmatter
 3. Have Markdown content after the frontmatter
 4. Use proper YAML syntax in frontmatter"#
-    }
-
-    fn listing_meta(&self) -> SkillListingMeta {
-        SkillListingMeta {
-            when_to_use: "Use when the agent needs to create or understand \
-                how to create new skills for CloseClaw"
-                .to_string(),
-            user_invocable: true,
-            paths: vec![],
-            effort: SkillEffort::Small,
-        }
     }
 }

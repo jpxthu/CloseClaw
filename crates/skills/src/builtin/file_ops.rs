@@ -1,6 +1,6 @@
 //! File operations skill
 use crate::disk::types::SkillEffort;
-use crate::registry::{Skill, SkillError, SkillListingMeta, SkillManifest};
+use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use serde_json::json;
 use std::path::Path;
@@ -149,10 +149,14 @@ impl Skill for FileOpsSkill {
     fn manifest(&self) -> SkillManifest {
         SkillManifest {
             name: "file_ops".to_string(),
-            version: "1.0.0".to_string(),
             description: "File system operations: read, list, stat".to_string(),
-            author: Some("CloseClaw Team".to_string()),
-            dependencies: vec![],
+            when_to_use: "Use when the agent needs to read, \
+                write, list, or delete files on disk"
+                .to_string(),
+            context: crate::disk::types::SkillContext::default(),
+            effort: SkillEffort::Small,
+            paths: vec![],
+            user_invocable: false,
         }
     }
 
@@ -203,17 +207,6 @@ Always confirm destructive operations with the user before executing."#
             Some(other) => Err(SkillError::InvalidArgs(format!(
                 "unknown action '{other}', supported: read, list, stat"
             ))),
-        }
-    }
-
-    fn listing_meta(&self) -> SkillListingMeta {
-        SkillListingMeta {
-            when_to_use: "Use when the agent needs to read, \
-                write, list, or delete files on disk"
-                .to_string(),
-            user_invocable: false,
-            paths: vec![],
-            effort: SkillEffort::Small,
         }
     }
 }

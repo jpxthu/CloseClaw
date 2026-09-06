@@ -40,7 +40,7 @@ pub async fn resolve_skill<'a>(
 mod tests {
     use super::{resolve_skill, DiskSkillRegistry, ResolvedSkill};
     use crate::disk::types::SkillEffort;
-    use crate::registry::{BuiltinSkillRegistry, Skill, SkillListingMeta, SkillManifest};
+    use crate::registry::{BuiltinSkillRegistry, Skill, SkillManifest};
     use async_trait::async_trait;
     use std::sync::Arc;
 
@@ -51,22 +51,16 @@ mod tests {
         fn manifest(&self) -> SkillManifest {
             SkillManifest {
                 name: self.0.clone(),
-                version: "1.0".into(),
                 description: "bundled".into(),
-                author: None,
-                dependencies: vec![],
+                when_to_use: "bundled skill".to_string(),
+                context: crate::disk::types::SkillContext::default(),
+                effort: SkillEffort::Unknown,
+                paths: vec![],
+                user_invocable: false,
             }
         }
         fn body(&self) -> &str {
             "bundled body"
-        }
-        fn listing_meta(&self) -> SkillListingMeta {
-            SkillListingMeta {
-                when_to_use: "bundled skill".to_string(),
-                user_invocable: false,
-                paths: vec![],
-                effort: SkillEffort::Unknown,
-            }
         }
     }
 
