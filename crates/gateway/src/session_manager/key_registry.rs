@@ -21,15 +21,6 @@ impl SessionManager {
     ///
     /// When multiple sessions share the same reconstructed key, the one with
     /// the latest `last_message_at` (falling back to `created_at`) is kept.
-    /// Remove all key_registry entries that map to the given session_id.
-    ///
-    /// Used before `rebuild_key_registry()` to ensure stale mappings from
-    /// migrating sessions are not left in the registry during startup.
-    pub async fn remove_stale_key_registry_entries(&self, session_id: &str) {
-        let mut registry = self.key_registry.write().await;
-        registry.retain(|_, v| v != session_id);
-    }
-
     pub async fn rebuild_key_registry(&self) -> Result<(), PersistenceError> {
         let cm_arc = {
             let guard = self.checkpoint_manager.read().await;
@@ -119,5 +110,14 @@ impl SessionManager {
         }
 
         Ok(())
+    }
+
+    /// Remove all key_registry entries that map to the given session_id.
+    ///
+    /// Used before `rebuild_key_registry()` to ensure stale mappings from
+    /// migrating sessions are not left in the registry during startup.
+    pub async fn remove_stale_key_registry_entries(&self, session_id: &str) {
+        let mut registry = self.key_registry.write().await;
+        registry.retain(|_, v| v != session_id);
     }
 }

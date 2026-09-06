@@ -174,7 +174,7 @@ async fn test_recovery_scan_migrating_with_pending_ops() -> Result<(), Persisten
     Ok(())
 }
 
-//// Verify that `migrated_sessions` is empty when no migrating sessions exist.
+/// Verify that `migrated_sessions` is empty when no migrating sessions exist.
 #[tokio::test]
 async fn test_migrated_sessions_empty_when_no_migrating_sessions() -> Result<(), PersistenceError> {
     let storage = Arc::new(MemoryStorage::new());
