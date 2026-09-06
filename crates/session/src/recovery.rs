@@ -938,6 +938,9 @@ mod recovery_outbound_tests;
 #[path = "recovery_progress_tests.rs"]
 mod recovery_progress_tests;
 #[cfg(test)]
+#[path = "recovery_timeout_tests.rs"]
+mod recovery_timeout_tests;
+#[cfg(test)]
 #[path = "recovery_workflow_tests.rs"]
 mod recovery_workflow_tests;
 #[cfg(test)]
