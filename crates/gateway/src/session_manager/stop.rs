@@ -411,10 +411,6 @@ impl SessionManager {
         cascade: bool,
         options: StopOptions,
     ) -> Result<GracefulStopOutcome, StopError> {
-        cs.write().await.snapshot_current_state(
-            closeclaw_session::run_health::TranscriptOp::Rewrite,
-            "user-stop",
-        );
         let _ = cs.read().await.stopped.compare_exchange(
             false,
             true,
@@ -516,10 +512,6 @@ impl SessionManager {
                 std::sync::atomic::Ordering::SeqCst,
             );
         }
-        cs.write().await.snapshot_current_state(
-            closeclaw_session::run_health::TranscriptOp::Rewrite,
-            "user-stop",
-        );
         cs.read().await.stop(cascade, mode, timeout).await
     }
 
@@ -607,11 +599,6 @@ impl SessionManager {
         session_id: &str,
         _cascade: bool,
     ) -> Result<GracefulStopOutcome, StopError> {
-        // Snapshot transcript state before force-kill.
-        cs.write().await.snapshot_current_state(
-            closeclaw_session::run_health::TranscriptOp::Rewrite,
-            "user-stop",
-        );
         cs.write().await.force_kill().await;
 
         // Notify parent about forced termination of run-mode child.
