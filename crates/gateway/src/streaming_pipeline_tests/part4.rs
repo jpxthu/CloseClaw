@@ -93,9 +93,10 @@ async fn test_stream_error_no_incremental_output_after_partial() {
     }
 }
 
-/// StreamEvent::Error after completed text blocks → empty partial_content.
+/// StreamEvent::Error after completed text blocks → partial_content
+/// contains all accumulated content blocks.
 #[tokio::test]
-async fn test_stream_error_empty_partial_after_completed_blocks() {
+async fn test_stream_error_partial_after_completed_blocks() {
     let chain = Arc::new(MockProcessorChain::new());
     let plugin = Arc::new(CapturingPlugin::new("mock"));
     let (gw, _sm, sid) = setup_streaming(chain.clone(), plugin.clone()).await;
@@ -143,10 +144,16 @@ async fn test_stream_error_empty_partial_after_completed_blocks() {
             partial_content,
         } => {
             assert_eq!(message, "error mid-stream");
+            // partial_content contains accumulated blocks (completed
+            // Text block from index 0).
+            assert_eq!(
+                partial_content.len(),
+                1,
+                "partial_content should contain the completed Text block"
+            );
             assert!(
-                partial_content.is_empty(),
-                "Error should not produce incremental output, got: {:?}",
-                partial_content
+                matches!(&partial_content[0], ContentBlock::Text(t) if t == "Complete line\n"),
+                "partial_content should contain the completed block"
             );
         }
         other => panic!("expected StreamError, got {:?}", other),
@@ -183,9 +190,9 @@ async fn test_stream_error_empty_partial_content() {
 }
 
 /// Plugin.send IS called for text blocks dispatched before the error,
-/// but StreamError carries empty partial_content (no incremental output).
+/// and StreamError carries accumulated content blocks.
 #[tokio::test]
-async fn test_stream_error_text_dispatched_but_empty_partial() {
+async fn test_stream_error_text_dispatched_accumulates_partial() {
     let chain = Arc::new(MockProcessorChain::new());
     let plugin = Arc::new(CapturingPlugin::new("mock"));
     let (gw, _sm, sid) = setup_streaming(chain.clone(), plugin.clone()).await;
@@ -216,15 +223,19 @@ async fn test_stream_error_text_dispatched_but_empty_partial() {
     let sent = plugin.drain_sent();
     assert_eq!(sent.len(), 1, "text block should be sent before error");
 
-    // But StreamError carries empty partial_content (no flush on error).
+    // StreamError now carries accumulated content blocks.
     match result.unwrap_err() {
         crate::GatewayError::StreamError {
             partial_content, ..
         } => {
+            assert_eq!(
+                partial_content.len(),
+                1,
+                "partial_content should contain the dispatched Text block"
+            );
             assert!(
-                partial_content.is_empty(),
-                "Error should not produce incremental output, got: {:?}",
-                partial_content
+                matches!(&partial_content[0], ContentBlock::Text(t) if t == "Partial text\n"),
+                "partial_content should contain the accumulated text"
             );
         }
         other => panic!("expected StreamError, got {:?}", other),

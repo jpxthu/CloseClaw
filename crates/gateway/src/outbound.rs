@@ -847,7 +847,7 @@ impl Gateway {
                 );
                 return Err(GatewayError::StreamError {
                     message,
-                    partial_content: vec![],
+                    partial_content: std::mem::take(&mut state.content_blocks),
                 });
             }
             StreamEvent::BlockStart { index, block_type } => {

@@ -537,7 +537,9 @@ async fn test_stream_success_no_error() {
 
 /// Error event → StreamError with empty partial_content even after blocks.
 #[tokio::test]
-async fn test_stream_error_empty_partial_after_blocks() {
+/// Streaming error after completed blocks → partial_content contains
+/// all accumulated blocks (completed Text block from index 0).
+async fn test_stream_error_partial_after_completed_blocks() {
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
     let gw = setup_streaming_gw("sess-err-3", Arc::clone(&plugin)).await;
 
@@ -586,9 +588,16 @@ async fn test_stream_error_empty_partial_after_blocks() {
         Err(crate::GatewayError::StreamError {
             partial_content, ..
         }) => {
+            // After the fix, partial_content contains all accumulated
+            // content blocks (completed Text block from index 0).
+            assert_eq!(
+                partial_content.len(),
+                1,
+                "partial_content should contain the completed Text block"
+            );
             assert!(
-                partial_content.is_empty(),
-                "Error should not produce incremental output"
+                matches!(&partial_content[0], closeclaw_common::ContentBlock::Text(t) if t == "block1"),
+                "partial_content should contain the completed block"
             );
         }
         other => panic!("expected StreamError, got {:?}", other),
