@@ -40,7 +40,7 @@ pub use hook_reviewer::{
 pub use llm_caller_hook_provider::LlmCallerHookProvider;
 pub use snapshot_manager::{
     PersistenceMetaStore, RollbackAction, RuntimeSnapshotManager, Snapshot, SnapshotKind,
-    SnapshotMeta, SnapshotMetaStore, SnapshotMetaStoreData, SnapshotStatus, TranscriptOp,
+    SnapshotMeta, SnapshotMetaStore, SnapshotStatus, TranscriptOp,
 };
 pub use unhealthy_handler::{BackoffCounter, UnhealthyHandler};
 

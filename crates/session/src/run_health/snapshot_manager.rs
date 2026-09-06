@@ -134,22 +134,6 @@ pub struct SnapshotMeta {
 }
 
 // =====================================================================
-// SnapshotMetaStoreData — independent metadata storage
-// =====================================================================
-
-/// Independent storage container for snapshot metadata.
-///
-/// Stored separately from [`SessionCheckpoint`] so that snapshot
-/// metadata lifecycle and semantics do not share storage with the
-/// session checkpoint. This matches the design doc requirement that
-/// the two "存储语义与生命周期互不共享".
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SnapshotMetaStoreData {
-    /// Snapshot metadata entries for a single session.
-    pub metas: Vec<SnapshotMeta>,
-}
-
-// =====================================================================
 // SnapshotMetaStore — persistence trait
 // =====================================================================
 
