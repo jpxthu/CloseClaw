@@ -920,6 +920,9 @@ mod crash_recovery_tests;
 #[path = "recovery_migrating_tests.rs"]
 mod recovery_migrating_tests;
 #[cfg(test)]
+#[path = "recovery_outbound_tests.rs"]
+mod recovery_outbound_tests;
+#[cfg(test)]
 #[path = "recovery_progress_tests.rs"]
 mod recovery_progress_tests;
 #[cfg(test)]
