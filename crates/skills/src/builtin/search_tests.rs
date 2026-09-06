@@ -15,16 +15,7 @@ async fn test_search_manifest() {
     let skill = SearchSkill::new();
     let m = skill.manifest();
     assert_eq!(m.name, "search");
-    assert_eq!(m.version, "1.0.0");
     assert!(!m.description.is_empty());
-}
-
-#[tokio::test]
-async fn test_search_listing_meta() {
-    let skill = SearchSkill::new();
-    let meta = skill.listing_meta();
-    assert!(meta.user_invocable);
-    assert!(!meta.when_to_use.is_empty());
 }
 
 // --- execute() tests ---

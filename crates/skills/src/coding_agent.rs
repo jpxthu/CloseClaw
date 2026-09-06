@@ -4,7 +4,7 @@
 //! coding tasks.
 
 use crate::disk::types::SkillEffort;
-use crate::registry::{Skill, SkillError, SkillListingMeta, SkillManifest};
+use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -53,12 +53,17 @@ impl Skill for CodingAgentSkill {
     fn manifest(&self) -> SkillManifest {
         SkillManifest {
             name: "coding_agent".to_string(),
-            version: "1.0.0".to_string(),
             description: "Delegate complex coding tasks to AI coding agents \
                     (OpenCode, Claude Code)"
                 .to_string(),
-            author: Some("CloseClaw Team".to_string()),
-            dependencies: vec![],
+            when_to_use: "Use when the agent needs to delegate \
+                complex coding tasks to an AI coding agent like \
+                OpenCode or Claude Code"
+                .to_string(),
+            context: crate::disk::types::SkillContext::default(),
+            effort: SkillEffort::Medium,
+            paths: vec![],
+            user_invocable: true,
         }
     }
 
@@ -84,18 +89,6 @@ Always read relevant files before delegating to provide context."#
         match args.get("task").and_then(|v| v.as_str()) {
             None => Ok(Self::capabilities_description()),
             Some(t) => Ok(Self::build_delegation_params(t)),
-        }
-    }
-
-    fn listing_meta(&self) -> SkillListingMeta {
-        SkillListingMeta {
-            when_to_use: "Use when the agent needs to delegate \
-                complex coding tasks to an AI coding agent like \
-                OpenCode or Claude Code"
-                .to_string(),
-            user_invocable: true,
-            paths: vec![],
-            effort: SkillEffort::Medium,
         }
     }
 }

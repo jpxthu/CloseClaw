@@ -1,27 +1,21 @@
 //! Skill Registry - manages skill registration and discovery
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::disk::types::SkillEffort;
-
-/// Skill metadata
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SkillManifest {
-    pub name: String,
-    pub version: String,
-    pub description: String,
-    pub author: Option<String>,
-    #[serde(default)]
-    pub dependencies: Vec<String>,
-}
+// Re-export the unified manifest type so downstream modules can
+// continue importing from this crate root.
+pub use crate::disk::types::{SkillManifest, SkillSource};
 
 /// Metadata required for listing generation.
 ///
 /// Builtin skills provide this so they can appear in the same
 /// skill listing that disk-based skills already produce.
+///
+/// During the unification migration this struct is retained
+/// temporarily; its fields will be absorbed into
+/// [`SkillManifest`] and this type removed in a later step.
 #[derive(Debug, Clone, Default)]
 pub struct SkillListingMeta {
     /// When to use this skill (decision hint).
@@ -31,28 +25,21 @@ pub struct SkillListingMeta {
     /// File glob patterns for conditional activation.
     pub paths: Vec<String>,
     /// Estimated effort level.
-    pub effort: SkillEffort,
+    pub effort: crate::disk::types::SkillEffort,
 }
 
 /// Skill trait - implemented by each skill
 #[async_trait]
 pub trait Skill: Send + Sync {
-    /// Get skill manifest
+    /// Get the shared skill manifest.
+    ///
+    /// Both disk-based and bundled skills return the same
+    /// [`crate::disk::types::SkillManifest`] type, ensuring a
+    /// single source of truth for skill metadata.
     fn manifest(&self) -> SkillManifest;
 
     /// Get skill prompt body text
     fn body(&self) -> &str;
-
-    /// Execute the skill with the given arguments.
-    ///
-    /// Bundled skills override this to run native code logic and
-    /// return structured results as a meta message. The default
-    /// implementation delegates to [`body()`] for backward
-    /// compatibility with existing skills.
-    async fn execute(&self, args: Option<serde_json::Value>) -> Result<String, SkillError> {
-        let _ = args;
-        Ok(self.body().to_string())
-    }
 
     /// Get listing metadata for this skill.
     ///
@@ -64,6 +51,17 @@ pub trait Skill: Send + Sync {
     /// not need to override this method.
     fn listing_meta(&self) -> SkillListingMeta {
         SkillListingMeta::default()
+    }
+
+    /// Execute the skill with the given arguments.
+    ///
+    /// Bundled skills override this to run native code logic and
+    /// return structured results as a meta message. The default
+    /// implementation delegates to [`body()`] for backward
+    /// compatibility with existing skills.
+    async fn execute(&self, args: Option<serde_json::Value>) -> Result<String, SkillError> {
+        let _ = args;
+        Ok(self.body().to_string())
     }
 }
 
@@ -154,16 +152,16 @@ impl BuiltinSkillRegistry {
 
         let mut filtered: Vec<(String, u8)> = entries
             .into_iter()
-            .filter(|(m, meta)| {
-                meta.user_invocable
-                    && (!exclude_conditional || meta.paths.is_empty())
+            .filter(|m| {
+                m.user_invocable
+                    && (!exclude_conditional || m.paths.is_empty())
                     && match &use_whitelist {
                         Some(set) => set.contains(m.name.as_str()),
                         None => true,
                     }
             })
-            .map(|(m, meta)| {
-                let line = Self::render_single_listing(&m, &meta);
+            .map(|m| {
+                let line = Self::render_single_listing(&m);
                 (line, 4u8) // Bundled priority
             })
             .collect();
@@ -180,8 +178,8 @@ impl BuiltinSkillRegistry {
         let entries = self.sorted_skills().await;
         entries
             .iter()
-            .filter(|(_, meta)| meta.user_invocable)
-            .map(|(m, _)| m.name.clone())
+            .filter(|m| m.user_invocable)
+            .map(|m| m.name.clone())
             .collect()
     }
 
@@ -189,19 +187,19 @@ impl BuiltinSkillRegistry {
     ///
     /// Format matches [`DiskSkillRegistry::render_single_listing`]:
     /// `- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {paths} [effort: ...]`
-    pub fn render_single_listing(manifest: &SkillManifest, meta: &SkillListingMeta) -> String {
-        let when = if meta.when_to_use.is_empty() {
+    pub fn render_single_listing(manifest: &crate::disk::types::SkillManifest) -> String {
+        let when = if manifest.when_to_use.is_empty() {
             String::new()
         } else {
-            format!(" — {}", meta.when_to_use)
+            format!(" — {}", manifest.when_to_use)
         };
-        let paths_anno = if meta.paths.is_empty() {
+        let paths_anno = if manifest.paths.is_empty() {
             String::new()
         } else {
-            format!(" ⚡ auto-activates on: {}", meta.paths.join(", "))
+            format!(" ⚡ auto-activates on: {}", manifest.paths.join(", "))
         };
-        let effort_anno = match meta.effort {
-            SkillEffort::Unknown => String::new(),
+        let effort_anno = match manifest.effort {
+            crate::disk::types::SkillEffort::Unknown => String::new(),
             effort => format!(" [effort: {}]", effort),
         };
         format!(
@@ -212,13 +210,11 @@ impl BuiltinSkillRegistry {
 
     /// Collects all skills with their metadata, sorted by name
     /// (all builtin skills share the same `Bundled` priority).
-    pub async fn sorted_skills(&self) -> Vec<(SkillManifest, SkillListingMeta)> {
+    pub async fn sorted_skills(&self) -> Vec<crate::disk::types::SkillManifest> {
         let skills = self.skills.read().await;
-        let mut entries: Vec<(SkillManifest, SkillListingMeta)> = skills
-            .values()
-            .map(|s| (s.manifest(), s.listing_meta()))
-            .collect();
-        entries.sort_by(|a, b| a.0.name.cmp(&b.0.name));
+        let mut entries: Vec<crate::disk::types::SkillManifest> =
+            skills.values().map(|s| s.manifest()).collect();
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
         entries
     }
 
@@ -232,8 +228,8 @@ impl BuiltinSkillRegistry {
         let entries = self.sorted_skills().await;
         let lines: Vec<String> = entries
             .iter()
-            .filter(|(_, meta)| meta.user_invocable)
-            .map(|(m, meta)| Self::render_single_listing(m, meta))
+            .filter(|m| m.user_invocable)
+            .map(Self::render_single_listing)
             .collect();
         lines.join("\n")
     }
@@ -247,8 +243,8 @@ impl BuiltinSkillRegistry {
         let entries = self.sorted_skills().await;
         let lines: Vec<String> = entries
             .iter()
-            .filter(|(_, meta)| meta.user_invocable && meta.paths.is_empty())
-            .map(|(m, meta)| Self::render_single_listing(m, meta))
+            .filter(|m| m.user_invocable && m.paths.is_empty())
+            .map(Self::render_single_listing)
             .collect();
         lines.join("\n")
     }
@@ -271,14 +267,14 @@ impl BuiltinSkillRegistry {
         let entries = self.sorted_skills().await;
         let lines: Vec<String> = entries
             .iter()
-            .filter(|(m, meta)| {
-                if meta.paths.is_empty() {
-                    meta.user_invocable
+            .filter(|m| {
+                if m.paths.is_empty() {
+                    m.user_invocable
                 } else {
                     activated_set.contains(m.name.as_str())
                 }
             })
-            .map(|(m, meta)| Self::render_single_listing(m, meta))
+            .map(Self::render_single_listing)
             .collect();
         lines.join("\n")
     }
@@ -300,18 +296,18 @@ impl BuiltinSkillRegistry {
         }
         let entries = self.sorted_skills().await;
         let mut matched = Vec::new();
-        for (manifest, meta) in &entries {
-            if meta.paths.is_empty() {
+        for manifest in &entries {
+            if manifest.paths.is_empty() {
                 continue;
             }
-            let matcher = match PathMatcher::new(&meta.paths) {
+            let matcher = match PathMatcher::new(&manifest.paths) {
                 Ok(m) => m,
                 Err(_) => continue,
             };
             if paths.iter().any(|p| matcher.matches(p)) {
                 matched.push(closeclaw_common::ConditionalSkillMatch {
                     name: manifest.name.clone(),
-                    listing_line: Self::render_single_listing(manifest, meta),
+                    listing_line: Self::render_single_listing(manifest),
                 });
             }
         }
@@ -368,10 +364,12 @@ mod tests {
         fn manifest(&self) -> SkillManifest {
             SkillManifest {
                 name: self.name.clone(),
-                version: "1.0.0".to_string(),
                 description: format!("mock skill {}", self.name),
-                author: None,
-                dependencies: vec![],
+                when_to_use: self.meta.when_to_use.clone(),
+                context: crate::disk::types::SkillContext::default(),
+                effort: self.meta.effort,
+                paths: self.meta.paths.clone(),
+                user_invocable: self.meta.user_invocable,
             }
         }
 
@@ -471,16 +469,19 @@ mod tests {
     fn test_skill_manifest_serialization() {
         let manifest = SkillManifest {
             name: "test".to_string(),
-            version: "1.0.0".to_string(),
             description: "desc".to_string(),
-            author: Some("author".to_string()),
-            dependencies: vec!["dep1".to_string()],
+            when_to_use: "use when testing".to_string(),
+            context: crate::disk::types::SkillContext::default(),
+            effort: SkillEffort::Small,
+            paths: vec!["**/*.rs".to_string()],
+            user_invocable: true,
         };
         let json = serde_json::to_string(&manifest).unwrap();
         let parsed: SkillManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "test");
-        assert_eq!(parsed.author, Some("author".to_string()));
-        assert_eq!(parsed.dependencies, vec!["dep1".to_string()]);
+        assert_eq!(parsed.when_to_use, "use when testing");
+        assert!(parsed.user_invocable);
+        assert_eq!(parsed.paths, vec!["**/*.rs".to_string()]);
     }
 
     #[test]
@@ -503,10 +504,12 @@ mod tests {
             fn manifest(&self) -> SkillManifest {
                 SkillManifest {
                     name: "no_meta".into(),
-                    version: "0.1".into(),
                     description: "".into(),
-                    author: None,
-                    dependencies: vec![],
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: false,
                 }
             }
             fn body(&self) -> &str {
@@ -769,18 +772,14 @@ mod tests {
     async fn test_render_single_listing_no_when_to_use() {
         let manifest = SkillManifest {
             name: "bare".into(),
-            version: "1.0".into(),
             description: "bare skill".into(),
-            author: None,
-            dependencies: vec![],
-        };
-        let meta = SkillListingMeta {
             when_to_use: String::new(),
-            user_invocable: true,
-            paths: vec![],
+            context: crate::disk::types::SkillContext::default(),
             effort: SkillEffort::Unknown,
+            paths: vec![],
+            user_invocable: true,
         };
-        let line = BuiltinSkillRegistry::render_single_listing(&manifest, &meta);
+        let line = BuiltinSkillRegistry::render_single_listing(&manifest);
         assert_eq!(line, "- **bare**: bare skill");
     }
 
@@ -788,18 +787,14 @@ mod tests {
     async fn test_render_single_listing_with_paths() {
         let manifest = SkillManifest {
             name: "rs_skill".into(),
-            version: "1.0".into(),
             description: "rust skill".into(),
-            author: None,
-            dependencies: vec![],
-        };
-        let meta = SkillListingMeta {
             when_to_use: "for rust".into(),
-            user_invocable: true,
-            paths: vec!["**/*.rs".into(), "**/*.toml".into()],
+            context: crate::disk::types::SkillContext::default(),
             effort: SkillEffort::Small,
+            paths: vec!["**/*.rs".into(), "**/*.toml".into()],
+            user_invocable: true,
         };
-        let line = BuiltinSkillRegistry::render_single_listing(&manifest, &meta);
+        let line = BuiltinSkillRegistry::render_single_listing(&manifest);
         assert_eq!(
             line,
             "- **rs_skill**: rust skill — for rust ⚡ auto-activates on: **/*.rs, **/*.toml [effort: small]"
@@ -896,7 +891,7 @@ mod tests {
         // None whitelist — no filtering
         let entries = registry.listing_entries(None, false).await;
         assert_eq!(entries.len(), 2);
-        assert!(entries.iter().all(|(_, p)| *p == 4));
+        assert!(entries.iter().all(|(_, p)| *p == 4u8));
         assert!(entries[0].0.contains("alpha"));
         assert!(entries[1].0.contains("beta"));
         // ["*"] should also not filter

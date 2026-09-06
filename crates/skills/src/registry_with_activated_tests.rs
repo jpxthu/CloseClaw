@@ -23,10 +23,12 @@ impl Skill for MockSkill {
     fn manifest(&self) -> SkillManifest {
         SkillManifest {
             name: self.name.clone(),
-            version: "1.0.0".to_string(),
             description: format!("mock skill {}", self.name),
-            author: None,
-            dependencies: vec![],
+            when_to_use: self.meta.when_to_use.clone(),
+            context: crate::disk::types::SkillContext::default(),
+            effort: self.meta.effort,
+            paths: self.meta.paths.clone(),
+            user_invocable: self.meta.user_invocable,
         }
     }
 

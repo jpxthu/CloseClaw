@@ -44,16 +44,16 @@ fn test_builtin_skills_all_have_body() {
 fn test_builtin_skills_all_have_listing_meta() {
     let skills = BuiltinSkills::all();
     for skill in &skills {
-        let meta = skill.listing_meta();
+        let m = skill.manifest();
         assert!(
-            !meta.when_to_use.is_empty(),
-            "skill '{}' listing_meta.when_to_use should not be empty",
-            skill.manifest().name
+            !m.when_to_use.is_empty(),
+            "skill '{}' manifest.when_to_use should not be empty",
+            m.name
         );
         assert!(
-            !meta.effort.to_string().is_empty(),
-            "skill '{}' listing_meta.effort should not be empty",
-            skill.manifest().name
+            !m.effort.to_string().is_empty(),
+            "skill '{}' manifest.effort should not be empty",
+            m.name
         );
     }
 }
@@ -62,13 +62,12 @@ fn test_builtin_skills_all_have_listing_meta() {
 fn test_skill_creator_and_coding_agent_are_user_invocable() {
     let skills = BuiltinSkills::all();
     for skill in &skills {
-        let name = skill.manifest().name;
-        let meta = skill.listing_meta();
-        if name == "skill_creator" || name == "coding_agent" {
+        let m = skill.manifest();
+        if m.name == "skill_creator" || m.name == "coding_agent" {
             assert!(
-                meta.user_invocable,
+                m.user_invocable,
                 "skill '{}' should be user_invocable",
-                name
+                m.name
             );
         }
     }
@@ -78,13 +77,12 @@ fn test_skill_creator_and_coding_agent_are_user_invocable() {
 fn test_file_ops_and_git_ops_are_not_user_invocable() {
     let skills = BuiltinSkills::all();
     for skill in &skills {
-        let name = skill.manifest().name;
-        let meta = skill.listing_meta();
-        if name == "file_ops" || name == "git_ops" {
+        let m = skill.manifest();
+        if m.name == "file_ops" || m.name == "git_ops" {
             assert!(
-                !meta.user_invocable,
+                !m.user_invocable,
                 "skill '{}' should not be user_invocable",
-                name
+                m.name
             );
         }
     }

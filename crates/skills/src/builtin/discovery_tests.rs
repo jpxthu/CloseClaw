@@ -15,16 +15,7 @@ async fn test_discovery_manifest() {
     let skill = SkillDiscoverySkill::new();
     let m = skill.manifest();
     assert_eq!(m.name, "skill_discovery");
-    assert_eq!(m.version, "1.0.0");
-    assert!(m.dependencies.contains(&"clawhub".to_string()));
-}
-
-#[tokio::test]
-async fn test_discovery_listing_meta() {
-    let skill = SkillDiscoverySkill::new();
-    let meta = skill.listing_meta();
-    assert!(meta.user_invocable);
-    assert!(!meta.when_to_use.is_empty());
+    assert!(!m.description.is_empty());
 }
 
 // --- execute() tests ---

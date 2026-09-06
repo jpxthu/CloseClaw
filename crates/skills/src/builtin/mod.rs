@@ -65,8 +65,8 @@ mod extra_tests {
                 "skill manifest name should not be empty"
             );
             assert!(
-                !m.version.is_empty(),
-                "skill manifest version should not be empty"
+                !m.description.is_empty(),
+                "skill manifest description should not be empty"
             );
         }
     }
