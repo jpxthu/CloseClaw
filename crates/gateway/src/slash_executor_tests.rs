@@ -150,8 +150,13 @@ impl SlashEffectExecutor for MockExecutor {
         1
     }
 
-    async fn execute_set_reasoning(&self, _session_id: &str, _level: ReasoningLevel) {
+    async fn execute_set_reasoning(
+        &self,
+        _session_id: &str,
+        _level: ReasoningLevel,
+    ) -> Option<ReasoningLevel> {
         *self.set_reasoning_called.lock().unwrap() = true;
+        Some(_level)
     }
 
     async fn execute_set_verbosity(&self, _session_id: &str, _level: VerbosityLevel) {
@@ -477,7 +482,13 @@ async fn test_exec_failure_forwards_error_to_user() {
         async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) -> usize {
             0
         }
-        async fn execute_set_reasoning(&self, _: &str, _: ReasoningLevel) {}
+        async fn execute_set_reasoning(
+            &self,
+            _: &str,
+            _: ReasoningLevel,
+        ) -> Option<ReasoningLevel> {
+            None
+        }
         async fn execute_set_verbosity(&self, _: &str, _: VerbosityLevel) {}
         async fn execute_set_mode(&self, _: &str, _: &str) {}
         async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {

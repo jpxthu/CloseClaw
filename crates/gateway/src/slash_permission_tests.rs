@@ -761,7 +761,8 @@ async fn test_new_session_executor_replies_with_session_id() {
             &self,
             _: &str,
             _: closeclaw_session::persistence::ReasoningLevel,
-        ) {
+        ) -> Option<closeclaw_session::persistence::ReasoningLevel> {
+            None
         }
         async fn execute_set_verbosity(&self, _: &str, _: closeclaw_common::VerbosityLevel) {}
         async fn execute_set_mode(&self, _: &str, _: &str) {}

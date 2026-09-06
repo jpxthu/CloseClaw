@@ -1,7 +1,6 @@
-// Unit tests for SlashResultExecutor — covers all SlashResult variant execute() behavior.
-//
-// Uses MockSlashEffectExecutor to verify side-effect dispatch and
-// MockSessionLookup for session queries.
+// Unit tests for SlashResultExecutor — covers all SlashResult variant
+// execute() behavior. Uses MockSlashEffectExecutor to verify side-effect
+// dispatch and MockSessionLookup for session queries.
 
 use std::sync::{Arc, Mutex};
 
@@ -106,11 +105,16 @@ impl SlashEffectExecutor for MockSlashEffectExecutor {
         1
     }
 
-    async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel) {
+    async fn execute_set_reasoning(
+        &self,
+        session_id: &str,
+        level: ReasoningLevel,
+    ) -> Option<ReasoningLevel> {
         self.calls
             .lock()
             .unwrap()
             .push(ExecutorCall::SetReasoning(session_id.to_string(), level));
+        Some(level)
     }
 
     async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel) {
@@ -565,7 +569,9 @@ impl SlashEffectExecutor for MockSlashEffectExecutorError {
     async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) -> usize {
         0
     }
-    async fn execute_set_reasoning(&self, _: &str, _: ReasoningLevel) {}
+    async fn execute_set_reasoning(&self, _: &str, _: ReasoningLevel) -> Option<ReasoningLevel> {
+        None
+    }
     async fn execute_set_verbosity(&self, _: &str, _: VerbosityLevel) {}
     async fn execute_set_mode(&self, _: &str, _: &str) {}
     async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {

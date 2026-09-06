@@ -71,7 +71,13 @@ mod tests {
         ) -> usize {
             0
         }
-        async fn execute_set_reasoning(&self, _: &str, _: closeclaw_common::ReasoningLevel) {}
+        async fn execute_set_reasoning(
+            &self,
+            _: &str,
+            _: closeclaw_common::ReasoningLevel,
+        ) -> Option<closeclaw_common::ReasoningLevel> {
+            None
+        }
         async fn execute_set_verbosity(&self, _: &str, _: closeclaw_common::VerbosityLevel) {}
         async fn execute_set_mode(&self, _: &str, _: &str) {}
         async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {
