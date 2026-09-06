@@ -118,6 +118,8 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
 mod tests {
     use super::*;
     use std::fs;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_provider_name_and_priority() {
@@ -490,5 +492,151 @@ mod tests {
 
         let fragment = provider.generate(&ctx).await.unwrap();
         assert!(fragment.content.contains("minimal content"));
+    }
+
+    // ============================================================
+    // Step 1.2: Cache independence & loading behavior tests
+    // ============================================================
+
+    /// Verify that modifying MEMORY.md does NOT invalidate the bootstrap
+    /// cache key — MEMORY.md is excluded from bootstrap_file_list(Full).
+    /// The memory provider's cache_key must change independently.
+    #[test]
+    fn test_cache_key_independence_from_memory_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Create all 6 bootstrap files
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+        // Also create MEMORY.md — present in workspace but excluded from
+        // bootstrap_file_list(Full)
+        fs::write(tmp.path().join("MEMORY.md"), "original memory").unwrap();
+
+        let boot_provider = BootstrapFragmentProvider::new();
+        let mem_provider =
+            closeclaw_memory::memory_fragment_provider::MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            ..FragmentContext::test_default()
+        };
+
+        let boot_key_before = boot_provider.cache_key(&ctx);
+        let mem_key_before = mem_provider.cache_key(&ctx);
+        assert!(boot_key_before.is_some(), "bootstrap key should exist");
+        assert!(mem_key_before.is_some(), "memory key should exist");
+
+        // Touch MEMORY.md to change its mtime. On ext4/NIFS with 1-second
+        // granularity we need to ensure the file is actually updated at a
+        // different second, so we write with distinct content.
+        thread::sleep(Duration::from_millis(1100));
+        fs::write(tmp.path().join("MEMORY.md"), "updated memory content").unwrap();
+
+        let boot_key_after = boot_provider.cache_key(&ctx);
+        let mem_key_after = mem_provider.cache_key(&ctx);
+
+        // Bootstrap cache key must NOT change — MEMORY.md is not in the
+        // bootstrap file list, so its mtime is not inspected.
+        assert_eq!(
+            boot_key_before, boot_key_after,
+            "bootstrap cache_key must be stable when only MEMORY.md changes"
+        );
+        // Memory cache key MUST change — it reflects MEMORY.md mtime.
+        assert_ne!(
+            mem_key_before, mem_key_after,
+            "memory cache_key must change when MEMORY.md is modified"
+        );
+    }
+
+    /// Verify bootstrap_file_list(Full) returns exactly 6 items without
+    /// MEMORY.md, in the document-defined fixed order.
+    #[test]
+    fn test_bootstrap_file_list_full_excludes_memory_md() {
+        let list = bootstrap_file_list(BootstrapMode::Full);
+        assert_eq!(
+            list.len(),
+            6,
+            "Full mode must have exactly 6 bootstrap files"
+        );
+        assert_eq!(
+            list,
+            vec![
+                "AGENTS.md",
+                "SOUL.md",
+                "IDENTITY.md",
+                "USER.md",
+                "TOOLS.md",
+                "BOOTSTRAP.md",
+            ],
+            "order must match doc-defined sequence"
+        );
+        assert!(
+            !list.contains(&"MEMORY.md"),
+            "MEMORY.md must not be in bootstrap list"
+        );
+    }
+
+    /// Full mode load_bootstrap_files() must not include MEMORY.md in the
+    /// result even when the file exists in the workspace directory.
+    #[test]
+    fn test_load_bootstrap_files_full_excludes_memory_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Create all 6 bootstrap files + MEMORY.md
+        fs::write(tmp.path().join("AGENTS.md"), "a").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "s").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "i").unwrap();
+        fs::write(tmp.path().join("USER.md"), "u").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "t").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "b").unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "m").unwrap();
+
+        let result = load_bootstrap_files(tmp.path(), BootstrapMode::Full).unwrap();
+
+        assert_eq!(
+            result.len(),
+            6,
+            "Full mode load must return exactly 6 entries"
+        );
+        assert!(
+            !result.contains_key("MEMORY.md"),
+            "MEMORY.md must not appear in load result"
+        );
+    }
+
+    /// When MEMORY.md does not exist, bootstrap cache_key behavior must
+    /// be identical to when it is absent from the list — i.e. the key is
+    /// determined solely by the 6 bootstrap files.
+    #[test]
+    fn test_cache_key_stable_when_memory_md_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Create only bootstrap files, no MEMORY.md
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            ..FragmentContext::test_default()
+        };
+        let key_without = provider.cache_key(&ctx);
+        assert!(key_without.is_some(), "key should exist without MEMORY.md");
+
+        // Now create MEMORY.md — key must NOT change
+        thread::sleep(Duration::from_millis(1100));
+        fs::write(tmp.path().join("MEMORY.md"), "memory").unwrap();
+
+        let key_with = provider.cache_key(&ctx);
+        assert_eq!(
+            key_without, key_with,
+            "bootstrap cache_key must not change when MEMORY.md appears"
+        );
     }
 }
