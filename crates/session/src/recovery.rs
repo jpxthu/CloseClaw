@@ -553,7 +553,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         let mut sections = Vec::new();
         let mut tool_calls = Vec::new();
         let mut sub_spawns = Vec::new();
-        let mut outbound_msgs = Vec::new();
         for op in &checkpoint.pending_operations {
             let ts = op.created_at.format("%Y-%m-%dT%H:%M:%SZ");
             match op.op_type {
@@ -574,8 +573,9 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                     sub_spawns.push(format!("  • 子 Session: {} — 已运行 {}", child, elapsed));
                 }
                 PendingOperationType::OutboundMessage => {
-                    let msg = op.detail.message_id().unwrap_or("unknown");
-                    outbound_msgs.push(format!("  • 出站消息: {} — 创建于 {}", msg, ts));
+                    // Outbound messages are auto-redelivered by
+                    // `drain_outbound_pending_for_session` on startup;
+                    // do not include them in the recovery notification.
                 }
             }
         }
@@ -584,9 +584,6 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
         if !sub_spawns.is_empty() {
             sections.push(sub_spawns.join("\n"));
-        }
-        if !outbound_msgs.is_empty() {
-            sections.push(outbound_msgs.join("\n"));
         }
         format!(
             "[系统] 网关已重启（重启时间: {restart_time}）\n\n\
@@ -922,6 +919,9 @@ mod crash_recovery_tests;
 #[cfg(test)]
 #[path = "recovery_migrating_tests.rs"]
 mod recovery_migrating_tests;
+#[cfg(test)]
+#[path = "recovery_outbound_tests.rs"]
+mod recovery_outbound_tests;
 #[cfg(test)]
 #[path = "recovery_progress_tests.rs"]
 mod recovery_progress_tests;
