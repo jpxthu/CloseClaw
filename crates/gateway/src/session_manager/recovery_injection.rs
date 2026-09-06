@@ -193,15 +193,19 @@ impl SessionManager {
 
     /// Inject recovery notification and tool failure results.
     fn inject_recovery_data(&self, conv: &mut ConversationSession, cp: &SessionCheckpoint) {
-        if let Some(ref notification) = cp.recovery_notification {
-            conv.inject_system_message(notification.clone());
-        }
+        // Tool failure results are injected before the system notification
+        // so the transcript ends with: tool_result, then system notification.
+        // This matches the design doc: the LLM sees tool failure first, then
+        // the recovery summary, consistent with normal tool failure flow.
         for failure in &cp.pending_tool_failures {
             let tool_call_id = serde_json::from_str::<serde_json::Value>(failure)
                 .ok()
                 .and_then(|v| v.get("op_id")?.as_str().map(String::from))
                 .unwrap_or_else(|| "recovery".to_string());
             conv.inject_tool_result(&tool_call_id, failure);
+        }
+        if let Some(ref notification) = cp.recovery_notification {
+            conv.inject_system_message(notification.clone());
         }
     }
 
