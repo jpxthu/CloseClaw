@@ -835,6 +835,16 @@ impl SessionManager {
         if let Some(cp) = cm.load(session_id).await.ok().flatten() {
             self.rebuild_session_from_checkpoint(session_id, &cp, message)
                 .await?;
+            // Create Session entry
+            {
+                let mut sessions = self.sessions.write().await;
+                if !sessions.contains_key(session_id) {
+                    sessions.insert(
+                        session_id.to_string(),
+                        session_helpers::create_new_session(session_id, message, channel),
+                    );
+                }
+            }
         }
         // Re-register routing key.
         {
