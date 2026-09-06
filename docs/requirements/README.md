@@ -25,7 +25,7 @@
 | [llm](llm.md) | 多供应商统一对话、流式输出、缓存优化、用量统计 | ✅
 | [memory](memory.md) | 会话后自动挖掘记忆、实体体系、升格为行为规则 | ✅
 | [mode](mode.md) | Plan Mode / Auto Mode、plan 文件、执行与失败处理 | ✅
-| [permission](permission.md) | 身份型访问控制、审批工作流、子 Agent 权限继承 | ✅
+| [permission](permission.md) | 身份型访问控制、审批工作流、子 Session 权限继承 | ✅
 | [platform](platform.md) | 跨平台进程与路径管理、终端自适应、系统差异隔离 | ✅
 | [processor_chain](processor_chain.md) | 入站出站消息统一处理、DSL 交互指令、审计日志 | ✅
 | [session](session.md) | 对话持久化与恢复、压缩、子 Session 委托、消息排队 | ✅
