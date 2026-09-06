@@ -158,12 +158,92 @@ async fn test_recovery_scan_migrating_with_pending_ops() -> Result<(), Persisten
         "restored session should be dirty"
     );
 
+    // migrated_sessions should contain this session_id
+    assert!(
+        report.migrated_sessions.contains(&"mig-dirty".to_string()),
+        "migrated_sessions should include session restored from migrating state"
+    );
+
     // Recovery notification should be stored
     let loaded = storage.load_checkpoint("mig-dirty").await?.unwrap();
     assert!(
         loaded.recovery_notification.is_some(),
         "recovery notification should be stored"
     );
+
+    Ok(())
+}
+
+//// Verify that `migrated_sessions` is empty when no migrating sessions exist.
+#[tokio::test]
+async fn test_migrated_sessions_empty_when_no_migrating_sessions() -> Result<(), PersistenceError> {
+    let storage = Arc::new(MemoryStorage::new());
+
+    // Add a normal active session (not migrating)
+    let cp = create_test_checkpoint("active-only");
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let service = SessionRecoveryService::new(Arc::clone(&storage));
+    let report = service.recover().await?;
+
+    assert!(report.recovered.contains(&"active-only".to_string()));
+    assert!(
+        report.migrated_sessions.is_empty(),
+        "migrated_sessions should be empty when there are no migrating sessions"
+    );
+
+    Ok(())
+}
+
+/// Verify that multiple migrating sessions are all recorded in `migrated_sessions`.
+#[tokio::test]
+async fn test_migrated_sessions_records_all_restored_migrating() -> Result<(), PersistenceError> {
+    let storage = Arc::new(MemoryStorage::new());
+    let now = Utc::now();
+
+    // Set up two migrating sessions with pending ops
+    setup_migrating_session(
+        &storage,
+        "mig-1",
+        vec![PendingOperation {
+            status: PendingOperationStatus::Running,
+            op_id: "op1".into(),
+            op_type: PendingOperationType::ToolCall,
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "exec".into(),
+                args_summary: "{}".into(),
+            },
+            created_at: now,
+        }],
+    )
+    .await;
+
+    setup_migrating_session(
+        &storage,
+        "mig-2",
+        vec![PendingOperation {
+            status: PendingOperationStatus::Running,
+            op_id: "op2".into(),
+            op_type: PendingOperationType::ToolCall,
+            detail: PendingOperationDetail::ToolCall {
+                tool_name: "bash".into(),
+                args_summary: "{}".into(),
+            },
+            created_at: now,
+        }],
+    )
+    .await;
+
+    let service = SessionRecoveryService::new(Arc::clone(&storage));
+    let report = service.recover().await?;
+
+    assert!(report.recovered.contains(&"mig-1".to_string()));
+    assert!(report.recovered.contains(&"mig-2".to_string()));
+
+    // Both migrating sessions should appear in migrated_sessions
+    assert_eq!(report.migrated_sessions.len(), 2);
+    assert!(report.migrated_sessions.contains(&"mig-1".to_string()));
+    assert!(report.migrated_sessions.contains(&"mig-2".to_string()));
 
     Ok(())
 }
@@ -212,6 +292,12 @@ async fn test_recovery_scan_migrating_without_pending_ops() -> Result<(), Persis
     assert!(
         !active.contains(&"mig-clean".to_string()),
         "clean migrating session should not be restored to active"
+    );
+
+    // migrated_sessions should NOT contain this session (it was archived, not restored)
+    assert!(
+        !report.migrated_sessions.contains(&"mig-clean".to_string()),
+        "clean migrating session should not appear in migrated_sessions"
     );
 
     Ok(())
