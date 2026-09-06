@@ -91,7 +91,6 @@ impl Daemon {
         let phase_components = Self::validate_phase_components(&layers)?;
         Ok((layers, phase_components))
     }
-
     /// Map each [`StartupPhase`] to its resolved [`ComponentId`] set,
     /// validated against the topo-sort result.
     fn validate_phase_components(
@@ -139,7 +138,6 @@ impl Daemon {
         }
         Ok(expected)
     }
-
     /// Log the resolved startup order at `info` level for operational visibility.
     fn log_startup_order(layers: &[Vec<crate::startup::ComponentId>]) {
         for (i, layer) in layers.iter().enumerate() {
@@ -148,7 +146,6 @@ impl Daemon {
         }
     }
 }
-
 // --- Phase initialization methods ---
 impl Daemon {
     /// Phase 1: Foundation — ConfigManager + Storage.
@@ -172,7 +169,6 @@ impl Daemon {
         Self::run_config_migration(config_dir);
         Ok((config_manager, storage, data_dir))
     }
-
     /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry,
     /// LLMRegistry, PermissionEngine, PlanArchiveSweeper.
     async fn init_phase_2_registries(
@@ -208,7 +204,6 @@ impl Daemon {
         let data_dir = std::path::PathBuf::from(config_dir);
         let (plan_archive_shutdown_tx, plan_archive_sweeper_handle) =
             registries::spawn_plan_archive_sweeper(config_manager, &data_dir);
-
         // Parallel async components: skill_registry and llm_registry are
         // independent within Layer 2, so run them concurrently.
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
@@ -301,8 +296,11 @@ impl Daemon {
             use closeclaw_session::recovery::SessionRecoveryService;
             let recovery_svc =
                 SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
-            match recovery_svc.recover().await {
-                Ok(report) => {
+            let recovery_result =
+                tokio::time::timeout(std::time::Duration::from_secs(10), recovery_svc.recover())
+                    .await;
+            match recovery_result {
+                Ok(Ok(report)) => {
                     if !report.dirty_sessions.is_empty() {
                         info!(
                             dirty_count = report.dirty_sessions.len(),
@@ -317,8 +315,15 @@ impl Daemon {
                     }
                     report.dirty_sessions
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     tracing::warn!(error = %e, "recovery scan failed — continuing without recovery");
+                    Vec::new()
+                }
+                Err(_elapsed) => {
+                    tracing::warn!(
+                        timeout_secs = 10,
+                        "recovery scan timed out — continuing without recovery"
+                    );
                     Vec::new()
                 }
             }
