@@ -13,6 +13,16 @@ pub struct FragmentContext {
     /// Directory containing bootstrap files, used by [`BootstrapFragmentProvider`]
     /// to locate bootstrap files.
     pub bootstrap_dir: String,
+    /// Names of condition skills currently activated in the session.
+    ///
+    /// Maintained by the Session module and passed into the provider via
+    /// value semantics during SP rebuild. Used by
+    /// [`SkillsFragmentProvider`](crate::skills_fragment_provider::SkillsFragmentProvider)
+    /// to include activated conditional skills in the generated listing.
+    ///
+    /// This field is only meaningful for the SP rebuild path; per-turn
+    /// incremental injection uses its own mechanism.
+    pub activated_skills: Vec<String>,
 }
 
 impl FragmentContext {
@@ -29,6 +39,7 @@ impl FragmentContext {
             agent_id: String::new(),
             bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
+            activated_skills: Vec::new(),
         }
     }
 }
