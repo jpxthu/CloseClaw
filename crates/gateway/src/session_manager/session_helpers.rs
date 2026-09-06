@@ -234,8 +234,8 @@ pub(super) async fn try_restore_migrating_checkpoint(
         }
     }
     // Fallback: transcript may already be in archived dir.
-    match storage.load_archived_checkpoint(session_id).await {
-        Ok(Some(_)) => match storage.restore_checkpoint(session_id).await {
+    if let Ok(Some(_)) = storage.load_archived_checkpoint(session_id).await {
+        match storage.restore_checkpoint(session_id).await {
             Ok(_) => return Ok(true),
             Err(e2) => {
                 warn!(
@@ -244,8 +244,7 @@ pub(super) async fn try_restore_migrating_checkpoint(
                     "restore_checkpoint failed after load_archived_checkpoint"
                 );
             }
-        },
-        _ => {}
+        }
     }
     Ok(false)
 }
