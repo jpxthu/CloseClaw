@@ -142,10 +142,19 @@ pub struct SnapshotMeta {
 /// Implementations live outside the session crate (e.g. gateway /
 /// daemon) and are injected via [`RuntimeSnapshotManager::set_meta_store`].
 /// When no store is configured, metadata is held in memory only.
+///
+/// Metadata is persisted independently from [`SessionCheckpoint`],
+/// ensuring storage semantics and lifecycle are not shared.
 #[async_trait::async_trait]
 pub trait SnapshotMetaStore: Send + Sync {
     /// Persist snapshot metadata.
     async fn save_meta(&self, meta: &SnapshotMeta) -> Result<(), String>;
+
+    /// Load all snapshot metadata for the session.
+    async fn load_metas(&self) -> Result<Vec<SnapshotMeta>, String>;
+
+    /// Delete a specific snapshot metadata entry by ID.
+    async fn delete_meta(&self, meta_id: &str) -> Result<(), String>;
 }
 
 // =====================================================================
@@ -202,8 +211,10 @@ pub struct RuntimeSnapshotManager {
 
 /// Persistence-backed implementation of [`SnapshotMetaStore`].
 ///
-/// Wraps a [`PersistenceService`] and a session ID to read-modify-write
-/// snapshot metadata into the session's [`SessionCheckpoint`].
+/// Wraps a [`PersistenceService`] and a session ID. Metadata is
+/// persisted independently from [`SessionCheckpoint`] via dedicated
+/// [`PersistenceService`] methods, ensuring storage semantics and
+/// lifecycle are not shared with the session checkpoint.
 pub struct PersistenceMetaStore {
     storage: Arc<dyn PersistenceService>,
     session_id: String,
@@ -221,27 +232,49 @@ impl PersistenceMetaStore {
 
 #[async_trait::async_trait]
 impl SnapshotMetaStore for PersistenceMetaStore {
-    /// Persist snapshot metadata by loading the checkpoint, appending
-    /// the meta entry, and saving it back.
+    /// Persist snapshot metadata to the independent metadata store.
     ///
-    /// Returns `Err` if the checkpoint cannot be loaded or saved.
+    /// Loads existing metas, appends the new entry, and saves back.
+    /// Does **not** read or write [`SessionCheckpoint`].
     async fn save_meta(&self, meta: &SnapshotMeta) -> Result<(), String> {
-        let mut checkpoint = self
+        let mut metas = self
             .storage
-            .load_checkpoint(&self.session_id)
+            .load_snapshot_metas(&self.session_id)
             .await
-            .map_err(|e| format!("failed to load checkpoint: {e}"))?
-            .ok_or_else(|| format!("checkpoint not found for session: {}", self.session_id))?;
+            .map_err(|e| format!("failed to load snapshot metas: {e}"))?;
 
         let mut meta = meta.clone();
         meta.session_id = self.session_id.clone();
-        checkpoint.snapshot_metas.push(meta);
-        checkpoint.touch();
+        metas.push(meta);
 
         self.storage
-            .save_checkpoint(&checkpoint)
+            .save_snapshot_metas(&self.session_id, &metas)
             .await
-            .map_err(|e| format!("failed to save checkpoint: {e}"))
+            .map_err(|e| format!("failed to save snapshot metas: {e}"))
+    }
+
+    /// Load all snapshot metadata for the session from the independent store.
+    async fn load_metas(&self) -> Result<Vec<SnapshotMeta>, String> {
+        self.storage
+            .load_snapshot_metas(&self.session_id)
+            .await
+            .map_err(|e| format!("failed to load snapshot metas: {e}"))
+    }
+
+    /// Delete a specific snapshot metadata entry by ID.
+    async fn delete_meta(&self, meta_id: &str) -> Result<(), String> {
+        let mut metas = self
+            .storage
+            .load_snapshot_metas(&self.session_id)
+            .await
+            .map_err(|e| format!("failed to load snapshot metas: {e}"))?;
+
+        metas.retain(|m| m.id != meta_id);
+
+        self.storage
+            .save_snapshot_metas(&self.session_id, &metas)
+            .await
+            .map_err(|e| format!("failed to save snapshot metas: {e}"))
     }
 }
 

@@ -4,6 +4,7 @@
 //! Suitable for testing and single-instance deployments.
 
 use crate::persistence::{DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint};
+use crate::run_health::SnapshotMeta;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -14,6 +15,8 @@ pub struct MemoryStorage {
     checkpoints: RwLock<HashMap<String, SessionCheckpoint>>,
     archived: RwLock<HashMap<String, SessionCheckpoint>>,
     migrating: RwLock<HashMap<String, SessionCheckpoint>>,
+    /// Independent snapshot metadata storage — not shared with checkpoints.
+    snapshot_metas: RwLock<HashMap<String, Vec<SnapshotMeta>>>,
 }
 
 impl MemoryStorage {
@@ -23,6 +26,7 @@ impl MemoryStorage {
             checkpoints: RwLock::new(HashMap::new()),
             archived: RwLock::new(HashMap::new()),
             migrating: RwLock::new(HashMap::new()),
+            snapshot_metas: RwLock::new(HashMap::new()),
         }
     }
 
@@ -389,6 +393,30 @@ impl PersistenceService for MemoryStorage {
             return Ok(());
         }
         Ok(())
+    }
+
+    async fn save_snapshot_metas(
+        &self,
+        session_id: &str,
+        metas: &[SnapshotMeta],
+    ) -> Result<(), PersistenceError> {
+        let mut store = self
+            .snapshot_metas
+            .write()
+            .map_err(|_| PersistenceError::Lock("RwLock write failed".to_string()))?;
+        store.insert(session_id.to_string(), metas.to_vec());
+        Ok(())
+    }
+
+    async fn load_snapshot_metas(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<SnapshotMeta>, PersistenceError> {
+        let store = self
+            .snapshot_metas
+            .read()
+            .map_err(|_| PersistenceError::Lock("RwLock read failed".to_string()))?;
+        Ok(store.get(session_id).cloned().unwrap_or_default())
     }
 }
 
