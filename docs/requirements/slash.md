@@ -10,7 +10,7 @@ Slash 模块仅提供指令入口与分派机制；跨模块指令的业务功�
 
 ### F1. 斜杠指令入口
 
-Owner 或 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对话流程，而是由 Gateway 拦截后解析为指令名和参数，分派给对应的指令处理器执行。无匹配处理器的指令向 User 返回友好错误提示，引导使用 `/help` 查看可用指令。
+Owner 和 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对话流程，而是由 Gateway 拦截后解析为指令名和参数，分派给对应的指令处理器执行。无匹配处理器的指令向 User 返回友好错误提示，引导使用 `/help` 查看可用指令。
 
 各指令的 Immediate 标记在后续各功能域中分别标注；未标注 Immediate 的指令默认为非 Immediate。
 
@@ -82,21 +82,23 @@ Owner 和 User 可以在运行时向 System Prompt 的追加区动态添加指�
 Owner 和 User 可以变更和查看当前会话的工作目录，以及执行 Git 命令。
 
 **指令**：
-- `/cd <路径>`：变更工作目录，切换前校验路径是否存在，路径不存在时提示错误；切换成功后回复路径及 Git 分支信息
+- `/cd <路径>`：变更工作目录，切换前校验路径是否存在，路径不存在时返回错误提示；切换成功后回复路径及 Git 分支信息
 - `/pwd`：查看当前工作目录
-- `/git <参数>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（仅列出分支））无需权限审批直接执行，写操作必须经权限审批，审批不可绕过
+- `/git <参数>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（仅列出分支））直接执行；写操作 Owner 调用直接执行，User 调用必须经权限审批，审批不可绕过
 
 > **交叉引用**：工作目录的归属、默认值与生命周期见 [session §F8](session.md)（工作目录）。
+> **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
 > **交叉引用**：Git 写操作的权限审批见 [permission §F3](permission.md)（权限决策模型）。
 
 ### F8. 命令执行
 
-Owner 可以执行任意 Shell 命令，执行前必须经权限审批，审批不可绕过；Owner 的命令在审批中默认放行。User 可由 Owner 授权使用本指令。
+Owner 可以执行任意 Shell 命令，Owner 调用默认放行，不经审批直接执行。User 可由 Owner 授权使用本指令，User 调用必须经权限审批，审批不可绕过。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
 
 > **交叉引用**：命令执行的权限评估由 Permission 模块负责，详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
 > **交叉引用**：User 默认权限见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：权限规则修改与授权方式见 [permission §F6](permission.md)（权限配置管理）。
 
@@ -125,11 +127,11 @@ Owner 和 User 可以查询和设置当前会话的展示等级。设置等级�
 - `/verbose`（无参数）：查询当前展示等级（Immediate）
 - `/verbose full|normal|off`：设置展示等级（Immediate）
 
-> **交叉引用**：各展示等级对应的回复内容见 [processor_chain §F4](processor_chain.md)（出站回复冗余控制）。
+> **交叉引用**：各展示等级对应的回复内容见 [processor_chain §F4](processor_chain.md)（出站回复展示等级控制）。
 
 ### F12. plan 浏览
 
-`/plans` 指令的完整语法、参数和业务行为由 Mode 模块定义。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）。`/plans` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行。
+`/plans` 指令的完整语法、参数和业务行为由 Mode 模块定义。`/plans` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行。
 
 > **交叉引用**：指令语法和 plan 浏览语义详见 [mode §F6](mode.md)（plan 浏览与管理）。
 
@@ -151,13 +153,13 @@ Slash 模块在以下环节记录调试日志：
 
 ### F15. workflow 指令
 
-Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。`/workflow` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）；启动语义由 workflow 模块定义。
+Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。`/workflow` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行；启动语义由 workflow 模块定义。
 
 > **交叉引用**：启动语义与 workflow 模式进入详见 [workflow §F2](workflow.md)（workflow 启动）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
 
 ## 非功能需求
 
-- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟：/stop、/status、/mode（无参数查询形态）、/reasoning、/verbose、/help
+- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟。全部 Immediate 指令：/stop、/status、/mode（无参数查询形态）、/reasoning（各形态）、/verbose（各形态）、/help、审批指令（/approve-once、/approve-whitelist、/deny，Immediate 可达性由 Gateway 层保证）
 
 > **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证，详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
