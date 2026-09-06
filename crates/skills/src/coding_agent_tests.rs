@@ -15,17 +15,9 @@ async fn test_coding_agent_manifest() {
     let skill = CodingAgentSkill::new();
     let m = skill.manifest();
     assert_eq!(m.name, "coding_agent");
-    assert_eq!(m.version, "1.0.0");
     assert!(m.description.contains("AI coding agents"));
-    assert!(m.dependencies.is_empty());
-}
-
-#[tokio::test]
-async fn test_coding_agent_listing_meta() {
-    let skill = CodingAgentSkill::new();
-    let meta = skill.listing_meta();
-    assert!(meta.user_invocable);
-    assert!(!meta.when_to_use.is_empty());
+    assert!(m.user_invocable);
+    assert!(!m.when_to_use.is_empty());
 }
 
 // --- execute() tests ---

@@ -8,7 +8,6 @@ fn test_manifest() {
     let skill = SkillCreatorSkill::new();
     let m = skill.manifest();
     assert_eq!(m.name, "skill_creator");
-    assert_eq!(m.version, "1.0.0");
     assert!(!m.description.is_empty());
 }
 

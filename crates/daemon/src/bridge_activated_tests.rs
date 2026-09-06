@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use closeclaw_common::SkillListingProvider;
 use closeclaw_skills::disk::types::{DiskSkill, SkillSource};
 use closeclaw_skills::DiskSkillRegistry;
-use closeclaw_skills::{SkillListingMeta, SkillManifest};
+use closeclaw_skills::SkillManifest;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -57,36 +57,28 @@ fn make_builtin_skill(
     paths: Vec<String>,
 ) -> Arc<dyn closeclaw_skills::Skill> {
     struct MockBuiltin {
-        name: String,
-        meta: SkillListingMeta,
+        manifest: SkillManifest,
     }
 
     #[async_trait]
     impl closeclaw_skills::Skill for MockBuiltin {
         fn manifest(&self) -> SkillManifest {
-            SkillManifest {
-                name: self.name.clone(),
-                version: "1.0.0".into(),
-                description: format!("builtin skill {}", self.name),
-                author: None,
-                dependencies: vec![],
-            }
+            self.manifest.clone()
         }
         fn body(&self) -> &str {
             "mock body"
         }
-        fn listing_meta(&self) -> SkillListingMeta {
-            self.meta.clone()
-        }
     }
 
     Arc::new(MockBuiltin {
-        name: name.to_string(),
-        meta: SkillListingMeta {
+        manifest: SkillManifest {
+            name: name.to_string(),
+            description: format!("builtin skill {}", name),
             when_to_use: String::new(),
-            user_invocable,
-            paths,
+            context: Default::default(),
             effort: Default::default(),
+            paths,
+            user_invocable,
         },
     })
 }

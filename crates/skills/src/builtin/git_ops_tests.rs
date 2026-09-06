@@ -66,7 +66,6 @@ async fn test_git_ops_manifest() {
     let skill = GitOpsSkill::new();
     let m = skill.manifest();
     assert_eq!(m.name, "git_ops");
-    assert_eq!(m.version, "1.0.0");
     assert!(!m.description.is_empty());
 }
 

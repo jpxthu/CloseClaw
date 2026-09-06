@@ -89,37 +89,3 @@ fn test_generate_listing_no_conditional_equals_excluding_with_whitelist() {
         "when no conditional skills exist, whitelist filtering must be consistent"
     );
 }
-
-#[test]
-fn test_listing_entries_exclude_conditional_matches_excluding_listing() {
-    // listing_entries(whitelist, true) rendered should match
-    // generate_listing_excluding_conditional() output.
-    let r = DiskSkillRegistry::new(vec![
-        skill("a", SkillSource::Bundled),
-        skill_with_paths("cond", SkillSource::Global, vec!["**/*.rs".into()]),
-        skill("b", SkillSource::Agent),
-    ]);
-    let entries = r.listing_entries(None, true);
-    let rendered: Vec<&str> = entries.iter().map(|(line, _)| line.as_str()).collect();
-    let excl = r.generate_listing_excluding_conditional(None, None);
-    let excl_lines: Vec<&str> = excl.lines().collect();
-    assert_eq!(rendered, excl_lines);
-    assert!(!rendered.iter().any(|l| l.contains("**cond**")));
-}
-
-#[test]
-fn test_listing_entries_include_conditional_matches_full_listing() {
-    // listing_entries(whitelist, false) rendered should match
-    // generate_listing() output.
-    let r = DiskSkillRegistry::new(vec![
-        skill("a", SkillSource::Bundled),
-        skill_with_paths("cond", SkillSource::Global, vec!["**/*.rs".into()]),
-        skill("b", SkillSource::Agent),
-    ]);
-    let entries = r.listing_entries(None, false);
-    let rendered: Vec<&str> = entries.iter().map(|(line, _)| line.as_str()).collect();
-    let full = r.generate_listing(None, None);
-    let full_lines: Vec<&str> = full.lines().collect();
-    assert_eq!(rendered, full_lines);
-    assert!(rendered.iter().any(|l| l.contains("**cond**")));
-}

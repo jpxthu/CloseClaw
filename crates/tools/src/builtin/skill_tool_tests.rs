@@ -154,22 +154,16 @@ mod tests {
         fn manifest(&self) -> closeclaw_skills::SkillManifest {
             closeclaw_skills::SkillManifest {
                 name: self.0.clone(),
-                version: "1.0".into(),
                 description: "mock builtin".into(),
-                author: None,
-                dependencies: vec![],
+                when_to_use: String::new(),
+                context: Default::default(),
+                effort: Default::default(),
+                paths: vec![],
+                user_invocable: false,
             }
         }
         fn body(&self) -> &str {
             "builtin body: mock builtin result"
-        }
-        fn listing_meta(&self) -> closeclaw_skills::SkillListingMeta {
-            closeclaw_skills::SkillListingMeta {
-                when_to_use: "when to use mock builtin".into(),
-                user_invocable: true,
-                paths: vec![],
-                effort: SkillEffort::Small,
-            }
         }
     }
 
@@ -429,10 +423,12 @@ mod tests {
         fn manifest(&self) -> closeclaw_skills::SkillManifest {
             closeclaw_skills::SkillManifest {
                 name: self.0.clone(),
-                version: "1.0".into(),
                 description: "failing builtin".into(),
-                author: None,
-                dependencies: vec![],
+                when_to_use: String::new(),
+                context: Default::default(),
+                effort: Default::default(),
+                paths: vec![],
+                user_invocable: false,
             }
         }
         fn body(&self) -> &str {

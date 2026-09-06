@@ -67,9 +67,15 @@ impl fmt::Display for SkillEffort {
 }
 
 /// Manifest parsed from a SKILL.md frontmatter block.
+/// Unified skill metadata structure.
 ///
-/// Differs from [`crate::registry::SkillManifest`] which is the runtime
-/// registry entry; this one is persisted in skill definition files.
+/// This is the single source of truth for skill metadata, consumed by
+/// both disk-based skills (via frontmatter parsing) and bundled skills
+/// (via trait implementation). It corresponds to the fields defined in
+/// `docs/design/skills/skill-definition.md`.
+///
+/// Previously there were two separate types (`registry::SkillManifest`
+/// and `disk::types::SkillManifest`); this type replaces both.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillManifest {
     /// Skill name. Always filled with the directory name on disk,
