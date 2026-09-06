@@ -51,7 +51,10 @@ impl BootstrapProtection {
     /// Set bootstrap files based on a [`BootstrapMode`].
     ///
     /// Minimal mode: `["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"]`
-    /// Full mode: `["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md", "BOOTSTRAP.md", "MEMORY.md"]`
+    /// Full mode: `["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md", "BOOTSTRAP.md"]`
+    ///
+    /// MEMORY.md is excluded — it is handled separately by MemoryFragmentProvider
+    /// (see docs/design/system_prompt/static-layer.md).
     pub fn with_mode(mut self, mode: super::BootstrapMode) -> Self {
         let names = super::bootstrap_file_list(mode);
         self.bootstrap_files = names.into_iter().map(|s| s.to_string()).collect();
