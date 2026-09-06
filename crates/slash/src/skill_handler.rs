@@ -215,20 +215,16 @@ mod tests {
             fn manifest(&self) -> closeclaw_skills::SkillManifest {
                 closeclaw_skills::SkillManifest {
                     name: "builtin-skill".into(),
-                    version: "1.0".into(),
                     description: "mock".into(),
-                    author: None,
-                    dependencies: vec![],
+                    when_to_use: String::new(),
+                    context: Default::default(),
+                    effort: Default::default(),
+                    paths: vec![],
+                    user_invocable: self.invocable,
                 }
             }
             fn body(&self) -> &str {
                 "builtin body"
-            }
-            fn listing_meta(&self) -> closeclaw_skills::SkillListingMeta {
-                closeclaw_skills::SkillListingMeta {
-                    user_invocable: self.invocable,
-                    ..Default::default()
-                }
             }
         }
 
@@ -289,10 +285,12 @@ mod tests {
             fn manifest(&self) -> closeclaw_skills::SkillManifest {
                 closeclaw_skills::SkillManifest {
                     name: "builtin-test".into(),
-                    version: "1.0".into(),
                     description: "mock".into(),
-                    author: None,
-                    dependencies: vec![],
+                    when_to_use: String::new(),
+                    context: Default::default(),
+                    effort: Default::default(),
+                    paths: vec![],
+                    user_invocable: false,
                 }
             }
             fn body(&self) -> &str {
@@ -326,10 +324,12 @@ mod tests {
             fn manifest(&self) -> closeclaw_skills::SkillManifest {
                 closeclaw_skills::SkillManifest {
                     name: "exec-override".into(),
-                    version: "1.0".into(),
                     description: "mock".into(),
-                    author: None,
-                    dependencies: vec![],
+                    when_to_use: String::new(),
+                    context: Default::default(),
+                    effort: Default::default(),
+                    paths: vec![],
+                    user_invocable: false,
                 }
             }
             fn body(&self) -> &str {
@@ -370,10 +370,12 @@ mod tests {
             fn manifest(&self) -> closeclaw_skills::SkillManifest {
                 closeclaw_skills::SkillManifest {
                     name: "error-skill".into(),
-                    version: "1.0".into(),
                     description: "mock".into(),
-                    author: None,
-                    dependencies: vec![],
+                    when_to_use: String::new(),
+                    context: Default::default(),
+                    effort: Default::default(),
+                    paths: vec![],
+                    user_invocable: false,
                 }
             }
             fn body(&self) -> &str {

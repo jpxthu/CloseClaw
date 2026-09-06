@@ -8,26 +8,6 @@ use std::sync::Arc;
 // continue importing from this crate root.
 pub use crate::disk::types::{SkillManifest, SkillSource};
 
-/// Metadata required for listing generation.
-///
-/// Builtin skills provide this so they can appear in the same
-/// skill listing that disk-based skills already produce.
-///
-/// During the unification migration this struct is retained
-/// temporarily; its fields will be absorbed into
-/// [`SkillManifest`] and this type removed in a later step.
-#[derive(Debug, Clone, Default)]
-pub struct SkillListingMeta {
-    /// When to use this skill (decision hint).
-    pub when_to_use: String,
-    /// Whether the skill can be invoked directly by a user.
-    pub user_invocable: bool,
-    /// File glob patterns for conditional activation.
-    pub paths: Vec<String>,
-    /// Estimated effort level.
-    pub effort: crate::disk::types::SkillEffort,
-}
-
 /// Skill trait - implemented by each skill
 #[async_trait]
 pub trait Skill: Send + Sync {
@@ -40,18 +20,6 @@ pub trait Skill: Send + Sync {
 
     /// Get skill prompt body text
     fn body(&self) -> &str;
-
-    /// Get listing metadata for this skill.
-    ///
-    /// Used by the listing generator to render builtin skills
-    /// into the same format as disk-based skills.
-    ///
-    /// The default implementation returns a sentinel value with
-    /// `user_invocable: false` so that non-user-visible skills do
-    /// not need to override this method.
-    fn listing_meta(&self) -> SkillListingMeta {
-        SkillListingMeta::default()
-    }
 
     /// Execute the skill with the given arguments.
     ///
@@ -129,9 +97,9 @@ impl BuiltinSkillRegistry {
     /// Return filtered, sorted, rendered listing entries suitable for
     /// merge into the combined listing.
     ///
-    /// Each entry is `(listing_line, u8)`. The list is
+    /// Each entry is `(listing_line, SkillSource)`. The list is
     /// sorted by `(source, name)` for consistent merge ordering.
-    /// All builtin skills share source value `4u8` (`SkillSource::Bundled`).
+    /// All builtin skills have source [`SkillSource::Bundled`].
     ///
     /// When `exclude_conditional` is `true`, skills with non-empty
     /// `paths` are excluded. When `false`, all qualifying skills
@@ -140,7 +108,7 @@ impl BuiltinSkillRegistry {
         &self,
         skills_whitelist: Option<&[String]>,
         exclude_conditional: bool,
-    ) -> Vec<(String, u8)> {
+    ) -> Vec<(String, SkillSource)> {
         let entries = self.sorted_skills().await;
         let use_whitelist = skills_whitelist
             .filter(|w| !(w.len() == 1 && w[0] == "*"))
@@ -150,7 +118,7 @@ impl BuiltinSkillRegistry {
                     .collect::<std::collections::HashSet<_>>()
             });
 
-        let mut filtered: Vec<(String, u8)> = entries
+        let mut filtered: Vec<(String, SkillSource)> = entries
             .into_iter()
             .filter(|m| {
                 m.user_invocable
@@ -162,7 +130,56 @@ impl BuiltinSkillRegistry {
             })
             .map(|m| {
                 let line = Self::render_single_listing(&m);
-                (line, 4u8) // Bundled priority
+                (line, SkillSource::Bundled)
+            })
+            .collect();
+
+        filtered.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        filtered
+    }
+
+    /// Return structured listing entries `(name, source, line)` suitable
+    /// for merge into the combined listing in bridge.rs.
+    ///
+    /// All builtin skills have source [`SkillSource::Bundled`].
+    /// When `exclude_conditional` is `true`, skills with non-empty
+    /// `paths` are excluded (unless their name appears in `activated`).
+    pub async fn listing_entries_with_names(
+        &self,
+        skills_whitelist: Option<&[String]>,
+        exclude_conditional: bool,
+        activated: Option<&[String]>,
+    ) -> Vec<(String, SkillSource, String)> {
+        let entries = self.sorted_skills().await;
+        let use_whitelist = skills_whitelist
+            .filter(|w| !(w.len() == 1 && w[0] == "*"))
+            .map(|w| {
+                w.iter()
+                    .map(|s| s.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+            });
+        let activated_set: std::collections::HashSet<&str> = activated
+            .map(|a| a.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+
+        let mut filtered: Vec<(String, SkillSource, String)> = entries
+            .into_iter()
+            .filter(|m| {
+                let conditional_active =
+                    !m.paths.is_empty() && activated_set.contains(m.name.as_str());
+                let passes_user_invocable = m.user_invocable || conditional_active;
+                let passes_conditional =
+                    !exclude_conditional || m.paths.is_empty() || conditional_active;
+                let passes_whitelist = match &use_whitelist {
+                    Some(set) => set.contains(m.name.as_str()),
+                    None => true,
+                };
+                passes_user_invocable && passes_conditional && passes_whitelist
+            })
+            .map(|m| {
+                let name = m.name.clone();
+                let line = Self::render_single_listing(&m);
+                (name, SkillSource::Bundled, line)
             })
             .collect();
 
@@ -327,662 +344,9 @@ pub enum SkillError {
     InvalidArgs(String),
 }
 
+#[path = "registry_unit_tests.rs"]
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::disk::types::SkillEffort;
-
-    struct MockSkill {
-        name: String,
-        meta: SkillListingMeta,
-    }
-
-    impl MockSkill {
-        fn new(name: &str) -> Self {
-            Self {
-                name: name.to_string(),
-                meta: SkillListingMeta {
-                    when_to_use: format!("use {} when needed", name),
-                    user_invocable: false,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            }
-        }
-
-        fn with_meta(name: &str, meta: SkillListingMeta) -> Self {
-            Self {
-                name: name.to_string(),
-                meta,
-            }
-        }
-    }
-
-    #[async_trait]
-    impl Skill for MockSkill {
-        fn manifest(&self) -> SkillManifest {
-            SkillManifest {
-                name: self.name.clone(),
-                description: format!("mock skill {}", self.name),
-                when_to_use: self.meta.when_to_use.clone(),
-                context: crate::disk::types::SkillContext::default(),
-                effort: self.meta.effort,
-                paths: self.meta.paths.clone(),
-                user_invocable: self.meta.user_invocable,
-            }
-        }
-
-        fn body(&self) -> &str {
-            "mock body"
-        }
-
-        fn listing_meta(&self) -> SkillListingMeta {
-            self.meta.clone()
-        }
-    }
-
-    #[tokio::test]
-    async fn test_register_and_get() {
-        let registry = BuiltinSkillRegistry::new();
-        let skill = Arc::new(MockSkill::new("test_skill"));
-        registry.register(skill).await;
-
-        let found = registry.get("test_skill").await;
-        assert!(found.is_some());
-        assert_eq!(found.unwrap().manifest().name, "test_skill");
-    }
-
-    #[tokio::test]
-    async fn test_get_not_found() {
-        let registry = BuiltinSkillRegistry::new();
-        let found = registry.get("nonexistent").await;
-        assert!(found.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_list() {
-        let registry = BuiltinSkillRegistry::new();
-        registry.register(Arc::new(MockSkill::new("skill_a"))).await;
-        registry.register(Arc::new(MockSkill::new("skill_b"))).await;
-
-        let mut names = registry.list().await;
-        names.sort();
-        assert_eq!(names, vec!["skill_a", "skill_b"]);
-    }
-
-    #[tokio::test]
-    async fn test_contains() {
-        let registry = BuiltinSkillRegistry::new();
-        registry.register(Arc::new(MockSkill::new("exists"))).await;
-
-        assert!(registry.contains("exists").await);
-        assert!(!registry.contains("missing").await);
-    }
-
-    #[tokio::test]
-    async fn test_unregister() {
-        let registry = BuiltinSkillRegistry::new();
-        registry
-            .register(Arc::new(MockSkill::new("to_remove")))
-            .await;
-
-        assert!(registry.unregister("to_remove").await);
-        assert!(!registry.contains("to_remove").await);
-        assert!(!registry.unregister("to_remove").await);
-    }
-
-    #[tokio::test]
-    async fn test_register_replaces() {
-        let registry = BuiltinSkillRegistry::new();
-        registry.register(Arc::new(MockSkill::new("skill"))).await;
-        registry.register(Arc::new(MockSkill::new("skill"))).await;
-
-        let names = registry.list().await;
-        assert_eq!(names.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_body_returns_value() {
-        let registry = BuiltinSkillRegistry::new();
-        registry
-            .register(Arc::new(MockSkill::new("body_skill")))
-            .await;
-
-        let skill = registry.get("body_skill").await.unwrap();
-        assert_eq!(skill.body(), "mock body");
-    }
-
-    #[tokio::test]
-    async fn test_skill_error_display() {
-        let err = SkillError::NotFound("test".to_string());
-        assert!(err.to_string().contains("test"));
-
-        let err = SkillError::ExecutionFailed("boom".to_string());
-        assert!(err.to_string().contains("boom"));
-
-        let err = SkillError::InvalidArgs("bad".to_string());
-        assert!(err.to_string().contains("bad"));
-    }
-
-    #[test]
-    fn test_skill_manifest_serialization() {
-        let manifest = SkillManifest {
-            name: "test".to_string(),
-            description: "desc".to_string(),
-            when_to_use: "use when testing".to_string(),
-            context: crate::disk::types::SkillContext::default(),
-            effort: SkillEffort::Small,
-            paths: vec!["**/*.rs".to_string()],
-            user_invocable: true,
-        };
-        let json = serde_json::to_string(&manifest).unwrap();
-        let parsed: SkillManifest = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.name, "test");
-        assert_eq!(parsed.when_to_use, "use when testing");
-        assert!(parsed.user_invocable);
-        assert_eq!(parsed.paths, vec!["**/*.rs".to_string()]);
-    }
-
-    #[test]
-    fn test_registry_default() {
-        let registry = BuiltinSkillRegistry::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let names = registry.list().await;
-            assert!(names.is_empty());
-        });
-    }
-
-    #[test]
-    fn test_default_listing_meta() {
-        // A skill that does not override listing_meta() gets the
-        // default sentinel: user_invocable = false, everything else empty/default.
-        struct NoMetaSkill;
-        #[async_trait]
-        impl Skill for NoMetaSkill {
-            fn manifest(&self) -> SkillManifest {
-                SkillManifest {
-                    name: "no_meta".into(),
-                    description: "".into(),
-                    when_to_use: String::new(),
-                    context: crate::disk::types::SkillContext::default(),
-                    effort: SkillEffort::Unknown,
-                    paths: vec![],
-                    user_invocable: false,
-                }
-            }
-            fn body(&self) -> &str {
-                ""
-            }
-            // listing_meta intentionally omitted — should use default
-        }
-
-        let skill = NoMetaSkill;
-        let meta = skill.listing_meta();
-        assert!(
-            !meta.user_invocable,
-            "default should be user_invocable: false"
-        );
-        assert!(meta.when_to_use.is_empty());
-        assert!(meta.paths.is_empty());
-        assert_eq!(meta.effort, SkillEffort::Unknown);
-    }
-
-    #[test]
-    fn test_mock_listing_meta() {
-        let skill = MockSkill::new("test");
-        let meta = skill.listing_meta();
-        assert_eq!(meta.when_to_use, "use test when needed");
-        assert!(!meta.user_invocable);
-        assert!(meta.paths.is_empty());
-        assert_eq!(meta.effort, SkillEffort::Unknown);
-    }
-
-    #[test]
-    fn test_mock_listing_meta_with_meta() {
-        let skill = MockSkill::with_meta(
-            "custom",
-            SkillListingMeta {
-                when_to_use: "custom when".into(),
-                user_invocable: true,
-                paths: vec!["**/*.rs".into()],
-                effort: SkillEffort::Large,
-            },
-        );
-        let meta = skill.listing_meta();
-        assert_eq!(meta.when_to_use, "custom when");
-        assert!(meta.user_invocable);
-        assert_eq!(meta.paths, vec!["**/*.rs"]);
-        assert_eq!(meta.effort, SkillEffort::Large);
-    }
-
-    #[tokio::test]
-    async fn test_from_skills_registers_all() {
-        let skills: Vec<Arc<dyn Skill>> = vec![
-            Arc::new(MockSkill::new("alpha")),
-            Arc::new(MockSkill::new("beta")),
-        ];
-        let registry = BuiltinSkillRegistry::from_skills(skills).await;
-        let mut names = registry.list().await;
-        names.sort();
-        assert_eq!(names, vec!["alpha", "beta"]);
-        assert!(registry.contains("alpha").await);
-        assert!(registry.contains("beta").await);
-    }
-
-    #[tokio::test]
-    async fn test_from_skills_empty() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![]).await;
-        assert!(registry.list().await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_from_skills_overwrites_duplicates() {
-        let skills: Vec<Arc<dyn Skill>> = vec![
-            Arc::new(MockSkill::new("dup")),
-            Arc::new(MockSkill::new("dup")),
-        ];
-        let registry = BuiltinSkillRegistry::from_skills(skills).await;
-        let names = registry.list().await;
-        assert_eq!(names.len(), 1);
-        assert_eq!(names[0], "dup");
-    }
-
-    #[tokio::test]
-    async fn test_generate_listing_only_user_invocable() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "visible",
-                SkillListingMeta {
-                    when_to_use: "when visible".into(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Small,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "hidden",
-                SkillListingMeta {
-                    when_to_use: "when hidden".into(),
-                    user_invocable: false,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-        ])
-        .await;
-        let listing = registry.generate_listing().await;
-        assert!(listing.contains("visible"));
-        assert!(!listing.contains("hidden"));
-    }
-
-    #[tokio::test]
-    async fn test_generate_listing_format_matches_disk() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
-            "my_skill",
-            SkillListingMeta {
-                when_to_use: "use when testing".into(),
-                user_invocable: true,
-                paths: vec![],
-                effort: SkillEffort::Medium,
-            },
-        ))])
-        .await;
-        let listing = registry.generate_listing().await;
-        assert_eq!(
-            listing,
-            "- **my_skill**: mock skill my_skill — use when testing [effort: medium]"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_generate_listing_sorts_alphabetically() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "zebra",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "alpha",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-        ])
-        .await;
-        let listing = registry.generate_listing().await;
-        let alpha_pos = listing.find("alpha").unwrap();
-        let zebra_pos = listing.find("zebra").unwrap();
-        assert!(alpha_pos < zebra_pos);
-    }
-
-    #[tokio::test]
-    async fn test_generate_listing_empty_when_no_invocable() {
-        let registry =
-            BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::new("hidden"))]).await;
-        let listing = registry.generate_listing().await;
-        assert!(listing.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_generate_listing_excluding_conditional() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "regular",
-                SkillListingMeta {
-                    when_to_use: "always".into(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "conditional",
-                SkillListingMeta {
-                    when_to_use: "on match".into(),
-                    user_invocable: true,
-                    paths: vec!["**/*.rs".into()],
-                    effort: SkillEffort::Small,
-                },
-            )),
-        ])
-        .await;
-        let listing = registry.generate_listing_excluding_conditional().await;
-        assert!(listing.contains("regular"));
-        assert!(!listing.contains("conditional"));
-    }
-
-    #[tokio::test]
-    async fn test_find_conditional_matches() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "rust_skill",
-                SkillListingMeta {
-                    when_to_use: "for rust files".into(),
-                    user_invocable: true,
-                    paths: vec!["**/*.rs".into()],
-                    effort: SkillEffort::Small,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "no_paths",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-        ])
-        .await;
-        let matches = registry
-            .find_conditional_matches(&[std::path::PathBuf::from("src/main.rs")])
-            .await;
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].name, "rust_skill");
-        assert!(matches[0]
-            .listing_line
-            .contains("⚡ auto-activates on: **/*.rs"));
-    }
-
-    #[tokio::test]
-    async fn test_find_conditional_matches_empty_paths() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
-            "skill",
-            SkillListingMeta {
-                when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec!["**/*.rs".into()],
-                effort: SkillEffort::Unknown,
-            },
-        ))])
-        .await;
-        let matches = registry.find_conditional_matches(&[]).await;
-        assert!(matches.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_find_conditional_matches_no_match() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
-            "skill",
-            SkillListingMeta {
-                when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec!["**/*.rs".into()],
-                effort: SkillEffort::Unknown,
-            },
-        ))])
-        .await;
-        let matches = registry
-            .find_conditional_matches(&[std::path::PathBuf::from("file.txt")])
-            .await;
-        assert!(matches.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_render_single_listing_no_when_to_use() {
-        let manifest = SkillManifest {
-            name: "bare".into(),
-            description: "bare skill".into(),
-            when_to_use: String::new(),
-            context: crate::disk::types::SkillContext::default(),
-            effort: SkillEffort::Unknown,
-            paths: vec![],
-            user_invocable: true,
-        };
-        let line = BuiltinSkillRegistry::render_single_listing(&manifest);
-        assert_eq!(line, "- **bare**: bare skill");
-    }
-
-    #[tokio::test]
-    async fn test_render_single_listing_with_paths() {
-        let manifest = SkillManifest {
-            name: "rs_skill".into(),
-            description: "rust skill".into(),
-            when_to_use: "for rust".into(),
-            context: crate::disk::types::SkillContext::default(),
-            effort: SkillEffort::Small,
-            paths: vec!["**/*.rs".into(), "**/*.toml".into()],
-            user_invocable: true,
-        };
-        let line = BuiltinSkillRegistry::render_single_listing(&manifest);
-        assert_eq!(
-            line,
-            "- **rs_skill**: rust skill — for rust ⚡ auto-activates on: **/*.rs, **/*.toml [effort: small]"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_user_invocable_names_empty() {
-        let registry = BuiltinSkillRegistry::new();
-        let names = registry.user_invocable_names().await;
-        assert!(names.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_user_invocable_names_only_invocable() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
-            "invocable",
-            SkillListingMeta {
-                when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec![],
-                effort: SkillEffort::Unknown,
-            },
-        ))])
-        .await;
-        let names = registry.user_invocable_names().await;
-        assert_eq!(names, vec!["invocable"]);
-    }
-
-    #[tokio::test]
-    async fn test_user_invocable_names_mixed() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "invocable_a",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "hidden_b",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: false,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "invocable_c",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-        ])
-        .await;
-        let mut names = registry.user_invocable_names().await;
-        names.sort();
-        assert_eq!(names, vec!["invocable_a", "invocable_c"]);
-    }
-
-    // -----------------------------------------------------------------------
-    // listing_entries tests
-    // -----------------------------------------------------------------------
-
-    #[tokio::test]
-    async fn test_listing_entries_no_whitelist_and_star() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "alpha",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "beta",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-        ])
-        .await;
-        // None whitelist — no filtering
-        let entries = registry.listing_entries(None, false).await;
-        assert_eq!(entries.len(), 2);
-        assert!(entries.iter().all(|(_, p)| *p == 4u8));
-        assert!(entries[0].0.contains("alpha"));
-        assert!(entries[1].0.contains("beta"));
-        // ["*"] should also not filter
-        let entries = registry
-            .listing_entries(Some(&["*".to_string()]), false)
-            .await;
-        assert_eq!(entries.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_listing_entries_with_whitelist() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "alpha",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "beta",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "gamma",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-        ])
-        .await;
-        let entries = registry
-            .listing_entries(Some(&["beta".to_string(), "gamma".to_string()]), false)
-            .await;
-        assert_eq!(entries.len(), 2);
-        assert!(entries[0].0.contains("beta"));
-        assert!(entries[1].0.contains("gamma"));
-    }
-
-    #[tokio::test]
-    async fn test_listing_entries_conditional_and_invocable() {
-        let registry = BuiltinSkillRegistry::from_skills(vec![
-            Arc::new(MockSkill::with_meta(
-                "regular",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "conditional",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: true,
-                    paths: vec!["**/*.rs".to_string()],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-            Arc::new(MockSkill::with_meta(
-                "hidden",
-                SkillListingMeta {
-                    when_to_use: String::new(),
-                    user_invocable: false,
-                    paths: vec![],
-                    effort: SkillEffort::Unknown,
-                },
-            )),
-        ])
-        .await;
-        // exclude_conditional=true: conditional excluded, hidden excluded
-        let entries = registry.listing_entries(None, true).await;
-        assert_eq!(entries.len(), 1);
-        assert!(entries[0].0.contains("regular"));
-        assert_eq!(entries[0].1, 4u8);
-        // exclude_conditional=false: conditional included, hidden still excluded
-        let entries = registry.listing_entries(None, false).await;
-        assert_eq!(entries.len(), 2);
-    }
-}
+mod tests;
 
 #[path = "registry_with_activated_tests.rs"]
 #[cfg(test)]

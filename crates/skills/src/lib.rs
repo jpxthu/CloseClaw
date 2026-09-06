@@ -20,7 +20,7 @@ pub use builtin::builtin_skills;
 pub use coding_agent::CodingAgentSkill;
 pub use disk::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
 pub use disk::{init_disk_skills, resolve_skill, DiskSkillRegistry, ResolvedSkill, ScanConfig};
-pub use registry::{BuiltinSkillRegistry, Skill, SkillError, SkillListingMeta};
+pub use registry::{BuiltinSkillRegistry, Skill, SkillError};
 pub use skill_creator::SkillCreatorSkill;
 pub use skills_fragment_provider::SkillsFragmentProvider;
 pub use tool_registrar::SkillsToolsRegistrar;

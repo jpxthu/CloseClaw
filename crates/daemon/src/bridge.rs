@@ -173,121 +173,111 @@ impl SkillListingProviderWrapper {
         Self::merge_and_sort_listings(disk, builtin)
     }
 
-    /// Collect listing entries from the disk skill registry.
+    /// Collect structured listing entries from the disk skill registry.
     ///
-    /// Delegates to [`DiskSkillRegistry::listing_entries`] which handles
-    /// `user_invocable` / whitelist filtering and `(source, name)` sorting.
-    ///
-    /// When `exclude_conditional` is `true`, conditional skills are
-    /// excluded. When `false`, all qualifying skills are included.
+    /// Each entry is `(name, source, line)`. The list is pre-sorted
+    /// by `(source, name)` for consistent merge ordering.
     fn collect_disk_listings(
         &self,
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
-    ) -> Vec<(String, u8)> {
+    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
         self.disk
             .read()
             .ok()
             .and_then(|g| {
-                g.as_ref().map(|r| {
-                    r.listing_entries(resolved_whitelist, exclude_conditional)
-                        .into_iter()
-                        .map(|(line, source)| (line, source as u8))
-                        .collect()
-                })
+                g.as_ref()
+                    .map(|r| r.listing_entries_with_names(resolved_whitelist, exclude_conditional))
             })
             .unwrap_or_default()
     }
 
-    /// Collect listing entries from the builtin skill registry.
+    /// Collect structured listing entries from the builtin skill registry.
     ///
-    /// Delegates to [`BuiltinSkillRegistry::listing_entries`] for
-    /// `user_invocable` / whitelist filtering and sorted output.
+    /// Each entry is `(name, SkillSource::Bundled, line)`.
     fn collect_builtin_listings(
         &self,
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
-    ) -> Vec<(String, u8)> {
+    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
         let rt = tokio::runtime::Handle::current();
-        rt.block_on(
-            self.builtin
-                .listing_entries(resolved_whitelist, exclude_conditional),
-        )
+        rt.block_on(self.builtin.listing_entries_with_names(
+            resolved_whitelist,
+            exclude_conditional,
+            None,
+        ))
     }
 
-    /// Collect listing entries from the disk registry, including
+    /// Collect structured listing entries from the disk registry, including
     /// activated conditional skills (exempt from `user-invocable`).
     ///
-    /// Delegates to [`DiskSkillRegistry::generate_listing_with_activated`]
-    /// which handles base (non-conditional, user-invocable) + activated
-    /// conditional skills. Returns entries with source priority 0
-    /// (highest); the merge step handles deduplication.
+    /// Activated disk entries carry their real [`SkillSource`] for
+    /// priority-based sorting (no hardcoded priority hack).
     fn collect_disk_activated_entries(
         &self,
         resolved_whitelist: Option<&[String]>,
         activated: &[String],
-    ) -> Vec<(String, u8)> {
+    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
         self.disk
             .read()
             .ok()
             .and_then(|g| {
                 g.as_ref().map(|r| {
-                    let listing =
-                        r.generate_listing_with_activated(None, resolved_whitelist, activated);
-                    if listing.is_empty() {
-                        return vec![];
-                    }
-                    listing
-                        .lines()
-                        .map(|line| (line.to_string(), 0u8))
+                    r.listing_entries_with_activated(resolved_whitelist, activated)
+                        .into_iter()
                         .collect()
                 })
             })
             .unwrap_or_default()
     }
 
-    /// Collect listing entries from the builtin registry, including
+    /// Collect structured listing entries from the builtin registry, including
     /// activated conditional skills (exempt from `user-invocable`).
-    fn collect_builtin_activated_entries(&self, activated: &[String]) -> Vec<(String, u8)> {
+    fn collect_builtin_activated_entries(
+        &self,
+        activated: &[String],
+    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
         let rt = tokio::runtime::Handle::current();
-        let listing = rt.block_on(self.builtin.generate_listing_with_activated(activated));
-        // Builtin entries are always Bundled priority (4).
-        listing
-            .lines()
-            .map(|line| (line.to_string(), 4u8))
-            .collect()
+        rt.block_on(
+            self.builtin
+                .listing_entries_with_names(None, false, Some(activated)),
+        )
     }
 
-    /// Merge two sorted listing vectors, deduplicating by skill name.
+    /// Merge two structured listing vectors, deduplicating by skill name.
     ///
     /// Disk entries take precedence over builtin entries when names
-    /// collide. The final output is sorted by `(priority, name)`.
-    fn merge_and_sort_listings(disk: Vec<(String, u8)>, builtin: Vec<(String, u8)>) -> String {
-        let mut builtin_by_name: std::collections::HashMap<String, (String, u8)> = builtin
+    /// collide (disk has higher priority). The final output is sorted
+    /// by `(source, name)` — source priority descending (lower index =
+    /// higher priority).
+    fn merge_and_sort_listings(
+        disk: Vec<(String, closeclaw_skills::SkillSource, String)>,
+        builtin: Vec<(String, closeclaw_skills::SkillSource, String)>,
+    ) -> String {
+        let mut builtin_by_name: std::collections::HashMap<
+            String,
+            (String, closeclaw_skills::SkillSource, String),
+        > = builtin
             .into_iter()
-            .map(|(line, pri)| (extract_name(&line), (line, pri)))
+            .map(|(name, source, line)| (name.clone(), (name, source, line)))
             .collect();
         let mut seen = std::collections::HashSet::new();
-        let mut merged: Vec<(String, u8)> = Vec::new();
+        let mut merged: Vec<(String, closeclaw_skills::SkillSource, String)> = Vec::new();
 
-        for (line, src) in disk {
-            let name = extract_name(&line);
-            seen.insert(name);
-            merged.push((line, src));
+        for (name, source, line) in disk {
+            seen.insert(name.clone());
+            merged.push((name, source, line));
         }
-        for (name, (line, pri)) in builtin_by_name.drain() {
+        for (name, entry) in builtin_by_name.drain() {
             if !seen.contains(&name) {
-                merged.push((line, pri));
+                merged.push(entry);
             }
         }
 
-        merged.sort_by(|a, b| {
-            a.1.cmp(&b.1)
-                .then_with(|| extract_name(&a.0).cmp(&extract_name(&b.0)))
-        });
+        merged.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
         merged
             .into_iter()
-            .map(|(line, _)| line)
+            .map(|(_, _, line)| line)
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -321,16 +311,6 @@ impl SkillListingProviderWrapper {
 
         disk_matches
     }
-}
-
-/// Extract the skill name from a listing line.
-///
-/// Listing lines have the format `- **{name}**: ...`.
-fn extract_name(line: &str) -> String {
-    line.trim_start_matches("- **")
-        .split_once("**:")
-        .map(|(name, _)| name.to_string())
-        .unwrap_or_default()
 }
 
 impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
@@ -431,7 +411,7 @@ mod tests {
     use closeclaw_common::SkillListingProvider;
     use closeclaw_skills::disk::types::{DiskSkill, SkillSource};
     use closeclaw_skills::DiskSkillRegistry;
-    use closeclaw_skills::{SkillListingMeta, SkillManifest};
+    use closeclaw_skills::SkillManifest;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -510,36 +490,28 @@ mod tests {
         paths: Vec<String>,
     ) -> Arc<dyn closeclaw_skills::Skill> {
         struct MockBuiltin {
-            name: String,
-            meta: SkillListingMeta,
+            manifest: SkillManifest,
         }
 
         #[async_trait]
         impl closeclaw_skills::Skill for MockBuiltin {
             fn manifest(&self) -> SkillManifest {
-                SkillManifest {
-                    name: self.name.clone(),
-                    version: "1.0.0".into(),
-                    description: format!("builtin skill {}", self.name),
-                    author: None,
-                    dependencies: vec![],
-                }
+                self.manifest.clone()
             }
             fn body(&self) -> &str {
                 "mock body"
             }
-            fn listing_meta(&self) -> SkillListingMeta {
-                self.meta.clone()
-            }
         }
 
         Arc::new(MockBuiltin {
-            name: name.to_string(),
-            meta: SkillListingMeta {
+            manifest: SkillManifest {
+                name: name.to_string(),
+                description: format!("builtin skill {}", name),
                 when_to_use: String::new(),
-                user_invocable,
-                paths,
+                context: Default::default(),
                 effort: Default::default(),
+                paths,
+                user_invocable,
             },
         })
     }

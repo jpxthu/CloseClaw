@@ -5,61 +5,51 @@ use crate::disk::types::SkillEffort;
 use std::sync::Arc;
 
 struct MockSkill {
-    name: String,
-    meta: SkillListingMeta,
+    manifest: SkillManifest,
 }
 
 impl MockSkill {
-    fn with_meta(name: &str, meta: SkillListingMeta) -> Self {
-        Self {
-            name: name.to_string(),
-            meta,
-        }
+    fn with_manifest(_name: &str, manifest: SkillManifest) -> Self {
+        Self { manifest }
     }
 }
 
 #[async_trait]
 impl Skill for MockSkill {
     fn manifest(&self) -> SkillManifest {
-        SkillManifest {
-            name: self.name.clone(),
-            description: format!("mock skill {}", self.name),
-            when_to_use: self.meta.when_to_use.clone(),
-            context: crate::disk::types::SkillContext::default(),
-            effort: self.meta.effort,
-            paths: self.meta.paths.clone(),
-            user_invocable: self.meta.user_invocable,
-        }
+        self.manifest.clone()
     }
 
     fn body(&self) -> &str {
         "mock body"
-    }
-
-    fn listing_meta(&self) -> SkillListingMeta {
-        self.meta.clone()
     }
 }
 
 #[tokio::test]
 async fn test_with_activated_includes_activated_conditional() {
     let registry = BuiltinSkillRegistry::from_skills(vec![
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "base_skill",
-            SkillListingMeta {
+            SkillManifest {
+                name: "base_skill".into(),
+                description: "mock skill base_skill".into(),
                 when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec![],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec![],
+                user_invocable: true,
             },
         )),
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "cond_skill",
-            SkillListingMeta {
+            SkillManifest {
+                name: "cond_skill".into(),
+                description: "mock skill cond_skill".into(),
                 when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec!["**/*.rs".to_string()],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec!["**/*.rs".to_string()],
+                user_invocable: true,
             },
         )),
     ])
@@ -74,22 +64,28 @@ async fn test_with_activated_includes_activated_conditional() {
 #[tokio::test]
 async fn test_with_activated_excludes_unactivated_conditional() {
     let registry = BuiltinSkillRegistry::from_skills(vec![
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "base_skill",
-            SkillListingMeta {
+            SkillManifest {
+                name: "base_skill".into(),
+                description: "mock skill base_skill".into(),
                 when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec![],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec![],
+                user_invocable: true,
             },
         )),
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "cond_skill",
-            SkillListingMeta {
+            SkillManifest {
+                name: "cond_skill".into(),
+                description: "mock skill cond_skill".into(),
                 when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec!["**/*.rs".to_string()],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec!["**/*.rs".to_string()],
+                user_invocable: true,
             },
         )),
     ])
@@ -102,22 +98,28 @@ async fn test_with_activated_excludes_unactivated_conditional() {
 #[tokio::test]
 async fn test_with_activated_empty_matches_excluding_conditional() {
     let registry = BuiltinSkillRegistry::from_skills(vec![
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "alpha",
-            SkillListingMeta {
+            SkillManifest {
+                name: "alpha".into(),
+                description: "mock skill alpha".into(),
                 when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec![],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec![],
+                user_invocable: true,
             },
         )),
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "cond_beta",
-            SkillListingMeta {
+            SkillManifest {
+                name: "cond_beta".into(),
+                description: "mock skill cond_beta".into(),
                 when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec!["**/*.md".to_string()],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec!["**/*.md".to_string()],
+                user_invocable: true,
             },
         )),
     ])
@@ -132,13 +134,16 @@ async fn test_with_activated_empty_matches_excluding_conditional() {
 
 #[tokio::test]
 async fn test_with_activated_nonexistent_skill_ignored() {
-    let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
+    let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_manifest(
         "real_skill",
-        SkillListingMeta {
+        SkillManifest {
+            name: "real_skill".into(),
+            description: "mock skill real_skill".into(),
             when_to_use: String::new(),
-            user_invocable: true,
-            paths: vec![],
+            context: crate::disk::types::SkillContext::default(),
             effort: SkillEffort::Unknown,
+            paths: vec![],
+            user_invocable: true,
         },
     ))])
     .await;
@@ -152,22 +157,28 @@ async fn test_with_activated_nonexistent_skill_ignored() {
 #[tokio::test]
 async fn test_with_activated_not_invocable_conditional_excluded_without_activation() {
     let registry = BuiltinSkillRegistry::from_skills(vec![
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "base",
-            SkillListingMeta {
+            SkillManifest {
+                name: "base".into(),
+                description: "mock skill base".into(),
                 when_to_use: String::new(),
-                user_invocable: true,
-                paths: vec![],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec![],
+                user_invocable: true,
             },
         )),
-        Arc::new(MockSkill::with_meta(
+        Arc::new(MockSkill::with_manifest(
             "hidden_cond",
-            SkillListingMeta {
+            SkillManifest {
+                name: "hidden_cond".into(),
+                description: "mock skill hidden_cond".into(),
                 when_to_use: String::new(),
-                user_invocable: false,
-                paths: vec!["**/*.rs".to_string()],
+                context: crate::disk::types::SkillContext::default(),
                 effort: SkillEffort::Unknown,
+                paths: vec!["**/*.rs".to_string()],
+                user_invocable: false,
             },
         )),
     ])
@@ -179,13 +190,16 @@ async fn test_with_activated_not_invocable_conditional_excluded_without_activati
 
 #[tokio::test]
 async fn test_with_activated_annotation_present() {
-    let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
+    let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_manifest(
         "rs_skill",
-        SkillListingMeta {
+        SkillManifest {
+            name: "rs_skill".into(),
+            description: "mock skill rs_skill".into(),
             when_to_use: String::new(),
-            user_invocable: true,
-            paths: vec!["**/*.rs".to_string()],
+            context: crate::disk::types::SkillContext::default(),
             effort: SkillEffort::Unknown,
+            paths: vec!["**/*.rs".to_string()],
+            user_invocable: true,
         },
     ))])
     .await;
@@ -206,13 +220,16 @@ async fn test_with_activated_empty_registry() {
 
 #[tokio::test]
 async fn test_with_activated_non_conditional_in_activated_follows_normal_rules() {
-    let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_meta(
+    let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_manifest(
         "hidden_plain",
-        SkillListingMeta {
+        SkillManifest {
+            name: "hidden_plain".into(),
+            description: "mock skill hidden_plain".into(),
             when_to_use: String::new(),
-            user_invocable: false,
-            paths: vec![],
+            context: crate::disk::types::SkillContext::default(),
             effort: SkillEffort::Unknown,
+            paths: vec![],
+            user_invocable: false,
         },
     ))])
     .await;

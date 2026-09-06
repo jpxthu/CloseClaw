@@ -6,7 +6,7 @@
 use crate::builtin::{builtin_skills, BuiltinSkills};
 
 // ==========================================================================
-// Cross-skill manifest / body / listing_meta assertions
+// Cross-skill manifest / body assertions
 // ==========================================================================
 
 #[test]
@@ -41,7 +41,7 @@ fn test_builtin_skills_all_have_body() {
 }
 
 #[test]
-fn test_builtin_skills_all_have_listing_meta() {
+fn test_builtin_skills_all_have_manifest_fields() {
     let skills = BuiltinSkills::all();
     for skill in &skills {
         let m = skill.manifest();
