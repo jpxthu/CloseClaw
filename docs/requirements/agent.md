@@ -19,7 +19,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **Bootstrap 文件目录**：Bootstrap 文件所在目录
 - **工具白名单/黑名单**：Agent 可以使用的工具范围
 - **技能白名单**：Agent 可以使用的技能范围。技能的发现、目录结构和多 Agent 隔离详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）
-- **子 Agent 控制**：Agent 创建子 Session 的限制规则（目标白名单、层级深度、并发数等）
+- **子 Session 创建控制**：Agent 创建子 Session 的限制规则（目标白名单、层级深度、并发数等）
 - **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选，取值优先级见 F7）
 - **记忆配置**：Agent 的记忆模块参数（可选覆盖默认值）
 
@@ -44,7 +44,7 @@ Agent 的能力边界由配置字段组合与权限基线共同决定，不依�
 
 - 工具白名单/黑名单控制 Agent 可以执行的操作范围
 - 身份加载模式控制 Agent 的上下文规模
-- 子 Agent 控制决定 Agent 的派生能力
+- 子 Session 创建控制决定 Agent 的派生能力
 - 权限基线定义 Agent 的安全边界，权限规则详见 [permission §F2](permission.md)（权限维度）
 
 框架提供一组预置的行为模板（如"只读研究"、"校验审计"），创建子 Session 时可通过 spawn 参数选择注入对应的行为约束；行为模板是创建时注入的约束，不改变 Agent 的静态配置定义。
@@ -59,7 +59,7 @@ Agent 的能力边界由配置字段组合与权限基线共同决定，不依�
 
 ### F6. 运行时配置查询
 
-系统运行时，各模块通过 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、工具白名单/黑名单、技能白名单、子 Agent 控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力——如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
+系统运行时，各模块通过 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、工具白名单/黑名单、技能白名单、子 Session 创建控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力——如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
 
 配置变更的检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。注册清单与 Agent 配置变更后，新创建的 Session 使用最新配置，已运行的 Session 沿用创建时的配置。
 
@@ -89,10 +89,10 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 ### F9. Spawn 创建控制
 
-父 Agent 的配置控制子 Agent 的创建行为：
+父 Agent 的配置控制子 Session 的创建行为：
 
 - **目标白名单**：限制可以 spawn 的目标 Agent 范围（通配符 `*` 表示不限制，空列表表示禁止 spawn）
-- **层级深度**：限制嵌套的最大层数（0 表示禁止 spawn 任何子 Agent）
+- **层级深度**：限制嵌套的最大层数（0 表示禁止 spawn 任何子 Session）
 - **并发数量**：限制同时存活的子 Session 数量上限
 - **目标 Agent 必须已注册**：spawn 的目标 Agent（显式指定，或按 F7 默认值取当前 Agent）必须是注册清单中已注册、配置可加载的 Agent
 - **子 Session 默认模型**：子 Session 的默认模型覆盖（优先级低于 spawn 时显式指定的模型）
@@ -107,9 +107,9 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 > **交叉引用**：持久子 Session 的 steer/kill 操作语义、级联清理、生命周期联动详见 [session §F4](session.md)（子 Session 委托与协调）。系统重启恢复时的降级处理详见 [session §F1](session.md)（对话持久化与恢复）。
 
-### F12. 子 Agent 权限继承
+### F12. 子 Session 权限继承
 
-> **交叉引用**：子 Agent 权限沿创建链路收窄、Deny 沿链路传播、被拒绝时静默返回。详见 [permission §F9](permission.md)（子 Agent 权限继承）。
+> **交叉引用**：子 Session 权限沿创建链路收窄、Deny 沿链路传播、被拒绝时静默返回。详见 [permission §F9](permission.md)（子 Session 权限继承）。
 
 ### F13. 工作目录权限
 
@@ -138,7 +138,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 ### 安全性
 
-- 子 Agent 权限的沿链路收窄与拒绝行为详见 [permission §F9](permission.md)（子 Agent 权限继承）
+- 子 Session 权限的沿链路收窄与拒绝行为详见 [permission §F9](permission.md)（子 Session 权限继承）
 
 ### 可扩展性
 

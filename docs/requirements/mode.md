@@ -32,9 +32,9 @@ Agent 在 session 内可运行于以下模式之一，每种模式决定了 Agen
 | Review | 向 User 展示方案并澄清需求模糊点 | User 审阅方案、提出修改意见 |
 | Final Plan | 将完整方案写入 plan 文件 | 无 |
 
-阶段切换由 Agent 自行判断，阶段之间无系统强制卡点。Review 不是一次性审批——User 可以反复审阅并给出修改意见，Agent 不断调整 plan，直到 User 满意并决定执行。Research 和 Design 阶段 Agent 可以 spawn 子 Agent 并行工作；spawn 出的子 Agent 在 Plan Mode 下也只读（详见 [permission §F9](permission.md)（子 Agent 权限继承））。
+阶段切换由 Agent 自行判断，阶段之间无系统强制卡点。Review 不是一次性审批——User 可以反复审阅并给出修改意见，Agent 不断调整 plan，直到 User 满意并决定执行。Research 和 Design 阶段 Agent 可以 spawn 子 Session 并行工作；spawn 出的子 Session 在 Plan Mode 下也只读（详见 [permission §F9](permission.md)（子 Session 权限继承））。
 
-> **交叉引用**：子 Agent spawn 的并发上限和创建控制详见 [agent §F9](agent.md)（Spawn 创建控制）。
+> **交叉引用**：子 Session spawn 的并发上限和创建控制详见 [agent §F9](agent.md)（Spawn 创建控制）。
 
 ### F3. Plan Mode — Interview 路径
 
@@ -147,7 +147,7 @@ plan 写完后，执行方式完全由 User 通过自然语言指令决定，没
 
 - User 可以指定在继承规划上下文的同 session 中执行，或在新 session 中从 plan 文件读取背景后执行
 - User 可以指定执行全部步骤或部分步骤
-- User 可以要求 Agent spawn 子 Agent 来执行特定步骤
+- User 可以要求 Agent spawn 子 Session 来执行特定步骤
 
 ### F11. 中断与恢复
 
