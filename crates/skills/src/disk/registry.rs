@@ -419,16 +419,6 @@ impl DiskSkillRegistry {
             .collect()
     }
 
-    /// Convert an optional whitelist slice to a `HashSet` for O(1) lookups.
-    /// Treats `["*"]` and empty as `None` (no filter).
-    fn resolve_whitelist_set(
-        whitelist: Option<&[String]>,
-    ) -> Option<std::collections::HashSet<&str>> {
-        whitelist
-            .filter(|w| !(w.len() == 1 && w[0] == "*"))
-            .map(|w| w.iter().map(|s| s.as_str()).collect())
-    }
-
     /// Internal implementation for listing generation.
     ///
     /// When `exclude_conditional` is `false`, includes conditional skills
@@ -457,7 +447,7 @@ impl DiskSkillRegistry {
         exclude_conditional: bool,
         activated: Option<&std::collections::HashSet<&str>>,
     ) -> Vec<&'a DiskSkill> {
-        let use_whitelist = Self::resolve_whitelist_set(skills_whitelist);
+        let use_whitelist = crate::registry::resolve_whitelist_set(skills_whitelist);
 
         self.skills
             .iter()
@@ -492,27 +482,12 @@ impl DiskSkillRegistry {
 // ---------------------------------------------------------------------------
 
 impl DiskSkillRegistry {
-    /// Render a single skill's listing line in the same format as
-    /// [`render_listing`].
+    /// Render a single skill's listing line.
+    ///
+    /// Delegates to the shared [`crate::registry::render_skill_listing`]
+    /// function to avoid duplicated rendering logic.
     pub fn render_single_listing(skill: &DiskSkill) -> String {
-        let when = if skill.manifest.when_to_use.is_empty() {
-            String::new()
-        } else {
-            format!(" — {}", skill.manifest.when_to_use)
-        };
-        let paths_anno = if skill.manifest.paths.is_empty() {
-            String::new()
-        } else {
-            format!(" ⚡ auto-activates on: {}", skill.manifest.paths.join(", "))
-        };
-        let effort_anno = match skill.manifest.effort {
-            super::types::SkillEffort::Unknown => String::new(),
-            effort => format!(" [effort: {}]", effort),
-        };
-        format!(
-            "- **{}**: {}{}{}{}",
-            skill.manifest.name, skill.manifest.description, when, paths_anno, effort_anno,
-        )
+        crate::registry::render_skill_listing(&skill.manifest)
     }
 
     /// Render a pre-filtered skill slice into a listing string.

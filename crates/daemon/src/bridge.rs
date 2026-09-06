@@ -182,14 +182,14 @@ impl SkillListingProviderWrapper {
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
     ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
-        self.disk
-            .read()
-            .ok()
-            .and_then(|g| {
-                g.as_ref()
-                    .map(|r| r.listing_entries_with_names(resolved_whitelist, exclude_conditional))
-            })
-            .unwrap_or_default()
+        let guard = self.disk.read().ok();
+        let Some(guard) = guard else {
+            return Vec::new();
+        };
+        let Some(registry) = guard.as_ref() else {
+            return Vec::new();
+        };
+        registry.listing_entries_with_names(resolved_whitelist, exclude_conditional)
     }
 
     /// Collect structured listing entries from the builtin skill registry.
@@ -218,17 +218,14 @@ impl SkillListingProviderWrapper {
         resolved_whitelist: Option<&[String]>,
         activated: &[String],
     ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
-        self.disk
-            .read()
-            .ok()
-            .and_then(|g| {
-                g.as_ref().map(|r| {
-                    r.listing_entries_with_activated(resolved_whitelist, activated)
-                        .into_iter()
-                        .collect()
-                })
-            })
-            .unwrap_or_default()
+        let guard = self.disk.read().ok();
+        let Some(guard) = guard else {
+            return Vec::new();
+        };
+        let Some(registry) = guard.as_ref() else {
+            return Vec::new();
+        };
+        registry.listing_entries_with_activated(resolved_whitelist, activated)
     }
 
     /// Collect structured listing entries from the builtin registry, including

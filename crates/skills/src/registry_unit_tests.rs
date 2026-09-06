@@ -560,4 +560,275 @@ mod tests {
         names.sort();
         assert_eq!(names, vec!["invocable_a", "invocable_c"]);
     }
+
+    // ===================================================================
+    // listing_entries_with_names
+    // ===================================================================
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_no_whitelist() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_manifest(
+                "alpha",
+                SkillManifest {
+                    name: "alpha".into(),
+                    description: "mock skill alpha".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+            Arc::new(MockSkill::with_manifest(
+                "beta",
+                SkillManifest {
+                    name: "beta".into(),
+                    description: "mock skill beta".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+            Arc::new(MockSkill::with_manifest(
+                "hidden",
+                SkillManifest {
+                    name: "hidden".into(),
+                    description: "mock skill hidden".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: false,
+                },
+            )),
+        ])
+        .await;
+        let entries = registry.listing_entries_with_names(None, false, None).await;
+        let names: Vec<&str> = entries.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert!(names.contains(&"alpha"));
+        assert!(names.contains(&"beta"));
+        assert!(!names.contains(&"hidden"));
+    }
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_specific_whitelist() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_manifest(
+                "alpha",
+                SkillManifest {
+                    name: "alpha".into(),
+                    description: "mock skill alpha".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+            Arc::new(MockSkill::with_manifest(
+                "beta",
+                SkillManifest {
+                    name: "beta".into(),
+                    description: "mock skill beta".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+        ])
+        .await;
+        let entries = registry
+            .listing_entries_with_names(Some(&["beta".to_string()]), false, None)
+            .await;
+        let names: Vec<&str> = entries.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert!(!names.contains(&"alpha"));
+        assert!(names.contains(&"beta"));
+    }
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_wildcard_whitelist() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_manifest(
+                "alpha",
+                SkillManifest {
+                    name: "alpha".into(),
+                    description: "mock skill alpha".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+            Arc::new(MockSkill::with_manifest(
+                "beta",
+                SkillManifest {
+                    name: "beta".into(),
+                    description: "mock skill beta".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+        ])
+        .await;
+        let entries = registry
+            .listing_entries_with_names(Some(&["*".to_string()]), false, None)
+            .await;
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_exclude_conditional() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_manifest(
+                "plain",
+                SkillManifest {
+                    name: "plain".into(),
+                    description: "mock skill plain".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+            Arc::new(MockSkill::with_manifest(
+                "cond",
+                SkillManifest {
+                    name: "cond".into(),
+                    description: "mock skill cond".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec!["**/*.rs".into()],
+                    user_invocable: true,
+                },
+            )),
+        ])
+        .await;
+        let entries = registry.listing_entries_with_names(None, true, None).await;
+        let names: Vec<&str> = entries.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert!(names.contains(&"plain"));
+        assert!(!names.contains(&"cond"));
+    }
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_activated_exempts_conditional() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_manifest(
+                "plain",
+                SkillManifest {
+                    name: "plain".into(),
+                    description: "mock skill plain".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+            Arc::new(MockSkill::with_manifest(
+                "cond",
+                SkillManifest {
+                    name: "cond".into(),
+                    description: "mock skill cond".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec!["**/*.rs".into()],
+                    user_invocable: true,
+                },
+            )),
+        ])
+        .await;
+        let entries = registry
+            .listing_entries_with_names(None, true, Some(&["cond".to_string()]))
+            .await;
+        let names: Vec<&str> = entries.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert!(names.contains(&"plain"));
+        assert!(names.contains(&"cond"));
+    }
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_sorted_by_source_then_name() {
+        // All builtin skills have SkillSource::Bundled, so sorting is by name only.
+        let registry = BuiltinSkillRegistry::from_skills(vec![
+            Arc::new(MockSkill::with_manifest(
+                "zebra",
+                SkillManifest {
+                    name: "zebra".into(),
+                    description: "mock skill zebra".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+            Arc::new(MockSkill::with_manifest(
+                "alpha",
+                SkillManifest {
+                    name: "alpha".into(),
+                    description: "mock skill alpha".into(),
+                    when_to_use: String::new(),
+                    context: crate::disk::types::SkillContext::default(),
+                    effort: SkillEffort::Unknown,
+                    paths: vec![],
+                    user_invocable: true,
+                },
+            )),
+        ])
+        .await;
+        let entries = registry.listing_entries_with_names(None, false, None).await;
+        assert_eq!(entries[0].0, "alpha");
+        assert_eq!(entries[1].0, "zebra");
+    }
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_line_contains_description() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_manifest(
+            "my_skill",
+            SkillManifest {
+                name: "my_skill".into(),
+                description: "mock skill my_skill".into(),
+                when_to_use: String::new(),
+                context: crate::disk::types::SkillContext::default(),
+                effort: SkillEffort::Unknown,
+                paths: vec![],
+                user_invocable: true,
+            },
+        ))])
+        .await;
+        let entries = registry.listing_entries_with_names(None, false, None).await;
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].2.contains("**my_skill**"));
+        assert!(entries[0].2.contains("mock skill my_skill"));
+    }
+
+    #[tokio::test]
+    async fn test_builtin_listing_entries_all_builtin_source() {
+        let registry = BuiltinSkillRegistry::from_skills(vec![Arc::new(MockSkill::with_manifest(
+            "skill",
+            SkillManifest {
+                name: "skill".into(),
+                description: "mock skill skill".into(),
+                when_to_use: String::new(),
+                context: crate::disk::types::SkillContext::default(),
+                effort: SkillEffort::Unknown,
+                paths: vec![],
+                user_invocable: true,
+            },
+        ))])
+        .await;
+        let entries = registry.listing_entries_with_names(None, false, None).await;
+        assert_eq!(entries[0].1, SkillSource::Bundled);
+    }
 }

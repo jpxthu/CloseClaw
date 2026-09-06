@@ -44,9 +44,36 @@ impl Default for BuiltinSkillRegistry {
     }
 }
 
+/// Render a single skill's listing line from a shared [`SkillManifest`].
+///
+/// Both disk-based and builtin registries delegate to this function
+/// to avoid duplicated rendering logic.
+pub(crate) fn render_skill_listing(manifest: &SkillManifest) -> String {
+    let when = if manifest.when_to_use.is_empty() {
+        String::new()
+    } else {
+        format!(" — {}", manifest.when_to_use)
+    };
+    let paths_anno = if manifest.paths.is_empty() {
+        String::new()
+    } else {
+        format!(" ⚡ auto-activates on: {}", manifest.paths.join(", "))
+    };
+    let effort_anno = match manifest.effort {
+        crate::disk::types::SkillEffort::Unknown => String::new(),
+        effort => format!(" [effort: {}]", effort),
+    };
+    format!(
+        "- **{}**: {}{}{}{}",
+        manifest.name, manifest.description, when, paths_anno, effort_anno,
+    )
+}
+
 /// Convert an optional whitelist slice to a `HashSet` for O(1) lookups.
 /// Treats `["*"]` and empty as `None` (no filter).
-fn resolve_whitelist_set(whitelist: Option<&[String]>) -> Option<std::collections::HashSet<&str>> {
+pub(crate) fn resolve_whitelist_set(
+    whitelist: Option<&[String]>,
+) -> Option<std::collections::HashSet<&str>> {
     whitelist
         .filter(|w| !(w.len() == 1 && w[0] == "*"))
         .map(|w| w.iter().map(|s| s.as_str()).collect())
@@ -160,27 +187,9 @@ impl BuiltinSkillRegistry {
 
     /// Render a single builtin skill's listing line.
     ///
-    /// Format matches [`DiskSkillRegistry::render_single_listing`]:
-    /// `- **{name}**: {description} — {when_to_use} ⚡ auto-activates on: {paths} [effort: ...]`
+    /// Delegates to the shared [`render_skill_listing`] function.
     pub fn render_single_listing(manifest: &crate::disk::types::SkillManifest) -> String {
-        let when = if manifest.when_to_use.is_empty() {
-            String::new()
-        } else {
-            format!(" — {}", manifest.when_to_use)
-        };
-        let paths_anno = if manifest.paths.is_empty() {
-            String::new()
-        } else {
-            format!(" ⚡ auto-activates on: {}", manifest.paths.join(", "))
-        };
-        let effort_anno = match manifest.effort {
-            crate::disk::types::SkillEffort::Unknown => String::new(),
-            effort => format!(" [effort: {}]", effort),
-        };
-        format!(
-            "- **{}**: {}{}{}{}",
-            manifest.name, manifest.description, when, paths_anno, effort_anno,
-        )
+        render_skill_listing(manifest)
     }
 
     /// Collects all skills with their metadata, sorted by name
