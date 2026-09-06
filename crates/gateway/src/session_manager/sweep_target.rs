@@ -10,6 +10,7 @@
 
 use super::SessionManager;
 use closeclaw_common::{ChildCompletionStatus, SessionExecStatus};
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::run_health::AnnounceSweepTarget;
 use closeclaw_tasks::NotificationPriority;
 use tracing::warn;
@@ -101,6 +102,16 @@ impl AnnounceSweepTarget for SessionManager {
                 "sweep_target: push_announce for stale notification failed"
             );
         }
+    }
+
+    async fn has_final_assistant_message(&self, child_id: &str) -> bool {
+        let Some(child_cs) = self.get_conversation_session(child_id).await else {
+            // Session not found — assume no assistant message.
+            return false;
+        };
+        let guard = child_cs.read().await;
+        !guard.messages().is_empty()
+            && ConversationSession::collect_last_assistant_text(guard.messages()).is_some()
     }
 
     async fn sweep_reclaim(&self) {
