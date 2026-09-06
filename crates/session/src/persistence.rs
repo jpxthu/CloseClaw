@@ -526,6 +526,25 @@ impl SessionCheckpoint {
         self.last_user_activity_at = Some(at);
         self
     }
+
+    /// Record an outbound message pending operation.
+    ///
+    /// Pushes the op to `pending_operations` for write-ahead tracking
+    /// before the gateway dispatches the message to the IM channel.
+    pub fn record_outbound_pending_op(&mut self, op: PendingOperation) {
+        self.pending_operations.push(op);
+    }
+
+    /// Clear an outbound message pending operation by message id.
+    ///
+    /// Retains only ops where the type is **not** `OutboundMessage` or the
+    /// `op_id` does not match `message_id`. Idempotent: clearing a
+    /// non-existent `message_id` is a no-op.
+    pub fn clear_outbound_pending_op(&mut self, message_id: &str) {
+        self.pending_operations.retain(|op| {
+            !(op.op_type == PendingOperationType::OutboundMessage && op.op_id == message_id)
+        });
+    }
 }
 
 /// Reasoning Mode State — 推理模式的状态

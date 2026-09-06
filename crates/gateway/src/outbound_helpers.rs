@@ -520,3 +520,186 @@ pub(crate) async fn send_simplified_with_timeout(
         }
     }
 }
+
+/// Write-ahead: record an OutboundMessage pending operation before send.
+///
+/// Loads the checkpoint, creates a `PendingOperation` with `OutboundMessage`
+/// detail, records it, and saves. Returns `Ok(())` on success.
+///
+/// Per design doc: persistence must succeed before the actual send
+/// is executed. On failure the caller must NOT proceed with `plugin.send`.
+pub(crate) async fn record_outbound_pending_op(
+    gateway: &Gateway,
+    session_id: &str,
+    message_id: &str,
+    target_channel: &str,
+) -> Result<(), GatewayError> {
+    use closeclaw_session::persistence::{
+        PendingOperation, PendingOperationDetail, PendingOperationType,
+    };
+
+    let cm = gateway.checkpoint_manager.read().unwrap().clone();
+    let Some(cm) = cm else {
+        return Ok(());
+    };
+    let mut cp = match cm.load(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) => closeclaw_session::persistence::SessionCheckpoint::new(session_id.to_string()),
+        Err(e) => {
+            tracing::warn!(
+                session_id,
+                "failed to load checkpoint for write-ahead: {}",
+                e
+            );
+            return Err(GatewayError::OutboundError(format!(
+                "write-ahead load failed for session {}: {}",
+                session_id, e
+            )));
+        }
+    };
+    let op = PendingOperation {
+        op_id: message_id.to_string(),
+        op_type: PendingOperationType::OutboundMessage,
+        status: Default::default(),
+        detail: PendingOperationDetail::OutboundMessage {
+            target_channel: target_channel.to_string(),
+            message_id: message_id.to_string(),
+            delivery_status: "pending".to_string(),
+        },
+        created_at: chrono::Utc::now(),
+    };
+    cp.record_outbound_pending_op(op);
+    cp.touch();
+    // save_raw (synchronous, propagates errors): write-ahead must
+    // succeed before plugin.send -- failure means op not persisted
+    // and caller must NOT proceed with delivery.
+    if let Err(e) = cm.save_raw(&cp).await {
+        tracing::warn!(
+            session_id,
+            "failed to save checkpoint after write-ahead: {}",
+            e
+        );
+        return Err(GatewayError::OutboundError(format!(
+            "write-ahead save failed for session {}: {}",
+            session_id, e
+        )));
+    }
+    Ok(())
+}
+
+/// Ack-clear: remove the OutboundMessage pending operation after successful send.
+pub(crate) async fn clear_outbound_pending_op(
+    gateway: &Gateway,
+    session_id: &str,
+    message_id: &str,
+) {
+    let cm = gateway.checkpoint_manager.read().unwrap().clone();
+    let Some(cm) = cm else {
+        return;
+    };
+    let mut cp = match cm.load(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) => closeclaw_session::persistence::SessionCheckpoint::new(session_id.to_string()),
+        Err(e) => {
+            tracing::warn!(session_id, "failed to load checkpoint for ack-clear: {}", e);
+            return;
+        }
+    };
+    cp.clear_outbound_pending_op(message_id);
+    cp.touch();
+    // save (async, fire-and-forget): clearing a stale op is best-effort;
+    // failure only causes a duplicate retry on next restart, which is
+    // acceptable per doc "宁可重复也不遗漏".
+    if let Err(e) = cm.save(cp).await {
+        tracing::warn!(
+            session_id,
+            "failed to save checkpoint after ack-clear: {}",
+            e
+        );
+    }
+}
+
+/// Persist outbound message to checkpoint if checkpoint_manager is configured.
+///
+/// When `mark_sent` is `true`, the pending message is marked as sent
+/// (checkpoint saved after successful delivery). When `false`, the
+/// pending message is persisted without the sent flag, serving as a
+/// pre-send checkpoint so recovery can detect the pending operation.
+pub(crate) async fn persist_outbound_checkpoint(
+    gateway: &Gateway,
+    session_id: &str,
+    msg: &super::Message,
+    mark_sent: bool,
+) {
+    let cm = gateway.checkpoint_manager.read().unwrap().clone();
+    let Some(cm) = cm else {
+        return;
+    };
+    let checkpoint = match cm.load(session_id).await {
+        Ok(Some(cp)) => cp,
+        Ok(None) => closeclaw_session::persistence::SessionCheckpoint::new(session_id.to_string()),
+        Err(e) => {
+            tracing::warn!(session_id, "failed to load checkpoint: {}", e);
+            return;
+        }
+    };
+    let mut pending = closeclaw_session::persistence::PendingMessage::with_role(
+        msg.id.clone(),
+        msg.content.clone(),
+        "assistant".to_string(),
+    );
+    pending.target_channel = msg.channel.clone();
+    pending.platform = msg.platform.clone();
+    pending.dsl_result = msg.dsl_result.clone();
+    pending.content_blocks = msg.content_blocks.clone();
+    if mark_sent {
+        pending.mark_sent();
+    }
+    let mut cp = checkpoint.add_outbound_pending(pending);
+    // Sync per-session append-section list from ConversationSession
+    // (issue #860: archived session restore preserves append content).
+    if let Some(cs) = gateway
+        .session_manager
+        .get_conversation_session(session_id)
+        .await
+    {
+        let cs = cs.read().await;
+        cp.system_appends = cs.user_system_appends().to_vec();
+    }
+    cp.touch();
+    cp.last_message_at = Some(chrono::Utc::now());
+    if let Err(e) = cm.save(cp).await {
+        tracing::warn!(session_id, "failed to save checkpoint: {}", e);
+    }
+}
+
+/// Emit a unified `send.completed` debug log event.
+///
+/// Extracted from the text/interactive branches in
+/// `dispatch_and_persist` to eliminate duplicated emit code.
+/// When `trace_id` is `None`, the emit is skipped.
+pub(crate) fn emit_send_completed_log(
+    gateway: &Gateway,
+    _session_id: &str,
+    channel: &str,
+    peer_id: &str,
+    trace_id: Option<&str>,
+    session_key: Option<&str>,
+    parent: Option<&closeclaw_debug_log::TraceContext>,
+) {
+    let Some(tid) = trace_id else {
+        return;
+    };
+    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
+        ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), tid, session_key),
+        level: closeclaw_debug_log::LogLevel::Info,
+        source_module: "gateway",
+        event_type: "send.completed",
+        payload: serde_json::json!({
+            "channel": channel,
+            "peer_id": peer_id,
+        }),
+        parent,
+    });
+}

@@ -878,7 +878,7 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
             return Ok(());
         };
         let session_id = self.session_id.clone();
-        let pending_ops = self.collect_pending_operations();
+        let collected_ops = self.collect_pending_operations();
         let system_appends = self.user_system_appends().to_vec();
         let verbosity = self.verbosity_level();
         let workflow_run = self.workflow_run().cloned();
@@ -887,8 +887,18 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
             Ok(Some(cp)) => cp,
             _ => crate::persistence::SessionCheckpoint::new(session_id),
         };
-        // Common fields: always apply regardless of load vs create.
-        cp.pending_operations = pending_ops;
+        // Merge pending operations: replace ToolCall/SubSessionSpawn ops
+        // (collected from live session state) while preserving OutboundMessage
+        // ops (managed at checkpoint layer via write-ahead / ack-clear).
+        // This prevents write-ahead OutboundMessage ops from being overwritten
+        // by the live-state collector which has no outbound queue.
+        cp.pending_operations.retain(|op| {
+            matches!(
+                op.op_type,
+                crate::persistence::PendingOperationType::OutboundMessage
+            )
+        });
+        cp.pending_operations.extend(collected_ops);
         cp.system_appends = system_appends;
         cp.verbosity_level = verbosity;
         cp.workflow_run = workflow_run;

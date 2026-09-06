@@ -307,9 +307,7 @@ async fn persist_streaming_checkpoint(
     error_reason: Option<&str>,
 ) {
     let msg = build_checkpoint_message(chat_id, channel, partial_content, error_reason);
-    gateway
-        .persist_outbound_checkpoint(session_id, &msg, true)
-        .await;
+    crate::outbound_helpers::persist_outbound_checkpoint(gateway, session_id, &msg, true).await;
 }
 
 /// Handle a streaming error by sending the error message to the sink.

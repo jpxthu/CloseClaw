@@ -255,6 +255,12 @@ impl SessionManager {
     }
 
     /// Drain unsent outbound pending messages and re-deliver via gateway.
+    ///
+    /// Step 1.3: Drive source is `pending_operations` with `op_type ==
+    /// OutboundMessage` (not the entire `outbound_pending` cache).
+    /// For each op: content lookup in `outbound_pending` by `message_id`,
+    /// fallback to transcript; channel from `op.detail.target_channel` or
+    /// session fallback. On success/notified: clear the pending op.
     pub async fn drain_outbound_pending_for_session(
         &self,
         session_id: &str,
@@ -274,29 +280,39 @@ impl SessionManager {
                 )
             })?;
 
-        // 2. Short-circuit: nothing to do.
-        if cp.outbound_pending.is_empty() {
+        // 2. Short-circuit: no OutboundMessage pending ops → nothing to do.
+        //    Collect into owned tuples to avoid holding a borrow on cp
+        //    across the mutable clear_outbound_pending_op calls.
+        let outbound_ops: Vec<(String, String)> = cp
+            .pending_operations
+            .iter()
+            .filter(|op| {
+                op.op_type == closeclaw_session::persistence::PendingOperationType::OutboundMessage
+            })
+            .map(|op| {
+                (
+                    op.detail.message_id().unwrap_or(&op.op_id).to_string(),
+                    op.detail.target_channel().unwrap_or(""),
+                )
+            })
+            .map(|(mid, ch)| (mid, ch.to_string()))
+            .collect();
+        if outbound_ops.is_empty() {
             return Ok(0);
         }
-        // 3. Collect all pending message indices (no sent-filtering).
-        //    Design doc: "补投不加去重保护，采用'宁可重复也不遗漏'的策略".
-        let all_indices: Vec<usize> = (0..cp.outbound_pending.len()).collect();
 
-        if all_indices.is_empty() {
-            return Ok(0);
-        }
-        // 4. Fallback channel from sessions map (when target_channel is empty).
+        // 3. Fallback channel from sessions map (when target_channel is empty).
         let fallback_channel = {
             let sessions = self.sessions.read().await;
             sessions.get(session_id).map(|s| s.channel.clone())
         };
-        // 5. Get Gateway reference for outbound delivery.
+        // 4. Get Gateway reference for outbound delivery.
         let gw = self
             .get_gateway_ref()
             .await
             .ok_or_else(|| "drain_outbound_pending: gateway not available".to_string())?;
 
-        // 5a. Persist checkpoint before delivery for crash recovery detection.
+        // 4a. Persist checkpoint before delivery for crash recovery detection.
         cp.touch();
         if let Err(e) = cm.save_raw(&cp).await {
             warn!(
@@ -306,7 +322,7 @@ impl SessionManager {
             );
         }
 
-        // 6. Pre-build transcript content lookup table.
+        // 5. Pre-build transcript content lookup table.
         //    HashMap<content, content> for O(1) lookups in the delivery loop.
         let transcript_map: HashMap<String, String> =
             if let Some(cs) = self.get_conversation_session(session_id).await {
@@ -331,86 +347,85 @@ impl SessionManager {
             } else {
                 HashMap::new()
             };
-        // 7. Deliver each pending message. Channel: target_channel → session fallback.
-        //    Content: transcript O(1) lookup → outbound_pending cache fallback.
+
+        // 6. Build outbound_pending content lookup: message_id → content cache.
+        //    Used for content resolution when the pending op matches a cache entry.
+        let cache_map: HashMap<String, String> = cp
+            .outbound_pending
+            .iter()
+            .map(|pm| (pm.message_id.clone(), pm.content.clone()))
+            .collect();
+
+        // 7. Deliver each OutboundMessage pending op.
+        //    Content: cache (by message_id) → transcript → skip.
+        //    Channel: op.detail.target_channel → session fallback → skip.
         let mut delivered = 0usize;
-        let mut handled_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for idx in &all_indices {
-            // Clone fields before any mutable access to avoid borrow conflicts.
-            let (msg_id, target_channel, content_cache) = {
-                let pm = &cp.outbound_pending[*idx];
-                (
-                    pm.message_id.clone(),
-                    pm.target_channel.clone(),
-                    pm.content.clone(),
-                )
-            };
-            let channel = if !target_channel.is_empty() {
-                target_channel
+        for (message_id, op_channel) in &outbound_ops {
+            // 7a. Resolve channel.
+            let channel = if !op_channel.is_empty() {
+                op_channel.clone()
             } else if let Some(ref ch) = fallback_channel {
                 ch.clone()
             } else {
                 warn!(
                     session_id = %session_id,
-                    message_id = %msg_id,
-                    "drain_outbound_pending: no channel available for message, skipping"
+                    message_id = %message_id,
+                    "drain_outbound_pending: no channel available, skipping"
                 );
                 continue;
             };
-            // Look up message content from the pre-built transcript map.
-            // Falls back to outbound_pending cache if not found.
-            let content = transcript_map
-                .get(&content_cache)
-                .cloned()
-                .unwrap_or(content_cache);
+
+            // 7b. Resolve content: cache hit → transcript refresh; miss → skip.
+            let content = if let Some(cached) = cache_map.get(message_id) {
+                // Transcript is authoritative; use cached content as key.
+                transcript_map
+                    .get(cached)
+                    .cloned()
+                    .unwrap_or_else(|| cached.clone())
+            } else {
+                // No cache entry — preserve op for next attempt.
+                warn!(
+                    session_id = %session_id,
+                    message_id = %message_id,
+                    "drain_outbound_pending: no content in cache, skipping (op preserved)"
+                );
+                continue;
+            };
+
+            // 7c. Send via gateway.
             match gw
                 .send_outbound(session_id, &channel, &content, vec![], None, None)
                 .await
             {
                 Ok(crate::outbound::SendOutcome::Sent) => {
-                    // No mark_sent(): design doc requires all outbound_pending
-                    // messages to be re-delivered on restart (no dedup protection).
                     delivered += 1;
-                    handled_ids.insert(msg_id);
+                    // Only clear on Sent; preserve Notified for retry (doc: 宁可重复也不遗漏).
+                    cp.clear_outbound_pending_op(message_id);
                 }
                 Ok(crate::outbound::SendOutcome::Notified) => {
-                    // Original send failed; user was already notified via
-                    // simplified path. Do NOT mark_sent (wasn't delivered)
-                    // and do NOT count as delivered. Track as handled so
-                    // pending_operations is cleaned up (no retry needed).
-                    handled_ids.insert(msg_id);
+                    // Send failed but user notified — preserve op for retry.
+                    warn!(session_id = %session_id, message_id = %message_id,
+                        "drain_outbound_pending: delivery not confirmed (Notified), op preserved");
                 }
                 Err(e) => {
                     warn!(
                         session_id = %session_id,
-                        message_id = %msg_id,
+                        message_id = %message_id,
                         error = %e,
-                        "drain_outbound_pending: delivery failed, skipping"
+                        "drain_outbound_pending: delivery failed, op preserved for retry"
                     );
                 }
             }
         }
 
-        // 8. Remove OutboundMessage entries from pending_operations for handled
-        //     messages (delivered or notified), then persist the updated checkpoint.
-        if !handled_ids.is_empty() {
-            cp.pending_operations.retain(|op| {
-                if op.op_type
-                    == closeclaw_session::persistence::PendingOperationType::OutboundMessage
-                {
-                    !handled_ids.contains(&op.op_id)
-                } else {
-                    true
-                }
-            });
-            cp.touch();
-            if let Err(e) = cm.save_raw(&cp).await {
-                warn!(
-                    session_id = %session_id,
-                    error = %e,
-                    "drain_outbound_pending: failed to persist checkpoint"
-                );
-            }
+        // 8. Persist checkpoint if any ops were cleared.
+        cp.touch();
+        if let Err(e) = cm.save_raw(&cp).await {
+            warn!(
+                session_id = %session_id,
+                error = %e,
+                "drain_outbound_pending: failed to persist checkpoint"
+            );
         }
 
         Ok(delivered)
