@@ -209,6 +209,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             append_section: None,
             bootstrap_mode_override: Some(bootstrap_mode),
             agent_id: Some(agent_id.to_string()),
+            activated_skills: vec![],
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(
@@ -228,6 +229,61 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
     /// `build_prompt()` call regenerates the static layer.
     async fn invalidate_cache(&self) {
         self.shared_cache.write().unwrap().invalidate_all();
+    }
+
+    /// Build a system prompt with activated conditional skills.
+    ///
+    /// Same as [`build_prompt`](Self::build_prompt) but passes the
+    /// activated skill set through to the provider pipeline via
+    /// [`FragmentContext::activated_skills`]. This is the SP rebuild
+    /// path: [`SkillsFragmentProvider`] reads the activation set to
+    /// include activated conditional skills in the listing.
+    async fn build_prompt_with_activated(
+        &self,
+        _session_id: &str,
+        agent_id: &str,
+        overrides: Option<&PromptOverrides>,
+        bootstrap_mode_override: Option<BootstrapMode>,
+        activated_skills: Vec<String>,
+    ) -> String {
+        let bootstrap_mode = match bootstrap_mode_override {
+            Some(mode) => mode,
+            None => {
+                let guard = self.agent_registry.read().await;
+                guard
+                    .query_bootstrap_mode(agent_id)
+                    .await
+                    .unwrap_or(BootstrapMode::Full)
+            }
+        };
+
+        let workspace_path = self.workspace_dir.join("agents").join(agent_id);
+
+        let providers: Vec<Box<dyn PromptFragmentProvider>> = self
+            .providers
+            .iter()
+            .map(|p| {
+                Box::new(ArcProviderAdapter::new(Arc::clone(p))) as Box<dyn PromptFragmentProvider>
+            })
+            .collect();
+
+        let config = WorkspaceBuildConfig {
+            providers,
+            dynamic_sections: vec![],
+            append_section: None,
+            bootstrap_mode_override: Some(bootstrap_mode),
+            agent_id: Some(agent_id.to_string()),
+            activated_skills,
+        };
+
+        let static_layer = crate::builder::build_from_workspace_with_cache(
+            &workspace_path,
+            config,
+            Some(Arc::clone(&self.shared_cache)),
+        )
+        .await;
+
+        apply_overrides(&static_layer, overrides)
     }
 }
 

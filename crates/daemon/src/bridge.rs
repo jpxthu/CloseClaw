@@ -215,6 +215,49 @@ impl SkillListingProviderWrapper {
         )
     }
 
+    /// Collect listing entries from the disk registry, including
+    /// activated conditional skills (exempt from `user-invocable`).
+    ///
+    /// Delegates to [`DiskSkillRegistry::generate_listing_with_activated`]
+    /// which handles base (non-conditional, user-invocable) + activated
+    /// conditional skills. Returns entries with source priority 0
+    /// (highest); the merge step handles deduplication.
+    fn collect_disk_activated_entries(
+        &self,
+        resolved_whitelist: Option<&[String]>,
+        activated: &[String],
+    ) -> Vec<(String, u8)> {
+        self.disk
+            .read()
+            .ok()
+            .and_then(|g| {
+                g.as_ref().map(|r| {
+                    let listing =
+                        r.generate_listing_with_activated(None, resolved_whitelist, activated);
+                    if listing.is_empty() {
+                        return vec![];
+                    }
+                    listing
+                        .lines()
+                        .map(|line| (line.to_string(), 0u8))
+                        .collect()
+                })
+            })
+            .unwrap_or_default()
+    }
+
+    /// Collect listing entries from the builtin registry, including
+    /// activated conditional skills (exempt from `user-invocable`).
+    fn collect_builtin_activated_entries(&self, activated: &[String]) -> Vec<(String, u8)> {
+        let rt = tokio::runtime::Handle::current();
+        let listing = rt.block_on(self.builtin.generate_listing_with_activated(activated));
+        // Builtin entries are always Bundled priority (4).
+        listing
+            .lines()
+            .map(|line| (line.to_string(), 4u8))
+            .collect()
+    }
+
     /// Merge two sorted listing vectors, deduplicating by skill name.
     ///
     /// Disk entries take precedence over builtin entries when names
@@ -332,6 +375,28 @@ impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
         paths: &[std::path::PathBuf],
     ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
         self.merged_conditional_matches(paths)
+    }
+
+    fn generate_listing_with_activated(
+        &self,
+        agent_id: Option<&str>,
+        agent_skills: Option<&[String]>,
+        activated: &[String],
+    ) -> String {
+        // Resolve the whitelist the same way as merged_listing.
+        let resolved_whitelist = agent_skills.map(|w| w.to_vec()).or_else(|| {
+            self.disk.read().ok().and_then(|g| {
+                g.as_ref().and_then(|r| {
+                    r.agent_skills_query()
+                        .and_then(|q| q.get_agent_skills(agent_id.unwrap_or("")))
+                })
+            })
+        });
+        let resolved_ref = resolved_whitelist.as_deref();
+
+        let disk = self.collect_disk_activated_entries(resolved_ref, activated);
+        let builtin = self.collect_builtin_activated_entries(activated);
+        Self::merge_and_sort_listings(disk, builtin)
     }
 }
 

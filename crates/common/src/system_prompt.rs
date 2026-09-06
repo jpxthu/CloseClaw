@@ -64,6 +64,30 @@ pub trait SystemPromptBuilder: Send + Sync {
         bootstrap_mode_override: Option<BootstrapMode>,
     ) -> String;
 
+    /// Build a system prompt including activated conditional skills.
+    ///
+    /// Same as [`build_prompt`](Self::build_prompt) but passes the
+    /// activated skill set through to the provider pipeline via
+    /// [`FragmentContext::activated_skills`]. This is the SP rebuild
+    /// path: [`SkillsFragmentProvider`] reads the activation set to
+    /// include activated conditional skills in the listing.
+    ///
+    /// The default implementation ignores the activated set and
+    /// delegates to [`build_prompt`], matching the pre-activation
+    /// behavior.
+    async fn build_prompt_with_activated(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        overrides: Option<&PromptOverrides>,
+        bootstrap_mode_override: Option<BootstrapMode>,
+        activated_skills: Vec<String>,
+    ) -> String {
+        let _ = activated_skills;
+        self.build_prompt(session_id, agent_id, overrides, bootstrap_mode_override)
+            .await
+    }
+
     /// Invalidate cached prompt sections.
     ///
     /// Called when workspace files, tools, or skills change.
