@@ -111,4 +111,13 @@ impl SessionManager {
 
         Ok(())
     }
+
+    /// Remove all key_registry entries that map to the given session_id.
+    ///
+    /// Used before `rebuild_key_registry()` to ensure stale mappings from
+    /// migrating sessions are not left in the registry during startup.
+    pub async fn remove_stale_key_registry_entries(&self, session_id: &str) {
+        let mut registry = self.key_registry.write().await;
+        registry.retain(|_, v| v != session_id);
+    }
 }

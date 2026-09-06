@@ -91,7 +91,6 @@ impl Daemon {
         let phase_components = Self::validate_phase_components(&layers)?;
         Ok((layers, phase_components))
     }
-
     /// Map each [`StartupPhase`] to its resolved [`ComponentId`] set,
     /// validated against the topo-sort result.
     fn validate_phase_components(
@@ -139,7 +138,6 @@ impl Daemon {
         }
         Ok(expected)
     }
-
     /// Log the resolved startup order at `info` level for operational visibility.
     fn log_startup_order(layers: &[Vec<crate::startup::ComponentId>]) {
         for (i, layer) in layers.iter().enumerate() {
@@ -148,7 +146,6 @@ impl Daemon {
         }
     }
 }
-
 // --- Phase initialization methods ---
 impl Daemon {
     /// Phase 1: Foundation — ConfigManager + Storage.
@@ -172,7 +169,6 @@ impl Daemon {
         Self::run_config_migration(config_dir);
         Ok((config_manager, storage, data_dir))
     }
-
     /// Phase 2: Registries — AgentRegistry, SkillsRegistry, ToolsRegistry,
     /// LLMRegistry, PermissionEngine, PlanArchiveSweeper.
     async fn init_phase_2_registries(
@@ -208,7 +204,6 @@ impl Daemon {
         let data_dir = std::path::PathBuf::from(config_dir);
         let (plan_archive_shutdown_tx, plan_archive_sweeper_handle) =
             registries::spawn_plan_archive_sweeper(config_manager, &data_dir);
-
         // Parallel async components: skill_registry and llm_registry are
         // independent within Layer 2, so run them concurrently.
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
@@ -297,12 +292,15 @@ impl Daemon {
         // pending_operations, and persist recovery notifications/failure
         // results into checkpoints so resolve.rs can inject them when
         // sessions are restored.
-        let dirty_sessions_for_drain: Vec<String> = {
+        let (dirty_sessions_for_drain, migrated_sessions): (Vec<String>, Vec<String>) = {
             use closeclaw_session::recovery::SessionRecoveryService;
             let recovery_svc =
                 SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
-            match recovery_svc.recover().await {
-                Ok(report) => {
+            let recovery_result =
+                tokio::time::timeout(std::time::Duration::from_secs(10), recovery_svc.recover())
+                    .await;
+            match recovery_result {
+                Ok(Ok(report)) => {
                     if !report.dirty_sessions.is_empty() {
                         info!(
                             dirty_count = report.dirty_sessions.len(),
@@ -315,14 +313,21 @@ impl Daemon {
                             "recovery scan complete — no dirty sessions"
                         );
                     }
-                    report.dirty_sessions
+                    (report.dirty_sessions, report.migrated_sessions)
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     tracing::warn!(error = %e, "recovery scan failed — continuing without recovery");
-                    Vec::new()
+                    (Vec::new(), Vec::new())
+                }
+                Err(_) => {
+                    tracing::warn!("recovery scan timed out (10s) — continuing without recovery");
+                    (Vec::new(), Vec::new())
                 }
             }
         };
+        for sid in &migrated_sessions {
+            session_manager.remove_stale_key_registry_entries(sid).await;
+        }
         if let Err(e) = session_manager.rebuild_key_registry().await {
             tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
         }

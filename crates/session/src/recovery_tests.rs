@@ -71,6 +71,7 @@ mod tests {
             failed: Vec::new(),
             spawn_tree: SpawnTree::default(),
             dirty_sessions: Vec::new(),
+            migrated_sessions: Vec::new(),
         };
         assert!(full.is_full_success());
         assert_eq!(full.total(), 2);
@@ -79,6 +80,7 @@ mod tests {
             failed: vec!["s2".to_string()],
             spawn_tree: SpawnTree::default(),
             dirty_sessions: Vec::new(),
+            migrated_sessions: Vec::new(),
         };
         assert!(!partial.is_full_success());
         assert_eq!(partial.total(), 2);

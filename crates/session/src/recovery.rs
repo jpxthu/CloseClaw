@@ -43,6 +43,9 @@ pub struct RecoveryReport {
     pub spawn_tree: SpawnTree,
     /// List of session IDs that had pending operations (dirty sessions)
     pub dirty_sessions: Vec<String>,
+    /// List of session IDs restored from migrating state (stale entries
+    /// in key_registry should be removed before rebuild)
+    pub migrated_sessions: Vec<String>,
 }
 
 impl RecoveryReport {
@@ -211,8 +214,14 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
 
         // Scan migrating sessions (crash interrupted archive between
         // Step A and Step C of two-step archive).
-        self.scan_migrating_sessions(&mut recovered, &mut failed, &mut checkpoints)
-            .await;
+        let mut migrated_sessions = Vec::new();
+        self.scan_migrating_sessions(
+            &mut recovered,
+            &mut failed,
+            &mut checkpoints,
+            &mut migrated_sessions,
+        )
+        .await;
         // Collect dirty sessions (those with pending operations)
         let dirty_sessions: Vec<String> = checkpoints
             .iter()
@@ -271,6 +280,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             failed,
             spawn_tree,
             dirty_sessions,
+            migrated_sessions,
         })
     }
 
@@ -419,6 +429,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         recovered: &mut Vec<String>,
         failed: &mut Vec<String>,
         checkpoints: &mut HashMap<String, SessionCheckpoint>,
+        migrated_sessions: &mut Vec<String>,
     ) {
         let ids = self
             .storage
@@ -466,6 +477,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                         restored.status = crate::persistence::SessionStatus::Active;
                         checkpoints.insert(sid.clone(), restored);
                         recovered.push(sid.clone());
+                        migrated_sessions.push(sid.clone());
                     }
                     _ => {
                         tracing::warn!(
@@ -925,6 +937,9 @@ mod recovery_outbound_tests;
 #[cfg(test)]
 #[path = "recovery_progress_tests.rs"]
 mod recovery_progress_tests;
+#[cfg(test)]
+#[path = "recovery_timeout_tests.rs"]
+mod recovery_timeout_tests;
 #[cfg(test)]
 #[path = "recovery_workflow_tests.rs"]
 mod recovery_workflow_tests;
