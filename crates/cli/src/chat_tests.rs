@@ -91,10 +91,7 @@ async fn test_stop_routes_through_gateway_slash_dispatcher() {
     };
 
     match dispatcher.dispatch("/stop", &ctx).await {
-        closeclaw_common::slash_router::SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade must be true");
-            assert!(force, "force must be true");
-        }
+        closeclaw_common::slash_router::SlashResult::Stop => {}
         other => panic!("expected Stop from gateway dispatch, got {other:?}"),
     }
 }

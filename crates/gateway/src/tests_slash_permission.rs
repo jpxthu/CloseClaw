@@ -221,10 +221,7 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         SlashResult::SetVerbosity { level } => SlashResult::SetVerbosity { level: *level },
         SlashResult::Unknown(t) => SlashResult::Unknown(t.clone()),
         SlashResult::NewSession => SlashResult::NewSession,
-        SlashResult::Stop { cascade, force } => SlashResult::Stop {
-            cascade: *cascade,
-            force: *force,
-        },
+        SlashResult::Stop => SlashResult::Stop,
         SlashResult::SetMode {
             mode,
             plan_file_path,
