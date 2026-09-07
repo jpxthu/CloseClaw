@@ -15,7 +15,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **身份标识**：Agent 的唯一 ID 和显示名称
 - **模型选择**：Agent 使用的默认 LLM 模型及备用模型列表
 - **工作目录**：Agent 的默认工作目录
-- **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制上下文注入文件的数量
+- **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效，子 Session 加载范围见 system_prompt §F8）
 - **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格，见 F2）所在目录
 - **工具白名单/黑名单**：Agent 可以使用的工具范围
 - **技能白名单**：Agent 可以使用的技能范围。技能的发现、目录结构和多 Agent 隔离详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）
@@ -32,7 +32,7 @@ Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent
 配置档案中的能力配置和身份人格是两层独立的概念：
 
 - **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案，见 F3）
-- **Bootstrap 文件**定义 Agent 的身份人格——操作规程、角色定义、用户偏好等
+- **Bootstrap 文件**定义 Agent 的身份人格——操作规程、角色定义、Owner 偏好等
 
 Agent 的身份人格文件由配置档案指定，相关字段包括身份加载模式和 Bootstrap 文件目录。
 
@@ -71,7 +71,6 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 - **任务描述**：子 Session 要完成的任务
 - **生命周期**：一次性执行（默认）或持久存活（见 F11「持久子 Session 控制」）
 - **上下文模式**：指定子 Session 是仅接收任务描述，还是继承父 Session 的对话历史（后者即 Fork 模式，详见 F8「子 Session 上下文继承（Fork）」）
-- **上下文精简**：子 Session 是否以精简模式启动（精简模式即 F1「身份加载模式」中的「精简模式」取值）
 - **模型覆盖**：可选显式指定子 Session 的模型
 - **行为模板**：可选注入预置的行为模板（如"只读研究"、"校验审计"）
 - **工作目录覆盖**：可选为子 Session 指定独立的工作目录
@@ -80,7 +79,7 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 
 > **交叉引用**：超时预警和硬超时的执行行为（预警通知、终止与级联终止）。详见 [session §F4](session.md)（子 Session 委托与协调）。
 
-子 Session 的最终模型按以下优先级确定：显式指定的模型 > 父 Agent 配置中的子 Session 默认模型 > 目标 Agent 配置的模型 > 系统默认模型。
+子 Session 的最终模型按以下优先级确定：显式指定的模型 > 父 Agent 配置中的子 Session 默认模型 > 目标 Agent 配置的默认模型 > 系统默认模型。
 
 ### F8. 子 Session 上下文继承（Fork）
 
@@ -95,7 +94,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 - **目标白名单**：限制可以 spawn 的目标 Agent 范围（通配符 `*` 表示不限制，空列表表示禁止 spawn）
 - **层级深度**：限制嵌套的最大层数（0 表示禁止 spawn 任何子 Session）
 - **并发数量**：限制同时存活的子 Session 数量上限
-- **目标 Agent 必须已注册**：spawn 的目标 Agent（显式指定，或按 F7 默认取当前 Agent）必须是注册清单中已注册、配置可加载的 Agent
+- **目标 Agent 必须已注册**：spawn 的目标 Agent（显式指定，或按 F7 默认取父 Agent 自身）必须是注册清单中已注册、配置可加载的 Agent
 - **子 Session 默认模型**：父 Agent 配置中为子 Session 覆盖默认模型的取值（优先级低于 spawn 显式参数，完整优先级链见 F7）
 
 层级深度受父 Agent 配置和目标 Agent 配置的双重约束：取两者中更严格的值生效。即使父 Agent 允许更多层级，目标 Agent 进一步 spawn 子 Session 时也受自身层级深度配置的约束。
