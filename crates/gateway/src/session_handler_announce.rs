@@ -756,6 +756,30 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn test_resolve_effective_level_default_fallback_off_to_low() {
+        // Unknown model + Off → Low (Off may not be closable).
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Off, &kb);
+        assert_eq!(result, ReasoningLevel::Low);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_default_fallback_low_unchanged() {
+        // Unknown model + Low → Low (base level, always safe).
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Low, &kb);
+        assert_eq!(result, ReasoningLevel::Low);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_default_fallback_high_unchanged() {
+        // Unknown model + High → High (base level, always safe).
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::High, &kb);
+        assert_eq!(result, ReasoningLevel::High);
+    }
+
+    #[test]
     fn test_resolve_effective_level_toggle_on_returns_requested() {
         // Toggle on=true: returns requested level, except Max → High (downgrade).
         let kb = ProviderModelKnowledge::new();
