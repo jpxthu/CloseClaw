@@ -532,6 +532,10 @@ impl crate::TaskManager for BackgroundTaskManager {
     async fn cleanup_all_finished(&self, session_id: &str) {
         self.cleanup_all_finished(session_id).await
     }
+
+    fn max_execution_secs(&self) -> u64 {
+        self.max_execution_secs
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -756,20 +760,30 @@ async fn spawn_max_execution_monitor(
     let deadline = std::time::Duration::from_secs(max_secs);
     tokio::time::sleep(deadline).await;
 
-    // Check if the task is still running and trigger kill via the notifier.
-    let (command, output_path, trace_id) = {
+    // First lock: check state and transition to Killed atomically.
+    // We use two short lock acquisitions instead of one long hold because
+    // the monitor must also emit tracing logs, debug-log events, and push
+    // notifications — none of which need the map lock and would unnecessarily
+    // delay other tasks from accessing the map if we held it.
+    let (command, output_path, trace_id, already_notified) = {
         let mut map = lock_map(tasks).await;
         if let Some(h) = map.get_mut(task_id) {
             if !matches!(h.state, TaskState::Running { .. }) {
                 return; // Task already finished.
             }
+            let already_notified = h.notified;
             h.state = TaskState::Killed;
             h.timeout_notify.notify_one();
             if let Some(kill_tx) = h.kill_tx.take() {
                 let _ = kill_tx.send(());
             }
             let trace_id = h.trace_id.clone();
-            (h.command.clone(), h.output_path.clone(), trace_id)
+            (
+                h.command.clone(),
+                h.output_path.clone(),
+                trace_id,
+                already_notified,
+            )
         } else {
             return; // Task already cleaned up.
         }
@@ -793,12 +807,27 @@ async fn spawn_max_execution_monitor(
         });
     }
 
+    // Dedup: skip notification if one was already sent (e.g. stuck alert).
+    if already_notified {
+        return;
+    }
+
+    // Second lock: set the notified flag before pushing the notification
+    // so that any concurrent path (e.g. finalize_state) sees the flag
+    // and avoids a duplicate push.
+    {
+        let mut map = lock_map(tasks).await;
+        if let Some(h) = map.get_mut(task_id) {
+            h.notified = true;
+        }
+    }
+
     let notif = CompletionNotification {
         task_id: task_id.to_owned(),
         command: command.clone(),
         state: TaskState::Killed,
         output_path,
-        priority: NotificationPriority::Later,
+        priority: NotificationPriority::Now,
         summary: format!(
             "Background command '{}' killed: total execution time limit ({}s) reached",
             command, max_secs

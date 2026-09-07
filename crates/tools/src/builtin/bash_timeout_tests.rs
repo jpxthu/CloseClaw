@@ -59,10 +59,65 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        1800
+    }
 }
 
 fn bg_trait() -> Arc<dyn closeclaw_tasks::TaskManager> {
     Arc::new(TimeoutBgManager)
+}
+
+/// Mock TaskManager with configurable `max_execution_secs`.
+/// Used by tests that need a short total-execution-time limit
+/// to exercise the force-terminate path within reasonable test duration.
+struct ShortTimeoutBgManager {
+    max_secs: u64,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_tasks::TaskManager for ShortTimeoutBgManager {
+    async fn spawn_task(
+        &self,
+        _command: &str,
+        _cwd: &std::path::Path,
+        _is_backgrounded: bool,
+        _session_id: &str,
+    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+        Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
+            "not used".into(),
+        ))
+    }
+    async fn backgroundize_task(
+        &self,
+        _child: tokio::process::Child,
+        command: &str,
+        is_backgrounded: bool,
+        _session_id: &str,
+    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+        Ok(closeclaw_tasks::BackgroundTask {
+            id: uuid::Uuid::new_v4().to_string(),
+            command: command.to_string(),
+            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
+            output_path: std::path::PathBuf::from("/tmp/test-output"),
+        })
+    }
+    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
+        Ok(())
+    }
+    async fn get_task(&self, _: &str) -> Option<closeclaw_tasks::BackgroundTask> {
+        None
+    }
+    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+        vec![]
+    }
+    async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+        vec![]
+    }
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        self.max_secs
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -296,10 +351,12 @@ async fn test_excluded_command_sleep_not_auto_backgrounded() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_excluded_command_ignores_agent_timeout_uses_cap() {
+async fn test_excluded_command_with_agent_timeout_uses_agent_timeout() {
     let tmp = TempDir::new().unwrap();
-    // `true` is excluded; agent specifies 60s → bg_timeout = 120s (cap).
-    // Quick command completes normally — agent timeout is ignored.
+    // Agent explicit timeout (60s) overrides whitelist exclusion.
+    // White list commands with agent timeout follow the normal
+    // clamped logic: min(agent, cap). Quick command completes in
+    // foreground since 60s > command duration.
     let (outcome, _) = execute_foreground_command(
         "true",
         tmp.path().to_str().unwrap(),
@@ -318,20 +375,21 @@ async fn test_excluded_command_ignores_agent_timeout_uses_cap() {
             assert_eq!(result.data["exitCode"], json!(0));
         }
         other => panic!(
-            "excluded command should complete in foreground (120s cap), got: {:?}",
+            "excluded command with agent timeout: quick command should complete in foreground, got: {:?}",
             other
         ),
     }
 }
 
-/// Excluded command with agent timeout: verify bg_timeout uses 120s cap,
-/// NOT the agent-specified value. A sleep that exceeds agent timeout
-/// but stays under 120s should still complete in foreground.
+/// Excluded command with agent timeout: verify the agent-specified
+/// timeout is respected (not overridden by whitelist).
+/// `sleep 0.5` exceeds agent timeout (1s) → should auto-background
+/// (normal clamped logic, NOT force-terminated).
 #[tokio::test]
-async fn test_excluded_command_sleep_ignores_agent_timeout() {
+async fn test_excluded_command_sleep_with_agent_timeout_auto_backgrounds() {
     let tmp = TempDir::new().unwrap();
-    // Agent says 1s timeout, but excluded commands use 120s cap.
-    // `sleep 0.5` exceeds agent timeout (1s) but is well under 120s.
+    // Agent says 1s timeout, excluded command → normal clamped logic.
+    // `sleep 0.5` completes before 1s → foreground completion.
     let (outcome, _) = execute_foreground_command(
         "sleep 0.5",
         tmp.path().to_str().unwrap(),
@@ -350,7 +408,7 @@ async fn test_excluded_command_sleep_ignores_agent_timeout() {
             assert_eq!(result.data["exitCode"], json!(0));
         }
         other => panic!(
-            "excluded command sleep should use 120s cap not agent 1s timeout, got: {:?}",
+            "excluded command sleep with agent timeout: should complete in foreground (0.5s < 1s), got: {:?}",
             other
         ),
     }
@@ -400,6 +458,84 @@ fn test_auto_bg_timeout_constants() {
         AUTO_BG_TIMEOUT_CAP_MS, 600_000,
         "cap should be 600s (10 minutes)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Whitelist + no agent timeout + exceeds total time → force-killed
+// ---------------------------------------------------------------------------
+
+/// Whitelist command with no agent timeout and a short max_execution_secs:
+/// the command should be force-killed (not auto-backgrounded) when it
+/// exceeds the total execution time limit.
+#[tokio::test]
+async fn test_excluded_command_exceeds_max_execution_force_killed() {
+    let tmp = TempDir::new().unwrap();
+    // Mock with 2-second max execution limit.
+    let bg: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(ShortTimeoutBgManager { max_secs: 2 });
+
+    let (outcome, _) = execute_foreground_command(
+        "sleep 10",
+        tmp.path().to_str().unwrap(),
+        None, // No agent timeout — whitelist path
+        &bg,
+        None,
+        None,
+        None,
+        "",
+    )
+    .await
+    .expect("execute_foreground_command should succeed");
+
+    match outcome {
+        ForegroundOutcome::Failed(msg) => {
+            assert!(
+                msg.contains("exceeded total execution time limit"),
+                "expected force-kill message, got: {}",
+                msg
+            );
+        }
+        other => panic!(
+            "excluded command exceeding max execution should be force-killed, got: {:?}",
+            other
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Whitelist + explicit agent timeout + long command → auto-backgrounded
+// ---------------------------------------------------------------------------
+
+/// Whitelist command with an explicit agent timeout: the whitelist
+/// exclusion does NOT apply, so the normal clamped-logic path is
+/// followed. A command exceeding the agent timeout is auto-backgrounded.
+#[tokio::test]
+async fn test_excluded_command_with_agent_timeout_long_command_backgrounds() {
+    let tmp = TempDir::new().unwrap();
+    let bg = bg_trait();
+    // Agent timeout = 1s, sleep takes 5s → should auto-background.
+    let (outcome, _) = execute_foreground_command(
+        "sleep 5",
+        tmp.path().to_str().unwrap(),
+        Some(1_000), // Explicit agent timeout
+        &bg,
+        None,
+        None,
+        None,
+        "",
+    )
+    .await
+    .expect("execute_foreground_command should succeed");
+
+    match outcome {
+        ForegroundOutcome::AutoBackground(_, _) => {
+            // Expected: excluded command with agent timeout → normal
+            // clamped logic → auto-backgrounded on timeout.
+        }
+        other => panic!(
+            "excluded command with agent timeout: long command should auto-background, got: {:?}",
+            other
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------
