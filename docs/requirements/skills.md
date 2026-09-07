@@ -2,13 +2,13 @@
 
 ## 概述
 
-Skills 模块满足 User 通过可复用技能插件扩展 Agent 能力的核心诉求——User 创建 SKILL.md 文件放入指定目录后，Agent 在下次 session 启动时自动发现并加载该技能，无需修改系统代码。
+Skills 模块满足 User 通过可复用技能插件扩展 Agent 能力的核心诉求——User 创建 SKILL.md 文件放入指定目录后，Agent 在下次 Session 启动时自动发现并加载该技能，无需修改系统代码。
 
 ## 功能需求
 
 ### F1. 技能即插即用
 
-User 将 SKILL.md 文件放入技能目录后，Agent 在下次 session 启动时自动发现并加载该技能。User 无需修改任何系统代码，也无需手动注册或重启服务。
+User 将 SKILL.md 文件放入技能目录后，Agent 在下次 Session 启动时自动发现并加载该技能。User 无需修改任何系统代码，也无需手动注册或重启服务。
 
 ### F2. 技能目录层级
 
@@ -37,7 +37,7 @@ User 通过在不同层级放置同名技能来实现覆盖——例如用项目
 - **user-invocable**：控制该技能是否出现在技能清单中。默认不出现；声明后进入技能清单。若同时声明了 paths，则遵循 F6 条件激活规则，默认不进入技能清单
 - **effort**：技能的成本估算，供 Agent 调度时参考
 
-SKILL.md 正文（frontmatter 之后的指令文本）支持变量替换，User 可在正文中使用 `${SKILL_DIR}` 引用技能所在目录路径、使用 `${SESSION_ID}` 引用当前会话 ID。
+SKILL.md 正文（frontmatter 之后的指令文本）支持变量替换，User 可在正文中使用 `${SKILL_DIR}` 引用技能所在目录路径、使用 `${SESSION_ID}` 引用当前 Session ID。
 
 > 技能仅提供纯 prompt 指令，不携带任何工具权限。
 >
@@ -58,18 +58,18 @@ System Prompt 每次组装时，系统从技能注册中心读取当前可用技
 
 ### F5. 技能文件变更
 
-User 在 session 运行期间修改或新增 SKILL.md 文件后，技能变更不会在当前 session 自动生效。文件系统中的技能定义仅在下次 System Prompt 组装时反映。
+User 在 Session 运行期间修改或新增 SKILL.md 文件后，技能变更不会在当前 Session 自动生效。文件系统中的技能定义仅在下次 System Prompt 组装时反映。
 
 > **交叉引用**：System Prompt 组装触发时机和数据源变更的生效规则见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 > **交叉引用**：配置重载机制详见 [config §F4](config.md)（配置重载）。
 
 ### F6. 条件激活
 
-声明了 paths 字段的技能默认不在技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——系统为该技能在 session 内产生激活标记，并在下一个 turn 即时注入该技能的清单条目，Agent 无需等待 System Prompt 组装即可使用。
+声明了 paths 字段的技能默认不在技能清单中（即使同时声明了 user-invocable）。当 Agent 操作的文件路径匹配某技能的 paths 模式时，该技能自动激活——系统为该技能在 Session 内产生激活标记，并在下一个 turn 即时注入该技能的清单条目，Agent 无需等待 System Prompt 组装即可使用。
 
-条件激活的注入条目与技能清单保持相同格式。仅注入清单条目（不含正文），正文在调用时按需加载（详见 F7）。激活标记的生命周期限于当前 session，session 结束时清空。
+条件激活的注入条目与技能清单保持相同格式。仅注入清单条目（不含正文），正文在调用时按需加载（详见 F7）。激活标记的生命周期限于当前 Session，Session 结束时清空。
 
-> **交叉引用**：上下文压缩完成后 System Prompt 重新组装时，技能清单包含当前 session 已激活的条件技能。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：上下文压缩完成后 System Prompt 重新组装时，技能清单包含当前 Session 已激活的条件技能。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 ### F7. 技能调用
 
@@ -82,7 +82,7 @@ Agent 在对话中根据技能的 description 和 when-to-use 判断是否调用
 
 ### F9. 错误容错
 
-单个技能文件的错误不影响 session 正常运行：
+单个技能文件的错误不影响 Session 正常运行：
 
 - 技能目录路径不存在或无法访问时，跳过该层级，记录提示
 - 单个 SKILL.md 格式错误或必填字段缺失时，跳过该技能，其他技能正常加载
@@ -94,7 +94,7 @@ Agent 可通过内置技能获得创建技能文件的指导。User 在对话中
 
 ## 非功能需求
 
-- **加载效率**：技能目录扫描和清单注入不应对 User 感知的 session 启动速度产生明显影响
-- **稳定性**：技能加载阶段的任何错误都不应导致 session 启动失败或进程崩溃
+- **加载效率**：技能目录扫描和清单注入不应对 User 感知的 Session 启动速度产生明显影响
+- **稳定性**：技能加载阶段的任何错误都不应导致 Session 启动失败或进程崩溃
 - **可观测性**：技能加载失败、同名冲突等异常情况应有明确提示，方便 User 定位问题原因
 - **响应稳定性**：技能清单的注入和更新不得导致 Agent 对话质量下降或历史对话丢失

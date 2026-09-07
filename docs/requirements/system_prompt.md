@@ -2,23 +2,23 @@
 
 ## 概述
 
-System Prompt 是每次与 AI 模型通信时发送的引导前缀，承载 Agent 的身份与行为准则、工具清单、技能清单、长期记忆、运行时上下文以及 Owner 动态追加的指令。System Prompt 在固定事件触发时组装，组装结果在事件之间不变，确保前缀缓存稳定命中。Owner 通过 bootstrap 配置文件定义 Agent 的行为准则，让 Agent 了解自己有哪些工具和技能，在不同类型的会话中加载恰当的上下文，并能随时追加临时指令。
+System Prompt 是每次与 AI 模型通信时发送的引导前缀，承载 Agent 的身份与行为准则、工具清单、技能清单、长期记忆、运行时上下文以及 Owner 动态追加的指令。System Prompt 在固定事件触发时组装，组装结果在事件之间不变，确保前缀缓存稳定命中。Owner 通过 bootstrap 配置文件定义 Agent 的行为准则，让 Agent 了解自己有哪些工具和技能，在不同类型的 Session 中加载恰当的上下文，并能随时追加临时指令。
 
 ## 功能需求
 
 ### F1. 身份与行为准则定义
 
-Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 bootstrap 文件）定义 Agent 的身份、操作规范、工具使用指南和 Owner 偏好。其中身份由角色定义和身份标识共同构成，Owner 偏好对应 Owner 信息文件。bootstrap 文件属于 Agent 层配置，同一 Agent 对全部 User 人格一致。这些定义在 Agent 每次会话启动时自动加载，作为 System Prompt 的核心组成部分。
+Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 bootstrap 文件）定义 Agent 的身份、操作规范、工具使用指南和 Owner 偏好。其中身份由角色定义和身份标识共同构成，Owner 偏好对应 Owner 信息文件。bootstrap 文件属于 Agent 层配置，同一 Agent 对全部 User 人格一致。这些定义在 Agent 每次 Session 启动时自动加载，作为 System Prompt 的核心组成部分。
 
 - 必须加载的文件：操作规程、角色定义、身份标识、Owner 信息、工具使用指南
-- 可选加载的文件：自定义引导指令、长期记忆（取决于会话类型和加载模式）
+- 可选加载的文件：自定义引导指令、长期记忆（取决于 Session 类型和加载模式）
 - 文件不存在时静默跳过，不报错
 - 多文件按固定顺序注入，操作规程排在最高优先级
 - System Prompt 各组成部分按固定顺序组装。配置不变时多次组装结果逐字节相同，最大限度利用前缀缓存。具体组装顺序和格式由设计文档定义
-- 边界说明：心跳工作流配置也位于 Bootstrap 文件目录下，但**不属于 System Prompt 注入范围**——心跳由独立的周期性机制定时触发，触发时按需读取配置，不进入日常会话的 System Prompt
+- 边界说明：心跳工作流配置也位于 Bootstrap 文件目录下，但**不属于 System Prompt 注入范围**——心跳由独立的周期性机制定时触发，触发时按需读取配置，不进入日常 Session 的 System Prompt
 
 > **交叉引用**：bootstrap 文件的加载模式（Full/Minimal）和所在目录路径，由 [agent §F1](agent.md)（Agent 配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。
-> **交叉引用**：会话创建/恢复/上下文压缩完成时的重建触发。见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
+> **交叉引用**：Session 创建/恢复/上下文压缩完成时的重建触发。见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
 > **交叉引用**：压缩行为本身见 [session §F3](session.md)（长对话压缩）。
 
 ### F2. 工具清单注入
@@ -32,17 +32,17 @@ Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在�
 
 ### F3. 长期记忆注入
 
-Agent 应能获取跨会话保留的长期记忆内容。长期记忆在主 Agent 会话启动时加载，作为 System Prompt 的组成部分；子 Session 不加载（见 F8 与安全性小节）。
+Agent 应能获取跨 Session 保留的长期记忆内容。长期记忆在主 Agent Session 启动时加载，作为 System Prompt 的组成部分；子 Session 不加载（见 F8 与安全性小节）。
 
-> **交叉引用**：记忆的存储路径和写入机制。见 [memory §F1](memory.md)（会话结束后自动挖掘记忆）。
+> **交叉引用**：记忆的存储路径和写入机制。见 [memory §F1](memory.md)（Session 结束后自动挖掘记忆）。
 > **交叉引用**：记忆内容的搜索策略详见 [memory §F4](memory.md)（对话中自动注入相关记忆）。
 
 ### F4. 运行时上下文注入
 
 每次 API 调用时，Agent 需要知道当前的运行时上下文：
 
-- **频道上下文**：当前会话所在的频道名称
-- **工作目录**：当前会话的工作目录路径
+- **频道上下文**：当前 Session 所在的频道名称
+- **工作目录**：当前 Session 的工作目录路径
 
 这些上下文信息每次请求即时获取，不持久化存储。
 
@@ -66,8 +66,8 @@ System Prompt 的组装触发时机是固定的，组装之间内容不变，利
 
 - 组装结果按 F1 固定顺序逐字节确定，配置不变时多次组装结果完全相同
 - 以下事件触发 System Prompt 重新组装：
-  - 新会话创建
-  - 从归档恢复会话
+  - 新 Session 创建
+  - 从归档恢复 Session
   - 上下文压缩完成后
   - Owner 清除追加指令
 - 重新组装时从各数据源（bootstrap 文件、工具注册中心、技能注册中心、MEMORY.md）读取最新内容
@@ -76,7 +76,7 @@ System Prompt 的组装触发时机是固定的，组装之间内容不变，利
 
 > **交叉引用**：bootstrap 文件等数据源变更的生效机制即本节组装边界规则。详见 [config §F4](config.md)（配置重载）。
 
-> **交叉引用**：重建触发的外部事件来源——新会话创建见 [session §F1](session.md)（对话持久化与恢复），归档恢复见 [session §F2](session.md)（恢复时的 System Prompt 重建），上下文压缩行为见 [session §F3](session.md)（长对话压缩），Owner 清除追加指令见 [slash §F6](slash.md)（System Prompt 追加）。
+> **交叉引用**：重建触发的外部事件来源——新 Session 创建见 [session §F1](session.md)（对话持久化与恢复），归档恢复见 [session §F2](session.md)（恢复时的 System Prompt 重建），上下文压缩行为见 [session §F3](session.md)（长对话压缩），Owner 清除追加指令见 [slash §F6](slash.md)（System Prompt 追加）。
 
 ### F7. API 前缀缓存利用
 
@@ -87,17 +87,17 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 > **交叉引用**：各服务商的具体缓存参数适配和 token 统计。见 [llm §F8](llm.md)（缓存成本优化）、[llm §F9](llm.md)（用量统计）。本模块仅负责不变/变化内容的划分和前缀稳定性保证。
 
-### F8. 会话类型适配
+### F8. Session 类型适配
 
-不同类型的会话加载不同的 System Prompt 内容：
+不同类型的 Session 加载不同的 System Prompt 内容：
 
-- **主 Agent 会话**：加载全部内容（F1 必须加载的文件 + 可选加载的文件 + 工具清单）
+- **主 Agent Session**：加载全部内容（F1 必须加载的文件 + 可选加载的文件 + 工具清单）
 - **子 Session**：仅加载 F1 必须加载的文件 + 工具清单，不加载 F1 中列出的可选加载文件。其中长期记忆和自定义引导指令的排除要求见安全性小节
-- **无 bootstrap 文件的会话**：仅加载工具清单，跳过所有 bootstrap 文件
+- **无 bootstrap 文件的 Session**：仅加载工具清单，跳过所有 bootstrap 文件
 
-> **注**：F4 运行时上下文（频道、工作目录）对所有会话类型均加载。
+> **注**：F4 运行时上下文（频道、工作目录）对所有 Session 类型均加载。
 
-> **交叉引用**：三种会话类型由 session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的 spawn 参数（如是否精简模式）。见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
+> **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的 spawn 参数（如是否精简模式）。见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 
 ## 非功能需求
 
