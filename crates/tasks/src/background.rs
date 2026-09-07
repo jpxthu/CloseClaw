@@ -760,9 +760,11 @@ async fn spawn_max_execution_monitor(
     let deadline = std::time::Duration::from_secs(max_secs);
     tokio::time::sleep(deadline).await;
 
-    // Check if the task is still running and trigger kill via the notifier.
-    // Dedup: if notified is already true (e.g. stuck alert sent first),
-    // still execute termination but skip sending a second notification.
+    // First lock: check state and transition to Killed atomically.
+    // We use two short lock acquisitions instead of one long hold because
+    // the monitor must also emit tracing logs, debug-log events, and push
+    // notifications — none of which need the map lock and would unnecessarily
+    // delay other tasks from accessing the map if we held it.
     let (command, output_path, trace_id, already_notified) = {
         let mut map = lock_map(tasks).await;
         if let Some(h) = map.get_mut(task_id) {
@@ -810,7 +812,9 @@ async fn spawn_max_execution_monitor(
         return;
     }
 
-    // Mark notified before pushing so concurrent paths see the flag.
+    // Second lock: set the notified flag before pushing the notification
+    // so that any concurrent path (e.g. finalize_state) sees the flag
+    // and avoids a duplicate push.
     {
         let mut map = lock_map(tasks).await;
         if let Some(h) = map.get_mut(task_id) {

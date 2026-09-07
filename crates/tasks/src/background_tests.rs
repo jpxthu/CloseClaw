@@ -613,6 +613,12 @@ async fn test_killed_task_with_notified_produces_no_notification() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let notifs = mgr.pending_notifications().await;
+    // Assertion: a killed task with notified=true must produce zero
+    // notifications. The kill path sets state=Killed, and finalize_state
+    // early-returns when it sees Killed — so no completion notification is
+    // ever pushed, regardless of the notified flag. This test verifies
+    // that even when the notified flag is already set (e.g. a stuck alert
+    // was sent), killing the task does not cause a duplicate notification.
     assert!(
         notifs.is_empty(),
         "killed task with notified=true must not produce a notification"

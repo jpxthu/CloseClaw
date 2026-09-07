@@ -35,12 +35,7 @@ use super::bash_kill::{
     BackgroundKillHandle,
 };
 
-/// Outcome of foreground tool execution, distinguishing between
-/// normal completion and auto-backgroundizing on timeout.
-///
-/// Used by [`execute_command`] to determine whether to set
-/// `Completed`/`Failed` (and deregister) or `RunningBackground`
-/// (and retain the tool state entry) after the foreground wait.
+/// Outcome of foreground tool execution: normal completion or auto-backgroundized.
 #[derive(Debug)]
 pub(crate) enum ForegroundOutcome {
     /// Tool completed normally (success or non-zero exit).
@@ -55,17 +50,10 @@ pub(crate) enum ForegroundOutcome {
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 
-/// Maximum auto-backgroundize timeout an agent may request (10 minutes).
-/// Prevents agents from setting excessively long timeouts that would
-/// defeat the auto-backgroundize mechanism.
+/// Maximum agent-requested timeout (10 min). Prevents excessively long auto-backgroundize.
 const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;
 
-/// Shell command execution tool.
-///
-/// Receives a command string plus optional parameters (timeout, cwd,
-/// description, run_in_background, dangerouslyDisableSandbox), validates
-/// permissions via [`PermissionEngine`], then executes the command as
-/// an async subprocess with timeout control.
+/// Shell command execution tool with timeout, output control, and auto-backgroundize.
 pub struct BashTool {
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
@@ -211,11 +199,7 @@ fn prompt_add_workdir_guidance(context: &PromptGenerationContext, parts: &mut Ve
     }
 }
 
-/// Append permission-awareness text to the prompt parts.
-///
-/// Uses `available_tool_names` (the runtime-computed list after
-/// whitelist + blacklist filtering) when available, falling back to
-/// the `tools` whitelist for backward compatibility.
+/// Append permission-awareness text. Uses runtime `available_tool_names` when available.
 fn prompt_add_permission_status(context: &PromptGenerationContext, parts: &mut Vec<String>) {
     let has_bash_access = if !context.available_tool_names.is_empty() {
         context
@@ -278,10 +262,7 @@ fn prompt_add_combination_suggestions(context: &PromptGenerationContext, parts: 
 
 // --- Helper functions ---
 
-/// Parse and clamp the agent-specified timeout parameter.
-///
-/// Returns `None` when no timeout is provided.
-/// Max 600 000 ms.
+/// Parse and clamp agent timeout (None if absent, max 600s).
 fn parse_timeout(args: &Value) -> Option<u64> {
     let raw = args.get("timeout").and_then(Value::as_f64)?;
     let ms = raw.max(0.0) as u64;
@@ -404,28 +385,54 @@ struct ForegroundContext<'a> {
     session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&'a str>,
     session_id: &'a str,
-    /// When true, a timeout in `handle_foreground_result` should
-    /// force-kill the child and return `Failed` instead of
-    /// auto-backgroundizing. Used by the whitelist foreground path
-    /// where excluded commands run to the total-execution-time limit
-    /// without backgrounding.
+    /// When true, a timeout should force-kill the child (not auto-backgroundize).
+    /// Set for whitelist commands on the total-execution-time fallback path.
     force_terminate: bool,
+}
+
+/// Handle a timeout expiry: force-terminate or auto-backgroundize.
+async fn handle_timeout_expiry(
+    mut child: tokio::process::Child,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+    command: &str,
+    ctx: &ForegroundContext<'_>,
+) -> ForegroundOutcome {
+    if ctx.force_terminate {
+        let _ = child.start_kill();
+        // Drain pipes so progress monitor can report output before the kill.
+        let _ = super::bash_kill::read_with_progress(
+            stdout_handle,
+            stderr_handle,
+            ctx.session,
+            ctx.call_id,
+        )
+        .await;
+        ForegroundOutcome::Failed(format!(
+            "Command '{}' exceeded total execution time limit \
+             and was killed",
+            command,
+        ))
+    } else {
+        auto_backgroundize_foreground(
+            child,
+            stdout_handle,
+            stderr_handle,
+            command,
+            ctx.bg_manager,
+            false,
+            ctx.session_id,
+        )
+        .await
+    }
 }
 
 /// Wait on a foreground child process, with timeout.
 ///
-/// The child is shared with the [`BashKillHandle`] via
-/// `Arc<Mutex<Option<Child>>>`. Stdout/stderr are extracted first
-/// (they need to be consumed independently of the wait); the child is
-/// then taken out of the `Mutex` for the actual `child.wait()` call
-/// — holding a `std::sync::Mutex` across an `.await` would either
-/// deadlock a current-thread runtime or starve a multi-threaded
-/// runtime's worker. While the child is "out", the `BashKillHandle`
-/// is a no-op; the wait is expected to complete (foreground
-/// commands are short) or be auto-backgroundized.
-///
-/// On timeout, hands the child back to the background task manager
-/// (with stdout/stderr reattached).
+/// The child is shared with `BashKillHandle` via `Arc<Mutex<Option<Child>>>`.
+/// Stdout/stderr are extracted first; the child is then taken out of the
+/// `Mutex` for `child.wait()` — holding a std Mutex across await would deadlock.
+/// On timeout, auto-backgroundizes or force-kills per `force_terminate` flag.
 async fn handle_foreground_result(
     child_arc: Arc<Mutex<Option<tokio::process::Child>>>,
     command: &str,
@@ -462,26 +469,7 @@ async fn handle_foreground_result(
                 format!("failed to wait on command: {}", e)
             ),
             Err(_elapsed) => {
-                if ctx.force_terminate {
-                    let _ = child.start_kill();
-                    // Drain pipes so progress monitor can report output
-                    // produced before the kill.
-                    let _ = super::bash_kill::read_with_progress(
-                        stdout_handle, stderr_handle,
-                        ctx.session, ctx.call_id,
-                    ).await;
-                    ForegroundOutcome::Failed(format!(
-                        "Command '{}' exceeded total execution time limit \
-                         and was killed",
-                        command,
-                    ))
-                } else {
-                    auto_backgroundize_foreground(
-                        child, stdout_handle, stderr_handle,
-                        command, ctx.bg_manager, false,
-                        ctx.session_id,
-                    ).await
-                }
+                handle_timeout_expiry(child, stdout_handle, stderr_handle, command, ctx).await
             }
         },
     }
@@ -845,6 +833,29 @@ async fn execute_background_command(
     Ok(build_background_result(&task))
 }
 
+/// Resolve the foreground wait timeout and force-terminate flag.
+///
+/// Whitelist + no agent timeout → total-execution-time fallback.
+/// All other paths → agent timeout (clamped) or default 15s.
+fn resolve_bg_timeout_and_force_terminate(
+    command: &str,
+    agent_timeout_ms: Option<u64>,
+    max_execution_secs: u64,
+) -> (Duration, bool) {
+    if auto_backgroundize_excluded(command) && agent_timeout_ms.is_none() {
+        (Duration::from_secs(max_execution_secs), true)
+    } else {
+        (
+            Duration::from_millis(
+                agent_timeout_ms
+                    .map(|ms| ms.min(AUTO_BG_TIMEOUT_CAP_MS))
+                    .unwrap_or(AUTO_BG_TIMEOUT_MS),
+            ),
+            false,
+        )
+    }
+}
+
 /// Execute a foreground command and return its [`ForegroundOutcome`].
 ///
 /// Registers the tool call, spawns the child, registers the kill handle,
@@ -870,25 +881,11 @@ async fn execute_foreground_command(
         None
     };
 
-    let (bg_timeout, force_terminate) =
-        if auto_backgroundize_excluded(command) && agent_timeout_ms.is_none() {
-            // Whitelist + no agent timeout: use total execution duration
-            // fallback. The command runs in the foreground until the
-            // system-wide max execution limit, then is force-terminated
-            // (not auto-backgrounded).
-            (Duration::from_secs(bg_manager.max_execution_secs()), true)
-        } else {
-            // All other paths: use agent timeout clamped to cap, or
-            // the default 15s auto-backgroundize budget.
-            (
-                Duration::from_millis(
-                    agent_timeout_ms
-                        .map(|ms| ms.min(AUTO_BG_TIMEOUT_CAP_MS))
-                        .unwrap_or(AUTO_BG_TIMEOUT_MS),
-                ),
-                false,
-            )
-        };
+    let (bg_timeout, force_terminate) = resolve_bg_timeout_and_force_terminate(
+        command,
+        agent_timeout_ms,
+        bg_manager.max_execution_secs(),
+    );
 
     let ctx = ForegroundContext {
         bg_manager,
