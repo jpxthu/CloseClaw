@@ -747,9 +747,9 @@
     "path": "docs/design/system_prompt/kv-cache.md",
     "commit": "64e4d9dc254d6b8a70a449f80a8fbce723a90fdb",
     "commit_time": "2026-07-30T19:56:32+08:00",
-    "confirmed_time": "2026-07-30T20:14:05.366906+08:00",
+    "confirmed_time": "2026-09-07T14:50:52.748248+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "F2b 正向对比发现 doc_problem：文档描述 cache adapter 只消费已切分好的静态/动态区并对静态区注入缓存控制参数、动态区透传不做标记，但实际代码中 AnthropicCacheAdapter::apply() 会将 system_static 按双换行拆分为多个 SystemBlock 并额外标记 tools 为可缓存。文档描述与代码行为不一致，需确认设计意图。"
   },
   {
     "path": "docs/design/system_prompt/static-layer.md",
