@@ -160,21 +160,21 @@ impl ToolRegistryQuery for MockToolRegistry {
 #[test]
 fn test_skills_tools_registrar_name() {
     let tool = Arc::new(MockTool::new("test_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     assert_eq!(registrar.name(), "SkillsToolsRegistrar");
 }
 
 #[test]
 fn test_skills_tools_registrar_priority() {
     let tool = Arc::new(MockTool::new("test_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     assert_eq!(registrar.priority(), 3);
 }
 
 #[tokio::test]
 async fn test_skills_tools_registrar_registers_tool() {
     let tool = Arc::new(MockTool::new("my_skill_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     let registry = MockToolRegistry::new();
 
     let result = registrar.register(&registry).await;
@@ -195,7 +195,7 @@ async fn test_skills_tools_registrar_registers_tool() {
 #[tokio::test]
 async fn test_skills_tools_registrar_conflict() {
     let tool = Arc::new(MockTool::new("conflicting_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     let registry = MockToolRegistry::new();
 
     // Set up the mock to return Conflict on the next registration.
@@ -213,4 +213,23 @@ async fn test_skills_tools_registrar_conflict() {
         }
         other => panic!("expected ToolRegistrarError::Conflict, got: {:?}", other),
     }
+}
+
+#[tokio::test]
+async fn test_skills_tools_registrar_multiple_tools() {
+    let tool_a = Arc::new(MockTool::new("SkillTool"));
+    let tool_b = Arc::new(MockTool::new("SkillCreator"));
+    let registrar = SkillsToolsRegistrar::new(vec![tool_a, tool_b]);
+    let registry = MockToolRegistry::new();
+
+    let result = registrar.register(&registry).await;
+    assert!(
+        result.is_ok(),
+        "register() should succeed: {:?}",
+        result.err()
+    );
+
+    let registered = registry.registered_tools().await;
+    assert!(registered.contains(&"SkillTool".to_string()));
+    assert!(registered.contains(&"SkillCreator".to_string()));
 }

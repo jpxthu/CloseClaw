@@ -266,10 +266,13 @@ mod tests {
                     approval_flow.clone(),
                 ))),
             )),
-            Box::new(SkillsToolsRegistrar::new(Arc::new(SkillTool::new(
-                disk_registry,
-                Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
-            )))),
+            Box::new(SkillsToolsRegistrar::new(vec![
+                Arc::new(SkillTool::new(
+                    disk_registry,
+                    Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+                )),
+                Arc::new(closeclaw_skills::SkillCreatorTool::new()),
+            ])),
             Box::new(ModeToolsRegistrar::new(
                 session_manager.clone(),
                 confirm_flow,
