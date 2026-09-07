@@ -673,17 +673,17 @@
   },
   {
     "path": "docs/design/slash/session-management.md",
-    "commit": "11c973ce97f3626b6b06d6d84fa20cbd8db2a984",
-    "commit_time": "2026-07-29T04:10:53+08:00",
-    "confirmed_time": "2026-07-29T04:17:13.596954+08:00",
+    "commit": "bb6da5f81c68eac6690b1f273af54a42c52687f3",
+    "commit_time": "2026-09-07T12:03:17+08:00",
+    "confirmed_time": "2026-09-07T12:16:41.684492+08:00",
     "comment": "",
     "blocked_reason": ""
   },
   {
     "path": "docs/design/slash/status.md",
-    "commit": "0b1fe3953efa8452d59db589c87fd31dcd7a70c1",
-    "commit_time": "2026-07-29T04:17:59+08:00",
-    "confirmed_time": "2026-07-29T04:23:32.338180+08:00",
+    "commit": "0ceb873d74fce04b8cacd74e4297d41795304d4d",
+    "commit_time": "2026-09-07T12:17:55+08:00",
+    "confirmed_time": "2026-09-07T12:27:46.245568+08:00",
     "comment": "",
     "blocked_reason": ""
   },
