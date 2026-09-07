@@ -177,7 +177,7 @@ Session 模块在以下环节记录调试日志：
 - 消息注入事件（后台任务结果、记忆注入）
 - 健康检查与异常检测结果
 
-> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
+> **交叉引用**：日志框架定义详见 [debug_log §F1](debug_log.md)（完整消息链路追踪）、[debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留）、[debug_log §F4](debug_log.md)（隐私保护）。
 
 ## 非功能需求
 

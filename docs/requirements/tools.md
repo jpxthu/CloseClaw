@@ -140,7 +140,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 - 命令安全扫描结果（安全审计类事件除外，按 F8 独立处理）
 
 > **交叉引用**：子 Session 创建与完成的日志事件。详见 [session §F12](session.md)（调试日志）。
-> **交叉引用**：日志框架定义（格式、级别、追踪标识、存储轮转、隐私脱敏）详见 [debug_log](debug_log.md)（调试日志）。
+> **交叉引用**：日志框架定义详见 [debug_log §F1](debug_log.md)（完整消息链路追踪）、[debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留）、[debug_log §F4](debug_log.md)（隐私保护）。
 
 ## 非功能需求
 
