@@ -665,9 +665,9 @@
   },
   {
     "path": "docs/design/slash/reasoning.md",
-    "commit": "e8ce7e6f00ea256d6218882a4ace14d6dccc7629",
-    "commit_time": "2026-07-29T04:03:45+08:00",
-    "confirmed_time": "2026-07-29T04:10:12.760005+08:00",
+    "commit": "2deeea1034a03a9391600de43281f0c31201436a",
+    "commit_time": "2026-09-07T10:55:56+08:00",
+    "confirmed_time": "2026-09-07T11:16:11.346542+08:00",
     "comment": "",
     "blocked_reason": ""
   },
