@@ -427,8 +427,8 @@ use crate::slash_executor_helpers::*;
 
 #[async_trait::async_trait]
 impl SlashEffectExecutor for GatewaySlashExecutor {
-    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool) {
-        gw_stop(&self.session_manager, session_id, cascade, force).await;
+    async fn execute_stop(&self, session_id: &str) {
+        gw_stop(&self.session_manager, session_id, true, true).await;
     }
 
     async fn execute_new_session(&self, _session_id: &str, channel: &str) -> String {

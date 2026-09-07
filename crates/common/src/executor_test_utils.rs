@@ -20,7 +20,7 @@ use crate::{ReasoningLevel, VerbosityLevel};
 /// Call recorded by mock executor for assertion.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ExecutorCall {
-    Stop(String, bool, bool),
+    Stop(String),
     NewSession(String, String),
     Compact(String, Option<String>),
     SystemAppend(String, SystemAppendAction),
@@ -71,11 +71,11 @@ impl MockSlashEffectExecutor {
 
 #[async_trait]
 impl SlashEffectExecutor for MockSlashEffectExecutor {
-    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool) {
+    async fn execute_stop(&self, session_id: &str) {
         self.calls
             .lock()
             .unwrap()
-            .push(ExecutorCall::Stop(session_id.to_string(), cascade, force));
+            .push(ExecutorCall::Stop(session_id.to_string()));
     }
 
     async fn execute_new_session(&self, session_id: &str, channel: &str) -> String {
@@ -262,7 +262,7 @@ pub(crate) struct MockSlashEffectExecutorError;
 
 #[async_trait]
 impl SlashEffectExecutor for MockSlashEffectExecutorError {
-    async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+    async fn execute_stop(&self, _: &str) {}
     async fn execute_new_session(&self, _: &str, _: &str) -> String {
         String::new()
     }

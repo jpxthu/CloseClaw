@@ -124,7 +124,7 @@ impl SlashDispatcher {
             SlashResult::Unknown(_) => "unknown",
             SlashResult::SetMode { .. } => "set_mode",
             SlashResult::NewSession => "new_session",
-            SlashResult::Stop { .. } => "stop",
+            SlashResult::Stop => "stop",
             SlashResult::Compact { .. } => "compact",
             SlashResult::SystemAppend { .. } => "system_append",
             SlashResult::Exec { .. } => "exec",

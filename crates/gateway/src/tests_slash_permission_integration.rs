@@ -165,30 +165,21 @@ async fn test_cross_step_stop_flag_combinations() {
         channel: "c".to_owned(),
     };
 
-    // No args: cascade=true, force=false
+    // No args: returns unit Stop
     match StopHandler.handle("", &ctx).await {
-        SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "default cascade should be true");
-            assert!(!force, "default force should be false");
-        }
+        SlashResult::Stop => {}
         other => panic!("expected Stop, got {other:?}"),
     }
 
-    // --force: cascade=true, force=true
+    // --force: args ignored, returns unit Stop
     match StopHandler.handle("--force", &ctx).await {
-        SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade should remain true");
-            assert!(force, "force should be true");
-        }
+        SlashResult::Stop => {}
         other => panic!("expected Stop, got {other:?}"),
     }
 
-    // --cascade --force: both true
+    // --cascade --force: returns unit Stop
     match StopHandler.handle("--cascade --force", &ctx).await {
-        SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade should be true");
-            assert!(force, "force should be true");
-        }
+        SlashResult::Stop => {}
         other => panic!("expected Stop, got {other:?}"),
     }
 }

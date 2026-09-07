@@ -117,7 +117,7 @@ impl MockExecutor {
 
 #[async_trait]
 impl SlashEffectExecutor for MockExecutor {
-    async fn execute_stop(&self, _session_id: &str, _cascade: bool, _force: bool) {
+    async fn execute_stop(&self, _session_id: &str) {
         *self.stop_called.lock().unwrap() = true;
     }
 
@@ -298,12 +298,7 @@ async fn test_new_session_calls_executor_and_sends_reply() {
 #[tokio::test]
 async fn test_stop_calls_executor_and_sends_reply() {
     let (ctx, mut rx, exec, _spy) = make_ctx();
-    SlashResult::Stop {
-        cascade: false,
-        force: false,
-    }
-    .execute(&ctx)
-    .await;
+    SlashResult::Stop.execute(&ctx).await;
     drop(ctx);
 
     assert!(*exec.stop_called.lock().unwrap());
@@ -471,7 +466,7 @@ async fn test_exec_failure_forwards_error_to_user() {
 
     #[async_trait]
     impl SlashEffectExecutor for FailingMockExecutor {
-        async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+        async fn execute_stop(&self, _: &str) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "fail-mock-id".into()
         }

@@ -44,12 +44,7 @@ pub enum SlashResult {
     /// Create a new session.
     NewSession,
     /// Stop the current run.
-    Stop {
-        /// Whether to cascade the stop to child sessions.
-        cascade: bool,
-        /// Whether to force-stop (skip graceful shutdown).
-        force: bool,
-    },
+    Stop,
     /// Compact context with optional instruction.
     Compact { instruction: Option<String> },
     /// Append to system prompt.
