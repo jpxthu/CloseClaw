@@ -46,7 +46,7 @@ pub enum ReplyAction {
 #[async_trait]
 pub trait SlashEffectExecutor: Send + Sync {
     /// Stop the current LLM turn for the session.
-    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool);
+    async fn execute_stop(&self, session_id: &str);
 
     /// Create a new session for the given channel.
     ///
@@ -208,10 +208,10 @@ async fn execute_new_session(ctx: &SideEffectContext) {
 }
 
 /// Handle `SlashResult::Stop` — stop the current LLM turn.
-async fn execute_stop(ctx: &SideEffectContext, cascade: bool, force: bool) {
-    ctx.executor
-        .execute_stop(&ctx.session_id, cascade, force)
-        .await;
+/// Hardcoded to `cascade=true, force=true` (Forceful semantics)
+/// per design doc `docs/design/slash/session-management.md`.
+async fn execute_stop(ctx: &SideEffectContext) {
+    ctx.executor.execute_stop(&ctx.session_id).await;
     send_reply(ctx, "已停止当前任务".into()).await;
 }
 
@@ -325,7 +325,7 @@ impl SlashResultExecutor for SlashResult {
                 execute_set_mode(ctx, mode, plan_file_path, initial_input, reply_message).await;
             }
             SlashResult::NewSession => execute_new_session(ctx).await,
-            SlashResult::Stop { cascade, force } => execute_stop(ctx, cascade, force).await,
+            SlashResult::Stop => execute_stop(ctx).await,
             SlashResult::Compact { instruction } => execute_compact(ctx, instruction).await,
             SlashResult::SystemAppend { action } => execute_system_append(ctx, action).await,
             SlashResult::Exec {
