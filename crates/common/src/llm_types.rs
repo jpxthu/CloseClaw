@@ -111,6 +111,11 @@ pub struct InternalRequest {
     /// Dynamic system prompt content (non-cacheable portion).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_dynamic: Option<String>,
+    /// Append-section content — independent partition that does not
+    /// participate in prefix caching. Appended to the output by the
+    /// cache adapter after dynamic content.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_appends: Option<String>,
     /// Structured system blocks produced by a `CacheAdapter`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_blocks: Option<Vec<SystemBlock>>,

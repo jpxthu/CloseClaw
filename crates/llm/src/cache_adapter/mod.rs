@@ -87,6 +87,23 @@ impl CacheAdapter for AnthropicCacheAdapter {
             }
         }
 
+        // Appends: independent partition after dynamic, no cache marking.
+        // Each section (split by double newline) becomes its own block,
+        // consistent with how static sections are processed.
+        if let Some(ref appends_text) = request.system_appends {
+            if !appends_text.is_empty() {
+                for section in appends_text.split("\n\n") {
+                    let trimmed = section.trim();
+                    if !trimmed.is_empty() {
+                        blocks.push(SystemBlock {
+                            text: trimmed.to_owned(),
+                            cache: false,
+                        });
+                    }
+                }
+            }
+        }
+
         if !blocks.is_empty() {
             request.system_blocks = Some(blocks);
         }
@@ -137,6 +154,7 @@ mod tests {
             extra_body: Map::new(),
             system_static: None,
             system_dynamic: None,
+            system_appends: None,
             system_blocks: None,
             tools: None,
             session_id: None,
@@ -414,5 +432,130 @@ mod tests {
                 "expected anthropic for provider_id: {provider_id:?}"
             );
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.4: Appends partition tests
+    // ------------------------------------------------------------------
+
+    /// Appends are appended after dynamic content with cache: false.
+    #[test]
+    fn anthropic_adapter_appends_after_dynamic() {
+        let mut req = make_request();
+        req.system_static = Some("Static".to_owned());
+        req.system_dynamic = Some("Dynamic".to_owned());
+        req.system_appends = Some("Appended text".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].text, "Static");
+        assert!(blocks[0].cache);
+        assert_eq!(blocks[1].text, "Dynamic");
+        assert!(!blocks[1].cache);
+        assert_eq!(blocks[2].text, "Appended text");
+        assert!(!blocks[2].cache);
+    }
+
+    /// Appends alone (no static/dynamic) produce a non-cacheable block.
+    #[test]
+    fn anthropic_adapter_appends_only() {
+        let mut req = make_request();
+        req.system_appends = Some("Append content".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].text, "Append content");
+        assert!(!blocks[0].cache);
+    }
+
+    /// Empty appends text produces no blocks.
+    #[test]
+    fn anthropic_adapter_empty_appends_no_blocks() {
+        let mut req = make_request();
+        req.system_appends = Some("".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+        assert!(req.system_blocks.is_none());
+    }
+
+    /// None appends produces no blocks.
+    #[test]
+    fn anthropic_adapter_none_appends_no_blocks() {
+        let mut req = make_request();
+        req.system_appends = None;
+        AnthropicCacheAdapter.apply(&mut req);
+        assert!(req.system_blocks.is_none());
+    }
+
+    /// Multi-paragraph appends are split into separate non-cacheable blocks.
+    #[test]
+    fn anthropic_adapter_multi_paragraph_appends() {
+        let mut req = make_request();
+        req.system_appends = Some("First append section\n\nSecond append section".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "First append section");
+        assert!(!blocks[0].cache);
+        assert_eq!(blocks[1].text, "Second append section");
+        assert!(!blocks[1].cache);
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1.6: Regression — static-only + appends partition
+    // ------------------------------------------------------------------
+
+    /// Static-only + appends (no dynamic): appends are independent block
+    /// with cache: false, after static block with cache: true.
+    #[test]
+    fn anthropic_adapter_static_only_with_appends() {
+        let mut req = make_request();
+        req.system_static = Some("Static content".to_owned());
+        req.system_appends = Some("Append text".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "Static content");
+        assert!(blocks[0].cache, "static block should be cached");
+        assert_eq!(blocks[1].text, "Append text");
+        assert!(!blocks[1].cache, "appends block should NOT be cached");
+    }
+
+    /// Dynamic-only + appends (no static): both blocks are non-cacheable.
+    #[test]
+    fn anthropic_adapter_dynamic_only_with_appends() {
+        let mut req = make_request();
+        req.system_dynamic = Some("Dynamic content".to_owned());
+        req.system_appends = Some("Append text".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].text, "Dynamic content");
+        assert!(!blocks[0].cache, "dynamic block should NOT be cached");
+        assert_eq!(blocks[1].text, "Append text");
+        assert!(!blocks[1].cache, "appends block should NOT be cached");
+    }
+
+    /// All three partitions present: static (cached) → dynamic → appends.
+    #[test]
+    fn anthropic_adapter_all_three_partitions_order_and_marks() {
+        let mut req = make_request();
+        req.system_static = Some("Static".to_owned());
+        req.system_dynamic = Some("Dynamic".to_owned());
+        req.system_appends = Some("Appends".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].text, "Static");
+        assert!(blocks[0].cache);
+        assert_eq!(blocks[1].text, "Dynamic");
+        assert!(!blocks[1].cache);
+        assert_eq!(blocks[2].text, "Appends");
+        assert!(!blocks[2].cache);
     }
 }

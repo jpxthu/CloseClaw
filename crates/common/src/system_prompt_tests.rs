@@ -68,6 +68,20 @@ fn test_split_static_dynamic_multiple_markers_uses_first() {
     );
 }
 
+/// Boundary marker followed by only whitespace → dynamic is None.
+/// This simulates the output of build_full_system_prompt when dynamic
+/// sections are empty (the marker is present but followed by nothing).
+#[test]
+fn test_split_static_dynamic_marker_only_returns_none_dynamic() {
+    let input = "static content\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+    let (s, d) = split_static_dynamic(input);
+    assert_eq!(s.as_deref(), Some("static content"));
+    assert!(
+        d.is_none(),
+        "dynamic should be None when only marker follows"
+    );
+}
+
 // ── DynamicPromptContext construction ─────────────────────────────────────
 
 #[test]

@@ -27,6 +27,7 @@ use super::tmp_path;
 struct FakeDynamicBuilder {
     static_val: Option<String>,
     dynamic_val: Option<String>,
+    appends_val: Option<String>,
     last_ctx: std::sync::Mutex<Option<CapturedContext>>,
 }
 
@@ -44,10 +45,15 @@ struct CapturedContext {
 }
 
 impl FakeDynamicBuilder {
-    fn new(static_val: Option<String>, dynamic_val: Option<String>) -> Self {
+    fn new(
+        static_val: Option<String>,
+        dynamic_val: Option<String>,
+        appends_val: Option<String>,
+    ) -> Self {
         Self {
             static_val,
             dynamic_val,
+            appends_val,
             last_ctx: std::sync::Mutex::new(None),
         }
     }
@@ -61,7 +67,7 @@ impl DynamicPromptBuilder for FakeDynamicBuilder {
     fn build_prompt_parts(
         &self,
         context: &DynamicPromptContext,
-    ) -> (Option<String>, Option<String>) {
+    ) -> (Option<String>, Option<String>, Option<String>) {
         let captured = CapturedContext {
             has_system_prompt: context.system_prompt.is_some(),
             sender_id: context.ctx.sender_id.clone(),
@@ -73,7 +79,11 @@ impl DynamicPromptBuilder for FakeDynamicBuilder {
             has_overrides: context.overrides.is_some(),
         };
         *self.last_ctx.lock().unwrap() = Some(captured);
-        (self.static_val.clone(), self.dynamic_val.clone())
+        (
+            self.static_val.clone(),
+            self.dynamic_val.clone(),
+            self.appends_val.clone(),
+        )
     }
 }
 
@@ -141,6 +151,7 @@ async fn test_build_llm_request_with_builder_populates_system_fields() {
     session.set_dynamic_prompt_builder(Arc::new(FakeDynamicBuilder::new(
         Some("static_layer".into()),
         Some("dynamic_layer".into()),
+        None,
     )));
     let fake = FakeLlmCaller::new();
     let caller_ref: Arc<dyn LlmCaller> = fake.clone();
@@ -157,7 +168,7 @@ async fn test_build_llm_request_with_builder_populates_system_fields() {
 #[tokio::test]
 async fn test_dynamic_layer_timestamp_is_per_request() {
     let mut session = ConversationSession::new("s_dl2".into(), "m".into(), tmp_path());
-    let builder = Arc::new(FakeDynamicBuilder::new(None, Some("dyn".into())));
+    let builder = Arc::new(FakeDynamicBuilder::new(None, Some("dyn".into()), None));
     let builder_ref = builder.clone();
     session.set_dynamic_prompt_builder(builder);
     let fake = FakeLlmCaller::new();
@@ -198,7 +209,7 @@ async fn test_dynamic_layer_no_system_prompt_still_generated() {
     let mut session = ConversationSession::new("s_dl3".into(), "m".into(), tmp_path());
     // No system_prompt set
     assert!(session.system_prompt().is_none());
-    let builder = Arc::new(FakeDynamicBuilder::new(None, Some("dyn_only".into())));
+    let builder = Arc::new(FakeDynamicBuilder::new(None, Some("dyn_only".into()), None));
     let builder_ref = builder.clone();
     session.set_dynamic_prompt_builder(builder);
     let fake = FakeLlmCaller::new();
@@ -273,7 +284,7 @@ async fn test_dynamic_builder_receives_correct_context() {
     let mut session = ConversationSession::new("s_dl7".into(), "m".into(), tmp_path());
     session.add_system_append("note1".to_string());
     session.add_system_append("note2".to_string());
-    let builder = Arc::new(FakeDynamicBuilder::new(None, None));
+    let builder = Arc::new(FakeDynamicBuilder::new(None, None, None));
     let builder_ref = builder.clone();
     session.set_dynamic_prompt_builder(builder);
     let fake = FakeLlmCaller::new();
@@ -326,7 +337,7 @@ async fn test_dynamic_builder_receives_overrides() {
         agent_prompt: None,
         custom_prompt: None,
     }));
-    let builder = Arc::new(FakeDynamicBuilder::new(None, None));
+    let builder = Arc::new(FakeDynamicBuilder::new(None, None, None));
     let builder_ref = builder.clone();
     session.set_dynamic_prompt_builder(builder);
     let fake = FakeLlmCaller::new();

@@ -23,6 +23,9 @@ pub mod test_adapters;
 #[cfg(test)]
 pub mod inject_tests;
 
+#[cfg(test)]
+pub mod inject_appends_tests;
+
 pub use builder::{
     build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
 };
