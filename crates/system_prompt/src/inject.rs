@@ -196,14 +196,13 @@ pub fn build_full_system_prompt(
     let dynamic_rendered: String = dynamic_sections.iter().map(|s| s.render()).collect();
     let append_rendered = render_appends(appends);
     let mut result = if let Some(static_prompt) = static_prompt {
-        if dynamic_rendered.is_empty() {
-            static_prompt.to_string()
-        } else {
-            format!(
-                "{}\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n{}",
-                static_prompt, dynamic_rendered
-            )
-        }
+        // Boundary marker is always inserted between static and dynamic layers,
+        // even when dynamic is empty. It is the interface contract between the
+        // system_prompt module and the cache adapter (kv-cache.md §边界标记).
+        format!(
+            "{}\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n{}",
+            static_prompt, dynamic_rendered
+        )
     } else {
         dynamic_rendered
     };
@@ -237,7 +236,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
     fn build_prompt_parts(
         &self,
         context: &DynamicPromptContext,
-    ) -> (Option<String>, Option<String>) {
+    ) -> (Option<String>, Option<String>, Option<String>) {
         let meta = MessageMetadata {
             sender_id: context.ctx.sender_id.clone(),
             channel: context.ctx.channel.clone(),
@@ -246,6 +245,14 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             trace_id: None,
             session_key: None,
             span_id: None,
+        };
+
+        // Build the appends partition independently — it is a separate
+        // section that does not participate in prefix caching.
+        let appends = if context.system_appends.is_empty() {
+            None
+        } else {
+            Some(render_appends(context.system_appends))
         };
 
         // Check for priority prompt overrides (override > agent > custom).
@@ -257,13 +264,9 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                 .or(ov.custom_prompt.as_deref());
 
             if let Some(base) = priority {
-                // Override replaces the static layer; only appends are preserved.
-                if context.system_appends.is_empty() {
-                    return (Some(base.to_string()), None);
-                }
-                let append_body = render_appends(context.system_appends);
-                let dynamic = format!("\n\n## Append\n{}\n", append_body);
-                return (Some(base.to_string()), Some(dynamic));
+                // Override replaces the static layer; dynamic is empty.
+                // Appends are returned as an independent partition.
+                return (Some(base.to_string()), None, appends);
             }
         }
 
@@ -280,19 +283,16 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             mode_transition: context.mode_transition,
             plan_file_path: context.plan_file_path,
         });
-        let mut dynamic_rendered: String = sections.iter().map(|s| s.render()).collect();
-        // Append the appends section directly (independent of dynamic sections)
-        if !context.system_appends.is_empty() {
-            let append_body = render_appends(context.system_appends);
-            dynamic_rendered.push_str("\n\n## Append\n");
-            dynamic_rendered.push_str(&append_body);
-            dynamic_rendered.push('\n');
-        }
+        let dynamic_rendered: String = sections.iter().map(|s| s.render()).collect();
         let dynamic = if dynamic_rendered.is_empty() {
             None
         } else {
             Some(dynamic_rendered)
         };
-        (context.system_prompt.map(|s| s.to_string()), dynamic)
+        (
+            context.system_prompt.map(|s| s.to_string()),
+            dynamic,
+            appends,
+        )
     }
 }

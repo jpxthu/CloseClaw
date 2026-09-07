@@ -423,7 +423,8 @@ impl ConversationSession {
 
     /// Build an [`InternalRequest`] from a pre-built messages list.
     fn build_llm_request(&self, messages: Vec<InternalMessage>, stream: bool) -> InternalRequest {
-        let (system_static, system_dynamic) = self.build_system_prompt_parts(&messages);
+        let (system_static, system_dynamic, system_appends) =
+            self.build_system_prompt_parts(&messages);
         InternalRequest {
             model: String::new(),
             messages,
@@ -433,6 +434,7 @@ impl ConversationSession {
             extra_body: Default::default(),
             system_static,
             system_dynamic,
+            system_appends,
             system_blocks: None,
             tools: None,
             session_id: None,
@@ -441,8 +443,8 @@ impl ConversationSession {
         }
     }
 
-    /// Derive `system_static` and `system_dynamic` for the current
-    /// request.
+    /// Derive `system_static`, `system_dynamic`, and `system_appends`
+    /// for the current request.
     ///
     /// When a [`DynamicPromptBuilder`](closeclaw_common::DynamicPromptBuilder)
     /// is injected, delegates to it for per-request dynamic-layer
@@ -451,7 +453,7 @@ impl ConversationSession {
     fn build_system_prompt_parts(
         &self,
         _messages: &[InternalMessage],
-    ) -> (Option<String>, Option<String>) {
+    ) -> (Option<String>, Option<String>, Option<String>) {
         if let Some(ref builder) = self.dynamic_prompt_builder {
             let ctx = self.request_context();
             let context = DynamicPromptContext {
@@ -474,8 +476,11 @@ impl ConversationSession {
             // prompt so static/dynamic separation still works for
             // cache adapters.
             match &self.system_prompt {
-                Some(prompt) => split_static_dynamic(prompt),
-                None => (None, None),
+                Some(prompt) => {
+                    let (s, d) = split_static_dynamic(prompt);
+                    (s, d, None)
+                }
+                None => (None, None, None),
             }
         }
     }

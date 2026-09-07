@@ -184,6 +184,7 @@ impl ChatSession for ConversationSession {
             extra_body: Default::default(),
             system_static: None,
             system_dynamic: None,
+            system_appends: None,
             system_blocks: None,
             tools: None,
             session_id: None,

@@ -81,6 +81,7 @@ fn create_internal_request(model: &str) -> InternalRequest {
         extra_body: serde_json::Map::new(),
         system_static: None,
         system_dynamic: None,
+        system_appends: None,
         system_blocks: None,
         tools: None,
         session_id: None,
@@ -242,6 +243,7 @@ fn create_streaming_request(model: &str) -> InternalRequest {
         extra_body: serde_json::Map::new(),
         system_static: None,
         system_dynamic: None,
+        system_appends: None,
         tools: None,
         system_blocks: None,
         session_id: None,
@@ -529,6 +531,7 @@ async fn test_full_chain_minimax_provider_protocol_plugin_cache() {
         extra_body: serde_json::Map::new(),
         system_static: Some("You are a helpful assistant.".to_string()),
         system_dynamic: None,
+        system_appends: None,
         system_blocks: None,
         tools: Some(vec![crate::types::ToolDefinition {
             name: "get_weather".into(),
