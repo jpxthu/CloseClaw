@@ -139,6 +139,7 @@ fn make_plugin_request(model: &str, level: ReasoningLevel) -> InternalRequest {
         extra_body: Default::default(),
         system_static: None,
         system_dynamic: None,
+        system_appends: None,
         system_blocks: None::<Vec<SystemBlock>>,
         tools: None::<Vec<ToolDefinition>>,
         session_id: None,

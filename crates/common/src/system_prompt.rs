@@ -145,13 +145,17 @@ pub struct DynamicPromptContext<'a> {
 /// Implementations live in the `system_prompt` crate and are injected
 /// into sessions by the gateway layer.
 pub trait DynamicPromptBuilder: Send + Sync {
-    /// Build `system_static` and `system_dynamic` for the current request.
+    /// Build `system_static`, `system_dynamic`, and `system_appends` for the current request.
     ///
-    /// Returns `(system_static, system_dynamic)`. Either may be `None`.
+    /// Returns `(system_static, system_dynamic, system_appends)`. Either may be `None`.
+    ///
+    /// The third element is the appends partition — an independent section
+    /// that does not participate in prefix caching and is appended after
+    /// the dynamic layer by the cache adapter.
     fn build_prompt_parts(
         &self,
         context: &DynamicPromptContext,
-    ) -> (Option<String>, Option<String>);
+    ) -> (Option<String>, Option<String>, Option<String>);
 }
 
 /// Split a full system prompt into static and dynamic parts.

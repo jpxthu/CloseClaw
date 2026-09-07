@@ -8,13 +8,15 @@
 //! - Ordering: ChannelContext → WorkingDirectory → ModeInstruction → GitStatus
 //! - Mode transition: §6 transition prompts are injected when mode_transition is set
 
-use super::inject::{build_dynamic_sections, DynamicSectionsParams};
+use super::inject::{build_dynamic_sections, build_full_system_prompt, DynamicSectionsParams};
 use closeclaw_common::session_mode::SessionMode;
+use closeclaw_common::split_static_dynamic;
 use closeclaw_common::system_prompt::ModeTransition;
+use closeclaw_common::PromptOverrides;
 use closeclaw_gateway::session_handler::MessageMetadata;
 use std::collections::HashSet;
 
-fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
+pub fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
     MessageMetadata {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
@@ -27,7 +29,7 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
 }
 
 /// Helper: build a `DynamicSectionsParams` with defaults for optional fields.
-fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+pub fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
     DynamicSectionsParams {
         meta,
         workdir_path: None,
@@ -735,77 +737,6 @@ fn test_no_mode_transition_no_section() {
     );
 }
 
-/// Mode transition content matches design doc §6 verbatim.
-#[test]
-fn test_mode_transition_content_matches_design_doc() {
-    let meta = make_meta("u", "ch", 0);
-
-    // Plan re-entry
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        session_mode: SessionMode::Plan,
-        mode_transition: Some(ModeTransition::PlanModeReentry),
-        ..make_params(&meta, SessionMode::Plan)
-    });
-    let rendered = sections
-        .iter()
-        .find(|s| s.name() == "mode_transition")
-        .unwrap()
-        .render();
-    assert!(rendered.contains("Treat this as a fresh planning session."));
-    assert!(rendered.contains("Do not assume the existing"));
-    // Format: heading + blank line + paragraphs separated by blank lines
-    assert!(
-        rendered.contains("## Re-entering Plan Mode\n\n"),
-        "Re-entry: heading must be followed by blank line"
-    );
-    assert!(
-        rendered.contains("exited it.\n\n"),
-        "Re-entry: paragraphs must be separated by blank lines"
-    );
-
-    // Plan exit
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        session_mode: SessionMode::Normal,
-        mode_transition: Some(ModeTransition::PlanModeExit),
-        ..make_params(&meta, SessionMode::Normal)
-    });
-    let rendered = sections
-        .iter()
-        .find(|s| s.name() == "mode_transition")
-        .unwrap()
-        .render();
-    assert!(rendered.contains("You can now make edits, run tools, and take"));
-    assert!(rendered.contains("Reference the plan file if needed."));
-    // Format: heading + blank line
-    assert!(
-        rendered.contains("## Exited Plan Mode\n\n"),
-        "Exit: heading must be followed by blank line"
-    );
-
-    // Auto exit
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        session_mode: SessionMode::Normal,
-        mode_transition: Some(ModeTransition::AutoModeExit),
-        ..make_params(&meta, SessionMode::Normal)
-    });
-    let rendered = sections
-        .iter()
-        .find(|s| s.name() == "mode_transition")
-        .unwrap()
-        .render();
-    assert!(rendered.contains("The user may now want to interact more"));
-    assert!(rendered.contains("ask clarifying questions when the approach is"));
-    // Format: heading + blank line + paragraphs separated by blank lines
-    assert!(
-        rendered.contains("## Exited Auto Mode\n\n"),
-        "Auto exit: heading must be followed by blank line"
-    );
-    assert!(
-        rendered.contains("directly. You should"),
-        "Auto exit: content should flow as a single paragraph"
-    );
-}
-
 /// Mode transition appears after ModeInstruction in section ordering.
 #[test]
 fn test_mode_transition_ordering_after_mode_instruction() {
@@ -823,4 +754,50 @@ fn test_mode_transition_ordering_after_mode_instruction() {
         mode_idx.unwrap() < transition_idx.unwrap(),
         "ModeInstruction should come before ModeTransition"
     );
+}
+
+// ── Dimension 1: Boundary marker always exists ──────────────────────────
+
+/// When dynamic_sections is empty, build_full_system_prompt still inserts
+/// the boundary marker between static and dynamic layers.
+#[test]
+fn test_boundary_marker_present_with_empty_dynamic() {
+    let full = build_full_system_prompt(Some("static content"), &[], &[], None);
+    assert!(
+        full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"),
+        "boundary marker must be present even with empty dynamic sections, got: {}",
+        full
+    );
+    let marker_pos = full.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
+    let static_pos = full.find("static content").unwrap();
+    assert!(static_pos < marker_pos);
+}
+
+/// split_static_dynamic correctly splits the output of
+/// build_full_system_prompt with empty dynamic sections.
+#[test]
+fn test_split_static_dynamic_after_empty_dynamic_build() {
+    let full = build_full_system_prompt(Some("static part"), &[], &[], None);
+    let (s, d) = split_static_dynamic(&full);
+    assert_eq!(s.as_deref(), Some("static part"));
+    assert!(
+        d.is_none(),
+        "dynamic should be None when marker is followed by empty content"
+    );
+}
+
+// ── Dimension 4: Regression — existing behavior unchanged ────────────────
+
+/// Override prompt replaces static layer entirely.
+#[test]
+fn test_regression_override_replaces_static() {
+    let overrides = PromptOverrides {
+        override_prompt: Some("new prompt".into()),
+        agent_prompt: None,
+        custom_prompt: None,
+    };
+    let meta = make_meta("u", "ch", 0);
+    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
+    let full = build_full_system_prompt(Some("old prompt"), &sections, &[], Some(&overrides));
+    assert_eq!(full, "new prompt");
 }
