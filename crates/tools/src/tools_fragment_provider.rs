@@ -251,7 +251,7 @@ mod tests {
                     Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
                 ),
             ))),
-            Box::new(crate::PlanToolsRegistrar::new(
+            Box::new(crate::ModeToolsRegistrar::new(
                 session_manager.clone(),
                 Arc::new(crate::builtin::PlanExecConfirmFlow::new(
                     Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>,

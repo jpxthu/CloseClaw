@@ -710,10 +710,10 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
 #[tokio::test]
 async fn test_plan_mode_keeps_plan_specific_tools() {
     let reg = ToolRegistry::new();
-    // Register execute_plan (non-read-only but always visible in Plan mode).
+    // Register ModeExecutionTrigger (non-read-only but always visible in Plan mode).
     reg.register(DummyTool {
-        name: "execute_plan".to_string(),
-        group: "plan".to_string(),
+        name: "ModeExecutionTrigger".to_string(),
+        group: "mode".to_string(),
         summary_text: "Execute plan".to_string(),
         is_deferred: false,
         is_read_only: false,
@@ -726,8 +726,8 @@ async fn test_plan_mode_keeps_plan_specific_tools() {
     let section = reg.build_tools_section(&ctx).await;
 
     assert!(
-        section.contains("execute_plan"),
-        "execute_plan should be visible in Plan mode"
+        section.contains("ModeExecutionTrigger"),
+        "ModeExecutionTrigger should be visible in Plan mode"
     );
 }
 
@@ -820,11 +820,11 @@ async fn test_no_session_mode_does_not_filter() {
 }
 
 #[tokio::test]
-async fn test_plan_mode_keeps_execute_plan() {
+async fn test_plan_mode_keeps_mode_execution_trigger() {
     let reg = ToolRegistry::new();
     reg.register(DummyTool {
-        name: "execute_plan".to_string(),
-        group: "plan".to_string(),
+        name: "ModeExecutionTrigger".to_string(),
+        group: "mode".to_string(),
         summary_text: "trigger execution from plan mode".to_string(),
         is_deferred: false,
         is_read_only: false,
@@ -835,15 +835,15 @@ async fn test_plan_mode_keeps_execute_plan() {
     let ctx = make_plan_mode_ctx();
     let section = reg.build_tools_section(&ctx).await;
     assert!(
-        section.contains("execute_plan"),
-        "execute_plan should be visible in Plan mode"
+        section.contains("ModeExecutionTrigger"),
+        "ModeExecutionTrigger should be visible in Plan mode"
     );
 }
 #[test]
-fn test_plan_mode_tool_visible_execute_plan() {
+fn test_plan_mode_tool_visible_mode_execution_trigger() {
     let tool = DummyTool {
-        name: "execute_plan".to_string(),
-        group: "plan".to_string(),
+        name: "ModeExecutionTrigger".to_string(),
+        group: "mode".to_string(),
         summary_text: "trigger execution".to_string(),
         is_deferred: false,
         is_read_only: false,

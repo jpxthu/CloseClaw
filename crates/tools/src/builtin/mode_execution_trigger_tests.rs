@@ -1,4 +1,4 @@
-//! Tests for ExecutePlanTool.
+//! Tests for ModeExecutionTriggerTool.
 //!
 //! Covers: tool metadata, error paths (missing session_id, missing plan
 //! info), and the confirm_pending happy path.
@@ -89,8 +89,8 @@ async fn register_session(sm: &SessionManager, session_id: &str, mode: SessionMo
 fn make_tool(
     sm: Arc<SessionManager>,
     cf: Arc<PlanExecConfirmFlow>,
-) -> crate::builtin::execute_plan::ExecutePlanTool {
-    crate::builtin::execute_plan::ExecutePlanTool::new(sm, cf)
+) -> crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool {
+    crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(sm, cf)
 }
 
 /// Create a temp workspace with a plan file so resolve_plan_by_name succeeds.
@@ -109,7 +109,7 @@ async fn test_tool_name() {
     let sm = make_session_manager();
     let cf = make_confirm_flow();
     let tool = make_tool(sm, cf);
-    assert_eq!(tool.name(), "execute_plan");
+    assert_eq!(tool.name(), "ModeExecutionTrigger");
 }
 
 #[tokio::test]
@@ -117,7 +117,7 @@ async fn test_tool_group() {
     let sm = make_session_manager();
     let cf = make_confirm_flow();
     let tool = make_tool(sm, cf);
-    assert_eq!(tool.group(), "plan");
+    assert_eq!(tool.group(), "mode");
 }
 
 #[tokio::test]
@@ -525,7 +525,8 @@ async fn test_submit_stores_metadata_in_pending_map() {
         Arc::new(|_| {}),
         tokio::runtime::Handle::current(),
     ));
-    let tool = crate::builtin::execute_plan::ExecutePlanTool::new(sm, flow.clone());
+    let tool =
+        crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(sm, flow.clone());
 
     let (tmp, plan_name) = setup_workspace_with_plan();
     let ctx = make_ctx_with_workdir(Some("sess-meta"), tmp.path());
@@ -574,7 +575,8 @@ async fn test_submit_filters_empty_additional_instruction() {
         Arc::new(|_| {}),
         tokio::runtime::Handle::current(),
     ));
-    let tool = crate::builtin::execute_plan::ExecutePlanTool::new(sm, flow.clone());
+    let tool =
+        crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(sm, flow.clone());
 
     let (tmp, plan_name) = setup_workspace_with_plan();
     let ctx = make_ctx_with_workdir(Some("sess-empty-ai"), tmp.path());
@@ -613,7 +615,7 @@ fn write_plan_with_old_timestamp(workdir: &std::path::Path, stem: &str) {
 }
 
 #[tokio::test]
-async fn test_execute_plan_tool_refreshes_access_timestamp() {
+async fn test_mode_execution_trigger_tool_refreshes_access_timestamp() {
     let sm = make_session_manager();
     register_session(&sm, "sess-ts-touch", SessionMode::Normal).await;
 
@@ -633,7 +635,7 @@ async fn test_execute_plan_tool_refreshes_access_timestamp() {
         "plan file should contain old timestamp marker"
     );
 
-    // Trigger execute_plan tool
+    // Trigger ModeExecutionTrigger tool
     let result = tool.call(json!({"plan_name": "ts-plan"}), &ctx).await;
     assert!(result.is_ok(), "should succeed with valid plan_name");
 

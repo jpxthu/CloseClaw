@@ -1,4 +1,4 @@
-//! Built-in ExecutePlan tool.
+//! Built-in ModeExecutionTrigger tool.
 //!
 //! Provides natural-language trigger for plan execution — the tool
 //! equivalent of the `/execute` slash command. When the agent calls
@@ -27,13 +27,13 @@ use crate::builtin::plan_exec_confirm::{PlanExecConfirmFlow, PlanExecMetadata};
 /// returns a `confirm_pending` result, prompting the framework to
 /// display a user confirmation dialog. On confirmation, the plan
 /// enters Auto Mode for execution.
-pub struct ExecutePlanTool {
+pub struct ModeExecutionTriggerTool {
     session_manager: Arc<SessionManager>,
     confirm_flow: Arc<PlanExecConfirmFlow>,
 }
 
-impl ExecutePlanTool {
-    /// Creates a new `ExecutePlanTool`.
+impl ModeExecutionTriggerTool {
+    /// Creates a new `ModeExecutionTriggerTool`.
     pub fn new(
         session_manager: Arc<SessionManager>,
         confirm_flow: Arc<PlanExecConfirmFlow>,
@@ -46,13 +46,13 @@ impl ExecutePlanTool {
 }
 
 #[async_trait]
-impl Tool for ExecutePlanTool {
+impl Tool for ModeExecutionTriggerTool {
     fn name(&self) -> &str {
-        "execute_plan"
+        "ModeExecutionTrigger"
     }
 
     fn group(&self) -> &str {
-        "plan"
+        "mode"
     }
 
     fn summary(&self) -> String {
@@ -193,7 +193,7 @@ impl Tool for ExecutePlanTool {
 
 // ── Private helpers ─────────────────────────────────────────────────────
 
-impl ExecutePlanTool {
+impl ModeExecutionTriggerTool {
     /// Parse optional `plan_name` from tool arguments.
     fn parse_plan_name(args: &Value) -> Option<String> {
         args.get("plan_name")
