@@ -16,6 +16,16 @@ async fn insert_handle(
     command: &str,
     state: TaskState,
 ) -> std::path::PathBuf {
+    insert_handle_with_session(mgr, task_id, command, state, "default-session").await
+}
+
+async fn insert_handle_with_session(
+    mgr: &BackgroundTaskManager,
+    task_id: &str,
+    command: &str,
+    state: TaskState,
+    session_id: &str,
+) -> std::path::PathBuf {
     let tmp = mgr.temp_dir.join("closeclaw/background").join(task_id);
     let output_path = tmp.join("output");
     tokio::fs::create_dir_all(&tmp).await.unwrap();
@@ -25,6 +35,7 @@ async fn insert_handle(
         command: command.to_owned(),
         state,
         output_path: output_path.clone(),
+        session_id: session_id.to_owned(),
         kill_tx: None,
         notified: false,
         created_at: tokio::time::Instant::now(),
@@ -181,6 +192,7 @@ async fn test_cleanup_finished_cleanup_io_error() {
             command: "test".to_owned(),
             state: TaskState::Completed { exit_code: 0 },
             output_path: output,
+            session_id: "default-session".to_owned(),
             kill_tx: None,
             notified: false,
             created_at: tokio::time::Instant::now(),
@@ -223,7 +235,7 @@ async fn test_cleanup_all_finished_removes_all_terminal_tasks() {
     )
     .await;
     let killed_path = insert_handle(&mgr, "a-killed", "sleep 99", TaskState::Killed).await;
-    mgr.cleanup_all_finished().await;
+    mgr.cleanup_all_finished("default-session").await;
     // Completed/Failed/Killed: output dir and handle should be gone.
     assert!(!completed_path.exists());
     assert!(mgr.get_task("a-completed").await.is_none());
@@ -247,9 +259,9 @@ async fn test_cleanup_all_finished_idempotent() {
         TaskState::Completed { exit_code: 0 },
     )
     .await;
-    mgr.cleanup_all_finished().await;
+    mgr.cleanup_all_finished("default-session").await;
     assert!(!completed_path.exists());
-    mgr.cleanup_all_finished().await;
+    mgr.cleanup_all_finished("default-session").await;
     assert!(!completed_path.exists());
 }
 
@@ -280,9 +292,66 @@ async fn test_purge_removes_all_output() {
         insert_handle(&mgr, "pg-c", "true", TaskState::Completed { exit_code: 0 }).await;
     let killed_path = insert_handle(&mgr, "pg-k", "sleep 1", TaskState::Killed).await;
     // Simulate purge: calls cleanup_all_finished.
-    mgr.cleanup_all_finished().await;
+    mgr.cleanup_all_finished("default-session").await;
     assert!(!completed_path.exists());
     assert!(!killed_path.exists());
     assert!(mgr.get_task("pg-c").await.is_none());
     assert!(mgr.get_task("pg-k").await.is_none());
+}
+
+/// Verify that purging session A does NOT affect session B's tasks.
+/// This is the core session-isolation guarantee for cleanup_all_finished.
+#[tokio::test]
+async fn test_cleanup_all_finished_session_isolation() {
+    let (mgr, _tmp) = test_manager();
+
+    // Session A tasks (all terminal)
+    let a_completed = insert_handle_with_session(
+        &mgr,
+        "a-completed",
+        "echo a",
+        TaskState::Completed { exit_code: 0 },
+        "session-a",
+    )
+    .await;
+    let a_killed =
+        insert_handle_with_session(&mgr, "a-killed", "sleep 99", TaskState::Killed, "session-a")
+            .await;
+
+    // Session B tasks (all terminal)
+    let b_completed = insert_handle_with_session(
+        &mgr,
+        "b-completed",
+        "echo b",
+        TaskState::Completed { exit_code: 0 },
+        "session-b",
+    )
+    .await;
+    let b_killed =
+        insert_handle_with_session(&mgr, "b-killed", "sleep 99", TaskState::Killed, "session-b")
+            .await;
+
+    // Purge session A only
+    mgr.cleanup_all_finished("session-a").await;
+
+    // Session A: output removed, handles gone
+    assert!(
+        !a_completed.exists(),
+        "session-a completed output should be removed"
+    );
+    assert!(mgr.get_task("a-completed").await.is_none());
+    assert!(
+        !a_killed.exists(),
+        "session-a killed output should be removed"
+    );
+    assert!(mgr.get_task("a-killed").await.is_none());
+
+    // Session B: output and handles untouched
+    assert!(
+        b_completed.exists(),
+        "session-b completed output must survive"
+    );
+    assert!(mgr.get_task("b-completed").await.is_some());
+    assert!(b_killed.exists(), "session-b killed output must survive");
+    assert!(mgr.get_task("b-killed").await.is_some());
 }

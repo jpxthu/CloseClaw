@@ -91,6 +91,7 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
             _command: &str,
             _cwd: &std::path::Path,
             _is_backgrounded: bool,
+            _session_id: &str,
         ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
             unimplemented!("not needed for approval flow tests")
         }
@@ -99,6 +100,7 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
             _child: tokio::process::Child,
             _command: &str,
             _is_backgrounded: bool,
+            _session_id: &str,
         ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
             unimplemented!("not needed for approval flow tests")
         }
@@ -118,7 +120,7 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
             vec![]
         }
         async fn cleanup_finished(&self) {}
-        async fn cleanup_all_finished(&self) {}
+        async fn cleanup_all_finished(&self, _session_id: &str) {}
     }
     Arc::new(DummyTaskManager)
 }

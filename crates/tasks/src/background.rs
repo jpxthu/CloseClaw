@@ -91,6 +91,7 @@ pub(crate) struct TaskHandle {
     pub(crate) command: String,
     pub(crate) state: TaskState,
     pub(crate) output_path: PathBuf,
+    pub(crate) session_id: String,
     pub(crate) kill_tx: Option<oneshot::Sender<()>>,
     pub(crate) notified: bool,
     /// Wall-clock time when the task was created.
@@ -162,6 +163,7 @@ impl BackgroundTaskManager {
         command: &str,
         cwd: &Path,
         is_backgrounded: bool,
+        session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
@@ -172,6 +174,7 @@ impl BackgroundTaskManager {
             command,
             &output_path,
             is_backgrounded,
+            session_id,
         )
         .await;
 
@@ -233,6 +236,7 @@ impl BackgroundTaskManager {
         mut child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
@@ -246,6 +250,7 @@ impl BackgroundTaskManager {
             command,
             &output_path,
             is_backgrounded,
+            session_id,
         )
         .await;
 
@@ -396,19 +401,21 @@ impl BackgroundTaskManager {
             map.remove(task_id);
         }
     }
-    /// Remove output directories and handles for ALL terminal tasks.
+    /// Remove output directories and handles for ALL terminal tasks
+    /// belonging to the given session.
     /// Unlike [`cleanup_finished`](Self::cleanup_finished), this also
     /// removes output for [`TaskState::Killed`] tasks.  Used during
-    /// session purge to reclaim all output files.
-    pub async fn cleanup_all_finished(&self) {
+    /// session purge to reclaim all output files for that session.
+    pub async fn cleanup_all_finished(&self, session_id: &str) {
         let mut map = lock_map(&self.tasks).await;
         let finished: Vec<String> = map
             .iter()
             .filter(|(_, h)| {
-                matches!(
-                    h.state,
-                    TaskState::Completed { .. } | TaskState::Failed { .. } | TaskState::Killed
-                )
+                h.session_id == session_id
+                    && matches!(
+                        h.state,
+                        TaskState::Completed { .. } | TaskState::Failed { .. } | TaskState::Killed
+                    )
             })
             .map(|(id, _)| id.clone())
             .collect();
@@ -443,8 +450,9 @@ impl crate::TaskManager for BackgroundTaskManager {
         command: &str,
         cwd: &std::path::Path,
         is_backgrounded: bool,
+        session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
-        self.spawn(command, cwd, is_backgrounded).await
+        self.spawn(command, cwd, is_backgrounded, session_id).await
     }
 
     async fn backgroundize_task(
@@ -452,8 +460,10 @@ impl crate::TaskManager for BackgroundTaskManager {
         child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
-        self.backgroundize(child, command, is_backgrounded).await
+        self.backgroundize(child, command, is_backgrounded, session_id)
+            .await
     }
 
     async fn kill_task(&self, task_id: &str) -> Result<(), BackgroundTaskError> {
@@ -487,8 +497,8 @@ impl crate::TaskManager for BackgroundTaskManager {
         self.cleanup_finished().await
     }
 
-    async fn cleanup_all_finished(&self) {
-        self.cleanup_all_finished().await
+    async fn cleanup_all_finished(&self, session_id: &str) {
+        self.cleanup_all_finished(session_id).await
     }
 }
 
@@ -804,12 +814,14 @@ async fn insert_initial_handle(
     command: &str,
     output_path: &Path,
     is_backgrounded: bool,
+    session_id: &str,
 ) {
     let handle = TaskHandle {
         id: task_id.to_owned(),
         command: command.to_owned(),
         state: TaskState::Running { is_backgrounded },
         output_path: output_path.to_path_buf(),
+        session_id: session_id.to_owned(),
         kill_tx: None,
         notified: false,
         created_at: tokio::time::Instant::now(),

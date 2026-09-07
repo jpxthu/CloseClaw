@@ -864,6 +864,7 @@ mod tests {
             _command: &str,
             _cwd: &std::path::Path,
             _is_backgrounded: bool,
+            _session_id: &str,
         ) -> Result<BackgroundTask, BackgroundTaskError> {
             unimplemented!()
         }
@@ -872,6 +873,7 @@ mod tests {
             _child: tokio::process::Child,
             _command: &str,
             _is_backgrounded: bool,
+            _session_id: &str,
         ) -> Result<BackgroundTask, BackgroundTaskError> {
             unimplemented!()
         }
@@ -888,7 +890,7 @@ mod tests {
             unimplemented!()
         }
         async fn cleanup_finished(&self) {}
-        async fn cleanup_all_finished(&self) {
+        async fn cleanup_all_finished(&self, _session_id: &str) {
             *self.cleanup_all_finished_called.lock().unwrap() = true;
         }
     }

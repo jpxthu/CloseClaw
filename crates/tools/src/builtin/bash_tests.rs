@@ -56,6 +56,7 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         command: &str,
         cwd: &std::path::Path,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
@@ -74,6 +75,7 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         _child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
@@ -101,7 +103,7 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
-    async fn cleanup_all_finished(&self) {}
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
@@ -140,7 +142,6 @@ fn test_tool_context() -> ToolContext {
         media_store: None,
     }
 }
-
 // --- process_output ---
 
 #[test]
@@ -171,7 +172,6 @@ fn test_process_output_long_string_truncates() {
         let _ = std::fs::remove_file(p);
     }
 }
-
 // --- persist_output ---
 
 #[test]
@@ -190,7 +190,6 @@ fn test_persist_output_cleans_up() {
     std::fs::remove_file(&path).unwrap();
     assert!(!std::path::Path::new(&path).exists());
 }
-
 // --- parse_timeout ---
 
 #[test]
@@ -216,7 +215,6 @@ fn test_parse_timeout_zero() {
     let args = serde_json::json!({"timeout": 0});
     assert_eq!(parse_timeout(&args), Some(0));
 }
-
 // --- resolve_cwd ---
 
 #[test]
@@ -241,7 +239,6 @@ fn test_resolve_cwd_with_cwd_arg() {
         tmp.path().join("test").to_string_lossy().to_string()
     );
 }
-
 // --- BashTool metadata ---
 
 #[tokio::test]
@@ -256,7 +253,6 @@ async fn test_bash_tool_name_and_group() {
     assert_eq!(tool.name(), "Bash");
     assert_eq!(tool.group(), "bash");
 }
-
 #[tokio::test]
 async fn test_bash_tool_flags() {
     let tool = BashTool::new(
@@ -421,6 +417,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_command(run_in_background) should succeed");
@@ -488,6 +485,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_command(run_in_background) should succeed even for unknown commands");
@@ -539,6 +537,7 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
         None,
         None,
         None,
+        "",
     )
     .await;
 
@@ -592,6 +591,7 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
         None,
         None,
         None,
+        "",
     )
     .await;
 
@@ -863,6 +863,7 @@ async fn test_handle_foreground_result_manual_background_signal() {
         Some(&signal),
         None,
         None,
+        "",
     )
     .await;
     let result = match outcome {
@@ -905,6 +906,7 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
         None,
         None,
         None,
+        "",
     )
     .await;
     let result = match outcome {
@@ -949,6 +951,7 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
         Some(&signal),
         None,
         None,
+        "",
     )
     .await;
     let result = match outcome {

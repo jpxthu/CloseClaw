@@ -24,6 +24,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         _command: &str,
         _cwd: &std::path::Path,
         _is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
             "not used".into(),
@@ -34,6 +35,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         _child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         // Return a fake task — the test only cares about whether the
         // child was backgroundized, not the task itself.
@@ -57,7 +59,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
-    async fn cleanup_all_finished(&self) {}
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
 fn bg_trait() -> Arc<dyn closeclaw_tasks::TaskManager> {
@@ -80,6 +82,7 @@ async fn test_agent_timeout_30s_completes_in_foreground() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -118,6 +121,7 @@ async fn test_agent_timeout_30s_auto_backgrounds_long_command() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -152,6 +156,7 @@ async fn test_agent_timeout_300s_capped_to_120s_quick_command() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -183,6 +188,7 @@ async fn test_default_timeout_quick_command_completes() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -213,6 +219,7 @@ async fn test_excluded_command_true_not_auto_backgrounded() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -239,6 +246,7 @@ async fn test_excluded_command_false_not_auto_backgrounded() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -268,6 +276,7 @@ async fn test_excluded_command_sleep_not_auto_backgrounded() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -300,6 +309,7 @@ async fn test_excluded_command_ignores_agent_timeout_uses_cap() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -331,6 +341,7 @@ async fn test_excluded_command_sleep_ignores_agent_timeout() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -363,6 +374,7 @@ async fn test_non_excluded_with_large_timeout_capped_to_120s() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");

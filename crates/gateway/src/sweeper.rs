@@ -435,7 +435,8 @@ impl ArchiveSweeper {
 
     /// Purge an archived session and invalidate its local cache (impl version with Arc).
     /// When a task_manager is provided, cleans up all background task outputs
-    /// so that no orphan files remain after session destruction.
+    /// belonging to the given session so that no orphan files remain after
+    /// session destruction.
     pub(crate) async fn purge_and_invalidate_impl(
         storage: Arc<dyn PersistenceService>,
         session_id: String,
@@ -443,9 +444,9 @@ impl ArchiveSweeper {
     ) -> Result<(), ArchiveSweeperError> {
         storage.purge_checkpoint(&session_id).await?;
         storage.invalidate_session(&session_id).await?;
-        // Clean up background task output files for this session.
+        // Clean up background task output files for this session only.
         if let Some(tm) = task_manager {
-            tm.cleanup_all_finished().await;
+            tm.cleanup_all_finished(&session_id).await;
         }
         info!(%session_id, "session purged and cache invalidated");
         Ok(())

@@ -87,6 +87,7 @@ impl closeclaw_tasks::TaskManager for DummyTaskManager {
         _cmd: &str,
         _cwd: &std::path::Path,
         _bg: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         unimplemented!()
     }
@@ -95,6 +96,7 @@ impl closeclaw_tasks::TaskManager for DummyTaskManager {
         _child: tokio::process::Child,
         _cmd: &str,
         _bg: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         unimplemented!()
     }
@@ -111,7 +113,7 @@ impl closeclaw_tasks::TaskManager for DummyTaskManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
-    async fn cleanup_all_finished(&self) {}
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
 /// Working TaskManager for tests that need spawn/backgroundize.
@@ -136,6 +138,7 @@ impl closeclaw_tasks::TaskManager for WorkingTaskManager {
         command: &str,
         cwd: &std::path::Path,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
@@ -154,6 +157,7 @@ impl closeclaw_tasks::TaskManager for WorkingTaskManager {
         _child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
@@ -180,7 +184,7 @@ impl closeclaw_tasks::TaskManager for WorkingTaskManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
-    async fn cleanup_all_finished(&self) {}
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
 /// Mock ToolSession that captures `report_tool_progress` calls.
@@ -575,6 +579,7 @@ async fn test_background_command_no_progress_reports() {
         Some(&session_arc),
         Some("bg-call-id"),
         None,
+        "",
     )
     .await;
 

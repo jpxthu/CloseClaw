@@ -252,6 +252,7 @@ impl TaskManager for MockTaskManager {
         _command: &str,
         _cwd: &std::path::Path,
         _is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         unimplemented!("not needed for gateway tests")
     }
@@ -260,6 +261,7 @@ impl TaskManager for MockTaskManager {
         _child: tokio::process::Child,
         _command: &str,
         _is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError> {
         unimplemented!("not needed for gateway tests")
     }
@@ -278,7 +280,7 @@ impl TaskManager for MockTaskManager {
     async fn cleanup_finished(&self) {
         // no-op for gateway tests
     }
-    async fn cleanup_all_finished(&self) {
+    async fn cleanup_all_finished(&self, _session_id: &str) {
         // no-op for gateway tests
     }
 }

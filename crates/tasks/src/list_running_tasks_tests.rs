@@ -41,7 +41,10 @@ async fn test_list_running_empty() {
 #[tokio::test]
 async fn test_list_running_returns_correct_info() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("sleep 60", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let r = mgr.list_running_tasks().await;
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].task_id, task.id);
@@ -58,8 +61,14 @@ async fn test_list_running_returns_correct_info() {
 #[tokio::test]
 async fn test_list_running_excludes_completed() {
     let (mgr, _tmp) = test_manager();
-    let fast = mgr.spawn("true", _tmp.path(), false).await.unwrap();
-    let slow = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let fast = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    let slow = mgr
+        .spawn("sleep 60", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &fast.id).await;
     let r = mgr.list_running_tasks().await;
     assert_eq!(r.len(), 1);
@@ -74,8 +83,14 @@ async fn test_list_running_excludes_completed() {
 #[tokio::test]
 async fn test_list_running_two_tasks() {
     let (mgr, _tmp) = test_manager();
-    let task1 = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
-    let task2 = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let task1 = mgr
+        .spawn("sleep 60", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    let task2 = mgr
+        .spawn("sleep 60", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let r = mgr.list_running_tasks().await;
     assert_eq!(r.len(), 2, "should list both running tasks");
 
