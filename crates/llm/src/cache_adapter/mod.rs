@@ -331,7 +331,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Step 1.2: Noop pass-through boundary tests
+    // Noop pass-through boundary tests
     // ------------------------------------------------------------------
 
     /// Verify that NoopCacheAdapter preserves existing `extra_body`
@@ -377,7 +377,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Step 1.2: Factory exhaustive mapping tests
+    // Factory exhaustive mapping tests
     // ------------------------------------------------------------------
 
     /// Exhaustive mapping: every provider listed as "noop" in the
@@ -425,7 +425,7 @@ mod tests {
 
     /// Appends are appended after dynamic content with cache: false.
     // ------------------------------------------------------------------
-    // Step 1.2: Two-partition model (appends merged into dynamic)
+    // Two-partition model (appends merged into dynamic)
     // ------------------------------------------------------------------
 
     /// Static + dynamic-with-appends: appends are merged into the dynamic
@@ -492,7 +492,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Step 1.2: Regression — static-only + dynamic with merged appends
+    // Regression — static-only + dynamic with merged appends
     // ------------------------------------------------------------------
 
     /// Static-only + dynamic-with-appends (no appends in static): the dynamic

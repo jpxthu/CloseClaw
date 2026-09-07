@@ -187,7 +187,7 @@ pub fn build_full_system_prompt(
 /// When `dynamic` is `None` (e.g. override path), the result is
 /// only the append section. When `appends` is `None`, the result
 /// is the original dynamic content unchanged.
-fn _merge_dynamic_and_appends(dynamic: Option<String>, appends: Option<String>) -> Option<String> {
+fn merge_dynamic_and_appends(dynamic: Option<String>, appends: Option<String>) -> Option<String> {
     match (dynamic, appends) {
         (Some(d), Some(a)) => Some(format!("{}\n\n## Append\n{}\n", d, a)),
         (None, Some(a)) => Some(format!("## Append\n{}\n", a)),
@@ -249,7 +249,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                 // adapter receives only two fields (kv-cache.md contract).
                 return (
                     Some(base.to_string()),
-                    _merge_dynamic_and_appends(None, appends),
+                    merge_dynamic_and_appends(None, appends),
                 );
             }
         }
@@ -275,7 +275,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         };
         (
             context.system_prompt.map(|s| s.to_string()),
-            _merge_dynamic_and_appends(dynamic, appends),
+            merge_dynamic_and_appends(dynamic, appends),
         )
     }
 }
