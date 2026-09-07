@@ -745,9 +745,9 @@
   },
   {
     "path": "docs/design/system_prompt/kv-cache.md",
-    "commit": "64e4d9dc254d6b8a70a449f80a8fbce723a90fdb",
-    "commit_time": "2026-07-30T19:56:32+08:00",
-    "confirmed_time": "2026-07-30T20:14:05.366906+08:00",
+    "commit": "6157cfadf031fcac8da30e4db1af5560b4bb8522",
+    "commit_time": "2026-09-07T14:52:27+08:00",
+    "confirmed_time": "2026-09-07T15:23:03.880678+08:00",
     "comment": "",
     "blocked_reason": ""
   },
