@@ -655,22 +655,11 @@ impl SessionMessageHandler {
         }
     }
 
-    /// Drain Now-priority announces before user message processing.
-    pub(super) async fn drain_announces_now(
-        session_manager: &Arc<SessionManager>,
-        session_id: &str,
-        gateway: Option<&Arc<Gateway>>,
-    ) {
-        session_manager
-            .drain_and_inject_announces_filtered(
-                session_id,
-                |p| *p == NotificationPriority::Now,
-                gateway,
-            )
-            .await;
-    }
-
-    /// Drain Next + Later priority announces at turn start.
+    /// Drain all priority announces at turn end.
+    ///
+    /// All priorities (Now / Next / Later) are drained in a single pass.
+    /// Priority only determines queue ordering and display prefix, not
+    /// injection timing (design-doc §通知机制).
     pub(super) async fn drain_announces_rest(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
@@ -697,11 +686,12 @@ impl SessionMessageHandler {
         }
 
         // Drain session announces (including the just-pushed task
-        // notifications) with Next + Later priority.
+        // notifications) with all priorities. Priority only determines
+        // queue ordering and display prefix (design-doc §通知机制).
         session_manager
             .drain_and_inject_announces_filtered(
                 session_id,
-                |p| *p < NotificationPriority::Now,
+                |p| *p <= NotificationPriority::Now,
                 gateway,
             )
             .await;

@@ -96,6 +96,7 @@ async fn create_test_task(tasks: &TaskMap, task_id: &str, output_path: &std::pat
             notified: false,
             created_at: tokio::time::Instant::now(),
             timeout_notify: Arc::new(Notify::new()),
+            trace_id: String::new(),
         },
     );
 }
@@ -226,6 +227,7 @@ async fn test_stuck_detection_skips_non_running_task() {
                 notified: false,
                 created_at: tokio::time::Instant::now(),
                 timeout_notify: Arc::new(Notify::new()),
+                trace_id: String::new(),
             },
         );
     }

@@ -555,7 +555,6 @@ impl SessionMessageHandler {
             if let Some(ref h) = shutdown_handle {
                 h.increment_busy();
             }
-            Self::drain_announces_now(&sm, &session_id, gw.as_ref()).await;
             Self::emit_dispatch_log(gw.as_ref(), &meta_for_debug, &session_id);
             let turn_start = Instant::now();
             let request_ctx = meta.to_request_context();

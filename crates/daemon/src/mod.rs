@@ -25,7 +25,6 @@ use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};
 pub use daemon_struct::*;
-
 /// Resolved startup plan: topo-sort layers plus validated phase components.
 /// Each outer element is a layer/phase; each inner element is a [`ComponentId`].
 type StartupPlan = (
@@ -212,7 +211,6 @@ impl Daemon {
         let llm_fut = Self::init_llm_registry(std::path::Path::new(config_dir), &empty_env);
         let (skill_result, (llm_registry, fallback_client)) = tokio::join!(skill_fut, llm_fut);
         let skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>> = skill_result?;
-
         Ok((
             agent_registry,
             skill_registry,
@@ -226,7 +224,6 @@ impl Daemon {
             plan_archive_sweeper_handle,
         ))
     }
-
     /// Phase 3: Core services — Gateway, SessionManager, IM plugins, SlashDispatcher.
     async fn init_phase_3_core_services(
         config_dir: &str,
@@ -460,7 +457,6 @@ impl Daemon {
         ))
     }
 }
-
 /// Bundled shutdown receivers for background services.
 /// Groups watch::Receiver<()> args to satisfy clippy's too_many_arguments.
 pub(crate) struct ServiceShutdownReceivers {
@@ -471,7 +467,6 @@ pub(crate) struct ServiceShutdownReceivers {
     /// Receiver for DreamingScheduler shutdown signal.
     pub dreaming: watch::Receiver<()>,
 }
-
 // --- Phase 4-5 initialization ---
 impl Daemon {
     /// Phase 4: Wiring — ApprovalFlow.
@@ -649,6 +644,7 @@ impl Daemon {
                     dreaming: dreaming_rx,
                 },
                 session_config_provider,
+                gateway.get_debug_log(),
             );
         session_manager.set_task_manager(task_manager).await;
         // Create SpawnController as an independent component (depends on AgentRegistry).
@@ -813,6 +809,7 @@ impl Daemon {
         data_dir: &std::path::Path,
         shutdown_receivers: ServiceShutdownReceivers,
         session_config_provider: Arc<dyn SessionConfigProvider>,
+        debug_log: Option<closeclaw_debug_log::DebugLog>,
     ) -> (
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
@@ -831,8 +828,11 @@ impl Daemon {
         // Create mining notification channel: sweeper + sub-agent → scheduler
         let (mining_notify_tx, mining_notify_rx) = tokio::sync::mpsc::channel(32);
         session_manager.set_mining_notify_tx(mining_notify_tx.clone());
-        let task_manager: Arc<dyn closeclaw_tasks::TaskManager> =
-            Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
+        let mut task_mgr = closeclaw_tasks::BackgroundTaskManager::new();
+        if let Some(dl) = debug_log {
+            task_mgr = task_mgr.with_debug_log(Arc::new(dl));
+        }
+        let task_manager: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(task_mgr);
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider.clone())
                 .with_mining_notify_tx(mining_notify_tx)

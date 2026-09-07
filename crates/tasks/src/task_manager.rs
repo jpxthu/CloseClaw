@@ -71,10 +71,6 @@ pub trait TaskManager: Send + Sync {
     /// Drain all pending completion notifications.
     async fn drain_notifications(&self) -> Vec<CompletionNotification>;
 
-    /// Remove output files and handles for tasks that have reached
-    /// a terminal state (Completed, Failed, Killed).
-    async fn cleanup_finished(&self);
-
     /// Remove output files and handles for ALL terminal tasks,
     /// including Killed tasks, belonging to the given session.
     /// Used during session purge to reclaim output files for that

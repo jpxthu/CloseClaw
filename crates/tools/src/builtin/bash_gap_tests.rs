@@ -112,7 +112,6 @@ impl closeclaw_tasks::TaskManager for DummyTaskManager {
     async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
         vec![]
     }
-    async fn cleanup_finished(&self) {}
     async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
@@ -183,7 +182,6 @@ impl closeclaw_tasks::TaskManager for WorkingTaskManager {
     async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
         vec![]
     }
-    async fn cleanup_finished(&self) {}
     async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
