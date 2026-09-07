@@ -245,12 +245,13 @@ mod tests {
                     approval_flow.clone(),
                 ))),
             )),
-            Box::new(crate::SkillsToolsRegistrar::new(Arc::new(
-                crate::builtin::SkillTool::new(
+            Box::new(crate::SkillsToolsRegistrar::new(vec![
+                Arc::new(crate::builtin::SkillTool::new(
                     disk_registry,
                     Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
-                ),
-            ))),
+                )),
+                Arc::new(closeclaw_skills::SkillCreatorTool::new()),
+            ])),
             Box::new(crate::ModeToolsRegistrar::new(
                 session_manager.clone(),
                 Arc::new(crate::builtin::PlanExecConfirmFlow::new(
