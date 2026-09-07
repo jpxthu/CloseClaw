@@ -59,6 +59,9 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        1800
+    }
 }
 
 fn bg_trait() -> Arc<dyn closeclaw_tasks::TaskManager> {
@@ -296,10 +299,12 @@ async fn test_excluded_command_sleep_not_auto_backgrounded() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_excluded_command_ignores_agent_timeout_uses_cap() {
+async fn test_excluded_command_with_agent_timeout_uses_agent_timeout() {
     let tmp = TempDir::new().unwrap();
-    // `true` is excluded; agent specifies 60s → bg_timeout = 120s (cap).
-    // Quick command completes normally — agent timeout is ignored.
+    // Agent explicit timeout (60s) overrides whitelist exclusion.
+    // White list commands with agent timeout follow the normal
+    // clamped logic: min(agent, cap). Quick command completes in
+    // foreground since 60s > command duration.
     let (outcome, _) = execute_foreground_command(
         "true",
         tmp.path().to_str().unwrap(),
@@ -318,20 +323,21 @@ async fn test_excluded_command_ignores_agent_timeout_uses_cap() {
             assert_eq!(result.data["exitCode"], json!(0));
         }
         other => panic!(
-            "excluded command should complete in foreground (120s cap), got: {:?}",
+            "excluded command with agent timeout: quick command should complete in foreground, got: {:?}",
             other
         ),
     }
 }
 
-/// Excluded command with agent timeout: verify bg_timeout uses 120s cap,
-/// NOT the agent-specified value. A sleep that exceeds agent timeout
-/// but stays under 120s should still complete in foreground.
+/// Excluded command with agent timeout: verify the agent-specified
+/// timeout is respected (not overridden by whitelist).
+/// `sleep 0.5` exceeds agent timeout (1s) → should auto-background
+/// (normal clamped logic, NOT force-terminated).
 #[tokio::test]
-async fn test_excluded_command_sleep_ignores_agent_timeout() {
+async fn test_excluded_command_sleep_with_agent_timeout_auto_backgrounds() {
     let tmp = TempDir::new().unwrap();
-    // Agent says 1s timeout, but excluded commands use 120s cap.
-    // `sleep 0.5` exceeds agent timeout (1s) but is well under 120s.
+    // Agent says 1s timeout, excluded command → normal clamped logic.
+    // `sleep 0.5` completes before 1s → foreground completion.
     let (outcome, _) = execute_foreground_command(
         "sleep 0.5",
         tmp.path().to_str().unwrap(),
@@ -350,7 +356,7 @@ async fn test_excluded_command_sleep_ignores_agent_timeout() {
             assert_eq!(result.data["exitCode"], json!(0));
         }
         other => panic!(
-            "excluded command sleep should use 120s cap not agent 1s timeout, got: {:?}",
+            "excluded command sleep with agent timeout: should complete in foreground (0.5s < 1s), got: {:?}",
             other
         ),
     }

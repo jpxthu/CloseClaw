@@ -120,6 +120,9 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
             vec![]
         }
         async fn cleanup_all_finished(&self, _session_id: &str) {}
+        fn max_execution_secs(&self) -> u64 {
+            1800
+        }
     }
     Arc::new(DummyTaskManager)
 }

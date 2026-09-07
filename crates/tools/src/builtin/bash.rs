@@ -404,6 +404,12 @@ struct ForegroundContext<'a> {
     session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&'a str>,
     session_id: &'a str,
+    /// When true, a timeout in `handle_foreground_result` should
+    /// force-kill the child and return `Failed` instead of
+    /// auto-backgroundizing. Used by the whitelist foreground path
+    /// where excluded commands run to the total-execution-time limit
+    /// without backgrounding.
+    force_terminate: bool,
 }
 
 /// Wait on a foreground child process, with timeout.
@@ -456,11 +462,26 @@ async fn handle_foreground_result(
                 format!("failed to wait on command: {}", e)
             ),
             Err(_elapsed) => {
-                auto_backgroundize_foreground(
-                    child, stdout_handle, stderr_handle,
-                    command, ctx.bg_manager, false,
-                    ctx.session_id,
-                ).await
+                if ctx.force_terminate {
+                    let _ = child.start_kill();
+                    // Drain pipes so progress monitor can report output
+                    // produced before the kill.
+                    let _ = super::bash_kill::read_with_progress(
+                        stdout_handle, stderr_handle,
+                        ctx.session, ctx.call_id,
+                    ).await;
+                    ForegroundOutcome::Failed(format!(
+                        "Command '{}' exceeded total execution time limit \
+                         and was killed",
+                        command,
+                    ))
+                } else {
+                    auto_backgroundize_foreground(
+                        child, stdout_handle, stderr_handle,
+                        command, ctx.bg_manager, false,
+                        ctx.session_id,
+                    ).await
+                }
             }
         },
     }
@@ -849,15 +870,25 @@ async fn execute_foreground_command(
         None
     };
 
-    let bg_timeout = if auto_backgroundize_excluded(command) {
-        Duration::from_millis(AUTO_BG_TIMEOUT_CAP_MS)
-    } else {
-        Duration::from_millis(
-            agent_timeout_ms
-                .map(|ms| ms.min(AUTO_BG_TIMEOUT_CAP_MS))
-                .unwrap_or(AUTO_BG_TIMEOUT_MS),
-        )
-    };
+    let (bg_timeout, force_terminate) =
+        if auto_backgroundize_excluded(command) && agent_timeout_ms.is_none() {
+            // Whitelist + no agent timeout: use total execution duration
+            // fallback. The command runs in the foreground until the
+            // system-wide max execution limit, then is force-terminated
+            // (not auto-backgrounded).
+            (Duration::from_secs(bg_manager.max_execution_secs()), true)
+        } else {
+            // All other paths: use agent timeout clamped to cap, or
+            // the default 15s auto-backgroundize budget.
+            (
+                Duration::from_millis(
+                    agent_timeout_ms
+                        .map(|ms| ms.min(AUTO_BG_TIMEOUT_CAP_MS))
+                        .unwrap_or(AUTO_BG_TIMEOUT_MS),
+                ),
+                false,
+            )
+        };
 
     let ctx = ForegroundContext {
         bg_manager,
@@ -865,6 +896,7 @@ async fn execute_foreground_command(
         session,
         call_id,
         session_id,
+        force_terminate,
     };
     let outcome = handle_foreground_result(child_arc, command, bg_timeout, &ctx).await;
 

@@ -532,6 +532,10 @@ impl crate::TaskManager for BackgroundTaskManager {
     async fn cleanup_all_finished(&self, session_id: &str) {
         self.cleanup_all_finished(session_id).await
     }
+
+    fn max_execution_secs(&self) -> u64 {
+        self.max_execution_secs
+    }
 }
 
 // ---------------------------------------------------------------------------
