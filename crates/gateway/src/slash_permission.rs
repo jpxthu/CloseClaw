@@ -466,12 +466,13 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         )
         .await?;
 
-        // Write requested level first (also resets effective_level).
-        cs.write().await.set_reasoning_level(level);
-
-        // Read model name and resolve effective level via model knowledge
-        // (same logic as resolve_before_llm_call, deterministic).
-        let model = cs.read().await.model().to_string();
+        // Write requested level and read model name in one lock, then
+        // resolve effective level outside the lock (deterministic).
+        let model = {
+            let mut cs = cs.write().await;
+            cs.set_reasoning_level(level);
+            cs.model().to_string()
+        };
         let gw = self.session_manager.get_gateway_ref().await;
         let Some(kb) = gw.as_ref().and_then(|g| g.model_knowledge()) else {
             return None;

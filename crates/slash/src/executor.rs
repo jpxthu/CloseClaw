@@ -173,7 +173,7 @@ mod tests {
         }
     }
 
-    /// No downgrade: requested == effective → "推理深度已设为 {effective}".
+    /// No downgrade: requested == effective → "推理深度已设为 {effective}（含 provider 降级后的值）".
     #[tokio::test]
     async fn test_set_reasoning_no_downgrade_slash() {
         let exec = std::sync::Arc::new(ReasoningMockExecutor::new(Some(
@@ -191,8 +191,8 @@ mod tests {
         match action {
             ReplyAction::Reply(blocks) => {
                 assert!(
-                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High"),
-                    "no-downgrade reply should be '推理深度已设为 High', got: {:?}",
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（含 provider 降级后的值）"),
+                    "no-downgrade reply should contain parenthetical, got: {:?}",
                     &blocks[0],
                 );
             }
@@ -270,7 +270,7 @@ mod tests {
         match action {
             ReplyAction::Reply(blocks) => {
                 assert!(
-                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"),
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max（含 provider 降级后的值）"),
                     "None fallback should use legacy reply, got: {:?}",
                     &blocks[0],
                 );

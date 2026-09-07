@@ -261,7 +261,7 @@ async fn execute_exec(ctx: &SideEffectContext, command: String) {
 /// Handle `SlashResult::SetReasoning` — set reasoning depth.
 ///
 /// Reply semantics (per design doc `docs/design/slash/reasoning.md` §数据流):
-/// - effective == requested (no downgrade): "推理深度已设为 {effective}"
+/// - effective == requested (no downgrade): "推理深度已设为 {effective}（含 provider 降级后的值）"
 /// - effective != requested (downgrade):   "推理深度已设为 {effective}（原请求 {requested} 已按供应商能力降级）"
 /// - Off + actually off:                   "推理输出已关闭"
 /// - Off + can't disable (lowest fallback): "当前模型无法关闭推理，已降至最低可用档位 {effective}"
@@ -282,7 +282,7 @@ async fn execute_set_reasoning(ctx: &SideEffectContext, level: ReasoningLevel) {
             if eff == ReasoningLevel::Off {
                 "推理输出已关闭".to_string()
             } else {
-                format!("推理深度已设为 {eff}")
+                format!("推理深度已设为 {eff}（含 provider 降级后的值）")
             }
         }
         Some(eff) => {

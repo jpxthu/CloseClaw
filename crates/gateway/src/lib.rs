@@ -75,6 +75,8 @@ pub mod slash_executor_helpers;
 #[cfg(test)]
 mod slash_executor_system_append_tests;
 #[cfg(test)]
+mod slash_executor_test_utils;
+#[cfg(test)]
 mod slash_executor_tests;
 pub mod slash_permission;
 pub mod slash_permission_handlers;
