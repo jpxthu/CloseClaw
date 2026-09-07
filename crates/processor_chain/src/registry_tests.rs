@@ -116,7 +116,6 @@ async fn test_inbound_bypass() {
     let registry = ProcessorRegistry::new();
     let msg = make_normalized("hello world");
     let result = registry.process_inbound(msg).await.unwrap();
-
     assert_eq!(result.text_content(), Some("hello world"));
     assert!(!result.content_blocks.is_empty());
     // Design doc: chain dispatcher copies message_type + unavailable_media
@@ -150,7 +149,6 @@ async fn test_inbound_priority_ascending() {
     let (p_10, c10) = TestProc::inbound("p_10", 10);
     let (p_5, c5) = TestProc::inbound("p_5", 5);
     let (p_20, _) = TestProc::inbound("p_20", 20);
-
     let mut registry = ProcessorRegistry::new();
     registry.register(p_10.clone());
     registry.register(p_5.clone());
@@ -994,7 +992,9 @@ async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
     };
     let result = filter.process(&ctx).await.unwrap().unwrap();
 
-    // Normal default: Thinking filtered
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "visible"));
+    // Full default: Thinking not filtered
+    assert_eq!(result.content_blocks.len(), 2);
+    assert_eq!(result.text_content(), Some("visible"));
+    #[rustfmt::skip]
+    assert!(result.content_blocks.iter().any(|b| matches!(b, ContentBlock::Thinking { .. })));
 }
