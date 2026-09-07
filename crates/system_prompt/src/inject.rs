@@ -119,41 +119,6 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
     sections
 }
 
-/// Split a full system prompt into static and dynamic parts.
-///
-/// Uses the `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` boundary marker as the split point:
-///
-/// - Content **before** the first marker → `Some(static)` (trailing whitespace trimmed)
-/// - Content **after** the first marker → `Some(dynamic)` (leading whitespace trimmed)
-/// - No marker → `(Some(full_prompt.to_owned()), None)`
-/// - Empty string → `(None, None)`
-pub fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option<String>) {
-    if full_prompt.is_empty() {
-        return (None, None);
-    }
-
-    let marker = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
-    match full_prompt.find(marker) {
-        Some(pos) => {
-            let static_part = full_prompt[..pos].trim_end().to_owned();
-            let dynamic_part = full_prompt[pos + marker.len()..].trim_start().to_owned();
-
-            let s = if static_part.is_empty() {
-                None
-            } else {
-                Some(static_part)
-            };
-            let d = if dynamic_part.is_empty() {
-                None
-            } else {
-                Some(dynamic_part)
-            };
-            (s, d)
-        }
-        None => (Some(full_prompt.to_owned()), None),
-    }
-}
-
 /// Compose a full system prompt from static layer + dynamic sections + appends.
 ///
 /// Inserts `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` between static and dynamic layers,
@@ -214,6 +179,22 @@ pub fn build_full_system_prompt(
     result
 }
 
+/// Merge dynamic content and appends into a single dynamic field.
+///
+/// Format is byte-consistent with [`build_full_system_prompt`]:
+/// `dynamic_rendered + "\n\n## Append\n" + render_appends(appends) + "\n"`
+///
+/// When `dynamic` is `None` (e.g. override path), the result is
+/// only the append section. When `appends` is `None`, the result
+/// is the original dynamic content unchanged.
+fn merge_dynamic_and_appends(dynamic: Option<String>, appends: Option<String>) -> Option<String> {
+    match (dynamic, appends) {
+        (Some(d), Some(a)) => Some(format!("{}\n\n## Append\n{}\n", d, a)),
+        (None, Some(a)) => Some(format!("## Append\n{}\n", a)),
+        (other, None) => other,
+    }
+}
+
 /// Format appends as a numbered list for the append section.
 fn render_appends(appends: &[String]) -> String {
     appends
@@ -236,7 +217,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
     fn build_prompt_parts(
         &self,
         context: &DynamicPromptContext,
-    ) -> (Option<String>, Option<String>, Option<String>) {
+    ) -> (Option<String>, Option<String>) {
         let meta = MessageMetadata {
             sender_id: context.ctx.sender_id.clone(),
             channel: context.ctx.channel.clone(),
@@ -247,8 +228,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             span_id: None,
         };
 
-        // Build the appends partition independently — it is a separate
-        // section that does not participate in prefix caching.
+        // Render appends as a numbered list.
         let appends = if context.system_appends.is_empty() {
             None
         } else {
@@ -265,8 +245,12 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
 
             if let Some(base) = priority {
                 // Override replaces the static layer; dynamic is empty.
-                // Appends are returned as an independent partition.
-                return (Some(base.to_string()), None, appends);
+                // Appends are merged into the dynamic field so the cache
+                // adapter receives only two fields (kv-cache.md contract).
+                return (
+                    Some(base.to_string()),
+                    merge_dynamic_and_appends(None, appends),
+                );
             }
         }
 
@@ -291,8 +275,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         };
         (
             context.system_prompt.map(|s| s.to_string()),
-            dynamic,
-            appends,
+            merge_dynamic_and_appends(dynamic, appends),
         )
     }
 }
