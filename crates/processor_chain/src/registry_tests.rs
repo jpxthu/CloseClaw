@@ -977,7 +977,6 @@ async fn test_verbosity_filter_empty_blocks_wraps_content() {
 #[tokio::test]
 async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
     use super::verbosity_filter::VerbosityFilter;
-
     let filter = VerbosityFilter;
     let ctx = MessageContext {
         content: "should not appear".to_string(),
@@ -994,7 +993,8 @@ async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
     };
     let result = filter.process(&ctx).await.unwrap().unwrap();
 
-    // Normal default: Thinking filtered
-    assert_eq!(result.content_blocks.len(), 1);
-    assert!(matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "visible"));
+    // Full default: Thinking not filtered
+    assert!(
+        matches!(&result.content_blocks[..], [ContentBlock::Text(s), ContentBlock::Thinking { .. }] if s == "visible"),
+    );
 }
