@@ -420,3 +420,23 @@ async fn test_bash_malicious_deny_flow_still_blocked() {
     let msg = format!("{}", result.unwrap_err());
     assert!(msg.contains("Blocked"));
 }
+
+/// BashTool::detail() includes background task behavioral guidance.
+#[tokio::test]
+async fn test_bash_detail_contains_background_guidance() {
+    let tool = make_tool(allow_all_engine());
+    let detail = tool.detail();
+    assert!(
+        detail.contains("do not poll"),
+        "detail() must include 'do not poll', got: {}",
+        detail
+    );
+    assert!(
+        detail.contains("run_in_background"),
+        "detail() must mention run_in_background"
+    );
+    assert!(
+        detail.contains("10 seconds"),
+        "detail() must mention the 10-second threshold"
+    );
+}

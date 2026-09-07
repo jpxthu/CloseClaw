@@ -397,6 +397,15 @@ async fn auto_backgroundize_foreground(
     }
 }
 
+/// Context for foreground result handling.
+struct ForegroundContext<'a> {
+    bg_manager: &'a Arc<dyn closeclaw_tasks::TaskManager>,
+    manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
+    session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&'a str>,
+    session_id: &'a str,
+}
+
 /// Wait on a foreground child process, with timeout.
 ///
 /// The child is shared with the [`BashKillHandle`] via
@@ -415,11 +424,7 @@ async fn handle_foreground_result(
     child_arc: Arc<Mutex<Option<tokio::process::Child>>>,
     command: &str,
     bg_timeout: Duration,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
-    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&str>,
-    session_id: &str,
+    ctx: &ForegroundContext<'_>,
 ) -> ForegroundOutcome {
     let (stdout_handle, stderr_handle) = {
         let mut guard = child_arc.lock().expect("child mutex poisoned");
@@ -434,17 +439,17 @@ async fn handle_foreground_result(
 
     tokio::select! {
         biased;
-        _ = notify_or_pending(manual_bg_signal) => {
+        _ = notify_or_pending(ctx.manual_bg_signal) => {
             auto_backgroundize_foreground(
-                child, stdout_handle, stderr_handle, command, bg_manager, true,
-                session_id,
+                child, stdout_handle, stderr_handle, command, ctx.bg_manager, true,
+                ctx.session_id,
             ).await
         }
         result = tokio::time::timeout(bg_timeout, child.wait()) => match result {
             Ok(Ok(status)) => {
                 finalize_foreground_after_wait(
                     status, stdout_handle, stderr_handle,
-                    command, session, call_id,
+                    command, ctx.session, ctx.call_id,
                 ).await
             }
             Ok(Err(e)) => ForegroundOutcome::Failed(
@@ -453,8 +458,8 @@ async fn handle_foreground_result(
             Err(_elapsed) => {
                 auto_backgroundize_foreground(
                     child, stdout_handle, stderr_handle,
-                    command, bg_manager, false,
-                    session_id,
+                    command, ctx.bg_manager, false,
+                    ctx.session_id,
                 ).await
             }
         },
@@ -854,17 +859,14 @@ async fn execute_foreground_command(
         )
     };
 
-    let outcome = handle_foreground_result(
-        child_arc,
-        command,
-        bg_timeout,
+    let ctx = ForegroundContext {
         bg_manager,
         manual_bg_signal,
         session,
         call_id,
         session_id,
-    )
-    .await;
+    };
+    let outcome = handle_foreground_result(child_arc, command, bg_timeout, &ctx).await;
 
     Ok((outcome, registered_call_id))
 }

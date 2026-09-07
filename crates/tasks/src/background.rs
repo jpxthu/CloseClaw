@@ -302,7 +302,13 @@ impl BackgroundTaskManager {
         let tn = Arc::clone(&timeout_notify);
 
         tokio::spawn(async move {
-            backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs, &tn).await;
+            let ctx = BackgroundizeContext {
+                tasks: &shared,
+                task_id: &tid,
+                notifications: &notifs,
+                timeout_notify: &tn,
+            };
+            backgroundize_process(child, stdout, stderr, &out, &ctx).await;
         });
 
         // Spawn the total-execution-time-limit monitor.
@@ -596,28 +602,39 @@ async fn mark_task_failed(tasks: &TaskMap, task_id: &str, error: &std::io::Error
     }
 }
 
+struct BackgroundizeContext<'a> {
+    tasks: &'a TaskMap,
+    task_id: &'a str,
+    notifications: &'a Arc<Mutex<Vec<CompletionNotification>>>,
+    timeout_notify: &'a Arc<Notify>,
+}
+
 async fn backgroundize_process(
     child: tokio::process::Child,
     stdout: Option<tokio::process::ChildStdout>,
     stderr: Option<tokio::process::ChildStderr>,
     output_path: &Path,
-    tasks: &TaskMap,
-    task_id: &str,
-    notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
-    timeout_notify: &Arc<Notify>,
+    ctx: &BackgroundizeContext<'_>,
 ) {
     let (kill_tx, kill_rx) = oneshot::channel();
     {
-        let mut map = lock_map(tasks).await;
-        if let Some(h) = map.get_mut(task_id) {
+        let mut map = lock_map(ctx.tasks).await;
+        if let Some(h) = map.get_mut(ctx.task_id) {
             h.kill_tx = Some(kill_tx);
         }
     }
 
-    let exit_code =
-        await_process(child, stdout, stderr, output_path, kill_rx, timeout_notify).await;
+    let exit_code = await_process(
+        child,
+        stdout,
+        stderr,
+        output_path,
+        kill_rx,
+        ctx.timeout_notify,
+    )
+    .await;
 
-    finalize_state(tasks, task_id, exit_code, notifications).await;
+    finalize_state(ctx.tasks, ctx.task_id, exit_code, ctx.notifications).await;
 }
 
 async fn await_process(
