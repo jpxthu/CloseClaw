@@ -76,6 +76,9 @@ fn is_anthropic_model(model: &str) -> bool {
 /// When the model is not in the knowledge base, falls back to
 /// provider-specific static capability tables. Currently handles:
 /// - **Anthropic**: Off→Low, non-High→High (only High natively supported)
+/// - **Default heuristic** (all other unknown models): Max→High, Off→Low,
+///   Low/Medium/High unchanged. Conservative fallback to avoid unsupported
+///   configurations.
 ///
 /// Provider identification is done via model name heuristic ("claude"
 /// or "anthropic" prefix) since `provider_id` is not available at
@@ -121,7 +124,14 @@ pub(crate) fn resolve_effective_reasoning_level(
     if is_anthropic_model(model) {
         return resolve_anthropic_effective_shared(requested);
     }
-    requested
+
+    // Unknown model — apply default heuristic fallback.
+    // Conservative: Max may not be supported, Off may not be closable.
+    match requested {
+        ReasoningLevel::Max => ReasoningLevel::High,
+        ReasoningLevel::Off => ReasoningLevel::Low,
+        _ => requested,
+    }
 }
 
 /// Turn-level timing metadata passed through the health
@@ -730,10 +740,11 @@ pub(crate) mod tests {
     use closeclaw_session::persistence::ReasoningLevel;
 
     #[test]
-    fn test_resolve_effective_level_model_not_found_returns_requested() {
+    fn test_resolve_effective_level_default_fallback_max_to_high() {
         let kb = ProviderModelKnowledge::new();
+        // Unknown model + Max → High (Max may not be supported, downgrade).
         let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Max, &kb);
-        assert_eq!(result, ReasoningLevel::Max);
+        assert_eq!(result, ReasoningLevel::High);
     }
 
     #[test]
@@ -741,6 +752,39 @@ pub(crate) mod tests {
         // With an empty knowledge base, model not found → requested.
         let kb = ProviderModelKnowledge::new();
         let result = resolve_effective_reasoning_level("some-model", ReasoningLevel::Medium, &kb);
+        assert_eq!(result, ReasoningLevel::Medium);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_default_fallback_off_to_low() {
+        // Unknown model + Off → Low (Off may not be closable).
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Off, &kb);
+        assert_eq!(result, ReasoningLevel::Low);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_default_fallback_low_unchanged() {
+        // Unknown model + Low → Low (base level, always safe).
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Low, &kb);
+        assert_eq!(result, ReasoningLevel::Low);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_default_fallback_high_unchanged() {
+        // Unknown model + High → High (base level, always safe).
+        let kb = ProviderModelKnowledge::new();
+        let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::High, &kb);
+        assert_eq!(result, ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_default_fallback_medium_unchanged() {
+        // Unknown model + Medium → Medium (base level, always safe).
+        let kb = ProviderModelKnowledge::new();
+        let result =
+            resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Medium, &kb);
         assert_eq!(result, ReasoningLevel::Medium);
     }
 
@@ -890,11 +934,12 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_resolve_effective_level_non_anthropic_no_fallback() {
-        // Non-Anthropic model not in KB → requested returned unchanged.
+    fn test_resolve_effective_level_non_anthropic_default_fallback_off_to_low() {
+        // Non-Anthropic model not in KB → default heuristic fallback:
+        // Off → Low (unknown model may not support disabling reasoning).
         let kb = ProviderModelKnowledge::new();
         let result = resolve_effective_reasoning_level("gpt-4o", ReasoningLevel::Off, &kb);
-        assert_eq!(result, ReasoningLevel::Off);
+        assert_eq!(result, ReasoningLevel::Low);
     }
 
     #[test]

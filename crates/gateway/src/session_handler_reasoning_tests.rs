@@ -381,7 +381,8 @@ async fn test_boundary_non_kb_non_anthropic_passthrough() {
 
     resolve_before_llm_call(sm, SESSION_ID).await;
 
-    assert_effective(sm, ReasoningLevel::Max).await;
+    // Max → High via default heuristic fallback for unknown models.
+    assert_effective(sm, ReasoningLevel::High).await;
 }
 
 /// Claude model outside the KB → heuristic fallback Off → Low.
