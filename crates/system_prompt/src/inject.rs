@@ -119,41 +119,6 @@ pub fn build_dynamic_sections(params: &DynamicSectionsParams<'_>) -> Vec<Section
     sections
 }
 
-/// Split a full system prompt into static and dynamic parts.
-///
-/// Uses the `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` boundary marker as the split point:
-///
-/// - Content **before** the first marker → `Some(static)` (trailing whitespace trimmed)
-/// - Content **after** the first marker → `Some(dynamic)` (leading whitespace trimmed)
-/// - No marker → `(Some(full_prompt.to_owned()), None)`
-/// - Empty string → `(None, None)`
-pub fn split_static_dynamic(full_prompt: &str) -> (Option<String>, Option<String>) {
-    if full_prompt.is_empty() {
-        return (None, None);
-    }
-
-    let marker = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
-    match full_prompt.find(marker) {
-        Some(pos) => {
-            let static_part = full_prompt[..pos].trim_end().to_owned();
-            let dynamic_part = full_prompt[pos + marker.len()..].trim_start().to_owned();
-
-            let s = if static_part.is_empty() {
-                None
-            } else {
-                Some(static_part)
-            };
-            let d = if dynamic_part.is_empty() {
-                None
-            } else {
-                Some(dynamic_part)
-            };
-            (s, d)
-        }
-        None => (Some(full_prompt.to_owned()), None),
-    }
-}
-
 /// Compose a full system prompt from static layer + dynamic sections + appends.
 ///
 /// Inserts `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` between static and dynamic layers,
