@@ -10,7 +10,8 @@
 
 use crate::builtin::plan_exec_confirm::PlanExecMetadata;
 use crate::builtin::PlanExecConfirmFlow;
-use crate::{Tool, ToolCallError, ToolContext, WorkdirContext};
+use crate::{Tool, ToolCallError, ToolContext, ToolFlags, WorkdirContext};
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistryQuery as _};
 use closeclaw_common::SessionMode;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
@@ -653,5 +654,189 @@ async fn test_mode_execution_trigger_tool_refreshes_access_timestamp() {
     assert!(
         !after_content.contains("2020-01-01T00:00:00Z"),
         "old timestamp marker should be replaced"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.2: Document Contract Three-Element UT
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Registrar contract ──────────────────────────────────────────────────────
+
+/// ModeToolsRegistrar.name() returns "ModeToolsRegistrar".
+#[tokio::test]
+async fn test_registrar_name() {
+    let sm = make_session_manager();
+    let cf = make_confirm_flow();
+    let registrar = crate::registrars::mode::ModeToolsRegistrar::new(sm, cf);
+    assert_eq!(registrar.name(), "ModeToolsRegistrar");
+}
+
+/// ModeToolsRegistrar.priority() returns 3 (registered after CoreToolsRegistrar
+/// at 1 and SessionToolsRegistrar at 2).
+#[tokio::test]
+async fn test_registrar_priority() {
+    let sm = make_session_manager();
+    let cf = make_confirm_flow();
+    let registrar = crate::registrars::mode::ModeToolsRegistrar::new(sm, cf);
+    assert_eq!(registrar.priority(), 3);
+}
+
+/// After ModeToolsRegistrar registers, the registry contains a tool named
+/// "ModeExecutionTrigger" with group "mode".
+#[tokio::test]
+async fn test_registrar_registers_mode_execution_trigger() {
+    let sm = make_session_manager();
+    let cf = make_confirm_flow();
+    let registrar = crate::registrars::mode::ModeToolsRegistrar::new(sm, cf);
+
+    let reg = crate::registry::ToolRegistry::new();
+    registrar
+        .register(&reg as &dyn closeclaw_common::tool_registry::ToolRegistry)
+        .await
+        .unwrap();
+
+    // Contract: tool named "ModeExecutionTrigger" exists
+    assert!(
+        reg.has_tool("ModeExecutionTrigger").await,
+        "ModeToolsRegistrar should register a tool named ModeExecutionTrigger"
+    );
+
+    // Contract: group is "mode"
+    let by_group = reg.list_tool_names_by_group("mode").await;
+    assert_eq!(
+        by_group,
+        vec!["ModeExecutionTrigger".to_string()],
+        "ModeExecutionTrigger should be in the 'mode' group"
+    );
+}
+
+// ── Plan Mode visibility via build_tools_section ─────────────────────────────
+
+/// DummyTool for testing plan mode visibility with specific metadata.
+struct PlanVisDummyTool {
+    tool_name: String,
+    group: String,
+    is_read_only: bool,
+}
+
+impl Tool for PlanVisDummyTool {
+    fn name(&self) -> &str {
+        &self.tool_name
+    }
+    fn group(&self) -> &str {
+        &self.group
+    }
+    fn summary(&self) -> String {
+        format!("test tool {}", self.tool_name)
+    }
+    fn detail(&self) -> String {
+        format!("detail for {}", self.tool_name)
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({ "type": "object", "properties": {} })
+    }
+    fn flags(&self) -> ToolFlags {
+        let mut f = ToolFlags::default();
+        f.is_read_only = self.is_read_only;
+        f
+    }
+}
+
+fn make_plan_mode_ctx() -> crate::PromptGenerationContext {
+    crate::PromptGenerationContext {
+        agent_id: "test-agent".to_string(),
+        workdir: None,
+        available_tool_names: vec![],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: Some(SessionMode::Plan),
+        agent_role: None,
+        agent_type: None,
+    }
+}
+
+/// ModeExecutionTrigger (non-read-only) appears in build_tools_section
+/// output under Plan Mode — verifies "始终加载" + Plan Mode 下触发执行入口保留.
+#[tokio::test]
+async fn test_plan_mode_section_shows_mode_execution_trigger() {
+    let reg = crate::registry::ToolRegistry::new();
+    reg.register(PlanVisDummyTool {
+        tool_name: "ModeExecutionTrigger".to_string(),
+        group: "mode".to_string(),
+        is_read_only: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+    assert!(
+        section.contains("ModeExecutionTrigger"),
+        "ModeExecutionTrigger should appear in Plan Mode tools section: {section}"
+    );
+}
+
+/// ModeExecutionTrigger's group header contains "(always loaded)" in Plan Mode.
+#[tokio::test]
+async fn test_plan_mode_section_group_is_always_loaded() {
+    let reg = crate::registry::ToolRegistry::new();
+    reg.register(PlanVisDummyTool {
+        tool_name: "ModeExecutionTrigger".to_string(),
+        group: "mode".to_string(),
+        is_read_only: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+    assert!(
+        section.contains("**mode**"),
+        "mode group header should appear: {section}"
+    );
+    assert!(
+        section.contains("(always loaded)"),
+        "mode group should be (always loaded): {section}"
+    );
+}
+
+/// A non-read-only tool NOT in PLAN_MODE_ALWAYS_VISIBLE is hidden in Plan Mode.
+#[tokio::test]
+async fn test_plan_mode_section_hides_non_always_visible() {
+    let reg = crate::registry::ToolRegistry::new();
+    reg.register(PlanVisDummyTool {
+        tool_name: "BashTool".to_string(),
+        group: "exec".to_string(),
+        is_read_only: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+    assert!(
+        !section.contains("BashTool"),
+        "BashTool (non-read-only, not always-visible) should be hidden in Plan Mode: {section}"
+    );
+}
+
+/// A read-only tool is always visible in Plan Mode regardless of its name.
+#[tokio::test]
+async fn test_plan_mode_section_shows_readonly_tool() {
+    let reg = crate::registry::ToolRegistry::new();
+    reg.register(PlanVisDummyTool {
+        tool_name: "SomeReadOnlyTool".to_string(),
+        group: "custom".to_string(),
+        is_read_only: true,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+    assert!(
+        section.contains("SomeReadOnlyTool"),
+        "read-only tools should be visible in Plan Mode: {section}"
     );
 }
