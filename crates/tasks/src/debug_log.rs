@@ -1,29 +1,15 @@
 //! Debug log helpers for the Tasks module.
 //!
-//! Provides structured debug-log emission for background task lifecycle events:
-//! task start and terminal state transitions (completed / failed / killed).
-//!
-//! Delegates to the common [`closeclaw_debug_log::emit_event`] function.
-
-/// Type alias for the common [`closeclaw_debug_log::DebugLogContext`].
-pub type TasksDebugLogContext<'a> = closeclaw_debug_log::DebugLogContext<'a>;
-
-/// Type alias for the common [`closeclaw_debug_log::EmitEventParams`].
-pub type TasksEmitEventParams<'a> = closeclaw_debug_log::EmitEventParams<'a>;
-
-/// Emit a structured debug log event for the Tasks module.
-///
-/// Thin wrapper around [`closeclaw_debug_log::emit_event`] that fixes
-/// the `source_module` to `"tasks"`.
-pub fn emit_task_event(params: TasksEmitEventParams<'_>) {
-    closeclaw_debug_log::emit_event(params)
-}
+//! Provides a trace-ID generator for background task lifecycle events.
+//! Actual event emission uses [`closeclaw_debug_log::emit_event`] directly
+//! — no intermediate wrappers.
 
 /// Generate a self-contained trace ID for a non-message internal event.
 ///
 /// Per `docs/design/debug_log/README.md`, non-message events (like background
 /// tasks) produce their own trace ID from a system timestamp and module
-/// identifier.
+/// identifier. Best-effort: if `SystemTime` is before UNIX_EPOCH (clock
+/// skew), the duration defaults to 0.
 pub fn generate_trace_id() -> String {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -37,24 +23,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_trace_id_is_noop() {
-        let ctx = TasksDebugLogContext::new(None, "", None);
-        emit_task_event(TasksEmitEventParams {
-            ctx,
-            level: closeclaw_debug_log::LogLevel::Info,
-            source_module: "tasks",
-            event_type: "test.event",
-            payload: serde_json::json!({}),
-            parent: None,
-        });
-    }
-
-    #[test]
     fn none_debug_log_is_noop() {
-        let ctx = TasksDebugLogContext::new(None, "trace-123", None);
-        emit_task_event(TasksEmitEventParams {
+        use closeclaw_debug_log::{emit_event, DebugLogContext, EmitEventParams, LogLevel};
+        let ctx = DebugLogContext::new(None, "trace-123", None);
+        emit_event(EmitEventParams {
             ctx,
-            level: closeclaw_debug_log::LogLevel::Info,
+            level: LogLevel::Info,
             source_module: "tasks",
             event_type: "test.event",
             payload: serde_json::json!({}),
@@ -64,7 +38,8 @@ mod tests {
 
     #[test]
     fn debug_log_context_new_fields() {
-        let ctx = TasksDebugLogContext::new(None, "tid", Some("skey"));
+        use closeclaw_debug_log::DebugLogContext;
+        let ctx = DebugLogContext::new(None, "tid", Some("skey"));
         assert_eq!(ctx.trace_id, "tid");
         assert_eq!(ctx.session_key, Some("skey"));
         assert!(ctx.debug_log.is_none());

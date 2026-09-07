@@ -331,12 +331,6 @@ impl Gateway {
             *slot = Some(debug_log);
         }
     }
-    pub fn debug_log(&self) -> Option<DebugLog> {
-        self.debug_log
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    }
     /// Inject a [`MediaStoreAccess`] for file persistence.
     pub fn set_media_store(&self, store: Arc<dyn MediaStoreAccess>) {
         if let Ok(mut s) = self.media_store.lock() {

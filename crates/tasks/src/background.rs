@@ -12,9 +12,9 @@ use tokio::process::Command;
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
-use crate::debug_log::{self, emit_task_event, TasksDebugLogContext, TasksEmitEventParams};
+use crate::debug_log;
 use crate::stuck_detect::{self, StuckDetectConfig};
-use closeclaw_debug_log::{DebugLog, LogLevel};
+use closeclaw_debug_log::{emit_event, DebugLog, DebugLogContext, EmitEventParams, LogLevel};
 
 pub(crate) type TaskMap = Arc<Mutex<HashMap<String, TaskHandle>>>;
 
@@ -195,8 +195,8 @@ impl BackgroundTaskManager {
         event_type: &str,
         payload: serde_json::Value,
     ) {
-        emit_task_event(TasksEmitEventParams {
-            ctx: TasksDebugLogContext::new(self.debug_log.as_deref(), trace_id, None),
+        emit_event(EmitEventParams {
+            ctx: DebugLogContext::new(self.debug_log.as_deref(), trace_id, None),
             level,
             source_module: "tasks",
             event_type,
@@ -227,6 +227,7 @@ impl BackgroundTaskManager {
             &output_path,
             is_backgrounded,
             session_id,
+            &trace_id,
         )
         .await;
 
@@ -237,13 +238,6 @@ impl BackgroundTaskManager {
             "background.task.started",
             serde_json::json!({"task_id": task_id, "command": command}),
         );
-        // Store trace_id in the handle for terminal-state emission.
-        {
-            let mut map = lock_map(&self.tasks).await;
-            if let Some(h) = map.get_mut(&task_id) {
-                h.trace_id = trace_id.clone();
-            }
-        }
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -321,6 +315,7 @@ impl BackgroundTaskManager {
             &output_path,
             is_backgrounded,
             session_id,
+            &trace_id,
         )
         .await;
         tracing::info!(task_id = %task_id, command = %command, "background task started");
@@ -330,14 +325,6 @@ impl BackgroundTaskManager {
             "background.task.started",
             serde_json::json!({"task_id": task_id, "command": command}),
         );
-
-        // Store trace_id in the handle for terminal-state emission.
-        {
-            let mut map = lock_map(&self.tasks).await;
-            if let Some(h) = map.get_mut(&task_id) {
-                h.trace_id = trace_id.clone();
-            }
-        }
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -635,8 +622,8 @@ async fn mark_task_failed(
         );
         let trace_id = h.trace_id.clone();
         if !trace_id.is_empty() {
-            emit_task_event(TasksEmitEventParams {
-                ctx: TasksDebugLogContext::new(debug_log, &trace_id, None),
+            emit_event(EmitEventParams {
+                ctx: DebugLogContext::new(debug_log, &trace_id, None),
                 level: LogLevel::Info,
                 source_module: "tasks",
                 event_type: "background.task.terminal",
@@ -796,8 +783,8 @@ async fn spawn_max_execution_monitor(
     );
 
     if !trace_id.is_empty() {
-        emit_task_event(TasksEmitEventParams {
-            ctx: TasksDebugLogContext::new(debug_log, &trace_id, None),
+        emit_event(EmitEventParams {
+            ctx: DebugLogContext::new(debug_log, &trace_id, None),
             level: LogLevel::Info,
             source_module: "tasks",
             event_type: "background.task.terminal",
@@ -853,8 +840,8 @@ async fn finalize_state(
         // Emit debug-log event: task terminal.
         let trace_id = h.trace_id.clone();
         if !trace_id.is_empty() {
-            emit_task_event(TasksEmitEventParams {
-                ctx: TasksDebugLogContext::new(debug_log, &trace_id, None),
+            emit_event(EmitEventParams {
+                ctx: DebugLogContext::new(debug_log, &trace_id, None),
                 level: LogLevel::Info,
                 source_module: "tasks",
                 event_type: "background.task.terminal",
@@ -926,6 +913,7 @@ async fn insert_initial_handle(
     output_path: &Path,
     is_backgrounded: bool,
     session_id: &str,
+    trace_id: &str,
 ) {
     let handle = TaskHandle {
         id: task_id.to_owned(),
@@ -937,7 +925,7 @@ async fn insert_initial_handle(
         notified: false,
         created_at: tokio::time::Instant::now(),
         timeout_notify: Arc::new(Notify::new()),
-        trace_id: String::new(),
+        trace_id: trace_id.to_owned(),
     };
     let mut map = lock_map(tasks).await;
     map.insert(task_id.to_owned(), handle);

@@ -644,7 +644,7 @@ impl Daemon {
                     dreaming: dreaming_rx,
                 },
                 session_config_provider,
-                gateway.debug_log(),
+                gateway.get_debug_log(),
             );
         session_manager.set_task_manager(task_manager).await;
         // Create SpawnController as an independent component (depends on AgentRegistry).
