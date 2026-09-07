@@ -1,6 +1,7 @@
 //! Tests for `/system list` and `/system` (no args) branches.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::context::SlashContext;
@@ -309,8 +310,6 @@ async fn test_cross_step_git_write_subcommand_routes_to_exec() {
 }
 
 // ── /system clear cache invalidation (Step 1.2) ────────────────────────────
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Verify that /system clear triggers static-layer cache invalidation
 /// at the handler level (consistent with ClearHandler).
