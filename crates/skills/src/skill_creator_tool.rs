@@ -107,10 +107,9 @@ impl Tool for SkillCreatorTool {
 
     async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         // Delegate to SkillCreatorSkill for guidance content (DRY).
-        let skill_args = if args.as_object().is_some_and(|o| o.is_empty()) {
-            None
-        } else {
-            Some(args)
+        let skill_args = match args.as_object() {
+            Some(o) if o.is_empty() => None,
+            _ => Some(args),
         };
 
         let content =
