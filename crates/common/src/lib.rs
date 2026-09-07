@@ -5,6 +5,8 @@ pub mod compaction;
 pub mod execution_types;
 pub mod executor;
 #[cfg(test)]
+pub mod executor_test_utils;
+#[cfg(test)]
 pub mod executor_tests;
 
 pub mod fragment;

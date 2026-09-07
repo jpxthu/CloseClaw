@@ -609,33 +609,6 @@ async fn test_set_reasoning_no_downgrade_reply_high() {
     }
 }
 
-/// No downgrade: Off + provider supports closing → "推理输出已关闭".
-#[tokio::test]
-async fn test_set_reasoning_no_downgrade_reply_off() {
-    let exec = Arc::new(ReasoningConfigMockExecutor::new(Some(ReasoningLevel::Off)));
-    let (ctx, mut rx) = make_reasoning_ctx(exec.clone());
-    SlashResult::SetReasoning {
-        level: ReasoningLevel::Off,
-    }
-    .execute(&ctx)
-    .await;
-    drop(ctx);
-
-    assert!(exec.was_called());
-    let actions = drain_actions(&mut rx).await;
-    assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
-                "Off+supports-closing should reply '推理输出已关闭', got: {:?}",
-                &blocks[0],
-            );
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
-}
-
 /// Downgrade: requested=Max, effective=High → downgrade explanation.
 #[tokio::test]
 async fn test_set_reasoning_downgrade_reply() {

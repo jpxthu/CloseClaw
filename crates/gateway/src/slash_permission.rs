@@ -480,7 +480,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         let effective =
             super::session_handler_announce::resolve_effective_reasoning_level(&model, level, kb);
         if effective != level {
-            tracing::info!(
+            tracing::debug!(
                 session_id,
                 from = ?level,
                 to = ?effective,

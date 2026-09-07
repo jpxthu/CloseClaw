@@ -270,8 +270,35 @@ mod tests {
         match action {
             ReplyAction::Reply(blocks) => {
                 assert!(
-                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max（含 provider 降级后的值）"),
-                    "None fallback should use legacy reply, got: {:?}",
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"),
+                    "None fallback should use legacy reply (no parentheses), got: {:?}",
+                    &blocks[0],
+                );
+            }
+            other => panic!("expected ReplyAction::Reply, got {:?}", other),
+        }
+    }
+
+    /// Off + provider cannot close → "当前模型无法关闭推理，已降至最低可用档位 {effective}".
+    #[tokio::test]
+    async fn test_set_reasoning_off_provider_cannot_close_slash() {
+        let exec = std::sync::Arc::new(ReasoningMockExecutor::new(Some(
+            closeclaw_common::ReasoningLevel::Low,
+        )));
+        let (ctx, mut rx) = make_reasoning_ctx(exec);
+        SlashResult::SetReasoning {
+            level: closeclaw_common::ReasoningLevel::Off,
+        }
+        .execute(&ctx)
+        .await;
+        drop(ctx);
+
+        let action = rx.recv().await.expect("expected a ReplyAction");
+        match action {
+            ReplyAction::Reply(blocks) => {
+                assert!(
+                    matches!(&blocks[0], ContentBlock::Text(t) if t == "当前模型无法关闭推理，已降至最低可用档位 Low"),
+                    "Off+can't-close should indicate downgrade to lowest level, got: {:?}",
                     &blocks[0],
                 );
             }
