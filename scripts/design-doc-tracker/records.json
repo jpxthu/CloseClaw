@@ -697,9 +697,9 @@
   },
   {
     "path": "docs/design/slash/verbose.md",
-    "commit": "fc210030968af14617b693303acfe9276d8768e1",
-    "commit_time": "2026-07-30T19:38:41+08:00",
-    "confirmed_time": "2026-07-30T19:48:01.814208+08:00",
+    "commit": "905a9f38585e2e5090b42e807a2d13c5d444240f",
+    "commit_time": "2026-09-07T14:05:37+08:00",
+    "confirmed_time": "2026-09-07T14:19:41.087149+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -737,9 +737,9 @@
   },
   {
     "path": "docs/design/system_prompt/fragment-provider.md",
-    "commit": "01feb45bde123b8c0dfb4f8c726b257aeb2cc5fb",
-    "commit_time": "2026-07-30T19:48:52+08:00",
-    "confirmed_time": "2026-07-30T19:54:39.015299+08:00",
+    "commit": "dacc78de577e608004db22b01ead1b7bd6b4f11b",
+    "commit_time": "2026-09-07T14:21:09+08:00",
+    "confirmed_time": "2026-09-07T14:31:01.835341+08:00",
     "comment": "",
     "blocked_reason": ""
   },
