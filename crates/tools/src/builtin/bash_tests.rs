@@ -101,6 +101,7 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
+    async fn cleanup_all_finished(&self) {}
 }
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {

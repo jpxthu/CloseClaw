@@ -539,9 +539,6 @@ impl SessionManager {
             );
             return Err(StopError::Failed);
         }
-        if let Some(tm) = self.get_task_manager().await {
-            tm.cleanup_finished().await;
-        }
         Ok(GracefulStopOutcome::Completed)
     }
 }

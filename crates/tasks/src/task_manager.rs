@@ -68,4 +68,9 @@ pub trait TaskManager: Send + Sync {
     /// Remove output files and handles for tasks that have reached
     /// a terminal state (Completed, Failed, Killed).
     async fn cleanup_finished(&self);
+
+    /// Remove output files and handles for ALL terminal tasks,
+    /// including Killed tasks.  Used during session purge to reclaim
+    /// all output files when the session is destroyed.
+    async fn cleanup_all_finished(&self);
 }

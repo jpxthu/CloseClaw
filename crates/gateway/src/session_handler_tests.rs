@@ -278,6 +278,9 @@ impl TaskManager for MockTaskManager {
     async fn cleanup_finished(&self) {
         // no-op for gateway tests
     }
+    async fn cleanup_all_finished(&self) {
+        // no-op for gateway tests
+    }
 }
 
 /// Build a [`CompletionNotification`] for testing.

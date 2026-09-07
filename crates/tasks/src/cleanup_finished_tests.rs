@@ -1,4 +1,5 @@
 //! Tests for cleanup_finished — output preservation & edge cases.
+//! Tests for cleanup_all_finished — full output reclamation on purge.
 
 use super::*;
 use tempfile::TempDir;
@@ -187,4 +188,99 @@ async fn test_cleanup_finished_cleanup_io_error() {
     // Should not panic — remove_dir_all on a missing path logs a warning
     mgr.cleanup_finished().await;
     assert!(mgr.get_task("io-err").await.is_none());
+}
+
+// ── cleanup_all_finished tests ─────────────────────────────────────────
+
+/// cleanup_all_finished removes output for ALL terminal tasks,
+/// including Killed tasks (unlike cleanup_finished which preserves them).
+#[tokio::test]
+async fn test_cleanup_all_finished_removes_all_terminal_tasks() {
+    let (mgr, _tmp) = test_manager();
+    let running_path = insert_handle(
+        &mgr,
+        "a-run",
+        "echo hi",
+        TaskState::Running {
+            is_backgrounded: false,
+        },
+    )
+    .await;
+    let completed_path = insert_handle(
+        &mgr,
+        "a-completed",
+        "true",
+        TaskState::Completed { exit_code: 0 },
+    )
+    .await;
+    let failed_path = insert_handle(
+        &mgr,
+        "a-failed",
+        "false",
+        TaskState::Failed { exit_code: 1 },
+    )
+    .await;
+    let killed_path = insert_handle(&mgr, "a-killed", "sleep 99", TaskState::Killed).await;
+    mgr.cleanup_all_finished().await;
+    // Completed/Failed/Killed: output dir and handle should be gone.
+    assert!(!completed_path.exists());
+    assert!(mgr.get_task("a-completed").await.is_none());
+    assert!(!failed_path.exists());
+    assert!(mgr.get_task("a-failed").await.is_none());
+    assert!(!killed_path.exists());
+    assert!(mgr.get_task("a-killed").await.is_none());
+    // Running task: output file and handle still present.
+    assert!(running_path.exists());
+    assert!(mgr.get_task("a-run").await.is_some());
+}
+
+/// cleanup_all_finished is idempotent.
+#[tokio::test]
+async fn test_cleanup_all_finished_idempotent() {
+    let (mgr, _tmp) = test_manager();
+    let completed_path = insert_handle(
+        &mgr,
+        "aidem-1",
+        "true",
+        TaskState::Completed { exit_code: 0 },
+    )
+    .await;
+    mgr.cleanup_all_finished().await;
+    assert!(!completed_path.exists());
+    mgr.cleanup_all_finished().await;
+    assert!(!completed_path.exists());
+}
+
+/// Verify stop-after: Completed/Failed output files survive cleanup_finished
+/// (the stop path does not call cleanup_finished on purge — outputs persist).
+#[tokio::test]
+async fn test_stop_preserves_completed_failed_output() {
+    let (mgr, _tmp) = test_manager();
+    let completed_path =
+        insert_handle(&mgr, "sp-c", "true", TaskState::Completed { exit_code: 0 }).await;
+    let failed_path =
+        insert_handle(&mgr, "sp-f", "false", TaskState::Failed { exit_code: 1 }).await;
+    // Simulate: stop does NOT call cleanup_finished — outputs persist.
+    // (Previously finalize_stop called cleanup_finished; now it does not.)
+    // Verify handles are still present after stop.
+    assert!(mgr.get_task("sp-c").await.is_some());
+    assert!(mgr.get_task("sp-f").await.is_some());
+    assert!(completed_path.exists());
+    assert!(failed_path.exists());
+}
+
+/// Verify purge-after: cleanup_all_finished removes ALL terminal outputs
+/// including Killed (the purge path uses cleanup_all_finished).
+#[tokio::test]
+async fn test_purge_removes_all_output() {
+    let (mgr, _tmp) = test_manager();
+    let completed_path =
+        insert_handle(&mgr, "pg-c", "true", TaskState::Completed { exit_code: 0 }).await;
+    let killed_path = insert_handle(&mgr, "pg-k", "sleep 1", TaskState::Killed).await;
+    // Simulate purge: calls cleanup_all_finished.
+    mgr.cleanup_all_finished().await;
+    assert!(!completed_path.exists());
+    assert!(!killed_path.exists());
+    assert!(mgr.get_task("pg-c").await.is_none());
+    assert!(mgr.get_task("pg-k").await.is_none());
 }

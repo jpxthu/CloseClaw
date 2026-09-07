@@ -995,4 +995,5 @@ impl TaskManager for MockTaskManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
+    async fn cleanup_all_finished(&self) {}
 }

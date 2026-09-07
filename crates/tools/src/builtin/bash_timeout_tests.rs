@@ -57,6 +57,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
+    async fn cleanup_all_finished(&self) {}
 }
 
 fn bg_trait() -> Arc<dyn closeclaw_tasks::TaskManager> {
