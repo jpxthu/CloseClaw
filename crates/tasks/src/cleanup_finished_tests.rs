@@ -39,7 +39,7 @@ async fn insert_handle_with_session(
         kill_tx: None,
         notified: false,
         created_at: tokio::time::Instant::now(),
-        timeout_flag: Arc::new(AtomicBool::new(false)),
+        timeout_notify: Arc::new(Notify::new()),
     };
     mgr.tasks.lock().await.insert(task_id.to_owned(), handle);
     output_path
@@ -196,7 +196,7 @@ async fn test_cleanup_finished_cleanup_io_error() {
             kill_tx: None,
             notified: false,
             created_at: tokio::time::Instant::now(),
-            timeout_flag: Arc::new(AtomicBool::new(false)),
+            timeout_notify: Arc::new(Notify::new()),
         },
     );
     // Should not panic — remove_dir_all on a missing path logs a warning

@@ -3,8 +3,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::Notify;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -96,8 +96,8 @@ pub(crate) struct TaskHandle {
     pub(crate) notified: bool,
     /// Wall-clock time when the task was created.
     pub(crate) created_at: tokio::time::Instant,
-    /// Shared flag set by the timeout monitor to trigger kill.
-    pub(crate) timeout_flag: Arc<AtomicBool>,
+    /// Shared notifier set by the timeout monitor to trigger kill.
+    pub(crate) timeout_notify: Arc<Notify>,
 }
 
 // ---------------------------------------------------------------------------
@@ -193,10 +193,10 @@ impl BackgroundTaskManager {
             StuckDetectConfig::default(),
         );
 
-        let timeout_flag = {
+        let timeout_notify = {
             let map = lock_map(&self.tasks).await;
             map.get(&task_id)
-                .map(|h| Arc::clone(&h.timeout_flag))
+                .map(|h| Arc::clone(&h.timeout_notify))
                 .expect("handle must exist after insert")
         };
 
@@ -207,10 +207,10 @@ impl BackgroundTaskManager {
         let tid = task_id.clone();
 
         let notifs = Arc::clone(&self.notifications);
-        let tf = Arc::clone(&timeout_flag);
+        let tn = Arc::clone(&timeout_notify);
 
         tokio::spawn(async move {
-            run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs, &tf).await;
+            run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs, &tn).await;
         });
 
         // Spawn the total-execution-time-limit monitor.
@@ -269,10 +269,10 @@ impl BackgroundTaskManager {
             StuckDetectConfig::default(),
         );
 
-        let timeout_flag = {
+        let timeout_notify = {
             let map = lock_map(&self.tasks).await;
             map.get(&task_id)
-                .map(|h| Arc::clone(&h.timeout_flag))
+                .map(|h| Arc::clone(&h.timeout_notify))
                 .expect("handle must exist after insert")
         };
 
@@ -281,10 +281,10 @@ impl BackgroundTaskManager {
         let tid = task_id.clone();
 
         let notifs = Arc::clone(&self.notifications);
-        let tf = Arc::clone(&timeout_flag);
+        let tn = Arc::clone(&timeout_notify);
 
         tokio::spawn(async move {
-            backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs, &tf).await;
+            backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs, &tn).await;
         });
 
         // Spawn the total-execution-time-limit monitor.
@@ -513,7 +513,7 @@ async fn run_shell_command(
     tasks: &TaskMap,
     task_id: &str,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
-    timeout_flag: &Arc<AtomicBool>,
+    timeout_notify: &Arc<Notify>,
 ) {
     let result = Command::new("sh")
         .arg("-c")
@@ -531,7 +531,7 @@ async fn run_shell_command(
                 tasks,
                 task_id,
                 notifications,
-                timeout_flag,
+                timeout_notify,
             )
             .await;
         }
@@ -547,7 +547,7 @@ async fn run_background_child(
     tasks: &TaskMap,
     task_id: &str,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
-    timeout_flag: &Arc<AtomicBool>,
+    timeout_notify: &Arc<Notify>,
 ) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -560,7 +560,8 @@ async fn run_background_child(
         }
     }
 
-    let exit_code = await_process(child, stdout, stderr, output_path, kill_rx, timeout_flag).await;
+    let exit_code =
+        await_process(child, stdout, stderr, output_path, kill_rx, timeout_notify).await;
 
     finalize_state(tasks, task_id, exit_code, notifications).await;
 }
@@ -585,7 +586,7 @@ async fn backgroundize_process(
     tasks: &TaskMap,
     task_id: &str,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
-    timeout_flag: &Arc<AtomicBool>,
+    timeout_notify: &Arc<Notify>,
 ) {
     let (kill_tx, kill_rx) = oneshot::channel();
     {
@@ -595,7 +596,8 @@ async fn backgroundize_process(
         }
     }
 
-    let exit_code = await_process(child, stdout, stderr, output_path, kill_rx, timeout_flag).await;
+    let exit_code =
+        await_process(child, stdout, stderr, output_path, kill_rx, timeout_notify).await;
 
     finalize_state(tasks, task_id, exit_code, notifications).await;
 }
@@ -606,7 +608,7 @@ async fn await_process(
     stderr: Option<tokio::process::ChildStderr>,
     output_path: &Path,
     kill_rx: oneshot::Receiver<()>,
-    timeout_flag: &Arc<AtomicBool>,
+    timeout_notify: &Arc<Notify>,
 ) -> i32 {
     let file = tokio::fs::OpenOptions::new()
         .create(true)
@@ -638,14 +640,7 @@ async fn await_process(
             let _ = child.kill().await;
             -1
         }
-        _ = async {
-            loop {
-                if timeout_flag.load(Ordering::Acquire) {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        } => {
+        _ = timeout_notify.notified() => {
             let _ = child.kill().await;
             -1
         }
@@ -671,8 +666,8 @@ async fn copy_reader<R: tokio::io::AsyncRead + Unpin>(
 
 /// Monitors a task and force-kills it when `max_secs` elapses.
 ///
-/// The flag is shared with [`await_process`] which checks it in its
-/// `select!` loop and kills the child when the flag is set.
+/// The notifier is shared with [`await_process`] which awaits it in its
+/// `select!` and kills the child when notified.
 ///
 /// An info-level log and a completion notification are emitted when
 /// the task is killed by this monitor.
@@ -686,19 +681,19 @@ async fn spawn_max_execution_monitor(
     tokio::time::sleep(deadline).await;
 
     // Check if the task is still running and trigger kill via the flag.
-    let (_flag, command, output_path) = {
+    let (_notify, command, output_path) = {
         let mut map = lock_map(tasks).await;
         if let Some(h) = map.get_mut(task_id) {
             if !matches!(h.state, TaskState::Running { .. }) {
                 return; // Task already finished.
             }
-            h.timeout_flag.store(true, Ordering::Release);
             h.state = TaskState::Killed;
+            h.timeout_notify.notify_one();
             if let Some(kill_tx) = h.kill_tx.take() {
                 let _ = kill_tx.send(());
             }
             (
-                Arc::clone(&h.timeout_flag),
+                Arc::clone(&h.timeout_notify),
                 h.command.clone(),
                 h.output_path.clone(),
             )
@@ -825,7 +820,7 @@ async fn insert_initial_handle(
         kill_tx: None,
         notified: false,
         created_at: tokio::time::Instant::now(),
-        timeout_flag: Arc::new(AtomicBool::new(false)),
+        timeout_notify: Arc::new(Notify::new()),
     };
     let mut map = lock_map(tasks).await;
     map.insert(task_id.to_owned(), handle);
