@@ -27,23 +27,23 @@ Owner 和 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对�
 > **交叉引用**：`/execute` 的触发语义详见 [mode §F4](mode.md)（执行触发）。
 > **交叉引用**：模式类型定义和 Agent 行为约束详见 [mode §F1](mode.md)（运行模式）。
 
-### F3. 会话管理
+### F3. Session 管理
 
-Owner 和 User 可以创建新会话，以及终止当前会话运行。
+Owner 和 User 可以创建新 Session，以及终止当前 Session 运行。
 
 **指令**：
-- `/new`：创建新会话
-- `/stop`：终止当前会话运行（Immediate）
+- `/new`：创建新 Session
+- `/stop`：终止当前 Session 运行（Immediate）
 
-> **交叉引用**：会话创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：Session 创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：子 Session 终止详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ### F4. 状态查询
 
-Owner 和 User 可以随时查看当前会话的运行状态。
+Owner 和 User 可以随时查看当前 Session 的运行状态。
 
 **指令**：
-- `/status`：查询会话状态（模式、模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、System Prompt 追加指令列表）（Immediate）
+- `/status`：查询 Session 状态（模式、模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、System Prompt 追加指令列表）（Immediate）
 
 > **交叉引用**：模式见 [mode §F1](mode.md)（运行模式）。
 > **交叉引用**：当前模型见 [llm §F1](llm.md)（多供应商统一对话）。
@@ -79,7 +79,7 @@ Owner 和 User 可以在运行时向 System Prompt 的追加区动态添加指�
 
 ### F7. 工作目录操作
 
-Owner 和 User 可以变更和查看当前会话的工作目录，以及执行 Git 命令。
+Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执行 Git 命令。
 
 **指令**：
 - `/cd <路径>`：变更工作目录，切换前校验路径是否存在，路径不存在时返回错误提示；切换成功后回复路径及 Git 分支信息
@@ -111,7 +111,7 @@ Owner 和 User 可以查看所有当前可用的斜杠指令及其说明。帮�
 
 ### F10. 推理强度控制
 
-Owner 和 User 可以查询和设置当前会话的 LLM 推理强度。
+Owner 和 User 可以查询和设置当前 Session 的 LLM 推理强度。
 
 **指令**：
 - `/reasoning`（无参数）：查询当前推理强度档位（Immediate）
@@ -121,7 +121,7 @@ Owner 和 User 可以查询和设置当前会话的 LLM 推理强度。
 
 ### F11. 展示等级
 
-Owner 和 User 可以查询和设置当前会话的展示等级。设置等级不影响当前正在输出的消息，仅对后续新消息生效。
+Owner 和 User 可以查询和设置当前 Session 的展示等级。设置等级不影响当前正在输出的消息，仅对后续新消息生效。
 
 **指令**：
 - `/verbose`（无参数）：查询当前展示等级（Immediate）
