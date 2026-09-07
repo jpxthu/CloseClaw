@@ -376,6 +376,7 @@ async fn test_spawn_background_services_with_independent_provider() {
         tmp.path(),
         shutdown_receivers,
         Arc::clone(&provider),
+        None,
     );
 
     // All 3 handles should be valid (tasks are spawned).
