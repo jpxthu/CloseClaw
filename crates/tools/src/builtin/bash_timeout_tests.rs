@@ -4,9 +4,9 @@
 //! correctly based on the `agent_timeout_ms` parameter:
 //!
 //! - `Some(30_000)` → 30s (agent-specified, within cap)
-//! - `Some(300_000)` → 120s (capped at `AUTO_BG_TIMEOUT_CAP_MS`)
+//! - `Some(300_000)` → 300s (within cap, cap is 600s)
 //! - `None` → 15s (system default)
-//! - Excluded commands (sleep/true/false) → `agent_timeout_ms` or 120s
+//! - Excluded commands (sleep/true/false) → `agent_timeout_ms` or 600s
 
 use super::*;
 use serde_json::json;
@@ -385,7 +385,10 @@ async fn test_non_excluded_with_large_timeout_capped_to_120s() {
 #[test]
 fn test_auto_bg_timeout_constants() {
     assert_eq!(AUTO_BG_TIMEOUT_MS, 15_000, "default should be 15s");
-    assert_eq!(AUTO_BG_TIMEOUT_CAP_MS, 120_000, "cap should be 120s");
+    assert_eq!(
+        AUTO_BG_TIMEOUT_CAP_MS, 600_000,
+        "cap should be 600s (10 minutes)"
+    );
 }
 
 // ---------------------------------------------------------------------------

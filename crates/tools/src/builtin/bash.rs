@@ -58,7 +58,7 @@ const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 /// Maximum auto-backgroundize timeout an agent may request (2 minutes).
 /// Prevents agents from setting excessively long timeouts that would
 /// defeat the auto-backgroundize mechanism.
-const AUTO_BG_TIMEOUT_CAP_MS: u64 = 120_000;
+const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;
 
 /// Shell command execution tool.
 ///
