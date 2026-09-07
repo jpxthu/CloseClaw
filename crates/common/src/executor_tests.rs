@@ -812,30 +812,37 @@ async fn test_plan_mode_to_non_plan_clears_plan_state() {
         plan_handle.lock().unwrap().is_none(),
         "plan_state should be None after switching to normal"
     );
-    // Case 2: Plan → Auto.
-    let mock2 = Arc::new(MockSlashEffectExecutor::new());
-    let plan2 = crate::PlanState {
+}
+
+// ── Test: Plan Mode → Auto clears PlanState ──────────────────────────
+
+#[tokio::test]
+async fn test_plan_mode_to_auto_clears_plan_state() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let plan = crate::PlanState {
         phase: crate::PlanPhase::Review,
         plan_file_path: "/tmp/plan.md".into(),
     };
-    let (mock2_sl, plan_handle2) = MockSessionLookup::with_plan_state(plan2);
-    let clear_handle2 = mock2_sl.clear_called_handle();
-    let sl_ref2: Arc<dyn SessionLookup> = Arc::new(mock2_sl);
-    let ctx2 = make_ctx(Arc::clone(&mock2), "s-clear-auto", "feishu", sl_ref2);
+    let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
+    let clear_handle = mock_sl.clear_called_handle();
+    let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
+    let ctx = make_ctx(Arc::clone(&mock), "s-clear-auto", "feishu", sl_ref);
+
     SlashResult::SetMode {
         mode: "auto".into(),
         plan_file_path: None,
         initial_input: None,
         reply_message: None,
     }
-    .execute(&ctx2)
+    .execute(&ctx)
     .await;
+
     assert!(
-        *clear_handle2.lock().unwrap(),
+        *clear_handle.lock().unwrap(),
         "clear_plan_state should be called"
     );
     assert!(
-        plan_handle2.lock().unwrap().is_none(),
+        plan_handle.lock().unwrap().is_none(),
         "plan_state should be None after switching to auto"
     );
 }
