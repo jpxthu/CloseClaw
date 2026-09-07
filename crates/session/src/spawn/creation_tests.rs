@@ -16,7 +16,6 @@ use super::creation::{create_child_conversation_session, ChildSessionCreationPar
 use super::types::SpawnMode;
 use crate::llm_session::ConversationSession;
 use crate::persistence::{ReasoningLevel, SessionCheckpoint};
-
 // ── Mock implementation ────────────────────────────────────────────────
 ///
 /// Provides just enough to let `create_child_conversation_session` succeed
@@ -139,7 +138,6 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         source: closeclaw_config::agents::ConfigSource::User,
     }
 }
-
 // ── Tests ──────────────────────────────────────────────────────────────
 ///
 /// The task is now injected into the system prompt (AppendSection), and
@@ -471,7 +469,6 @@ async fn test_skills_no_config_no_panic() {
         "no config should result in no whitelist injection"
     );
 }
-
 // ── Gap 4: Prompt template injection into system prompt ───────────────────
 #[tokio::test]
 async fn test_prompt_template_injected_into_system_prompt() {
@@ -617,7 +614,6 @@ async fn test_no_prompt_template_unchanged_behavior() {
         "system prompt should not contain template text when prefix is None"
     );
 }
-
 // ── Workspace fallback chain tests ──────────────────────────────────────
 /// the dedicated workspace directory is used.
 #[tokio::test]
@@ -731,7 +727,6 @@ async fn test_level3_dedicated_uses_sender_id() {
         "Level 3 fallback must include sender_id as the user_id component"
     );
 }
-
 // ── Edge cases for workspace fallback chain ────────────────────────────
 #[tokio::test]
 async fn test_empty_string_workspace_falls_back() {
@@ -854,7 +849,6 @@ async fn test_fallback_chain_config_beats_dedicated() {
         "config.workspace must win over Level 3 dedicated directory"
     );
 }
-
 // ── Fork mode: task in system prompt, parent history in messages ────────
 fn msg_text(msg: &crate::llm_session::SessionMessage) -> String {
     use closeclaw_common::ContentBlock;
@@ -959,4 +953,46 @@ async fn test_fork_mode_task_in_system_appends_parent_history_in_messages() {
         !texts.iter().any(|t| t.contains("Fork task description")),
         "task text must NOT be in conversation messages in fork mode"
     );
+}
+
+// Bootstrap mode: child sessions always Minimal (design doc contract).
+#[tokio::test]
+async fn test_bootstrap_mode_always_minimal() {
+    let ctx = MockCreationContext::new();
+    for light in [true, false] {
+        for config_mode in [BootstrapMode::Full, BootstrapMode::Minimal] {
+            let mut config = make_config("child-agent");
+            config.bootstrap_mode = config_mode;
+            let params = ChildSessionCreationParams {
+                parent_session_id: "parent-session",
+                parent_agent_id: "parent-agent",
+                depth: 0,
+                task: "test task",
+                light_context: light,
+                workspace: None,
+                mode: SpawnMode::Run,
+                fork: false,
+                model_override: None,
+                parent_subagents_model: None,
+                max_spawn_depth: 3,
+                prompt_template_prefix: None,
+                timeout_warning_secs: None,
+                timeout_notify_interval_ratio: None,
+                debug_log: None,
+                trace_id: "",
+                session_key: None,
+            };
+            let result = create_child_conversation_session(&ctx, &config, &params)
+                .await
+                .expect("should succeed");
+            let cs = result.conversation_session.read().await;
+            assert_eq!(
+                cs.bootstrap_mode(),
+                BootstrapMode::Minimal,
+                "light={}, config={:?} → must be Minimal",
+                light,
+                config_mode
+            );
+        }
+    }
 }
