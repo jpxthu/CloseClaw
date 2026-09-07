@@ -17,6 +17,7 @@ use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_llm::types::ContentBlock;
 
 use crate::content_normalizer::ContentNormalizer;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn make_normalized(content: &str) -> NormalizedMessage {
@@ -115,7 +116,6 @@ async fn test_inbound_bypass() {
     let registry = ProcessorRegistry::new();
     let msg = make_normalized("hello world");
     let result = registry.process_inbound(msg).await.unwrap();
-
     assert_eq!(result.text_content(), Some("hello world"));
     assert!(!result.content_blocks.is_empty());
     // Design doc: chain dispatcher copies message_type + unavailable_media
@@ -136,7 +136,6 @@ async fn test_outbound_bypass() {
         metadata: HashMap::new(),
     };
     let result = registry.process_outbound(llm_out.clone()).await.unwrap();
-
     assert_eq!(result.text_content(), Some("llm said hello"));
     assert!(!result.content_blocks.is_empty());
     assert_eq!(result.metadata.len(), 0);
@@ -149,7 +148,6 @@ async fn test_inbound_priority_ascending() {
     let (p_10, c10) = TestProc::inbound("p_10", 10);
     let (p_5, c5) = TestProc::inbound("p_5", 5);
     let (p_20, _) = TestProc::inbound("p_20", 20);
-
     let mut registry = ProcessorRegistry::new();
     registry.register(p_10.clone());
     registry.register(p_5.clone());
@@ -947,6 +945,7 @@ async fn test_outbound_raw_log_fail_continues_chain() {
         "original content preserved through fail-open"
     );
 }
+
 // ── Empty content_blocks fallback (Step 1.7) ────────────────────────────────
 
 /// VerbosityFilter with empty content_blocks: wraps ctx.content as Text block.
@@ -975,6 +974,7 @@ async fn test_verbosity_filter_empty_blocks_wraps_content() {
 #[tokio::test]
 async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
     use super::verbosity_filter::VerbosityFilter;
+
     let filter = VerbosityFilter;
     let ctx = MessageContext {
         content: "should not appear".to_string(),
@@ -996,5 +996,5 @@ async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
         &result.content_blocks[..],
         [ContentBlock::Text(s), ContentBlock::Thinking { .. }]
             if s == "visible"
-    ),);
+    ));
 }
