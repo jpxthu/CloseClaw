@@ -12,7 +12,9 @@ use tokio::process::Command;
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
+use crate::debug_log::{self, emit_task_event, TasksDebugLogContext, TasksEmitEventParams};
 use crate::stuck_detect::{self, StuckDetectConfig};
+use closeclaw_debug_log::{DebugLog, LogLevel};
 
 pub(crate) type TaskMap = Arc<Mutex<HashMap<String, TaskHandle>>>;
 
@@ -98,6 +100,8 @@ pub(crate) struct TaskHandle {
     pub(crate) created_at: tokio::time::Instant,
     /// Shared notifier set by the timeout monitor to trigger kill.
     pub(crate) timeout_notify: Arc<Notify>,
+    /// Self-generated trace ID for debug-log correlation.
+    pub(crate) trace_id: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +116,8 @@ pub struct BackgroundTaskManager {
     /// Maximum total execution time in seconds per task.
     /// Tasks exceeding this limit are force-killed.
     pub(crate) max_execution_secs: u64,
+    /// Optional debug-log instance for structured event emission.
+    debug_log: Option<Arc<DebugLog>>,
 }
 
 impl Default for BackgroundTaskManager {
@@ -121,6 +127,7 @@ impl Default for BackgroundTaskManager {
             temp_dir: PathBuf::from("/tmp"),
             notifications: Arc::new(Mutex::new(Vec::new())),
             max_execution_secs: 1800,
+            debug_log: None,
         }
     }
 }
@@ -138,6 +145,7 @@ impl BackgroundTaskManager {
             temp_dir: temp_dir.into(),
             notifications: Arc::new(Mutex::new(Vec::new())),
             max_execution_secs: 1800,
+            debug_log: None,
         }
     }
 
@@ -157,6 +165,7 @@ impl BackgroundTaskManager {
             temp_dir: temp_dir.into(),
             notifications: Arc::new(Mutex::new(Vec::new())),
             max_execution_secs,
+            debug_log: None,
         }
     }
 
@@ -170,7 +179,30 @@ impl BackgroundTaskManager {
             temp_dir: temp_dir.into(),
             notifications: Arc::new(Mutex::new(Vec::new())),
             max_execution_secs,
+            debug_log: None,
         }
+    }
+
+    pub fn with_debug_log(mut self, debug_log: Arc<DebugLog>) -> Self {
+        self.debug_log = Some(debug_log);
+        self
+    }
+
+    fn emit_debug_event(
+        &self,
+        trace_id: &str,
+        level: LogLevel,
+        event_type: &str,
+        payload: serde_json::Value,
+    ) {
+        emit_task_event(TasksEmitEventParams {
+            ctx: TasksDebugLogContext::new(self.debug_log.as_deref(), trace_id, None),
+            level,
+            source_module: "tasks",
+            event_type,
+            payload,
+            parent: None,
+        });
     }
 }
 
@@ -186,6 +218,8 @@ impl BackgroundTaskManager {
         let task_id = Uuid::new_v4().to_string();
         let output_path = prepare_task_dir(&self.temp_dir, &task_id).await?;
 
+        let trace_id = debug_log::generate_trace_id();
+
         insert_initial_handle(
             &self.tasks,
             &task_id,
@@ -196,11 +230,20 @@ impl BackgroundTaskManager {
         )
         .await;
 
-        tracing::info!(
-            task_id = %task_id,
-            command = %command,
-            "background task started"
+        tracing::info!(task_id = %task_id, command = %command, "background task started");
+        self.emit_debug_event(
+            &trace_id,
+            LogLevel::Info,
+            "background.task.started",
+            serde_json::json!({"task_id": task_id, "command": command}),
         );
+        // Store trace_id in the handle for terminal-state emission.
+        {
+            let mut map = lock_map(&self.tasks).await;
+            if let Some(h) = map.get_mut(&task_id) {
+                h.trace_id = trace_id.clone();
+            }
+        }
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -226,9 +269,17 @@ impl BackgroundTaskManager {
 
         let notifs = Arc::clone(&self.notifications);
         let tn = Arc::clone(&timeout_notify);
+        let dlog = self.debug_log.clone();
 
         tokio::spawn(async move {
-            run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs, &tn).await;
+            let ctx = ShellCommandContext {
+                tasks: &shared,
+                task_id: &tid,
+                notifications: &notifs,
+                timeout_notify: &tn,
+                debug_log: dlog.as_deref(),
+            };
+            run_shell_command(&cmd, &cwd, &out, &ctx).await;
         });
 
         // Spawn the total-execution-time-limit monitor.
@@ -236,8 +287,9 @@ impl BackgroundTaskManager {
         let tid = task_id.clone();
         let shared = Arc::clone(&self.tasks);
         let notifs = Arc::clone(&self.notifications);
+        let dlog = self.debug_log.clone();
         tokio::spawn(async move {
-            spawn_max_execution_monitor(max_secs, &tid, &shared, &notifs).await;
+            spawn_max_execution_monitor(max_secs, &tid, &shared, &notifs, dlog.as_deref()).await;
         });
 
         Ok(make_public_task(
@@ -261,7 +313,7 @@ impl BackgroundTaskManager {
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-
+        let trace_id = debug_log::generate_trace_id();
         insert_initial_handle(
             &self.tasks,
             &task_id,
@@ -271,12 +323,21 @@ impl BackgroundTaskManager {
             session_id,
         )
         .await;
-
-        tracing::info!(
-            task_id = %task_id,
-            command = %command,
-            "background task started"
+        tracing::info!(task_id = %task_id, command = %command, "background task started");
+        self.emit_debug_event(
+            &trace_id,
+            LogLevel::Info,
+            "background.task.started",
+            serde_json::json!({"task_id": task_id, "command": command}),
         );
+
+        // Store trace_id in the handle for terminal-state emission.
+        {
+            let mut map = lock_map(&self.tasks).await;
+            if let Some(h) = map.get_mut(&task_id) {
+                h.trace_id = trace_id.clone();
+            }
+        }
 
         stuck_detect::start_stuck_detection(
             task_id.clone(),
@@ -300,6 +361,7 @@ impl BackgroundTaskManager {
 
         let notifs = Arc::clone(&self.notifications);
         let tn = Arc::clone(&timeout_notify);
+        let dlog = self.debug_log.clone();
 
         tokio::spawn(async move {
             let ctx = BackgroundizeContext {
@@ -307,6 +369,7 @@ impl BackgroundTaskManager {
                 task_id: &tid,
                 notifications: &notifs,
                 timeout_notify: &tn,
+                debug_log: dlog.as_deref(),
             };
             backgroundize_process(child, stdout, stderr, &out, &ctx).await;
         });
@@ -316,8 +379,9 @@ impl BackgroundTaskManager {
         let tid = task_id.clone();
         let shared = Arc::clone(&self.tasks);
         let notifs = Arc::clone(&self.notifications);
+        let dlog = self.debug_log.clone();
         tokio::spawn(async move {
-            spawn_max_execution_monitor(max_secs, &tid, &shared, &notifs).await;
+            spawn_max_execution_monitor(max_secs, &tid, &shared, &notifs, dlog.as_deref()).await;
         });
 
         Ok(make_public_task(
@@ -346,6 +410,12 @@ impl BackgroundTaskManager {
         }
         handle.state = TaskState::Killed;
         tracing::info!(task_id = %task_id, "background task killed");
+
+        let trace_id = handle.trace_id.clone();
+        if !trace_id.is_empty() {
+            self.emit_debug_event(&trace_id, LogLevel::Info, "background.task.terminal",
+                serde_json::json!({"task_id": task_id, "command": handle.command, "new_state": "killed"}));
+        }
         Ok(())
     }
 
@@ -481,14 +551,19 @@ impl crate::TaskManager for BackgroundTaskManager {
 // Process execution helpers
 // ---------------------------------------------------------------------------
 
+struct ShellCommandContext<'a> {
+    tasks: &'a TaskMap,
+    task_id: &'a str,
+    notifications: &'a Arc<Mutex<Vec<CompletionNotification>>>,
+    timeout_notify: &'a Arc<Notify>,
+    debug_log: Option<&'a DebugLog>,
+}
+
 async fn run_shell_command(
     command: &str,
     cwd: &Path,
     output_path: &Path,
-    tasks: &TaskMap,
-    task_id: &str,
-    notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
-    timeout_notify: &Arc<Notify>,
+    ctx: &ShellCommandContext<'_>,
 ) {
     let result = Command::new("sh")
         .arg("-c")
@@ -500,18 +575,10 @@ async fn run_shell_command(
 
     match result {
         Ok(child) => {
-            run_background_child(
-                child,
-                output_path,
-                tasks,
-                task_id,
-                notifications,
-                timeout_notify,
-            )
-            .await;
+            run_background_child(child, output_path, ctx).await;
         }
         Err(e) => {
-            mark_task_failed(tasks, task_id, &e).await;
+            mark_task_failed(ctx.tasks, ctx.task_id, &e, ctx.debug_log).await;
         }
     }
 }
@@ -519,29 +586,45 @@ async fn run_shell_command(
 async fn run_background_child(
     mut child: tokio::process::Child,
     output_path: &Path,
-    tasks: &TaskMap,
-    task_id: &str,
-    notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
-    timeout_notify: &Arc<Notify>,
+    ctx: &ShellCommandContext<'_>,
 ) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let (kill_tx, kill_rx) = oneshot::channel();
 
     {
-        let mut map = lock_map(tasks).await;
-        if let Some(h) = map.get_mut(task_id) {
+        let mut map = lock_map(ctx.tasks).await;
+        if let Some(h) = map.get_mut(ctx.task_id) {
             h.kill_tx = Some(kill_tx);
         }
     }
 
-    let exit_code =
-        await_process(child, stdout, stderr, output_path, kill_rx, timeout_notify).await;
+    let exit_code = await_process(
+        child,
+        stdout,
+        stderr,
+        output_path,
+        kill_rx,
+        ctx.timeout_notify,
+    )
+    .await;
 
-    finalize_state(tasks, task_id, exit_code, notifications).await;
+    finalize_state(
+        ctx.tasks,
+        ctx.task_id,
+        exit_code,
+        ctx.notifications,
+        ctx.debug_log,
+    )
+    .await;
 }
 
-async fn mark_task_failed(tasks: &TaskMap, task_id: &str, error: &std::io::Error) {
+async fn mark_task_failed(
+    tasks: &TaskMap,
+    task_id: &str,
+    error: &std::io::Error,
+    debug_log: Option<&DebugLog>,
+) {
     let mut map = lock_map(tasks).await;
     if let Some(h) = map.get_mut(task_id) {
         h.state = TaskState::Failed { exit_code: 1 };
@@ -550,6 +633,17 @@ async fn mark_task_failed(tasks: &TaskMap, task_id: &str, error: &std::io::Error
             error = %error,
             "failed to spawn background command"
         );
+        let trace_id = h.trace_id.clone();
+        if !trace_id.is_empty() {
+            emit_task_event(TasksEmitEventParams {
+                ctx: TasksDebugLogContext::new(debug_log, &trace_id, None),
+                level: LogLevel::Info,
+                source_module: "tasks",
+                event_type: "background.task.terminal",
+                payload: serde_json::json!({"task_id": task_id, "command": h.command, "new_state": "failed"}),
+                parent: None,
+            });
+        }
     }
 }
 
@@ -558,6 +652,7 @@ struct BackgroundizeContext<'a> {
     task_id: &'a str,
     notifications: &'a Arc<Mutex<Vec<CompletionNotification>>>,
     timeout_notify: &'a Arc<Notify>,
+    debug_log: Option<&'a DebugLog>,
 }
 
 async fn backgroundize_process(
@@ -585,7 +680,14 @@ async fn backgroundize_process(
     )
     .await;
 
-    finalize_state(ctx.tasks, ctx.task_id, exit_code, ctx.notifications).await;
+    finalize_state(
+        ctx.tasks,
+        ctx.task_id,
+        exit_code,
+        ctx.notifications,
+        ctx.debug_log,
+    )
+    .await;
 }
 
 async fn await_process(
@@ -662,12 +764,13 @@ async fn spawn_max_execution_monitor(
     task_id: &str,
     tasks: &TaskMap,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
+    debug_log: Option<&DebugLog>,
 ) {
     let deadline = std::time::Duration::from_secs(max_secs);
     tokio::time::sleep(deadline).await;
 
     // Check if the task is still running and trigger kill via the notifier.
-    let (command, output_path) = {
+    let (command, output_path, trace_id) = {
         let mut map = lock_map(tasks).await;
         if let Some(h) = map.get_mut(task_id) {
             if !matches!(h.state, TaskState::Running { .. }) {
@@ -678,7 +781,8 @@ async fn spawn_max_execution_monitor(
             if let Some(kill_tx) = h.kill_tx.take() {
                 let _ = kill_tx.send(());
             }
-            (h.command.clone(), h.output_path.clone())
+            let trace_id = h.trace_id.clone();
+            (h.command.clone(), h.output_path.clone(), trace_id)
         } else {
             return; // Task already cleaned up.
         }
@@ -690,6 +794,17 @@ async fn spawn_max_execution_monitor(
         max_execution_secs = max_secs,
         "background task killed: total execution time limit reached"
     );
+
+    if !trace_id.is_empty() {
+        emit_task_event(TasksEmitEventParams {
+            ctx: TasksDebugLogContext::new(debug_log, &trace_id, None),
+            level: LogLevel::Info,
+            source_module: "tasks",
+            event_type: "background.task.terminal",
+            payload: serde_json::json!({"task_id": task_id, "command": command, "new_state": "killed"}),
+            parent: None,
+        });
+    }
 
     let notif = CompletionNotification {
         task_id: task_id.to_owned(),
@@ -715,6 +830,7 @@ async fn finalize_state(
     task_id: &str,
     exit_code: i32,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
+    debug_log: Option<&DebugLog>,
 ) {
     let mut map = lock_map(tasks).await;
     if let Some(h) = map.get_mut(task_id) {
@@ -727,7 +843,25 @@ async fn finalize_state(
         } else {
             TaskState::Failed { exit_code }
         };
+        let new_state_name = match &new_state {
+            TaskState::Completed { .. } => "completed",
+            TaskState::Failed { .. } => "failed",
+            _ => unreachable!(),
+        };
         h.state = new_state.clone();
+
+        // Emit debug-log event: task terminal.
+        let trace_id = h.trace_id.clone();
+        if !trace_id.is_empty() {
+            emit_task_event(TasksEmitEventParams {
+                ctx: TasksDebugLogContext::new(debug_log, &trace_id, None),
+                level: LogLevel::Info,
+                source_module: "tasks",
+                event_type: "background.task.terminal",
+                payload: serde_json::json!({"task_id": task_id, "command": h.command, "new_state": new_state_name}),
+                parent: None,
+            });
+        }
         tracing::info!(
             task_id = %task_id,
             command = %h.command,
@@ -803,6 +937,7 @@ async fn insert_initial_handle(
         notified: false,
         created_at: tokio::time::Instant::now(),
         timeout_notify: Arc::new(Notify::new()),
+        trace_id: String::new(),
     };
     let mut map = lock_map(tasks).await;
     map.insert(task_id.to_owned(), handle);

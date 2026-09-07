@@ -939,6 +939,7 @@ name = "closeclaw-tasks"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "closeclaw-debug-log",
  "serde",
  "serde_json",
  "tempfile",
