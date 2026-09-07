@@ -70,6 +70,14 @@ impl MockToolRegistry {
         }
     }
 
+    /// Extract tool name from a boxed tool.
+    fn extract_name(tool: &Box<dyn std::any::Any + Send + Sync>) -> String {
+        let boxed = tool
+            .downcast_ref::<closeclaw_common::tool_registry::ToolBox>()
+            .expect("expected ToolBox");
+        boxed.0.name().to_string()
+    }
+
     /// Set up the next registration to return a Conflict error.
     async fn set_conflict(&self, tool_name: &str) {
         *self.conflict_tool.lock().await = Some(tool_name.to_string());
@@ -88,14 +96,10 @@ impl ToolRegistry for MockToolRegistry {
         tool: Box<dyn std::any::Any + Send + Sync>,
         registrar_name: &str,
     ) -> Result<(), RegistryError> {
-        // Check if we should simulate a conflict.
+        // Check if we should simulate a conflict (explicit injection).
         let conflict = self.conflict_tool.lock().await.take();
+        let tool_name = Self::extract_name(&tool);
         if let Some(ref conflicting_name) = conflict {
-            // Extract tool name from the ToolBox.
-            let boxed = tool
-                .downcast_ref::<closeclaw_common::tool_registry::ToolBox>()
-                .expect("expected ToolBox");
-            let tool_name = boxed.0.name().to_string();
             if tool_name == *conflicting_name {
                 return Err(RegistryError::Conflict {
                     tool: tool_name,
@@ -105,11 +109,19 @@ impl ToolRegistry for MockToolRegistry {
             }
         }
 
-        // Extract tool name and record registration.
-        let boxed = tool
-            .downcast_ref::<closeclaw_common::tool_registry::ToolBox>()
-            .expect("expected ToolBox");
-        let tool_name = boxed.0.name().to_string();
+        // Check for duplicate registration (same name already present).
+        {
+            let guard = self.registered.lock().await;
+            if guard.contains_key(&tool_name) {
+                return Err(RegistryError::Conflict {
+                    tool: tool_name.clone(),
+                    registrar: "SkillsToolsRegistrar".to_string(),
+                    attempting: registrar_name.to_string(),
+                });
+            }
+        }
+
+        // Record registration.
         self.registered
             .lock()
             .await
@@ -160,21 +172,21 @@ impl ToolRegistryQuery for MockToolRegistry {
 #[test]
 fn test_skills_tools_registrar_name() {
     let tool = Arc::new(MockTool::new("test_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     assert_eq!(registrar.name(), "SkillsToolsRegistrar");
 }
 
 #[test]
 fn test_skills_tools_registrar_priority() {
     let tool = Arc::new(MockTool::new("test_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     assert_eq!(registrar.priority(), 3);
 }
 
 #[tokio::test]
 async fn test_skills_tools_registrar_registers_tool() {
     let tool = Arc::new(MockTool::new("my_skill_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     let registry = MockToolRegistry::new();
 
     let result = registrar.register(&registry).await;
@@ -195,7 +207,7 @@ async fn test_skills_tools_registrar_registers_tool() {
 #[tokio::test]
 async fn test_skills_tools_registrar_conflict() {
     let tool = Arc::new(MockTool::new("conflicting_tool"));
-    let registrar = SkillsToolsRegistrar::new(tool);
+    let registrar = SkillsToolsRegistrar::new(vec![tool]);
     let registry = MockToolRegistry::new();
 
     // Set up the mock to return Conflict on the next registration.
@@ -209,6 +221,47 @@ async fn test_skills_tools_registrar_conflict() {
             attempting,
         }) => {
             assert_eq!(tool, "conflicting_tool");
+            assert_eq!(attempting, "SkillsToolsRegistrar");
+        }
+        other => panic!("expected ToolRegistrarError::Conflict, got: {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_skills_tools_registrar_multiple_tools() {
+    let tool_a = Arc::new(MockTool::new("SkillTool"));
+    let tool_b = Arc::new(MockTool::new("SkillCreator"));
+    let registrar = SkillsToolsRegistrar::new(vec![tool_a, tool_b]);
+    let registry = MockToolRegistry::new();
+
+    let result = registrar.register(&registry).await;
+    assert!(
+        result.is_ok(),
+        "register() should succeed: {:?}",
+        result.err()
+    );
+
+    let registered = registry.registered_tools().await;
+    assert!(registered.contains(&"SkillTool".to_string()));
+    assert!(registered.contains(&"SkillCreator".to_string()));
+}
+
+#[tokio::test]
+async fn test_skills_tools_registrar_duplicate_name_conflict() {
+    // Two tools with the same name registered through the same registrar.
+    let tool_a = Arc::new(MockTool::new("duplicate_tool"));
+    let tool_b = Arc::new(MockTool::new("duplicate_tool"));
+    let registrar = SkillsToolsRegistrar::new(vec![tool_a, tool_b]);
+    let registry = MockToolRegistry::new();
+
+    let result = registrar.register(&registry).await;
+    match result {
+        Err(ToolRegistrarError::Conflict {
+            tool,
+            registrar: _,
+            attempting,
+        }) => {
+            assert_eq!(tool, "duplicate_tool");
             assert_eq!(attempting, "SkillsToolsRegistrar");
         }
         other => panic!("expected ToolRegistrarError::Conflict, got: {:?}", other),

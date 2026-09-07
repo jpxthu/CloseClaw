@@ -167,7 +167,7 @@ impl Tool for SkillTool {
 
     fn flags(&self) -> ToolFlags {
         ToolFlags {
-            is_deferred_by_default: true,
+            is_deferred_by_default: false,
             ..Default::default()
         }
     }
@@ -269,7 +269,7 @@ mod tests {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         let tool = SkillTool::new(registry, builtin);
-        assert!(tool.flags().is_deferred_by_default);
+        assert!(!tool.flags().is_deferred_by_default);
     }
 
     // -----------------------------------------------------------------

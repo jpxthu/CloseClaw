@@ -11,6 +11,7 @@ pub mod registry;
 pub mod skill_creator;
 #[cfg(test)]
 mod skill_creator_tests;
+pub mod skill_creator_tool;
 pub mod skills_fragment_provider;
 pub mod tool_registrar;
 #[cfg(test)]
@@ -22,5 +23,6 @@ pub use disk::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
 pub use disk::{init_disk_skills, resolve_skill, DiskSkillRegistry, ResolvedSkill, ScanConfig};
 pub use registry::{BuiltinSkillRegistry, Skill, SkillError};
 pub use skill_creator::SkillCreatorSkill;
+pub use skill_creator_tool::SkillCreatorTool;
 pub use skills_fragment_provider::SkillsFragmentProvider;
 pub use tool_registrar::SkillsToolsRegistrar;
