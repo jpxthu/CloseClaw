@@ -175,6 +175,12 @@ impl BackgroundTaskManager {
         )
         .await;
 
+        tracing::info!(
+            task_id = %task_id,
+            command = %command,
+            "background task started"
+        );
+
         stuck_detect::start_stuck_detection(
             task_id.clone(),
             output_path.clone(),
@@ -243,6 +249,12 @@ impl BackgroundTaskManager {
         )
         .await;
 
+        tracing::info!(
+            task_id = %task_id,
+            command = %command,
+            "background task started"
+        );
+
         stuck_detect::start_stuck_detection(
             task_id.clone(),
             output_path.clone(),
@@ -304,6 +316,7 @@ impl BackgroundTaskManager {
             let _ = kill_tx.send(());
         }
         handle.state = TaskState::Killed;
+        tracing::info!(task_id = %task_id, "background task killed");
         Ok(())
     }
 
@@ -728,6 +741,12 @@ async fn finalize_state(
             TaskState::Failed { exit_code }
         };
         h.state = new_state.clone();
+        tracing::info!(
+            task_id = %task_id,
+            command = %h.command,
+            state = ?new_state,
+            "background task reached terminal state"
+        );
         // Dedup: if a stuck alert was already sent, skip completion
         // notification — the task only notifies once.
         if h.notified {
