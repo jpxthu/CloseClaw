@@ -17,7 +17,6 @@ use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_llm::types::ContentBlock;
 
 use crate::content_normalizer::ContentNormalizer;
-
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn make_normalized(content: &str) -> NormalizedMessage {
@@ -948,7 +947,6 @@ async fn test_outbound_raw_log_fail_continues_chain() {
         "original content preserved through fail-open"
     );
 }
-
 // ── Empty content_blocks fallback (Step 1.7) ────────────────────────────────
 
 /// VerbosityFilter with empty content_blocks: wraps ctx.content as Text block.
@@ -994,7 +992,9 @@ async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
     let result = filter.process(&ctx).await.unwrap().unwrap();
 
     // Full default: Thinking not filtered
-    assert!(
-        matches!(&result.content_blocks[..], [ContentBlock::Text(s), ContentBlock::Thinking { .. }] if s == "visible"),
-    );
+    assert!(matches!(
+        &result.content_blocks[..],
+        [ContentBlock::Text(s), ContentBlock::Thinking { .. }]
+            if s == "visible"
+    ),);
 }
