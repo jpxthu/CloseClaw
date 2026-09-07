@@ -20,10 +20,13 @@ use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_common::verbosity::VerbosityLevel;
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
+use super::slash_executor_test_utils::{make_reasoning_ctx, ReasoningConfigMockExecutor};
 use closeclaw_common::executor::SlashResultExecutor;
 
 /// Expected reply from the mock compact executor.
 const COMPACT_REPLY: &str = "压缩完成：100 → 50 字符";
+const NO_DOWNGRADE_REPLY: &str = "推理深度已设为 High（含 provider 降级后的值）";
+const DOWNGRADE_REPLY: &str = "推理深度已设为 High（原请求 Max 已按供应商能力降级）";
 
 // ---------------------------------------------------------------------------
 // Mock implementations
@@ -150,8 +153,13 @@ impl SlashEffectExecutor for MockExecutor {
         1
     }
 
-    async fn execute_set_reasoning(&self, _session_id: &str, _level: ReasoningLevel) {
+    async fn execute_set_reasoning(
+        &self,
+        _session_id: &str,
+        _level: ReasoningLevel,
+    ) -> Option<ReasoningLevel> {
         *self.set_reasoning_called.lock().unwrap() = true;
+        Some(_level)
     }
 
     async fn execute_set_verbosity(&self, _session_id: &str, _level: VerbosityLevel) {
@@ -477,7 +485,13 @@ async fn test_exec_failure_forwards_error_to_user() {
         async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) -> usize {
             0
         }
-        async fn execute_set_reasoning(&self, _: &str, _: ReasoningLevel) {}
+        async fn execute_set_reasoning(
+            &self,
+            _: &str,
+            _: ReasoningLevel,
+        ) -> Option<ReasoningLevel> {
+            None
+        }
         async fn execute_set_verbosity(&self, _: &str, _: VerbosityLevel) {}
         async fn execute_set_mode(&self, _: &str, _: &str) {}
         async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {
@@ -562,7 +576,141 @@ async fn test_set_reasoning_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"));
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max（含 provider 降级后的值）")
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+/// No downgrade: requested == effective → "推理深度已设为 {effective}（含 provider 降级后的值）".
+#[tokio::test]
+async fn test_set_reasoning_no_downgrade_reply_high() {
+    let exec = Arc::new(ReasoningConfigMockExecutor::new(Some(ReasoningLevel::High)));
+    let (ctx, mut rx) = make_reasoning_ctx(exec.clone());
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::High,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    assert!(exec.was_called());
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t)
+                    if t == NO_DOWNGRADE_REPLY),
+                "no-downgrade reply should contain parenthetical, got: {:?}",
+                &blocks[0],
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+/// Downgrade: requested=Max, effective=High → downgrade explanation.
+#[tokio::test]
+async fn test_set_reasoning_downgrade_reply() {
+    let exec = Arc::new(ReasoningConfigMockExecutor::new(Some(ReasoningLevel::High)));
+    let (ctx, mut rx) = make_reasoning_ctx(exec.clone());
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::Max,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    assert!(exec.was_called());
+    let actions = drain_actions(&mut rx).await;
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t)
+                    if t == DOWNGRADE_REPLY),
+                "downgrade reply should contain effective level and\
+ explanation, got: {:?}",
+                &blocks[0],
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+/// Off + provider supports closing → "推理输出已关闭".
+#[tokio::test]
+async fn test_set_reasoning_off_provider_supports_closing() {
+    let exec = Arc::new(ReasoningConfigMockExecutor::new(Some(ReasoningLevel::Off)));
+    let (ctx, mut rx) = make_reasoning_ctx(exec.clone());
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::Off,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    let actions = drain_actions(&mut rx).await;
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
+                "Off+supports-closing should reply '推理输出已关闭', got: {:?}",
+                &blocks[0],
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+/// Off + provider cannot close → "当前模型无法关闭推理，已降至最低可用档位 {effective}".
+#[tokio::test]
+async fn test_set_reasoning_off_provider_cannot_close() {
+    let exec = Arc::new(ReasoningConfigMockExecutor::new(Some(ReasoningLevel::Low)));
+    let (ctx, mut rx) = make_reasoning_ctx(exec.clone());
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::Off,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    let actions = drain_actions(&mut rx).await;
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "当前模型无法关闭推理，已降至最低可用档位 Low"),
+                "Off+can't-close should indicate downgrade to lowest level, got: {:?}",
+                &blocks[0],
+            );
+        }
+        other => panic!("expected ReplyAction::Reply, got {other:?}"),
+    }
+}
+
+/// None (session not found) → legacy fallback "推理深度已设为 {requested}".
+#[tokio::test]
+async fn test_set_reasoning_none_fallback_legacy_reply() {
+    let exec = Arc::new(ReasoningConfigMockExecutor::new(None));
+    let (ctx, mut rx) = make_reasoning_ctx(exec.clone());
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::Max,
+    }
+    .execute(&ctx)
+    .await;
+    drop(ctx);
+
+    let actions = drain_actions(&mut rx).await;
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => {
+            assert!(
+                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"),
+                "None fallback should use legacy reply, got: {:?}",
+                &blocks[0],
+            );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }

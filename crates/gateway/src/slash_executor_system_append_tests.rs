@@ -77,7 +77,13 @@ impl SlashEffectExecutor for CountingMockExecutor {
             SystemAppendAction::Clear => n * 2, // simulate N items cleared
         }
     }
-    async fn execute_set_reasoning(&self, _: &str, _: closeclaw_common::ReasoningLevel) {}
+    async fn execute_set_reasoning(
+        &self,
+        _: &str,
+        _: closeclaw_common::ReasoningLevel,
+    ) -> Option<closeclaw_common::ReasoningLevel> {
+        None
+    }
     async fn execute_set_verbosity(&self, _: &str, _: closeclaw_common::VerbosityLevel) {}
     async fn execute_set_mode(&self, _: &str, _: &str) {}
     async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {
@@ -205,7 +211,13 @@ async fn test_system_append_clear_zero_items() {
         async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) -> usize {
             0
         }
-        async fn execute_set_reasoning(&self, _: &str, _: closeclaw_common::ReasoningLevel) {}
+        async fn execute_set_reasoning(
+            &self,
+            _: &str,
+            _: closeclaw_common::ReasoningLevel,
+        ) -> Option<closeclaw_common::ReasoningLevel> {
+            None
+        }
         async fn execute_set_verbosity(&self, _: &str, _: closeclaw_common::VerbosityLevel) {}
         async fn execute_set_mode(&self, _: &str, _: &str) {}
         async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {

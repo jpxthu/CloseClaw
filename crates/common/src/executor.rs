@@ -67,7 +67,15 @@ pub trait SlashEffectExecutor: Send + Sync {
     async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize;
 
     /// Set the reasoning level for the session.
-    async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel);
+    ///
+    /// Returns the effective reasoning level after provider downgrade
+    /// resolution, or `None` if resolution is unavailable (session not
+    /// found, model knowledge missing, etc.).
+    async fn execute_set_reasoning(
+        &self,
+        session_id: &str,
+        level: ReasoningLevel,
+    ) -> Option<ReasoningLevel>;
 
     /// Set the verbosity level for the session.
     async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel);
@@ -251,11 +259,43 @@ async fn execute_exec(ctx: &SideEffectContext, command: String) {
 }
 
 /// Handle `SlashResult::SetReasoning` — set reasoning depth.
+///
+/// Reply semantics (per design doc `docs/design/slash/reasoning.md` §数据流):
+/// - effective == requested (no downgrade): "推理深度已设为 {effective}（含 provider 降级后的值）"
+/// - effective != requested (downgrade):   "推理深度已设为 {effective}（原请求 {requested} 已按供应商能力降级）"
+/// - Off + actually off:                   "推理输出已关闭"
+/// - Off + can't disable (lowest fallback): "当前模型无法关闭推理，已降至最低可用档位 {effective}"
+/// - None (resolution unavailable):         "推理深度已设为 {requested}" (legacy fallback)
 async fn execute_set_reasoning(ctx: &SideEffectContext, level: ReasoningLevel) {
-    ctx.executor
+    let effective = ctx
+        .executor
         .execute_set_reasoning(&ctx.session_id, level)
         .await;
-    send_reply(ctx, format!("推理深度已设为 {level}")).await;
+
+    let text = match effective {
+        None => {
+            // Fallback: resolution unavailable, use legacy reply.
+            format!("推理深度已设为 {level}")
+        }
+        Some(eff) if eff == level => {
+            // No downgrade.
+            if eff == ReasoningLevel::Off {
+                "推理输出已关闭".to_string()
+            } else {
+                format!("推理深度已设为 {eff}（含 provider 降级后的值）")
+            }
+        }
+        Some(eff) => {
+            // Downgrade occurred.
+            if level == ReasoningLevel::Off {
+                // Off requested but can't actually disable.
+                format!("当前模型无法关闭推理，已降至最低可用档位 {eff}")
+            } else {
+                format!("推理深度已设为 {eff}（原请求 {level} 已按供应商能力降级）")
+            }
+        }
+    };
+    send_reply(ctx, text).await;
 }
 
 /// Handle `SlashResult::SetVerbosity` — set output verbosity.

@@ -1,256 +1,20 @@
-// Unit tests for SlashResultExecutor — covers all SlashResult variant execute() behavior.
-//
-// Uses MockSlashEffectExecutor to verify side-effect dispatch and
-// MockSessionLookup for session queries.
+// Unit tests for SlashResultExecutor — covers all SlashResult variant
+// execute() behavior. Uses MockSlashEffectExecutor to verify side-effect
+// dispatch and MockSessionLookup for session queries.
 
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::executor::{
-    CompactionError, CompactionResult, ReplyAction, SideEffectContext, SlashEffectExecutor,
-    SlashResultExecutor,
+use crate::executor::{ReplyAction, SideEffectContext, SlashResultExecutor};
+use crate::executor_test_utils::{
+    make_ctx, ExecutorCall, MockSessionLookup, MockSlashEffectExecutor,
+    MockSlashEffectExecutorError,
 };
 use crate::processor::ContentBlock;
 use crate::session_lookup::{PendingMessage, SessionLookup};
 use crate::slash_router::{SlashResult, SystemAppendAction};
 use crate::{ReasoningLevel, VerbosityLevel};
-
-// ── Mock SlashEffectExecutor ──────────────────────────────────────────
-
-/// Call recorded by mock executor for assertion.
-#[derive(Debug, Clone, PartialEq)]
-enum ExecutorCall {
-    Stop(String, bool, bool),
-    NewSession(String, String),
-    Compact(String, Option<String>),
-    SystemAppend(String, SystemAppendAction),
-    SetReasoning(String, ReasoningLevel),
-    SetVerbosity(String, VerbosityLevel),
-    SetMode(String, String),
-    Exec(String, String, String),
-}
-
-struct MockSlashEffectExecutor {
-    calls: Arc<Mutex<Vec<ExecutorCall>>>,
-    reply_rx: Mutex<mpsc::Receiver<ReplyAction>>,
-    reply_tx: mpsc::Sender<ReplyAction>,
-}
-
-impl MockSlashEffectExecutor {
-    fn new() -> Self {
-        let (tx, rx) = mpsc::channel(32);
-        Self {
-            calls: Arc::new(Mutex::new(Vec::new())),
-            reply_rx: Mutex::new(rx),
-            reply_tx: tx,
-        }
-    }
-
-    /// Drain all pending ReplyActions from the receiver.
-    fn drain_replies(&self) -> Vec<ReplyAction> {
-        let mut out = Vec::new();
-        while let Ok(action) = self.reply_rx.lock().unwrap().try_recv() {
-            out.push(action);
-        }
-        out
-    }
-}
-
-#[async_trait]
-impl SlashEffectExecutor for MockSlashEffectExecutor {
-    async fn execute_stop(&self, session_id: &str, cascade: bool, force: bool) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(ExecutorCall::Stop(session_id.to_string(), cascade, force));
-    }
-
-    async fn execute_new_session(&self, session_id: &str, channel: &str) -> String {
-        self.calls.lock().unwrap().push(ExecutorCall::NewSession(
-            session_id.to_string(),
-            channel.to_string(),
-        ));
-        "new-session-id".to_string()
-    }
-
-    async fn execute_compact(
-        &self,
-        session_id: &str,
-        instruction: Option<String>,
-    ) -> Result<CompactionResult, CompactionError> {
-        self.calls.lock().unwrap().push(ExecutorCall::Compact(
-            session_id.to_string(),
-            instruction.clone(),
-        ));
-        Ok(CompactionResult {
-            performed: true,
-            original_tokens: 1000,
-            compacted_tokens: 500,
-            message: "Compacted".to_string(),
-            before_char_count: 10000,
-            after_char_count: 5000,
-            before_token_count: 1000,
-            after_token_count: 500,
-            boundary_message: String::new(),
-            is_auto: false,
-        })
-    }
-
-    async fn execute_system_append(&self, session_id: &str, action: &SystemAppendAction) -> usize {
-        self.calls.lock().unwrap().push(ExecutorCall::SystemAppend(
-            session_id.to_string(),
-            action.clone(),
-        ));
-        1
-    }
-
-    async fn execute_set_reasoning(&self, session_id: &str, level: ReasoningLevel) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(ExecutorCall::SetReasoning(session_id.to_string(), level));
-    }
-
-    async fn execute_set_verbosity(&self, session_id: &str, level: VerbosityLevel) {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(ExecutorCall::SetVerbosity(session_id.to_string(), level));
-    }
-
-    async fn execute_set_mode(&self, session_id: &str, mode: &str) {
-        self.calls.lock().unwrap().push(ExecutorCall::SetMode(
-            session_id.to_string(),
-            mode.to_string(),
-        ));
-    }
-
-    async fn execute_exec(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-        command: &str,
-    ) -> Vec<ContentBlock> {
-        self.calls.lock().unwrap().push(ExecutorCall::Exec(
-            session_id.to_string(),
-            agent_id.to_string(),
-            command.to_string(),
-        ));
-        vec![ContentBlock::Text(format!("output: {command}"))]
-    }
-}
-
-// ── Mock SessionLookup ────────────────────────────────────────────────
-
-struct MockSessionLookup {
-    pending_messages: Arc<Mutex<Vec<PendingMessage>>>,
-    chat_id: Option<String>,
-    plan_state: Arc<Mutex<Option<crate::PlanState>>>,
-    /// Tracks whether `clear_plan_state` was called.
-    clear_called: Arc<Mutex<bool>>,
-    /// Tracks `set_plan_state` call count.
-    set_plan_state_calls: Arc<Mutex<u32>>,
-}
-
-impl MockSessionLookup {
-    fn new(chat_id: Option<String>) -> Self {
-        Self {
-            pending_messages: Arc::new(Mutex::new(Vec::new())),
-            chat_id,
-            plan_state: Arc::new(Mutex::new(None)),
-            clear_called: Arc::new(Mutex::new(false)),
-            set_plan_state_calls: Arc::new(Mutex::new(0)),
-        }
-    }
-
-    fn with_pending(pending: Arc<Mutex<Vec<PendingMessage>>>) -> Self {
-        Self {
-            pending_messages: pending,
-            chat_id: None,
-            plan_state: Arc::new(Mutex::new(None)),
-            clear_called: Arc::new(Mutex::new(false)),
-            set_plan_state_calls: Arc::new(Mutex::new(0)),
-        }
-    }
-
-    /// Create with an existing plan_state and return a shared handle for assertions.
-    fn with_plan_state(state: crate::PlanState) -> (Self, Arc<Mutex<Option<crate::PlanState>>>) {
-        let plan = Arc::new(Mutex::new(Some(state)));
-        let mock = Self {
-            pending_messages: Arc::new(Mutex::new(Vec::new())),
-            chat_id: None,
-            plan_state: plan.clone(),
-            clear_called: Arc::new(Mutex::new(false)),
-            set_plan_state_calls: Arc::new(Mutex::new(0)),
-        };
-        (mock, plan)
-    }
-
-    /// Return a handle to the clear_called flag for test assertions.
-    fn clear_called_handle(&self) -> Arc<Mutex<bool>> {
-        self.clear_called.clone()
-    }
-
-    /// Return a handle to the set_plan_state call count.
-    fn set_plan_state_calls_handle(&self) -> Arc<Mutex<u32>> {
-        self.set_plan_state_calls.clone()
-    }
-}
-
-#[async_trait]
-impl SessionLookup for MockSessionLookup {
-    async fn get_parent_of(&self, _child_id: &str) -> Option<String> {
-        None
-    }
-
-    async fn get_chat_id(&self, _session_id: &str) -> Option<String> {
-        self.chat_id.clone()
-    }
-
-    async fn push_pending_message(
-        &self,
-        _session_id: &str,
-        msg: PendingMessage,
-    ) -> Result<(), String> {
-        self.pending_messages.lock().unwrap().push(msg);
-        Ok(())
-    }
-
-    async fn get_plan_state(&self, _session_id: &str) -> Option<crate::PlanState> {
-        self.plan_state.lock().unwrap().clone()
-    }
-
-    async fn set_plan_state(&self, _session_id: &str, plan_state: crate::PlanState) {
-        *self.plan_state.lock().unwrap() = Some(plan_state);
-        *self.set_plan_state_calls.lock().unwrap() += 1;
-    }
-
-    async fn clear_plan_state(&self, _session_id: &str) {
-        *self.plan_state.lock().unwrap() = None;
-        *self.clear_called.lock().unwrap() = true;
-    }
-
-    async fn set_session_mode(&self, _session_id: &str, _mode: crate::SessionMode) {}
-}
-
-// ── Helper to build SideEffectContext ─────────────────────────────────
-
-fn make_ctx(
-    executor: Arc<MockSlashEffectExecutor>,
-    session_id: &str,
-    channel: &str,
-    session_lookup: Arc<dyn SessionLookup>,
-) -> SideEffectContext {
-    SideEffectContext {
-        session_id: session_id.to_string(),
-        channel: channel.to_string(),
-        session_lookup,
-        reply_tx: executor.reply_tx.clone(),
-        executor,
-    }
-}
 
 // ── Test: Reply variant ───────────────────────────────────────────────
 
@@ -546,33 +310,6 @@ async fn test_compact_error_replies_with_failure_message() {
     }
 }
 
-/// Mock that always returns a compact error.
-struct MockSlashEffectExecutorError;
-
-#[async_trait]
-impl SlashEffectExecutor for MockSlashEffectExecutorError {
-    async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
-    async fn execute_new_session(&self, _: &str, _: &str) -> String {
-        String::new()
-    }
-    async fn execute_compact(
-        &self,
-        _: &str,
-        _: Option<String>,
-    ) -> Result<CompactionResult, CompactionError> {
-        Err(CompactionError::LLMCallFailed("mock failure".into()))
-    }
-    async fn execute_system_append(&self, _: &str, _: &SystemAppendAction) -> usize {
-        0
-    }
-    async fn execute_set_reasoning(&self, _: &str, _: ReasoningLevel) {}
-    async fn execute_set_verbosity(&self, _: &str, _: VerbosityLevel) {}
-    async fn execute_set_mode(&self, _: &str, _: &str) {}
-    async fn execute_exec(&self, _: &str, _: &str, _: &str) -> Vec<ContentBlock> {
-        Vec::new()
-    }
-}
-
 // ── Test: SystemAppend Add ────────────────────────────────────────────
 
 #[tokio::test]
@@ -676,7 +413,7 @@ async fn test_exec_falls_back_to_empty_agent_id() {
     );
 }
 
-// ── Test: SetReasoning variant ────────────────────────────────────────
+// ── Test: SetReasoning basic call ─────────────────────────────────────
 
 #[tokio::test]
 async fn test_set_reasoning_calls_executor_and_replies() {
@@ -701,6 +438,58 @@ async fn test_set_reasoning_calls_executor_and_replies() {
             ContentBlock::Text(t) => assert!(t.contains("Max")),
             other => panic!("expected Text, got {other:?}"),
         },
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── SetReasoning: Normal path — no downgrade ──────────────────────────
+
+#[tokio::test]
+async fn test_set_reasoning_no_downgrade_reply_high() {
+    // High → High (no downgrade).
+    let mock = Arc::new(MockSlashEffectExecutor::with_reasoning(Some(
+        ReasoningLevel::High,
+    )));
+    let sm = Arc::new(MockSessionLookup::new(None));
+    let ctx = make_ctx(Arc::clone(&mock), "s-rnd", "feishu", sm);
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::High,
+    }
+    .execute(&ctx)
+    .await;
+    let replies = mock.drain_replies();
+    assert_eq!(replies.len(), 1);
+    match &replies[0] {
+        ReplyAction::Reply(blocks) => assert!(
+            matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（含 provider 降级后的值）"),
+            "got: {:?}",
+            &blocks[0],
+        ),
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_set_reasoning_no_downgrade_reply_off() {
+    // Off → Off (provider supports closing).
+    let mock = Arc::new(MockSlashEffectExecutor::with_reasoning(Some(
+        ReasoningLevel::Off,
+    )));
+    let sm = Arc::new(MockSessionLookup::new(None));
+    let ctx = make_ctx(Arc::clone(&mock), "s-roff", "feishu", sm);
+    SlashResult::SetReasoning {
+        level: ReasoningLevel::Off,
+    }
+    .execute(&ctx)
+    .await;
+    let replies = mock.drain_replies();
+    assert_eq!(replies.len(), 1);
+    match &replies[0] {
+        ReplyAction::Reply(blocks) => assert!(
+            matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
+            "got: {:?}",
+            &blocks[0],
+        ),
         other => panic!("expected Reply, got {other:?}"),
     }
 }
@@ -771,7 +560,6 @@ async fn test_plan_mode_to_normal_clears_plan_state() {
     let clear_handle = mock_sl.clear_called_handle();
     let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
     let ctx = make_ctx(Arc::clone(&mock), "s-clear-normal", "feishu", sl_ref);
-
     SlashResult::SetMode {
         mode: "normal".into(),
         plan_file_path: None,
@@ -780,7 +568,6 @@ async fn test_plan_mode_to_normal_clears_plan_state() {
     }
     .execute(&ctx)
     .await;
-
     assert!(
         *clear_handle.lock().unwrap(),
         "clear_plan_state should be called"
@@ -824,7 +611,7 @@ async fn test_plan_mode_to_auto_clears_plan_state() {
     );
 }
 
-// ── Test: clear_plan_state in Normal Mode is idempotent ──────────────
+// ── Test: clear_plan_state idempotent in Normal Mode ─────────────────
 
 #[tokio::test]
 async fn test_clear_plan_state_idempotent_in_normal_mode() {
@@ -860,6 +647,7 @@ async fn test_clear_plan_state_idempotent_in_normal_mode() {
     .execute(&ctx)
     .await;
 
+    assert!(*clear_handle.lock().unwrap());
     assert!(plan_handle.lock().unwrap().is_none());
 }
 
