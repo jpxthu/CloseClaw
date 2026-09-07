@@ -342,9 +342,12 @@ impl SlashHandler for SystemHandler {
                     SlashResult::Reply(list)
                 }
             }
-            "clear" => SlashResult::SystemAppend {
-                action: SystemAppendAction::Clear,
-            },
+            "clear" => {
+                self.session_manager.invalidate_static_cache().await;
+                SlashResult::SystemAppend {
+                    action: SystemAppendAction::Clear,
+                }
+            }
             other => SlashResult::Reply(format!("未知子指令：{other}。支持 add / list / clear。")),
         }
     }
