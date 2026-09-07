@@ -265,9 +265,9 @@
   },
   {
     "path": "docs/design/llm/cache-adapter.md",
-    "commit": "fd608d86d66845f0c8ea4b13a6ec479c84bf554f",
-    "commit_time": "2026-08-23T13:55:24+08:00",
-    "confirmed_time": "2026-08-23T14:06:41.112527+08:00",
+    "commit": "f23b3fc8faf45cd7cd3bf63e400738e913ed9b5b",
+    "commit_time": "2026-09-08T02:52:58+08:00",
+    "confirmed_time": "2026-09-08T03:02:57.853496+08:00",
     "comment": "",
     "blocked_reason": ""
   },
