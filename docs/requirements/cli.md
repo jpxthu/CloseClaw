@@ -20,7 +20,7 @@ Owner 可以在终端中与 Agent 进行文本对话。
 
 - 使用 `/stop` 结束当前对话
 
-> **交叉引用**：`/stop` 的完整语义见 [slash §F3](slash.md)（会话管理）；不活跃会话的自动归档与清理见 [session §F6](session.md)（会话归档与清理）。
+> **交叉引用**：`/stop` 的完整语义见 [slash §F3](slash.md)（Session 管理）；不活跃 Session 的自动归档与清理见 [session §F6](session.md)（Session 归档与清理）。
 
 ### F2. 终端输出渲染
 

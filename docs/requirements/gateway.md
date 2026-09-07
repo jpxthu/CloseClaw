@@ -34,7 +34,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 - 命中 Session 后进入 LLM 对话流程
 - Session 查找或创建发生异常时，系统向 User 回复错误提示
 
-> **交叉引用**：会话查找、创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：Session 查找、创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：Session 活跃状态判定与消息排队行为详见 [session §F10](session.md)（消息排队）。
 > **交叉引用**：绑定配置详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：配置重载详见 [config §F4](config.md)（配置重载）。
