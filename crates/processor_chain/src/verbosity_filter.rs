@@ -76,7 +76,7 @@ impl VerbosityFilter {
         level == VerbosityLevel::Full
     }
 
-    /// Parse verbosity level from metadata string, defaulting to `Normal`.
+    /// Parse verbosity level from metadata string, defaulting to `Full`.
     pub(crate) fn verbosity_from_metadata(metadata: &HashMap<String, String>) -> VerbosityLevel {
         metadata
             .get("verbosity_level")
