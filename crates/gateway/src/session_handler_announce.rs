@@ -740,9 +740,9 @@ pub(crate) mod tests {
     use closeclaw_session::persistence::ReasoningLevel;
 
     #[test]
-    fn test_resolve_effective_level_model_not_found_returns_requested() {
+    fn test_resolve_effective_level_default_fallback_max_to_high() {
         let kb = ProviderModelKnowledge::new();
-        // Max → High via default fallback for unknown models.
+        // Unknown model + Max → High (Max may not be supported, downgrade).
         let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Max, &kb);
         assert_eq!(result, ReasoningLevel::High);
     }
@@ -777,6 +777,15 @@ pub(crate) mod tests {
         let kb = ProviderModelKnowledge::new();
         let result = resolve_effective_reasoning_level("unknown-model", ReasoningLevel::High, &kb);
         assert_eq!(result, ReasoningLevel::High);
+    }
+
+    #[test]
+    fn test_resolve_effective_level_default_fallback_medium_unchanged() {
+        // Unknown model + Medium → Medium (base level, always safe).
+        let kb = ProviderModelKnowledge::new();
+        let result =
+            resolve_effective_reasoning_level("unknown-model", ReasoningLevel::Medium, &kb);
+        assert_eq!(result, ReasoningLevel::Medium);
     }
 
     #[test]
@@ -925,7 +934,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_resolve_effective_level_non_anthropic_no_fallback() {
+    fn test_resolve_effective_level_non_anthropic_default_fallback_off_to_low() {
         // Non-Anthropic model not in KB → default heuristic fallback:
         // Off → Low (unknown model may not support disabling reasoning).
         let kb = ProviderModelKnowledge::new();
