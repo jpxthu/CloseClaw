@@ -61,10 +61,10 @@ fn test_override_with_appends_appended_separately() {
 
 // ── SystemPromptDynamicBuilder direct tests ─────────────────────────────
 
-/// SystemPromptDynamicBuilder: override path returns appends as
-/// independent third partition, not mixed into dynamic.
+/// SystemPromptDynamicBuilder: override path merges appends into dynamic
+/// field (second element), third element is always None.
 #[test]
-fn test_dynamic_builder_override_returns_appends_independent() {
+fn test_dynamic_builder_override_merges_appends_into_dynamic() {
     let builder = SystemPromptDynamicBuilder;
     let ctx = RequestContext {
         sender_id: "u".into(),
@@ -95,18 +95,31 @@ fn test_dynamic_builder_override_returns_appends_independent() {
 
     let (s, d, a) = builder.build_prompt_parts(&dpctx);
     assert_eq!(s.as_deref(), Some("override"));
-    assert!(d.is_none(), "dynamic should be None on override path");
-    assert!(a.is_some(), "appends should be present");
-    let appends_text = a.unwrap();
-    assert!(appends_text.contains("append1"));
-    assert!(appends_text.contains("append2"));
-    assert!(d.is_none() || !d.unwrap().contains("append1"));
+    assert!(
+        a.is_none(),
+        "third element must be None (appends merged into dynamic)"
+    );
+    // Appends merged into dynamic field (dynamic layer is empty on override path,
+    // so dynamic = only append section)
+    let dynamic_text = d.unwrap();
+    assert!(
+        dynamic_text.contains("append1"),
+        "dynamic field should contain appends"
+    );
+    assert!(
+        dynamic_text.contains("append2"),
+        "dynamic field should contain appends"
+    );
+    assert!(
+        dynamic_text.starts_with("## Append"),
+        "dynamic field should start with ## Append heading when dynamic layer is empty"
+    );
 }
 
-/// SystemPromptDynamicBuilder: normal path returns appends as
-/// independent third partition.
+/// SystemPromptDynamicBuilder: normal path merges appends into dynamic
+/// field, third element is always None.
 #[test]
-fn test_dynamic_builder_normal_path_returns_appends_independent() {
+fn test_dynamic_builder_normal_path_merges_appends_into_dynamic() {
     let builder = SystemPromptDynamicBuilder;
     let ctx = RequestContext {
         sender_id: "u".into(),
@@ -132,18 +145,35 @@ fn test_dynamic_builder_normal_path_returns_appends_independent() {
 
     let (s, d, a) = builder.build_prompt_parts(&dpctx);
     assert_eq!(s.as_deref(), Some("static base"));
-    assert!(d.is_some(), "dynamic should be present");
-    assert!(d.as_deref().unwrap().contains("Channel Context"));
-    assert!(a.is_some(), "appends should be present");
-    let appends_text = a.unwrap();
-    assert!(appends_text.contains("my-note"));
     assert!(
-        !d.unwrap().contains("my-note"),
-        "appends must NOT appear in dynamic partition"
+        a.is_none(),
+        "third element must be None (appends merged into dynamic)"
+    );
+    let dynamic_text = d.unwrap();
+    assert!(
+        dynamic_text.contains("Channel Context"),
+        "dynamic field should contain ChannelContext"
+    );
+    // Appends merged into dynamic field: dynamic rendered + append section
+    assert!(
+        dynamic_text.contains("my-note"),
+        "dynamic field should contain appends"
+    );
+    assert!(
+        dynamic_text.contains("## Append"),
+        "dynamic field should contain ## Append heading"
+    );
+    // Append section comes after ChannelContext
+    let channel_pos = dynamic_text.find("Channel Context").unwrap();
+    let append_pos = dynamic_text.find("## Append").unwrap();
+    assert!(
+        append_pos > channel_pos,
+        "## Append must come after ChannelContext"
     );
 }
 
-/// SystemPromptDynamicBuilder: empty appends returns None for third partition.
+/// SystemPromptDynamicBuilder: empty appends returns None for third
+/// element and dynamic field contains only dynamic layer content.
 #[test]
 fn test_dynamic_builder_empty_appends_returns_none() {
     let builder = SystemPromptDynamicBuilder;
@@ -168,9 +198,14 @@ fn test_dynamic_builder_empty_appends_returns_none() {
         plan_file_path: None,
     };
 
-    let (_, _, a) = builder.build_prompt_parts(&dpctx);
+    let (s, d, a) = builder.build_prompt_parts(&dpctx);
+    assert_eq!(s.as_deref(), Some("static"));
+    assert!(a.is_none(), "third element must always be None");
+    // Dynamic field should contain only ChannelContext (no ## Append)
+    let dynamic_text = d.unwrap();
+    assert!(dynamic_text.contains("Channel Context"));
     assert!(
-        a.is_none(),
-        "empty appends should return None for third partition"
+        !dynamic_text.contains("## Append"),
+        "empty appends should not produce ## Append heading"
     );
 }

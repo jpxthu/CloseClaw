@@ -214,6 +214,22 @@ pub fn build_full_system_prompt(
     result
 }
 
+/// Merge dynamic content and appends into a single dynamic field.
+///
+/// Format is byte-consistent with [`build_full_system_prompt`]:
+/// `dynamic_rendered + "\n\n## Append\n" + render_appends(appends) + "\n"`
+///
+/// When `dynamic` is `None` (e.g. override path), the result is
+/// only the append section. When `appends` is `None`, the result
+/// is the original dynamic content unchanged.
+fn _merge_dynamic_and_appends(dynamic: Option<String>, appends: Option<String>) -> Option<String> {
+    match (dynamic, appends) {
+        (Some(d), Some(a)) => Some(format!("{}\n\n## Append\n{}\n", d, a)),
+        (None, Some(a)) => Some(format!("## Append\n{}\n", a)),
+        (other, None) => other,
+    }
+}
+
 /// Format appends as a numbered list for the append section.
 fn render_appends(appends: &[String]) -> String {
     appends
@@ -247,8 +263,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
             span_id: None,
         };
 
-        // Build the appends partition independently — it is a separate
-        // section that does not participate in prefix caching.
+        // Render appends as a numbered list.
         let appends = if context.system_appends.is_empty() {
             None
         } else {
@@ -265,8 +280,13 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
 
             if let Some(base) = priority {
                 // Override replaces the static layer; dynamic is empty.
-                // Appends are returned as an independent partition.
-                return (Some(base.to_string()), None, appends);
+                // Appends are merged into the dynamic field so the cache
+                // adapter receives only two fields (kv-cache.md contract).
+                return (
+                    Some(base.to_string()),
+                    _merge_dynamic_and_appends(None, appends),
+                    None,
+                );
             }
         }
 
@@ -291,8 +311,8 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         };
         (
             context.system_prompt.map(|s| s.to_string()),
-            dynamic,
-            appends,
+            _merge_dynamic_and_appends(dynamic, appends),
+            None,
         )
     }
 }
