@@ -15,7 +15,7 @@ use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use closeclaw_tools::builtin::SkillTool;
 use closeclaw_tools::{
-    CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
+    CoreToolsRegistrar, ModeToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
 };
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -254,7 +254,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     ));
     let skills_registrar = SkillsToolsRegistrar::new(skill_tool);
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
-    let plan_registrar = PlanToolsRegistrar::new(
+    let mode_registrar = ModeToolsRegistrar::new(
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.confirm_flow),
     );
@@ -264,7 +264,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Box::new(session_registrar),
         Box::new(skills_registrar),
         Box::new(im_adapter_registrar),
-        Box::new(plan_registrar),
+        Box::new(mode_registrar),
     ];
 
     if let Err(e) = ctx.tool_registry.register_all(registrars).await {

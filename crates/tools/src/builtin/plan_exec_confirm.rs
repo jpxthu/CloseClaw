@@ -9,7 +9,7 @@
 //! # Confirmation lifecycle
 //!
 //! ```text
-//! Agent calls execute_plan
+//! Agent calls ModeExecutionTrigger
 //!   → PlanExecConfirmFlow.submit(session_id, meta)
 //!   → generates confirmation_id → stores in pending map (TTL)
 //!   → on_notify sends confirmation card

@@ -153,7 +153,7 @@ mod tests {
     use super::*;
     use crate::builtin::SkillTool;
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
-    use crate::{CoreToolsRegistrar, PlanToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
+    use crate::{CoreToolsRegistrar, ModeToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
     use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::SpawnController;
@@ -270,7 +270,7 @@ mod tests {
                 disk_registry,
                 Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
             )))),
-            Box::new(PlanToolsRegistrar::new(
+            Box::new(ModeToolsRegistrar::new(
                 session_manager.clone(),
                 confirm_flow,
             )),
