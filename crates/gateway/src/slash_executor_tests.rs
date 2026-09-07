@@ -25,6 +25,8 @@ use closeclaw_common::executor::SlashResultExecutor;
 
 /// Expected reply from the mock compact executor.
 const COMPACT_REPLY: &str = "压缩完成：100 → 50 字符";
+const NO_DOWNGRADE_REPLY: &str = "推理深度已设为 High（含 provider 降级后的值）";
+const DOWNGRADE_REPLY: &str = "推理深度已设为 High（原请求 Max 已按供应商能力降级）";
 
 // ---------------------------------------------------------------------------
 // Mock implementations
@@ -600,7 +602,8 @@ async fn test_set_reasoning_no_downgrade_reply_high() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（含 provider 降级后的值）"),
+                matches!(&blocks[0], ContentBlock::Text(t)
+                    if t == NO_DOWNGRADE_REPLY),
                 "no-downgrade reply should contain parenthetical, got: {:?}",
                 &blocks[0],
             );
@@ -627,8 +630,10 @@ async fn test_set_reasoning_downgrade_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（原请求 Max 已按供应商能力降级）"),
-                "downgrade reply should contain effective level and explanation, got: {:?}",
+                matches!(&blocks[0], ContentBlock::Text(t)
+                    if t == DOWNGRADE_REPLY),
+                "downgrade reply should contain effective level and\
+ explanation, got: {:?}",
                 &blocks[0],
             );
         }

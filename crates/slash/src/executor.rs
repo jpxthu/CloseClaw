@@ -16,6 +16,9 @@ mod tests {
     use closeclaw_common::processor::ContentBlock;
     use closeclaw_common::session_lookup::SessionLookup;
 
+    const NO_DOWNGRADE_REPLY: &str = "推理深度已设为 High（含 provider 降级后的值）";
+    const DOWNGRADE_REPLY: &str = "推理深度已设为 High（原请求 Max 已按供应商能力降级）";
+
     struct MockLookup;
     #[async_trait::async_trait]
     impl SessionLookup for MockLookup {
@@ -191,7 +194,8 @@ mod tests {
         match action {
             ReplyAction::Reply(blocks) => {
                 assert!(
-                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（含 provider 降级后的值）"),
+                    matches!(&blocks[0], ContentBlock::Text(t)
+                        if t == NO_DOWNGRADE_REPLY),
                     "no-downgrade reply should contain parenthetical, got: {:?}",
                     &blocks[0],
                 );
@@ -218,7 +222,8 @@ mod tests {
         match action {
             ReplyAction::Reply(blocks) => {
                 assert!(
-                    matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（原请求 Max 已按供应商能力降级）"),
+                    matches!(&blocks[0], ContentBlock::Text(t)
+                        if t == DOWNGRADE_REPLY),
                     "downgrade reply should contain effective level and explanation, got: {:?}",
                     &blocks[0],
                 );
