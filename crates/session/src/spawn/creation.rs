@@ -200,13 +200,16 @@ pub async fn create_child_conversation_session(
     result
 }
 
-/// Determine bootstrap mode from the `light_context` flag and agent config.
-fn resolve_bootstrap_mode(light_context: bool, config: &ResolvedAgentConfig) -> BootstrapMode {
-    if light_context {
-        BootstrapMode::Minimal
-    } else {
-        config.bootstrap_mode
-    }
+/// Determine bootstrap mode for child sessions.
+///
+/// Child sessions always use Minimal bootstrap mode, regardless of the
+/// `light_context` flag or agent config. This enforces the design doc
+/// contract: sub-agent sessions do not load BOOTSTRAP.md or MEMORY.md.
+///
+/// The `light_context` parameter still controls context volume passed to
+/// the child session — it is decoupled from bootstrap mode selection.
+fn resolve_bootstrap_mode(_light_context: bool, _config: &ResolvedAgentConfig) -> BootstrapMode {
+    BootstrapMode::Minimal
 }
 
 /// Resolve the model to use via the priority chain:
