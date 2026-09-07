@@ -801,3 +801,43 @@ fn test_regression_override_replaces_static() {
     let full = build_full_system_prompt(Some("old prompt"), &sections, &[], Some(&overrides));
     assert_eq!(full, "new prompt");
 }
+
+// ── Legacy path: split_static_dynamic with ## Append section ──────────
+
+/// split_static_dynamic correctly handles a full prompt containing
+/// `## Append`. The boundary marker splits static from dynamic; the
+/// Append section (which follows the dynamic boundary) ends up in
+/// the dynamic part.
+#[test]
+fn test_split_static_dynamic_with_append_section() {
+    let full =
+        "Static base\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nDynamic content\n\n## Append\n[0] note";
+    let (s, d) = split_static_dynamic(full);
+    assert_eq!(s.as_deref(), Some("Static base"));
+    let dynamic = d.unwrap();
+    assert!(dynamic.contains("Dynamic content"));
+    assert!(dynamic.contains("## Append"));
+    assert!(dynamic.contains("[0] note"));
+}
+
+/// When the full prompt has no boundary marker but contains `## Append`,
+/// split_static_dynamic returns the entire text as static (no split).
+#[test]
+fn test_split_static_dynamic_no_marker_with_append() {
+    let full = "Role prompt\n\n## Append\n[0] note";
+    let (s, d) = split_static_dynamic(full);
+    assert_eq!(s.as_deref(), Some(full));
+    assert!(d.is_none());
+}
+
+/// Empty dynamic + Append in the prompt: boundary marker present but
+/// dynamic is only the Append section.
+#[test]
+fn test_split_static_dynamic_append_only_in_dynamic() {
+    let full = "Static\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\n## Append\n[0] note";
+    let (s, d) = split_static_dynamic(full);
+    assert_eq!(s.as_deref(), Some("Static"));
+    let dynamic = d.unwrap();
+    assert!(dynamic.starts_with("## Append"));
+    assert!(dynamic.contains("[0] note"));
+}
