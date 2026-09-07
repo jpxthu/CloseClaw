@@ -58,7 +58,6 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
     async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
         vec![]
     }
-    async fn cleanup_finished(&self) {}
     async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 

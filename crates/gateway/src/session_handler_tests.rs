@@ -277,9 +277,6 @@ impl TaskManager for MockTaskManager {
     async fn list_running_tasks(&self) -> Vec<RunningTaskInfo> {
         vec![]
     }
-    async fn cleanup_finished(&self) {
-        // no-op for gateway tests
-    }
     async fn cleanup_all_finished(&self, _session_id: &str) {
         // no-op for gateway tests
     }
@@ -357,8 +354,7 @@ async fn test_drain_notifications_injects_system_message() {
     // handler_with_sm sets up LLM caller on SessionManager — needed
     // so the ConversationSession can invoke LLM when needed.
     let _handler = handler_with_sm(sm.clone()).await;
-    // Step 1.4: drain both phases — Now first, then rest.
-    SessionMessageHandler::drain_announces_now(&sm, &sid, None).await;
+    // Step 1.3: unified drain — all priorities in a single pass.
     SessionMessageHandler::drain_announces_rest(&sm, &sid, None).await;
 
     let cs = sm.get_conversation_session(&sid).await.expect("session");
@@ -401,8 +397,7 @@ async fn test_drain_notifications_no_task_manager() {
     // Do NOT set task_manager — it should be None by default.
 
     let _handler = handler_with_sm(sm.clone()).await;
-    // Step 1.4: drain both phases — Now first, then rest.
-    SessionMessageHandler::drain_announces_now(&sm, &sid, None).await;
+    // Step 1.3: unified drain — all priorities in a single pass.
     SessionMessageHandler::drain_announces_rest(&sm, &sid, None).await;
 
     // No panic, no error. Session should still exist.
@@ -420,8 +415,7 @@ async fn test_drain_notifications_empty() {
     sm.set_task_manager(tm).await;
 
     let _handler = handler_with_sm(sm.clone()).await;
-    // Step 1.4: drain both phases — Now first, then rest.
-    SessionMessageHandler::drain_announces_now(&sm, &sid, None).await;
+    // Step 1.3: unified drain — all priorities in a single pass.
     SessionMessageHandler::drain_announces_rest(&sm, &sid, None).await;
 
     let cs = sm.get_conversation_session(&sid).await.expect("session");

@@ -135,7 +135,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 pub use types::*;
-
 /// Routes messages between IM plugins and agents.
 pub struct Gateway {
     config: GatewayConfig,
@@ -162,10 +161,8 @@ pub struct Gateway {
     media_store: std::sync::Mutex<Option<Arc<dyn MediaStoreAccess>>>,
     media_config: std::sync::RwLock<MediaConfigData>,
 }
-
 /// Result of inbound pre-validation gates.
 pub(crate) use media_routing::InboundValidation;
-
 impl Gateway {
     /// Create a new Gateway with the given config and a shared SessionManager.
     pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
@@ -329,14 +326,11 @@ impl Gateway {
             *slot = Some(emitter);
         }
     }
-
-    /// Inject a [`DebugLog`] instance for structured event logging.
     pub async fn set_debug_log(&self, debug_log: DebugLog) {
         if let Ok(mut slot) = self.debug_log.write() {
             *slot = Some(debug_log);
         }
     }
-
     /// Inject a [`MediaStoreAccess`] for file persistence.
     pub fn set_media_store(&self, store: Arc<dyn MediaStoreAccess>) {
         if let Ok(mut s) = self.media_store.lock() {

@@ -119,7 +119,6 @@ fn make_bg_manager() -> Arc<dyn closeclaw_tasks::TaskManager> {
         async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
             vec![]
         }
-        async fn cleanup_finished(&self) {}
         async fn cleanup_all_finished(&self, _session_id: &str) {}
     }
     Arc::new(DummyTaskManager)

@@ -893,7 +893,6 @@ mod tests {
         async fn drain_notifications(&self) -> Vec<CompletionNotification> {
             unimplemented!()
         }
-        async fn cleanup_finished(&self) {}
         async fn cleanup_all_finished(&self, session_id: &str) {
             *self.cleanup_all_finished_called.lock().unwrap() = true;
             *self.session_id_arg.lock().unwrap() = Some(session_id.to_owned());
