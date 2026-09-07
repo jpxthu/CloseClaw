@@ -381,54 +381,9 @@ impl BackgroundTaskManager {
         std::mem::take(&mut *n)
     }
 
-    /// Remove output directories and handles for finished tasks.
-    ///
-    /// - [`TaskState::Completed`] and [`TaskState::Failed`]: output
-    ///   directory is removed and the handle is evicted from the map.
-    /// - [`TaskState::Killed`]: the handle is evicted but the output
-    ///   directory is preserved so the caller can inspect what was
-    ///   written before the kill.
-    ///
-    /// I/O errors are logged but do not propagate — this method never
-    /// panics.
-    pub async fn cleanup_finished(&self) {
-        let mut map = lock_map(&self.tasks).await;
-        let finished: Vec<String> = map
-            .iter()
-            .filter(|(_, h)| {
-                matches!(
-                    h.state,
-                    TaskState::Completed { .. } | TaskState::Failed { .. } | TaskState::Killed
-                )
-            })
-            .map(|(id, _)| id.clone())
-            .collect();
-
-        for task_id in &finished {
-            if let Some(handle) = map.get(task_id) {
-                // Preserve output directories for killed tasks — the caller
-                // should be able to inspect what was written before the kill.
-                if handle.state != TaskState::Killed {
-                    let parent = handle.output_path.parent();
-                    if let Some(dir) = parent {
-                        if let Err(e) = tokio::fs::remove_dir_all(dir).await {
-                            tracing::warn!(
-                                task_id = %task_id,
-                                path = %dir.display(),
-                                error = %e,
-                                "failed to remove task output directory"
-                            );
-                        }
-                    }
-                }
-            }
-            map.remove(task_id);
-        }
-    }
     /// Remove output directories and handles for ALL terminal tasks
     /// belonging to the given session.
-    /// Unlike [`cleanup_finished`](Self::cleanup_finished), this also
-    /// removes output for [`TaskState::Killed`] tasks.  Used during
+    /// Removes output for [`TaskState::Killed`] tasks.  Used during
     /// session purge to reclaim all output files for that session.
     pub async fn cleanup_all_finished(&self, session_id: &str) {
         let mut map = lock_map(&self.tasks).await;
@@ -515,10 +470,6 @@ impl crate::TaskManager for BackgroundTaskManager {
         // Sort by priority descending: Now > Next > Later
         notifications.sort_by_key(|b| std::cmp::Reverse(b.priority));
         notifications
-    }
-
-    async fn cleanup_finished(&self) {
-        self.cleanup_finished().await
     }
 
     async fn cleanup_all_finished(&self, session_id: &str) {
@@ -874,10 +825,6 @@ fn make_public_task(
 #[cfg(test)]
 #[path = "background_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "cleanup_finished_tests.rs"]
-mod cleanup_finished_tests;
 
 #[cfg(test)]
 #[path = "list_running_tasks_tests.rs"]

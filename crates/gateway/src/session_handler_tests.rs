@@ -277,9 +277,6 @@ impl TaskManager for MockTaskManager {
     async fn list_running_tasks(&self) -> Vec<RunningTaskInfo> {
         vec![]
     }
-    async fn cleanup_finished(&self) {
-        // no-op for gateway tests
-    }
     async fn cleanup_all_finished(&self, _session_id: &str) {
         // no-op for gateway tests
     }
