@@ -849,3 +849,80 @@ async fn test_drain_notifications_full_mixed_order() {
     assert_eq!(notifs[3].task_id, "later-1");
     assert_eq!(notifs[4].task_id, "later-2");
 }
+
+// =========================================================================
+// Total execution time limit (Step 1.2)
+// ==========================================================================
+
+/// When a task exceeds `max_execution_secs`, it is force-killed and
+/// transitions to `TaskState::Killed` with a notification.
+#[tokio::test]
+async fn test_max_execution_time_limit_kills_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs(tmp.path(), 1); // 1 second limit
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false)
+        .await
+        .expect("spawn should succeed");
+    assert!(mgr.is_running(&task.id).await);
+
+    // Wait for the timeout monitor to fire.
+    let snapshot = wait_for_completion(&mgr, &task.id).await;
+    assert_eq!(
+        snapshot.state,
+        TaskState::Killed,
+        "task should be Killed after exceeding max_execution_secs"
+    );
+}
+
+/// The notification emitted by the timeout monitor contains the expected
+/// summary and suggestion text.
+#[tokio::test]
+async fn test_max_execution_time_limit_notification() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs(tmp.path(), 1);
+    let task = mgr.spawn("sleep 60", tmp.path(), false).await.unwrap();
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let notifs = mgr.pending_notifications().await;
+    assert_eq!(notifs.len(), 1);
+    assert_eq!(notifs[0].state, TaskState::Killed);
+    assert!(
+        notifs[0].summary.contains("total execution time limit"),
+        "summary should mention time limit: {}",
+        notifs[0].summary
+    );
+    assert!(
+        notifs[0].suggestion.is_some(),
+        "killed-by-timeout notification should have a suggestion"
+    );
+}
+
+/// A task that completes before the limit is not killed.
+#[tokio::test]
+async fn test_max_execution_time_limit_does_not_kill_quick_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs(tmp.path(), 60);
+    let task = mgr.spawn("echo done", tmp.path(), false).await.unwrap();
+    let snapshot = wait_for_completion(&mgr, &task.id).await;
+    assert_eq!(
+        snapshot.state,
+        TaskState::Completed { exit_code: 0 },
+        "fast task should complete normally"
+    );
+    // No timeout notification.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let notifs = mgr.pending_notifications().await;
+    assert!(
+        notifs.is_empty() || notifs.iter().all(|n| n.state != TaskState::Killed),
+        "no timeout notification for fast task"
+    );
+}
+
+/// Default manager uses 1800 s (30 min) limit.
+#[test]
+fn test_default_max_execution_secs() {
+    let mgr = BackgroundTaskManager::new();
+    assert_eq!(mgr.max_execution_secs, 1800);
+}

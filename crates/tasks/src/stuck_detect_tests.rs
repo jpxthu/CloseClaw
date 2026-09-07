@@ -6,6 +6,7 @@
 use super::*;
 use crate::background::{CompletionNotification, TaskHandle, TaskMap, TaskState};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
@@ -94,6 +95,7 @@ async fn create_test_task(tasks: &TaskMap, task_id: &str, output_path: &std::pat
             kill_tx: None,
             notified: false,
             created_at: tokio::time::Instant::now(),
+            timeout_flag: Arc::new(AtomicBool::new(false)),
         },
     );
 }
@@ -222,6 +224,7 @@ async fn test_stuck_detection_skips_non_running_task() {
                 kill_tx: None,
                 notified: false,
                 created_at: tokio::time::Instant::now(),
+                timeout_flag: Arc::new(AtomicBool::new(false)),
             },
         );
     }

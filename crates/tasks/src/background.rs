@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -94,6 +95,8 @@ pub(crate) struct TaskHandle {
     pub(crate) notified: bool,
     /// Wall-clock time when the task was created.
     pub(crate) created_at: tokio::time::Instant,
+    /// Shared flag set by the timeout monitor to trigger kill.
+    pub(crate) timeout_flag: Arc<AtomicBool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -105,11 +108,19 @@ pub struct BackgroundTaskManager {
     tasks: TaskMap,
     pub(crate) temp_dir: PathBuf,
     notifications: Arc<Mutex<Vec<CompletionNotification>>>,
+    /// Maximum total execution time in seconds per task.
+    /// Tasks exceeding this limit are force-killed.
+    pub(crate) max_execution_secs: u64,
 }
 
 impl Default for BackgroundTaskManager {
     fn default() -> Self {
-        Self::new()
+        Self {
+            tasks: Arc::new(Mutex::new(HashMap::new())),
+            temp_dir: PathBuf::from("/tmp"),
+            notifications: Arc::new(Mutex::new(Vec::new())),
+            max_execution_secs: 1800,
+        }
     }
 }
 
@@ -125,6 +136,21 @@ impl BackgroundTaskManager {
             tasks: Arc::new(Mutex::new(HashMap::new())),
             temp_dir: temp_dir.into(),
             notifications: Arc::new(Mutex::new(Vec::new())),
+            max_execution_secs: 1800,
+        }
+    }
+
+    /// Create a new manager with a custom total execution time limit.
+    ///
+    /// `max_execution_secs` is the maximum total time (seconds) a task
+    /// may run before being force-killed. Must be greater than the
+    /// timeout parameter cap (600 s / 10 min).
+    pub fn with_max_execution_secs(temp_dir: impl Into<PathBuf>, max_execution_secs: u64) -> Self {
+        Self {
+            tasks: Arc::new(Mutex::new(HashMap::new())),
+            temp_dir: temp_dir.into(),
+            notifications: Arc::new(Mutex::new(Vec::new())),
+            max_execution_secs,
         }
     }
 }
@@ -158,6 +184,13 @@ impl BackgroundTaskManager {
             StuckDetectConfig::default(),
         );
 
+        let timeout_flag = {
+            let map = lock_map(&self.tasks).await;
+            map.get(&task_id)
+                .map(|h| Arc::clone(&h.timeout_flag))
+                .expect("handle must exist after insert")
+        };
+
         let shared = Arc::clone(&self.tasks);
         let cmd = command.to_owned();
         let cwd = cwd.to_path_buf();
@@ -165,9 +198,19 @@ impl BackgroundTaskManager {
         let tid = task_id.clone();
 
         let notifs = Arc::clone(&self.notifications);
+        let tf = Arc::clone(&timeout_flag);
 
         tokio::spawn(async move {
-            run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs).await;
+            run_shell_command(&cmd, &cwd, &out, &shared, &tid, &notifs, &tf).await;
+        });
+
+        // Spawn the total-execution-time-limit monitor.
+        let max_secs = self.max_execution_secs;
+        let tid = task_id.clone();
+        let shared = Arc::clone(&self.tasks);
+        let notifs = Arc::clone(&self.notifications);
+        tokio::spawn(async move {
+            spawn_max_execution_monitor(max_secs, &tid, &shared, &notifs).await;
         });
 
         Ok(make_public_task(
@@ -209,14 +252,31 @@ impl BackgroundTaskManager {
             StuckDetectConfig::default(),
         );
 
+        let timeout_flag = {
+            let map = lock_map(&self.tasks).await;
+            map.get(&task_id)
+                .map(|h| Arc::clone(&h.timeout_flag))
+                .expect("handle must exist after insert")
+        };
+
         let shared = Arc::clone(&self.tasks);
         let out = output_path.clone();
         let tid = task_id.clone();
 
         let notifs = Arc::clone(&self.notifications);
+        let tf = Arc::clone(&timeout_flag);
 
         tokio::spawn(async move {
-            backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs).await;
+            backgroundize_process(child, stdout, stderr, &out, &shared, &tid, &notifs, &tf).await;
+        });
+
+        // Spawn the total-execution-time-limit monitor.
+        let max_secs = self.max_execution_secs;
+        let tid = task_id.clone();
+        let shared = Arc::clone(&self.tasks);
+        let notifs = Arc::clone(&self.notifications);
+        tokio::spawn(async move {
+            spawn_max_execution_monitor(max_secs, &tid, &shared, &notifs).await;
         });
 
         Ok(make_public_task(
@@ -430,6 +490,7 @@ async fn run_shell_command(
     tasks: &TaskMap,
     task_id: &str,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
+    timeout_flag: &Arc<AtomicBool>,
 ) {
     let result = Command::new("sh")
         .arg("-c")
@@ -441,7 +502,15 @@ async fn run_shell_command(
 
     match result {
         Ok(child) => {
-            run_background_child(child, output_path, tasks, task_id, notifications).await;
+            run_background_child(
+                child,
+                output_path,
+                tasks,
+                task_id,
+                notifications,
+                timeout_flag,
+            )
+            .await;
         }
         Err(e) => {
             mark_task_failed(tasks, task_id, &e).await;
@@ -455,6 +524,7 @@ async fn run_background_child(
     tasks: &TaskMap,
     task_id: &str,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
+    timeout_flag: &Arc<AtomicBool>,
 ) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -467,7 +537,7 @@ async fn run_background_child(
         }
     }
 
-    let exit_code = await_process(child, stdout, stderr, output_path, kill_rx).await;
+    let exit_code = await_process(child, stdout, stderr, output_path, kill_rx, timeout_flag).await;
 
     finalize_state(tasks, task_id, exit_code, notifications).await;
 }
@@ -492,6 +562,7 @@ async fn backgroundize_process(
     tasks: &TaskMap,
     task_id: &str,
     notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
+    timeout_flag: &Arc<AtomicBool>,
 ) {
     let (kill_tx, kill_rx) = oneshot::channel();
     {
@@ -501,7 +572,7 @@ async fn backgroundize_process(
         }
     }
 
-    let exit_code = await_process(child, stdout, stderr, output_path, kill_rx).await;
+    let exit_code = await_process(child, stdout, stderr, output_path, kill_rx, timeout_flag).await;
 
     finalize_state(tasks, task_id, exit_code, notifications).await;
 }
@@ -512,6 +583,7 @@ async fn await_process(
     stderr: Option<tokio::process::ChildStderr>,
     output_path: &Path,
     kill_rx: oneshot::Receiver<()>,
+    timeout_flag: &Arc<AtomicBool>,
 ) -> i32 {
     let file = tokio::fs::OpenOptions::new()
         .create(true)
@@ -543,6 +615,17 @@ async fn await_process(
             let _ = child.kill().await;
             -1
         }
+        _ = async {
+            loop {
+                if timeout_flag.load(Ordering::Acquire) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        } => {
+            let _ = child.kill().await;
+            -1
+        }
     };
 
     let _ = stdout_handle.await;
@@ -557,6 +640,74 @@ async fn copy_reader<R: tokio::io::AsyncRead + Unpin>(
     if let Some(ref mut r) = reader {
         let _ = tokio::io::copy(r, &mut file).await;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Total-execution-time-limit monitor
+// ---------------------------------------------------------------------------
+
+/// Monitors a task and force-kills it when `max_secs` elapses.
+///
+/// The flag is shared with [`await_process`] which checks it in its
+/// `select!` loop and kills the child when the flag is set.
+///
+/// An info-level log and a completion notification are emitted when
+/// the task is killed by this monitor.
+async fn spawn_max_execution_monitor(
+    max_secs: u64,
+    task_id: &str,
+    tasks: &TaskMap,
+    notifications: &Arc<Mutex<Vec<CompletionNotification>>>,
+) {
+    let deadline = std::time::Duration::from_secs(max_secs);
+    tokio::time::sleep(deadline).await;
+
+    // Check if the task is still running and trigger kill via the flag.
+    let (_flag, command, output_path) = {
+        let mut map = lock_map(tasks).await;
+        if let Some(h) = map.get_mut(task_id) {
+            if !matches!(h.state, TaskState::Running { .. }) {
+                return; // Task already finished.
+            }
+            h.timeout_flag.store(true, Ordering::Release);
+            h.state = TaskState::Killed;
+            if let Some(kill_tx) = h.kill_tx.take() {
+                let _ = kill_tx.send(());
+            }
+            (
+                Arc::clone(&h.timeout_flag),
+                h.command.clone(),
+                h.output_path.clone(),
+            )
+        } else {
+            return; // Task already cleaned up.
+        }
+    };
+
+    tracing::info!(
+        task_id = %task_id,
+        command = %command,
+        max_execution_secs = max_secs,
+        "background task killed: total execution time limit reached"
+    );
+
+    let notif = CompletionNotification {
+        task_id: task_id.to_owned(),
+        command: command.clone(),
+        state: TaskState::Killed,
+        output_path,
+        priority: NotificationPriority::Later,
+        summary: format!(
+            "Background command '{}' killed: total execution time limit ({}s) reached",
+            command, max_secs
+        ),
+        suggestion: Some(format!(
+            "The command exceeded the total execution time limit of {}s. \
+             Consider breaking it into smaller tasks or increasing the limit.",
+            max_secs
+        )),
+    };
+    notifications.lock().await.push(notif);
 }
 
 async fn finalize_state(
@@ -643,6 +794,7 @@ async fn insert_initial_handle(
         kill_tx: None,
         notified: false,
         created_at: tokio::time::Instant::now(),
+        timeout_flag: Arc::new(AtomicBool::new(false)),
     };
     let mut map = lock_map(tasks).await;
     map.insert(task_id.to_owned(), handle);
