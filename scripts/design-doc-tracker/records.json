@@ -681,9 +681,9 @@
   },
   {
     "path": "docs/design/slash/status.md",
-    "commit": "0b1fe3953efa8452d59db589c87fd31dcd7a70c1",
-    "commit_time": "2026-07-29T04:17:59+08:00",
-    "confirmed_time": "2026-07-29T04:23:32.338180+08:00",
+    "commit": "0ceb873d74fce04b8cacd74e4297d41795304d4d",
+    "commit_time": "2026-09-07T12:17:55+08:00",
+    "confirmed_time": "2026-09-07T12:27:46.245568+08:00",
     "comment": "",
     "blocked_reason": ""
   },
