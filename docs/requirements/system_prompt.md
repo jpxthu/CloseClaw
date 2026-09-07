@@ -11,7 +11,7 @@ System Prompt 是每次与 AI 模型通信时发送的引导前缀，承载 Agen
 Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 bootstrap 文件）定义 Agent 的身份、操作规范、工具使用指南和 Owner 偏好。其中身份由角色定义和身份标识共同构成，Owner 偏好对应 Owner 信息文件。bootstrap 文件属于 Agent 层配置，同一 Agent 对全部 User 人格一致。这些定义在 Agent 每次 Session 启动时自动加载，作为 System Prompt 的核心组成部分。
 
 - 必须加载的文件：操作规程、角色定义、身份标识、Owner 信息、工具使用指南
-- 可选加载的文件：自定义引导指令、长期记忆（取决于 Session 类型和加载模式）
+- 可选加载的文件：自定义引导指令、长期记忆。是否加载取决于 Session 类型和加载模式：自定义引导指令仅在主 Agent Session 且完整模式下加载；长期记忆在所有主 Agent Session 加载，与加载模式无关。子 Session 不加载任何可选文件（见 F8）
 - 文件不存在时静默跳过，不报错
 - 多文件按固定顺序注入，操作规程排在最高优先级
 - System Prompt 各组成部分按固定顺序组装。配置不变时多次组装结果逐字节相同，最大限度利用前缀缓存。具体组装顺序和格式由设计文档定义
@@ -91,13 +91,13 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 不同类型的 Session 加载不同的 System Prompt 内容：
 
-- **主 Agent Session**：加载全部内容（F1 必须加载的文件 + 可选加载的文件 + 工具清单）
-- **子 Session**：仅加载 F1 必须加载的文件 + 工具清单，不加载 F1 中列出的可选加载文件。其中长期记忆和自定义引导指令的排除要求见安全性小节
+- **主 Agent Session**：加载全部内容（F1 必须加载的文件 + 可选加载的文件 + 工具清单）。其中长期记忆在精简模式下仍加载——长期记忆的加载只取决于 Session 类型，不取决于加载模式
+- **子 Session**：仅加载 F1 必须加载的文件 + 工具清单，不加载 F1 中列出的可选加载文件（无论 Agent 配置的加载模式为何）。其中长期记忆和自定义引导指令的排除要求见安全性小节
 - **无 bootstrap 文件的 Session**：仅加载工具清单，跳过所有 bootstrap 文件
 
 > **注**：F4 运行时上下文（频道、工作目录）对所有 Session 类型均加载。
 
-> **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的 spawn 参数（如是否精简模式）。见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
+> **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的创建控制与 spawn 参数见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 
 ## 非功能需求
 

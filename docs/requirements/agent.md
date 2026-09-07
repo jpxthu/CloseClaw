@@ -15,7 +15,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **身份标识**：Agent 的唯一 ID 和显示名称
 - **模型选择**：Agent 使用的默认 LLM 模型及备用模型列表
 - **工作目录**：Agent 的默认工作目录
-- **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制上下文注入文件的数量
+- **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 的上下文注入文件数量（对子 Session 无效，子 Session 加载范围见 system_prompt §F8）
 - **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格，见 F2）所在目录
 - **工具白名单/黑名单**：Agent 可以使用的工具范围
 - **技能白名单**：Agent 可以使用的技能范围。技能的发现、目录结构和多 Agent 隔离详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）
@@ -71,7 +71,6 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 - **任务描述**：子 Session 要完成的任务
 - **生命周期**：一次性执行（默认）或持久存活（见 F11「持久子 Session 控制」）
 - **上下文模式**：指定子 Session 是仅接收任务描述，还是继承父 Session 的对话历史（后者即 Fork 模式，详见 F8「子 Session 上下文继承（Fork）」）
-- **上下文精简**：子 Session 是否以精简模式启动（精简模式即 F1「身份加载模式」中的「精简模式」取值）
 - **模型覆盖**：可选显式指定子 Session 的模型
 - **行为模板**：可选注入预置的行为模板（如"只读研究"、"校验审计"）
 - **工作目录覆盖**：可选为子 Session 指定独立的工作目录
