@@ -307,3 +307,81 @@ async fn test_cross_step_git_write_subcommand_routes_to_exec() {
         other => panic!("expected Exec, got {other:?}"),
     }
 }
+
+// ── /system clear cache invalidation (Step 1.2) ────────────────────────────
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Verify that /system clear triggers static-layer cache invalidation
+/// at the handler level (consistent with ClearHandler).
+#[tokio::test]
+async fn test_system_clear_invalidates_static_cache() {
+    let sm = make_sm();
+    let invalidator_called = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&invalidator_called);
+    sm.set_cache_invalidator(Arc::new(move || {
+        flag.store(true, Ordering::SeqCst);
+    }))
+    .await;
+
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
+    match h.handle("clear", &ctx).await {
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Clear,
+        } => {}
+        other => panic!("expected SystemAppend::Clear, got {other:?}"),
+    }
+
+    assert!(
+        invalidator_called.load(Ordering::SeqCst),
+        "/system clear must invalidate static-layer cache"
+    );
+}
+
+/// Verify that /system clear does not panic when no cache_invalidator is set.
+#[tokio::test]
+async fn test_system_clear_without_cache_invalidator_no_panic() {
+    let sm = make_sm();
+    // Do NOT set cache_invalidator — should be a no-op.
+
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
+    let result = h.handle("clear", &ctx).await;
+
+    assert!(
+        matches!(
+            result,
+            SlashResult::SystemAppend {
+                action: SystemAppendAction::Clear,
+            }
+        ),
+        "/system clear without cache_invalidator should still return SystemAppend::Clear"
+    );
+}
+
+/// Verify that /system add does NOT invalidate static-layer cache.
+#[tokio::test]
+async fn test_system_add_does_not_invalidate_cache() {
+    let sm = make_sm();
+    let invalidator_called = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&invalidator_called);
+    sm.set_cache_invalidator(Arc::new(move || {
+        flag.store(true, Ordering::SeqCst);
+    }))
+    .await;
+
+    let h = SystemHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
+    let ctx = dummy_ctx();
+    match h.handle("add test instruction", &ctx).await {
+        SlashResult::SystemAppend {
+            action: SystemAppendAction::Add(_),
+        } => {}
+        other => panic!("expected SystemAppend::Add, got {other:?}"),
+    }
+
+    assert!(
+        !invalidator_called.load(Ordering::SeqCst),
+        "/system add must NOT invalidate static-layer cache"
+    );
+}
