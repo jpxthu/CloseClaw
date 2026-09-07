@@ -206,14 +206,13 @@ pub(crate) fn spawn_plan_archive_sweeper(
 /// `SessionToolsRegistrar` is registered at priority 2, after
 /// `CoreToolsRegistrar` (priority 1), per `docs/design/tools/tool-registrar.md`.
 async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
-    let task_manager: Arc<dyn closeclaw_tasks::TaskManager> =
-        Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
-
-    // Share the task manager with SessionManager so drain_announce_events
-    // can drain completion notifications and clean up finished tasks.
-    ctx.session_manager
-        .set_task_manager(Arc::clone(&task_manager))
-        .await;
+    // Reuse the task_manager already created and set on SessionManager
+    // by spawn_background_services.
+    let task_manager: Arc<dyn closeclaw_tasks::TaskManager> = ctx
+        .session_manager
+        .get_task_manager()
+        .await
+        .expect("task_manager must be set on SessionManager before spawn_builtin_tools");
 
     let core_registrar = CoreToolsRegistrar::new(
         Arc::clone(ctx.permission_engine),

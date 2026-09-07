@@ -34,6 +34,7 @@ pub(crate) const SWEEPER_GRACE_PERIOD_SECS: u64 = 10;
 use closeclaw_common::SessionActivityDimensions;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_session::persistence::{AgentRole, PersistenceError, PersistenceService};
+use closeclaw_tasks::TaskManager;
 
 /// Errors that can occur during sweeper operations.
 #[derive(Debug, Error)]
@@ -57,6 +58,9 @@ pub struct ArchiveSweeper {
     /// Injected by the daemon so the sweeper can skip archiving
     /// sessions that are not yet idle.
     active_query: Option<Arc<dyn ActiveSessionQuery>>,
+    /// Optional task manager for cleaning up background task outputs
+    /// when a session is purged.
+    task_manager: Option<Arc<dyn TaskManager>>,
 }
 
 impl ArchiveSweeper {
@@ -70,6 +74,7 @@ impl ArchiveSweeper {
             config,
             mining_notify_tx: None,
             active_query: None,
+            task_manager: None,
         }
     }
 
@@ -85,6 +90,13 @@ impl ArchiveSweeper {
     /// [`DreamingScheduler`] can trigger mining immediately.
     pub fn with_mining_notify_tx(mut self, tx: mpsc::Sender<String>) -> Self {
         self.mining_notify_tx = Some(tx);
+        self
+    }
+
+    /// Attach a task manager for cleaning up background task outputs
+    /// when a session is purged.
+    pub fn with_task_manager(mut self, tm: Arc<dyn TaskManager>) -> Self {
+        self.task_manager = Some(tm);
         self
     }
 
@@ -119,6 +131,7 @@ impl ArchiveSweeper {
                         config: Arc::clone(&self.config),
                         mining_notify_tx: self.mining_notify_tx.clone(),
                         active_query: self.active_query.clone(),
+                        task_manager: self.task_manager.clone(),
                     };
                     let task = tokio::task::spawn(async move {
                         let notify_tx = sweeper.mining_notify_tx.clone();
@@ -216,6 +229,7 @@ impl ArchiveSweeper {
         let storage = Arc::clone(&self.storage);
         let config = Arc::clone(&self.config);
         let active_query = self.active_query.clone();
+        let task_manager = self.task_manager.clone();
 
         let handle = tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Handle::current();
@@ -225,6 +239,7 @@ impl ArchiveSweeper {
                     Arc::clone(&config),
                     notify_tx,
                     active_query,
+                    task_manager,
                 ))
             }))
         });
@@ -255,6 +270,7 @@ impl ArchiveSweeper {
         config: Arc<dyn SessionConfigProvider>,
         notify_tx: Option<mpsc::Sender<String>>,
         active_query: Option<Arc<dyn ActiveSessionQuery>>,
+        task_manager: Option<Arc<dyn TaskManager>>,
     ) -> Result<(), ArchiveSweeperError> {
         let agents = config.list_agents();
         if agents.is_empty() {
@@ -270,6 +286,7 @@ impl ArchiveSweeper {
                     role,
                     notify_tx.as_ref(),
                     active_query.as_deref(),
+                    task_manager.as_deref(),
                 )
                 .await;
             }
@@ -286,6 +303,7 @@ impl ArchiveSweeper {
         role: AgentRole,
         notify_tx: Option<&mpsc::Sender<String>>,
         active_query: Option<&dyn ActiveSessionQuery>,
+        task_manager: Option<&dyn TaskManager>,
     ) {
         let cfg = config.session_config_for(agent_id, role);
 
@@ -329,7 +347,9 @@ impl ArchiveSweeper {
             {
                 for sid in expired_ids {
                     let sid_err = sid.clone();
-                    if let Err(e) = Self::purge_and_invalidate_impl(Arc::clone(&storage), sid).await
+                    if let Err(e) =
+                        Self::purge_and_invalidate_impl(Arc::clone(&storage), sid, task_manager)
+                            .await
                     {
                         error!(session_id = %sid_err, %e, "failed to purge expired session");
                     }
@@ -414,12 +434,20 @@ impl ArchiveSweeper {
     }
 
     /// Purge an archived session and invalidate its local cache (impl version with Arc).
+    /// When a task_manager is provided, cleans up all background task outputs
+    /// belonging to the given session so that no orphan files remain after
+    /// session destruction.
     pub(crate) async fn purge_and_invalidate_impl(
         storage: Arc<dyn PersistenceService>,
         session_id: String,
+        task_manager: Option<&dyn TaskManager>,
     ) -> Result<(), ArchiveSweeperError> {
         storage.purge_checkpoint(&session_id).await?;
         storage.invalidate_session(&session_id).await?;
+        // Clean up background task output files for this session only.
+        if let Some(tm) = task_manager {
+            tm.cleanup_all_finished(&session_id).await;
+        }
         info!(%session_id, "session purged and cache invalidated");
         Ok(())
     }

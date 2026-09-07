@@ -462,9 +462,7 @@ impl Daemon {
 }
 
 /// Bundled shutdown receivers for background services.
-/// Groups the individual `watch::Receiver<()>` arguments passed to
-/// [`Daemon::spawn_background_services`] into a single struct to
-/// satisfy clippy's `too_many_arguments` limit.
+/// Groups watch::Receiver<()> args to satisfy clippy's too_many_arguments.
 pub(crate) struct ServiceShutdownReceivers {
     /// Receiver for ArchiveSweeper shutdown signal.
     pub sweeper: watch::Receiver<()>,
@@ -640,7 +638,7 @@ impl Daemon {
         let (sweeper_tx, sweeper_rx) = watch::channel(());
         let (announce_sweeper_tx, announce_sweeper_rx) = watch::channel(());
         let (dreaming_tx, dreaming_rx) = watch::channel(());
-        let (sweeper_handle, announce_sweeper_handle, dreaming_handle) =
+        let (sweeper_handle, announce_sweeper_handle, dreaming_handle, task_manager) =
             Self::spawn_background_services(
                 config_manager,
                 session_manager,
@@ -652,6 +650,7 @@ impl Daemon {
                 },
                 session_config_provider,
             );
+        session_manager.set_task_manager(task_manager).await;
         // Create SpawnController as an independent component (depends on AgentRegistry).
         let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
             Arc::clone(agent_registry),
@@ -685,10 +684,8 @@ impl Daemon {
         };
         let config_watcher = registries::populate_registries(&ctx).await?;
 
-        // Create SystemPromptBuilderAdapter and inject into SessionManager.
-        // Bridges SystemPromptBuilder trait to the Provider-driven pipeline.
-        // AgentRegistry uses DashMap (interior mutability), but adapter API
-        // requires Arc<tokio::sync::RwLock<AgentRegistry>>.
+        // Create SystemPromptBuilderAdapter — bridges SystemPromptBuilder trait
+        // to the Provider-driven pipeline.
         let adapter_registry = {
             let new_reg = closeclaw_agent::registry::AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
@@ -700,8 +697,7 @@ impl Daemon {
                 skill_registry.clone(),
                 Arc::clone(&builtin_skill_listing),
             ));
-        // Build Provider list from domain crates (tools, skills, memory).
-        // BootstrapFragmentProvider remains in system_prompt (its own crate's provider).
+        // Build Provider list from domain crates.
         let mut providers: Vec<Arc<dyn closeclaw_common::PromptFragmentProvider>> = vec![
             Arc::new(closeclaw_system_prompt::BootstrapFragmentProvider::new()),
             Arc::new(closeclaw_skills::SkillsFragmentProvider::new(
@@ -751,8 +747,7 @@ impl Daemon {
                 info!(count = count, "slash registry fully populated");
             }
         }
-        // Inject the real SessionManager into the late-bound proxy so
-        // session tools can delegate to it (layer 4 after layer 3).
+        // Inject real SessionManager into late-bound proxy (layer 4 after layer 3).
         if late_bound_session_manager
             .set(Arc::clone(session_manager)
                 as Arc<dyn closeclaw_session::tools::SessionManagerOps>)
@@ -771,8 +766,7 @@ impl Daemon {
             ))
                 as Arc<dyn closeclaw_common::SkillRegistryQuery>)
             .await;
-        // Inject skill listing provider so resolve() can pass it to
-        // every new ConversationSession for per-turn skill attachment.
+        // Inject skill listing provider for per-turn skill attachment.
         session_manager
             .set_skill_listing_provider(Arc::new(crate::bridge::SkillListingProviderWrapper::new(
                 skill_registry.clone(),
@@ -780,8 +774,7 @@ impl Daemon {
             ))
                 as Arc<dyn closeclaw_common::SkillListingProvider>)
             .await;
-        // Inject static-layer cache invalidation callback so /system clear
-        // can invalidate section caches.
+        // Inject static-layer cache invalidation callback.
         session_manager
             .set_cache_invalidator(Arc::new({
                 let shared_cache = Arc::clone(shared_cache);
@@ -790,9 +783,7 @@ impl Daemon {
                 }
             }))
             .await;
-        // Inject dynamic prompt builder so resolve() and
-        // force_new_for_channel() can pass it to every new
-        // ConversationSession for dynamic-layer injection.
+        // Inject dynamic prompt builder for dynamic-layer injection.
         session_manager
             .set_dynamic_prompt_builder(Arc::new(
                 closeclaw_system_prompt::SystemPromptDynamicBuilder,
@@ -826,6 +817,7 @@ impl Daemon {
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
         tokio::task::JoinHandle<()>,
+        Arc<dyn closeclaw_tasks::TaskManager>,
     ) {
         let ServiceShutdownReceivers {
             sweeper: sweeper_rx,
@@ -839,11 +831,14 @@ impl Daemon {
         // Create mining notification channel: sweeper + sub-agent → scheduler
         let (mining_notify_tx, mining_notify_rx) = tokio::sync::mpsc::channel(32);
         session_manager.set_mining_notify_tx(mining_notify_tx.clone());
+        let task_manager: Arc<dyn closeclaw_tasks::TaskManager> =
+            Arc::new(closeclaw_tasks::BackgroundTaskManager::new());
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider.clone())
                 .with_mining_notify_tx(mining_notify_tx)
                 .with_active_query(Arc::clone(session_manager)
-                    as Arc<dyn closeclaw_gateway::sweeper::ActiveSessionQuery>),
+                    as Arc<dyn closeclaw_gateway::sweeper::ActiveSessionQuery>)
+                .with_task_manager(Arc::clone(&task_manager)),
         );
         let sweeper_for_task = Arc::clone(&sweeper);
         let sweeper_handle = tokio::spawn(async move {
@@ -915,7 +910,12 @@ impl Daemon {
             dreaming_scheduler.run(dreaming_rx).await;
         });
         info!("DreamingScheduler spawned");
-        (sweeper_handle, announce_sweeper_handle, dreaming_handle)
+        (
+            sweeper_handle,
+            announce_sweeper_handle,
+            dreaming_handle,
+            task_manager,
+        )
     }
 
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
