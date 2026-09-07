@@ -252,7 +252,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
     fn build_prompt_parts(
         &self,
         context: &DynamicPromptContext,
-    ) -> (Option<String>, Option<String>, Option<String>) {
+    ) -> (Option<String>, Option<String>) {
         let meta = MessageMetadata {
             sender_id: context.ctx.sender_id.clone(),
             channel: context.ctx.channel.clone(),
@@ -285,7 +285,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
                 return (
                     Some(base.to_string()),
                     _merge_dynamic_and_appends(None, appends),
-                    None,
                 );
             }
         }
@@ -312,7 +311,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         (
             context.system_prompt.map(|s| s.to_string()),
             _merge_dynamic_and_appends(dynamic, appends),
-            None,
         )
     }
 }

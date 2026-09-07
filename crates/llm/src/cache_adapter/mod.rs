@@ -140,7 +140,6 @@ mod tests {
             extra_body: Map::new(),
             system_static: None,
             system_dynamic: None,
-            system_appends: None,
             system_blocks: None,
             tools: None,
             session_id: None,
@@ -475,18 +474,16 @@ mod tests {
         assert!(!blocks[0].cache);
     }
 
-    /// system_appends field is ignored by adapter (two-partition model).
+    /// Two-partition model: only static + dynamic blocks, no appends partition.
     #[test]
-    fn anthropic_adapter_ignores_system_appends_field() {
+    fn anthropic_adapter_two_partition_no_separate_appends() {
         let mut req = make_request();
         req.system_static = Some("Static".to_owned());
         req.system_dynamic = Some("Dynamic".to_owned());
-        // Legacy field set but adapter should ignore it
-        req.system_appends = Some("Should be ignored".to_owned());
         AnthropicCacheAdapter.apply(&mut req);
 
         let blocks = req.system_blocks.as_ref().unwrap();
-        // Only two blocks: static + dynamic; appends field is not consumed
+        // Only two blocks: static + dynamic; appends are merged into dynamic
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].text, "Static");
         assert!(blocks[0].cache);

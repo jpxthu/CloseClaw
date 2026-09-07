@@ -238,7 +238,6 @@ mod tests {
             extra_body: serde_json::Map::new(),
             system_static: None,
             system_dynamic: None,
-            system_appends: None,
             system_blocks: None,
             tools: None,
             session_id: None,
