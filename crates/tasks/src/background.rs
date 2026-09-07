@@ -698,8 +698,8 @@ async fn spawn_max_execution_monitor(
     let deadline = std::time::Duration::from_secs(max_secs);
     tokio::time::sleep(deadline).await;
 
-    // Check if the task is still running and trigger kill via the flag.
-    let (_notify, command, output_path) = {
+    // Check if the task is still running and trigger kill via the notifier.
+    let (command, output_path) = {
         let mut map = lock_map(tasks).await;
         if let Some(h) = map.get_mut(task_id) {
             if !matches!(h.state, TaskState::Running { .. }) {
@@ -710,11 +710,7 @@ async fn spawn_max_execution_monitor(
             if let Some(kill_tx) = h.kill_tx.take() {
                 let _ = kill_tx.send(());
             }
-            (
-                Arc::clone(&h.timeout_notify),
-                h.command.clone(),
-                h.output_path.clone(),
-            )
+            (h.command.clone(), h.output_path.clone())
         } else {
             return; // Task already cleaned up.
         }

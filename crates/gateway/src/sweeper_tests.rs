@@ -843,16 +843,20 @@ mod tests {
     /// Mock TaskManager that tracks `cleanup_all_finished` calls.
     struct MockTaskManager {
         cleanup_all_finished_called: Arc<Mutex<bool>>,
+        session_id_arg: Arc<Mutex<Option<String>>>,
     }
 
     impl MockTaskManager {
-        fn new() -> (Self, Arc<Mutex<bool>>) {
+        fn new() -> (Self, Arc<Mutex<bool>>, Arc<Mutex<Option<String>>>) {
             let called = Arc::new(Mutex::new(false));
+            let sid = Arc::new(Mutex::new(None));
             (
                 Self {
                     cleanup_all_finished_called: Arc::clone(&called),
+                    session_id_arg: Arc::clone(&sid),
                 },
                 called,
+                sid,
             )
         }
     }
@@ -890,21 +894,22 @@ mod tests {
             unimplemented!()
         }
         async fn cleanup_finished(&self) {}
-        async fn cleanup_all_finished(&self, _session_id: &str) {
+        async fn cleanup_all_finished(&self, session_id: &str) {
             *self.cleanup_all_finished_called.lock().unwrap() = true;
+            *self.session_id_arg.lock().unwrap() = Some(session_id.to_owned());
         }
     }
 
     /// When `purge_and_invalidate_impl` is called with a TaskManager,
     /// `cleanup_all_finished()` is invoked to remove all terminal task
-    /// output files.
+    /// output files, and the correct `session_id` is passed.
     #[tokio::test]
     async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
         let mem = Arc::new(MemStorage::default());
         mem.add_expired_session("purge-with-tm".into());
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
 
-        let (tm, called_flag) = MockTaskManager::new();
+        let (tm, called_flag, sid_arg) = MockTaskManager::new();
         let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
 
         ArchiveSweeper::purge_and_invalidate_impl(
@@ -919,8 +924,39 @@ mod tests {
             *called_flag.lock().unwrap(),
             "cleanup_all_finished must be called when task_manager is provided"
         );
+        assert_eq!(
+            sid_arg.lock().unwrap().as_deref(),
+            Some("purge-with-tm"),
+            "cleanup_all_finished must receive the correct session_id"
+        );
         let purge_called = mem.purge_called.lock().unwrap();
         assert!(purge_called.contains(&"purge-with-tm".into()));
+    }
+
+    /// Purging session A must not invoke cleanup for session B,
+    /// verifying session-level isolation of task output cleanup.
+    #[tokio::test]
+    async fn test_purge_session_a_does_not_affect_session_b() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_expired_session("session-a".into());
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+
+        let (tm, _, sid_arg) = MockTaskManager::new();
+        let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
+
+        ArchiveSweeper::purge_and_invalidate_impl(
+            Arc::clone(&storage),
+            "session-a".into(),
+            Some(tm_ref.as_ref()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sid_arg.lock().unwrap().as_deref(),
+            Some("session-a"),
+            "cleanup_all_finished must receive session-a, not session-b"
+        );
     }
 
     /// When `purge_and_invalidate_impl` is called without a TaskManager,
