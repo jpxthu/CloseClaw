@@ -964,3 +964,7 @@ mod tests;
 #[cfg(test)]
 #[path = "list_running_tasks_tests.rs"]
 mod list_running_tasks_tests;
+
+#[cfg(test)]
+#[path = "debug_log_integration_tests.rs"]
+mod debug_log_integration_tests;
