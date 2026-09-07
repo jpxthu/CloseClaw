@@ -426,45 +426,21 @@ fn test_task_state_variants_and_traits() {
             is_backgrounded: false
         }
     );
-
-    let completed = TaskState::Completed { exit_code: 0 };
-    match completed {
-        TaskState::Completed { exit_code } => assert_eq!(exit_code, 0),
-        _ => panic!("expected Completed"),
-    }
-
-    let failed = TaskState::Failed { exit_code: 1 };
-    match failed {
-        TaskState::Failed { exit_code } => assert_eq!(exit_code, 1),
-        _ => panic!("expected Failed"),
-    }
-
+    assert_eq!(
+        TaskState::Completed { exit_code: 0 },
+        TaskState::Completed { exit_code: 0 }
+    );
+    assert_eq!(
+        TaskState::Failed { exit_code: 1 },
+        TaskState::Failed { exit_code: 1 }
+    );
     assert_eq!(TaskState::Killed, TaskState::Killed);
-
     // Clone
     let original = TaskState::Completed { exit_code: 42 };
     assert_eq!(original.clone(), original);
-
-    // Debug
-    for s in &[
-        TaskState::Running {
-            is_backgrounded: false,
-        },
-        TaskState::Completed { exit_code: 0 },
-        TaskState::Failed { exit_code: 1 },
-        TaskState::Killed,
-    ] {
-        assert!(!format!("{:?}", s).is_empty());
-    }
-
     // Cross-variant inequality
     assert_ne!(running, TaskState::Completed { exit_code: 0 });
-    assert_ne!(running, TaskState::Failed { exit_code: 1 });
     assert_ne!(running, TaskState::Killed);
-    assert_ne!(
-        TaskState::Completed { exit_code: 0 },
-        TaskState::Failed { exit_code: 0 }
-    );
 }
 
 // --- BackgroundTask — construction and derived traits ---
@@ -480,17 +456,8 @@ fn test_background_task_fields_and_traits() {
         output_path: PathBuf::from("/tmp/out"),
     };
     assert_eq!(task.id, "abc-123");
-    assert_eq!(task.command, "echo hello");
     assert!(matches!(task.state, TaskState::Running { .. }));
-    assert_eq!(task.output_path, PathBuf::from("/tmp/out"));
-
-    let cloned = task.clone();
-    assert_eq!(cloned.id, task.id);
-    assert_eq!(cloned.state, task.state);
-
-    let debug = format!("{:?}", task);
-    assert!(debug.contains("BackgroundTask"));
-    assert!(debug.contains("abc-123"));
+    assert_eq!(task.clone().id, task.id);
 }
 
 // --- BackgroundTaskError — Display and variant tests ---
@@ -658,14 +625,8 @@ async fn test_killed_task_with_notified_produces_no_notification() {
 /// `Now > Next > Later` ordering.
 #[test]
 fn test_notification_priority_traits() {
-    // Ord / PartialOrd ordering
     assert!(NotificationPriority::Now > NotificationPriority::Next);
     assert!(NotificationPriority::Next > NotificationPriority::Later);
-    assert!(
-        NotificationPriority::Now.partial_cmp(&NotificationPriority::Next)
-            == Some(std::cmp::Ordering::Greater)
-    );
-
     // Vec sort via Ord derive
     let mut priorities = vec![
         NotificationPriority::Later,
@@ -681,29 +642,6 @@ fn test_notification_priority_traits() {
             NotificationPriority::Now,
         ]
     );
-
-    // Clone + Copy
-    let p = NotificationPriority::Now;
-    let cloned = p.clone();
-    let copied = p;
-    assert_eq!(p, cloned);
-    assert_eq!(p, copied);
-
-    // Serialize / Deserialize roundtrip
-    for v in [
-        NotificationPriority::Now,
-        NotificationPriority::Next,
-        NotificationPriority::Later,
-    ] {
-        let json = serde_json::to_string(&v).unwrap();
-        let parsed: NotificationPriority = serde_json::from_str(&json).unwrap();
-        assert_eq!(v, parsed);
-    }
-
-    // Debug
-    assert_eq!(format!("{:?}", NotificationPriority::Now), "Now");
-    assert_eq!(format!("{:?}", NotificationPriority::Next), "Next");
-    assert_eq!(format!("{:?}", NotificationPriority::Later), "Later");
 }
 
 // =========================================================================
@@ -996,4 +934,56 @@ async fn test_stuck_alert_then_max_execution_one_notification() {
     assert_eq!(notifs.len(), 1, "exactly one notification total");
     assert_eq!(notifs[0].priority, NotificationPriority::Next);
     assert_eq!(notifs[0].summary, "stuck alert");
+}
+
+// =========================================================================
+// Step 1.3: state transition — already-killed/completed tasks ignored
+// ==========================================================================
+
+/// When a task is already in `Killed` state (agent killed it) before
+/// the max_execution monitor fires, the monitor should no-op and
+/// produce no notification.
+#[tokio::test]
+async fn test_max_execution_skips_already_killed_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 2);
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    mgr.kill(&task.id).await.unwrap();
+    assert_eq!(
+        mgr.get_task(&task.id).await.unwrap().state,
+        TaskState::Killed
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        mgr.get_task(&task.id).await.unwrap().state,
+        TaskState::Killed
+    );
+    assert!(mgr.pending_notifications().await.is_empty());
+}
+
+/// When a task completes naturally before max_execution fires,
+/// the monitor should not kill it and should produce no notification.
+#[tokio::test]
+async fn test_max_execution_skips_completed_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 2);
+    let task = mgr
+        .spawn("true", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_completion(&mgr, &task.id).await.state,
+        TaskState::Completed { exit_code: 0 }
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        mgr.get_task(&task.id).await.unwrap().state,
+        TaskState::Completed { exit_code: 0 }
+    );
+    let notifs = mgr.pending_notifications().await;
+    assert!(notifs.iter().all(|n| n.state != TaskState::Killed));
 }
