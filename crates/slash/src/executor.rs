@@ -45,7 +45,7 @@ mod tests {
     struct MockExecutor;
     #[async_trait::async_trait]
     impl SlashEffectExecutor for MockExecutor {
-        async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+        async fn execute_stop(&self, _: &str) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "new-session".into()
         }
@@ -103,7 +103,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SlashEffectExecutor for ReasoningMockExecutor {
-        async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+        async fn execute_stop(&self, _: &str) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "mock-id".into()
         }

@@ -98,61 +98,31 @@ fn test_stop_handler_immediate() {
 #[tokio::test]
 async fn test_stop_handler_handle_no_args() {
     let result = StopHandler.handle("", &dummy_ctx()).await;
-    assert!(matches!(
-        result,
-        SlashResult::Stop {
-            cascade: true,
-            force: true
-        }
-    ));
+    assert!(matches!(result, SlashResult::Stop));
 }
 
 #[tokio::test]
 async fn test_stop_handler_cascade_ignored() {
     let result = StopHandler.handle("--cascade", &dummy_ctx()).await;
-    assert!(matches!(
-        result,
-        SlashResult::Stop {
-            cascade: true,
-            force: true
-        }
-    ));
+    assert!(matches!(result, SlashResult::Stop));
 }
 
 #[tokio::test]
 async fn test_stop_handler_force_ignored() {
     let result = StopHandler.handle("--force", &dummy_ctx()).await;
-    assert!(matches!(
-        result,
-        SlashResult::Stop {
-            cascade: true,
-            force: true
-        }
-    ));
+    assert!(matches!(result, SlashResult::Stop));
 }
 
 #[tokio::test]
 async fn test_stop_handler_cascade_and_force() {
     let result = StopHandler.handle("--cascade --force", &dummy_ctx()).await;
-    assert!(matches!(
-        result,
-        SlashResult::Stop {
-            cascade: true,
-            force: true
-        }
-    ));
+    assert!(matches!(result, SlashResult::Stop));
 }
 
 #[tokio::test]
 async fn test_stop_handler_unknown_args_ignored() {
     let result = StopHandler.handle("--unknown", &dummy_ctx()).await;
-    assert!(matches!(
-        result,
-        SlashResult::Stop {
-            cascade: true,
-            force: true
-        }
-    ));
+    assert!(matches!(result, SlashResult::Stop));
 }
 
 // ── StatusHandler tests ────────────────────────────────────────────────────
@@ -603,12 +573,9 @@ async fn test_cross_step_dispatcher_routes_all_commands() {
         other => panic!("/new should return NewSession, got {other:?}"),
     }
 
-    // /stop → Stop (always cascade=true, force=true per design doc)
+    // /stop → Stop (unit variant, fixed Forceful semantics per design doc)
     match dispatcher.dispatch("/stop", &ctx).await {
-        SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade should be true");
-            assert!(force, "force should be true");
-        }
+        SlashResult::Stop => {}
         other => panic!("/stop should return Stop, got {other:?}"),
     }
 
@@ -652,30 +619,21 @@ async fn test_cross_step_dispatcher_routes_all_commands() {
 async fn test_cross_step_stop_flag_combinations() {
     let ctx = dummy_ctx();
 
-    // No args: cascade=true, force=true
+    // No args: returns unit Stop
     match StopHandler.handle("", &ctx).await {
-        SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade should be true");
-            assert!(force, "force should be true");
-        }
+        SlashResult::Stop => {}
         other => panic!("expected Stop, got {other:?}"),
     }
 
-    // --force: args ignored, still cascade=true, force=true
+    // --force: args ignored, still returns unit Stop
     match StopHandler.handle("--force", &ctx).await {
-        SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade should be true");
-            assert!(force, "force should be true");
-        }
+        SlashResult::Stop => {}
         other => panic!("expected Stop, got {other:?}"),
     }
 
-    // --cascade --force: both true
+    // --cascade --force: returns unit Stop
     match StopHandler.handle("--cascade --force", &ctx).await {
-        SlashResult::Stop { cascade, force } => {
-            assert!(cascade, "cascade should be true");
-            assert!(force, "force should be true");
-        }
+        SlashResult::Stop => {}
         other => panic!("expected Stop, got {other:?}"),
     }
 }

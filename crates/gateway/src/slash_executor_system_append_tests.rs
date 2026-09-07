@@ -56,7 +56,7 @@ impl CountingMockExecutor {
 
 #[async_trait]
 impl SlashEffectExecutor for CountingMockExecutor {
-    async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+    async fn execute_stop(&self, _: &str) {}
     async fn execute_new_session(&self, _: &str, _: &str) -> String {
         "mock-id".into()
     }
@@ -197,7 +197,7 @@ async fn test_system_append_clear_zero_items() {
 
     #[async_trait]
     impl SlashEffectExecutor for ZeroClearMockExecutor {
-        async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+        async fn execute_stop(&self, _: &str) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "mock-id".into()
         }

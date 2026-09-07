@@ -73,10 +73,7 @@ impl SlashHandler for StopHandler {
 
     async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
         // No arguments, no flags — always Forceful semantics per design doc.
-        SlashResult::Stop {
-            cascade: true,
-            force: true,
-        }
+        SlashResult::Stop
     }
 }
 
