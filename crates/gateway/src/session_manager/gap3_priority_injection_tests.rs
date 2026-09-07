@@ -1,11 +1,15 @@
-//! Tests for Step 1.5 — priority-differentiated injection timing.
+//! Tests for priority-differentiated injection (Step 1.3 unification).
+//!
+//! After Step 1.3, all priorities are drained in a single pass at turn
+//! end. Priority only determines queue ordering and display prefix, not
+//! injection timing.
 //!
 //! Validates:
-//! - Now-priority announces are injected before user message processing
-//! - Next/Later priority announces are injected at turn start
-//! - Mixed priorities maintain correct ordering
-//! - `drain_announces_now` only drains Now events, rest stay in queue
-//! - `drain_announces_rest` drains Next+Later events
+//! - All priority events are drained together at turn end
+//! - Mixed priorities maintain correct ordering (Now → Next → Later)
+//! - `drain_and_inject_announces_filtered` with `<= Now` drains all
+//! - `drain_and_inject_announces_filtered` with `== Now` still works
+//!   for targeted filtering at the SessionManager level
 
 use super::test_helpers::setup_parent_with_conv;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
@@ -30,11 +34,11 @@ fn make_event(agent_id: &str, priority: NotificationPriority) -> AnnounceEvent {
 
 // ── 1. Now events drained first ─────────────────────────────────────────
 
-/// `drain_announces_now` must only drain Now-priority events,
-/// leaving Next and Later events in the queue.
+/// All three priorities must be drained in a single pass with
+/// the `<= Now` predicate (unified drain, design-doc §通知机制).
 #[tokio::test]
 #[serial]
-async fn test_drain_announces_now_only_drains_now() {
+async fn test_unified_drain_all_priorities() {
     clear_global_prompt_state();
 
     let mgr = make_test_mgr(None);
@@ -54,31 +58,37 @@ async fn test_drain_announces_now_only_drains_now() {
         .await
         .unwrap();
 
-    // Drain only Now events.
-    let now_events = mgr
-        .drain_announces_filtered(&parent_id, |p| *p == NotificationPriority::Now)
+    // Drain all events with the unified predicate.
+    let all_events = mgr
+        .drain_announces_filtered(&parent_id, |p| *p <= NotificationPriority::Now)
         .await;
-    assert_eq!(now_events.len(), 1, "should drain exactly 1 Now event");
-    assert_eq!(now_events[0].child_agent_id, "now1");
-
-    // Queue should still contain Next and Later events.
-    let remaining = mgr.drain_announces(&parent_id).await;
-    assert_eq!(remaining.len(), 2, "should have 2 remaining events");
-    let agent_ids: Vec<&str> = remaining
+    assert_eq!(all_events.len(), 3, "should drain all 3 events");
+    let agent_ids: Vec<&str> = all_events
         .iter()
         .map(|e| e.child_agent_id.as_str())
         .collect();
-    assert!(agent_ids.contains(&"next1"), "Next event should remain");
-    assert!(agent_ids.contains(&"later1"), "Later event should remain");
+    assert!(agent_ids.contains(&"now1"), "Now event should be drained");
+    assert!(agent_ids.contains(&"next1"), "Next event should be drained");
+    assert!(
+        agent_ids.contains(&"later1"),
+        "Later event should be drained"
+    );
+
+    // Queue should be empty.
+    let remaining = mgr.drain_announces(&parent_id).await;
+    assert!(
+        remaining.is_empty(),
+        "queue should be empty after unified drain"
+    );
 }
 
 // ── 2. Rest events drained correctly ────────────────────────────────────
 
-/// `drain_announces_rest` must drain Next + Later events, leaving
-/// Now events in the queue.
+/// `drain_announces_rest` (now unified) must drain all priorities,
+/// preserving queue insertion order.
 #[tokio::test]
 #[serial]
-async fn test_drain_announces_rest_drains_next_later() {
+async fn test_drain_rest_drains_all() {
     clear_global_prompt_state();
 
     let mgr = make_test_mgr(None);
@@ -97,31 +107,30 @@ async fn test_drain_announces_rest_drains_next_later() {
     .await
     .unwrap();
 
-    // Drain Next + Later events (predicate: priority < Now).
-    let rest_events = mgr
-        .drain_announces_filtered(&parent_id, |p| *p < NotificationPriority::Now)
+    // Drain all events (predicate: priority <= Now).
+    let all_events = mgr
+        .drain_announces_filtered(&parent_id, |p| *p <= NotificationPriority::Now)
         .await;
-    assert_eq!(
-        rest_events.len(),
-        2,
-        "should drain 2 rest events (Next + Later)"
-    );
-    let agent_ids: Vec<&str> = rest_events
+    assert_eq!(all_events.len(), 3, "should drain all 3 events");
+    let agent_ids: Vec<&str> = all_events
         .iter()
         .map(|e| e.child_agent_id.as_str())
         .collect();
+    assert!(agent_ids.contains(&"now1"));
     assert!(agent_ids.contains(&"next1"));
     assert!(agent_ids.contains(&"later1"));
 
-    // Queue should still contain the Now event.
+    // Queue should be empty.
     let remaining = mgr.drain_announces(&parent_id).await;
-    assert_eq!(remaining.len(), 1, "should have 1 remaining Now event");
-    assert_eq!(remaining[0].child_agent_id, "now1");
+    assert!(
+        remaining.is_empty(),
+        "queue should be empty after unified drain"
+    );
 }
 
 // ── 3. Now injected as system message ───────────────────────────────────
 
-/// `drain_announces_now` with injection must produce a system message
+/// Filtering with `== Now` must produce a system message
 /// with the Now event content.
 #[tokio::test]
 #[serial]
@@ -135,7 +144,7 @@ async fn test_now_injected_as_system_message() {
         .await
         .unwrap();
 
-    // Simulate the drain_announces_now flow: drain filtered + inject.
+    // Simulate a Now-only filter flow: drain filtered + inject.
     let events = mgr
         .drain_announces_filtered(&parent_id, |p| *p == NotificationPriority::Now)
         .await;
@@ -167,7 +176,8 @@ async fn test_now_injected_as_system_message() {
 // ── 4. Mixed priority ordering preserved ────────────────────────────────
 
 /// When Now, Next, and Later events are all queued, draining with
-/// the priority filter must return them in the correct order.
+/// the unified filter must return them sorted by priority
+/// (Now → Next → Later), with FIFO within each level.
 #[tokio::test]
 #[serial]
 async fn test_mixed_priority_filtering_order() {
@@ -192,25 +202,21 @@ async fn test_mixed_priority_filtering_order() {
         .await
         .unwrap();
 
-    // Drain Now events first.
-    let now_events = mgr
-        .drain_announces_filtered(&parent_id, |p| *p == NotificationPriority::Now)
+    // Drain all events with unified predicate.
+    let all_events = mgr
+        .drain_announces_filtered(&parent_id, |p| *p <= NotificationPriority::Now)
         .await;
-    let now_ids: Vec<&str> = now_events
+    let all_ids: Vec<&str> = all_events
         .iter()
         .map(|e| e.child_agent_id.as_str())
         .collect();
+    // Priority ordering: Now (N1, N2) → Next (X1) → Later (L1, L2)
+    // FIFO within each priority level.
     assert_eq!(
-        now_ids,
-        vec!["N1", "N2"],
-        "Now events should be in FIFO order"
+        all_ids,
+        vec!["N1", "N2", "X1", "L1", "L2"],
+        "events should be sorted by priority (Now > Next > Later), FIFO within level"
     );
-
-    // Drain rest (Next + Later).
-    let rest_events = mgr
-        .drain_announces_filtered(&parent_id, |p| *p < NotificationPriority::Now)
-        .await;
-    assert_eq!(rest_events.len(), 3, "should have 3 rest events");
 }
 
 // ── 5. Empty queue drain ────────────────────────────────────────────────
@@ -230,17 +236,18 @@ async fn test_drain_empty_queue_all_priorities() {
     assert!(now.is_empty());
 
     let rest = mgr
-        .drain_announces_filtered(&parent_id, |p| *p < NotificationPriority::Now)
+        .drain_announces_filtered(&parent_id, |p| *p <= NotificationPriority::Now)
         .await;
     assert!(rest.is_empty());
 }
 
 // ── 6. Now event not in rest drain ─────────────────────────────────────
 
-/// A Now-priority event must NOT be drained by the rest predicate.
+/// A Now-priority event IS drained by the unified `<= Now` predicate.
+/// Priority no longer causes two-phase injection.
 #[tokio::test]
 #[serial]
-async fn test_now_not_drained_by_rest() {
+async fn test_now_drained_by_unified_predicate() {
     clear_global_prompt_state();
 
     let mgr = make_test_mgr(None);
@@ -253,28 +260,28 @@ async fn test_now_not_drained_by_rest() {
     .await
     .unwrap();
 
-    let rest = mgr
-        .drain_announces_filtered(&parent_id, |p| *p < NotificationPriority::Now)
+    let all = mgr
+        .drain_announces_filtered(&parent_id, |p| *p <= NotificationPriority::Now)
         .await;
-    assert!(
-        rest.is_empty(),
-        "Now event should NOT be drained by rest predicate"
+    assert_eq!(
+        all.len(),
+        1,
+        "Now event should be drained by unified predicate"
     );
+    assert_eq!(all[0].child_agent_id, "now-only");
 
-    // Now event should still be in queue.
-    let now = mgr
-        .drain_announces_filtered(&parent_id, |p| *p == NotificationPriority::Now)
-        .await;
-    assert_eq!(now.len(), 1, "Now event should still be in queue");
+    // Queue should be empty.
+    let remaining = mgr.drain_announces(&parent_id).await;
+    assert!(remaining.is_empty(), "queue should be empty after drain");
 }
 
 // ── 7. Sequential drain: Now first, then rest ──────────────────────────
 
-/// Simulates the Step 1.4 flow: drain Now before LLM call, then
-/// drain rest at turn start. Both should produce system messages.
+/// Simulates the unified drain flow: all priorities drained at turn
+/// end in a single pass, then injected as system messages.
 #[tokio::test]
 #[serial]
-async fn test_sequential_drain_now_then_rest() {
+async fn test_unified_drain_all_at_turn_end() {
     clear_global_prompt_state();
 
     let mgr = make_test_mgr(None);
@@ -293,43 +300,22 @@ async fn test_sequential_drain_now_then_rest() {
     .await
     .unwrap();
 
-    // Phase 1: drain Now events and inject.
+    // Unified drain: all priorities in a single pass.
+    let all_events = mgr
+        .drain_announces_filtered(&parent_id, |p| *p <= NotificationPriority::Now)
+        .await;
+    assert_eq!(all_events.len(), 3, "should drain all 3 events");
+
+    // Inject as system messages.
     {
-        let now_events = mgr
-            .drain_announces_filtered(&parent_id, |p| *p == NotificationPriority::Now)
-            .await;
         let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
         let mut guard = cs.write().await;
-        for ev in &now_events.announces {
-            guard.inject_system_message(format!("[NOW] {}", ev.child_agent_id));
+        for ev in &all_events.announces {
+            guard.inject_system_message(format!("[{:?}] {}", ev.priority, ev.child_agent_id));
         }
     }
 
-    // Verify: 1 system message from Now.
-    {
-        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
-        let msgs = cs.read().await.messages().to_vec();
-        assert_eq!(msgs.len(), 1, "should have 1 Now message");
-        let text = match &msgs[0].content_blocks[0] {
-            ContentBlock::Text(t) => t.clone(),
-            other => panic!("expected Text, got {:?}", other),
-        };
-        assert!(text.contains("urgent"));
-    }
-
-    // Phase 2: drain rest events and inject.
-    {
-        let rest_events = mgr
-            .drain_announces_filtered(&parent_id, |p| *p < NotificationPriority::Now)
-            .await;
-        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
-        let mut guard = cs.write().await;
-        for ev in &rest_events.announces {
-            guard.inject_system_message(format!("[REST] {}", ev.child_agent_id));
-        }
-    }
-
-    // Verify: total 3 system messages (1 Now + 2 rest).
+    // Verify: total 3 system messages.
     {
         let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
         let msgs = cs.read().await.messages().to_vec();
@@ -341,9 +327,9 @@ async fn test_sequential_drain_now_then_rest() {
                 other => panic!("expected Text, got {:?}", other),
             })
             .collect();
-        assert!(texts.iter().any(|t| t.contains("[NOW] urgent")));
-        assert!(texts.iter().any(|t| t.contains("[REST] normal")));
-        assert!(texts.iter().any(|t| t.contains("[REST] background")));
+        assert!(texts.iter().any(|t| t.contains("urgent")));
+        assert!(texts.iter().any(|t| t.contains("normal")));
+        assert!(texts.iter().any(|t| t.contains("background")));
     }
 }
 
@@ -406,7 +392,7 @@ async fn test_all_rest_priority_now_empty() {
     );
 
     let rest = mgr
-        .drain_announces_filtered(&parent_id, |p| *p < NotificationPriority::Now)
+        .drain_announces_filtered(&parent_id, |p| *p <= NotificationPriority::Now)
         .await;
     assert_eq!(rest.len(), 2);
 }
