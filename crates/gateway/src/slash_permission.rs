@@ -456,18 +456,40 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         &self,
         session_id: &str,
         level: closeclaw_session::persistence::ReasoningLevel,
-    ) {
+    ) -> Option<closeclaw_session::persistence::ReasoningLevel> {
         let sh = self.session_handler.clone();
-        if let Some(cs) = gw_get_cs_or_reply(
+        let cs = gw_get_cs_or_reply(
             &self.session_manager,
             &sh,
             session_id,
             "session 不存在，无法设置推理深度",
         )
-        .await
-        {
-            cs.write().await.set_reasoning_level(level);
+        .await?;
+
+        // Write requested level and read model name in one lock, then
+        // resolve effective level outside the lock (deterministic).
+        let model = {
+            let mut cs = cs.write().await;
+            cs.set_reasoning_level(level);
+            cs.model().to_string()
+        };
+        let gw = self.session_manager.get_gateway_ref().await;
+        let Some(kb) = gw.as_ref().and_then(|g| g.model_knowledge()) else {
+            return None;
+        };
+        let effective =
+            super::session_handler_announce::resolve_effective_reasoning_level(&model, level, kb);
+        if effective != level {
+            tracing::debug!(
+                session_id,
+                from = ?level,
+                to = ?effective,
+                model = %model,
+                "reasoning level resolved (slash set)"
+            );
         }
+        cs.write().await.set_effective_reasoning_level(effective);
+        Some(effective)
     }
 
     async fn execute_set_verbosity(
