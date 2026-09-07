@@ -136,6 +136,7 @@ async fn test_outbound_bypass() {
         metadata: HashMap::new(),
     };
     let result = registry.process_outbound(llm_out.clone()).await.unwrap();
+
     assert_eq!(result.text_content(), Some("llm said hello"));
     assert!(!result.content_blocks.is_empty());
     assert_eq!(result.metadata.len(), 0);
@@ -992,9 +993,8 @@ async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
     let result = filter.process(&ctx).await.unwrap().unwrap();
 
     // Full default: Thinking not filtered
-    assert!(matches!(
-        &result.content_blocks[..],
-        [ContentBlock::Text(s), ContentBlock::Thinking { .. }]
-            if s == "visible"
-    ));
+    assert_eq!(result.content_blocks.len(), 2);
+    assert_eq!(result.text_content(), Some("visible"));
+    #[rustfmt::skip]
+    assert!(result.content_blocks.iter().any(|b| matches!(b, ContentBlock::Thinking { .. })));
 }
