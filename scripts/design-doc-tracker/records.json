@@ -761,9 +761,9 @@
   },
   {
     "path": "docs/design/tools/background-tasks.md",
-    "commit": "75ede2751f35fed3f177b1fe2b820d0ec85dae94",
-    "commit_time": "2026-08-25T09:55:36+08:00",
-    "confirmed_time": "2026-08-25T09:59:13.826017+08:00",
+    "commit": "c3439de038a5af2d490732f7bcfe0ef4f3aa9997",
+    "commit_time": "2026-09-08T06:26:20+08:00",
+    "confirmed_time": "2026-09-08T06:41:09.602197+08:00",
     "comment": "",
     "blocked_reason": ""
   },
