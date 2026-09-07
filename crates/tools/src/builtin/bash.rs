@@ -55,7 +55,7 @@ pub(crate) enum ForegroundOutcome {
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 
-/// Maximum auto-backgroundize timeout an agent may request (2 minutes).
+/// Maximum auto-backgroundize timeout an agent may request (10 minutes).
 /// Prevents agents from setting excessively long timeouts that would
 /// defeat the auto-backgroundize mechanism.
 const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;

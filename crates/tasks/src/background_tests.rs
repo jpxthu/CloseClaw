@@ -912,7 +912,7 @@ async fn test_drain_notifications_full_mixed_order() {
 #[tokio::test]
 async fn test_max_execution_time_limit_kills_task() {
     let tmp = TempDir::new().unwrap();
-    let mgr = BackgroundTaskManager::with_max_execution_secs(tmp.path(), 1); // 1 second limit
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1); // 1 second limit
     let task = mgr
         .spawn("sleep 60", tmp.path(), false, "test-session")
         .await
@@ -933,7 +933,7 @@ async fn test_max_execution_time_limit_kills_task() {
 #[tokio::test]
 async fn test_max_execution_time_limit_notification() {
     let tmp = TempDir::new().unwrap();
-    let mgr = BackgroundTaskManager::with_max_execution_secs(tmp.path(), 1);
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1);
     let task = mgr
         .spawn("sleep 60", tmp.path(), false, "test-session")
         .await
@@ -959,7 +959,7 @@ async fn test_max_execution_time_limit_notification() {
 #[tokio::test]
 async fn test_max_execution_time_limit_does_not_kill_quick_task() {
     let tmp = TempDir::new().unwrap();
-    let mgr = BackgroundTaskManager::with_max_execution_secs(tmp.path(), 60);
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 60);
     let task = mgr
         .spawn("echo done", tmp.path(), false, "test-session")
         .await

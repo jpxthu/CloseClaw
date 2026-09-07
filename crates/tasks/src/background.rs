@@ -147,6 +147,24 @@ impl BackgroundTaskManager {
     /// may run before being force-killed. Must be greater than the
     /// timeout parameter cap (600 s / 10 min).
     pub fn with_max_execution_secs(temp_dir: impl Into<PathBuf>, max_execution_secs: u64) -> Self {
+        assert!(
+            max_execution_secs > 600,
+            "max_execution_secs ({}) must be greater than 600 (timeout parameter cap)",
+            max_execution_secs
+        );
+        Self {
+            tasks: Arc::new(Mutex::new(HashMap::new())),
+            temp_dir: temp_dir.into(),
+            notifications: Arc::new(Mutex::new(Vec::new())),
+            max_execution_secs,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_max_execution_secs_unchecked(
+        temp_dir: impl Into<PathBuf>,
+        max_execution_secs: u64,
+    ) -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
             temp_dir: temp_dir.into(),
