@@ -93,7 +93,7 @@ OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reaso
 
 **OpenAI / DeepSeek 协议**：使用服务端自动前缀缓存，无需客户端在 messages 上显式标记。消息数组只追加、前缀不变，历史消息的前缀部分自动被服务端缓存覆盖。
 
-> 消息历史缓存标记属于 Protocol 层的序列化行为，与缓存适配器（处理 system prompt 静态区缓存）职责分离。缓存适配器详见 [cache-adapter](cache-adapter.md)。
+> 消息历史缓存标记属于 Protocol 层的序列化行为，与缓存适配器（处理 system prompt 缓存标记）职责分离。缓存适配器详见 [cache-adapter](cache-adapter.md)。
 
 ## 数据流
 
