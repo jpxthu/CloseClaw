@@ -757,19 +757,27 @@ async fn spawn_max_execution_monitor(
     tokio::time::sleep(deadline).await;
 
     // Check if the task is still running and trigger kill via the notifier.
-    let (command, output_path, trace_id) = {
+    // Dedup: if notified is already true (e.g. stuck alert sent first),
+    // still execute termination but skip sending a second notification.
+    let (command, output_path, trace_id, already_notified) = {
         let mut map = lock_map(tasks).await;
         if let Some(h) = map.get_mut(task_id) {
             if !matches!(h.state, TaskState::Running { .. }) {
                 return; // Task already finished.
             }
+            let already_notified = h.notified;
             h.state = TaskState::Killed;
             h.timeout_notify.notify_one();
             if let Some(kill_tx) = h.kill_tx.take() {
                 let _ = kill_tx.send(());
             }
             let trace_id = h.trace_id.clone();
-            (h.command.clone(), h.output_path.clone(), trace_id)
+            (
+                h.command.clone(),
+                h.output_path.clone(),
+                trace_id,
+                already_notified,
+            )
         } else {
             return; // Task already cleaned up.
         }
@@ -793,12 +801,25 @@ async fn spawn_max_execution_monitor(
         });
     }
 
+    // Dedup: skip notification if one was already sent (e.g. stuck alert).
+    if already_notified {
+        return;
+    }
+
+    // Mark notified before pushing so concurrent paths see the flag.
+    {
+        let mut map = lock_map(tasks).await;
+        if let Some(h) = map.get_mut(task_id) {
+            h.notified = true;
+        }
+    }
+
     let notif = CompletionNotification {
         task_id: task_id.to_owned(),
         command: command.clone(),
         state: TaskState::Killed,
         output_path,
-        priority: NotificationPriority::Later,
+        priority: NotificationPriority::Now,
         summary: format!(
             "Background command '{}' killed: total execution time limit ({}s) reached",
             command, max_secs
