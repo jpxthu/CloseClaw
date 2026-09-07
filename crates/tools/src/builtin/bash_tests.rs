@@ -103,6 +103,9 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        1800
+    }
 }
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
@@ -534,6 +537,7 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
         session: None,
         call_id: None,
         session_id: "",
+        force_terminate: false,
     };
     let outcome = handle_foreground_result(
         child_arc,
@@ -591,6 +595,7 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
         session: None,
         call_id: None,
         session_id: "",
+        force_terminate: false,
     };
     let outcome =
         handle_foreground_result(child_arc, "true", std::time::Duration::from_secs(5), &ctx).await;
@@ -861,6 +866,7 @@ async fn test_handle_foreground_result_manual_background_signal() {
         session: None,
         call_id: None,
         session_id: "",
+        force_terminate: false,
     };
     let outcome = handle_foreground_result(
         child_arc,
@@ -907,6 +913,7 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
         session: None,
         call_id: None,
         session_id: "",
+        force_terminate: false,
     };
     let outcome =
         handle_foreground_result(child_arc, "true", std::time::Duration::from_secs(5), &ctx).await;
@@ -950,6 +957,7 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
         session: None,
         call_id: None,
         session_id: "",
+        force_terminate: false,
     };
     let outcome = handle_foreground_result(
         child_arc,

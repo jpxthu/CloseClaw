@@ -71,6 +71,13 @@ pub trait TaskManager: Send + Sync {
     /// Drain all pending completion notifications.
     async fn drain_notifications(&self) -> Vec<CompletionNotification>;
 
+    /// Get the maximum total execution time in seconds per task.
+    ///
+    /// This is the hard upper bound for any single command's lifetime.
+    /// Used by the tools crate to enforce the total-execution-time
+    /// fallback for whitelisted commands in the foreground path.
+    fn max_execution_secs(&self) -> u64;
+
     /// Remove output files and handles for ALL terminal tasks,
     /// including Killed tasks, belonging to the given session.
     /// Used during session purge to reclaim output files for that

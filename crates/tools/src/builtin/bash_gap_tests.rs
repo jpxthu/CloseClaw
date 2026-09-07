@@ -113,6 +113,9 @@ impl closeclaw_tasks::TaskManager for DummyTaskManager {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        1800
+    }
 }
 
 /// Working TaskManager for tests that need spawn/backgroundize.
@@ -183,6 +186,9 @@ impl closeclaw_tasks::TaskManager for WorkingTaskManager {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        1800
+    }
 }
 
 /// Mock ToolSession that captures `report_tool_progress` calls.

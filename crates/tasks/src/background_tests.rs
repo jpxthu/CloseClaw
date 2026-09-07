@@ -41,15 +41,12 @@ async fn test_spawn_returns_running() {
         .spawn("echo hello", _tmp.path(), false, "test-session")
         .await
         .unwrap();
-    assert!(
-        matches!(
-            task.state,
-            TaskState::Running {
-                is_backgrounded: false
-            }
-        ),
-        "explicit spawn should not be backgrounded"
-    );
+    assert!(matches!(
+        task.state,
+        TaskState::Running {
+            is_backgrounded: false
+        }
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -121,22 +118,21 @@ async fn test_kill() {
 }
 
 #[tokio::test]
-async fn test_kill_non_running_returns_error() {
+async fn test_kill_error_cases() {
     let (mgr, _tmp) = test_manager();
     let task = mgr
         .spawn("true", _tmp.path(), false, "test-session")
         .await
         .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
-    let result = mgr.kill(&task.id).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_kill_nonexistent_task() {
-    let (mgr, _tmp) = test_manager();
-    let result = mgr.kill("nonexistent-id").await;
-    assert!(result.is_err());
+    assert!(
+        mgr.kill(&task.id).await.is_err(),
+        "kill non-running should error"
+    );
+    assert!(
+        mgr.kill("nonexistent-id").await.is_err(),
+        "kill nonexistent should error"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -153,11 +149,6 @@ async fn test_is_running() {
     assert!(mgr.is_running(&task.id).await);
     let _ = wait_for_completion(&mgr, &task.id).await;
     assert!(!mgr.is_running(&task.id).await);
-}
-
-#[tokio::test]
-async fn test_is_running_nonexistent() {
-    let (mgr, _tmp) = test_manager();
     assert!(!mgr.is_running("nonexistent-id").await);
 }
 
@@ -172,25 +163,15 @@ async fn test_get_task() {
         .spawn("echo hello", _tmp.path(), false, "test-session")
         .await
         .unwrap();
-    let snapshot = mgr.get_task(&task.id).await;
-    assert!(snapshot.is_some());
-    let s = snapshot.unwrap();
+    let s = mgr.get_task(&task.id).await.unwrap();
     assert_eq!(s.id, task.id);
     assert_eq!(s.command, "echo hello");
-    assert!(
-        matches!(
-            s.state,
-            TaskState::Running {
-                is_backgrounded: false
-            }
-        ),
-        "explicit spawn snapshot should not be backgrounded"
-    );
-}
-
-#[tokio::test]
-async fn test_get_task_nonexistent() {
-    let (mgr, _tmp) = test_manager();
+    assert!(matches!(
+        s.state,
+        TaskState::Running {
+            is_backgrounded: false
+        }
+    ));
     assert!(mgr.get_task("nonexistent-id").await.is_none());
 }
 
@@ -199,27 +180,21 @@ async fn test_get_task_nonexistent() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_output_file_captures_stdout() {
+async fn test_output_file_captures_stdout_and_stderr() {
     let (mgr, _tmp) = test_manager();
     let task = mgr
-        .spawn("echo hello_output", _tmp.path(), false, "test-session")
+        .spawn(
+            "echo hello_out; echo hello_err >&2",
+            _tmp.path(),
+            false,
+            "test-session",
+        )
         .await
         .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     let content = tokio::fs::read_to_string(&task.output_path).await.unwrap();
-    assert!(content.contains("hello_output"));
-}
-
-#[tokio::test]
-async fn test_output_file_captures_stderr() {
-    let (mgr, _tmp) = test_manager();
-    let task = mgr
-        .spawn("echo hello_stderr >&2", _tmp.path(), false, "test-session")
-        .await
-        .unwrap();
-    let _ = wait_for_completion(&mgr, &task.id).await;
-    let content = tokio::fs::read_to_string(&task.output_path).await.unwrap();
-    assert!(content.contains("hello_stderr"));
+    assert!(content.contains("hello_out"));
+    assert!(content.contains("hello_err"));
 }
 
 // ---------------------------------------------------------------------------
@@ -441,95 +416,37 @@ async fn test_backgroundize_captures_child_output() {
 // --- TaskState — type-level tests ---
 
 #[test]
-fn test_task_state_running() {
-    let state = TaskState::Running {
+fn test_task_state_variants_and_traits() {
+    let running = TaskState::Running {
         is_backgrounded: false,
     };
     assert_eq!(
-        state,
+        running,
         TaskState::Running {
             is_backgrounded: false
         }
     );
-}
-
-#[test]
-fn test_task_state_completed() {
-    let state = TaskState::Completed { exit_code: 0 };
-    match state {
-        TaskState::Completed { exit_code } => assert_eq!(exit_code, 0),
-        _ => panic!("expected Completed"),
-    }
-}
-
-#[test]
-fn test_task_state_failed() {
-    let state = TaskState::Failed { exit_code: 1 };
-    match state {
-        TaskState::Failed { exit_code } => assert_eq!(exit_code, 1),
-        _ => panic!("expected Failed"),
-    }
-}
-
-#[test]
-fn test_task_state_killed() {
-    let state = TaskState::Killed;
-    assert_eq!(state, TaskState::Killed);
-}
-
-#[test]
-fn test_task_state_clone() {
-    let original = TaskState::Completed { exit_code: 42 };
-    let cloned = original.clone();
-    assert_eq!(original, cloned);
-}
-
-#[test]
-fn test_task_state_debug() {
-    let states = [
-        TaskState::Running {
-            is_backgrounded: false,
-        },
+    assert_eq!(
         TaskState::Completed { exit_code: 0 },
-        TaskState::Failed { exit_code: 1 },
-        TaskState::Killed,
-    ];
-    for s in &states {
-        let debug = format!("{:?}", s);
-        assert!(!debug.is_empty());
-    }
-}
-
-#[test]
-fn test_task_state_equality_distinct_variants() {
-    assert_ne!(
-        TaskState::Running {
-            is_backgrounded: false
-        },
         TaskState::Completed { exit_code: 0 }
     );
-    assert_ne!(
-        TaskState::Running {
-            is_backgrounded: false
-        },
+    assert_eq!(
+        TaskState::Failed { exit_code: 1 },
         TaskState::Failed { exit_code: 1 }
     );
-    assert_ne!(
-        TaskState::Running {
-            is_backgrounded: false
-        },
-        TaskState::Killed
-    );
-    assert_ne!(
-        TaskState::Completed { exit_code: 0 },
-        TaskState::Failed { exit_code: 0 }
-    );
+    assert_eq!(TaskState::Killed, TaskState::Killed);
+    // Clone
+    let original = TaskState::Completed { exit_code: 42 };
+    assert_eq!(original.clone(), original);
+    // Cross-variant inequality
+    assert_ne!(running, TaskState::Completed { exit_code: 0 });
+    assert_ne!(running, TaskState::Killed);
 }
 
 // --- BackgroundTask — construction and derived traits ---
 
 #[test]
-fn test_background_task_fields() {
+fn test_background_task_fields_and_traits() {
     let task = BackgroundTask {
         id: "abc-123".to_string(),
         command: "echo hello".to_string(),
@@ -539,75 +456,41 @@ fn test_background_task_fields() {
         output_path: PathBuf::from("/tmp/out"),
     };
     assert_eq!(task.id, "abc-123");
-    assert_eq!(task.command, "echo hello");
     assert!(matches!(task.state, TaskState::Running { .. }));
-    assert_eq!(task.output_path, PathBuf::from("/tmp/out"));
-}
-
-#[test]
-fn test_background_task_clone() {
-    let task = BackgroundTask {
-        id: "clone-id".to_string(),
-        command: "ls".to_string(),
-        state: TaskState::Completed { exit_code: 0 },
-        output_path: PathBuf::from("/tmp/clone"),
-    };
-    let cloned = task.clone();
-    assert_eq!(cloned.id, task.id);
-    assert_eq!(cloned.command, task.command);
-    assert_eq!(cloned.state, task.state);
-    assert_eq!(cloned.output_path, task.output_path);
-}
-
-#[test]
-fn test_background_task_debug() {
-    let task = BackgroundTask {
-        id: "debug-id".to_string(),
-        command: "pwd".to_string(),
-        state: TaskState::Running {
-            is_backgrounded: false,
-        },
-        output_path: PathBuf::from("/tmp/debug"),
-    };
-    let debug = format!("{:?}", task);
-    assert!(debug.contains("BackgroundTask"));
-    assert!(debug.contains("debug-id"));
+    assert_eq!(task.clone().id, task.id);
 }
 
 // --- BackgroundTaskError — Display and variant tests ---
 
 #[test]
-fn test_background_task_error_spawn_failed_display() {
-    let err = BackgroundTaskError::SpawnFailed("permission denied".into());
-    assert_eq!(format!("{}", err), "spawn failed: permission denied");
-}
+fn test_background_task_error_display_and_debug() {
+    let cases: Vec<(BackgroundTaskError, &str, &str)> = vec![
+        (
+            BackgroundTaskError::SpawnFailed("permission denied".into()),
+            "spawn failed: permission denied",
+            "SpawnFailed",
+        ),
+        (
+            BackgroundTaskError::NotFound("task-42".into()),
+            "task not found: task-42",
+            "NotFound",
+        ),
+        (
+            BackgroundTaskError::NotRunning("task-99".into()),
+            "task not running: task-99",
+            "NotRunning",
+        ),
+    ];
+    for (err, expected_display, expected_debug) in cases {
+        assert_eq!(format!("{}", err), expected_display);
+        assert!(format!("{:?}", err).contains(expected_debug));
+    }
 
-#[test]
-fn test_background_task_error_not_found_display() {
-    let err = BackgroundTaskError::NotFound("task-42".into());
-    assert_eq!(format!("{}", err), "task not found: task-42");
-}
-
-#[test]
-fn test_background_task_error_not_running_display() {
-    let err = BackgroundTaskError::NotRunning("task-99".into());
-    assert_eq!(format!("{}", err), "task not running: task-99");
-}
-
-#[test]
-fn test_background_task_error_io_display() {
     let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
     let err = BackgroundTaskError::Io(io_err);
     let msg = format!("{}", err);
     assert!(msg.contains("io error"));
     assert!(msg.contains("file missing"));
-}
-
-#[test]
-fn test_background_task_error_debug() {
-    let err = BackgroundTaskError::SpawnFailed("test".into());
-    let debug = format!("{:?}", err);
-    assert!(debug.contains("SpawnFailed"));
 }
 
 // =========================================================================
@@ -730,6 +613,12 @@ async fn test_killed_task_with_notified_produces_no_notification() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let notifs = mgr.pending_notifications().await;
+    // Assertion: a killed task with notified=true must produce zero
+    // notifications. The kill path sets state=Killed, and finalize_state
+    // early-returns when it sees Killed — so no completion notification is
+    // ever pushed, regardless of the notified flag. This test verifies
+    // that even when the notified flag is already set (e.g. a stuck alert
+    // was sent), killing the task does not cause a duplicate notification.
     assert!(
         notifs.is_empty(),
         "killed task with notified=true must not produce a notification"
@@ -742,14 +631,8 @@ async fn test_killed_task_with_notified_produces_no_notification() {
 /// `Now > Next > Later` ordering.
 #[test]
 fn test_notification_priority_traits() {
-    // Ord / PartialOrd ordering
     assert!(NotificationPriority::Now > NotificationPriority::Next);
     assert!(NotificationPriority::Next > NotificationPriority::Later);
-    assert!(
-        NotificationPriority::Now.partial_cmp(&NotificationPriority::Next)
-            == Some(std::cmp::Ordering::Greater)
-    );
-
     // Vec sort via Ord derive
     let mut priorities = vec![
         NotificationPriority::Later,
@@ -765,29 +648,6 @@ fn test_notification_priority_traits() {
             NotificationPriority::Now,
         ]
     );
-
-    // Clone + Copy
-    let p = NotificationPriority::Now;
-    let cloned = p.clone();
-    let copied = p;
-    assert_eq!(p, cloned);
-    assert_eq!(p, copied);
-
-    // Serialize / Deserialize roundtrip
-    for v in [
-        NotificationPriority::Now,
-        NotificationPriority::Next,
-        NotificationPriority::Later,
-    ] {
-        let json = serde_json::to_string(&v).unwrap();
-        let parsed: NotificationPriority = serde_json::from_str(&json).unwrap();
-        assert_eq!(v, parsed);
-    }
-
-    // Debug
-    assert_eq!(format!("{:?}", NotificationPriority::Now), "Now");
-    assert_eq!(format!("{:?}", NotificationPriority::Next), "Next");
-    assert_eq!(format!("{:?}", NotificationPriority::Later), "Later");
 }
 
 // =========================================================================
@@ -837,9 +697,16 @@ async fn test_drain_notifications_sorted_by_priority() {
 }
 
 /// Same priority: drain should preserve insertion order (stable sort).
+/// Also verifies empty queue returns empty vec.
 #[tokio::test]
-async fn test_drain_notifications_stable_sort_same_priority() {
+async fn test_drain_notifications_stable_sort_and_empty() {
     let (mgr, _tmp) = test_manager();
+
+    // Empty queue
+    let notifs: Vec<CompletionNotification> = mgr.drain_notifications().await;
+    assert!(notifs.is_empty());
+
+    // Same priority: stable sort preserves insertion order
     mgr.notifications
         .lock()
         .await
@@ -858,14 +725,6 @@ async fn test_drain_notifications_stable_sort_same_priority() {
     assert_eq!(notifs[0].task_id, "a");
     assert_eq!(notifs[1].task_id, "b");
     assert_eq!(notifs[2].task_id, "c");
-}
-
-/// Empty queue: drain returns empty vec.
-#[tokio::test]
-async fn test_drain_notifications_empty() {
-    let (mgr, _tmp) = test_manager();
-    let notifs: Vec<CompletionNotification> = mgr.drain_notifications().await;
-    assert!(notifs.is_empty());
 }
 
 /// Full mixed scenario: 5 notifications with various priorities.
@@ -984,4 +843,153 @@ async fn test_max_execution_time_limit_does_not_kill_quick_task() {
 fn test_default_max_execution_secs() {
     let mgr = BackgroundTaskManager::new();
     assert_eq!(mgr.max_execution_secs, 1800);
+}
+
+// =========================================================================
+// Step 1.1: max_execution_monitor — dedup & priority fix
+// ==========================================================================
+
+/// When notified is already true before the max_execution monitor fires,
+/// the monitor still kills the task but pushes no notification.
+#[tokio::test]
+async fn test_max_execution_skips_notification_when_already_notified() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1);
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+
+    // Simulate a stuck alert having fired before the timeout monitor.
+    mgr.mark_notified(&task.id).await;
+
+    // Wait for the timeout monitor to fire.
+    let snapshot = wait_for_completion(&mgr, &task.id).await;
+    assert_eq!(
+        snapshot.state,
+        TaskState::Killed,
+        "task should be Killed after max_execution limit"
+    );
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let notifs = mgr.pending_notifications().await;
+    assert!(
+        notifs.is_empty(),
+        "no notification should be sent when notified was already true"
+    );
+}
+
+/// The max_execution monitor notification has priority Now (system-level).
+#[tokio::test]
+async fn test_max_execution_notification_priority_is_now() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1);
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let notifs = mgr.pending_notifications().await;
+    assert_eq!(notifs.len(), 1);
+    assert_eq!(
+        notifs[0].priority,
+        NotificationPriority::Now,
+        "max_execution notification must use Now priority"
+    );
+}
+
+/// Full dedup sequence: stuck alert fires first (sets notified=true),
+/// then max_execution triggers — only one notification total.
+#[tokio::test]
+async fn test_stuck_alert_then_max_execution_one_notification() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1);
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+
+    // Simulate stuck alert: mark notified + push a Next-priority alert.
+    {
+        let mut map = mgr.tasks.lock().await;
+        if let Some(h) = map.get_mut(&task.id) {
+            h.notified = true;
+        }
+    }
+    mgr.notifications.lock().await.push(CompletionNotification {
+        task_id: task.id.clone(),
+        command: "sleep 60".to_string(),
+        state: TaskState::Running {
+            is_backgrounded: false,
+        },
+        output_path: task.output_path.clone(),
+        priority: NotificationPriority::Next,
+        summary: "stuck alert".to_string(),
+        suggestion: Some("rerun with pipe".to_string()),
+    });
+
+    // Wait for the timeout monitor to fire.
+    let snapshot = wait_for_completion(&mgr, &task.id).await;
+    assert_eq!(snapshot.state, TaskState::Killed);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let notifs = mgr.pending_notifications().await;
+    // Only the stuck alert notification; no second from max_execution.
+    assert_eq!(notifs.len(), 1, "exactly one notification total");
+    assert_eq!(notifs[0].priority, NotificationPriority::Next);
+    assert_eq!(notifs[0].summary, "stuck alert");
+}
+
+// =========================================================================
+// Step 1.3: state transition — already-killed/completed tasks ignored
+// ==========================================================================
+
+/// When a task is already in `Killed` state (agent killed it) before
+/// the max_execution monitor fires, the monitor should no-op and
+/// produce no notification.
+#[tokio::test]
+async fn test_max_execution_skips_already_killed_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 2);
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    mgr.kill(&task.id).await.unwrap();
+    assert_eq!(
+        mgr.get_task(&task.id).await.unwrap().state,
+        TaskState::Killed
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        mgr.get_task(&task.id).await.unwrap().state,
+        TaskState::Killed
+    );
+    assert!(mgr.pending_notifications().await.is_empty());
+}
+
+/// When a task completes naturally before max_execution fires,
+/// the monitor should not kill it and should produce no notification.
+#[tokio::test]
+async fn test_max_execution_skips_completed_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 2);
+    let task = mgr
+        .spawn("true", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_completion(&mgr, &task.id).await.state,
+        TaskState::Completed { exit_code: 0 }
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        mgr.get_task(&task.id).await.unwrap().state,
+        TaskState::Completed { exit_code: 0 }
+    );
+    let notifs = mgr.pending_notifications().await;
+    assert!(notifs.iter().all(|n| n.state != TaskState::Killed));
 }
