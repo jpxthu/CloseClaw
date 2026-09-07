@@ -474,9 +474,7 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
             cs.model().to_string()
         };
         let gw = self.session_manager.get_gateway_ref().await;
-        let Some(kb) = gw.as_ref().and_then(|g| g.model_knowledge()) else {
-            return None;
-        };
+        let kb = gw.as_ref().and_then(|g| g.model_knowledge())?;
         let effective =
             super::session_handler_announce::resolve_effective_reasoning_level(&model, level, kb);
         if effective != level {
