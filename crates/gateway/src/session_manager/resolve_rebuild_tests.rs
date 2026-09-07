@@ -518,12 +518,8 @@ impl DynamicPromptBuilder for MockDynamicPromptBuilder {
     fn build_prompt_parts(
         &self,
         _ctx: &DynamicPromptContext<'_>,
-    ) -> (Option<String>, Option<String>, Option<String>) {
-        (
-            Some("mock-static".into()),
-            Some("mock-dynamic".into()),
-            None,
-        )
+    ) -> (Option<String>, Option<String>) {
+        (Some("mock-static".into()), Some("mock-dynamic".into()))
     }
 }
 

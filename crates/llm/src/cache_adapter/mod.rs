@@ -545,4 +545,89 @@ mod tests {
         assert_eq!(blocks[1].text, "Dynamic\n\n## Append\n1. Appends");
         assert!(!blocks[1].cache);
     }
+
+    // ------------------------------------------------------------------
+    // Step 1.5: Merge boundary cache adapter tests
+    // ------------------------------------------------------------------
+
+    /// Static zone split into multiple blocks by double-newline: all blocks
+    /// must have cache: true (each section is independently cacheable).
+    #[test]
+    fn anthropic_adapter_static_multi_blocks_all_cached() {
+        let mut req = make_request();
+        req.system_static = Some("Section A\n\nSection B\n\nSection C".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].text, "Section A");
+        assert!(blocks[0].cache, "Section A should be cached");
+        assert_eq!(blocks[1].text, "Section B");
+        assert!(blocks[1].cache, "Section B should be cached");
+        assert_eq!(blocks[2].text, "Section C");
+        assert!(blocks[2].cache, "Section C should be cached");
+    }
+
+    /// Dynamic zone with merged appends is a single non-cacheable block.
+    /// The entire dynamic+append text is wrapped as one SystemBlock with
+    /// cache: false — appends do not create separate blocks.
+    #[test]
+    fn anthropic_adapter_dynamic_with_appends_single_block_no_cache() {
+        let mut req = make_request();
+        req.system_static = Some("Static".to_owned());
+        req.system_dynamic =
+            Some("Dynamic content\n\n## Append\n[0] item A\n[1] item B".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 2);
+        // Static block cached
+        assert!(blocks[0].cache);
+        // Dynamic block (with merged appends) NOT cached
+        assert!(!blocks[1].cache);
+        assert_eq!(
+            blocks[1].text,
+            "Dynamic content\n\n## Append\n[0] item A\n[1] item B"
+        );
+    }
+
+    /// Appends in the dynamic field do NOT form independent blocks.
+    /// The entire dynamic text (including ## Append heading and entries)
+    /// is a single non-cacheable block.
+    #[test]
+    fn anthropic_adapter_appends_not_independent_block() {
+        let mut req = make_request();
+        req.system_static = Some("Static".to_owned());
+        // Dynamic field contains merged appends (two ## sections separated
+        // by double newline — but adapter must NOT split dynamic by \n\n)
+        req.system_dynamic = Some("Channel Context\nchat: test\n\n## Append\n[0] note".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        // Only 2 blocks: static + dynamic (NOT 3)
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].cache);
+        assert!(!blocks[1].cache);
+        assert_eq!(
+            blocks[1].text,
+            "Channel Context\nchat: test\n\n## Append\n[0] note"
+        );
+    }
+
+    /// Static multi-block + dynamic with appends: static blocks cached,
+    /// single dynamic block not cached.
+    #[test]
+    fn anthropic_adapter_static_multi_dynamic_with_appends() {
+        let mut req = make_request();
+        req.system_static = Some("Part A\n\nPart B".to_owned());
+        req.system_dynamic = Some("Dynamic\n\n## Append\n[0] item".to_owned());
+        AnthropicCacheAdapter.apply(&mut req);
+
+        let blocks = req.system_blocks.as_ref().unwrap();
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks[0].cache, "Part A should be cached");
+        assert!(blocks[1].cache, "Part B should be cached");
+        assert!(!blocks[2].cache, "Dynamic block should NOT be cached");
+        assert_eq!(blocks[2].text, "Dynamic\n\n## Append\n[0] item");
+    }
 }
