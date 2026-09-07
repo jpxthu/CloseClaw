@@ -420,7 +420,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Step 1.4: Appends partition tests
+    // Appends partition tests
     // ------------------------------------------------------------------
 
     /// Appends are appended after dynamic content with cache: false.
@@ -547,7 +547,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Step 1.5: Merge boundary cache adapter tests
+    // Merge boundary cache adapter tests
     // ------------------------------------------------------------------
 
     /// Static zone split into multiple blocks by double-newline: all blocks
