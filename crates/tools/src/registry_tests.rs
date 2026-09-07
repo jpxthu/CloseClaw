@@ -1,6 +1,5 @@
 use super::*;
 use crate::ToolFlags;
-use closeclaw_common::tool_registry::ToolRegistryQuery;
 use closeclaw_common::RegistryError;
 
 struct DummyTool {

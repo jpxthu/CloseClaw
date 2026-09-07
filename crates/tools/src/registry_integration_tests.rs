@@ -5,6 +5,7 @@
 //! to keep that file under the 1 000-line limit.
 
 use super::*;
+use closeclaw_common::ToolRegistryQuery;
 use std::sync::Arc;
 
 /// SkillTool (eager) and SkillCreatorTool (deferred) appear in separate
