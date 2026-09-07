@@ -46,16 +46,11 @@ async fn test_stop_calls_execute_stop_with_correct_params() {
     let sm = Arc::new(MockSessionLookup::new(None));
     let ctx = make_ctx(Arc::clone(&mock), "s2", "feishu", sm);
 
-    SlashResult::Stop {
-        cascade: true,
-        force: false,
-    }
-    .execute(&ctx)
-    .await;
+    SlashResult::Stop.execute(&ctx).await;
 
     let calls = mock.calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0], ExecutorCall::Stop("s2".into(), true, false));
+    assert_eq!(calls[0], ExecutorCall::Stop("s2".into()));
     drop(calls);
 
     let replies = mock.drain_replies();

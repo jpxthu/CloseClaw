@@ -70,7 +70,7 @@ impl ReasoningConfigMockExecutor {
 
 #[async_trait]
 impl SlashEffectExecutor for ReasoningConfigMockExecutor {
-    async fn execute_stop(&self, _: &str, _: bool, _: bool) {}
+    async fn execute_stop(&self, _: &str) {}
     async fn execute_new_session(&self, _: &str, _: &str) -> String {
         "mock-id".into()
     }
