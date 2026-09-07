@@ -31,11 +31,14 @@ pub trait TaskManager: Send + Sync {
     /// When `is_backgrounded` is `true`, the task was created via
     /// auto-backgrounding or manual backgrounding (user-initiated);
     /// `false` means explicit `run_in_background`.
+    ///
+    /// `session_id` is the owning session; used for per-session cleanup.
     async fn spawn_task(
         &self,
         command: &str,
         cwd: &std::path::Path,
         is_backgrounded: bool,
+        session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError>;
 
     /// Take over a running child process and manage it in the background.
@@ -43,11 +46,14 @@ pub trait TaskManager: Send + Sync {
     /// When `is_backgrounded` is `true`, the task was created via
     /// auto-backgrounding or manual backgrounding (user-initiated);
     /// `false` means explicit `run_in_background`.
+    ///
+    /// `session_id` is the owning session; used for per-session cleanup.
     async fn backgroundize_task(
         &self,
         child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        session_id: &str,
     ) -> Result<BackgroundTask, BackgroundTaskError>;
 
     /// Kill a running background task by ID.
@@ -68,4 +74,10 @@ pub trait TaskManager: Send + Sync {
     /// Remove output files and handles for tasks that have reached
     /// a terminal state (Completed, Failed, Killed).
     async fn cleanup_finished(&self);
+
+    /// Remove output files and handles for ALL terminal tasks,
+    /// including Killed tasks, belonging to the given session.
+    /// Used during session purge to reclaim output files for that
+    /// session only — tasks of other sessions are left untouched.
+    async fn cleanup_all_finished(&self, session_id: &str);
 }

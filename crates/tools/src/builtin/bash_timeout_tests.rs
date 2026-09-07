@@ -4,9 +4,9 @@
 //! correctly based on the `agent_timeout_ms` parameter:
 //!
 //! - `Some(30_000)` → 30s (agent-specified, within cap)
-//! - `Some(300_000)` → 120s (capped at `AUTO_BG_TIMEOUT_CAP_MS`)
+//! - `Some(300_000)` → 300s (within cap, cap is 600s)
 //! - `None` → 15s (system default)
-//! - Excluded commands (sleep/true/false) → `agent_timeout_ms` or 120s
+//! - Excluded commands (sleep/true/false) → `agent_timeout_ms` or 600s
 
 use super::*;
 use serde_json::json;
@@ -24,6 +24,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         _command: &str,
         _cwd: &std::path::Path,
         _is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
             "not used".into(),
@@ -34,6 +35,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         _child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         // Return a fake task — the test only cares about whether the
         // child was backgroundized, not the task itself.
@@ -57,6 +59,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
 fn bg_trait() -> Arc<dyn closeclaw_tasks::TaskManager> {
@@ -79,6 +82,7 @@ async fn test_agent_timeout_30s_completes_in_foreground() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -117,6 +121,7 @@ async fn test_agent_timeout_30s_auto_backgrounds_long_command() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -151,6 +156,7 @@ async fn test_agent_timeout_300s_capped_to_120s_quick_command() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -182,6 +188,7 @@ async fn test_default_timeout_quick_command_completes() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -212,6 +219,7 @@ async fn test_excluded_command_true_not_auto_backgrounded() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -238,6 +246,7 @@ async fn test_excluded_command_false_not_auto_backgrounded() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -267,6 +276,7 @@ async fn test_excluded_command_sleep_not_auto_backgrounded() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -299,6 +309,7 @@ async fn test_excluded_command_ignores_agent_timeout_uses_cap() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -330,6 +341,7 @@ async fn test_excluded_command_sleep_ignores_agent_timeout() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -362,6 +374,7 @@ async fn test_non_excluded_with_large_timeout_capped_to_120s() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_foreground_command should succeed");
@@ -384,7 +397,10 @@ async fn test_non_excluded_with_large_timeout_capped_to_120s() {
 #[test]
 fn test_auto_bg_timeout_constants() {
     assert_eq!(AUTO_BG_TIMEOUT_MS, 15_000, "default should be 15s");
-    assert_eq!(AUTO_BG_TIMEOUT_CAP_MS, 120_000, "cap should be 120s");
+    assert_eq!(
+        AUTO_BG_TIMEOUT_CAP_MS, 600_000,
+        "cap should be 600s (10 minutes)"
+    );
 }
 
 // ---------------------------------------------------------------------------

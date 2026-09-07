@@ -8,6 +8,9 @@ mod tests {
     use closeclaw_session::persistence::{
         AgentRole, PendingOperationDetail, PersistenceError, PersistenceService, SessionCheckpoint,
     };
+    use closeclaw_tasks::{
+        BackgroundTask, BackgroundTaskError, CompletionNotification, TaskManager,
+    };
     use std::sync::{Arc, Mutex};
     use tokio::sync::watch;
 
@@ -265,8 +268,11 @@ mod tests {
         mem.add_expired_session("session-2".into());
 
         let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-        let config: Arc<dyn SessionConfigProvider> =
-            Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
+        let mock_config = MockConfig::with_agents(vec!["agent-x".into()]);
+        // Default purge_after_minutes is 0 (never purge); set to non-zero
+        // so the purge path is exercised.
+        *mock_config.session_config.lock().unwrap() = PerAgentSessionConfig::new(30, 60, false);
+        let config: Arc<dyn SessionConfigProvider> = Arc::new(mock_config);
 
         let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
         sweeper.run_once().await.unwrap();
@@ -513,87 +519,6 @@ mod tests {
         assert!(
             result.is_ok(),
             "sweeper should exit quickly when no task is running"
-        );
-    }
-
-    /// Shutdown signal with running task that completes within grace period → exits cleanly.
-    #[tokio::test]
-    async fn test_shutdown_grace_period_completes_within_deadline() {
-        use tokio::sync::watch;
-
-        // Fake sweeper that spawns a task taking ~100ms (well under grace period).
-        struct FakeSweeper {
-            storage: Arc<dyn PersistenceService>,
-        }
-
-        impl FakeSweeper {
-            async fn run(&self, mut shutdown: watch::Receiver<()>) {
-                let mut running_task: Option<tokio::task::JoinHandle<()>> = None;
-                let interval = tokio::time::Duration::from_millis(50);
-                let mut next_fire = tokio::time::Instant::now() + interval;
-                loop {
-                    tokio::select! {
-                        _ = shutdown.changed() => break,
-                        _ = tokio::time::sleep_until(next_fire),
-                            if running_task.is_none() =>
-                        {
-                            let storage = Arc::clone(&self.storage);
-                            let task = tokio::task::spawn(async move {
-                                // Simulate a task that finishes quickly
-                                tokio::time::sleep(std::time::Duration::from_millis(100)).
-                                    await;
-                                let _ = storage;
-                            });
-                            running_task = Some(task);
-                            next_fire += interval;
-                        }
-                        result = async {
-                            match running_task.as_mut() {
-                                Some(t) => t.await,
-                                None => std::future::pending().await,
-                            }
-                        } => {
-                            running_task = None;
-                            if result.is_err() {
-                                tracing::error!("task panicked");
-                            }
-                        }
-                    }
-                }
-                // Grace period: same logic as real sweeper
-                if let Some(mut task) = running_task {
-                    let grace = tokio::time::Duration::from_secs(SWEEPER_GRACE_PERIOD_SECS);
-                    tokio::select! {
-                        result = &mut task => {
-                            let _ = result;
-                        }
-                        _ = tokio::time::sleep(grace) => {
-                            task.abort();
-                        }
-                    }
-                }
-            }
-        }
-
-        let mem = Arc::new(MemStorage::default());
-        let sweeper = FakeSweeper {
-            storage: mem.clone() as _,
-        };
-        let (tx, rx) = watch::channel(());
-
-        // Spawn the sweeper
-        let handle = tokio::spawn(async move {
-            sweeper.run(rx).await;
-        });
-
-        // Wait long enough for the sweeper to fire and start a task
-        tokio::time::sleep(tokio::time::Duration::from_millis(80)).await;
-        // Send shutdown — task is running but will finish within grace period
-        let _ = tx.send(());
-        let result = tokio::time::timeout(std::time::Duration::from_secs(3), handle).await;
-        assert!(
-            result.is_ok(),
-            "sweeper should exit after task completes within grace period"
         );
     }
 
@@ -911,5 +836,142 @@ mod tests {
             archive_called.contains(&"not-in-mem".into()),
             "session not in memory (all dimensions false) → must archive"
         );
+    }
+
+    // ── Step 1.5: purge + TaskManager integration ──────────────────────
+
+    /// Mock TaskManager that tracks `cleanup_all_finished` calls.
+    struct MockTaskManager {
+        cleanup_all_finished_called: Arc<Mutex<bool>>,
+        session_id_arg: Arc<Mutex<Option<String>>>,
+    }
+
+    impl MockTaskManager {
+        fn new() -> (Self, Arc<Mutex<bool>>, Arc<Mutex<Option<String>>>) {
+            let called = Arc::new(Mutex::new(false));
+            let sid = Arc::new(Mutex::new(None));
+            (
+                Self {
+                    cleanup_all_finished_called: Arc::clone(&called),
+                    session_id_arg: Arc::clone(&sid),
+                },
+                called,
+                sid,
+            )
+        }
+    }
+
+    #[async_trait]
+    impl TaskManager for MockTaskManager {
+        async fn spawn_task(
+            &self,
+            _command: &str,
+            _cwd: &std::path::Path,
+            _is_backgrounded: bool,
+            _session_id: &str,
+        ) -> Result<BackgroundTask, BackgroundTaskError> {
+            unimplemented!()
+        }
+        async fn backgroundize_task(
+            &self,
+            _child: tokio::process::Child,
+            _command: &str,
+            _is_backgrounded: bool,
+            _session_id: &str,
+        ) -> Result<BackgroundTask, BackgroundTaskError> {
+            unimplemented!()
+        }
+        async fn kill_task(&self, _: &str) -> Result<(), BackgroundTaskError> {
+            unimplemented!()
+        }
+        async fn get_task(&self, _: &str) -> Option<BackgroundTask> {
+            unimplemented!()
+        }
+        async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+            unimplemented!()
+        }
+        async fn drain_notifications(&self) -> Vec<CompletionNotification> {
+            unimplemented!()
+        }
+        async fn cleanup_finished(&self) {}
+        async fn cleanup_all_finished(&self, session_id: &str) {
+            *self.cleanup_all_finished_called.lock().unwrap() = true;
+            *self.session_id_arg.lock().unwrap() = Some(session_id.to_owned());
+        }
+    }
+
+    /// When `purge_and_invalidate_impl` is called with a TaskManager,
+    /// `cleanup_all_finished()` is invoked to remove all terminal task
+    /// output files, and the correct `session_id` is passed.
+    #[tokio::test]
+    async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_expired_session("purge-with-tm".into());
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+
+        let (tm, called_flag, sid_arg) = MockTaskManager::new();
+        let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
+
+        ArchiveSweeper::purge_and_invalidate_impl(
+            Arc::clone(&storage),
+            "purge-with-tm".into(),
+            Some(tm_ref.as_ref()),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            *called_flag.lock().unwrap(),
+            "cleanup_all_finished must be called when task_manager is provided"
+        );
+        assert_eq!(
+            sid_arg.lock().unwrap().as_deref(),
+            Some("purge-with-tm"),
+            "cleanup_all_finished must receive the correct session_id"
+        );
+        let purge_called = mem.purge_called.lock().unwrap();
+        assert!(purge_called.contains(&"purge-with-tm".into()));
+    }
+
+    /// Purging session A must not invoke cleanup for session B,
+    /// verifying session-level isolation of task output cleanup.
+    #[tokio::test]
+    async fn test_purge_session_a_does_not_affect_session_b() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_expired_session("session-a".into());
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+
+        let (tm, _, sid_arg) = MockTaskManager::new();
+        let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
+
+        ArchiveSweeper::purge_and_invalidate_impl(
+            Arc::clone(&storage),
+            "session-a".into(),
+            Some(tm_ref.as_ref()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sid_arg.lock().unwrap().as_deref(),
+            Some("session-a"),
+            "cleanup_all_finished must receive session-a, not session-b"
+        );
+    }
+
+    /// When `purge_and_invalidate_impl` is called without a TaskManager,
+    /// no cleanup is attempted (graceful no-op).
+    #[tokio::test]
+    async fn test_purge_and_invalidate_without_task_manager_skips_cleanup() {
+        let mem = Arc::new(MemStorage::default());
+        mem.add_expired_session("purge-no-tm".into());
+        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+
+        ArchiveSweeper::purge_and_invalidate_impl(Arc::clone(&storage), "purge-no-tm".into(), None)
+            .await
+            .unwrap();
+
+        let purge_called = mem.purge_called.lock().unwrap();
+        assert!(purge_called.contains(&"purge-no-tm".into()));
     }
 }

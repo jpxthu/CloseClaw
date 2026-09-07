@@ -37,7 +37,10 @@ async fn wait_for_completion(mgr: &BackgroundTaskManager, task_id: &str) -> Back
 #[tokio::test]
 async fn test_spawn_returns_running() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("echo hello", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("echo hello", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     assert!(
         matches!(
             task.state,
@@ -56,7 +59,10 @@ async fn test_spawn_returns_running() {
 #[tokio::test]
 async fn test_spawn_completes() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let snapshot = wait_for_completion(&mgr, &task.id).await;
     assert_eq!(snapshot.state, TaskState::Completed { exit_code: 0 });
 }
@@ -68,7 +74,10 @@ async fn test_spawn_completes() {
 #[tokio::test]
 async fn test_spawn_fails() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("false", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("false", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let snapshot = wait_for_completion(&mgr, &task.id).await;
     assert_eq!(snapshot.state, TaskState::Failed { exit_code: 1 });
 }
@@ -77,7 +86,12 @@ async fn test_spawn_fails() {
 async fn test_spawn_nonexistent_command() {
     let (mgr, _tmp) = test_manager();
     let task = mgr
-        .spawn("nonexistent_cmd_xyz_12345", _tmp.path(), false)
+        .spawn(
+            "nonexistent_cmd_xyz_12345",
+            _tmp.path(),
+            false,
+            "test-session",
+        )
         .await
         .unwrap();
     let snapshot = wait_for_completion(&mgr, &task.id).await;
@@ -94,7 +108,10 @@ async fn test_spawn_nonexistent_command() {
 #[tokio::test]
 async fn test_kill() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("sleep 60", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     // Give the spawned process time to set its handle
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(mgr.is_running(&task.id).await);
@@ -106,7 +123,10 @@ async fn test_kill() {
 #[tokio::test]
 async fn test_kill_non_running_returns_error() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     let result = mgr.kill(&task.id).await;
     assert!(result.is_err());
@@ -126,7 +146,10 @@ async fn test_kill_nonexistent_task() {
 #[tokio::test]
 async fn test_is_running() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     assert!(mgr.is_running(&task.id).await);
     let _ = wait_for_completion(&mgr, &task.id).await;
     assert!(!mgr.is_running(&task.id).await);
@@ -145,7 +168,10 @@ async fn test_is_running_nonexistent() {
 #[tokio::test]
 async fn test_get_task() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("echo hello", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("echo hello", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let snapshot = mgr.get_task(&task.id).await;
     assert!(snapshot.is_some());
     let s = snapshot.unwrap();
@@ -176,7 +202,7 @@ async fn test_get_task_nonexistent() {
 async fn test_output_file_captures_stdout() {
     let (mgr, _tmp) = test_manager();
     let task = mgr
-        .spawn("echo hello_output", _tmp.path(), false)
+        .spawn("echo hello_output", _tmp.path(), false, "test-session")
         .await
         .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
@@ -188,7 +214,7 @@ async fn test_output_file_captures_stdout() {
 async fn test_output_file_captures_stderr() {
     let (mgr, _tmp) = test_manager();
     let task = mgr
-        .spawn("echo hello_stderr >&2", _tmp.path(), false)
+        .spawn("echo hello_stderr >&2", _tmp.path(), false, "test-session")
         .await
         .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
@@ -203,7 +229,10 @@ async fn test_output_file_captures_stderr() {
 #[tokio::test]
 async fn test_pending_notifications_on_complete() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     let notifs = mgr.pending_notifications().await;
@@ -215,7 +244,10 @@ async fn test_pending_notifications_on_complete() {
 #[tokio::test]
 async fn test_pending_notifications_on_failure() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("false", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("false", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     let notifs = mgr.pending_notifications().await;
@@ -233,7 +265,10 @@ async fn test_pending_notifications_on_failure() {
 #[tokio::test]
 async fn test_notification_dedup() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -251,7 +286,10 @@ async fn test_notification_dedup() {
 #[tokio::test]
 async fn test_mark_notified() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -306,7 +344,7 @@ async fn test_backgroundize_signature_no_cwd() {
     let (child, _stdout, _stderr) = spawn_test_child("true").await;
 
     let task = mgr
-        .backgroundize(child, "true", true)
+        .backgroundize(child, "true", true, "test-session")
         .await
         .expect("backgroundize(child, command) should succeed");
 
@@ -336,7 +374,7 @@ async fn test_backgroundize_takes_over_long_running_child() {
     let (child, _stdout, _stderr) = spawn_test_child("sleep 60").await;
 
     let task = mgr
-        .backgroundize(child, "sleep 60", true)
+        .backgroundize(child, "sleep 60", true, "test-session")
         .await
         .expect("backgroundize should accept a long-running child");
     assert!(
@@ -375,7 +413,7 @@ async fn test_backgroundize_captures_child_output() {
     child.stderr = stderr_handle;
 
     let task = mgr
-        .backgroundize(child, "echo bgize_output", true)
+        .backgroundize(child, "echo bgize_output", true, "test-session")
         .await
         .expect("backgroundize should succeed");
     assert!(
@@ -583,7 +621,10 @@ fn test_background_task_error_debug() {
 #[tokio::test]
 async fn test_completion_notification_summary_text() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("echo hello", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("echo hello", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     let notifs = mgr.pending_notifications().await;
@@ -598,7 +639,10 @@ async fn test_completion_notification_summary_text() {
 #[tokio::test]
 async fn test_failure_notification_summary_text() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("false", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("false", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     let notifs = mgr.pending_notifications().await;
@@ -617,7 +661,10 @@ async fn test_failure_notification_summary_text() {
 #[tokio::test]
 async fn test_finalize_state_skips_notification_when_notified() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("true", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("true", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     let _ = wait_for_completion(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -643,7 +690,10 @@ async fn test_finalize_state_skips_notification_when_notified() {
 #[tokio::test]
 async fn test_killed_task_produces_no_notification() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("sleep 60", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(mgr.is_running(&task.id).await);
 
@@ -666,7 +716,10 @@ async fn test_killed_task_produces_no_notification() {
 #[tokio::test]
 async fn test_killed_task_with_notified_produces_no_notification() {
     let (mgr, _tmp) = test_manager();
-    let task = mgr.spawn("sleep 60", _tmp.path(), false).await.unwrap();
+    let task = mgr
+        .spawn("sleep 60", _tmp.path(), false, "test-session")
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Simulate a stuck alert having fired before kill.
@@ -848,4 +901,87 @@ async fn test_drain_notifications_full_mixed_order() {
     assert_eq!(notifs[2].task_id, "next-1");
     assert_eq!(notifs[3].task_id, "later-1");
     assert_eq!(notifs[4].task_id, "later-2");
+}
+
+// =========================================================================
+// Total execution time limit (Step 1.2)
+// ==========================================================================
+
+/// When a task exceeds `max_execution_secs`, it is force-killed and
+/// transitions to `TaskState::Killed` with a notification.
+#[tokio::test]
+async fn test_max_execution_time_limit_kills_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1); // 1 second limit
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false, "test-session")
+        .await
+        .expect("spawn should succeed");
+    assert!(mgr.is_running(&task.id).await);
+
+    // Wait for the timeout monitor to fire.
+    let snapshot = wait_for_completion(&mgr, &task.id).await;
+    assert_eq!(
+        snapshot.state,
+        TaskState::Killed,
+        "task should be Killed after exceeding max_execution_secs"
+    );
+}
+
+/// The notification emitted by the timeout monitor contains the expected
+/// summary and suggestion text.
+#[tokio::test]
+async fn test_max_execution_time_limit_notification() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1);
+    let task = mgr
+        .spawn("sleep 60", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    let _ = wait_for_completion(&mgr, &task.id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let notifs = mgr.pending_notifications().await;
+    assert_eq!(notifs.len(), 1);
+    assert_eq!(notifs[0].state, TaskState::Killed);
+    assert!(
+        notifs[0].summary.contains("total execution time limit"),
+        "summary should mention time limit: {}",
+        notifs[0].summary
+    );
+    assert!(
+        notifs[0].suggestion.is_some(),
+        "killed-by-timeout notification should have a suggestion"
+    );
+}
+
+/// A task that completes before the limit is not killed.
+#[tokio::test]
+async fn test_max_execution_time_limit_does_not_kill_quick_task() {
+    let tmp = TempDir::new().unwrap();
+    let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 60);
+    let task = mgr
+        .spawn("echo done", tmp.path(), false, "test-session")
+        .await
+        .unwrap();
+    let snapshot = wait_for_completion(&mgr, &task.id).await;
+    assert_eq!(
+        snapshot.state,
+        TaskState::Completed { exit_code: 0 },
+        "fast task should complete normally"
+    );
+    // No timeout notification.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let notifs = mgr.pending_notifications().await;
+    assert!(
+        notifs.is_empty() || notifs.iter().all(|n| n.state != TaskState::Killed),
+        "no timeout notification for fast task"
+    );
+}
+
+/// Default manager uses 1800 s (30 min) limit.
+#[test]
+fn test_default_max_execution_secs() {
+    let mgr = BackgroundTaskManager::new();
+    assert_eq!(mgr.max_execution_secs, 1800);
 }

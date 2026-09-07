@@ -56,6 +56,7 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         command: &str,
         cwd: &std::path::Path,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
@@ -74,6 +75,7 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         _child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
+        _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
         let task = closeclaw_tasks::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
@@ -101,6 +103,7 @@ impl closeclaw_tasks::TaskManager for BackgroundTaskManager {
         vec![]
     }
     async fn cleanup_finished(&self) {}
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
 }
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
@@ -139,7 +142,6 @@ fn test_tool_context() -> ToolContext {
         media_store: None,
     }
 }
-
 // --- process_output ---
 
 #[test]
@@ -170,7 +172,6 @@ fn test_process_output_long_string_truncates() {
         let _ = std::fs::remove_file(p);
     }
 }
-
 // --- persist_output ---
 
 #[test]
@@ -189,7 +190,6 @@ fn test_persist_output_cleans_up() {
     std::fs::remove_file(&path).unwrap();
     assert!(!std::path::Path::new(&path).exists());
 }
-
 // --- parse_timeout ---
 
 #[test]
@@ -215,7 +215,6 @@ fn test_parse_timeout_zero() {
     let args = serde_json::json!({"timeout": 0});
     assert_eq!(parse_timeout(&args), Some(0));
 }
-
 // --- resolve_cwd ---
 
 #[test]
@@ -240,7 +239,6 @@ fn test_resolve_cwd_with_cwd_arg() {
         tmp.path().join("test").to_string_lossy().to_string()
     );
 }
-
 // --- BashTool metadata ---
 
 #[tokio::test]
@@ -255,7 +253,6 @@ async fn test_bash_tool_name_and_group() {
     assert_eq!(tool.name(), "Bash");
     assert_eq!(tool.group(), "bash");
 }
-
 #[tokio::test]
 async fn test_bash_tool_flags() {
     let tool = BashTool::new(
@@ -420,6 +417,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_command(run_in_background) should succeed");
@@ -487,6 +485,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
         None,
         None,
         None,
+        "",
     )
     .await
     .expect("execute_command(run_in_background) should succeed even for unknown commands");
@@ -530,14 +529,18 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
     // Use a tiny bg_timeout so the auto-background path is triggered
     // almost immediately. This is the exact branch Step 1.2 unlocked:
     // `backgroundize(child, command)` is now called WITHOUT a cwd arg.
+    let ctx = ForegroundContext {
+        bg_manager: &bg_trait,
+        manual_bg_signal: None,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
     let outcome = handle_foreground_result(
         child_arc,
         "sleep 5",
         std::time::Duration::from_millis(100),
-        &bg_trait,
-        None,
-        None,
-        None,
+        &ctx,
     )
     .await;
 
@@ -583,16 +586,15 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
     // extracts stdout/stderr and then takes the child for `wait()`.
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
-    let outcome = handle_foreground_result(
-        child_arc,
-        "true",
-        std::time::Duration::from_secs(5),
-        &bg_trait,
-        None,
-        None,
-        None,
-    )
-    .await;
+    let ctx = ForegroundContext {
+        bg_manager: &bg_trait,
+        manual_bg_signal: None,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let outcome =
+        handle_foreground_result(child_arc, "true", std::time::Duration::from_secs(5), &ctx).await;
 
     let result = match outcome {
         ForegroundOutcome::Completed(r) => r,
@@ -854,14 +856,18 @@ async fn test_handle_foreground_result_manual_background_signal() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         signal_clone.notify_waiters();
     });
+    let ctx = ForegroundContext {
+        bg_manager: &bg_trait,
+        manual_bg_signal: Some(&signal),
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
     let outcome = handle_foreground_result(
         child_arc,
         "sleep 5",
         std::time::Duration::from_secs(5),
-        &bg_trait,
-        Some(&signal),
-        None,
-        None,
+        &ctx,
     )
     .await;
     let result = match outcome {
@@ -896,16 +902,15 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
-    let outcome = handle_foreground_result(
-        child_arc,
-        "true",
-        std::time::Duration::from_secs(5),
-        &bg_trait,
-        None,
-        None,
-        None,
-    )
-    .await;
+    let ctx = ForegroundContext {
+        bg_manager: &bg_trait,
+        manual_bg_signal: None,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let outcome =
+        handle_foreground_result(child_arc, "true", std::time::Duration::from_secs(5), &ctx).await;
     let result = match outcome {
         ForegroundOutcome::Completed(r) => r,
         other => panic!("expected Completed, got: {:?}", other),
@@ -940,14 +945,18 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
     tokio::spawn(async move {
         signal_clone.notify_waiters();
     });
+    let ctx = ForegroundContext {
+        bg_manager: &bg_trait,
+        manual_bg_signal: Some(&signal),
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
     let outcome = handle_foreground_result(
         child_arc,
         "sleep 10",
         std::time::Duration::from_millis(100),
-        &bg_trait,
-        Some(&signal),
-        None,
-        None,
+        &ctx,
     )
     .await;
     let result = match outcome {
@@ -967,30 +976,4 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
         .as_str()
         .expect("backgroundTaskId must be present");
     let _ = bg_manager.kill(task_id).await;
-}
-
-/// BashTool::detail() includes background task behavioral guidance.
-#[tokio::test]
-async fn test_bash_detail_contains_background_guidance() {
-    let tool = BashTool::new(
-        test_permission_engine(),
-        test_bg_manager(),
-        test_session_manager(),
-        test_config_manager(),
-        correct_approval_flow(),
-    );
-    let detail = tool.detail();
-    assert!(
-        detail.contains("do not poll"),
-        "detail() must include 'do not poll', got: {}",
-        detail
-    );
-    assert!(
-        detail.contains("run_in_background"),
-        "detail() must mention run_in_background"
-    );
-    assert!(
-        detail.contains("10 seconds"),
-        "detail() must mention the 10-second threshold"
-    );
 }

@@ -55,10 +55,10 @@ pub(crate) enum ForegroundOutcome {
 /// Auto-backgroundize timeout (15 seconds).
 const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 
-/// Maximum auto-backgroundize timeout an agent may request (2 minutes).
+/// Maximum auto-backgroundize timeout an agent may request (10 minutes).
 /// Prevents agents from setting excessively long timeouts that would
 /// defeat the auto-backgroundize mechanism.
-const AUTO_BG_TIMEOUT_CAP_MS: u64 = 120_000;
+const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;
 
 /// Shell command execution tool.
 ///
@@ -354,11 +354,12 @@ async fn backgroundize_child(
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     by_user: bool,
+    session_id: &str,
 ) -> Result<(ToolResult, String), String> {
     child.stdout = stdout_handle;
     child.stderr = stderr_handle;
     let task = bg_manager
-        .backgroundize_task(child, command, true)
+        .backgroundize_task(child, command, true, session_id)
         .await
         .map_err(|e| format!("failed to backgroundize command: {}", e))?;
     let task_id = task.id.clone();
@@ -378,6 +379,7 @@ async fn auto_backgroundize_foreground(
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     by_user: bool,
+    session_id: &str,
 ) -> ForegroundOutcome {
     match backgroundize_child(
         child,
@@ -386,12 +388,22 @@ async fn auto_backgroundize_foreground(
         command,
         bg_manager,
         by_user,
+        session_id,
     )
     .await
     {
         Ok((result, task_id)) => ForegroundOutcome::AutoBackground(result, task_id),
         Err(e) => ForegroundOutcome::Failed(e),
     }
+}
+
+/// Context for foreground result handling.
+struct ForegroundContext<'a> {
+    bg_manager: &'a Arc<dyn closeclaw_tasks::TaskManager>,
+    manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
+    session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&'a str>,
+    session_id: &'a str,
 }
 
 /// Wait on a foreground child process, with timeout.
@@ -412,10 +424,7 @@ async fn handle_foreground_result(
     child_arc: Arc<Mutex<Option<tokio::process::Child>>>,
     command: &str,
     bg_timeout: Duration,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
-    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&str>,
+    ctx: &ForegroundContext<'_>,
 ) -> ForegroundOutcome {
     let (stdout_handle, stderr_handle) = {
         let mut guard = child_arc.lock().expect("child mutex poisoned");
@@ -430,16 +439,17 @@ async fn handle_foreground_result(
 
     tokio::select! {
         biased;
-        _ = notify_or_pending(manual_bg_signal) => {
+        _ = notify_or_pending(ctx.manual_bg_signal) => {
             auto_backgroundize_foreground(
-                child, stdout_handle, stderr_handle, command, bg_manager, true,
+                child, stdout_handle, stderr_handle, command, ctx.bg_manager, true,
+                ctx.session_id,
             ).await
         }
         result = tokio::time::timeout(bg_timeout, child.wait()) => match result {
             Ok(Ok(status)) => {
                 finalize_foreground_after_wait(
                     status, stdout_handle, stderr_handle,
-                    command, session, call_id,
+                    command, ctx.session, ctx.call_id,
                 ).await
             }
             Ok(Err(e)) => ForegroundOutcome::Failed(
@@ -448,7 +458,8 @@ async fn handle_foreground_result(
             Err(_elapsed) => {
                 auto_backgroundize_foreground(
                     child, stdout_handle, stderr_handle,
-                    command, bg_manager, false,
+                    command, ctx.bg_manager, false,
+                    ctx.session_id,
                 ).await
             }
         },
@@ -690,6 +701,7 @@ async fn execute_bash_call(
         return Ok(r);
     }
 
+    let session_id = ctx.session_id.as_deref().unwrap_or("");
     execute_command(
         command,
         &cwd,
@@ -699,6 +711,7 @@ async fn execute_bash_call(
         ctx.session.as_ref(),
         ctx.call_id.as_deref(),
         ctx.manual_background_signal.as_ref(),
+        session_id,
     )
     .await
     .map_err(ToolCallError::ExecutionFailed)
@@ -763,6 +776,7 @@ async fn execute_background_command(
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&str>,
+    session_id: &str,
 ) -> Result<ToolResult, String> {
     let mut registered_call_id = None;
     if let (Some(s), Some(cid)) = (session, call_id) {
@@ -773,7 +787,7 @@ async fn execute_background_command(
     }
     // Per #762 design: `spawn_task()` is the "self-cold-start" path.
     let task = bg_manager
-        .spawn_task(command, Path::new(cwd), false)
+        .spawn_task(command, Path::new(cwd), false, session_id)
         .await
         .map_err(|e| {
             if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
@@ -824,6 +838,7 @@ async fn execute_foreground_command(
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&str>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
+    session_id: &str,
 ) -> Result<(ForegroundOutcome, Option<String>), String> {
     let child = spawn_sh_command(command, cwd)?;
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -844,16 +859,14 @@ async fn execute_foreground_command(
         )
     };
 
-    let outcome = handle_foreground_result(
-        child_arc,
-        command,
-        bg_timeout,
+    let ctx = ForegroundContext {
         bg_manager,
         manual_bg_signal,
         session,
         call_id,
-    )
-    .await;
+        session_id,
+    };
+    let outcome = handle_foreground_result(child_arc, command, bg_timeout, &ctx).await;
 
     Ok((outcome, registered_call_id))
 }
@@ -881,9 +894,11 @@ async fn execute_command(
     session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&str>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
+    session_id: &str,
 ) -> Result<ToolResult, String> {
     if run_in_background {
-        return execute_background_command(command, cwd, bg_manager, session, call_id).await;
+        return execute_background_command(command, cwd, bg_manager, session, call_id, session_id)
+            .await;
     }
 
     let (outcome, registered_call_id) = execute_foreground_command(
@@ -894,6 +909,7 @@ async fn execute_command(
         session,
         call_id,
         manual_bg_signal,
+        session_id,
     )
     .await?;
     match outcome {

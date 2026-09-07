@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 // ---------------------------------------------------------------------------
 // has_interactive_prompt — pattern matching
@@ -91,9 +91,11 @@ async fn create_test_task(tasks: &TaskMap, task_id: &str, output_path: &std::pat
                 is_backgrounded: false,
             },
             output_path: output_path.to_path_buf(),
+            session_id: "test-session".to_string(),
             kill_tx: None,
             notified: false,
             created_at: tokio::time::Instant::now(),
+            timeout_notify: Arc::new(Notify::new()),
         },
     );
 }
@@ -219,9 +221,11 @@ async fn test_stuck_detection_skips_non_running_task() {
                 command: "test command".to_string(),
                 state: TaskState::Completed { exit_code: 0 },
                 output_path: output_path.clone(),
+                session_id: "test-session".to_string(),
                 kill_tx: None,
                 notified: false,
                 created_at: tokio::time::Instant::now(),
+                timeout_notify: Arc::new(Notify::new()),
             },
         );
     }
