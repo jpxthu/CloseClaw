@@ -1,28 +1,28 @@
-//! Plan tools registrar — registers ExecutePlanTool.
+//! Mode tools registrar — registers ModeExecutionTriggerTool.
 //!
-//! Registers ExecutePlanTool for natural-language plan execution triggering.
+//! Registers ModeExecutionTriggerTool for natural-language plan execution triggering.
 
 use async_trait::async_trait;
 use std::sync::Arc;
 
 use closeclaw_gateway::SessionManager;
 
-use crate::builtin::execute_plan::ExecutePlanTool;
+use crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool;
 use crate::builtin::PlanExecConfirmFlow;
 use crate::try_register;
 use crate::Tool;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 
-/// Plan tools registrar — registers tools from the plan domain.
+/// Mode tools registrar — registers tools from the mode domain.
 ///
-/// Covers the `plan` group (1 tool): `ExecutePlanTool`.
-pub struct PlanToolsRegistrar {
+/// Covers the `mode` group (1 tool): `ModeExecutionTriggerTool`.
+pub struct ModeToolsRegistrar {
     session_manager: Arc<SessionManager>,
     confirm_flow: Arc<PlanExecConfirmFlow>,
 }
 
-impl PlanToolsRegistrar {
-    /// Create a new `PlanToolsRegistrar`.
+impl ModeToolsRegistrar {
+    /// Create a new `ModeToolsRegistrar`.
     pub fn new(
         session_manager: Arc<SessionManager>,
         confirm_flow: Arc<PlanExecConfirmFlow>,
@@ -35,9 +35,9 @@ impl PlanToolsRegistrar {
 }
 
 #[async_trait]
-impl ToolRegistrar for PlanToolsRegistrar {
+impl ToolRegistrar for ModeToolsRegistrar {
     fn name(&self) -> &str {
-        "PlanToolsRegistrar"
+        "ModeToolsRegistrar"
     }
 
     fn priority(&self) -> u32 {
@@ -50,14 +50,14 @@ impl ToolRegistrar for PlanToolsRegistrar {
     ) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         let r = self.name();
-        let execute_plan = ExecutePlanTool::new(
+        let mode_exec_trigger = ModeExecutionTriggerTool::new(
             Arc::clone(&self.session_manager),
             Arc::clone(&self.confirm_flow),
         );
-        try_register!(registry, registered, execute_plan, r);
+        try_register!(registry, registered, mode_exec_trigger, r);
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 1 plan tools failed to register".to_string(),
+                "all 1 mode tools failed to register".to_string(),
             ));
         }
         Ok(())

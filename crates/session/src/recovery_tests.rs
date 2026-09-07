@@ -549,7 +549,7 @@ mod tests {
 
         let mut cp = create_test_checkpoint("approval-session");
         cp.approval_tool_calls = vec![ApprovalToolCallRecord {
-            tool_name: "execute_plan".to_string(),
+            tool_name: "ModeExecutionTrigger".to_string(),
             plan_summary: "Implement feature X".to_string(),
             request_id: Some("req-001".to_string()),
             timestamp: None,
@@ -575,7 +575,7 @@ mod tests {
             "approval history should be in system_appends"
         );
         let content = approval_append.unwrap();
-        assert!(content.contains("execute_plan"));
+        assert!(content.contains("ModeExecutionTrigger"));
         assert!(content.contains("Implement feature X"));
     }
 
@@ -606,7 +606,7 @@ mod tests {
 
         let mut cp = create_test_checkpoint("replace-approval");
         cp.approval_tool_calls = vec![ApprovalToolCallRecord {
-            tool_name: "execute_plan".to_string(),
+            tool_name: "ModeExecutionTrigger".to_string(),
             plan_summary: "New plan".to_string(),
             request_id: None,
             timestamp: None,
@@ -641,7 +641,7 @@ mod tests {
 
         let mut cp = create_test_checkpoint("preserve-approval");
         cp.approval_tool_calls = vec![ApprovalToolCallRecord {
-            tool_name: "execute_plan".to_string(),
+            tool_name: "ModeExecutionTrigger".to_string(),
             plan_summary: "My plan".to_string(),
             request_id: None,
             timestamp: None,
