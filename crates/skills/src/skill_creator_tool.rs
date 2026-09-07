@@ -252,4 +252,115 @@ mod tests {
         let result = tool.call(json!({}), &new_ctx()).await.unwrap();
         assert!(result.context_modifier.is_none());
     }
+
+    // -----------------------------------------------------------------
+    // Guidance content validation
+    // -----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_call_create_guidance_includes_frontmatter() {
+        let tool = SkillCreatorTool::new();
+        let result = tool
+            .call(
+                json!({"action": "create", "name": "my_skill", "description": "Test"}),
+                &new_ctx(),
+            )
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result.new_messages[0].content).unwrap();
+        // Guidance must include frontmatter requirements.
+        let template = &v["template"]["frontmatter"];
+        assert!(
+            template.is_object(),
+            "frontmatter template should be an object, got: {:?}",
+            template
+        );
+        assert!(
+            template.get("description").is_some(),
+            "frontmatter must include description field"
+        );
+        // Instructions mention --- delimiters.
+        let instructions = v["instructions"].as_str().unwrap_or("");
+        assert!(
+            instructions.contains("---"),
+            "instructions must mention --- frontmatter delimiters"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_create_guidance_includes_body_structure() {
+        let tool = SkillCreatorTool::new();
+        let result = tool
+            .call(
+                json!({"action": "create", "name": "my_skill", "description": "Test"}),
+                &new_ctx(),
+            )
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result.new_messages[0].content).unwrap();
+        // Guidance must include body structure (overview + instructions sections).
+        let body_outline = v["template"]["body_outline"]
+            .as_array()
+            .expect("body_outline should be an array");
+        let body_text: String = body_outline
+            .iter()
+            .map(|v| v.as_str().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            body_text.contains("# Skill Name"),
+            "body outline must include heading"
+        );
+        assert!(
+            body_text.contains("## Overview"),
+            "body outline must include Overview section"
+        );
+        assert!(
+            body_text.contains("## Instructions"),
+            "body outline must include Instructions section"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_validate_guidance_includes_checks() {
+        let tool = SkillCreatorTool::new();
+        let result = tool
+            .call(
+                json!({"action": "validate", "path": "skills/test/SKILL.md"}),
+                &new_ctx(),
+            )
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result.new_messages[0].content).unwrap();
+        let checks = v["checks"].as_array().expect("checks should be an array");
+        assert!(
+            checks
+                .iter()
+                .any(|c| c.as_str().unwrap_or("").contains("---")),
+            "checks must include frontmatter delimiter validation"
+        );
+        assert!(
+            checks
+                .iter()
+                .any(|c| c.as_str().unwrap_or("").contains("description")),
+            "checks must include description field validation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_no_filesystem_write_on_readonly_dir() {
+        // SkillCreatorTool is pure guidance — it does not write files.
+        // Verify it succeeds even in a read-only directory.
+        let tool = SkillCreatorTool::new();
+        let result = tool
+            .call(
+                json!({"action": "create", "name": "test_skill", "description": "X"}),
+                &new_ctx(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.data["status"], "guidance_returned");
+        // Verify no context_modifier (no filesystem side effects).
+        assert!(result.context_modifier.is_none());
+    }
 }
