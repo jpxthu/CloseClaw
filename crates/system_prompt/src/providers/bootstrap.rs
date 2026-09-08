@@ -450,6 +450,7 @@ mod tests {
             bootstrap_mode: BootstrapMode::Minimal,
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             activated_skills: vec![],
+            tool_registry: None,
         };
         let fragment = provider.generate(&ctx).await.unwrap();
         assert!(fragment.content.contains("from workdir"));
@@ -494,6 +495,7 @@ mod tests {
             bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
             activated_skills: vec![],
+            tool_registry: None,
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Full);
     }
@@ -512,6 +514,7 @@ mod tests {
             bootstrap_mode: BootstrapMode::Minimal,
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             activated_skills: vec![],
+            tool_registry: None,
         };
 
         let fragment = provider.generate(&ctx).await.unwrap();

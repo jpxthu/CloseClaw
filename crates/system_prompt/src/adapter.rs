@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use closeclaw_agent::lookup::AgentLookup;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::system_prompt::PromptOverrides;
+use closeclaw_common::tool_registry::ToolRegistryQuery;
 use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SystemPromptBuilder};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -185,6 +186,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             bootstrap_mode_override,
             vec![],
             session_role,
+            None,
         )
         .await
     }
@@ -219,18 +221,41 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             bootstrap_mode_override,
             activated_skills,
             session_role,
+            None,
+        )
+        .await
+    }
+
+    /// Build a system prompt using the injection parameter contract.
+    ///
+    /// Propagates [`ToolRegistryQuery`] from `params.tool_registry`
+    /// through [`WorkspaceBuildConfig`] into [`FragmentContext`],
+    /// completing the design doc §注入链路的参数契约 for the
+    /// System Prompt Builder leg.
+    async fn build_prompt_with_params(
+        &self,
+        params: &closeclaw_common::injection_params::InjectionParams,
+    ) -> String {
+        self.build_prompt_inner(
+            &params.agent_id,
+            params.overrides.as_ref(),
+            params.bootstrap_mode_override,
+            params.activated_skills.clone(),
+            params.session_role,
+            params.tool_registry.clone(),
         )
         .await
     }
 }
 
 impl SystemPromptBuilderAdapter {
-    /// Shared implementation for both [`build_prompt`] and
-    /// [`build_prompt_with_activated`].
+    /// Shared implementation for both [`build_prompt`],
+    /// [`build_prompt_with_activated`], and [`build_prompt_with_params`].
     ///
     /// Resolves the bootstrap mode, constructs the workspace path,
     /// builds the static layer via the provider pipeline with the
-    /// given `activated_skills`, and applies overrides.
+    /// given `activated_skills` and optional `tool_registry`,
+    /// and applies overrides.
     async fn build_prompt_inner(
         &self,
         agent_id: &str,
@@ -238,6 +263,7 @@ impl SystemPromptBuilderAdapter {
         bootstrap_mode_override: Option<BootstrapMode>,
         activated_skills: Vec<String>,
         session_role: closeclaw_common::SessionRole,
+        tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
     ) -> String {
         let bootstrap_mode = match bootstrap_mode_override {
             Some(mode) => mode,
@@ -268,6 +294,7 @@ impl SystemPromptBuilderAdapter {
             agent_id: Some(agent_id.to_string()),
             activated_skills,
             session_role,
+            tool_registry,
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(
