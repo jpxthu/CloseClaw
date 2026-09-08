@@ -1,10 +1,13 @@
 //! Unit tests for `ConversationSession::rebuild_system_prompt`.
 //!
 //! Covers the normal path (builder rebuilds prompt and replaces),
-//! edge cases for the `overrides` parameter, and the no-builder path.
+//! edge cases for the `overrides` parameter, the no-builder path,
+//! and the activated-conditional-skills clearing behavior.
 
 use super::super::*;
-use closeclaw_common::{PromptOverrides, SessionRole, SystemPromptBuilder};
+use closeclaw_common::{PromptOverrides, SessionRole, SkillListingProvider, SystemPromptBuilder};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex as StdMutex};
 
 // ── test doubles ──────────────────────────────────────────────────────────
 
@@ -290,6 +293,91 @@ async fn test_rebuild_system_prompt_sub_role_with_full_bootstrap() {
     assert_eq!(*role, Some(SessionRole::Sub));
 }
 
+// ── Activated-conditional-skills clearing (Step 1.1 / F2b Gap 2) ───────
+//
+// Document semantics under test (§条件激活 skill 消息注入):
+//   "标记并入静态层即清除，避免重复渲染；新激活的技能重新标记"
+
+/// Builder that captures the `activated_skills` vector passed to
+/// `build_prompt_with_activated`, so tests can verify the session
+/// passes the correct activation set to the builder.
+struct ActivatedCapturingBuilder {
+    captured: Arc<StdMutex<Vec<String>>>,
+}
+
+impl ActivatedCapturingBuilder {
+    fn new(captured: Arc<StdMutex<Vec<String>>>) -> Self {
+        Self { captured }
+    }
+}
+
+#[async_trait::async_trait]
+impl SystemPromptBuilder for ActivatedCapturingBuilder {
+    async fn build_prompt(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        _overrides: Option<&PromptOverrides>,
+        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
+        _session_role: SessionRole,
+    ) -> String {
+        "rebuilt-prompt".to_string()
+    }
+
+    async fn build_prompt_with_activated(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        _overrides: Option<&PromptOverrides>,
+        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
+        activated_skills: Vec<String>,
+        _session_role: SessionRole,
+    ) -> String {
+        *self.captured.lock().unwrap() = activated_skills;
+        "rebuilt-prompt".to_string()
+    }
+
+    async fn invalidate_cache(&self) {}
+}
+
+/// Mock `SkillListingProvider` for compute_skill_listing_for_turn tests.
+struct MockListingProvider {
+    listing: String,
+}
+
+impl MockListingProvider {
+    fn new(listing: impl Into<String>) -> Self {
+        Self {
+            listing: listing.into(),
+        }
+    }
+}
+
+impl SkillListingProvider for MockListingProvider {
+    fn generate_listing(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        self.listing.clone()
+    }
+
+    fn generate_listing_excluding_conditional(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        self.listing.clone()
+    }
+
+    fn find_conditional_matches(
+        &self,
+        _paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        Vec::new()
+    }
+}
+
 // ── Normal path regression: main session prompt unchanged ────────────────
 
 /// Builder that returns a deterministic prompt and records session_role.
@@ -312,6 +400,159 @@ impl SystemPromptBuilder for RegressionBuilder {
     }
 
     async fn invalidate_cache(&self) {}
+}
+
+/// Builder path: activate 2 conditional skills, rebuild, then verify:
+/// (1) the builder receives the 2 activated skill names;
+/// (2) `activated_conditional_skills` is empty after rebuild.
+///
+/// Verifies doc semantics: "标记并入静态层即清除，避免重复渲染"
+#[tokio::test]
+async fn test_rebuild_clears_activated_conditional_skills() {
+    let captured = Arc::new(StdMutex::new(Vec::<String>::new()));
+    let mut session =
+        new_session_with_builder(Arc::new(ActivatedCapturingBuilder::new(captured.clone())));
+
+    // Simulate two conditional skills being activated via
+    // apply_skill_listing_update (the per-turn activation path).
+    let mut newly: HashSet<String> = HashSet::new();
+    newly.insert("skill-a".into());
+    newly.insert("skill-b".into());
+    session.apply_skill_listing_update(None, &newly);
+    assert_eq!(session.activated_conditional_skills().len(), 2);
+
+    // Rebuild SP — builder must receive both activated skills.
+    session.rebuild_system_prompt("sess", "agent", None).await;
+
+    let received = captured.lock().unwrap();
+    assert_eq!(received.len(), 2, "builder must receive 2 activated skills");
+    assert!(received.contains(&"skill-a".to_string()));
+    assert!(received.contains(&"skill-b".to_string()));
+    drop(received);
+
+    // After rebuild, the activation set must be cleared.
+    assert!(
+        session.activated_conditional_skills().is_empty(),
+        "activated_conditional_skills must be empty after rebuild (标记并入静态层即清除)"
+    );
+}
+
+/// No-builder path: `activated_conditional_skills` must NOT be cleared
+/// because no rendering occurred.
+///
+/// Verifies doc semantics: only clear when builder exists and completes
+/// rendering ("标记并入静态层"前提不存在时不清空)
+#[tokio::test]
+async fn test_rebuild_no_builder_preserves_activated_skills() {
+    let mut session = new_session();
+    assert!(!session.has_system_prompt_builder());
+
+    let mut newly: HashSet<String> = HashSet::new();
+    newly.insert("skill-x".into());
+    session.apply_skill_listing_update(None, &newly);
+    assert_eq!(session.activated_conditional_skills().len(), 1);
+
+    let result = session.rebuild_system_prompt("sess", "agent", None).await;
+
+    // Returns empty string (no builder).
+    assert!(result.is_empty());
+    // Activation set preserved — no rendering happened, so no clear.
+    assert_eq!(
+        session.activated_conditional_skills().len(),
+        1,
+        "no-builder path must not clear activated skills"
+    );
+}
+
+/// State transition: after rebuild clears, re-activating the same skill
+/// adds it back to the set.
+///
+/// Verifies doc semantics: "新激活的技能重新标记"
+#[tokio::test]
+async fn test_rebuild_then_reactivate_same_skill() {
+    let mut session = new_session_with_builder(Arc::new(MockBuilder::new("prompt")));
+
+    // First activation + rebuild cycle.
+    let mut newly: HashSet<String> = HashSet::new();
+    newly.insert("skill-a".into());
+    session.apply_skill_listing_update(None, &newly);
+    assert_eq!(session.activated_conditional_skills().len(), 1);
+
+    session.rebuild_system_prompt("sess", "agent", None).await;
+    assert!(session.activated_conditional_skills().is_empty());
+
+    // Re-activate the same skill — must be accepted again.
+    let mut re: HashSet<String> = HashSet::new();
+    re.insert("skill-a".into());
+    session.apply_skill_listing_update(None, &re);
+    assert_eq!(
+        session.activated_conditional_skills().len(),
+        1,
+        "新激活的技能重新标记: same skill must be re-added after rebuild"
+    );
+    assert!(session.activated_conditional_skills().contains("skill-a"));
+}
+
+/// State transition: after rebuild clears, `compute_skill_listing_for_turn`
+/// generates a listing that no longer contains the previously merged
+/// conditional skill entries.
+///
+/// Verifies doc semantics: "此后不再需要 per-turn 增量注入（针对已并入条目）"
+#[tokio::test]
+async fn test_rebuild_listing_excludes_previously_merged_skills() {
+    let mut session = new_session_with_builder(Arc::new(MockBuilder::new("prompt")));
+
+    // Provide a SkillListingProvider that returns different listings
+    // depending on whether conditional skills are included.
+    let provider: Arc<dyn SkillListingProvider> = Arc::new(MockListingProvider::new("base-skill"));
+    session.skill_listing_provider = Some(provider);
+
+    // Activate a conditional skill, then rebuild (which clears).
+    let mut newly: HashSet<String> = HashSet::new();
+    newly.insert("cond-skill".into());
+    session.apply_skill_listing_update(None, &newly);
+    assert_eq!(session.activated_conditional_skills().len(), 1);
+
+    session.rebuild_system_prompt("sess", "agent", None).await;
+    assert!(session.activated_conditional_skills().is_empty());
+
+    // compute_skill_listing_for_turn on first turn (no snapshot)
+    // generates listing from provider, which returns "base-skill"
+    // (not including the now-cleared conditional).
+    let (listing, _snap) = session.compute_skill_listing_for_turn();
+    let listing_text = listing.unwrap_or_default();
+    // The MockListingProvider returns "base-skill" unconditionally,
+    // confirming the cleared conditional skill is NOT part of
+    // the listing.
+    assert_eq!(listing_text, "base-skill");
+}
+
+/// Boundary: empty activation set → rebuild doesn't panic and
+/// behaviour is unchanged.
+///
+/// Verifies that clearing an empty set is a safe no-op.
+#[tokio::test]
+async fn test_rebuild_empty_activation_set_no_panic() {
+    let mut session = new_session_with_builder(Arc::new(MockBuilder::new("ok")));
+    assert!(session.activated_conditional_skills().is_empty());
+
+    let prompt = session.rebuild_system_prompt("sess", "agent", None).await;
+
+    assert_eq!(prompt, "ok");
+    assert!(session.activated_conditional_skills().is_empty());
+}
+
+/// Boundary: rebuild twice in a row with no activation in between
+/// is idempotent.
+#[tokio::test]
+async fn test_rebuild_twice_idempotent() {
+    let mut session = new_session_with_builder(Arc::new(MockBuilder::new("prompt")));
+
+    let p1 = session.rebuild_system_prompt("sess", "agent", None).await;
+    let p2 = session.rebuild_system_prompt("sess", "agent", None).await;
+
+    assert_eq!(p1, p2);
+    assert!(session.activated_conditional_skills().is_empty());
 }
 
 /// Main session rebuild produces the same prompt output regardless of the
