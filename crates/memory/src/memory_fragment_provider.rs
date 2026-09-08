@@ -11,9 +11,8 @@ use std::time::SystemTime;
 
 use async_trait::async_trait;
 use closeclaw_common::fragment::{
-    FragmentContext, PromptFragment, PromptFragmentProvider, SectionType,
+    FragmentContext, PromptFragment, PromptFragmentProvider, SectionType, SessionRole,
 };
-use closeclaw_common::BootstrapMode;
 
 /// Provider that contributes the long-term memory (`MEMORY.md`) to the
 /// system prompt. The file is read from the agent's working directory
@@ -89,7 +88,9 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
-        if ctx.bootstrap_mode == BootstrapMode::Minimal {
+        // MEMORY.md is gated by session role, not bootstrap mode.
+        // Sub sessions never receive long-term memory.
+        if ctx.session_role == SessionRole::Sub {
             return None;
         }
 
@@ -111,6 +112,10 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     /// regeneration. The path hash ensures different workspaces with
     /// identical mtime values produce distinct cache keys.
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+        // Sub sessions never produce a memory fragment, so no cache key.
+        if ctx.session_role == SessionRole::Sub {
+            return None;
+        }
         let path = self.resolve_path(ctx);
         let meta = std::fs::metadata(&path).ok()?;
         let mtime = meta
@@ -128,6 +133,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::BootstrapMode;
     use std::fs;
 
     #[test]
@@ -185,6 +191,21 @@ mod tests {
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.cache_key(&ctx).is_none());
+    }
+
+    // Sub role → cache_key must return None (consistent with generate gate)
+    #[test]
+    fn test_cache_key_none_for_sub_role() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "content").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
             ..FragmentContext::test_default()
         };
         assert!(provider.cache_key(&ctx).is_none());
@@ -298,31 +319,19 @@ mod tests {
         assert!(provider.cache_key(&ctx).is_none());
     }
 
-    // --- bootstrap_mode tests ---
+    // --- session_role gating tests (quadrant matrix) ---
 
+    // Main + Full → must inject MEMORY.md
     #[serial_test::serial]
     #[tokio::test]
-    async fn test_generate_minimal_mode_returns_none() {
-        let tmp = tempfile::tempdir().unwrap();
-        fs::write(tmp.path().join("MEMORY.md"), "Remember something").unwrap();
-        let provider = MemoryFragmentProvider::new();
-        let ctx = FragmentContext {
-            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
-            bootstrap_mode: BootstrapMode::Minimal,
-            ..FragmentContext::test_default()
-        };
-        assert!(provider.generate(&ctx).await.is_none());
-    }
-
-    #[serial_test::serial]
-    #[tokio::test]
-    async fn test_generate_full_mode_reads_memory() {
+    async fn test_main_full_injects_memory() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "Full mode memory").unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Main,
             ..FragmentContext::test_default()
         };
         let fragment = provider.generate(&ctx).await;
@@ -331,6 +340,56 @@ mod tests {
         assert_eq!(frag.section_title, "## Memory");
         assert_eq!(frag.section_type, SectionType::Memory);
         assert_eq!(frag.content, "Full mode memory");
+    }
+
+    // Main + Minimal → must inject MEMORY.md (independent of bootstrap mode)
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_main_minimal_injects_memory() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Remember something").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            session_role: SessionRole::Main,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await;
+        assert!(fragment.is_some());
+        assert_eq!(fragment.unwrap().content, "Remember something");
+    }
+
+    // Sub + Full → must NOT inject MEMORY.md (role guard)
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_sub_full_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Should not load").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    // Sub + Minimal → must NOT inject MEMORY.md (role guard)
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_sub_minimal_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Should not load").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            session_role: SessionRole::Sub,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
     }
 
     #[tokio::test]
@@ -343,16 +402,18 @@ mod tests {
         assert!(provider.generate(&ctx).await.is_none());
     }
 
+    // Sub role with custom path → must still return None (role guard)
     #[serial_test::serial]
     #[tokio::test]
-    async fn test_generate_with_path_and_minimal_mode_returns_none() {
+    async fn test_with_path_sub_role_returns_none() {
         let tmp = tempfile::tempdir().unwrap();
         let abs_path = tmp.path().join("MEMORY.md");
         fs::write(&abs_path, "Should not be read").unwrap();
         let provider = MemoryFragmentProvider::with_path(&abs_path);
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
-            bootstrap_mode: BootstrapMode::Minimal,
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
             ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());

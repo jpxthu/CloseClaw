@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use closeclaw_common::BootstrapMode;
+use closeclaw_common::{BootstrapMode, SessionRole};
 use closeclaw_session::bootstrap::loader::{bootstrap_file_list, load_bootstrap_files};
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
@@ -27,7 +27,13 @@ impl BootstrapFragmentProvider {
     }
 
     /// Resolve bootstrap mode from context.
+    ///
+    /// Sub sessions are forced to Minimal mode regardless of the configured
+    /// `bootstrap_mode` — BOOTSTRAP.md is only loaded for Main sessions.
     fn resolve_mode(&self, ctx: &FragmentContext) -> BootstrapMode {
+        if ctx.session_role == SessionRole::Sub {
+            return BootstrapMode::Minimal;
+        }
         ctx.bootstrap_mode
     }
 
@@ -88,7 +94,8 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
 
         // Build a cache key from file modification times without loading
         // the full file contents — just iterate the known file list for
-        // this bootstrap mode.
+        // the resolved mode. This must use the same resolve_mode() as
+        // generate() so cache dimensions match generation dimensions.
         let file_names = closeclaw_session::bootstrap::loader::bootstrap_file_list(mode);
         let mut key_parts: Vec<String> = Vec::new();
 
@@ -133,26 +140,28 @@ mod tests {
     fn test_resolve_mode_from_context() {
         let provider = BootstrapFragmentProvider::new();
 
-        // When context has bootstrap_mode, use it directly.
+        // Main session: use ctx.bootstrap_mode directly.
         let ctx = FragmentContext {
             bootstrap_mode: BootstrapMode::Full,
             ..FragmentContext::test_default()
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Full);
 
-        // bootstrap_mode is always present — returns it regardless of agent_id.
+        // Sub session: always returns Minimal regardless of bootstrap_mode.
         let ctx = FragmentContext {
             bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
             agent_id: String::new(),
             ..FragmentContext::test_default()
         };
-        assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Full);
+        assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Minimal);
     }
 
     #[test]
     fn test_resolve_mode_returns_ctx_value() {
         let provider = BootstrapFragmentProvider::new();
 
+        // Main + Minimal → returns Minimal
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
             bootstrap_mode: BootstrapMode::Minimal,
@@ -161,10 +170,21 @@ mod tests {
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Minimal);
 
-        // Unknown agent_id doesn't affect result — mode is always from ctx.
+        // Sub + Minimal → returns Minimal (forced by role guard)
         let ctx = FragmentContext {
             agent_id: "unknown".into(),
+            session_role: SessionRole::Sub,
             bootstrap_mode: BootstrapMode::Minimal,
+            bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
+            ..FragmentContext::test_default()
+        };
+        assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Minimal);
+
+        // Sub + Full → returns Minimal (forced by role guard)
+        let ctx = FragmentContext {
+            agent_id: "unknown".into(),
+            session_role: SessionRole::Sub,
+            bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
@@ -642,5 +662,166 @@ mod tests {
             key_without, key_with,
             "bootstrap cache_key must not change when MEMORY.md appears"
         );
+    }
+
+    // ============================================================
+    // Step 1.2: Four-quadrant session_role × bootstrap_mode tests
+    // ============================================================
+
+    /// Main + Full → must include BOOTSTRAP.md and all required files.
+    #[tokio::test]
+    async fn test_main_full_includes_bootstrap_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Main,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        assert!(fragment.content.contains("AGENTS.md"));
+        assert!(fragment.content.contains("BOOTSTRAP.md"));
+        assert!(fragment.content.contains("bootstrap"));
+    }
+
+    /// Main + Minimal → must NOT include BOOTSTRAP.md, but required
+    /// files (AGENTS, SOUL, etc.) must be present.
+    #[tokio::test]
+    async fn test_main_minimal_excludes_bootstrap_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            session_role: SessionRole::Main,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        assert!(fragment.content.contains("AGENTS.md"));
+        assert!(fragment.content.contains("SOUL.md"));
+        assert!(!fragment.content.contains("BOOTSTRAP.md"));
+    }
+
+    /// Sub + Full → must NOT include BOOTSTRAP.md (role guard forces
+    /// Minimal mode), but required files (AGENTS, SOUL, etc.) must be present.
+    #[tokio::test]
+    async fn test_sub_full_excludes_bootstrap_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        assert!(fragment.content.contains("AGENTS.md"));
+        assert!(fragment.content.contains("SOUL.md"));
+        assert!(!fragment.content.contains("BOOTSTRAP.md"));
+    }
+
+    /// Sub + Minimal → must NOT include BOOTSTRAP.md, required files
+    /// present.
+    #[tokio::test]
+    async fn test_sub_minimal_excludes_bootstrap_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            session_role: SessionRole::Sub,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await.unwrap();
+        assert!(fragment.content.contains("AGENTS.md"));
+        assert!(!fragment.content.contains("BOOTSTRAP.md"));
+    }
+
+    /// Sub + Full → cache_key must match Main + Minimal (both resolve to
+    /// Minimal mode), confirming cache dimension aligns with generation.
+    #[test]
+    fn test_cache_key_sub_full_matches_main_minimal() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(tmp.path().join("IDENTITY.md"), "identity").unwrap();
+        fs::write(tmp.path().join("USER.md"), "user").unwrap();
+        fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+
+        let sub_full_ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
+            ..FragmentContext::test_default()
+        };
+        let main_minimal_ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Minimal,
+            session_role: SessionRole::Main,
+            ..FragmentContext::test_default()
+        };
+
+        let key_sub_full = provider.cache_key(&sub_full_ctx);
+        let key_main_minimal = provider.cache_key(&main_minimal_ctx);
+
+        // Both resolve to Minimal → same file list → same cache key.
+        assert_eq!(
+            key_sub_full, key_main_minimal,
+            "Sub+Full cache_key must equal Main+Minimal (both resolve to Minimal)"
+        );
+    }
+
+    /// Sub role → cache_key must NOT include BOOTSTRAP.md mtime.
+    #[test]
+    fn test_cache_key_sub_role_excludes_bootstrap_md_mtime() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
+        fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
+
+        let provider = BootstrapFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
+            ..FragmentContext::test_default()
+        };
+        let key = provider.cache_key(&ctx).unwrap();
+        assert!(
+            !key.contains("BOOTSTRAP.md"),
+            "Sub role cache_key must not include BOOTSTRAP.md mtime"
+        );
+        assert!(key.contains("AGENTS.md"));
     }
 }
