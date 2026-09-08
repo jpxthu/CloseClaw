@@ -67,6 +67,8 @@ pub struct TruncationResult {
     pub total_lines: usize,
     /// Which threshold triggered the truncation, if any.
     pub trigger: Option<TruncationTrigger>,
+    /// Total bytes of the lines that were actually read.
+    pub total_bytes: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +97,7 @@ pub(crate) fn truncate_lines(
             lines_read: 0,
             total_lines,
             trigger: None,
+            total_bytes: 0,
         };
     }
 
@@ -109,6 +112,7 @@ pub(crate) fn truncate_lines(
             lines_read: 1,
             total_lines,
             trigger: Some(TruncationTrigger::Bytes),
+            total_bytes: first_line_bytes,
         };
         result.content.push('\n');
         return result;
@@ -167,6 +171,7 @@ fn accumulate_lines(
         lines_read: line_count,
         total_lines,
         trigger,
+        total_bytes: accumulated_bytes,
     }
 }
 
@@ -204,8 +209,9 @@ pub(crate) fn format_truncation_message(
         )),
         Some(TruncationTrigger::Bytes) => Some(format!(
             "[Showing lines {start}-{end} of {} \
-             ({} limit). Use offset={next_offset} to continue.]",
+             ({} ({} limit)). Use offset={next_offset} to continue.]",
             result.total_lines,
+            result.total_bytes,
             human_readable_bytes(DEFAULT_MAX_BYTES),
         )),
         Some(TruncationTrigger::Tokens) => Some(format!(

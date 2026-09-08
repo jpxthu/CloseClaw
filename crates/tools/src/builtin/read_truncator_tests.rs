@@ -179,6 +179,7 @@ fn test_format_no_truncation_returns_none() {
         lines_read: 1,
         total_lines: 1,
         trigger: None,
+        total_bytes: 0,
     };
     assert!(format_truncation_message(&r, 1).is_none());
 }
@@ -191,6 +192,7 @@ fn test_format_lines_trigger() {
         lines_read: 2000,
         total_lines: 5000,
         trigger: Some(TruncationTrigger::Lines),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
     assert_eq!(
@@ -207,9 +209,10 @@ fn test_format_bytes_trigger() {
         lines_read: 150,
         total_lines: 300,
         trigger: Some(TruncationTrigger::Bytes),
+        total_bytes: 48_000,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
-    assert!(msg.contains("50KB limit"));
+    assert!(msg.contains("(48000 (50KB limit))"));
     assert!(msg.contains("Use offset=151 to continue."));
 }
 
@@ -221,6 +224,7 @@ fn test_format_limit_trigger() {
         lines_read: 5,
         total_lines: 20,
         trigger: Some(TruncationTrigger::Limit),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 10).unwrap();
     assert_eq!(msg, "[6 more lines in file. Use offset=15 to continue.]");
@@ -234,6 +238,7 @@ fn test_format_offset_calculation() {
         lines_read: 100,
         total_lines: 500,
         trigger: Some(TruncationTrigger::Lines),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 50).unwrap();
     // start=50, end=149, next=150
@@ -267,10 +272,11 @@ fn test_human_readable_bytes() {
         lines_read: 10,
         total_lines: 20,
         trigger: Some(TruncationTrigger::Bytes),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
-    // 51200 / 1024 = 50, so "50KB"
-    assert!(msg.contains("50KB"));
+    // 51200 / 1024 = 50, so "50KB" — format is "{actual} (50KB limit)"
+    assert!(msg.contains("(50KB limit)"));
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +291,7 @@ fn test_format_tokens_trigger() {
         lines_read: 100,
         total_lines: 500,
         trigger: Some(TruncationTrigger::Tokens),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
     assert!(msg.contains("token limit"));
@@ -306,6 +313,7 @@ fn test_truncation_content_includes_message_suffix() {
     output.push_str(&msg);
     // The output should contain actual lines AND the truncation hint
     assert!(output.starts_with("line 1\n"));
+    // Lines trigger — message shows line range without byte info
     assert!(output.contains("[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]"));
 }
 
@@ -336,6 +344,7 @@ fn test_format_single_line_byte_limit_hint() {
         lines_read: 1,
         total_lines: 3,
         trigger: Some(TruncationTrigger::Bytes),
+        total_bytes: actual_bytes,
     };
     let msg = format_truncation_message(&r, 42).unwrap();
     assert!(msg.contains("Line 42 is"));
