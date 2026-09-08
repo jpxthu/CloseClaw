@@ -17,6 +17,7 @@ pub mod mode_execution_trigger;
 pub mod permission;
 pub mod plan_exec_confirm;
 pub mod prompt_template;
+pub(crate) mod read_image;
 pub(crate) mod read_truncator;
 pub mod search;
 pub mod skill_tool;
