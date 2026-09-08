@@ -97,6 +97,101 @@ impl SystemPromptBuilder for RoleCapturingBuilder {
     async fn invalidate_cache(&self) {}
 }
 
+/// Builder that captures the `activated_skills` vector passed to
+/// `build_prompt_with_activated`, so tests can verify the session
+/// passes the correct activation set to the builder.
+struct ActivatedCapturingBuilder {
+    captured: Arc<StdMutex<Vec<String>>>,
+}
+
+impl ActivatedCapturingBuilder {
+    fn new(captured: Arc<StdMutex<Vec<String>>>) -> Self {
+        Self { captured }
+    }
+}
+
+#[async_trait::async_trait]
+impl SystemPromptBuilder for ActivatedCapturingBuilder {
+    async fn build_prompt(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        _overrides: Option<&PromptOverrides>,
+        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
+        _session_role: SessionRole,
+    ) -> String {
+        "rebuilt-prompt".to_string()
+    }
+
+    async fn build_prompt_with_activated(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        _overrides: Option<&PromptOverrides>,
+        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
+        activated_skills: Vec<String>,
+        _session_role: SessionRole,
+    ) -> String {
+        *self.captured.lock().unwrap() = activated_skills;
+        "rebuilt-prompt".to_string()
+    }
+
+    async fn invalidate_cache(&self) {}
+}
+
+/// Activation-aware `SkillListingProvider` mock.
+///
+/// - `generate_listing_excluding_conditional` → `base_listing`
+///   (excludes conditional skills).
+/// - `generate_listing` → `full_listing`
+///   (baseline + all conditional skills).
+///
+/// This mirrors the real provider contract so that
+/// `generate_listing_with_activated` on `ConversationSession`
+/// produces different results depending on the activated set.
+struct MockListingProvider {
+    /// Baseline listing (excludes conditional skills).
+    base_listing: String,
+    /// Full listing (includes all conditional skills).
+    full_listing: String,
+}
+
+impl MockListingProvider {
+    /// Create with `base` for excluding-conditional path and `full`
+    /// for the all-skills path.
+    fn new(base: impl Into<String>, full: impl Into<String>) -> Self {
+        Self {
+            base_listing: base.into(),
+            full_listing: full.into(),
+        }
+    }
+}
+
+impl SkillListingProvider for MockListingProvider {
+    fn generate_listing(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        self.full_listing.clone()
+    }
+
+    fn generate_listing_excluding_conditional(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        self.base_listing.clone()
+    }
+
+    fn find_conditional_matches(
+        &self,
+        _paths: &[std::path::PathBuf],
+    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+        Vec::new()
+    }
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────
 
 fn new_session() -> ConversationSession {
@@ -293,91 +388,6 @@ async fn test_rebuild_system_prompt_sub_role_with_full_bootstrap() {
     assert_eq!(*role, Some(SessionRole::Sub));
 }
 
-// ── Activated-conditional-skills clearing (Step 1.1 / F2b Gap 2) ───────
-//
-// Document semantics under test (§条件激活 skill 消息注入):
-//   "标记并入静态层即清除，避免重复渲染；新激活的技能重新标记"
-
-/// Builder that captures the `activated_skills` vector passed to
-/// `build_prompt_with_activated`, so tests can verify the session
-/// passes the correct activation set to the builder.
-struct ActivatedCapturingBuilder {
-    captured: Arc<StdMutex<Vec<String>>>,
-}
-
-impl ActivatedCapturingBuilder {
-    fn new(captured: Arc<StdMutex<Vec<String>>>) -> Self {
-        Self { captured }
-    }
-}
-
-#[async_trait::async_trait]
-impl SystemPromptBuilder for ActivatedCapturingBuilder {
-    async fn build_prompt(
-        &self,
-        _session_id: &str,
-        _agent_id: &str,
-        _overrides: Option<&PromptOverrides>,
-        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
-        _session_role: SessionRole,
-    ) -> String {
-        "rebuilt-prompt".to_string()
-    }
-
-    async fn build_prompt_with_activated(
-        &self,
-        _session_id: &str,
-        _agent_id: &str,
-        _overrides: Option<&PromptOverrides>,
-        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
-        activated_skills: Vec<String>,
-        _session_role: SessionRole,
-    ) -> String {
-        *self.captured.lock().unwrap() = activated_skills;
-        "rebuilt-prompt".to_string()
-    }
-
-    async fn invalidate_cache(&self) {}
-}
-
-/// Mock `SkillListingProvider` for compute_skill_listing_for_turn tests.
-struct MockListingProvider {
-    listing: String,
-}
-
-impl MockListingProvider {
-    fn new(listing: impl Into<String>) -> Self {
-        Self {
-            listing: listing.into(),
-        }
-    }
-}
-
-impl SkillListingProvider for MockListingProvider {
-    fn generate_listing(
-        &self,
-        _agent_id: Option<&str>,
-        _agent_skills: Option<&[String]>,
-    ) -> String {
-        self.listing.clone()
-    }
-
-    fn generate_listing_excluding_conditional(
-        &self,
-        _agent_id: Option<&str>,
-        _agent_skills: Option<&[String]>,
-    ) -> String {
-        self.listing.clone()
-    }
-
-    fn find_conditional_matches(
-        &self,
-        _paths: &[std::path::PathBuf],
-    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
-        Vec::new()
-    }
-}
-
 // ── Normal path regression: main session prompt unchanged ────────────────
 
 /// Builder that returns a deterministic prompt and records session_role.
@@ -498,33 +508,73 @@ async fn test_rebuild_then_reactivate_same_skill() {
 /// conditional skill entries.
 ///
 /// Verifies doc semantics: "此后不再需要 per-turn 增量注入（针对已并入条目）"
+///
+/// The activation-aware `MockListingProvider` returns:
+/// - `generate_listing_excluding_conditional` → baseline only
+/// - `generate_listing` → baseline + conditional skills
+///
+/// This ensures the test exercises the real `generate_listing_with_activated`
+/// filtering logic on `ConversationSession` and verifies the causal
+/// relationship between rebuild-clear and listing exclusion.
 #[tokio::test]
 async fn test_rebuild_listing_excludes_previously_merged_skills() {
     let mut session = new_session_with_builder(Arc::new(MockBuilder::new("prompt")));
 
-    // Provide a SkillListingProvider that returns different listings
-    // depending on whether conditional skills are included.
-    let provider: Arc<dyn SkillListingProvider> = Arc::new(MockListingProvider::new("base-skill"));
+    // Activation-aware provider: generate_listing_excluding_conditional
+    // returns baseline only; generate_listing returns baseline + conditional
+    // skills in the `**name**` format expected by generate_listing_with_activated.
+    let provider: Arc<dyn SkillListingProvider> = Arc::new(MockListingProvider::new(
+        "base-skill",
+        "base-skill\n- **cond-skill**: test conditional",
+    ));
     session.skill_listing_provider = Some(provider);
 
-    // Activate a conditional skill, then rebuild (which clears).
+    // ── Step 1: activate + snapshot ──────────────────────────────────
+    // Activate a conditional skill and generate the listing for this
+    // turn so the snapshot includes the conditional entry.
     let mut newly: HashSet<String> = HashSet::new();
     newly.insert("cond-skill".into());
     session.apply_skill_listing_update(None, &newly);
     assert_eq!(session.activated_conditional_skills().len(), 1);
 
-    session.rebuild_system_prompt("sess", "agent", None).await;
-    assert!(session.activated_conditional_skills().is_empty());
+    // First turn: full listing (base + cond-skill), snapshot established.
+    let (listing1, snap1) = session.compute_skill_listing_for_turn();
+    let text1 = listing1.unwrap_or_default();
+    assert_eq!(text1, "base-skill\n- **cond-skill**: test conditional");
+    // Apply snapshot so the next call computes a diff.
+    session.apply_skill_listing_update(snap1, &HashSet::new());
 
-    // compute_skill_listing_for_turn on first turn (no snapshot)
-    // generates listing from provider, which returns "base-skill"
-    // (not including the now-cleared conditional).
-    let (listing, _snap) = session.compute_skill_listing_for_turn();
-    let listing_text = listing.unwrap_or_default();
-    // The MockListingProvider returns "base-skill" unconditionally,
-    // confirming the cleared conditional skill is NOT part of
-    // the listing.
-    assert_eq!(listing_text, "base-skill");
+    // ── Step 2: rebuild clears activation ────────────────────────────
+    session.rebuild_system_prompt("sess", "agent", None).await;
+    assert!(
+        session.activated_conditional_skills().is_empty(),
+        "activated set must be empty after rebuild"
+    );
+
+    // Listing now excludes cond-skill → diff shows deletion.
+    let (listing2, snap2) = session.compute_skill_listing_for_turn();
+    let text2 = listing2.unwrap_or_default();
+    assert_eq!(
+        text2, "- - **cond-skill**: test conditional",
+        "after rebuild-clear, listing diff must show cond-skill removal"
+    );
+    // Apply snapshot so the next call computes against the cleared state.
+    session.apply_skill_listing_update(snap2, &HashSet::new());
+
+    // ── Step 3: re-activate same skill ──────────────────────────────
+    // "新激活的技能重新标记": re-activating the same skill adds it back.
+    let mut re: HashSet<String> = HashSet::new();
+    re.insert("cond-skill".into());
+    session.apply_skill_listing_update(None, &re);
+    assert_eq!(session.activated_conditional_skills().len(), 1);
+
+    // Listing re-includes cond-skill → diff shows addition.
+    let (listing3, _snap3) = session.compute_skill_listing_for_turn();
+    let text3 = listing3.unwrap_or_default();
+    assert_eq!(
+        text3, "- **cond-skill**: test conditional",
+        "after re-activation, listing diff must show cond-skill addition"
+    );
 }
 
 /// Boundary: empty activation set → rebuild doesn't panic and
