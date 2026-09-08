@@ -280,6 +280,9 @@ impl TaskManager for MockTaskManager {
     async fn cleanup_all_finished(&self, _session_id: &str) {
         // no-op for gateway tests
     }
+    fn max_execution_secs(&self) -> u64 {
+        3600
+    }
 }
 
 /// Build a [`CompletionNotification`] for testing.

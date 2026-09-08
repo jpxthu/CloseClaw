@@ -284,7 +284,6 @@ impl Daemon {
         // set on both SessionManager and Gateway above. The old
         // gateway.set_storage() path still works as a backward-compatible
         // wrapper that creates its own CheckpointManager internally.
-
         // Run session recovery scan: load all active checkpoints, detect
         // pending_operations, and persist recovery notifications/failure
         // results into checkpoints so resolve.rs can inject them when
@@ -498,7 +497,6 @@ impl Daemon {
                 );
             }
         });
-
         let mut af = ApprovalFlow::new(
             Arc::clone(session_manager) as Arc<dyn SessionLookup>,
             Arc::new(|_| {}),
@@ -512,7 +510,6 @@ impl Daemon {
             af = af.with_audit_logger(logger);
         }
         let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
-
         // Sync approval flow snapshot with actual loaded rules.
         {
             let pe_guard = permission_engine.read().await;
@@ -520,7 +517,6 @@ impl Daemon {
             drop(pe_guard);
             approval_flow.lock().await.update_rules(engine_rules);
         }
-
         // Parallel: approval_flow wiring + builtin_skill_registry creation
         // are independent within Layer 4.
         let gw = Arc::clone(gateway);
@@ -647,13 +643,21 @@ impl Daemon {
                 gateway.get_debug_log(),
             );
         session_manager.set_task_manager(task_manager).await;
-        // Create SpawnController as an independent component (depends on AgentRegistry).
-        let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
-            Arc::clone(agent_registry),
-            Arc::clone(config_manager),
-            Arc::clone(session_manager),
-            Arc::clone(permission_engine),
-        ));
+        let spawn_controller = Arc::new({
+            let pc: Arc<dyn closeclaw_common::PermissionChecker> = Arc::new(
+                closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker::new(
+                    Arc::clone(session_manager),
+                    Arc::clone(config_manager),
+                    Arc::clone(permission_engine),
+                ),
+            );
+            closeclaw_session::spawn::controller::SpawnController::new(
+                Arc::clone(config_manager),
+                Arc::clone(session_manager)
+                    as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+                pc,
+            )
+        });
         let config_subdir = PathBuf::from(data_dir).join("config");
         let late_bound_session_manager =
             Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
@@ -679,7 +683,6 @@ impl Daemon {
             restart_tx: Some(restart_tx),
         };
         let config_watcher = registries::populate_registries(&ctx).await?;
-
         // Create SystemPromptBuilderAdapter — bridges SystemPromptBuilder trait
         // to the Provider-driven pipeline.
         let adapter_registry = {
@@ -719,7 +722,6 @@ impl Daemon {
             .set_system_prompt_builder(Arc::clone(&prompt_builder_adapter))
             .await;
         info!("SystemPromptBuilder adapter injected into SessionManager");
-
         // Register SkillSlashHandler for all user-invocable skills.
         // Must happen after populate_registries so DiskSkillRegistry is loaded.
         {
@@ -917,7 +919,6 @@ impl Daemon {
             task_manager,
         )
     }
-
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
     async fn init_phase_6_admin_rpc(
         agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
@@ -943,7 +944,6 @@ impl Daemon {
         info!("admin RPC server started on {}", admin_sock_path.display());
         (admin_handle, admin_sock_path)
     }
-
     /// Phase 6: Chat RPC Server — depends on Gateway (Layer 5).
     async fn init_phase_6_chat_rpc(
         gateway: &Arc<closeclaw_gateway::Gateway>,

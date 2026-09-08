@@ -408,12 +408,21 @@ impl RegistryHarness {
             ),
         ));
         let builtin_registry = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
-        let spawn_controller = Arc::new(closeclaw_gateway::SpawnController::new(
-            Arc::clone(&agent_registry),
-            Arc::clone(&config_mgr),
-            Arc::clone(&session_mgr),
-            Arc::clone(&permission_engine),
-        ));
+        let spawn_controller = Arc::new({
+            let permission_checker: Arc<dyn closeclaw_common::PermissionChecker> = Arc::new(
+                closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker::new(
+                    Arc::clone(&session_mgr),
+                    Arc::clone(&config_mgr),
+                    Arc::clone(&permission_engine),
+                ),
+            );
+            closeclaw_session::spawn::controller::SpawnController::new(
+                Arc::clone(&config_mgr),
+                Arc::clone(&session_mgr)
+                    as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+                permission_checker,
+            )
+        });
         let late_bound = Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
 
         Self {

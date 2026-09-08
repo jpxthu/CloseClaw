@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use closeclaw_agent::registry::AgentRegistry;
+use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{
     ActionPermission, AgentPermissions, ModelSpec, PermissionLimits, SubagentsConfig,
@@ -17,10 +17,11 @@ use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
 
-use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
+use crate::session_manager::spawn_controller::SpawnController;
 use crate::{GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_session::spawn_validation::SpawnError;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_controller_tests.rs to keep modules self-contained)
@@ -64,6 +65,22 @@ fn make_config_manager() -> (ConfigManager, tempfile::TempDir) {
     std::fs::create_dir_all(&config_dir).expect("create config dir");
     let cm = ConfigManager::new(config_dir).expect("ConfigManager::new should succeed");
     (cm, parent)
+}
+
+fn make_controller(
+    cm: &Arc<ConfigManager>,
+    sm: &Arc<SessionManager>,
+    pe: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+) -> SpawnController {
+    SpawnController::new(
+        cm.clone(),
+        sm.clone() as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+        Arc::new(GatewayPermissionChecker::new(
+            sm.clone(),
+            cm.clone(),
+            pe.clone(),
+        )),
+    )
 }
 
 fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
@@ -146,16 +163,11 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
 /// the parent's permissions produces a fully-denied result.
 #[tokio::test]
 async fn test_validate_permission_denied_child_fully_denied() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let (cm, _tmpdir) = make_config_manager();
     let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     // Parent: all permissions allowed; depth budget allows child creation.
     let mut parent_sub = SubagentsConfig::default();
@@ -167,7 +179,6 @@ async fn test_validate_permission_denied_child_fully_denied() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -224,16 +235,11 @@ async fn test_validate_permission_denied_child_fully_denied() {
 /// `SpawnError::PermissionDenied`.
 #[tokio::test]
 async fn test_validate_permission_denied_parent_denies_all() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let (cm, _tmpdir) = make_config_manager();
     let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -246,7 +252,6 @@ async fn test_validate_permission_denied_parent_denies_all() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -302,16 +307,11 @@ async fn test_validate_permission_denied_parent_denies_all() {
 /// `validate()` should proceed past the permission check.
 #[tokio::test]
 async fn test_validate_permission_allowed_partial_overlap() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let (cm, _tmpdir) = make_config_manager();
     let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -325,7 +325,6 @@ async fn test_validate_permission_allowed_partial_overlap() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -348,16 +347,11 @@ async fn test_validate_permission_allowed_partial_overlap() {
 /// `validate()` should proceed without error (no permissions to check).
 #[tokio::test]
 async fn test_validate_no_permissions_configured() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let (cm, _tmpdir) = make_config_manager();
     let cm = Arc::new(cm);
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     let mut parent_sub = SubagentsConfig::default();
     parent_sub.max_spawn_depth = Some(2);
@@ -368,7 +362,6 @@ async fn test_validate_no_permissions_configured() {
     let mut agents = HashMap::new();
     agents.insert("parent".to_string(), parent);
     agents.insert("child".to_string(), child);
-    ar.populate(agents.values().cloned().collect());
     cm.restore_agents(agents);
 
     let parent_id = setup_parent_session(&sm, "parent").await;

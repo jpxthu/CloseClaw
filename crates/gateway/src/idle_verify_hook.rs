@@ -138,7 +138,7 @@ pub(crate) mod tests {
     use closeclaw_session::llm_session::ChatSession;
     use closeclaw_session::workflow_handler::WorkflowHandler;
     use closeclaw_workflow::definition::{Step, Workflow};
-    use closeclaw_workflow::run::{Phase, WorkflowRun};
+    use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
 
     // ── test-only wrappers ────────────────────────────────────────
 
@@ -197,6 +197,7 @@ pub(crate) mod tests {
             phase,
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
+            pending_goal_hint: GoalHint::default(),
             pending_verify,
         }
     }
