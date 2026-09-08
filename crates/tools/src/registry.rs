@@ -507,7 +507,7 @@ impl ToolRegistryImpl {
             let (line, new_len) =
                 Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN);
             if new_len == total_len {
-                break;
+                continue;
             }
             total_len = new_len;
             lines.push(line);
