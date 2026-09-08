@@ -145,10 +145,35 @@ impl ToolRegistryImpl {
         (config.tools, config.disallowed_tools)
     }
 
-    /// Format a single group into a section line, returning (output, new_total_len).
+    /// Format a single tool entry into wrapped lines.
     ///
-    /// When the total length would exceed `max_len`, tools are added one by one
-    /// and the group is truncated (rather than discarded entirely).
+    /// Returns `(wrapped_lines, total_char_length)` where length includes
+    /// the trailing newline for each line.
+    fn format_tool_line(tool: &ToolInfo) -> (Vec<String>, usize) {
+        let danger_mark = if tool.is_destructive {
+            " (destructive)"
+        } else if tool.is_read_only {
+            " (read-only)"
+        } else {
+            ""
+        };
+        let raw_line = if tool.is_deferred {
+            format!("  - {}{}", tool.name, danger_mark)
+        } else {
+            format!("  - **{}**{}: {}", tool.name, danger_mark, tool.detail)
+        };
+
+        // Split long lines at word boundaries to stay within LINE_WIDTH.
+        let wrapped = Self::split_long_line(&raw_line, LINE_WIDTH);
+        let length: usize = wrapped
+            .iter()
+            .map(|c| c.chars().count() + 1) // +1 for trailing newline
+            .sum();
+        (wrapped, length)
+    }
+
+    /// When the total length would exceed `max_len`, the entire group is
+    /// discarded (not truncated) so that partial group output is never produced.
     ///
     /// Output format:
     /// - group header: `**{group}** — (always loaded)` if the group has eager tools, else `**{group}** — (deferred)`
@@ -160,7 +185,6 @@ impl ToolRegistryImpl {
         total_len: usize,
         max_len: usize,
     ) -> (String, usize) {
-        // Already at or over limit → return empty.
         if total_len >= max_len {
             return (String::new(), total_len);
         }
@@ -172,9 +196,8 @@ impl ToolRegistryImpl {
             "(deferred)"
         };
         let header = format!("**{}** — {}", group_name, tag);
-        let header_len = header.chars().count() + 1; // +1 for trailing \n
+        let header_len = header.chars().count() + 1;
 
-        // Reject if the header alone would exceed max_len.
         if total_len + header_len > max_len {
             return (String::new(), total_len);
         }
@@ -182,42 +205,22 @@ impl ToolRegistryImpl {
         let mut sorted_tools: Vec<_> = tools.iter().collect();
         sorted_tools.sort_by_key(|t| t.name.clone());
 
-        // Start with header; add tools one by one, stop when limit reached.
-        let mut lines = vec![header];
-        let mut current_len = total_len + header_len;
+        let mut all_tool_lines: Vec<String> = Vec::new();
+        let mut all_tools_len: usize = 0;
 
         for tool in sorted_tools {
-            let danger_mark = if tool.is_destructive {
-                " (destructive)"
-            } else if tool.is_read_only {
-                " (read-only)"
-            } else {
-                ""
-            };
-            let raw_line = if tool.is_deferred {
-                format!("  - {}{}", tool.name, danger_mark)
-            } else {
-                format!("  - **{}**{}: {}", tool.name, danger_mark, tool.detail)
-            };
-
-            // Split long lines at word boundaries to stay within LINE_WIDTH.
-            let wrapped = Self::split_long_line(&raw_line, LINE_WIDTH);
-            let mut fits = true;
-            for chunk in &wrapped {
-                let chunk_len = chunk.chars().count() + 1; // +1 for trailing newline
-                if current_len + chunk_len > max_len {
-                    fits = false;
-                    break;
-                }
-                current_len += chunk_len;
-            }
-            if fits {
-                for chunk in &wrapped {
-                    lines.push(chunk.clone());
-                }
-            }
+            let (wrapped, length) = Self::format_tool_line(tool);
+            all_tools_len += length;
+            all_tool_lines.extend(wrapped);
         }
 
+        // Atomicity check: the entire group (header + all tools) must fit.
+        if total_len + header_len + all_tools_len > max_len {
+            return (String::new(), total_len);
+        }
+
+        let mut lines = vec![header];
+        lines.extend(all_tool_lines);
         let output = lines.join("\n") + "\n";
         let new_len = total_len + output.chars().count();
         (output, new_len)
@@ -507,7 +510,7 @@ impl ToolRegistryImpl {
             let (line, new_len) =
                 Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN);
             if new_len == total_len {
-                break;
+                continue;
             }
             total_len = new_len;
             lines.push(line);

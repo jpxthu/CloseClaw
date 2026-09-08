@@ -42,7 +42,7 @@ fn test_trunc_exact_limit() {
     assert_eq!(new_len, full_len);
 }
 
-/// Truncation: tools over limit → partial tools shown.
+/// Atomicity: group over limit → entire group discarded (no partial output).
 #[test]
 fn test_trunc_partial_group() {
     let tools = vec![
@@ -51,13 +51,13 @@ fn test_trunc_partial_group() {
         trunc_tool_info("C", "g", false),
     ];
     // Header (**g** — (always loaded)) = 26 chars + newline = 27.
-    // Each eager tool line = ~24 chars. With max_len=51 only header + 1 tool fit.
+    // Each eager tool line = ~24 chars. With max_len=51 only header + 1 tool fit,
+    // but atomicity requires the entire group to fit → nothing returned.
     let (output, new_len) = ToolRegistryImpl::format_group_line("g", &tools, 0, 51);
-    assert!(output.contains("**g**"), "header present");
-    assert!(output.contains("**A**"), "first tool present");
-    assert!(!output.contains("**B**"), "second tool truncated");
-    assert!(!output.contains("**C**"), "third tool truncated");
-    assert!(new_len <= 51, "new_len must not exceed max_len");
+    assert!(output.is_empty(), "group discarded when not all tools fit");
+    assert_eq!(new_len, 0, "new_len unchanged when group discarded");
+    assert!(!output.contains("**g**"), "no header when group discarded");
+    assert!(!output.contains("**A**"), "no tools when group discarded");
 }
 
 /// Extreme: max_len too small for any tool → nothing returned.
@@ -87,20 +87,21 @@ fn test_trunc_header_overflow_returns_empty() {
     assert_eq!(new_len, 0, "new_len unchanged");
 }
 
-/// Header fits exactly, no room for tools → header only.
+/// Header fits exactly, no room for tools → entire group discarded.
 #[test]
 fn test_trunc_header_fits_no_tools_fit() {
     let tools = vec![trunc_tool_info("A", "g", false)];
     // Header "**g** — (always loaded)\n" = 24 chars.
-    // max_len = 24 → header fits, but no room for tool A.
+    // max_len = 24 → header fits but tool A doesn't → entire group discarded.
     let (output, new_len) = ToolRegistryImpl::format_group_line("g", &tools, 0, 24);
-    assert!(output.contains("**g**"), "header present");
-    assert!(!output.contains("**A**"), "tool A truncated");
-    assert!(new_len <= 24, "new_len must not exceed max_len");
+    assert!(output.is_empty(), "group discarded when tools don't fit");
+    assert_eq!(new_len, 0, "new_len unchanged when group discarded");
+    assert!(!output.contains("**g**"), "no header when group discarded");
+    assert!(!output.contains("**A**"), "no tool when group discarded");
 }
 
-/// Simulates multi-group truncation: front group consumes space,
-/// back group is truncated.
+/// Simulates multi-group: front group consumes space,
+/// back group discarded entirely (atomicity).
 #[test]
 fn test_trunc_simulated_multi_group() {
     let back = vec![
@@ -111,15 +112,18 @@ fn test_trunc_simulated_multi_group() {
     // Back header **back** — (always loaded) = 30 chars + newline = 31.
     // Each eager tool line = 26 chars + newline = 27 chars.
     // With total_len=50: header ends at 81, BA at 108, BB at 135.
-    // Set max_len=110 → header + BA fit, BB does not.
+    // Set max_len=110 → header + BA would fit but BB doesn't → entire group discarded.
     let (output, new_len) = ToolRegistryImpl::format_group_line("back", &back, 50, 110);
-    assert!(output.contains("**back**"), "back header present");
-    assert!(output.contains("**BA**"), "first tool present");
-    assert!(!output.contains("**BB**"), "second tool truncated");
-    assert!(!output.contains("**BC**"), "third tool truncated");
-    let tool_count = output.lines().filter(|l| l.starts_with("  - ")).count();
-    assert_eq!(tool_count, 1, "exactly one tool in truncated group");
-    assert!(new_len <= 110, "new_len must not exceed max_len");
+    assert!(
+        output.is_empty(),
+        "back group discarded when not all tools fit"
+    );
+    assert_eq!(new_len, 50, "new_len unchanged when back group discarded");
+    assert!(
+        !output.contains("**back**"),
+        "no header when group discarded"
+    );
+    assert!(!output.contains("**BA**"), "no tools when group discarded");
 }
 
 // ---- split_long_line UTF-8 off-by-one tests ----
