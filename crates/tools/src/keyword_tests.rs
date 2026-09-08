@@ -115,7 +115,7 @@ impl Tool for KeywordDummyTool {
 }
 
 #[tokio::test]
-async fn test_build_descriptor_detail_preserves_keywords_prefix() {
+async fn test_primary_index_strips_keywords_from_detail() {
     let reg = ToolRegistry::new();
     let tool = KeywordDummyTool {
         name: "TestTool".to_string(),

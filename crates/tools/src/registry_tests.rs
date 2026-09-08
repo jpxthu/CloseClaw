@@ -182,6 +182,13 @@ async fn test_list_by_group() {
 }
 
 #[tokio::test]
+async fn test_list_by_group_empty() {
+    let reg = ToolRegistry::new();
+    let result = reg.list_by_group("nonexistent").await;
+    assert!(result.is_empty());
+}
+
+#[tokio::test]
 async fn test_tool_info_from_tool() {
     let reg = ToolRegistry::new();
     reg.register(DummyTool {
@@ -401,27 +408,22 @@ async fn test_build_tools_section_danger_marks() {
 
     let ctx = make_prompt_ctx(&["Viewer", "Deleter", "Lister", "DReader", "DDeleter"]);
     let section = reg.build_tools_section(&ctx).await;
-    // Eager read-only: bold name + "(read-only)" + detail
     assert!(
         section.contains("**Viewer** (read-only): detail for Viewer"),
         "expected eager read-only mark, got: {section}"
     );
-    // Eager destructive: bold name + "(destructive)" + detail
     assert!(
         section.contains("**Deleter** (destructive): detail for Deleter"),
         "expected eager destructive mark, got: {section}"
     );
-    // Eager no mark: no suffix after bold name
     assert!(
         section.contains("**Lister**: detail for Lister"),
         "expected eager no mark, got: {section}"
     );
-    // Deferred read-only: name + "(read-only)"
     assert!(
         section.contains("  - DReader (read-only)"),
         "expected deferred read-only mark, got: {section}"
     );
-    // Deferred destructive: name + "(destructive)"
     assert!(
         section.contains("  - DDeleter (destructive)"),
         "expected deferred destructive mark, got: {section}"
@@ -701,54 +703,6 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
 }
 
 #[tokio::test]
-async fn test_plan_mode_keeps_plan_specific_tools() {
-    let reg = ToolRegistry::new();
-    // Register ModeExecutionTrigger (non-read-only but always visible in Plan mode).
-    reg.register(DummyTool {
-        name: "ModeExecutionTrigger".to_string(),
-        group: "mode".to_string(),
-        summary_text: "Execute plan".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    })
-    .await
-    .unwrap();
-
-    let ctx = make_plan_mode_ctx();
-    let section = reg.build_tools_section(&ctx).await;
-
-    assert!(
-        section.contains("ModeExecutionTrigger"),
-        "ModeExecutionTrigger should be visible in Plan mode"
-    );
-}
-
-#[tokio::test]
-async fn test_plan_mode_keeps_sessions_spawn() {
-    let reg = ToolRegistry::new();
-    // Register sessions_spawn (non-read-only but always visible in Plan mode).
-    reg.register(DummyTool {
-        name: "sessions_spawn".to_string(),
-        group: "sessions".to_string(),
-        summary_text: "Spawn session".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    })
-    .await
-    .unwrap();
-
-    let ctx = make_plan_mode_ctx();
-    let section = reg.build_tools_section(&ctx).await;
-
-    assert!(
-        section.contains("sessions_spawn"),
-        "sessions_spawn should be visible in Plan mode"
-    );
-}
-
-#[tokio::test]
 async fn test_normal_mode_does_not_filter_write_tools() {
     let reg = ToolRegistry::new();
     reg.register(DummyTool {
@@ -833,8 +787,62 @@ async fn test_plan_mode_keeps_mode_execution_trigger() {
     );
 }
 
+#[test]
+fn test_plan_mode_tool_visible_mode_execution_trigger() {
+    let tool = DummyTool {
+        name: "ModeExecutionTrigger".to_string(),
+        group: "mode".to_string(),
+        summary_text: "trigger execution".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    };
+    let tool: Arc<dyn Tool> = Arc::new(tool);
+    assert!(plan_mode_tool_visible(&tool));
+}
+
+// ── plan_approval removed from Plan Mode visibility ────────────────────────
+
+/// `plan_approval` is NOT in PLAN_MODE_ALWAYS_VISIBLE, so a non-read-only
+/// tool with that name should be hidden in Plan Mode.
+#[test]
+fn test_plan_mode_tool_not_visible_plan_approval() {
+    let tool = DummyTool {
+        name: "plan_approval".to_string(),
+        group: "plan".to_string(),
+        summary_text: "approve plan".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    };
+    let tool: Arc<dyn Tool> = Arc::new(tool);
+    assert!(!plan_mode_tool_visible(&tool));
+}
+
 /// `plan_approval` should NOT appear in Plan Mode tool section even if
 /// registered (it was removed in Step 1.1).
+#[tokio::test]
+async fn test_plan_mode_hides_plan_approval_tool() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "plan_approval".to_string(),
+        group: "plan".to_string(),
+        summary_text: "approve plan".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_plan_mode_ctx();
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        !section.contains("plan_approval"),
+        "plan_approval should be hidden in Plan mode, got: {section}"
+    );
+}
 
 // =========================================================================
 // strip_keywords_prefix tests
