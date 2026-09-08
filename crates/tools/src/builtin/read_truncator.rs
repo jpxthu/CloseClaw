@@ -20,6 +20,8 @@ pub(crate) const SINGLE_LINE_BYTE_LIMIT: usize = 51_200;
 // Public types
 // ---------------------------------------------------------------------------
 
+use closeclaw_config::{ConfigManager, ConfigSection};
+
 /// Configuration for the truncation thresholds.
 #[derive(Debug, Clone)]
 pub struct TruncationConfig {
@@ -29,6 +31,29 @@ pub struct TruncationConfig {
     pub max_bytes: usize,
     /// Maximum approximate token count.
     pub max_tokens: usize,
+}
+
+impl TruncationConfig {
+    /// Build a config from the `tools.json` section of `ConfigManager`.
+    ///
+    /// Reads `read.max_tokens` if present; falls back to [`default()`]
+    /// when the section is absent, the field is missing, or the value is
+    /// invalid (zero, negative, or non-numeric).
+    pub fn from_config(cm: &ConfigManager) -> Self {
+        let mut cfg = Self::default();
+        if let Some(tools_value) = cm.get_section_value(ConfigSection::Tools) {
+            if let Some(read_obj) = tools_value.get("read") {
+                if let Some(max_tokens) = read_obj.get("max_tokens") {
+                    if let Some(v) = max_tokens.as_u64() {
+                        if v > 0 {
+                            cfg.max_tokens = v as usize;
+                        }
+                    }
+                }
+            }
+        }
+        cfg
+    }
 }
 
 impl Default for TruncationConfig {
@@ -67,6 +92,9 @@ pub struct TruncationResult {
     pub total_lines: usize,
     /// Which threshold triggered the truncation, if any.
     pub trigger: Option<TruncationTrigger>,
+    /// Total bytes of the lines that were actually read.
+    #[allow(dead_code)]
+    pub total_bytes: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +123,7 @@ pub(crate) fn truncate_lines(
             lines_read: 0,
             total_lines,
             trigger: None,
+            total_bytes: 0,
         };
     }
 
@@ -109,6 +138,7 @@ pub(crate) fn truncate_lines(
             lines_read: 1,
             total_lines,
             trigger: Some(TruncationTrigger::Bytes),
+            total_bytes: first_line_bytes,
         };
         result.content.push('\n');
         return result;
@@ -167,6 +197,7 @@ fn accumulate_lines(
         lines_read: line_count,
         total_lines,
         trigger,
+        total_bytes: accumulated_bytes,
     }
 }
 

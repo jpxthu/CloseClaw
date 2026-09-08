@@ -67,6 +67,10 @@ terminal_size = "0.4"
 # Async stream
 async-stream = "0.3.6"
 
+# Image processing for Read tool
+image = "0.25"
+base64 = "0.22"
+
 [dev-dependencies]
 tempfile = "3"
 serial_test = "3.4"

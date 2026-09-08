@@ -798,5 +798,13 @@
     "confirmed_time": "2026-08-04T04:46:52.686977+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/tools/read-tool.md",
+    "commit": "586833cf71391b21287495516e03f8f3eac9a8a5",
+    "commit_time": "2026-09-08T12:05:27+08:00",
+    "confirmed_time": "2026-09-08T13:21:27.406398+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
