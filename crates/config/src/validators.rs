@@ -48,6 +48,7 @@ pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {
         ConfigSection::Memory => Box::new(validate_memory),
         ConfigSection::Skills => Box::new(validate_skills),
         ConfigSection::Media => Box::new(validate_media),
+        ConfigSection::Tools => Box::new(validate_tools),
     }
 }
 
@@ -844,6 +845,38 @@ fn validate_agents(value: &serde_json::Value) -> Result<(), String> {
 ///   this function ensures the top-level shape is correct.
 fn validate_media(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "media")?;
+    Ok(())
+}
+
+/// Validate the **tools** config section.
+///
+/// - Top-level must be a JSON object.
+/// - `read.max_tokens`, if present, must be a positive integer.
+fn validate_tools(value: &serde_json::Value) -> Result<(), String> {
+    ensure_object(value, "tools")?;
+    if let Some(read_obj) = value.get("read") {
+        if let Some(max_tokens) = read_obj.get("max_tokens") {
+            match max_tokens {
+                serde_json::Value::Number(n) => {
+                    if let Some(v) = n.as_u64() {
+                        if v == 0 {
+                            return Err(
+                                "tools.read.max_tokens must be a positive integer".to_string()
+                            );
+                        }
+                    } else {
+                        return Err("tools.read.max_tokens must be a positive integer".to_string());
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "tools.read.max_tokens must be a number, got {}",
+                        type_name(max_tokens)
+                    ));
+                }
+            }
+        }
+    }
     Ok(())
 }
 

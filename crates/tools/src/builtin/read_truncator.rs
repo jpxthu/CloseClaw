@@ -20,6 +20,8 @@ pub(crate) const SINGLE_LINE_BYTE_LIMIT: usize = 51_200;
 // Public types
 // ---------------------------------------------------------------------------
 
+use closeclaw_config::{ConfigManager, ConfigSection};
+
 /// Configuration for the truncation thresholds.
 #[derive(Debug, Clone)]
 pub struct TruncationConfig {
@@ -29,6 +31,29 @@ pub struct TruncationConfig {
     pub max_bytes: usize,
     /// Maximum approximate token count.
     pub max_tokens: usize,
+}
+
+impl TruncationConfig {
+    /// Build a config from the `tools.json` section of `ConfigManager`.
+    ///
+    /// Reads `read.max_tokens` if present; falls back to [`default()`]
+    /// when the section is absent, the field is missing, or the value is
+    /// invalid (zero, negative, or non-numeric).
+    pub fn from_config(cm: &ConfigManager) -> Self {
+        let mut cfg = Self::default();
+        if let Some(tools_value) = cm.get_section_value(ConfigSection::Tools) {
+            if let Some(read_obj) = tools_value.get("read") {
+                if let Some(max_tokens) = read_obj.get("max_tokens") {
+                    if let Some(v) = max_tokens.as_u64() {
+                        if v > 0 {
+                            cfg.max_tokens = v as usize;
+                        }
+                    }
+                }
+            }
+        }
+        cfg
+    }
 }
 
 impl Default for TruncationConfig {

@@ -370,3 +370,73 @@ fn test_offset_near_end_with_limit() {
     assert!(r.content.contains("line 9\n"));
     assert!(r.content.contains("line 10\n"));
 }
+
+// ---------------------------------------------------------------------------
+// from_config — token config via ConfigManager
+// ---------------------------------------------------------------------------
+
+use closeclaw_config::{ConfigManager, ConfigSection};
+use tempfile::TempDir;
+
+/// Helper: create a ConfigManager with an optional tools.json content.
+fn make_config_manager(tools_json: Option<&str>) -> (TempDir, ConfigManager) {
+    let tmp = TempDir::new().unwrap();
+    // Write tools.json if provided
+    if let Some(content) = tools_json {
+        std::fs::write(tmp.path().join("tools.json"), content).unwrap();
+    }
+    // ConfigManager::new + load expects mandatory sections; we bypass load()
+    // by directly inserting into the in-memory cache via section insert.
+    let cm = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    if let Some(content) = tools_json {
+        let value: serde_json::Value = serde_json::from_str(content).unwrap();
+        cm.update_section_cache(ConfigSection::Tools, tmp.path().join("tools.json"), value);
+    }
+    (tmp, cm)
+}
+
+#[test]
+fn test_from_config_valid_max_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": 5000}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, 5000);
+    // Other values remain default
+    assert_eq!(cfg.max_lines, DEFAULT_MAX_LINES);
+    assert_eq!(cfg.max_bytes, DEFAULT_MAX_BYTES);
+}
+
+#[test]
+fn test_from_config_missing_tools_json() {
+    let (_tmp, cm) = make_config_manager(None);
+    let cfg = TruncationConfig::from_config(&cm);
+    // Falls back to default
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_invalid_zero_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": 0}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_invalid_negative_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": -1}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_invalid_non_number_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": "abc"}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_missing_read_section() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}

@@ -304,7 +304,7 @@ impl Tool for ReadTool {
             if let Some(cached) = check_dedup_cache(ctx, path, mtime, offset, limit) {
                 return Ok(cached);
             }
-            read_and_truncate(path, offset, limit, mtime, ctx).await
+            read_and_truncate(path, offset, limit, mtime, ctx, &self.config_manager).await
         })
         .await
     }
@@ -839,10 +839,11 @@ async fn read_and_truncate(
     limit: Option<usize>,
     mtime: Option<std::time::SystemTime>,
     ctx: &ToolContext,
+    config_manager: &ConfigManager,
 ) -> Result<ToolResult, ToolCallError> {
     let raw = std::fs::read_to_string(path)
         .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
-    let config = super::read_truncator::TruncationConfig::default();
+    let config = super::read_truncator::TruncationConfig::from_config(config_manager);
     let result = super::read_truncator::truncate_lines(&raw, offset, limit, &config);
     let truncation_msg = super::read_truncator::format_truncation_message(&result, offset);
     let mut output = result.content;

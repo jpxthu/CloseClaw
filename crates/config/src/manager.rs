@@ -180,6 +180,7 @@ pub enum ConfigSection {
     Memory,
     Skills,
     Media,
+    Tools,
 }
 
 impl ConfigSection {
@@ -198,6 +199,7 @@ impl ConfigSection {
             ConfigSection::Memory => "memory.json",
             ConfigSection::Skills => "skills.json",
             ConfigSection::Media => "media.json",
+            ConfigSection::Tools => "tools.json",
         }
     }
 
@@ -215,6 +217,7 @@ impl ConfigSection {
                 | ConfigSection::Gateway
                 | ConfigSection::Credentials
                 | ConfigSection::Accounts
+                | ConfigSection::Tools
         )
     }
 }
@@ -555,7 +558,18 @@ impl ConfigManager {
         } else {
             info!("media.json not found, using defaults");
         }
-
+        // Load global tools config (optional — absent file uses defaults).
+        let tools_path = ConfigSection::Tools.path(&self.config_dir);
+        if let Ok(content) = fs::read_to_string(&tools_path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                sections.insert(ConfigSection::Tools, value);
+                info!(path = %tools_path.display(), "global tools config loaded");
+            } else {
+                warn!(path = %tools_path.display(), "failed to parse tools.json");
+            }
+        } else {
+            info!("tools.json not found, using defaults");
+        }
         // Cross-validate credentials against models.json references.
         if let Some(models_value) = sections.get(&ConfigSection::Models) {
             match serde_json::from_value::<ModelsConfigData>(models_value.clone()) {
@@ -939,6 +953,7 @@ impl ConfigManager {
             ConfigSection::Memory,
             ConfigSection::Skills,
             ConfigSection::Media,
+            ConfigSection::Tools,
         ];
 
         let mut infos = Vec::new();
