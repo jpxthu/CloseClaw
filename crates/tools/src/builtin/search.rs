@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use closeclaw_common::tool_registry::ToolRegistryQuery;
+use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
 use serde_json::{json, Value};
 
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
@@ -110,13 +110,16 @@ impl Tool for ToolSearchTool {
             .ok_or_else(|| ToolCallError::InvalidArgs("missing `query` parameter".into()))?;
         let query_lower = query.to_lowercase();
 
+        // Batch-fetch descriptors once for both exact and keyword modes
+        let descs = self.registry.get_tool_descriptors(None, None, None).await;
+
         // Exact mode: case-insensitive tool name match
-        if let Some(result) = self.try_exact_match(&query_lower).await {
+        if let Some(result) = self.try_exact_match(&query_lower, &descs).await {
             return Ok(result);
         }
 
         // Keyword mode: weighted scoring across all tools
-        let results = self.keyword_search(&query_lower).await;
+        let results = self.keyword_search(&query_lower, &descs);
         Ok(ToolResult {
             data: json!({ "tools": results }),
             new_messages: vec![],
@@ -131,8 +134,12 @@ impl Tool for ToolSearchTool {
 
 impl ToolSearchTool {
     /// Try to find a tool by exact name match (case-insensitive).
-    async fn try_exact_match(&self, query_lower: &str) -> Option<ToolResult> {
-        let descs = self.registry.get_tool_descriptors(None, None, None).await;
+    /// Receives pre-fetched descriptors to avoid redundant registry calls.
+    async fn try_exact_match(
+        &self,
+        query_lower: &str,
+        descs: &[ToolDescriptor],
+    ) -> Option<ToolResult> {
         let matched = descs
             .iter()
             .find(|d| d.name.to_lowercase() == query_lower)?;
@@ -151,11 +158,11 @@ impl ToolSearchTool {
     }
 
     /// Score all tools against the query and return top results.
-    async fn keyword_search(&self, query_lower: &str) -> Vec<Value> {
-        let descs = self.registry.get_tool_descriptors(None, None, None).await;
+    /// Receives pre-fetched descriptors to avoid redundant registry calls.
+    fn keyword_search(&self, query_lower: &str, descs: &[ToolDescriptor]) -> Vec<Value> {
         let mut scored: Vec<(String, String, String, u32)> = Vec::with_capacity(descs.len());
 
-        for desc in &descs {
+        for desc in descs {
             let score = score_tool(desc, query_lower);
             if score > 0 {
                 scored.push((
