@@ -244,13 +244,14 @@ pub fn match_and_apply(
     content: &str,
     edits: &[EditOp],
     replace_all: bool,
-) -> Result<String, EditError> {
+) -> Result<(String, usize), EditError> {
     if edits.is_empty() {
-        return Ok(content.to_string());
+        return Ok((content.to_string(), 0));
     }
 
     // Phase 1: match all edits against the original content (non-incremental).
     let mut matches: Vec<MatchResult> = Vec::new();
+    let mut edits_applied_count = 0;
 
     for (idx, edit) in edits.iter().enumerate() {
         if edit.old_text.is_empty() {
@@ -268,6 +269,7 @@ pub fn match_and_apply(
                         edit_index: idx,
                         is_fuzzy: true,
                     });
+                    edits_applied_count += 1;
                 } else {
                     return Err(EditError::NotFound);
                 }
@@ -280,6 +282,7 @@ pub fn match_and_apply(
                     edit_index: idx,
                     is_fuzzy: false,
                 });
+                edits_applied_count += 1;
             }
             _ if replace_all => {
                 // Keep all matches.
@@ -291,6 +294,7 @@ pub fn match_and_apply(
                         is_fuzzy: false,
                     });
                 }
+                edits_applied_count += 1;
             }
             _ => {
                 return Err(EditError::Ambiguous(offsets.len()));
@@ -317,7 +321,7 @@ pub fn match_and_apply(
         result.replace_range(start..end, &edit.new_text);
     }
 
-    Ok(result)
+    Ok((result, edits_applied_count))
 }
 
 // ---------------------------------------------------------------------------
