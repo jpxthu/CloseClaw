@@ -533,43 +533,10 @@ impl ConfigManager {
             info!("memory.json not found, using defaults");
         }
 
-        // Load global skills config (optional — absent file uses defaults).
-        let skills_path = ConfigSection::Skills.path(&self.config_dir);
-        if let Ok(content) = fs::read_to_string(&skills_path) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                sections.insert(ConfigSection::Skills, value);
-                info!(path = %skills_path.display(), "global skills config loaded");
-            } else {
-                warn!(path = %skills_path.display(), "failed to parse skills.json");
-            }
-        } else {
-            info!("skills.json not found, using defaults");
-        }
-
-        // Load global media config (optional — absent file uses defaults).
-        let media_path = ConfigSection::Media.path(&self.config_dir);
-        if media_path.exists() {
-            if let Ok(content) = fs::read_to_string(&media_path) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                    sections.insert(ConfigSection::Media, value);
-                    info!(path = %media_path.display(), "global media config loaded");
-                }
-            }
-        } else {
-            info!("media.json not found, using defaults");
-        }
-        // Load global tools config (optional — absent file uses defaults).
-        let tools_path = ConfigSection::Tools.path(&self.config_dir);
-        if let Ok(content) = fs::read_to_string(&tools_path) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                sections.insert(ConfigSection::Tools, value);
-                info!(path = %tools_path.display(), "global tools config loaded");
-            } else {
-                warn!(path = %tools_path.display(), "failed to parse tools.json");
-            }
-        } else {
-            info!("tools.json not found, using defaults");
-        }
+        // Load global skills, media, and tools configs (optional — absent file uses defaults).
+        self.load_optional_section(&mut sections, ConfigSection::Skills);
+        self.load_optional_section(&mut sections, ConfigSection::Media);
+        self.load_optional_section(&mut sections, ConfigSection::Tools);
         // Cross-validate credentials against models.json references.
         if let Some(models_value) = sections.get(&ConfigSection::Models) {
             match serde_json::from_value::<ModelsConfigData>(models_value.clone()) {
@@ -600,6 +567,27 @@ impl ConfigManager {
         }
 
         Ok(())
+    }
+
+    /// Load an optional config section from disk.
+    ///
+    /// If the file is absent, a default value is used (no error).
+    fn load_optional_section(
+        &self,
+        sections: &mut HashMap<ConfigSection, serde_json::Value>,
+        section: ConfigSection,
+    ) {
+        let path = section.path(&self.config_dir);
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                sections.insert(section, value);
+                info!(path = %path.display(), "{} loaded", section);
+            } else {
+                warn!(path = %path.display(), "failed to parse {}", section);
+            }
+        } else {
+            info!("{} not found, using defaults", section);
+        }
     }
 
     /// Attempt to rollback a corrupted config file and retry loading.

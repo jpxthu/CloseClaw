@@ -7,6 +7,9 @@
 
 use std::collections::HashSet;
 
+mod tools;
+pub use tools::validate_tools;
+
 use crate::manager::ConfigSection;
 use crate::providers::channels::ALLOWED_CHANNEL_TYPES;
 use crate::SectionValidator;
@@ -848,38 +851,6 @@ fn validate_media(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate the **tools** config section.
-///
-/// - Top-level must be a JSON object.
-/// - `read.max_tokens`, if present, must be a positive integer.
-fn validate_tools(value: &serde_json::Value) -> Result<(), String> {
-    ensure_object(value, "tools")?;
-    if let Some(read_obj) = value.get("read") {
-        if let Some(max_tokens) = read_obj.get("max_tokens") {
-            match max_tokens {
-                serde_json::Value::Number(n) => {
-                    if let Some(v) = n.as_u64() {
-                        if v == 0 {
-                            return Err(
-                                "tools.read.max_tokens must be a positive integer".to_string()
-                            );
-                        }
-                    } else {
-                        return Err("tools.read.max_tokens must be a positive integer".to_string());
-                    }
-                }
-                _ => {
-                    return Err(format!(
-                        "tools.read.max_tokens must be a number, got {}",
-                        type_name(max_tokens)
-                    ));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Validate the **memory** config section.
 ///
 /// - Top-level must be a JSON object.
@@ -942,7 +913,7 @@ fn require_non_empty(obj: &serde_json::Value, field: &str, path: &str) -> Result
 
 /// Ensure `value` is a JSON object; returns `Err` with a descriptive
 /// message if not.
-fn ensure_object(value: &serde_json::Value, section: &str) -> Result<(), String> {
+pub(crate) fn ensure_object(value: &serde_json::Value, section: &str) -> Result<(), String> {
     if !value.is_object() {
         return Err(format!(
             "{section} config must be a JSON object, got {}",
@@ -965,7 +936,7 @@ fn ensure_array(value: &serde_json::Value, path: &str) -> Result<(), String> {
 }
 
 /// Return a human-readable type label for a JSON value.
-fn type_name(v: &serde_json::Value) -> &'static str {
+pub(crate) fn type_name(v: &serde_json::Value) -> &'static str {
     match v {
         serde_json::Value::Null => "null",
         serde_json::Value::Bool(_) => "boolean",
@@ -988,13 +959,13 @@ impl ConfigSection {
 }
 
 #[cfg(test)]
-#[path = "validators_tests.rs"]
+#[path = "../validators_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "validators_cron_tests.rs"]
+#[path = "../validators_cron_tests.rs"]
 mod validators_cron_tests;
 
 #[cfg(test)]
-#[path = "validators_session_archive_audit_tests.rs"]
+#[path = "../validators_session_archive_audit_tests.rs"]
 mod validators_session_archive_audit_tests;
