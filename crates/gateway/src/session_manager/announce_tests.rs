@@ -14,7 +14,6 @@
 //! Shared helpers (e.g. `test_resolved_config`, `setup_parent_with_conv`,
 //! `inject_events_and_return_messages`, `spawn_n_run_children`) live in
 //! `super::test_helpers` to keep this file under the 500-line limit.
-
 use super::spawn::SpawnMode;
 use super::test_helpers::{
     append_assistant_to_child, inject_events_and_return_messages, register_child_only,
@@ -33,9 +32,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
-
 // ── 1. test_push_and_drain_announce ─────────────────────────────────────────
-
 /// `push_announce` should accept multiple events in order, and
 /// `drain_announces` should return all of them in FIFO order, leaving
 /// the queue empty.
@@ -996,4 +993,7 @@ impl TaskManager for MockTaskManager {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        3600
+    }
 }

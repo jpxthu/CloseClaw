@@ -89,7 +89,7 @@ mod tests {
     use crate::llm_session::ConversationSession;
     use closeclaw_common::ContentBlock;
     use closeclaw_workflow::definition::{Step, Workflow};
-    use closeclaw_workflow::run::{Phase, WorkflowRun};
+    use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
     use std::path::PathBuf;
 
     fn make_test_workflow() -> Workflow {
@@ -122,6 +122,7 @@ mod tests {
             phase: Phase::Executing,
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
+            pending_goal_hint: GoalHint::default(),
             pending_verify: 0,
         }
     }

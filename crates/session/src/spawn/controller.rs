@@ -13,8 +13,7 @@ use std::sync::Arc;
 use closeclaw_common::{PermissionChecker, SpawnPermissionError};
 use closeclaw_config::agents::ResolvedAgentConfig;
 
-use super::error::SpawnError;
-use super::types::SpawnValidationResult;
+use crate::spawn_validation::{SpawnError, SpawnValidationResult};
 
 /// Dependency injection trait for querying active child session counts
 /// and session metadata.
@@ -334,5 +333,32 @@ impl SpawnController {
             target_config.subagents.timeout_warning,
             target_config.subagents.timeout_notify_interval_ratio,
         )
+    }
+}
+
+// ── SpawnValidator trait impl ───────────────────────────────────────
+
+#[async_trait::async_trait]
+impl crate::spawn_validation::SpawnValidator for SpawnController {
+    async fn validate_spawn(
+        &self,
+        parent_session_id: &str,
+        target_agent_id: Option<&str>,
+    ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
+    {
+        // Both sides use the same SpawnValidationResult type after unification;
+        // pass through directly without field-by-field copy.
+        self.validate(parent_session_id, target_agent_id).await
+    }
+
+    async fn check_spawn_permission(
+        &self,
+        parent_session_id: &str,
+        validation: &crate::spawn_validation::SpawnValidationResult,
+    ) -> Result<(), crate::spawn_validation::SpawnError> {
+        // Both sides use the same SpawnValidationResult type after unification;
+        // pass through directly without reconstructing an identical struct.
+        self.check_spawn_permission(parent_session_id, validation)
+            .await
     }
 }

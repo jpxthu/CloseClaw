@@ -5,7 +5,7 @@ mod tests {
         SessionMode, SessionStatus,
     };
     use crate::workflow_recovery::{inject_workflow_recovery, WORKFLOW_RECOVERY_PREFIX};
-    use closeclaw_workflow::run::{Phase, StepHistoryEntry, WorkflowRun};
+    use closeclaw_workflow::run::{GoalHint, Phase, StepHistoryEntry, WorkflowRun};
 
     fn make_workflow_run(current_step: usize, phase: Phase) -> WorkflowRun {
         WorkflowRun {
@@ -20,6 +20,7 @@ mod tests {
                 completed_at: "2026-01-01T00:00:00Z".to_string(),
             }],
             step_data: Default::default(),
+            pending_goal_hint: GoalHint::default(),
             pending_verify: 0,
         }
     }

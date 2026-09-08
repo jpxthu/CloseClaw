@@ -16,7 +16,7 @@ use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 
 use super::controller::{SpawnContext, SpawnController};
-use super::error::SpawnError;
+use crate::spawn_validation::SpawnError;
 
 // ── Mock implementations ───────────────────────────────────────────────
 

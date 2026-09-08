@@ -897,6 +897,9 @@ mod tests {
             *self.cleanup_all_finished_called.lock().unwrap() = true;
             *self.session_id_arg.lock().unwrap() = Some(session_id.to_owned());
         }
+        fn max_execution_secs(&self) -> u64 {
+            3600
+        }
     }
 
     /// When `purge_and_invalidate_impl` is called with a TaskManager,

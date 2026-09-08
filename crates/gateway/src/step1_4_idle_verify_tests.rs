@@ -11,7 +11,7 @@ use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::llm_session::SessionMessage;
 use closeclaw_session::workflow_handler::WorkflowHandler;
 use closeclaw_workflow::definition::{Step, Workflow};
-use closeclaw_workflow::run::{Phase, WorkflowRun};
+use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
 
 use crate::idle_verify_hook::tests::test_maybe_inject_workflow_verify;
 use crate::session_manager::SessionManager;
@@ -49,6 +49,7 @@ fn make_test_run(phase: Phase, pending_verify: usize) -> WorkflowRun {
         phase,
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
+        pending_goal_hint: GoalHint::default(),
         pending_verify,
     }
 }
@@ -296,6 +297,7 @@ fn test_verify_injected_queues_notification_when_blocked() {
         phase: Phase::Executing,
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
+        pending_goal_hint: GoalHint::default(),
         pending_verify: 0,
     };
     let mut handler = WorkflowHandler::new(run, make_test_workflow());
