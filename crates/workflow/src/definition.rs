@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::WorkflowError;
+use crate::run::GoalHint;
 
 /// A complete workflow definition parsed from YAML frontmatter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,6 +196,80 @@ pub struct Transition {
     /// Target step index (required for goto/reexecute).
     #[serde(default)]
     pub target_step: Option<usize>,
+}
+
+/// Build the goal message for a step.
+///
+/// Renders the step goal description with a `[workflow goal]` prefix.
+/// When `hint` is [`GoalHint::Reexecute`], appends a re-execution hint
+/// paragraph explaining that this step is being re-entered, cross-step
+/// shared data has been preserved, and the agent should re-execute per
+/// the verification checklist and fix any issues.
+///
+/// # Arguments
+///
+/// * `step` - The current workflow step.
+/// * `hint` - Whether this is a normal first-time injection or a
+///   reexecute re-entry.
+pub fn build_goal_message(step: &Step, hint: GoalHint) -> String {
+    let mut msg = format!(
+        "[workflow goal] Step {}: {}\n\n{}",
+        step.id, step.name, step.goal
+    );
+    if hint == GoalHint::Reexecute {
+        msg.push_str(
+            "\n\n⚠️ 本步骤为重新执行（reexecute）。\
+             跨步骤共享数据（step_data）已保留，\
+             请对照验收清单重新执行本步骤并修正之前发现的问题。",
+        );
+    }
+    msg
+}
+
+/// Build the jump message for a step.
+///
+/// Renders all jump questions in the step with their prompt, options,
+/// and answer format instructions. Enum questions use `option_labels`
+/// (falling back to raw `options` values when labels are empty) rendered
+/// in A/B/C/D order. Boolean questions list `true`/`false`.
+/// Appends a `workflow_jump({answers: {...}})` call hint at the end.
+///
+/// # Arguments
+///
+/// * `step` - The current workflow step containing jump questions.
+pub fn build_jump_message(step: &Step) -> String {
+    let mut msg = format!(
+        "Jump Step {} ({}) \u{2014} 请回答以下跳转问题:\n",
+        step.id, step.name
+    );
+    for (i, q) in step.jump.iter().enumerate() {
+        let letter = (b'A' + i as u8) as char;
+        msg.push_str(&format!("\n{}. {}\n", letter, q.prompt));
+        match q.question_type.as_str() {
+            "enum" => {
+                let labels = if !q.option_labels.is_empty() {
+                    &q.option_labels
+                } else {
+                    &q.options
+                };
+                for (j, label) in labels.iter().enumerate() {
+                    let opt_letter = (b'A' + j as u8) as char;
+                    msg.push_str(&format!("   {} \u{2014} {}\n", opt_letter, label));
+                }
+                msg.push_str(&format!("   答案格式：{} = <选项字母>\n", q.id));
+            }
+            "boolean" => {
+                msg.push_str("   true / false\n");
+                msg.push_str(&format!("   答案格式：{} = true 或 false\n", q.id));
+            }
+            _ => {
+                msg.push_str(&format!("   答案格式：{} = <自由文本>\n", q.id));
+            }
+        }
+    }
+    msg.push_str("\n调用 workflow_jump({answers: {<id>: <值>, ...}}) 提交答案\n");
+    msg.push_str("enum 类型的答案传选项字母（如 A、B、C），不传选项内部值。");
+    msg
 }
 
 /// Actions that can result from a jump evaluation.

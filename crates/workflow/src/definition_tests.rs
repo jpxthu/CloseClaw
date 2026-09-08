@@ -373,7 +373,8 @@ fn test_round_trip_serde() {
 // build_verify_message: basic rendering
 // ---------------------------------------------------------------------------
 
-use crate::definition::{build_verify_message, Step};
+use crate::definition::{build_goal_message, build_jump_message, build_verify_message, Step};
+use crate::run::GoalHint;
 
 fn make_step(id: usize, name: &str, verify: Vec<&str>) -> Step {
     Step {
@@ -434,4 +435,184 @@ fn test_build_verify_message_empty_name_with_allow_blocked() {
     let msg = build_verify_message(&step, true);
     assert!(msg.contains("\u{2014} no explicit checklist."));
     assert!(msg.contains("workflow_blocked"));
+}
+
+// ---------------------------------------------------------------------------
+// build_goal_message: Normal mode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_build_goal_message_normal_format() {
+    let mut step = make_step(1, "Analyze", vec![]);
+    step.goal = "Find the root cause".to_string();
+    let msg = build_goal_message(&step, GoalHint::Normal);
+    assert!(msg.starts_with("[workflow goal] Step 1: Analyze"));
+    assert!(msg.contains("Find the root cause"));
+    assert!(!msg.contains("重新执行"));
+}
+
+#[test]
+fn test_build_goal_message_reexecute_appends_hint() {
+    let mut step = make_step(2, "Deploy", vec![]);
+    step.goal = "Deploy to staging".to_string();
+    let msg = build_goal_message(&step, GoalHint::Reexecute);
+    assert!(msg.starts_with("[workflow goal] Step 2: Deploy"));
+    assert!(msg.contains("Deploy to staging"));
+    assert!(msg.contains("重新执行"));
+    assert!(msg.contains("step_data"));
+    assert!(msg.contains("验收清单"));
+}
+
+// ---------------------------------------------------------------------------
+// build_jump_message: enum with option_labels renders ABCD
+// ---------------------------------------------------------------------------
+
+fn make_jump_step_with_enum_labels() -> Step {
+    Step {
+        id: 0,
+        name: "Decide".to_string(),
+        allow_blocked: None,
+        goal: "Choose path".to_string(),
+        verify: vec![],
+        jump: vec![crate::definition::JumpQuestion {
+            id: "path".to_string(),
+            prompt: "Which path?".to_string(),
+            question_type: "enum".to_string(),
+            options: vec!["fast".into(), "slow".into(), "balanced".into()],
+            option_labels: vec![
+                "Fast path".into(),
+                "Slow path".into(),
+                "Balanced path".into(),
+            ],
+        }],
+        transitions: vec![],
+    }
+}
+
+#[test]
+fn test_build_jump_message_enum_with_labels_abcd() {
+    let step = make_jump_step_with_enum_labels();
+    let msg = build_jump_message(&step);
+    assert!(msg.contains("A \u{2014} Fast path"));
+    assert!(msg.contains("B \u{2014} Slow path"));
+    assert!(msg.contains("C \u{2014} Balanced path"));
+    assert!(msg.contains("path = <选项字母>"));
+    assert!(msg.contains("workflow_jump({answers: {<id>: <值>, ...}})"));
+    assert!(msg.contains("enum 类型的答案传选项字母"));
+}
+
+// ---------------------------------------------------------------------------
+// build_jump_message: enum without labels falls back to options
+// ---------------------------------------------------------------------------
+
+fn make_jump_step_enum_no_labels() -> Step {
+    Step {
+        id: 1,
+        name: "Choose".to_string(),
+        allow_blocked: None,
+        goal: "Pick one".to_string(),
+        verify: vec![],
+        jump: vec![crate::definition::JumpQuestion {
+            id: "choice".to_string(),
+            prompt: "Pick an option".to_string(),
+            question_type: "enum".to_string(),
+            options: vec!["opt_a".into(), "opt_b".into()],
+            option_labels: vec![],
+        }],
+        transitions: vec![],
+    }
+}
+
+#[test]
+fn test_build_jump_message_enum_no_labels_fallback_options() {
+    let step = make_jump_step_enum_no_labels();
+    let msg = build_jump_message(&step);
+    assert!(msg.contains("A \u{2014} opt_a"));
+    assert!(msg.contains("B \u{2014} opt_b"));
+    assert!(msg.contains("choice = <选项字母>"));
+}
+
+// ---------------------------------------------------------------------------
+// build_jump_message: boolean renders true/false
+// ---------------------------------------------------------------------------
+
+fn make_jump_step_boolean() -> Step {
+    Step {
+        id: 0,
+        name: "Ready".to_string(),
+        allow_blocked: None,
+        goal: "Check readiness".to_string(),
+        verify: vec![],
+        jump: vec![crate::definition::JumpQuestion {
+            id: "go_next".to_string(),
+            prompt: "Ready to proceed?".to_string(),
+            question_type: "boolean".to_string(),
+            options: vec![],
+            option_labels: vec![],
+        }],
+        transitions: vec![],
+    }
+}
+
+#[test]
+fn test_build_jump_message_boolean_renders_true_false() {
+    let step = make_jump_step_boolean();
+    let msg = build_jump_message(&step);
+    assert!(msg.contains("true / false"));
+    assert!(msg.contains("go_next = true 或 false"));
+    assert!(msg.contains("workflow_jump({answers: {<id>: <值>, ...}})"));
+}
+
+// ---------------------------------------------------------------------------
+// build_jump_message: multiple questions rendered in ABCD order
+// ---------------------------------------------------------------------------
+
+fn make_jump_step_multi() -> Step {
+    Step {
+        id: 2,
+        name: "Multi".to_string(),
+        allow_blocked: None,
+        goal: "Multiple questions".to_string(),
+        verify: vec![],
+        jump: vec![
+            crate::definition::JumpQuestion {
+                id: "q1".to_string(),
+                prompt: "First question".to_string(),
+                question_type: "boolean".to_string(),
+                options: vec![],
+                option_labels: vec![],
+            },
+            crate::definition::JumpQuestion {
+                id: "q2".to_string(),
+                prompt: "Second question".to_string(),
+                question_type: "enum".to_string(),
+                options: vec!["x".into(), "y".into()],
+                option_labels: vec!["X label".into(), "Y label".into()],
+            },
+        ],
+        transitions: vec![],
+    }
+}
+
+#[test]
+fn test_build_jump_message_multiple_questions_abcd_order() {
+    let step = make_jump_step_multi();
+    let msg = build_jump_message(&step);
+    assert!(msg.contains("A. First question"));
+    assert!(msg.contains("B. Second question"));
+    assert!(msg.contains("A \u{2014} X label"));
+    assert!(msg.contains("B \u{2014} Y label"));
+    assert!(msg.contains("true / false"));
+    assert!(msg.contains("q2 = <选项字母>"));
+}
+
+// ---------------------------------------------------------------------------
+// build_jump_message: header includes step id and name
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_build_jump_message_header() {
+    let step = make_jump_step_boolean();
+    let msg = build_jump_message(&step);
+    assert!(msg.starts_with("Jump Step 0 (Ready) \u{2014} 请回答以下跳转问题:"));
 }
