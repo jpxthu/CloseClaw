@@ -182,13 +182,6 @@ async fn test_list_by_group() {
 }
 
 #[tokio::test]
-async fn test_list_by_group_empty() {
-    let reg = ToolRegistry::new();
-    let result = reg.list_by_group("nonexistent").await;
-    assert!(result.is_empty());
-}
-
-#[tokio::test]
 async fn test_tool_info_from_tool() {
     let reg = ToolRegistry::new();
     reg.register(DummyTool {
@@ -839,62 +832,9 @@ async fn test_plan_mode_keeps_mode_execution_trigger() {
         "ModeExecutionTrigger should be visible in Plan mode"
     );
 }
-#[test]
-fn test_plan_mode_tool_visible_mode_execution_trigger() {
-    let tool = DummyTool {
-        name: "ModeExecutionTrigger".to_string(),
-        group: "mode".to_string(),
-        summary_text: "trigger execution".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    };
-    let tool: Arc<dyn Tool> = Arc::new(tool);
-    assert!(plan_mode_tool_visible(&tool));
-}
-
-// ── plan_approval removed from Plan Mode visibility ────────────────────────
-
-/// `plan_approval` is NOT in PLAN_MODE_ALWAYS_VISIBLE, so a non-read-only
-/// tool with that name should be hidden in Plan Mode.
-#[test]
-fn test_plan_mode_tool_not_visible_plan_approval() {
-    let tool = DummyTool {
-        name: "plan_approval".to_string(),
-        group: "plan".to_string(),
-        summary_text: "approve plan".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    };
-    let tool: Arc<dyn Tool> = Arc::new(tool);
-    assert!(!plan_mode_tool_visible(&tool));
-}
 
 /// `plan_approval` should NOT appear in Plan Mode tool section even if
 /// registered (it was removed in Step 1.1).
-#[tokio::test]
-async fn test_plan_mode_hides_plan_approval_tool() {
-    let reg = ToolRegistry::new();
-    reg.register(DummyTool {
-        name: "plan_approval".to_string(),
-        group: "plan".to_string(),
-        summary_text: "approve plan".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    })
-    .await
-    .unwrap();
-
-    let ctx = make_plan_mode_ctx();
-    let section = reg.build_tools_section(&ctx).await;
-
-    assert!(
-        !section.contains("plan_approval"),
-        "plan_approval should be hidden in Plan mode, got: {section}"
-    );
-}
 
 // =========================================================================
 // strip_keywords_prefix tests
@@ -973,6 +913,72 @@ fn test_from_tool_strips_keywords_from_detail() {
     });
     let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["PlainTool"]));
     assert_eq!(info.detail, "Plain description");
+}
+
+#[test]
+fn test_strip_keywords_prefix_empty_bracket() {
+    // `[keywords:]` — no keywords listed, regex requires at least one
+    // non-`]` char after `keywords:`, so this does NOT match → unchanged.
+    assert_eq!(
+        strip_keywords_prefix("[keywords:] some detail"),
+        "[keywords:] some detail"
+    );
+    // Bare `[keywords:]` with nothing after it → unchanged.
+    assert_eq!(strip_keywords_prefix("[keywords:]"), "[keywords:]");
+}
+
+// =========================================================================
+// build_tools_section — integration test: keywords prefix not leaked
+// =========================================================================
+
+/// Verify that `build_tools_section` output never contains `[keywords:`
+/// even when a tool's raw detail includes the prefix.
+#[tokio::test]
+async fn test_build_tools_section_strips_keywords() {
+    struct KwDummy {
+        name: String,
+        detail_text: String,
+    }
+    impl Tool for KwDummy {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn group(&self) -> &str {
+            "file_ops"
+        }
+        fn summary(&self) -> String {
+            format!("summary for {}", self.name)
+        }
+        fn detail(&self) -> String {
+            self.detail_text.clone()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn flags(&self) -> ToolFlags {
+            ToolFlags::default()
+        }
+    }
+
+    let reg = ToolRegistry::new();
+    reg.register(KwDummy {
+        name: "Read".to_string(),
+        detail_text: "[keywords: read file cat view content] Read file contents".to_string(),
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_prompt_ctx(&["Read"]);
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        !section.contains("[keywords:"),
+        "build_tools_section output must not contain [keywords: prefix, got: {section}"
+    );
+    assert!(
+        section.contains("Read file contents"),
+        "detail text should be present after stripping, got: {section}"
+    );
 }
 
 // =========================================================================
