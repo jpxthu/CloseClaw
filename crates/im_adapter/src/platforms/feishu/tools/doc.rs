@@ -39,7 +39,8 @@ impl Tool for FeishuDocTool {
     }
 
     fn detail(&self) -> String {
-        "Create, read, update, and manage Feishu documents. \
+        "[keywords: doc document create edit content block] \
+         Create, read, update, and manage Feishu documents. \
          Supports content editing, permission management, \
          and document metadata."
             .to_string()

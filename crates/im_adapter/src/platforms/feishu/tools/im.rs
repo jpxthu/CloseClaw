@@ -39,7 +39,8 @@ impl Tool for FeishuImTool {
     }
 
     fn detail(&self) -> String {
-        "Send, recall, edit, and react to Feishu messages. \
+        "[keywords: message chat send recall edit react im feishu] \
+         Send, recall, edit, and react to Feishu messages. \
          Supports text and card message formats, thread replies, \
          and message deletion."
             .to_string()
