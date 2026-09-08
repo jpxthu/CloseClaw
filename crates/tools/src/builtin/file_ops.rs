@@ -78,8 +78,7 @@ async fn write_file(path: &str, content: &str) -> Result<ToolResult, ToolCallErr
         std::fs::create_dir_all(parent)
             .map_err(|e| ToolCallError::ExecutionFailed(format!("create_dir_all: {e}")))?;
     }
-    std::fs::write(path, content)
-        .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
+    super::readback::write_with_readback(Path::new(path), content)?;
     Ok(ToolResult {
         data: serde_json::json!({ "content": content }),
         new_messages: vec![],
@@ -617,8 +616,7 @@ impl Tool for EditTool {
             let updated =
                 crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
                     .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
-            std::fs::write(&path_owned, &updated)
-                .map_err(|e| ToolCallError::ExecutionFailed(format!("{path_owned}: {e}")))?;
+            super::readback::write_with_readback(Path::new(&path_owned), &updated)?;
             Ok(ToolResult {
                 data: serde_json::json!({ "content": updated }),
                 new_messages: vec![],

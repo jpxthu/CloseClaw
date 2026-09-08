@@ -19,6 +19,7 @@ pub mod plan_exec_confirm;
 pub mod prompt_template;
 pub(crate) mod read_image;
 pub(crate) mod read_truncator;
+pub(crate) mod readback;
 pub mod search;
 pub mod skill_tool;
 pub mod workflow_tools;
