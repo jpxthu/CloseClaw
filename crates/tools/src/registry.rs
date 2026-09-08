@@ -532,7 +532,6 @@ impl ToolRegistryImpl {
 fn build_descriptor(tool: &Arc<dyn Tool>) -> closeclaw_common::tool_registry::ToolDescriptor {
     let flags = tool.flags();
     let detail = tool.detail();
-    let keywords = extract_keywords(&detail);
     closeclaw_common::tool_registry::ToolDescriptor {
         name: tool.name().to_string(),
         group: tool.group().to_string(),
@@ -546,7 +545,6 @@ fn build_descriptor(tool: &Arc<dyn Tool>) -> closeclaw_common::tool_registry::To
             is_expensive: flags.is_expensive,
             is_deferred_by_default: flags.is_deferred_by_default,
         },
-        keywords,
     }
 }
 
@@ -569,7 +567,7 @@ fn strip_keywords_prefix(detail: &str) -> String {
 ///
 /// Only matches at the start of the string. Returns an empty `Vec` if no
 /// prefix is found or parsing fails.
-fn extract_keywords(detail: &str) -> Vec<String> {
+pub(crate) fn extract_keywords(detail: &str) -> Vec<String> {
     use regex::Regex;
     use std::sync::OnceLock;
 

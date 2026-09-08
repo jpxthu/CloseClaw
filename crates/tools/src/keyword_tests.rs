@@ -115,7 +115,7 @@ impl Tool for KeywordDummyTool {
 }
 
 #[tokio::test]
-async fn test_build_descriptor_extracts_keywords() {
+async fn test_build_descriptor_detail_preserves_keywords_prefix() {
     let reg = ToolRegistry::new();
     let tool = KeywordDummyTool {
         name: "TestTool".to_string(),
@@ -124,11 +124,16 @@ async fn test_build_descriptor_extracts_keywords() {
     reg.register(tool).await.unwrap();
 
     let desc = reg.get_tool_detail("TestTool").await.unwrap();
-    assert_eq!(desc.keywords, vec!["search", "find", "discover"]);
+    // keywords field removed from ToolDescriptor; keywords remain in detail
+    // and are extracted on-demand by score_tool
+    assert!(
+        desc.detail.starts_with("[keywords:"),
+        "detail should preserve keywords prefix for extraction"
+    );
 }
 
 #[tokio::test]
-async fn test_build_descriptor_no_keywords_empty_vec() {
+async fn test_build_descriptor_no_keywords_in_detail() {
     let reg = ToolRegistry::new();
     let tool = KeywordDummyTool {
         name: "NoKeywords".to_string(),
@@ -137,11 +142,14 @@ async fn test_build_descriptor_no_keywords_empty_vec() {
     reg.register(tool).await.unwrap();
 
     let desc = reg.get_tool_detail("NoKeywords").await.unwrap();
-    assert!(desc.keywords.is_empty());
+    assert!(
+        !desc.detail.starts_with("[keywords:"),
+        "detail without keywords should not have prefix"
+    );
 }
 
 #[tokio::test]
-async fn test_get_tool_descriptors_populates_keywords() {
+async fn test_get_tool_descriptors_detail_preserves_keywords() {
     let reg = ToolRegistry::new();
     reg.register(KeywordDummyTool {
         name: "A".to_string(),
@@ -159,7 +167,10 @@ async fn test_get_tool_descriptors_populates_keywords() {
     let descs = reg.get_tool_descriptors(None, None, None).await;
     assert_eq!(descs.len(), 2);
     let a = descs.iter().find(|d| d.name == "A").unwrap();
-    assert_eq!(a.keywords, vec!["alpha", "beta"]);
+    assert!(
+        a.detail.starts_with("[keywords: alpha beta]"),
+        "A detail should preserve keywords prefix"
+    );
     let b = descs.iter().find(|d| d.name == "B").unwrap();
-    assert!(b.keywords.is_empty());
+    assert!(!b.detail.starts_with("[keywords:"));
 }
