@@ -36,11 +36,8 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 | `timeout_warning` | 子 session 预期执行时长（秒），达到后启动循环预警通知。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout_warning → 全局默认值 |
 | `workspace` | 独立工作目录 | 否 | spawn 参数指定 → 目标 agent.workspace → 子 session 默认工作目录（见 [working-directory.md](working-directory.md)）|
 | `label` | 子 session 简短标签 | 否 | 自动生成 |
-| `lightContext` | 是否使用 minimal bootstrap | 否 | `false` |
 | `promptTemplate` | 注入的 prompt 模板（`explore` / `plan` / `executor` / `validation`） | 否 | 无 |
 | `allowedTools` | 限制子 session 可用的工具白名单 | 否 | 目标 agent 配置中的工具集 |
-
-`lightContext` 复用 session 模块已有的 minimal bootstrap 启动机制。spawn 时指定 `lightContext: true`，子 session 以 minimal bootstrap 启动。
 
 `promptTemplate` 为框架提供嵌入式 prompt 模板：
 - `explore`：注入"只做研究不修改文件"的行为约束
