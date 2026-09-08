@@ -830,5 +830,13 @@
     "confirmed_time": "2026-09-08T17:38:51.340836+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/workflow/README.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-09-08T17:50:22.699086+08:00",
+    "comment": "",
+    "blocked_reason": "Design doc describes jump answer format including 'string' (自由文本) type, but JumpQuestion only supports boolean/enum. Document-internal contradiction: workflow-tools.md §数据流 lists string type but code has no implementation for it."
   }
 ]
