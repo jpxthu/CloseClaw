@@ -2,11 +2,37 @@ use async_trait::async_trait;
 
 use crate::bootstrap::BootstrapMode;
 
+/// Session role — determines identity-gated behaviour in prompt construction.
+///
+/// The design document (`docs/design/common/shared-types.md` §FragmentContext)
+/// defines two roles:
+///
+/// * `Main` — the top-level agent session; long-term memory (MEMORY.md) and
+///   custom bootstrap instructions (BOOTSTRAP.md) are loaded for this role.
+/// * `Sub` — a spawned child session; gated content is suppressed regardless
+///   of [`BootstrapMode`].
+///
+/// Role is orthogonal to [`BootstrapMode`]: a main session in minimal mode
+/// still has `SessionRole::Main`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SessionRole {
+    /// Top-level agent session.
+    Main,
+    /// Spawned child session.
+    Sub,
+}
+
 /// Context passed to each [`PromptFragmentProvider`] during system prompt construction.
 #[derive(Debug, Clone)]
 pub struct FragmentContext {
     /// Agent identifier — used by skills providers to filter visible skills.
     pub agent_id: String,
+    /// Session role — determines identity-gated behaviour.
+    ///
+    /// Long-term memory (MEMORY.md) and custom bootstrap instructions
+    /// (BOOTSTRAP.md) are loaded only for [`SessionRole::Main`], regardless
+    /// of [`BootstrapMode`].
+    pub session_role: SessionRole,
     /// Bootstrap mode (Minimal / Full) — used by [`BootstrapFragmentProvider`]
     /// to select the file set.
     pub bootstrap_mode: BootstrapMode,
@@ -37,6 +63,7 @@ impl FragmentContext {
     pub fn test_default() -> Self {
         Self {
             agent_id: String::new(),
+            session_role: SessionRole::Main,
             bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
             activated_skills: Vec::new(),

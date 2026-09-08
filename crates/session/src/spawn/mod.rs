@@ -36,4 +36,8 @@ mod controller_tests;
 mod creation_tests;
 
 #[cfg(test)]
+#[path = "spawn_role_timing_tests.rs"]
+mod spawn_role_timing_tests;
+
+#[cfg(test)]
 mod tree_tests;

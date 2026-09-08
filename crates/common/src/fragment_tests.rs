@@ -11,6 +11,7 @@ use crate::bootstrap::BootstrapMode;
 fn test_fragment_context_test_default() {
     let ctx = FragmentContext::test_default();
     assert_eq!(ctx.agent_id, "");
+    assert_eq!(ctx.session_role, SessionRole::Main);
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
     assert!(std::path::Path::new(&ctx.bootstrap_dir).is_dir());
 }
@@ -46,18 +47,21 @@ fn test_fragment_context_workdir() {
 fn test_fragment_context_all_fields() {
     let ctx = FragmentContext {
         agent_id: "my-agent".to_string(),
+        session_role: SessionRole::Sub,
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/home/user/project"),
         activated_skills: vec!["skill-a".into(), "skill-b".into()],
     };
     assert_eq!(ctx.agent_id, "my-agent");
+    assert_eq!(ctx.session_role, SessionRole::Sub);
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
     assert_eq!(ctx.bootstrap_dir, String::from("/home/user/project"));
     assert_eq!(ctx.activated_skills, vec!["skill-a", "skill-b"]);
-    // Verify struct has exactly 4 fields — adding or removing a field here
+    // Verify struct has exactly 5 fields — adding or removing a field here
     // will cause a compile error, enforcing alignment with design doc.
     let FragmentContext {
         agent_id: _,
+        session_role: _,
         bootstrap_mode: _,
         bootstrap_dir: _,
         activated_skills: _,
@@ -68,12 +72,14 @@ fn test_fragment_context_all_fields() {
 fn test_fragment_context_clone() {
     let ctx = FragmentContext {
         agent_id: "clone-test".to_string(),
+        session_role: SessionRole::Main,
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/clone"),
         activated_skills: vec!["activated-skill".into()],
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
+    assert_eq!(ctx.session_role, cloned.session_role);
     assert_eq!(ctx.bootstrap_mode, cloned.bootstrap_mode);
     assert_eq!(ctx.bootstrap_dir, cloned.bootstrap_dir);
     assert_eq!(ctx.activated_skills, cloned.activated_skills);
@@ -161,6 +167,7 @@ async fn test_mock_provider_generates_with_valid_fields() {
     let provider = MockFragmentProvider;
     let ctx = FragmentContext {
         agent_id: "test-agent".into(),
+        session_role: SessionRole::Main,
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/workspace"),
         activated_skills: Vec::new(),
