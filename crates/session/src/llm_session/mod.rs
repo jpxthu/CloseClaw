@@ -648,6 +648,17 @@ impl ConversationSession {
             )
             .await;
         self.replace_system_prompt(prompt.clone());
+        // Clear the activation markers: merged into static layer during
+        // rebuild, so they must not reappear in subsequent per-turn
+        // incremental injection. (§条件激活 skill 消息注入: "标记并入
+        // 静态层即清除，避免重复渲染；新激活的技能重新标记")
+        let cleared = self.activated_conditional_skills.len();
+        self.activated_conditional_skills.clear();
+        tracing::debug!(
+            session_id,
+            cleared_count = cleared,
+            "rebuilt SP: cleared activated_conditional_skills"
+        );
         prompt
     }
     pub(crate) fn push_message(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
