@@ -760,6 +760,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/tools/README.md",
+    "commit": "5944b0d40dea92283b604b9a0d7de115c72176ad",
+    "commit_time": "2026-09-08T13:22:28+08:00",
+    "confirmed_time": "2026-09-08T13:33:05.736849+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/tools/background-tasks.md",
     "commit": "c3439de038a5af2d490732f7bcfe0ef4f3aa9997",
     "commit_time": "2026-09-08T06:26:20+08:00",
@@ -804,6 +812,14 @@
     "commit": "586833cf71391b21287495516e03f8f3eac9a8a5",
     "commit_time": "2026-09-08T12:05:27+08:00",
     "confirmed_time": "2026-09-08T13:21:27.406398+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/tools/tool-registrar.md",
+    "commit": "b6bc853ad479f56d09c26b406909ef8befbcc8d8",
+    "commit_time": "2026-09-08T13:34:06+08:00",
+    "confirmed_time": "2026-09-08T13:41:52.473268+08:00",
     "comment": "",
     "blocked_reason": ""
   }
