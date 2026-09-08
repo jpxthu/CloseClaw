@@ -20,7 +20,10 @@ use closeclaw_common::{
     ChildCompletionStatus, ChildSessionState, LlmState, SkillListingProvider, ToolExecState,
 };
 use closeclaw_common::{ContentBlock, UnifiedUsage};
-use closeclaw_common::{LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder};
+use closeclaw_common::{
+    InjectionParams, LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder,
+    ToolRegistryQuery,
+};
 use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
 use closeclaw_tasks::NotificationPriority;
 
@@ -168,6 +171,7 @@ pub struct ConversationSession {
     pub(crate) pending_compaction_listing_reset: bool,
     /// Conditional skills activated via file-path matching this session.
     pub(crate) activated_conditional_skills: HashSet<String>,
+    tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
     /// Agent-level skill whitelist filter. `*` means no filtering.
     pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
@@ -257,6 +261,7 @@ impl ConversationSession {
             skill_listing_snapshot: None,
             pending_compaction_listing_reset: false,
             activated_conditional_skills: HashSet::new(),
+            tool_registry: None,
             agent_skills: None,
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
@@ -424,6 +429,9 @@ impl ConversationSession {
     /// apply overrides when rebuilding its system prompt.
     pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
         self.prompt_overrides = overrides;
+    }
+    pub fn set_tool_registry(&mut self, registry: Arc<dyn ToolRegistryQuery>) {
+        self.tool_registry = Some(registry);
     }
     /// Set the git_status config switch for this session.
     ///
@@ -602,18 +610,7 @@ impl ConversationSession {
         self.system_prompt.as_deref()
     }
 
-    /// Rebuild the system prompt using the session's own builder and overrides.
-    ///
-    /// This is the session-side entry point for prompt rebuilds after
-    /// compaction or config changes. The session owns the builder and
-    /// overrides; no external references are needed.
-    ///
-    /// * `bootstrap_mode_override` — optional override for the bootstrap mode
-    ///   used when building the prompt. Pass `None` for standard rebuilds;
-    ///   spawn callers should pass the child's bootstrap mode.
-    ///
-    /// Returns the rebuilt prompt string for callers that need it
-    /// (e.g. initial session creation in `resolve.rs`).
+    /// Rebuild the system prompt via [`InjectionParams`] (§注入链路的参数契约).
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,
@@ -627,26 +624,22 @@ impl ConversationSession {
             );
             return String::new();
         };
-        // Pass activated conditional skills so that SkillsFragmentProvider
-        // includes them in the rebuilt listing (SP rebuild path).
         let activated: Vec<String> = self.activated_conditional_skills.iter().cloned().collect();
-        // Derive session role from sub-agent flag: Main for top-level
-        // sessions, Sub for spawned child sessions.
         let session_role = if self.is_sub_agent {
             SessionRole::Sub
         } else {
             SessionRole::Main
         };
-        let prompt = builder
-            .build_prompt_with_activated(
-                session_id,
-                agent_id,
-                self.prompt_overrides.as_ref(),
-                bootstrap_mode_override,
-                activated,
-                session_role,
-            )
-            .await;
+        let params = InjectionParams {
+            session_id: session_id.to_owned(),
+            agent_id: agent_id.to_owned(),
+            overrides: self.prompt_overrides.clone(),
+            bootstrap_mode_override,
+            activated_skills: activated,
+            session_role,
+            tool_registry: self.tool_registry.clone(),
+        };
+        let prompt = builder.build_prompt_with_params(&params).await;
         self.replace_system_prompt(prompt.clone());
         // Clear the activation markers: merged into static layer during
         // rebuild, so they must not reappear in subsequent per-turn
@@ -943,6 +936,10 @@ impl std::fmt::Debug for ConversationSession {
             .field(
                 "activated_conditional_skills",
                 &self.activated_conditional_skills,
+            )
+            .field(
+                "tool_registry",
+                &self.tool_registry.as_ref().map(|_| "<TR>"),
             )
             .field("agent_skills", &self.agent_skills)
             .field(
