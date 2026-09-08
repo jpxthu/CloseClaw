@@ -962,6 +962,8 @@ pub mod session_handler_circuit_breaker_tests;
 pub mod session_handler_compact_config_tests;
 #[cfg(test)]
 pub mod session_handler_compact_truncate_tests;
+#[cfg(test)]
+pub mod session_handler_dispatch_child_session_tests;
 #[cfg(feature = "full-tests")]
 pub mod session_handler_dynamic_tests;
 #[cfg(test)]
