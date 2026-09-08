@@ -1,8 +1,8 @@
 //! Unit tests for spawn depth budget propagation, kill all-mode, and cascade termination (Step 1.5).
+use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use crate::session_manager::spawn_controller::SpawnController;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, SessionManager};
-use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
@@ -15,6 +15,26 @@ use closeclaw_session::spawn_validation::SpawnError;
 use closeclaw_session::storage::memory::MemoryStorage;
 use std::sync::Arc;
 // Helpers (duplicated from spawn_controller_tests.rs to keep this file self-contained)
+
+fn make_permission_engine() -> PermissionEngine {
+    PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap())
+}
+
+fn make_controller(
+    cm: &Arc<ConfigManager>,
+    sm: &Arc<SessionManager>,
+    pe: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+) -> SpawnController {
+    SpawnController::new(
+        cm.clone(),
+        sm.clone() as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+        Arc::new(GatewayPermissionChecker::new(
+            sm.clone(),
+            cm.clone(),
+            pe.clone(),
+        )),
+    )
+}
 
 fn test_config() -> GatewayConfig {
     GatewayConfig {
@@ -67,14 +87,11 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         .await
         .expect("find_or_create should succeed")
 }
-fn inject_agents(ar: &AgentRegistry, cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
+fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
     let mut map = cm.agents.write().expect("agents RwLock poisoned");
-    let mut configs = Vec::new();
     for (id, cfg) in agents {
-        map.insert(id.to_string(), cfg.clone());
-        configs.push(cfg);
+        map.insert(id.to_string(), cfg);
     }
-    ar.populate(configs);
 }
 fn make_session_manager_with_memory_storage() -> (Arc<SessionManager>, Arc<MemoryStorage>) {
     let storage = Arc::new(MemoryStorage::new());
@@ -107,17 +124,10 @@ async fn save_checkpoint_with_budget(
 /// Verify effective budget read from checkpoint vs config fallback.
 #[tokio::test]
 async fn test_depth_budget_checkpoint_vs_config_fallback() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(
-            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
-        )),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
     // Root: maxSpawnDepth=3
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = Some(3);
@@ -128,7 +138,7 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(1);
     let child = make_agent("child", child_sub);
-    inject_agents(&ar, &cm, vec![("root", root), ("child", child)]);
+    inject_agents(&cm, vec![("root", root), ("child", child)]);
     // Fallback: effective = min(1, 3-1) = 1
     let result = controller
         .validate(&root_id, Some("child"))
@@ -151,17 +161,10 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
 /// child2(effective=0, exists but cannot spawn further).
 #[tokio::test]
 async fn test_depth_budget_allowed_when_effective_zero() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(
-            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
-        )),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = Some(3);
     let root = make_agent("root", root_sub);
@@ -172,7 +175,7 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     let mut child1_sub = SubagentsConfig::default();
     child1_sub.max_spawn_depth = Some(1);
     let child1 = make_agent("child1", child1_sub);
-    inject_agents(&ar, &cm, vec![("root", root), ("child1", child1)]);
+    inject_agents(&cm, vec![("root", root), ("child1", child1)]);
     // First spawn succeeds
     let result = controller
         .validate(&root_id, Some("child1"))
@@ -215,7 +218,7 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     let mut child2_sub = SubagentsConfig::default();
     child2_sub.max_spawn_depth = Some(1);
     let child2 = make_agent("child2", child2_sub);
-    inject_agents(&ar, &cm, vec![("child2", child2)]);
+    inject_agents(&cm, vec![("child2", child2)]);
     let result2 = controller
         .validate(child1_session_id, Some("child2"))
         .await
@@ -226,17 +229,10 @@ async fn test_depth_budget_allowed_when_effective_zero() {
 /// child's config limits it.
 #[tokio::test]
 async fn test_depth_budget_child_narrows_via_min() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(
-            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
-        )),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = Some(5);
@@ -247,7 +243,7 @@ async fn test_depth_budget_child_narrows_via_min() {
     let mut child_sub = SubagentsConfig::default();
     child_sub.max_spawn_depth = Some(2);
     let child = make_agent("narrow-child", child_sub);
-    inject_agents(&ar, &cm, vec![("root", root), ("narrow-child", child)]);
+    inject_agents(&cm, vec![("root", root), ("narrow-child", child)]);
 
     let result = controller
         .validate(&root_id, Some("narrow-child"))
@@ -289,7 +285,7 @@ async fn test_depth_budget_child_narrows_via_min() {
     let mut grandchild_sub = SubagentsConfig::default();
     grandchild_sub.max_spawn_depth = Some(5);
     let grandchild = make_agent("grandchild", grandchild_sub);
-    inject_agents(&ar, &cm, vec![("grandchild", grandchild)]);
+    inject_agents(&cm, vec![("grandchild", grandchild)]);
 
     let result2 = controller
         .validate(child_session_id, Some("grandchild"))
@@ -301,17 +297,10 @@ async fn test_depth_budget_child_narrows_via_min() {
 /// root(3) → child1(5,eff=2) → child2(5,eff=1) → child3(1,eff=0)
 #[tokio::test]
 async fn test_depth_budget_full_multilevel_tree() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(
-            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
-        )),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
     // root: maxSpawnDepth=3
     let mut root_sub = SubagentsConfig::default();
     root_sub.max_spawn_depth = Some(3);
@@ -323,7 +312,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let mut child1_sub = SubagentsConfig::default();
     child1_sub.max_spawn_depth = Some(5);
     let child1 = make_agent("child1", child1_sub);
-    inject_agents(&ar, &cm, vec![("root", root), ("child1", child1)]);
+    inject_agents(&cm, vec![("root", root), ("child1", child1)]);
     let result1 = controller
         .validate(&root_id, Some("child1"))
         .await
@@ -363,7 +352,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let mut child2_sub = SubagentsConfig::default();
     child2_sub.max_spawn_depth = Some(5);
     let child2 = make_agent("child2", child2_sub);
-    inject_agents(&ar, &cm, vec![("child2", child2)]);
+    inject_agents(&cm, vec![("child2", child2)]);
     let result2 = controller
         .validate(child1_sid, Some("child2"))
         .await
@@ -404,7 +393,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let mut child3_sub = SubagentsConfig::default();
     child3_sub.max_spawn_depth = Some(1);
     let child3 = make_agent("child3", child3_sub);
-    inject_agents(&ar, &cm, vec![("child3", child3)]);
+    inject_agents(&cm, vec![("child3", child3)]);
     let result3 = controller
         .validate(child2_sid, Some("child3"))
         .await
@@ -444,7 +433,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     let mut child4_sub = SubagentsConfig::default();
     child4_sub.max_spawn_depth = Some(5);
     let child4 = make_agent("child4", child4_sub);
-    inject_agents(&ar, &cm, vec![("child4", child4)]);
+    inject_agents(&cm, vec![("child4", child4)]);
     let err = controller
         .validate(child3_sid, Some("child4"))
         .await

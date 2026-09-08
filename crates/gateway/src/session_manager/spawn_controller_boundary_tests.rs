@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use closeclaw_agent::registry::AgentRegistry;
+use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
@@ -39,6 +39,22 @@ fn test_config() -> GatewayConfig {
 
 fn make_permission_engine() -> PermissionEngine {
     PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap())
+}
+
+fn make_controller(
+    cm: &Arc<ConfigManager>,
+    sm: &Arc<SessionManager>,
+    pe: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+) -> SpawnController {
+    SpawnController::new(
+        cm.clone(),
+        sm.clone() as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+        Arc::new(GatewayPermissionChecker::new(
+            sm.clone(),
+            cm.clone(),
+            pe.clone(),
+        )),
+    )
 }
 
 fn make_session_manager() -> SessionManager {
@@ -91,14 +107,11 @@ async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {
         .expect("find_or_create should succeed")
 }
 
-fn inject_agents(ar: &AgentRegistry, cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
+fn inject_agents(cm: &ConfigManager, agents: Vec<(&str, ResolvedAgentConfig)>) {
     let mut map = cm.agents.write().expect("agents RwLock poisoned");
-    let mut configs = Vec::new();
     for (id, cfg) in agents {
-        map.insert(id.to_string(), cfg.clone());
-        configs.push(cfg);
+        map.insert(id.to_string(), cfg);
     }
-    ar.populate(configs);
 }
 
 async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
@@ -140,22 +153,17 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
 /// The whitelist check iterates the list and finds no match -> AgentNotAllowed.
 #[tokio::test]
 async fn test_validate_empty_allow_agents_blocks_target() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec![]; // explicitly empty
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -178,15 +186,10 @@ async fn test_validate_empty_allow_agents_blocks_target() {
 /// empty allowlist.
 #[tokio::test]
 async fn test_validate_empty_allow_agents_no_target_requires_id() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     let mut sub = SubagentsConfig::default();
     sub.allow_agents = vec![];
@@ -194,7 +197,7 @@ async fn test_validate_empty_allow_agents_no_target_requires_id() {
     sub.default_child_agent = None;
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
-    inject_agents(&ar, &cm, vec![("parent", parent)]);
+    inject_agents(&cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -218,19 +221,14 @@ async fn test_validate_empty_allow_agents_no_target_requires_id() {
 /// A target with existing config should pass all checks.
 #[tokio::test]
 async fn test_validate_unparent_config_uses_defaults() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     // Only inject child, NOT parent -> parent falls back to defaults.
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&ar, &cm, vec![("child", child)]);
+    inject_agents(&cm, vec![("child", child)]);
 
     // Parent agent id = "unregistered-parent" -- not in agents map.
     let parent_id = setup_parent_session(&sm, "unregistered-parent").await;
@@ -251,22 +249,17 @@ async fn test_validate_unparent_config_uses_defaults() {
 /// parent agent is in its own allowlist.
 #[tokio::test]
 async fn test_validate_require_agent_id_false_no_target_no_default() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     let mut sub = SubagentsConfig::default();
     sub.require_agent_id = Some(false);
     sub.default_child_agent = None;
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
-    inject_agents(&ar, &cm, vec![("parent", parent)]);
+    inject_agents(&cm, vec![("parent", parent)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
@@ -284,22 +277,17 @@ async fn test_validate_require_agent_id_false_no_target_no_default() {
 /// Registering 4 children should succeed; 5th should fail.
 #[tokio::test]
 async fn test_validate_default_max_children_boundary() {
-    let ar = Arc::new(AgentRegistry::new());
+    let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
     let cm = Arc::new(make_config_manager());
     let sm = Arc::new(make_session_manager());
-    let controller = SpawnController::new(
-        Arc::clone(&ar),
-        cm.clone(),
-        sm.clone(),
-        Arc::new(tokio::sync::RwLock::new(make_permission_engine())),
-    );
+    let controller = make_controller(&cm, &sm, &pe);
 
     // Parent with default max_children=5 and max_spawn_depth=2.
     let mut sub = SubagentsConfig::default();
     sub.max_spawn_depth = Some(2);
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
-    inject_agents(&ar, &cm, vec![("parent", parent), ("child", child)]);
+    inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
 
