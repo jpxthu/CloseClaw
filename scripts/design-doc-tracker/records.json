@@ -337,9 +337,9 @@
   },
   {
     "path": "docs/design/memory/active-searcher.md",
-    "commit": "5512c67be712b549df192517f5fd66008cf5d792",
-    "commit_time": "2026-08-16T20:02:59+08:00",
-    "confirmed_time": "2026-08-16T20:15:26.139726+08:00",
+    "commit": "e40be44d7dc93e73e443e7d0e01f41fa3c439ab8",
+    "commit_time": "2026-09-09T04:51:43+08:00",
+    "confirmed_time": "2026-09-09T04:58:41.154634+08:00",
     "comment": "",
     "blocked_reason": ""
   },
