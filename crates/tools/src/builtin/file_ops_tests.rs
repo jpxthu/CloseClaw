@@ -885,3 +885,92 @@ async fn test_write_overwrite_file() {
     let content = std::fs::read_to_string(&path).unwrap();
     assert_eq!(content, "replaced");
 }
+
+// ---------------------------------------------------------------------------
+// Step 1.6: Image integration tests — offset/limit and runtime flags.
+// ---------------------------------------------------------------------------
+
+/// ReadTool declares `is_read_only: true` and `is_concurrency_safe: true`
+/// per the design doc ("Read 工具标记为只读工具和并发安全工具").
+#[tokio::test]
+async fn test_read_flags_read_only_and_concurrency_safe() {
+    let tool = ReadTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
+    let flags = tool.flags();
+    assert!(flags.is_read_only, "ReadTool must be read-only");
+    assert!(
+        flags.is_concurrency_safe,
+        "ReadTool must be concurrency-safe"
+    );
+}
+
+/// Helper: create a temporary image file and verify that offset/limit
+/// parameters do not affect the output — images always return in full.
+async fn assert_image_ignores_offset_limit(
+    ext: &str,
+    format: image::ImageFormat,
+    create_fn: impl FnOnce() -> image::DynamicImage,
+) {
+    let tmp = TempDir::new().unwrap();
+    let img = create_fn();
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, format).unwrap();
+    let raw = buf.into_inner();
+    let path = tmp.path().join(format!("photo.{ext}"));
+    std::fs::write(&path, &raw).unwrap();
+
+    let rules = vec![
+        allow_tool("a", "file_ops"),
+        allow_file("a", "/tmp/**", "read"),
+    ];
+    let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+
+    // With offset/limit.
+    let args = serde_json::json!({ "path": path.to_str().unwrap(), "offset": 50, "limit": 2 });
+    let result = tool.call(args, &make_ctx("a")).await;
+    assert!(
+        result.is_ok(),
+        "reading {ext} image with offset/limit should succeed"
+    );
+    let content = result.unwrap().data["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Without offset/limit.
+    let args_no = serde_json::json!({ "path": path.to_str().unwrap() });
+    let content_no = tool.call(args_no, &make_ctx("a")).await.unwrap().data["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    assert_eq!(
+        content, content_no,
+        "{ext} image: offset/limit should not change output"
+    );
+    assert!(
+        content.starts_with("[Image file:"),
+        "{ext} result should start with [Image file:...]"
+    );
+    assert!(
+        content.contains("data:image/png;base64,"),
+        "{ext} result should contain base64 data URI"
+    );
+}
+
+#[tokio::test]
+async fn test_read_image_ignores_offset_limit() {
+    // PNG (Rgba).
+    assert_image_ignores_offset_limit("png", image::ImageFormat::Png, || {
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(100, 50, |_, _| {
+            image::Rgba([255, 0, 0, 255])
+        }))
+    })
+    .await;
+    // JPEG (Rgb — JPEG doesn't support Rgba).
+    assert_image_ignores_offset_limit("jpg", image::ImageFormat::Jpeg, || {
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(80, 60, |_, _| {
+            image::Rgb([0, 0, 255])
+        }))
+    })
+    .await;
+}
