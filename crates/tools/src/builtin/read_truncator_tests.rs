@@ -212,7 +212,7 @@ fn test_format_bytes_trigger() {
         total_bytes: 48_000,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
-    assert!(msg.contains("(48000 (50KB limit))"));
+    assert!(msg.contains("(50KB limit)"));
     assert!(msg.contains("Use offset=151 to continue."));
 }
 

@@ -93,6 +93,7 @@ pub struct TruncationResult {
     /// Which threshold triggered the truncation, if any.
     pub trigger: Option<TruncationTrigger>,
     /// Total bytes of the lines that were actually read.
+    #[allow(dead_code)]
     pub total_bytes: usize,
 }
 
@@ -234,9 +235,8 @@ pub(crate) fn format_truncation_message(
         )),
         Some(TruncationTrigger::Bytes) => Some(format!(
             "[Showing lines {start}-{end} of {} \
-             ({} ({} limit)). Use offset={next_offset} to continue.]",
+             ({} limit). Use offset={next_offset} to continue.]",
             result.total_lines,
-            result.total_bytes,
             human_readable_bytes(DEFAULT_MAX_BYTES),
         )),
         Some(TruncationTrigger::Tokens) => Some(format!(
