@@ -419,6 +419,18 @@ impl SessionMessageHandler {
             agent_model: None,
             memory_config: None,
         };
+        // Child sessions do not load long-term memory and must not
+        // trigger active-searcher (design doc §Role Exclusion).
+        if self
+            .session_manager
+            .children
+            .read()
+            .await
+            .get_parent(session_id)
+            .is_some()
+        {
+            return deps;
+        }
         if let Some(agent_id) = self.session_manager.get_chat_id(session_id).await {
             let (model, mem_cfg, ctx_turns) =
                 load_agent_config_with_context_turns(&self.session_manager, &agent_id).await;
@@ -514,6 +526,11 @@ impl SessionMessageHandler {
         session_id: &str,
         assistant_text: &str,
     ) {
+        // Child sessions do not load long-term memory and must not
+        // trigger active-searcher (design doc §Role Exclusion).
+        if sm.children.read().await.get_parent(session_id).is_some() {
+            return;
+        }
         if let Some(agent_id) = sm.get_chat_id(session_id).await {
             let (model, mem_cfg, ctx_turns) =
                 load_agent_config_with_context_turns(sm, &agent_id).await;
