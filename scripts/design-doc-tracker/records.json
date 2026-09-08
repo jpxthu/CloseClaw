@@ -832,11 +832,19 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/tools/tools-prompt-injection.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-09-08T19:17:22.695870+08:00",
+    "comment": "",
+    "blocked_reason": "模块关系描述与代码不一致：文档称「下游：无（注入均在 tools 模块内部完成）」，但实际注入由 system_prompt crate 的 PromptBuilder 驱动。中性工具（非只读非破坏性）的危险度标记策略未定义。"
+  },
+  {
     "path": "docs/design/workflow/README.md",
     "commit": "",
     "commit_time": "",
     "confirmed_time": "2026-09-08T17:50:22.699086+08:00",
     "comment": "",
-    "blocked_reason": "Design doc describes jump answer format including 'string' (自由文本) type, but JumpQuestion only supports boolean/enum. Document-internal contradiction: workflow-tools.md §数据流 lists string type but code has no implementation for it."
+    "blocked_reason": ""
   }
 ]
