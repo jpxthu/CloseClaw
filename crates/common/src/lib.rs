@@ -79,7 +79,9 @@ pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery}
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
 pub use execution_types::{ExecutionStep, ExecutionStepStatus};
-pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
+pub use fragment::{
+    FragmentContext, PromptFragment, PromptFragmentProvider, SectionType, SessionRole,
+};
 pub use hook_config::{HookConfig, HookParams, HookType};
 pub use identity::IdentityResolver;
 pub use im_plugin::{

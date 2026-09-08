@@ -117,6 +117,7 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::SessionRole;
     use std::fs;
     use std::thread;
     use std::time::Duration;
@@ -156,7 +157,7 @@ mod tests {
             agent_id: "test-agent".into(),
             bootstrap_mode: BootstrapMode::Minimal,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
-            activated_skills: vec![],
+            ..FragmentContext::test_default()
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Minimal);
 
@@ -165,7 +166,7 @@ mod tests {
             agent_id: "unknown".into(),
             bootstrap_mode: BootstrapMode::Minimal,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
-            activated_skills: vec![],
+            ..FragmentContext::test_default()
         };
         assert_eq!(provider.resolve_mode(&ctx), BootstrapMode::Minimal);
     }
@@ -425,6 +426,7 @@ mod tests {
 
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
+            session_role: SessionRole::Main,
             bootstrap_mode: BootstrapMode::Minimal,
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             activated_skills: vec![],
@@ -468,6 +470,7 @@ mod tests {
         let provider = BootstrapFragmentProvider::new();
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
+            session_role: SessionRole::Main,
             bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
             activated_skills: vec![],
@@ -485,6 +488,7 @@ mod tests {
 
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
+            session_role: SessionRole::Main,
             bootstrap_mode: BootstrapMode::Minimal,
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             activated_skills: vec![],

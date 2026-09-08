@@ -8,7 +8,7 @@
 //! 5. Session-level `rebuild_system_prompt_for_session` reads cached mode
 
 use super::super::*;
-use closeclaw_common::{BootstrapMode, PromptOverrides, SystemPromptBuilder};
+use closeclaw_common::{BootstrapMode, PromptOverrides, SessionRole, SystemPromptBuilder};
 use std::sync::Arc;
 
 // ── test doubles ──────────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ impl SystemPromptBuilder for ModeCapturingBuilder {
         _agent_id: &str,
         _overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
+        _session_role: SessionRole,
     ) -> String {
         *self.recorded.lock().unwrap() = Some(bootstrap_mode_override);
         format!("prompt-{:?}", bootstrap_mode_override)
