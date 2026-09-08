@@ -529,11 +529,13 @@ impl ToolRegistryImpl {
 /// [`get_tool_detail`] to avoid duplication.
 fn build_descriptor(tool: &Arc<dyn Tool>) -> closeclaw_common::tool_registry::ToolDescriptor {
     let flags = tool.flags();
+    let detail = tool.detail();
+    let keywords = extract_keywords(&detail);
     closeclaw_common::tool_registry::ToolDescriptor {
         name: tool.name().to_string(),
         group: tool.group().to_string(),
         summary: tool.summary().to_string(),
-        detail: tool.detail(),
+        detail,
         input_schema: tool.input_schema(),
         flags: closeclaw_common::tool_registry::ToolFlags {
             is_concurrency_safe: flags.is_concurrency_safe,
@@ -542,7 +544,27 @@ fn build_descriptor(tool: &Arc<dyn Tool>) -> closeclaw_common::tool_registry::To
             is_expensive: flags.is_expensive,
             is_deferred_by_default: flags.is_deferred_by_default,
         },
+        keywords,
     }
+}
+
+/// Extract keywords from a `[keywords: ...]` prefix in a tool detail string.
+///
+/// Only matches at the start of the string. Returns an empty `Vec` if no
+/// prefix is found or parsing fails.
+fn extract_keywords(detail: &str) -> Vec<String> {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    fn re() -> &'static Regex {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        RE.get_or_init(|| Regex::new(r"^\[keywords:\s*([^\]]+)\]").expect("valid keywords regex"))
+    }
+
+    re().captures(detail)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().split_whitespace().map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 #[async_trait::async_trait]

@@ -43,7 +43,8 @@ impl Tool for GitStatusTool {
     }
 
     fn detail(&self) -> String {
-        "Run `git status --porcelain` to show the current working tree status.\
+        "[keywords: git status state changes] \
+         Run `git status --porcelain` to show the current working tree status.\
          Returns JSON with `output` field containing the porcelain-formatted status."
             .to_string()
     }
@@ -155,7 +156,8 @@ impl Tool for GitCommitTool {
     }
 
     fn detail(&self) -> String {
-        "Run `git commit -m <message>` to commit staged changes.\
+        "[keywords: git commit stage save changes] \
+         Run `git commit -m <message>` to commit staged changes.\
          Takes `message` (required), returns JSON with `success`, `output`, `error`."
             .to_string()
     }

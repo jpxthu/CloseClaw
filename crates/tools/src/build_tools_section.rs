@@ -247,6 +247,7 @@ mod tests {
         agent_registry: Arc<AgentRegistry>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         confirm_flow: Arc<crate::builtin::PlanExecConfirmFlow>,
+        tool_registry: Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     ) -> Vec<Box<dyn ToolRegistrar>> {
         let task_manager = Arc::new(BackgroundTaskManager::new());
         vec![
@@ -256,6 +257,7 @@ mod tests {
                 session_manager.clone(),
                 config_manager,
                 approval_flow.clone(),
+                tool_registry,
             )),
             Box::new(SessionToolsRegistrar::new(
                 spawn_controller.clone() as Arc<dyn crate::SpawnValidator>,
@@ -282,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_tools_section_returns_string() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -295,6 +297,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -325,7 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_tools_section_contains_group_headers() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -338,6 +342,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -373,7 +379,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_tools_section_contains_tool_names() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -386,6 +392,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -431,7 +439,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_tools_section_respects_max_length() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -444,6 +452,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -478,7 +488,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_tools_section_empty_registry() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -510,7 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_writing_guidance_when_spawn_available() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -523,6 +533,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -566,7 +578,7 @@ mod tests {
     #[tokio::test]
     async fn test_task_writing_guidance_absent_when_spawn_unavailable() {
         // Empty registry → sessions_spawn is not in available_tool_names
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -606,7 +618,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_background_task_guidance_when_bash_available() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -619,6 +631,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -666,7 +680,7 @@ mod tests {
     #[tokio::test]
     async fn test_background_task_guidance_absent_when_bash_unavailable() {
         // Empty registry → Bash is not in available_tool_names
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -702,7 +716,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sessions_spawn_always_present_in_tools() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -715,6 +729,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -756,7 +772,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_budget_one_keeps_sessions_spawn() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -769,6 +785,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -804,7 +822,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_tool_calls_guidance_present() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
         registry
@@ -817,6 +835,8 @@ mod tests {
                 agent_registry,
                 test_approval_flow(&session_manager),
                 test_confirm_flow(&session_manager),
+                Arc::clone(&registry)
+                    as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
             .await
             .unwrap();
@@ -863,7 +883,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_tool_calls_guidance_absent_empty_registry() {
-        let registry = ToolRegistry::new();
+        let registry = Arc::new(ToolRegistry::new());
         let ctx = crate::ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
