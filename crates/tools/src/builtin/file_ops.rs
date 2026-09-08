@@ -236,7 +236,8 @@ impl Tool for ReadTool {
     }
 
     fn detail(&self) -> String {
-        "Read the contents of a file given its path.\
+        "[keywords: read file cat view content text display] \
+         Read the contents of a file given its path.\
          Returns the text content as a JSON object with key `content`.\
          Supports offset/limit parameters for pagination of large files.\
          Large files are automatically truncated with a continuation hint.\
@@ -346,7 +347,8 @@ impl Tool for WriteTool {
     }
 
     fn detail(&self) -> String {
-        "Write text content to a file, creating it or overwriting it.\
+        "[keywords: write create save file new output] \
+         Write text content to a file, creating it or overwriting it.\
          Takes `path` (string) and `content` (string).\
          Parent directories are created automatically.\
          Destructive: will overwrite existing files without warning."
@@ -534,7 +536,8 @@ impl Tool for EditTool {
     }
 
     fn detail(&self) -> String {
-        "Apply targeted edits to an existing file using exact text replacement.\
+        "[keywords: edit modify change replace patch update] \
+         Apply targeted edits to an existing file using exact text replacement.\
          Accepts an `edits` array where each element has `oldText` and `newText`.\
          Supports multiple replacements in a single call with non-incremental matching.\
          Falls back to legacy `oldText`/`newText` single-edit format.\
@@ -662,7 +665,7 @@ impl Tool for GrepTool {
     }
 
     fn detail(&self) -> String {
-        "Recursively search for lines matching a pattern in files.\
+        "[keywords: grep search pattern find regex] Recursively search for lines matching a pattern in files.\
          Takes `pattern` (string or regex), `path` (directory, default \".\"),\
          and optional `is_regex` (bool, default false).\
          Returns a JSON array of `{file, line_number, line}` objects.\
@@ -766,7 +769,8 @@ impl Tool for LsTool {
     }
 
     fn detail(&self) -> String {
-        "List entries in a directory.\
+        "[keywords: ls list directory folder files] \
+         List entries in a directory.\
          Takes optional `path` (directory, default \".\").\
          Returns a JSON array of entry names.\
          Read-only: does not modify any file or directory."

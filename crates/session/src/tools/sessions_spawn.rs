@@ -179,7 +179,8 @@ impl Tool for SessionsSpawnTool {
     }
 
     fn detail(&self) -> String {
-        "Create a child session that runs a sub-agent with a given task. \
+        "[keywords: spawn subagent child agent fork background] \
+         Create a child session that runs a sub-agent with a given task. \
          The child session inherits workspace context and runs independently. \
          Use `mode='run'` for one-shot tasks, `mode='session'` for persistent threads. \
          Returns the child session_id on success."

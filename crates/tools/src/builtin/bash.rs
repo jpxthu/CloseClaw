@@ -107,7 +107,8 @@ impl Tool for BashTool {
     }
 
     fn detail(&self) -> String {
-        "Execute a shell command via subprocess. Supports timeout control \
+        "[keywords: bash shell command run execute script terminal] \
+         Execute a shell command via subprocess. Supports timeout control \
          (default 120s, max 600s), output truncation with head-preservation \
          (threshold 30,000 chars), and output persistence to disk when \
          output exceeds threshold. Supports run_in_background for async \

@@ -220,6 +220,8 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.approval_flow),
+        Arc::clone(ctx.tool_registry)
+            as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     )
     .with_audit_log_path(ctx.data_dir.join("logs").join("audit.log"));
 

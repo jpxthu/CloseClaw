@@ -900,6 +900,7 @@ async fn test_plan_mode_hides_plan_approval_tool() {
 // ToolRegistryQuery trait-level tests: get_tool_detail & list_tool_names_by_group
 // =========================================================================
 
+mod keyword_tests;
 mod registry_integration_tests;
 mod spawn_filter_tests;
 mod tool_registry_query_tests;
