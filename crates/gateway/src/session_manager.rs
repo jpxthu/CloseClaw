@@ -2,7 +2,6 @@
 //!
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
-
 use crate::shutdown_handle::ShutdownHandle;
 use crate::sweeper::ActiveSessionQuery;
 use crate::{compute_session_key, GatewayConfig, Message, Session};
@@ -887,7 +886,6 @@ impl SessionManager {
         let _ = self.config_dir.set(config_dir.to_path_buf());
     }
 }
-
 #[cfg(test)]
 mod active_write_outbound_tests;
 #[cfg(test)]
@@ -950,6 +948,8 @@ mod self_heal_tests;
 mod session_helpers_tests;
 #[cfg(test)]
 mod setter_tests;
+#[cfg(test)]
+mod spawn_adapter_tests;
 #[cfg(test)]
 mod spawn_cascade_tests;
 #[cfg(test)]
