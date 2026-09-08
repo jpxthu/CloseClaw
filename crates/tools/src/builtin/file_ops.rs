@@ -460,29 +460,7 @@ fn parse_edits_array(
     Ok(edits)
 }
 
-/// Parse the legacy single-edit format (`oldText`/`newText` at top level).
-fn parse_legacy_edit(args: &Value) -> Result<crate::builtin::edit_match::EditOp, ToolCallError> {
-    let old_text = args
-        .get("oldText")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            ToolCallError::InvalidArgs("missing required parameter: oldText or edits".to_string())
-        })?;
-    let new_text = args.get("newText").and_then(Value::as_str).unwrap_or("");
-    if old_text == new_text {
-        return Err(ToolCallError::InvalidArgs(
-            "oldText and newText must be different".to_string(),
-        ));
-    }
-    Ok(crate::builtin::edit_match::EditOp {
-        old_text: old_text.to_string(),
-        new_text: new_text.to_string(),
-    })
-}
-
-/// Parse the `edits` array from args, falling back to the legacy
-/// `oldText`/`newText` single-edit format.
+/// Parse the `edits` array from args.
 ///
 /// Returns `(edits_vec, replace_all)`.
 fn parse_edits(
@@ -490,13 +468,11 @@ fn parse_edits(
 ) -> Result<(Vec<crate::builtin::edit_match::EditOp>, bool), ToolCallError> {
     let replace_all = args.get("replace_all") == Some(&Value::Bool(true));
 
-    if let Some(arr) = args.get("edits").and_then(Value::as_array) {
-        let edits = parse_edits_array(arr)?;
-        return Ok((edits, replace_all));
-    }
-
-    let edit = parse_legacy_edit(args)?;
-    Ok((vec![edit], replace_all))
+    let arr = args.get("edits").and_then(Value::as_array).ok_or_else(|| {
+        ToolCallError::InvalidArgs("missing required parameter: edits".to_string())
+    })?;
+    let edits = parse_edits_array(arr)?;
+    Ok((edits, replace_all))
 }
 
 /// Staleness check: verify file mtime matches what was recorded during
@@ -539,7 +515,6 @@ impl Tool for EditTool {
          Apply targeted edits to an existing file using exact text replacement.\
          Accepts an `edits` array where each element has `oldText` and `newText`.\
          Supports multiple replacements in a single call with non-incremental matching.\
-         Falls back to legacy `oldText`/`newText` single-edit format.\
          Fails if any `oldText` is not found in the file.\
          Destructive: modifies the file in place."
             .to_string()
@@ -571,20 +546,12 @@ impl Tool for EditTool {
                         "required": ["oldText", "newText"]
                     }
                 },
-                "oldText": {
-                    "type": "string",
-                    "description": "Legacy: exact text to search for (use edits array instead)"
-                },
-                "newText": {
-                    "type": "string",
-                    "description": "Legacy: replacement text (use edits array instead)"
-                },
                 "replace_all": {
                     "type": "boolean",
                     "description": "Replace all occurrences instead of requiring exactly one match"
                 }
             },
-            "required": ["path"]
+            "required": ["path", "edits"]
         })
     }
 
@@ -613,12 +580,12 @@ impl Tool for EditTool {
 
             let content = std::fs::read_to_string(&path_owned)
                 .map_err(|e| ToolCallError::ExecutionFailed(format!("{path_owned}: {e}")))?;
-            let updated =
+            let (updated, edits_applied) =
                 crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
                     .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
             super::readback::write_with_readback(Path::new(&path_owned), &updated)?;
             Ok(ToolResult {
-                data: serde_json::json!({ "content": updated }),
+                data: serde_json::json!({ "content": updated, "edits_applied": edits_applied }),
                 new_messages: vec![],
                 context_modifier: None,
             })

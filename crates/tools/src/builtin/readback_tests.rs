@@ -216,8 +216,7 @@ async fn edit_tool_succeeds_through_readback_path() {
     let tool = EditTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
     let args = serde_json::json!({
         "path": path.to_str().unwrap(),
-        "oldText": "old text",
-        "newText": "new text"
+        "edits": [{ "oldText": "old text", "newText": "new text" }]
     });
     let result: Result<crate::ToolResult, crate::ToolCallError> =
         tool.call(args, &make_ctx("a")).await;

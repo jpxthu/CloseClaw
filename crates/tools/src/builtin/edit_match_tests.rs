@@ -19,49 +19,59 @@ fn edit(old: &str, new: &str) -> EditOp {
 
 #[test]
 fn single_exact_match_and_replace() {
-    let result = match_and_apply("hello world", &[edit("world", "rust")], false).unwrap();
+    let (result, count) = match_and_apply("hello world", &[edit("world", "rust")], false).unwrap();
     assert_eq!(result, "hello rust");
+    assert_eq!(count, 1);
 }
 
 #[test]
 fn multiple_edits_reverse_order() {
     // Two adjacent edits: "aa" → "bb" and "cc" → "dd".
     // Non-incremental matching ensures both match the original content.
-    let result = match_and_apply("aa cc", &[edit("aa", "bb"), edit("cc", "dd")], false).unwrap();
+    let (result, count) =
+        match_and_apply("aa cc", &[edit("aa", "bb"), edit("cc", "dd")], false).unwrap();
     assert_eq!(result, "bb dd");
+    assert_eq!(count, 2);
 }
 
 #[test]
 fn replace_all_multiple_matches() {
-    let result = match_and_apply("aaa aaa aaa", &[edit("aaa", "bbb")], true).unwrap();
+    let (result, count) = match_and_apply("aaa aaa aaa", &[edit("aaa", "bbb")], true).unwrap();
     assert_eq!(result, "bbb bbb bbb");
+    assert_eq!(count, 1);
 }
 
 #[test]
 fn old_text_equals_new_text() {
-    let result = match_and_apply("unchanged", &[edit("unchanged", "unchanged")], false).unwrap();
+    let (result, count) =
+        match_and_apply("unchanged", &[edit("unchanged", "unchanged")], false).unwrap();
     assert_eq!(result, "unchanged");
+    assert_eq!(count, 1);
 }
 
 #[test]
 fn multiline_old_text() {
     let content = "line1\nline2\nline3";
-    let result = match_and_apply(content, &[edit("line2\nline3", "new2\nnew3")], false).unwrap();
+    let (result, count) =
+        match_and_apply(content, &[edit("line2\nline3", "new2\nnew3")], false).unwrap();
     assert_eq!(result, "line1\nnew2\nnew3");
+    assert_eq!(count, 1);
 }
 
 #[test]
 fn empty_old_text_is_noop() {
     // Empty old_text is a no-op (parameter validation catches this at the
     // EditTool level, but match_and_apply skips it gracefully).
-    let result = match_and_apply("hello", &[edit("", "x")], false).unwrap();
+    let (result, count) = match_and_apply("hello", &[edit("", "x")], false).unwrap();
     assert_eq!(result, "hello");
+    assert_eq!(count, 0);
 }
 
 #[test]
 fn single_character_file() {
-    let result = match_and_apply("a", &[edit("a", "b")], false).unwrap();
+    let (result, count) = match_and_apply("a", &[edit("a", "b")], false).unwrap();
     assert_eq!(result, "b");
+    assert_eq!(count, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +104,7 @@ fn overlapping_edits_error() {
 #[test]
 fn fuzzy_curly_quotes_to_straight() {
     let content = "He said \u{201c}hello\u{201d} to me";
-    let result = match_and_apply(
+    let (result, _count) = match_and_apply(
         content,
         &[edit("He said \"hello\" to me", "She said \"hi\" to me")],
         false,
@@ -110,7 +120,7 @@ fn fuzzy_curly_quotes_to_straight() {
 #[test]
 fn fuzzy_trailing_whitespace() {
     let content = "hello world   \nfoo bar   \n";
-    let result =
+    let (result, _count) =
         match_and_apply(content, &[edit("hello world\nfoo bar\n", "X\nY\n")], false).unwrap();
     assert_eq!(result, "X\nY\n");
 }
@@ -125,7 +135,7 @@ fn fuzzy_nfc_normalization() {
     // accent (U+0065 U+0301). Both NFC-normalize to the same thing.
     let content = "caf\u{0065}\u{0301}"; // e + combining accent
     let old = "caf\u{00e9}"; // single code point
-    let result = match_and_apply(content, &[edit(old, "coffee")], false).unwrap();
+    let (result, _count) = match_and_apply(content, &[edit(old, "coffee")], false).unwrap();
     assert_eq!(result, "coffee");
 }
 
@@ -136,7 +146,7 @@ fn fuzzy_nfc_normalization() {
 #[test]
 fn fuzzy_combined_quotes_and_whitespace() {
     let content = "She said \u{201c}hi there\u{201d}  \nbye   \n";
-    let result = match_and_apply(
+    let (result, _count) = match_and_apply(
         content,
         &[edit("She said \"hi there\"\nbye\n", "OK\nDone\n")],
         false,
@@ -153,7 +163,8 @@ fn fuzzy_combined_quotes_and_whitespace() {
 fn fuzzy_does_not_override_exact() {
     // Exact match should still work when present.
     let content = "hello world";
-    let result = match_and_apply(content, &[edit("hello world", "hello rust")], false).unwrap();
+    let (result, _count) =
+        match_and_apply(content, &[edit("hello world", "hello rust")], false).unwrap();
     assert_eq!(result, "hello rust");
     // The match should not be fuzzy.
 }
@@ -176,7 +187,7 @@ fn fuzzy_not_found_error() {
 #[test]
 fn multiple_fuzzy_edits() {
     let content = "line \u{201c}one\u{201d}\nline \u{201c}two\u{201d}";
-    let result = match_and_apply(
+    let (result, count) = match_and_apply(
         content,
         &[
             edit("line \"one\"", "first"),
@@ -186,6 +197,7 @@ fn multiple_fuzzy_edits() {
     )
     .unwrap();
     assert_eq!(result, "first\nsecond");
+    assert_eq!(count, 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +209,7 @@ fn fuzzy_byte_range_correctness_with_unicode() {
     // Content with multi-byte UTF-8 characters before the fuzzy match target.
     // "日本語" takes 9 bytes. Then the target has curly quotes.
     let content = "日本語 says \u{201c}hello\u{201d} end";
-    let result = match_and_apply(
+    let (result, _count) = match_and_apply(
         content,
         &[edit("日本語 says \"hello\" end", "replaced")],
         false,
@@ -216,7 +228,7 @@ fn fuzzy_nfd_normalization() {
     let content = "caf\u{0065}\u{0301}"; // NFD form
     let old = "cafe\u{0301}"; // also NFD but different encoding
                               // Both should normalize to the same NFC form.
-    let result = match_and_apply(content, &[edit(old, "coffee")], false).unwrap();
+    let (result, _count) = match_and_apply(content, &[edit(old, "coffee")], false).unwrap();
     assert_eq!(result, "coffee");
 }
 
@@ -226,6 +238,7 @@ fn fuzzy_nfd_normalization() {
 
 #[test]
 fn empty_edits_returns_original() {
-    let result = match_and_apply("unchanged", &[], false).unwrap();
+    let (result, count) = match_and_apply("unchanged", &[], false).unwrap();
     assert_eq!(result, "unchanged");
+    assert_eq!(count, 0);
 }

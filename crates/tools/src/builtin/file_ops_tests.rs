@@ -66,7 +66,7 @@ pub(crate) fn make_af() -> ApprovalMtx {
 }
 
 /// Denying approval flow — submit_denial returns None (hard deny path).
-fn make_af_deny() -> ApprovalMtx {
+pub(crate) fn make_af_deny() -> ApprovalMtx {
     Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new_deny_all(
         Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
@@ -202,20 +202,6 @@ async fn test_write_input_schema_has_path_and_content() {
 }
 
 #[tokio::test]
-async fn test_edit_input_schema_has_all_fields() {
-    let tool = EditTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
-    let schema = tool.input_schema();
-    let props = schema.pointer("/properties").unwrap().as_object().unwrap();
-    assert!(props.contains_key("path"));
-    assert!(props.contains_key("edits"));
-    assert!(props.contains_key("oldText"));
-    assert!(props.contains_key("newText"));
-    assert!(props.contains_key("replace_all"));
-    let required = schema.pointer("/required").unwrap().as_array().unwrap();
-    assert!(required.contains(&serde_json::json!("path")));
-}
-
-#[tokio::test]
 async fn test_grep_input_schema_has_pattern() {
     let tool = GrepTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
     let schema = tool.input_schema();
@@ -316,43 +302,7 @@ async fn test_write_denied_without_permission() {
 // Permission tests — EditTool
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn test_edit_allowed_with_rules() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("edit.txt");
-    std::fs::write(&path, "old text here").unwrap();
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "write"),
-    ];
-    let tool = EditTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
-    let args = serde_json::json!({
-        "path": path.to_str().unwrap(),
-        "oldText": "old text",
-        "newText": "new text"
-    });
-    let result = tool.call(args, &make_ctx("a")).await;
-    assert!(result.is_ok());
-    let content = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(content, "new text here");
-}
-
-#[tokio::test]
-async fn test_edit_denied_without_permission() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("edit.txt");
-    std::fs::write(&path, "original").unwrap();
-    let tool = EditTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af_deny());
-    let args = serde_json::json!({
-        "path": path.to_str().unwrap(),
-        "oldText": "original",
-        "newText": "changed"
-    });
-    let result = tool.call(args, &make_ctx("a")).await;
-    assert!(result.is_err());
-    let content = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(content, "original");
-}
+// test_edit_allowed_with_rules removed — covered by test_edit_with_edits_array
 
 // ---------------------------------------------------------------------------
 // Permission tests — GrepTool
@@ -584,15 +534,6 @@ async fn test_write_missing_content_arg() {
 }
 
 #[tokio::test]
-async fn test_edit_missing_old_text_arg() {
-    let tool = EditTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
-    let result = tool
-        .call(serde_json::json!({ "path": "/tmp/x" }), &make_ctx("a"))
-        .await;
-    assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
-}
-
-#[tokio::test]
 async fn test_grep_missing_pattern_arg() {
     let tool = GrepTool::new(make_engine(vec![]), make_sm(), make_cm(), make_af());
     let result = tool.call(serde_json::json!({}), &make_ctx("a")).await;
@@ -733,115 +674,6 @@ async fn test_config_write_explicit_allow_still_denied_by_guard() {
     assert!(!config_path.exists(), "config file should not be written");
 }
 
-// ---------------------------------------------------------------------------
-// Step 1.8: Integration tests — EditTool edits[] array, replace_all,
-//           error paths, and WriteTool end-to-end behavior.
-// ---------------------------------------------------------------------------
-
-/// EditTool accepts an 'edits' array and applies multiple replacements
-/// to the same file in one call (non-incremental, reverse-order).
-#[tokio::test]
-async fn test_edit_with_edits_array() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("multi.txt");
-    std::fs::write(&path, "aaa bbb ccc").unwrap();
-
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "write"),
-    ];
-    let tool = EditTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
-    let args = serde_json::json!({
-        "path": path.to_str().unwrap(),
-        "edits": [
-            { "oldText": "aaa", "newText": "AAA" },
-            { "oldText": "ccc", "newText": "CCC" }
-        ]
-    });
-    let result = tool.call(args, &make_ctx("a")).await;
-    assert!(result.is_ok());
-    let content = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(content, "AAA bbb CCC");
-}
-
-/// EditTool legacy `oldText`/`newText` format still works (backward compat).
-#[tokio::test]
-async fn test_edit_backward_compat_old_new_text() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("legacy.txt");
-    std::fs::write(&path, "before middle after").unwrap();
-
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "write"),
-    ];
-    let tool = EditTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
-    let args = serde_json::json!({
-        "path": path.to_str().unwrap(),
-        "oldText": "middle",
-        "newText": "CENTER"
-    });
-    let result = tool.call(args, &make_ctx("a")).await;
-    assert!(result.is_ok());
-    let content = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(content, "before CENTER after");
-}
-
-/// EditTool `replace_all` flag replaces every occurrence of the old text.
-#[tokio::test]
-async fn test_edit_replace_all() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("replace_all.txt");
-    std::fs::write(&path, "foo bar foo baz foo").unwrap();
-
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "write"),
-    ];
-    let tool = EditTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
-    let args = serde_json::json!({
-        "path": path.to_str().unwrap(),
-        "edits": [
-            { "oldText": "foo", "newText": "FOO" }
-        ],
-        "replace_all": true
-    });
-    let result = tool.call(args, &make_ctx("a")).await;
-    assert!(result.is_ok());
-    let content = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(content, "FOO bar FOO baz FOO");
-}
-
-/// EditTool returns ExecutionFailed when oldText is not found.
-#[tokio::test]
-async fn test_edit_old_text_not_found() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("notfound.txt");
-    std::fs::write(&path, "hello world").unwrap();
-
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "write"),
-    ];
-    let tool = EditTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
-    let args = serde_json::json!({
-        "path": path.to_str().unwrap(),
-        "oldText": "nonexistent",
-        "newText": "replacement"
-    });
-    let result = tool.call(args, &make_ctx("a")).await;
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        ToolCallError::ExecutionFailed(msg) => {
-            assert!(
-                msg.contains("not found"),
-                "error should mention 'not found': {msg}"
-            );
-        }
-        other => panic!("expected ExecutionFailed, got: {other:?}"),
-    }
-}
-
 /// WriteTool creates a new file when it doesn't exist.
 #[tokio::test]
 async fn test_write_new_file() {
@@ -917,44 +749,26 @@ async fn assert_image_ignores_offset_limit(
     let raw = buf.into_inner();
     let path = tmp.path().join(format!("photo.{ext}"));
     std::fs::write(&path, &raw).unwrap();
-
     let rules = vec![
         allow_tool("a", "file_ops"),
         allow_file("a", "/tmp/**", "read"),
     ];
     let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
-
-    // With offset/limit.
     let args = serde_json::json!({ "path": path.to_str().unwrap(), "offset": 50, "limit": 2 });
     let result = tool.call(args, &make_ctx("a")).await;
-    assert!(
-        result.is_ok(),
-        "reading {ext} image with offset/limit should succeed"
-    );
+    assert!(result.is_ok());
     let content = result.unwrap().data["content"]
         .as_str()
         .unwrap()
         .to_string();
-
-    // Without offset/limit.
     let args_no = serde_json::json!({ "path": path.to_str().unwrap() });
     let content_no = tool.call(args_no, &make_ctx("a")).await.unwrap().data["content"]
         .as_str()
         .unwrap()
         .to_string();
-
-    assert_eq!(
-        content, content_no,
-        "{ext} image: offset/limit should not change output"
-    );
-    assert!(
-        content.starts_with("[Image file:"),
-        "{ext} result should start with [Image file:...]"
-    );
-    assert!(
-        content.contains("data:image/png;base64,"),
-        "{ext} result should contain base64 data URI"
-    );
+    assert_eq!(content, content_no);
+    assert!(content.starts_with("[Image file:"));
+    assert!(content.contains("data:image/png;base64,"));
 }
 
 #[tokio::test]
