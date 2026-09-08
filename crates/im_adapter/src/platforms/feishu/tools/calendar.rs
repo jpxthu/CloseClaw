@@ -39,7 +39,8 @@ impl Tool for FeishuCalendarTool {
     }
 
     fn detail(&self) -> String {
-        "Create, update, delete, and query Feishu calendar events. \
+        "[keywords: calendar event schedule meeting create update delete query] \
+         Create, update, delete, and query Feishu calendar events. \
          Supports attendee management, recurring events, and \
          calendar list operations."
             .to_string()

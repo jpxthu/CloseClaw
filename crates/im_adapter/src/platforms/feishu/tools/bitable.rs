@@ -40,7 +40,8 @@ impl Tool for FeishuBitableTool {
     }
 
     fn detail(&self) -> String {
-        "Create, read, update, and delete records in Feishu Bitable. \
+        "[keywords: bitable database table record row field] \
+         Create, read, update, and delete records in Feishu Bitable. \
          Supports table and field management, view configuration, \
          and batch operations."
             .to_string()
