@@ -96,7 +96,7 @@ Engine 依赖 Session 的空闲判定决定何时进入 verifying phase。Sessio
 
 ### 跳转评估
 
-Engine 收到 workflow_jump({answers}) 后按 transitions 顺序匹配条件（布尔比对、枚举匹配、字符串比对）。第一个全部满足的 transition 生效，都不满足则执行 default。全硬编码，不依赖 LLM。
+Engine 收到 workflow_jump({answers}) 后按 transitions 顺序匹配条件（布尔比对、枚举匹配）。第一个全部满足的 transition 生效，都不满足则执行 default。全硬编码，不依赖 LLM。
 
 ### 跳转动作
 
