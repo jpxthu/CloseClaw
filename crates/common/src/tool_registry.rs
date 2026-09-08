@@ -85,6 +85,8 @@ pub struct ToolDescriptor {
     pub input_schema: Value,
     /// Runtime flags.
     pub flags: ToolFlags,
+    /// Parsed keywords from `[keywords: ...]` prefix in `detail`.
+    pub keywords: Vec<String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
