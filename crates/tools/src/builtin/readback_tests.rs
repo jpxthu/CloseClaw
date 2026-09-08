@@ -129,31 +129,6 @@ fn write_with_readback_does_not_recover_when_content_mismatches() {
 }
 
 // ---------------------------------------------------------------------------
-// Non-recovery path — file unreadable after write failure
-// ---------------------------------------------------------------------------
-
-/// If the file exists but content doesn't match after a write failure,
-/// readback should not recover.
-#[test]
-fn write_with_readback_does_not_recover_when_content_differs() {
-    if is_root() {
-        eprintln!("SKIP: root ignores permission bits");
-        return;
-    }
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("unreadable.txt");
-
-    std::fs::write(&path, "content A").unwrap();
-    make_readonly(&path);
-
-    let result = readback::write_with_readback(&path, "content B");
-    assert!(result.is_err());
-
-    // Cleanup.
-    restore_writable(&path);
-}
-
-// ---------------------------------------------------------------------------
 // Write succeeds — no readback needed
 // ---------------------------------------------------------------------------
 
