@@ -541,4 +541,315 @@ mod tests {
         assert_eq!(tools[1]["name"], "Banana");
         assert_eq!(tools[2]["name"], "Cherry");
     }
+
+    #[tokio::test]
+    async fn test_toolsearch_own_keywords_extracted() {
+        let reg = Arc::new(MockRegistry::new());
+        // Register a tool with keywords
+        reg.insert(make_desc(
+            "Read",
+            "file_ops",
+            "Read file",
+            vec!["read", "file", "content"],
+        ))
+        .await;
+        // Register ToolSearchTool descriptor with its keywords
+        reg.insert(make_desc(
+            "ToolSearch",
+            "meta",
+            "Search tools",
+            vec!["search", "find", "discover"],
+        ))
+        .await;
+        let tool = ToolSearchTool::new(Arc::clone(&reg) as Arc<dyn ToolRegistryQuery>);
+        let result = tool
+            .call(json!({"query": "search"}), &make_ctx())
+            .await
+            .unwrap();
+        let tools = result.data["tools"].as_array().unwrap();
+        // ToolSearch: name exact match ("search" == "toolsearch"? No)
+        // "search" keyword matches ToolSearch (5) + Read has no match
+        // ToolSearch scores: keyword "search" matches → 5
+        assert!(!tools.is_empty());
+        assert_eq!(tools[0]["name"], "ToolSearch");
+    }
+
+    #[tokio::test]
+    async fn test_keyword_mode_ordering_by_score_desc() {
+        let reg = Arc::new(MockRegistry::new());
+        // Tool with 3 matching keywords
+        reg.insert(make_desc(
+            "Read",
+            "file_ops",
+            "Read file",
+            vec!["read", "file", "content"],
+        ))
+        .await;
+        // Tool with 1 matching keyword
+        reg.insert(make_desc(
+            "Write",
+            "file_ops",
+            "Write file",
+            vec!["write", "file"],
+        ))
+        .await;
+        // Tool with 0 matching keywords but substring in summary
+        reg.insert(make_desc(
+            "Grep",
+            "search",
+            "Search in read files",
+            vec!["grep", "search"],
+        ))
+        .await;
+        let tool = ToolSearchTool::new(Arc::clone(&reg) as Arc<dyn ToolRegistryQuery>);
+        let result = tool
+            .call(json!({"query": "read file"}), &make_ctx())
+            .await
+            .unwrap();
+        let tools = result.data["tools"].as_array().unwrap();
+        // Read: 2 keyword matches (read + file) → score 10
+        // Write: 1 keyword match (file) → score 5
+        // Grep: substring match ("read" in summary) → score 1
+        assert_eq!(tools.len(), 3);
+        assert_eq!(tools[0]["name"], "Read");
+        assert_eq!(tools[0]["score"], SCORE_KEYWORD * 2);
+        assert_eq!(tools[1]["name"], "Write");
+        assert_eq!(tools[1]["score"], SCORE_KEYWORD);
+        assert_eq!(tools[2]["name"], "Grep");
+        assert_eq!(tools[2]["score"], SCORE_SUBSTRING);
+    }
+
+    #[tokio::test]
+    async fn test_toolsearch_detail_has_keywords_prefix() {
+        let reg = Arc::new(MockRegistry::new());
+        let tool = ToolSearchTool::new(Arc::clone(&reg) as Arc<dyn ToolRegistryQuery>);
+        let detail = tool.detail();
+        assert!(
+            detail.starts_with("[keywords:"),
+            "ToolSearchTool detail should start with [keywords:], got: {}",
+            &detail[..detail.len().min(50)]
+        );
+    }
+
+    // =====================================================================
+    // score_tool — direct unit tests
+    // =====================================================================
+
+    #[test]
+    fn test_score_tool_exact_name_match_highest() {
+        let desc = ToolDescriptor {
+            name: "Read".into(),
+            group: "file_ops".into(),
+            summary: "Read file".into(),
+            detail: "[keywords: read file] detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec!["read".into(), "file".into()],
+        };
+        // Exact name match (10) + keyword "read" matches (5) = 15
+        let score = score_tool(&desc, "read");
+        assert_eq!(score, SCORE_NAME_EXACT + SCORE_KEYWORD);
+    }
+
+    #[test]
+    fn test_score_tool_keyword_match_higher_than_substring() {
+        let desc_with_kw = ToolDescriptor {
+            name: "Read".into(),
+            group: "file_ops".into(),
+            summary: "Read files".into(),
+            detail: "[keywords: read file] detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec!["read".into(), "file".into()],
+        };
+        let desc_no_kw = ToolDescriptor {
+            name: "AuditLog".into(),
+            group: "meta".into(),
+            summary: "Audit read operations".into(),
+            detail: "no keywords here".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec![],
+        };
+        let kw_score = score_tool(&desc_with_kw, "read");
+        let sub_score = score_tool(&desc_no_kw, "read");
+        assert!(
+            kw_score > sub_score,
+            "keyword score {} should exceed substring score {}",
+            kw_score,
+            sub_score
+        );
+    }
+
+    #[test]
+    fn test_score_tool_multiple_keywords_accumulate() {
+        let desc = ToolDescriptor {
+            name: "Read".into(),
+            group: "file_ops".into(),
+            summary: "Read files".into(),
+            detail: "[keywords: read file content] detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec!["read".into(), "file".into(), "content".into()],
+        };
+        // Query "read file" matches 2 keywords → 2 * SCORE_KEYWORD
+        let score = score_tool(&desc, "read file");
+        assert_eq!(score, SCORE_KEYWORD * 2);
+    }
+
+    #[test]
+    fn test_score_tool_no_match_returns_zero() {
+        let desc = ToolDescriptor {
+            name: "Read".into(),
+            group: "file_ops".into(),
+            summary: "Read files".into(),
+            detail: "[keywords: read file] detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec!["read".into(), "file".into()],
+        };
+        let score = score_tool(&desc, "zzz_unknown");
+        assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn test_score_tool_substring_fallback() {
+        let desc = ToolDescriptor {
+            name: "ToolA".into(),
+            group: "file_ops".into(),
+            summary: "Read files from disk".into(),
+            detail: "no keywords here".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec![],
+        };
+        // No keywords, no name match, "read" appears in summary → SCORE_SUBSTRING
+        let score = score_tool(&desc, "read");
+        assert_eq!(score, SCORE_SUBSTRING);
+    }
+
+    #[test]
+    fn test_score_tool_substring_not_applied_when_keyword_matches() {
+        let desc = ToolDescriptor {
+            name: "ToolX".into(),
+            group: "file_ops".into(),
+            summary: "Read files".into(),
+            detail: "[keywords: read file] detail with read in it".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec!["read".into(), "file".into()],
+        };
+        // No name match, keyword "read" matches → score = SCORE_KEYWORD = 5
+        // Substring fallback should NOT add extra points
+        let score = score_tool(&desc, "read");
+        assert_eq!(score, SCORE_KEYWORD);
+    }
+
+    #[test]
+    fn test_score_tool_name_exact_beats_keyword_only() {
+        // Tool A: name exact match + no keyword match
+        let desc_a = ToolDescriptor {
+            name: "read".into(),
+            group: "file_ops".into(),
+            summary: "Read files".into(),
+            detail: "detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec![],
+        };
+        // Tool B: no name match, 2 keyword matches
+        let desc_b = ToolDescriptor {
+            name: "ToolB".into(),
+            group: "file_ops".into(),
+            summary: "Read files".into(),
+            detail: "[keywords: read file] detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec!["read".into(), "file".into()],
+        };
+        let score_a = score_tool(&desc_a, "read");
+        let score_b = score_tool(&desc_b, "read");
+        // A: name exact (10) = 10
+        // B: 1 keyword match ("read") = 5
+        assert_eq!(score_a, SCORE_NAME_EXACT);
+        assert_eq!(score_b, SCORE_KEYWORD);
+        // Verify name exact + keyword combo
+        let desc_c = ToolDescriptor {
+            name: "read".into(),
+            group: "file_ops".into(),
+            summary: "Read files".into(),
+            detail: "[keywords: read file] detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec!["read".into(), "file".into()],
+        };
+        let score_c = score_tool(&desc_c, "read");
+        // C: name exact (10) + keyword (5) = 15 > both A and B
+        assert_eq!(score_c, SCORE_NAME_EXACT + SCORE_KEYWORD);
+    }
+
+    #[test]
+    fn test_score_tool_empty_keywords_no_panic() {
+        let desc = ToolDescriptor {
+            name: "Empty".into(),
+            group: "test".into(),
+            summary: "Empty keywords".into(),
+            detail: "no keywords".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec![],
+        };
+        let score = score_tool(&desc, "anything");
+        assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn test_score_tool_detail_substring_fallback() {
+        let desc = ToolDescriptor {
+            name: "ToolA".into(),
+            group: "test".into(),
+            summary: "summary".into(),
+            detail: "This tool handles file operations".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec![],
+        };
+        // "file" appears in detail but not in summary → still matches via detail
+        let score = score_tool(&desc, "file");
+        assert_eq!(score, SCORE_SUBSTRING);
+    }
+
+    #[test]
+    fn test_score_tool_word_boundary_fallback() {
+        let desc = ToolDescriptor {
+            name: "ToolA".into(),
+            group: "test".into(),
+            summary: "summary".into(),
+            detail: "detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec![],
+        };
+        // Query "hello world" — neither word appears in summary or detail
+        let score = score_tool(&desc, "hello world");
+        assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn test_score_tool_word_boundary_partial_match() {
+        let desc = ToolDescriptor {
+            name: "ToolA".into(),
+            group: "test".into(),
+            summary: "Search the web".into(),
+            detail: "detail".into(),
+            input_schema: json!({}),
+            flags: CommonFlags::default(),
+            keywords: vec![],
+        };
+        // Query "web search" — "web" matches in summary, "search" matches in summary
+        // Since no keywords, fallback checks: summary.contains("web search") → false
+        // Then word split: "web" in summary → true
+        let score = score_tool(&desc, "web search");
+        assert_eq!(score, SCORE_SUBSTRING);
+    }
 }
