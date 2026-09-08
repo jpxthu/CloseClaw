@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::definition::Workflow;
 use crate::engine::{VerifyAction, WorkflowEngine};
-use crate::run::Phase;
+use crate::run::{GoalHint, Phase};
 
 // ---------------------------------------------------------------------------
 // Helpers: workflow fixtures
@@ -237,12 +237,16 @@ fn test_start_sets_version() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_on_goal_injected_clears_step_data() {
+fn test_on_goal_injected_preserves_step_data_and_resets_hint() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.step_data = serde_yaml::Value::String("old".into());
+    run.pending_goal_hint = GoalHint::Reexecute;
     WorkflowEngine::on_goal_injected(&mut run);
-    assert!(run.step_data.is_null());
+    // step_data is preserved (goto clears it, on_goal_injected does not).
+    assert_eq!(run.step_data, serde_yaml::Value::String("old".into()));
+    // hint is consumed and reset to Normal.
+    assert_eq!(run.pending_goal_hint, GoalHint::Normal);
 }
 
 // ---------------------------------------------------------------------------
