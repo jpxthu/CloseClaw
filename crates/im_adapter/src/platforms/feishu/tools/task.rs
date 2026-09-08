@@ -39,7 +39,8 @@ impl Tool for FeishuTaskTool {
     }
 
     fn detail(&self) -> String {
-        "Create, update, complete, and query Feishu tasks. \
+        "[keywords: task todo create update complete assign] \
+         Create, update, complete, and query Feishu tasks. \
          Supports task lists, reminders, and collaborator management."
             .to_string()
     }
