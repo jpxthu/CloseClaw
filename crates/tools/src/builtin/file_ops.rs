@@ -665,7 +665,7 @@ impl Tool for GrepTool {
     }
 
     fn detail(&self) -> String {
-        "Recursively search for lines matching a pattern in files.\
+        "[keywords: grep search pattern find regex] Recursively search for lines matching a pattern in files.\
          Takes `pattern` (string or regex), `path` (directory, default \".\"),\
          and optional `is_regex` (bool, default false).\
          Returns a JSON array of `{file, line_number, line}` objects.\

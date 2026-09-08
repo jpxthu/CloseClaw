@@ -418,7 +418,7 @@ mod tests {
     // --- call() tests: keyword mode ---
 
     #[tokio::test]
-    async fn test_keyword_match_scores高于substring() {
+    async fn test_keyword_match_scores_higher_than_substring() {
         let reg = Arc::new(MockRegistry::new());
         // Tool with keyword "read" — should score 10 (2 keyword matches)
         reg.insert(make_desc(
