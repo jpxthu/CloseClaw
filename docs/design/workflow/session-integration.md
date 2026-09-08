@@ -22,7 +22,7 @@ WorkflowRun 作为 session 的附加状态随 session checkpoint 持久化：
 
 ### System Prompt 注入
 
-进入 workflow 模式后，Engine 向 system prompt 追加区注入 workflow context，复用 /system add 的注入路径。
+进入 workflow 模式后，Engine 通过 system prompt 追加区的**系统注入通道**注入 workflow context——这是追加区承载的系统注入内容，与 Owner 动态指令（`/system add`）相互独立：写入/移除不触发 System Prompt 重新组装，也不清除 Owner 动态指令（详见 [system_prompt/appends.md](../system_prompt/appends.md) §两类内容与独立管理路径）。
 
 注入内容：
 

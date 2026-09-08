@@ -18,14 +18,14 @@
 
 ### 三分支决策
 
-SessionManager 在会话查找与创建中对注入的处理分为三个分支（含 spawn 创建的 child session，其 bootstrap 模式由 spawn 的 lightContext 覆盖，见 「Bootstrap 加载模式」节）：
+SessionManager 在会话查找与创建中对注入的处理分为三个分支（含 spawn 子 session，加载内容由 Session 角色决定，见下节）：
 
 - **命中 active session**：直接返回已有 session，不触发注入。已有 session 的 system prompt 保持不变。
 - **命中 archived session**：从 SessionCheckpoint 恢复 ConversationSession 后，触发全量注入重建——与"新 session"分支相同的 builder 调用，用新构建的 system prompt 替换空值（重建细节详见 [system_prompt/README 恢复](../system_prompt/README.md#恢复)）。
-- **新 session（含 spawn 子 session）**：触发全量注入重建。builder 内部通过 Bootstrap Loader 按解析出的加载模式加载 bootstrap 文件（spawn 子 session 的 bootstrap 模式见下节），注入完成后 system prompt 存入 ConversationSession。
+- **新 session（含 spawn 子 session）**：触发全量注入重建。builder 内部通过 Bootstrap Loader 按 Session 角色 + 身份加载模式加载 bootstrap 文件（spawn 子 session 的角色与模式见下节），注入完成后 system prompt 存入 ConversationSession。
 
 注入链路的参数契约：
-- 入参：agent_id、ToolRegistry 引用、bootstrap 加载模式（完整/精简，由普通创建或 spawn lightContext 解析，见「Bootstrap 加载模式」节）
+- 入参：agent_id、ToolRegistry 引用、Session 角色（主/子，由主 Session 创建或 spawn 子 Session 确定）、身份加载模式（由 agent 配置 `bootstrapMode` 决定，见「加载模式解析」节）
 - bootstrap 文件由 builder 内部通过 Bootstrap Loader 按该模式加载，不经过注入链路传递具体文件
 - 出参：组装完成的 system prompt 文本
 - 结果存储：ConversationSession 的 system prompt 字段（运行时字段，不进 SessionCheckpoint）
@@ -38,20 +38,23 @@ AppendSection 是独立于动态层的第三分区（详见 system_prompt/README
 
 动态层的 Section 类型和拼接规则在 [system_prompt/dynamic-layer.md](../system_prompt/dynamic-layer.md) 定义。
 
-### Bootstrap 加载模式（bootstrap_mode）
+### 加载模式解析（Session 角色 + 身份加载模式）
 
-注入链路不直接决定加载哪些 bootstrap 文件，但**解析并传递 bootstrap 加载模式**，由 Bootstrap Loader 按模式选择文件集。模式解析链：
+注入链路不直接决定加载哪些 bootstrap 文件，但**解析并传递两个判据**，供 System Prompt Builder 与各 Provider 决定注入集合：
 
-- **new session / archived session 重建**：使用该 agent 配置中的 `bootstrap_mode`（完整 / 精简，详见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) 的 Minimal/Full 文件集与 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程）。
-- **spawn 子 session**：若 spawn 参数 `lightContext: true` → 强制使用精简模式（Minimal），覆盖 agent 配置；否则沿用目标 agent 的 `bootstrap_mode`。
+- **Session 角色（主 Agent Session / 子 Session）**：由 SessionManager 在触发构建时确定——主 Agent Session 创建为 Main，spawn 出的子 Session 为 Sub。Session 角色决定加载边界：长期记忆（MEMORY.md）仅在主 Agent Session 注入（与身份加载模式无关），子 Session 恒不注入 BOOTSTRAP.md 与长期记忆。
+- **身份加载模式**：取自目标 agent 配置的 `bootstrapMode`（完整 / 精简）。它只决定自定义引导指令（BOOTSTRAP.md）的取舍——仅在主 Agent Session 且模式为完整时注入，对子 Session 无影响。
 
 解析流程（编号列表）：
 
-1. spawn 子 session 时判断 lightContext：为 true → 用 Minimal（覆盖）；为 false → 用目标 agent 的 bootstrap_mode
-2. 将 bootstrap 加载模式传给 Bootstrap Loader，按其决定加载的文件集合：完整模式加载全量 bootstrap 文件，精简模式只加载 minimal 文件清单
-3. 精简模式下不注入长期记忆片段（memory 片段仅在完整模式注入，见 system_prompt/static-layer.md 与 fragment-provider）
+1. 确定 Session 角色：主 Agent Session → Main；spawn 子 Session → Sub（详见 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程）
+2. 确定身份加载模式：取目标 agent 配置的 `bootstrapMode`
+3. 将 Session 角色 + 身份加载模式传给系统 Builder / 相关 Provider，按 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载 的文件判据决定注入集合：
+   - 必须文件（AGENTS.md/SOUL.md/IDENTITY.md/USER.md/TOOLS.md）：主/子 Session 均注入（无 workspace 目录除外）
+   - 自定义引导指令（BOOTSTRAP.md）：仅主 Agent Session 且完整模式
+   - 长期记忆（MemorySection）：仅主 Agent Session，与身份加载模式无关，由 MemoryFragmentProvider 按 Session 角色读取（见 [fragment-provider.md](../system_prompt/fragment-provider.md)）
 
-精简模式下系统 prompt 只含必要的最小身份/工具集，降低 token 占用、加快子任务启动。agent 侧完整/精简的解析语义见 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程。
+子 Session 的精简是 Session 角色的安全边界（不暴露记忆与自定义引导），而非来自身份加载模式的瘦身；主 Agent Session 精简模式仅少 BOOTSTRAP.md，仍注入长期记忆。agent 侧完整/精简配置语义见 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程。
 
 ### 文件变更检测（file_mtimes / file_read_ranges）
 
@@ -127,7 +130,8 @@ session 暴露一个 `memory_injection` 槽位，供 memory 模块的 active-sea
 2. SessionManager 调用 System Prompt Builder
    - 传参：agent_id
    - 传参：ToolRegistry 引用
-   - 传参：bootstrap 加载模式（完整/精简，由普通创建或 spawn lightContext 解析）
+   - 传参：Session 角色（主/子，由主 Session 创建或 spawn 子 Session 确定）
+   - 传参：身份加载模式（由 agent 配置 bootstrapMode 决定）
    - 返回：组装完成的 system prompt 文本
 3. 写入 ConversationSession 的 system prompt 字段
 4. 返回 session 给调用方

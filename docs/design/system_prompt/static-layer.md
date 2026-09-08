@@ -10,20 +10,25 @@
 
 ### Bootstrap 文件加载
 
-Bootstrap 文件按文件名格式化渲染，每文件以 `## 文件名` 为标题，作为独立 Section 注入 system prompt 前缀。多文件按固定顺序注入，AGENTS.md（操作规程）排在最高优先级（最前）。按 Minimal / Full 两种模式选择文件集合：
+Bootstrap 文件按文件名格式化渲染，每文件以 `## 文件名` 为标题，作为独立 Section 注入 system prompt 前缀。多文件按固定顺序注入，AGENTS.md（操作规程）排在最高优先级（最前）。
 
-| 文件 | Minimal | Full |
-|------|---------|------|
+文件是否注入由两个正交维度决定：**Session 角色**（主 Agent Session / 子 Session）与**身份加载模式**（agent 配置的 `bootstrapMode`，仅对主 Agent Session 有意义）。加载内容与 Session 角色绑定，身份加载模式只决定自定义引导指令（BOOTSTRAP.md）的取舍，不影响其余内容：
+
+| 文件 | 主 Agent Session | 子 Session |
+|------|------------------|-----------|
 | AGENTS.md | ✅ | ✅ |
 | SOUL.md | ✅ | ✅ |
 | IDENTITY.md | ✅ | ✅ |
 | USER.md | ✅ | ✅ |
 | TOOLS.md | ✅ | ✅ |
-| BOOTSTRAP.md | ❌ | ✅ |
-| MEMORY.md | ❌ | ❌ |
+| BOOTSTRAP.md（自定义引导指令） | 仅身份加载模式=完整 时 ✅ | ❌ |
+| MEMORY.md（长期记忆） | ✅ | ❌ |
 | HEARTBEAT.md | ❌ | ❌ |
 
-HEARTBEAT.md 不属于 bootstrap 集合——它是 cron 触发时由 agent 按需读取的动态上下文，不注入 system prompt。Bootstrap 文件不存在时跳过，不报错。
+- 长期记忆（MEMORY.md）仅为主 Agent Session 注入，与身份加载模式无关——精简模式主 Agent Session 同样加载，只取决于 Session 角色（见 MemorySection）。
+- 自定义引导指令（BOOTSTRAP.md）仅在主 Agent Session 且身份加载模式为完整时才注入；子 Session 恒不注入，与目标 agent 的 `bootstrapMode` 无关。
+- HEARTBEAT.md 不属于 bootstrap 集合——它是 cron 触发时由 agent 按需读取的动态上下文，不注入 system prompt。
+- Bootstrap 文件不存在时跳过，不报错。
 
 ### 系统生成的 Section
 
@@ -37,11 +42,15 @@ HEARTBEAT.md 不属于 bootstrap 集合——它是 cron 触发时由 agent 按�
 
 单个 Section 组装失败时跳过该 Section，其余继续。
 
-ToolsSection 按分组聚合输出，常用工具注入完整行为描述，延迟工具仅注入名称和危险度标记。一级索引有总长度上限，超出时截断。ToolsSection 的实际内容从 ToolRegistry 生成。
+ToolsSection 按分组聚合输出，常用工具注入完整行为描述，延迟工具仅注入名称和危险度标记。一级索引有总长度上限、超出时按分组截断。ToolsSection 实际内容与分组索引/截断规则由 ToolRegistry 产出（见 [tools 模块](../tools/tools-prompt-injection.md) 工具分组索引与长度控制）。
 
-MemorySection 仅在主 Agent 会话（Full 模式）时生成——子 Agent 会话（Minimal 模式）不加载长期记忆，MemoryFragmentProvider 返回空 Fragment。详见 [fragment-provider.md](fragment-provider.md) MemoryFragmentProvider 行为。
+#### 体积精简与截断优先级
 
-SkillsSection 从 SkillRegistry 获取当前可用技能并渲染为格式化清单。清单仅包含已声明 user-invocable 的技能和当前 session 已条件激活的技能（paths 匹配）。子 Agent 会话与主 Agent 会话均加载 SkillsSection。清单的过滤、排序、格式化规则见 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。SkillsSection 为空时不注入对应段落。
+System Prompt 总体积应保持精简（需求 NFR）。静态层的可压缩点集中在系统生成的清单类 Section——其中工具清单设有一级索引长度上限与截断（见上）。截断遵循不破坏内容完整性的优先级：**永不截断 bootstrap 身份文件与自定义引导指令**（它们是 Agent 身份与行为准则的完整承载，必须完整注入）；超限时从系统生成、可再生的清单内容压缩（优先工具条目、再技能条目），被省略的明细通过按需查询（如工具二级注入）补足。此优先级仅在超限时触发；未超限轮次保持组装结果逐字节稳定，不影响前缀缓存。
+
+MemorySection 仅为主 Agent Session 生成——子 Session 不加载长期记忆，MemoryFragmentProvider 返回空 Fragment；主 Agent Session 无论身份加载模式（完整/精简）均加载，加载只取决于 Session 角色。详见 [fragment-provider.md](fragment-provider.md) MemoryFragmentProvider 行为。
+
+SkillsSection 从 SkillRegistry 获取当前可用技能并渲染为格式化清单。清单仅包含已声明 user-invocable 的技能和当前 session 已条件激活的技能（paths 匹配）。主/子 Session 均加载 SkillsSection。清单的过滤、排序、格式化规则见 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。SkillsSection 为空时不注入对应段落。
 
 ### Section 级缓存
 
@@ -67,12 +76,12 @@ SkillsSection 从 SkillRegistry 获取当前可用技能并渲染为格式化清
 ## 数据流
 
 ```
-1. SessionManager 创建新 session / 恢复 archive / compaction 完成
-2. builder 通过 Bootstrap Loader 按模式加载 bootstrap 文件
+1. SessionManager 创建新 session / 恢复 archive / compaction 完成（新 session 同时确定 Session 角色：主或子）
+2. builder 通过 Bootstrap Loader 按 Session 角色 + 身份加载模式加载 bootstrap 文件
 3. ToolRegistry 生成工具分组索引
 4. SkillRegistry 渲染技能清单（user-invocable + 已激活的条件技能）
-5. Full 模式下读取 MEMORY.md（命中缓存则跳过）；Minimal 模式跳过
-6. 组装静态层：bootstrap 文件 + ToolsSection + SkillsSection + MemorySection（Minimal 模式不含 MemorySection；无 workspace 目录时不含 bootstrap 和 MemorySection，详见兜底与变体）
+5. 主 Agent Session 读取 MEMORY.md（命中缓存则跳过）；子 Session 跳过（与身份模式无关）
+6. 组装静态层：bootstrap 文件 + ToolsSection + SkillsSection + MemorySection（子 Session 不含 MemorySection 与 BOOTSTRAP.md；无 workspace 目录时不含 bootstrap 和 MemorySection，详见兜底与变体）
 7. 写入 ConversationSession 的 system prompt 字段（运行时字段，不进 SessionCheckpoint）
 ```
 
@@ -81,7 +90,7 @@ SkillsSection 从 SkillRegistry 获取当前可用技能并渲染为格式化清
 ### 上游
 
 - **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发静态层构建。
-- **Bootstrap Loader**：提供 bootstrap 文件内容，按 Minimal/Full 模式加载。
+- **Bootstrap Loader**：提供 bootstrap 文件内容，按 Session 角色与身份加载模式选择文件集。
 - **ToolRegistry**：提供 ToolsSection 的分组索引。
 - **Compaction 模块**：compaction 完成后通过回调触发静态层重建。
 

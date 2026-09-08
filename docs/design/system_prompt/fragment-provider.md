@@ -39,7 +39,13 @@ Builder 在构建时提供的上下文，传递给每个 Provider。定义见 [s
 | SkillsFragmentProvider | 3 | SkillRegistry | SkillsSection |
 | MemoryFragmentProvider | 4 | MEMORY.md | MemorySection |
 
-BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题。文件注入顺序与 [static-layer.md](static-layer.md) 的固定顺序一致（AGENTS.md → SOUL.md → IDENTITY.md → USER.md → TOOLS.md → BOOTSTRAP.md）。每个 `##` 标题块是逻辑上的一个 Section，在 Provider 层面聚合到一个 PromptFragment 中传递。SkillsFragmentProvider 从 SkillRegistry 获取技能元数据，按 [skills/skill-listing-injection](../skills/skill-listing-injection.md) 的规则过滤、排序、格式化，产出 SkillsSection。MemoryFragmentProvider 根据 FragmentContext 中的 bootstrap_mode 判断——Minimal 模式（子 Agent 会话）返回空 Fragment，不暴露长期记忆；Full 模式（主 Agent 会话）读取 MEMORY.md 生成 MemorySection（无 workspace 目录或 MEMORY.md 文件缺失时同样返回空）。各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
+BootstrapFragmentProvider 将多文件内容聚合到单 Fragment 中，每文件以 `## 文件名` 为 Section 标题。文件注入顺序与 [static-layer.md](static-layer.md) 的固定顺序一致（AGENTS.md → SOUL.md → IDENTITY.md → USER.md → TOOLS.md → BOOTSTRAP.md）。每个 `##` 标题块是逻辑上的一个 Section，在 Provider 层面聚合到一个 PromptFragment 中传递。文件是否含 BOOTSTRAP.md 按 FragmentContext 的 session_role（仅主 Agent Session）与 bootstrap_mode（完整模式）共同决定，规则见 [static-layer.md](static-layer.md) §Bootstrap 文件加载。
+
+SkillsFragmentProvider 从 SkillRegistry 获取技能元数据，按 [skills/skill-listing-injection](../skills/skill-listing-injection.md) 的规则过滤、排序、格式化，产出 SkillsSection。它的加载只取决于是否为主/子 Session（两者均加载 SkillsSection），不受身份加载模式影响。
+
+MemoryFragmentProvider 按 FragmentContext 的 session_role 决定：主 Agent Session 读取 MEMORY.md 生成 MemorySection（无 workspace 目录或 MEMORY.md 文件缺失时返回空）；子 Session 返回空 Fragment，不暴露长期记忆。判定只与 Session 角色相关——主 Agent Session 精简模式同样加载。
+
+各 Provider 产出与原 Builder 中硬编码的文本完全一致——仅抽象了获取方式，不改变输出内容。
 
 ### Section 级缓存
 
@@ -48,12 +54,12 @@ Builder 在请求片段前检查缓存键命中。缓存失效策略详见 [stat
 ## 数据流
 
 1. SessionManager 触发构建
-2. Builder 根据 SessionManager 传入的 agent_id 查询 agent 配置确定 bootstrap_dir，从 ConversationSession 获取 runtime bootstrap_mode，构建 FragmentContext（agent_id + bootstrap_mode + bootstrap_dir）
+2. Builder 根据 SessionManager 传入的 agent_id 查询 agent 配置，获取 bootstrap_dir 与其 `bootstrapMode`；并接收 SessionManager 传入的 Session 角色（主/子）作为 session_role，构建 FragmentContext（agent_id + session_role + bootstrap_mode + bootstrap_dir）
 3. 按优先级遍历注册的 Provider：
    - **BootstrapFragmentProvider**：检查缓存命中（基于 bootstrap 文件修改时间）→ Bootstrap Loader 读文件 → 聚合多文件为单 Fragment → 产出 Fragment（无 workspace 目录时返回空）
    - **ToolsFragmentProvider**：ToolRegistry 生成分组索引 → 产出 Fragment
    - **SkillsFragmentProvider**：从 SkillRegistry 获取技能元数据 → 过滤、排序、格式化 → 产出 Fragment（无可用技能时返回空）
-   - **MemoryFragmentProvider**：检查缓存命中（基于 MEMORY.md 修改时间）→ 读 MEMORY.md → 产出 Fragment（文件缺失时返回空；无 workspace 目录时返回空；Minimal 模式返回空）
+   - **MemoryFragmentProvider**：检查缓存命中（基于 MEMORY.md 修改时间）→ 仅主 Agent Session（session_role=Main）读 MEMORY.md → 产出 Fragment（子 Session 不执行返回空；文件缺失时返回空；无 workspace 目录时返回空）
 4. 跳过返回空的 Provider
 5. 按序拼接所有产出 Fragment 的内容
 6. 写入 ConversationSession 的 system prompt 字段
@@ -66,8 +72,8 @@ Builder 在请求片段前检查缓存键命中。缓存失效策略详见 [stat
 
 ### 上游
 
-- **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发构建，传入 agent_id（builder 据此查询 agent 配置确定 bootstrap_dir）。Builder 启动时持有 ToolRegistry 引用。
-- **ConversationSession**：提供 agent 的 runtime bootstrap_mode（创建时从 agent 配置继承）。Builder 以此运行时值构建 FragmentContext。
+- **SessionManager**：在 session 创建、archive 恢复、compaction 完成时触发构建，并在新 session 创建 / spawn 子 session 时确定其 Session 角色（主 Agent Session / 子 Session），随 agent_id 一并传入。Builder 据此查询 agent 配置确定 bootstrap_dir 与身份加载模式。Builder 启动时持有 ToolRegistry 引用。
+- **ConversationSession**：作为被构建的会话承载 Session 角色与运行期加载模式。Builder 根据 SessionManager 传入的角色与 agent 配置构建 FragmentContext（含 session_role）。
 
 ### 下游
 

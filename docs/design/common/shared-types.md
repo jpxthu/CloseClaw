@@ -312,8 +312,11 @@ FragmentContext 是 PromptFragmentProvider 片段生成时的输入上下文，�
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `agent_id` | string | Agent 标识。Skills 按此过滤可见 skill |
-| `bootstrap_mode` | enum | BootstrapMode::Minimal（精简模式）或 BootstrapMode::Full（完整模式），Bootstrap 按此选择文件集合 |
+| `session_role` | enum | Session 角色：SessionRole::Main（主 Agent Session）或 SessionRole::Sub（子 Session）。长期记忆（MEMORY.md）与自定义引导指令（BOOTSTRAP.md）按此角色门控加载，与身份加载模式无关 |
+| `bootstrap_mode` | enum | 身份加载模式，取值来自 agent 配置的 `bootstrapMode`：BootstrapMode::Minimal（精简）或 BootstrapMode::Full（完整），仅在主 Agent Session 决定是否注入自定义引导指令（BOOTSTRAP.md）。子 Session 不据此注入可选内容 |
 | `bootstrap_dir` | string | bootstrap 文件所在目录，BootstrapFragmentProvider 按此查找 bootstrap 文件。值来源于 agent 配置的 agentDir 字段 |
+
+Session 角色（主/子）在主 Session 创建 / spawn 子 Session 时确定，由 SessionManager 在触发构建时同 agent_id 一并传给 Builder 写入 FragmentContext。身份加载模式（bootstrap_mode）是 agent 配置的静态属性；两者正交——主 Agent Session 精简模式下 session_role 仍为 Main。
 
 ### PromptFragment
 
@@ -509,9 +512,9 @@ SlashResult 的生命周期：Handler 返回 → Gateway 构造 SideEffectContex
 FragmentContext 和 PromptFragment 的流动嵌入在 system prompt 静态层的构建流程中：
 
 ```
-SessionManager 触发构建
+SessionManager 触发构建（新 Session / 恢复 archive / compaction），传 Session 角色（主/子）
   ↓
-System Prompt Builder 构建 FragmentContext（agent_id + bootstrap_mode + bootstrap_dir）
+System Prompt Builder 构建 FragmentContext（agent_id + session_role + bootstrap_mode + bootstrap_dir）
   ↓
 遍历已注册的 PromptFragmentProvider → 传入 FragmentContext → 各 Provider 产出 PromptFragment
   ↓
@@ -695,7 +698,7 @@ Plan Mode 结束时销毁 PlanState
 
 ### FragmentContext
 
-- **生产者**：system_prompt 模块（System Prompt Builder 构建）
+- **生产者**：system_prompt 模块（System Prompt Builder 构建，Session 角色由 SessionManager 在触发构建时传入）
 - **消费者**：所有 PromptFragmentProvider 实现者（system_prompt / tools / skills / memory）
 - **无关**：LLM Provider（不接触 FragmentContext）、Processor Chain（不参与 system prompt 构建）
 
