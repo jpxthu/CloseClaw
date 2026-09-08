@@ -32,11 +32,13 @@ struct ToolInfo {
 impl ToolInfo {
     fn from_tool(tool: &Arc<dyn Tool>, context: &PromptGenerationContext) -> Self {
         let flags = tool.flags();
+        let raw_detail = tool.generate_prompt(context);
         Self {
             name: tool.name().to_string(),
             group: tool.group().to_string(),
-            // Use the dynamic Prompt layer (default falls back to `detail()`).
-            detail: tool.generate_prompt(context),
+            // Strip `[keywords: ...]` prefix — keywords are embedded for
+            // tool discovery but must not leak into the primary tool index.
+            detail: strip_keywords_prefix(&raw_detail),
             input_schema: tool.input_schema(),
             is_deferred: flags.is_deferred_by_default,
             is_read_only: flags.is_read_only,
@@ -546,6 +548,21 @@ fn build_descriptor(tool: &Arc<dyn Tool>) -> closeclaw_common::tool_registry::To
         },
         keywords,
     }
+}
+
+/// Strip `[keywords: ...]` prefix from the beginning of a detail string.
+///
+/// Returns the input unchanged if no prefix is found.
+fn strip_keywords_prefix(detail: &str) -> String {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    fn re() -> &'static Regex {
+        static RE: OnceLock<Regex> = OnceLock::new();
+        RE.get_or_init(|| Regex::new(r"^\[keywords:\s*[^\]]+\]\s*").expect("valid keywords regex"))
+    }
+
+    re().replace(detail, "").to_string()
 }
 
 /// Extract keywords from a `[keywords: ...]` prefix in a tool detail string.

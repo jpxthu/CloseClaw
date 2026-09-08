@@ -897,6 +897,85 @@ async fn test_plan_mode_hides_plan_approval_tool() {
 }
 
 // =========================================================================
+// strip_keywords_prefix tests
+// =========================================================================
+
+#[test]
+fn test_strip_keywords_prefix_strips_when_present() {
+    assert_eq!(
+        strip_keywords_prefix("[keywords: read file cat] Read file contents"),
+        "Read file contents"
+    );
+    assert_eq!(
+        strip_keywords_prefix("[keywords: a b c d e f g h i j] detail text"),
+        "detail text"
+    );
+    assert_eq!(strip_keywords_prefix("[keywords: search find]"), "");
+    // Space after `keywords:` is a valid non-bracket char → prefix stripped.
+    assert_eq!(
+        strip_keywords_prefix("[keywords: ] some detail"),
+        "some detail"
+    );
+}
+
+#[test]
+fn test_strip_keywords_prefix_no_match() {
+    // No prefix → unchanged.
+    assert_eq!(
+        strip_keywords_prefix("Just a regular description"),
+        "Just a regular description"
+    );
+    assert_eq!(strip_keywords_prefix(""), "");
+    // Prefix in middle → not stripped.
+    assert_eq!(
+        strip_keywords_prefix("Some text [keywords: read file] and after"),
+        "Some text [keywords: read file] and after"
+    );
+}
+
+#[test]
+fn test_from_tool_strips_keywords_from_detail() {
+    struct Dummy {
+        name: String,
+        detail_text: String,
+    }
+    impl Tool for Dummy {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn group(&self) -> &str {
+            "test"
+        }
+        fn summary(&self) -> String {
+            self.name.clone()
+        }
+        fn detail(&self) -> String {
+            self.detail_text.clone()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn flags(&self) -> ToolFlags {
+            ToolFlags::default()
+        }
+    }
+    // With keywords prefix → stripped.
+    let tool: Arc<dyn Tool> = Arc::new(Dummy {
+        name: "KwTool".to_string(),
+        detail_text: "[keywords: search find] Search for things".to_string(),
+    });
+    let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["KwTool"]));
+    assert_eq!(info.detail, "Search for things");
+    // Without keywords prefix → unchanged.
+    let tool: Arc<dyn Tool> = Arc::new(Dummy {
+        name: "PlainTool".to_string(),
+        detail_text: "Plain description".to_string(),
+    });
+    let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["PlainTool"]));
+    assert_eq!(info.detail, "Plain description");
+}
+
+// =========================================================================
 // ToolRegistryQuery trait-level tests: get_tool_detail & list_tool_names_by_group
 // =========================================================================
 
