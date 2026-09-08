@@ -13,8 +13,7 @@ use std::sync::Arc;
 use closeclaw_common::{PermissionChecker, SpawnPermissionError};
 use closeclaw_config::agents::ResolvedAgentConfig;
 
-use super::error::SpawnError;
-use super::types::SpawnValidationResult;
+use crate::spawn_validation::{SpawnError, SpawnValidationResult};
 
 /// Dependency injection trait for querying active child session counts
 /// and session metadata.

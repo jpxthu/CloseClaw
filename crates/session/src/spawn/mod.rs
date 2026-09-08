@@ -9,7 +9,6 @@ pub mod communication;
 pub mod context;
 pub mod controller;
 pub mod creation;
-pub mod error;
 pub mod tree;
 pub mod types;
 
@@ -23,12 +22,10 @@ pub use creation::{
     build_spawn_context, create_child_conversation_session, ChildSessionCreated,
     ChildSessionCreationParams,
 };
-pub use error::SpawnError;
 pub use tree::SpawnTree;
 pub use types::ChildSessionInfo;
 pub use types::ChildSessionStatus;
 pub use types::SpawnMode;
-pub use types::SpawnValidationResult;
 
 #[cfg(test)]
 #[path = "controller_tests.rs"]
