@@ -66,6 +66,34 @@ pub trait SystemPromptBuilder: Send + Sync {
         session_role: SessionRole,
     ) -> String;
 
+    /// Build a system prompt using the injection parameter contract.
+    ///
+    /// Bundles all injection-chain parameters into
+    /// [`InjectionParams`][crate::injection_params::InjectionParams],
+    /// satisfying the design doc §注入链路的参数契约 (agent_id, ToolRegistry
+    /// reference, session role, bootstrap mode) while also carrying the
+    /// three code-extra parameters (`session_id`, `overrides`,
+    /// `activated_skills`).
+    ///
+    /// The default implementation delegates to [`build_prompt_with_activated`]
+    /// and ignores the ToolRegistry reference, preserving backward
+    /// compatibility for downstream crates that have not yet been
+    /// adapted to pass the registry through the injection chain.
+    async fn build_prompt_with_params(
+        &self,
+        params: &crate::injection_params::InjectionParams,
+    ) -> String {
+        self.build_prompt_with_activated(
+            &params.session_id,
+            &params.agent_id,
+            params.overrides.as_ref(),
+            params.bootstrap_mode_override,
+            params.activated_skills.clone(),
+            params.session_role,
+        )
+        .await
+    }
+
     /// Build a system prompt including activated conditional skills.
     ///
     /// Same as [`build_prompt`](Self::build_prompt) but passes the
