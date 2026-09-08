@@ -346,14 +346,9 @@ impl crate::spawn_validation::SpawnValidator for SpawnController {
         target_agent_id: Option<&str>,
     ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
     {
-        let result = self.validate(parent_session_id, target_agent_id).await?;
-        Ok(crate::spawn_validation::SpawnValidationResult {
-            config: result.config,
-            effective_max_spawn_depth: result.effective_max_spawn_depth,
-            spawn_timeout: result.spawn_timeout,
-            timeout_warning_secs: result.timeout_warning_secs,
-            timeout_notify_interval_ratio: result.timeout_notify_interval_ratio,
-        })
+        // Both sides use the same SpawnValidationResult type after unification;
+        // pass through directly without field-by-field copy.
+        self.validate(parent_session_id, target_agent_id).await
     }
 
     async fn check_spawn_permission(
@@ -361,14 +356,9 @@ impl crate::spawn_validation::SpawnValidator for SpawnController {
         parent_session_id: &str,
         validation: &crate::spawn_validation::SpawnValidationResult,
     ) -> Result<(), crate::spawn_validation::SpawnError> {
-        let internal = SpawnValidationResult {
-            config: validation.config.clone(),
-            effective_max_spawn_depth: validation.effective_max_spawn_depth,
-            spawn_timeout: validation.spawn_timeout,
-            timeout_warning_secs: validation.timeout_warning_secs,
-            timeout_notify_interval_ratio: validation.timeout_notify_interval_ratio,
-        };
-        self.check_spawn_permission(parent_session_id, &internal)
+        // Both sides use the same SpawnValidationResult type after unification;
+        // pass through directly without reconstructing an identical struct.
+        self.check_spawn_permission(parent_session_id, validation)
             .await
     }
 }

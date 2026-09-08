@@ -586,9 +586,11 @@ async fn test_validate_result_usable_for_child_session_creation() {
 
     // All fields required by ChildSessionCreationParams must be present:
     assert_eq!(result.config.id, "child", "target agent config");
-    assert!(
-        result.effective_max_spawn_depth > 0 || result.effective_max_spawn_depth == 0,
-        "effective_max_spawn_depth must be set"
+    // Parent max_spawn_depth=3, child max_spawn_depth=2.
+    // effective = min(child_max, parent_effective - 1) = min(2, 3-1) = 2
+    assert_eq!(
+        result.effective_max_spawn_depth, 2,
+        "effective_max_spawn_depth must be min(child_max_depth, parent_effective_budget - 1)"
     );
     assert!(
         result.spawn_timeout.is_some(),
