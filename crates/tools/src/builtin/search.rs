@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
 use serde_json::{json, Value};
 
-use crate::registry::extract_keywords;
-use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use crate::registry::{extract_keywords, strip_keywords_prefix};
+use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult};
 
 // ---------------------------------------------------------------------------
 // Scoring constants
@@ -145,15 +145,19 @@ impl ToolSearchTool {
             .iter()
             .find(|d| d.name.to_lowercase() == query_lower)?;
         let schema = self.registry.get_tool_schema(&matched.name).await;
+        let detail = strip_keywords_prefix(&matched.detail);
         Some(ToolResult {
             data: json!({
                 "name": matched.name,
                 "group": matched.group,
                 "summary": matched.summary,
-                "detail": matched.detail,
+                "detail": detail.clone(),
                 "input_schema": schema,
             }),
-            new_messages: vec![],
+            new_messages: vec![ToolMessage {
+                content: detail,
+                is_meta: true,
+            }],
             context_modifier: None,
         })
     }
@@ -386,10 +390,13 @@ mod tests {
             .unwrap();
         assert_eq!(result.data["name"], "Read");
         assert_eq!(result.data["group"], "file_ops");
-        assert!(result.data["detail"]
-            .as_str()
-            .unwrap()
-            .contains("some detail about"));
+        // Keywords prefix should be stripped from detail
+        let detail = result.data["detail"].as_str().unwrap();
+        assert!(detail.starts_with("some detail about"));
+        assert!(!detail.starts_with("[keywords:"));
+        // new_messages should contain the stripped detail
+        assert!(!result.new_messages.is_empty());
+        assert_eq!(result.new_messages[0].content, detail);
     }
 
     #[tokio::test]
@@ -403,6 +410,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.data["name"], "Read");
+        // Keywords prefix should be stripped even on case-insensitive match
+        let detail = result.data["detail"].as_str().unwrap();
+        assert!(!detail.starts_with("[keywords:"));
     }
 
     #[tokio::test]
@@ -633,6 +643,57 @@ mod tests {
         assert_eq!(tools[1]["score"], SCORE_KEYWORD);
         assert_eq!(tools[2]["name"], "Grep");
         assert_eq!(tools[2]["score"], SCORE_SUBSTRING);
+    }
+
+    #[tokio::test]
+    async fn test_exact_mode_strips_keywords_prefix() {
+        let reg = Arc::new(MockRegistry::new());
+        reg.insert(make_desc(
+            "Write",
+            "file_ops",
+            "Write file",
+            vec!["write", "file"],
+        ))
+        .await;
+        let tool = ToolSearchTool::new(Arc::clone(&reg) as Arc<dyn ToolRegistryQuery>);
+        let result = tool
+            .call(json!({"query": "Write"}), &make_ctx())
+            .await
+            .unwrap();
+        let detail = result.data["detail"].as_str().unwrap();
+        assert!(
+            !detail.contains("[keywords:"),
+            "detail should not contain [keywords:] prefix, got: {}",
+            detail
+        );
+        assert!(detail.contains("some detail about"));
+    }
+
+    #[tokio::test]
+    async fn test_exact_mode_injects_context_message() {
+        let reg = Arc::new(MockRegistry::new());
+        reg.insert(make_desc(
+            "Grep",
+            "search",
+            "Search in files",
+            vec!["grep", "search"],
+        ))
+        .await;
+        let tool = ToolSearchTool::new(Arc::clone(&reg) as Arc<dyn ToolRegistryQuery>);
+        let result = tool
+            .call(json!({"query": "Grep"}), &make_ctx())
+            .await
+            .unwrap();
+        // Should have exactly one new_messages entry
+        assert_eq!(result.new_messages.len(), 1);
+        let msg = &result.new_messages[0];
+        // Content should be the stripped detail
+        assert!(msg.content.contains("some detail about"));
+        assert!(!msg.content.starts_with("[keywords:"));
+        // Should be marked as meta (not user-visible content)
+        assert!(msg.is_meta);
+        // data.detail should match new_messages content
+        assert_eq!(result.data["detail"].as_str().unwrap(), &msg.content);
     }
 
     #[tokio::test]

@@ -554,7 +554,7 @@ fn build_descriptor(tool: &Arc<dyn Tool>) -> closeclaw_common::tool_registry::To
 /// Strip `[keywords: ...]` prefix from the beginning of a detail string.
 ///
 /// Returns the input unchanged if no prefix is found.
-fn strip_keywords_prefix(detail: &str) -> String {
+pub(crate) fn strip_keywords_prefix(detail: &str) -> String {
     use regex::Regex;
     use std::sync::OnceLock;
 
