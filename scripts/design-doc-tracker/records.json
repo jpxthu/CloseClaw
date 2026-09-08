@@ -814,5 +814,13 @@
     "confirmed_time": "2026-09-08T13:21:27.406398+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/tools/tool-registrar.md",
+    "commit": "b6bc853ad479f56d09c26b406909ef8befbcc8d8",
+    "commit_time": "2026-09-08T13:34:06+08:00",
+    "confirmed_time": "2026-09-08T13:41:52.473268+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
