@@ -36,14 +36,14 @@ Workflow Engine 由四个子功能组成：
 每个步骤经过三个阶段（详见 execution-engine.md）：
 
 1. **executing 阶段**：Engine 注入步骤目标描述（role: workflow），Agent 连续工具调用完成步骤内容。Engine 在 Agent 执行期间不干预。
-2. **verifying 阶段**：session idle 时（判定由 Session 模块统一管理），Engine 注入验收清单。Agent 自查——未完成则继续执行，等下次 idle 重新注入验证清单；完成则调用 workflow_verify，Engine 抹除本轮 verify 交互记录（注入消息 + tool_call + tool_result），进入 jumping。
+2. **verifying 阶段**：满足验收判定条件时（四维活跃维度均否，判断见 execution-engine.md「验收时机」），Engine 注入验收清单。Agent 自查——未完成则继续执行，Engine 等下次验收判定条件满足时重新注入验收清单；完成则调用 workflow_verify，Engine 抹除本轮 verify 交互记录（注入消息 + tool_call + tool_result），进入 jumping。
 3. **jumping 阶段**：Engine 注入跳转问题，Agent 回答后 Engine 匹配 transitions 决定下一步（goto/reexecute/complete），抹除本轮 jump 交互记录（含注入消息），更新状态，注入新步骤 goal 或结束。
 
 ### 暂停与恢复
 
-Agent 未完成验证时可继续执行。Engine 等待下次 session idle 自动重新注入 verify 消息。每次注入 pending_verify 计数加一，超过上限（默认 3 次，可在 workflow 定义中配置）则 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，pending_verify 归零，移除旧 goal，清理残留 verify 消息，立即注入 verify。
+Agent 未完成验证时可继续执行。Engine 待下次验收判定条件满足时重新注入 verify 消息。每次注入 pending_verify 计数加一，超过上限（默认 3 次，可在 workflow 定义中配置）则 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，保留当前步骤目标消息，pending_verify 归零，清理残留 verify 消息，注入 verify。
 
-当前步骤 allow_blocked 为 true 时，verify 消息末尾附加 "如果确认任务无法继续，调用 workflow_blocked({reason: "原因"})" 提示。Agent 调用 workflow_blocked 后 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，pending_verify 归零，移除旧 goal，清理残留 verify 消息，立即注入 verify。如果 Agent 调用 workflow_blocked 时当前步骤不允许 blocked，Engine 返回错误，Agent 继续 verify 循环。
+当前步骤 allow_blocked 为 true 时，verify 消息末尾附加 "如果确认任务无法继续，调用 workflow_blocked({reason: "原因"})" 提示。Agent 调用 workflow_blocked 后 phase 转为 blocked 并通知 owner。Owner 回复后 Engine 解除阻塞，保留当前步骤目标消息，pending_verify 归零，清理残留 verify 消息，注入 verify。如果 Agent 调用 workflow_blocked 时当前步骤不允许 blocked，Engine 返回错误，Agent 继续 verify 循环。
 
 若 owner 选择终止 workflow，phase 转为 complete，Engine 执行退出清理。
 
@@ -55,7 +55,7 @@ Agent 未完成验证时可继续执行。Engine 等待下次 session idle 自�
 
 ### 上游
 
-- **Session**：workflow 运行在 session 内。Engine 依赖 session 的空闲判定决定何时注入 verify；WorkflowRun 状态随 session checkpoint 持久化；session 恢复时 Engine 检测未完成 workflow 并注入恢复消息。
+- **Session**：workflow 运行在 session 内。Engine 依据 Session 的四维活跃维度判断验收时机并决定何时注入 verify；WorkflowRun 状态随 session checkpoint 持久化；session 恢复时 Engine 检测未完成 workflow 并注入恢复消息。
 - **System Prompt**：进入 workflow 模式后，Engine 通过追加区注入 workflow context。恢复和 compaction 后重新注入保证内容最新。
 - **Slash**：/workflow 斜杠指令触发 workflow 启动，由 SlashDispatcher 拦截后转发给 Engine。
 - **Gateway**：Engine 通过 Gateway 将 workflow role 消息注入 session（不经入站 Processor Chain），blocked 通知 owner 时也通过 Gateway 出站。

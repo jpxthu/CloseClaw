@@ -40,7 +40,7 @@ Workflow 工具在 ToolRegistry 初始化时注册，属于系统级工具——
 
 ### workflow_verify
 
-1. phase 从 executing 到 verifying 的转换由 Engine 自动管理：session idle 时 Engine 注入验收清单
+1. phase 从 executing 到 verifying 的转换由 Engine 自动管理：满足验收判定条件时（四维活跃维度均否）Engine 注入验收清单
 2. Agent 收到验收清单后自查，完成则调用 workflow_verify()（无参数）
 3. Engine 检查当前 phase：不是 verifying 则返回错误；是 verifying 则 phase 转为 jumping，注入 jump 消息
 4. 返回 tool result（被抹除）
@@ -70,7 +70,7 @@ jump 问题来自当前步骤定义中的 jump 字段，option_labels 用于将�
 2. Engine 检查当前 step 的 allow_blocked：为 false 则返回错误，Agent 继续 verify 循环
 3. Engine 将 phase 设为 blocked，通过 Gateway 向 owner 发送通知（含 reason）
 4. 返回 tool result（被抹除）
-5. Owner 回复：Engine 通过 Gateway 感知 owner 消息 → 解除阻塞 → 移除旧 goal → pending_verify 归零 → 立即注入 verify 消息
+5. Owner 回复：Engine 通过 Gateway 感知 owner 消息 → 解除阻塞 → 保留当前步骤目标消息 → pending_verify 归零 → 清理残留 verify 消息 → 注入 verify 消息
 6. Agent 按正常 verify → jump 流程继续
 
 ### 斜杠指令

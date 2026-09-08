@@ -62,7 +62,7 @@ Transition
 
 allow_blocked（默认 false）：控制 Agent 是否可以在 verify 阶段调用 workflow_blocked 主动请求阻塞。可在 workflow 级别设置默认值，step 级别覆盖。为 true 时，Engine 在 verify 消息末尾附加 blocked 提示；为 false 时 Agent 调用 workflow_blocked 直接返回错误。
 
-verify_retry_limit（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调 verify 则等下次 idle 重新注入，计数继续累加。计数超过上限 → phase 转为 blocked 并通知 owner。Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、或 owner 解除 blocked 后计数归零（详见 execution-engine.md）。
+verify_retry_limit（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调 verify 则待下次验收判定条件满足时由 Engine 重新注入，计数继续累加。计数超过上限 → phase 转为 blocked 并通知 owner。Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、或 owner 解除 blocked 后计数归零（详见 execution-engine.md）。
 
 ### 跳转动作
 
@@ -94,7 +94,14 @@ SKILL.md 正文中的原则和注意事项不自动注入——Agent 如需参�
 
 ### 校验流程
 
-create-workflow skill 内置校验脚本，产出 workflow 定义时必须通过。校验在定义被 Engine 加载时也会再执行一次（防御性）。
+create-workflow skill 内置校验脚本，产出 workflow 定义时必须通过。校验覆盖以下项：
+
+- 步骤编号合法性：步骤 id 从 0 开始、连续递增，无重复、无遗漏
+- 跳转规则合法性：无重复条件、必有兜底分支（default）、goto/reexecute 目标步骤必须存在；enum/boolean expected_value 取值合法
+- 验收清单完整性：每个步骤提供非空 verify 清单
+- 枚举选项规范性：enum 类型必填非空无重复的 options，option_labels（若提供）与 options 一一对应
+
+校验在定义被 Engine 加载时也会再执行一次（防御性）。
 
 ## 模块关系
 
