@@ -39,7 +39,8 @@ impl Tool for FeishuSheetTool {
     }
 
     fn detail(&self) -> String {
-        "Read, write, and manage Feishu spreadsheets. \
+        "[keywords: sheet spreadsheet cell row column formula] \
+         Read, write, and manage Feishu spreadsheets. \
          Supports cell operations, sheet management, \
          and data range manipulation."
             .to_string()

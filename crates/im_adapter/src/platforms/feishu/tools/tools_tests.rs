@@ -210,3 +210,108 @@ async fn test_register_tools_no_duplicates() {
     );
     assert_eq!(registry.len_for_test().await, 7);
 }
+
+// ---------------------------------------------------------------------------
+// Keywords validation integration tests (Step 1.2)
+// Covers differences #2 and #3: keyword quantity rule (3-10) + quality check
+// ---------------------------------------------------------------------------
+
+/// Helper: extract keywords string from a detail() output that starts with
+/// `[keywords: ...]`.
+fn extract_keywords_from_detail(detail: &str) -> Vec<String> {
+    assert!(
+        detail.starts_with("[keywords:"),
+        "detail must start with [keywords: ...], got: {}",
+        &detail[..detail.len().min(80)]
+    );
+    // Find content between `[keywords: ` and `]`
+    let after_prefix = &detail["[keywords:".len()..];
+    let bracket_end = after_prefix.find(']').unwrap_or_else(|| {
+        panic!(
+            "missing closing ']' in keywords prefix, got: {}",
+            &detail[..detail.len().min(80)]
+        )
+    });
+    let kw_str = after_prefix[..bracket_end].trim();
+    kw_str.split_whitespace().map(|s| s.to_string()).collect()
+}
+
+/// Helper: create all 7 Feishu tool instances for testing.
+fn all_feishu_tools() -> Vec<(String, String)> {
+    vec![
+        (
+            "FeishuCalendar".to_string(),
+            FeishuCalendarTool::new().detail(),
+        ),
+        ("FeishuIm".to_string(), FeishuImTool::new().detail()),
+        ("FeishuTask".to_string(), FeishuTaskTool::new().detail()),
+        (
+            "FeishuBitable".to_string(),
+            FeishuBitableTool::new().detail(),
+        ),
+        ("FeishuSheet".to_string(), FeishuSheetTool::new().detail()),
+        ("FeishuDrive".to_string(), FeishuDriveTool::new().detail()),
+        ("FeishuDoc".to_string(), FeishuDocTool::new().detail()),
+    ]
+}
+
+#[test]
+fn test_all_feishu_tools_detail_starts_with_keywords_prefix() {
+    for (name, detail) in all_feishu_tools() {
+        assert!(
+            detail.starts_with("[keywords:"),
+            "{} detail() must start with [keywords: ...], got: {}",
+            name,
+            &detail[..detail.len().min(80)]
+        );
+    }
+}
+
+#[test]
+fn test_all_feishu_tools_keyword_count_in_range() {
+    for (name, detail) in all_feishu_tools() {
+        let keywords = extract_keywords_from_detail(&detail);
+        assert!(
+            keywords.len() >= 3 && keywords.len() <= 10,
+            "{}: keyword count {} is outside 3-10 range, keywords: {:?}",
+            name,
+            keywords.len(),
+            keywords
+        );
+    }
+}
+
+#[test]
+fn test_all_feishu_tools_keywords_have_no_punctuation() {
+    let punctuation: &[char] = &[
+        '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '"', '\'', '/', '\\', '@', '#',
+        '$', '%', '&', '*', '+', '=', '|', '~', '`', '<', '>',
+    ];
+    for (name, detail) in all_feishu_tools() {
+        let keywords = extract_keywords_from_detail(&detail);
+        for kw in &keywords {
+            assert!(
+                !kw.chars().any(|c| punctuation.contains(&c)),
+                "{}: keyword '{}' contains punctuation",
+                name,
+                kw
+            );
+        }
+    }
+}
+
+#[test]
+fn test_all_feishu_tools_keywords_are_lowercase_alphanumeric() {
+    for (name, detail) in all_feishu_tools() {
+        let keywords = extract_keywords_from_detail(&detail);
+        for kw in &keywords {
+            assert!(
+                kw.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+                "{}: keyword '{}' is not lowercase alphanumeric",
+                name,
+                kw
+            );
+        }
+    }
+}

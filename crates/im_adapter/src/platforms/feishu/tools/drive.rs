@@ -40,7 +40,8 @@ impl Tool for FeishuDriveTool {
     }
 
     fn detail(&self) -> String {
-        "Upload, download, list, and manage files in Feishu Drive. \
+        "[keywords: drive file folder upload download share] \
+         Upload, download, list, and manage files in Feishu Drive. \
          Supports folder operations, file sharing, and \
          permission management."
             .to_string()
