@@ -17,11 +17,12 @@ use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
 
-use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
+use crate::session_manager::spawn_controller::SpawnController;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus};
 use crate::{GatewayConfig, Message, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_session::spawn_validation::SpawnError;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated to keep this file self-contained)

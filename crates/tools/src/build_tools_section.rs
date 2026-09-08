@@ -225,15 +225,21 @@ mod tests {
             ReasoningLevel::default(),
         ));
         let agent_registry = Arc::new(AgentRegistry::new());
+        let permission_engine = Arc::new(tokio::sync::RwLock::new(
+            PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
+        ));
+        let permission_checker: Arc<dyn closeclaw_common::PermissionChecker> = Arc::new(
+            closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker::new(
+                Arc::clone(&session_manager),
+                Arc::clone(&cfg_mgr),
+                permission_engine,
+            ),
+        );
         let spawn_controller = Arc::new(SpawnController::new(
-            Arc::clone(&agent_registry),
             Arc::clone(&cfg_mgr),
-            Arc::clone(&session_manager),
-            Arc::new(tokio::sync::RwLock::new(
-                PermissionEngine::new_with_default_data_root(
-                    RuleSetBuilder::new().build().unwrap(),
-                ),
-            )),
+            Arc::clone(&session_manager)
+                as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+            permission_checker,
         ));
         (spawn_controller, session_manager, cfg_mgr, agent_registry)
     }

@@ -335,3 +335,40 @@ impl SpawnController {
         )
     }
 }
+
+// ── SpawnValidator trait impl ───────────────────────────────────────
+
+#[async_trait::async_trait]
+impl crate::spawn_validation::SpawnValidator for SpawnController {
+    async fn validate_spawn(
+        &self,
+        parent_session_id: &str,
+        target_agent_id: Option<&str>,
+    ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
+    {
+        let result = self.validate(parent_session_id, target_agent_id).await?;
+        Ok(crate::spawn_validation::SpawnValidationResult {
+            config: result.config,
+            effective_max_spawn_depth: result.effective_max_spawn_depth,
+            spawn_timeout: result.spawn_timeout,
+            timeout_warning_secs: result.timeout_warning_secs,
+            timeout_notify_interval_ratio: result.timeout_notify_interval_ratio,
+        })
+    }
+
+    async fn check_spawn_permission(
+        &self,
+        parent_session_id: &str,
+        validation: &crate::spawn_validation::SpawnValidationResult,
+    ) -> Result<(), crate::spawn_validation::SpawnError> {
+        let internal = SpawnValidationResult {
+            config: validation.config.clone(),
+            effective_max_spawn_depth: validation.effective_max_spawn_depth,
+            spawn_timeout: validation.spawn_timeout,
+            timeout_warning_secs: validation.timeout_warning_secs,
+            timeout_notify_interval_ratio: validation.timeout_notify_interval_ratio,
+        };
+        self.check_spawn_permission(parent_session_id, &internal)
+            .await
+    }
+}

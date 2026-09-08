@@ -1,19 +1,19 @@
 //! Unit tests for spawn depth budget propagation, kill all-mode, and cascade termination (Step 1.5).
+use crate::session_manager::spawn_controller::SpawnController;
+use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
+use crate::{GatewayConfig, SessionManager};
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_config::ConfigManager;
-use closeclaw_session::persistence::ReasoningLevel;
-use closeclaw_session::persistence::SessionCheckpoint;
-use closeclaw_session::storage::memory::MemoryStorage;
-use std::sync::Arc;
-
-use crate::session_manager::spawn_controller::{SpawnController, SpawnError};
-use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
-use crate::{GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::persistence::SessionCheckpoint;
+use closeclaw_session::spawn_validation::SpawnError;
+use closeclaw_session::storage::memory::MemoryStorage;
+use std::sync::Arc;
 // Helpers (duplicated from spawn_controller_tests.rs to keep this file self-contained)
 
 fn test_config() -> GatewayConfig {
