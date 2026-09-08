@@ -58,3 +58,6 @@ mod read_tool_tests;
 
 #[cfg(test)]
 mod skill_tool_tests;
+
+#[cfg(test)]
+mod edit_tool_tests;
