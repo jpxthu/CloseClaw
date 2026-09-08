@@ -2,6 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Hint attached to the next goal message, indicating whether this is a
+/// normal first-time injection or a reexecute re-entry.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GoalHint {
+    /// First-time goal injection (default).
+    #[default]
+    Normal,
+    /// Reexecute re-entry; goal message should include a re-execution hint.
+    Reexecute,
+}
+
 /// Execution phases of a workflow step.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -54,6 +66,9 @@ pub struct WorkflowRun {
     /// Cross-step shared data.
     #[serde(default)]
     pub step_data: serde_yaml::Value,
+    /// Hint for the next goal injection (Normal vs Reexecute).
+    #[serde(default)]
+    pub pending_goal_hint: GoalHint,
     /// Number of verify attempts since last reset.
     #[serde(default)]
     pub pending_verify: usize,

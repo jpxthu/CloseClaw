@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use crate::definition::{JumpAction, Transition, Workflow};
 use crate::error::WorkflowError;
-use crate::run::{Phase, WorkflowRun};
+use crate::run::{GoalHint, Phase, WorkflowRun};
 
 /// Action returned by [`WorkflowEngine::handle_verify`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +42,7 @@ impl WorkflowEngine {
             phase: Phase::Executing,
             step_history: Vec::new(),
             step_data: serde_yaml::Value::Null,
+            pending_goal_hint: GoalHint::Normal,
             pending_verify: 0,
         }
     }
@@ -51,7 +52,7 @@ impl WorkflowEngine {
     /// Records the current timestamp so downstream tools can reference
     /// when the current step started executing.
     pub fn on_goal_injected(run: &mut WorkflowRun) {
-        run.step_data = serde_yaml::Value::Null;
+        run.pending_goal_hint = GoalHint::Normal;
         tracing::debug!(
             step = run.current_step,
             "goal injected, ready for agent execution"
@@ -257,6 +258,7 @@ impl WorkflowEngine {
 
         run.current_step = target;
         run.step_data = serde_yaml::Value::Null;
+        run.pending_goal_hint = GoalHint::Normal;
         run.pending_verify = 0;
         run.phase = Phase::Executing;
         tracing::debug!(target, "goto executed");
@@ -275,6 +277,7 @@ impl WorkflowEngine {
 
         run.current_step = target;
         // step_data is preserved (not cleared).
+        run.pending_goal_hint = GoalHint::Reexecute;
         run.pending_verify = 0;
         run.phase = Phase::Executing;
         tracing::debug!(target, "reexecute executed");
