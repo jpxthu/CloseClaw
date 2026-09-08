@@ -140,7 +140,8 @@ impl Tool for SkillTool {
     }
 
     fn detail(&self) -> String {
-        "Loads a skill via unified routing: first checks the disk-based \
+        "[keywords: skill load read capability] \
+         Loads a skill via unified routing: first checks the disk-based \
          skill registry, then falls back to the builtin skill registry. \
          Call this tool with `skill_name` (required) to retrieve the \
          skill's content, which will be injected as a meta message. The \
