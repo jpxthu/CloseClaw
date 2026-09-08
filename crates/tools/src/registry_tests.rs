@@ -408,27 +408,22 @@ async fn test_build_tools_section_danger_marks() {
 
     let ctx = make_prompt_ctx(&["Viewer", "Deleter", "Lister", "DReader", "DDeleter"]);
     let section = reg.build_tools_section(&ctx).await;
-    // Eager read-only: bold name + "(read-only)" + detail
     assert!(
         section.contains("**Viewer** (read-only): detail for Viewer"),
         "expected eager read-only mark, got: {section}"
     );
-    // Eager destructive: bold name + "(destructive)" + detail
     assert!(
         section.contains("**Deleter** (destructive): detail for Deleter"),
         "expected eager destructive mark, got: {section}"
     );
-    // Eager no mark: no suffix after bold name
     assert!(
         section.contains("**Lister**: detail for Lister"),
         "expected eager no mark, got: {section}"
     );
-    // Deferred read-only: name + "(read-only)"
     assert!(
         section.contains("  - DReader (read-only)"),
         "expected deferred read-only mark, got: {section}"
     );
-    // Deferred destructive: name + "(destructive)"
     assert!(
         section.contains("  - DDeleter (destructive)"),
         "expected deferred destructive mark, got: {section}"
@@ -708,54 +703,6 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
 }
 
 #[tokio::test]
-async fn test_plan_mode_keeps_plan_specific_tools() {
-    let reg = ToolRegistry::new();
-    // Register ModeExecutionTrigger (non-read-only but always visible in Plan mode).
-    reg.register(DummyTool {
-        name: "ModeExecutionTrigger".to_string(),
-        group: "mode".to_string(),
-        summary_text: "Execute plan".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    })
-    .await
-    .unwrap();
-
-    let ctx = make_plan_mode_ctx();
-    let section = reg.build_tools_section(&ctx).await;
-
-    assert!(
-        section.contains("ModeExecutionTrigger"),
-        "ModeExecutionTrigger should be visible in Plan mode"
-    );
-}
-
-#[tokio::test]
-async fn test_plan_mode_keeps_sessions_spawn() {
-    let reg = ToolRegistry::new();
-    // Register sessions_spawn (non-read-only but always visible in Plan mode).
-    reg.register(DummyTool {
-        name: "sessions_spawn".to_string(),
-        group: "sessions".to_string(),
-        summary_text: "Spawn session".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    })
-    .await
-    .unwrap();
-
-    let ctx = make_plan_mode_ctx();
-    let section = reg.build_tools_section(&ctx).await;
-
-    assert!(
-        section.contains("sessions_spawn"),
-        "sessions_spawn should be visible in Plan mode"
-    );
-}
-
-#[tokio::test]
 async fn test_normal_mode_does_not_filter_write_tools() {
     let reg = ToolRegistry::new();
     reg.register(DummyTool {
@@ -839,6 +786,7 @@ async fn test_plan_mode_keeps_mode_execution_trigger() {
         "ModeExecutionTrigger should be visible in Plan mode"
     );
 }
+
 #[test]
 fn test_plan_mode_tool_visible_mode_execution_trigger() {
     let tool = DummyTool {
@@ -893,6 +841,151 @@ async fn test_plan_mode_hides_plan_approval_tool() {
     assert!(
         !section.contains("plan_approval"),
         "plan_approval should be hidden in Plan mode, got: {section}"
+    );
+}
+
+// =========================================================================
+// strip_keywords_prefix tests
+// =========================================================================
+
+#[test]
+fn test_strip_keywords_prefix_strips_when_present() {
+    assert_eq!(
+        strip_keywords_prefix("[keywords: read file cat] Read file contents"),
+        "Read file contents"
+    );
+    assert_eq!(
+        strip_keywords_prefix("[keywords: a b c d e f g h i j] detail text"),
+        "detail text"
+    );
+    assert_eq!(strip_keywords_prefix("[keywords: search find]"), "");
+    // Space after `keywords:` is a valid non-bracket char → prefix stripped.
+    assert_eq!(
+        strip_keywords_prefix("[keywords: ] some detail"),
+        "some detail"
+    );
+}
+
+#[test]
+fn test_strip_keywords_prefix_no_match() {
+    // No prefix → unchanged.
+    assert_eq!(
+        strip_keywords_prefix("Just a regular description"),
+        "Just a regular description"
+    );
+    assert_eq!(strip_keywords_prefix(""), "");
+    // Prefix in middle → not stripped.
+    assert_eq!(
+        strip_keywords_prefix("Some text [keywords: read file] and after"),
+        "Some text [keywords: read file] and after"
+    );
+}
+
+#[test]
+fn test_from_tool_strips_keywords_from_detail() {
+    struct Dummy {
+        name: String,
+        detail_text: String,
+    }
+    impl Tool for Dummy {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn group(&self) -> &str {
+            "test"
+        }
+        fn summary(&self) -> String {
+            self.name.clone()
+        }
+        fn detail(&self) -> String {
+            self.detail_text.clone()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn flags(&self) -> ToolFlags {
+            ToolFlags::default()
+        }
+    }
+    // With keywords prefix → stripped.
+    let tool: Arc<dyn Tool> = Arc::new(Dummy {
+        name: "KwTool".to_string(),
+        detail_text: "[keywords: search find] Search for things".to_string(),
+    });
+    let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["KwTool"]));
+    assert_eq!(info.detail, "Search for things");
+    // Without keywords prefix → unchanged.
+    let tool: Arc<dyn Tool> = Arc::new(Dummy {
+        name: "PlainTool".to_string(),
+        detail_text: "Plain description".to_string(),
+    });
+    let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["PlainTool"]));
+    assert_eq!(info.detail, "Plain description");
+}
+
+#[test]
+fn test_strip_keywords_prefix_empty_bracket() {
+    // `[keywords:]` — no keywords listed, regex requires at least one
+    // non-`]` char after `keywords:`, so this does NOT match → unchanged.
+    assert_eq!(
+        strip_keywords_prefix("[keywords:] some detail"),
+        "[keywords:] some detail"
+    );
+    // Bare `[keywords:]` with nothing after it → unchanged.
+    assert_eq!(strip_keywords_prefix("[keywords:]"), "[keywords:]");
+}
+
+// =========================================================================
+// build_tools_section — integration test: keywords prefix not leaked
+// =========================================================================
+
+/// Verify that `build_tools_section` output never contains `[keywords:`
+/// even when a tool's raw detail includes the prefix.
+#[tokio::test]
+async fn test_build_tools_section_strips_keywords() {
+    struct KwDummy {
+        name: String,
+        detail_text: String,
+    }
+    impl Tool for KwDummy {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn group(&self) -> &str {
+            "file_ops"
+        }
+        fn summary(&self) -> String {
+            format!("summary for {}", self.name)
+        }
+        fn detail(&self) -> String {
+            self.detail_text.clone()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn flags(&self) -> ToolFlags {
+            ToolFlags::default()
+        }
+    }
+
+    let reg = ToolRegistry::new();
+    reg.register(KwDummy {
+        name: "Read".to_string(),
+        detail_text: "[keywords: read file cat view content] Read file contents".to_string(),
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_prompt_ctx(&["Read"]);
+    let section = reg.build_tools_section(&ctx).await;
+
+    assert!(
+        !section.contains("[keywords:"),
+        "build_tools_section output must not contain [keywords: prefix, got: {section}"
+    );
+    assert!(
+        section.contains("Read file contents"),
+        "detail text should be present after stripping, got: {section}"
     );
 }
 

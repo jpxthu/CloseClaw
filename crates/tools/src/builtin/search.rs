@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
 use serde_json::{json, Value};
 
+use crate::registry::extract_keywords;
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -202,7 +203,7 @@ fn score_tool(desc: &closeclaw_common::tool_registry::ToolDescriptor, query_lowe
 
     // 2. Keyword matches — word-level: keyword must be a complete word in the query
     let query_words: std::collections::HashSet<&str> = query_lower.split_whitespace().collect();
-    for kw in &desc.keywords {
+    for kw in extract_keywords(&desc.detail) {
         if query_words.contains(kw.as_str()) {
             score += SCORE_KEYWORD;
         }
@@ -286,18 +287,22 @@ mod tests {
     }
 
     fn make_desc(name: &str, group: &str, summary: &str, keywords: Vec<&str>) -> ToolDescriptor {
+        let detail = if keywords.is_empty() {
+            format!("some detail about {}", name.to_lowercase())
+        } else {
+            format!(
+                "[keywords: {}] some detail about {}",
+                keywords.join(" "),
+                name.to_lowercase()
+            )
+        };
         ToolDescriptor {
             name: name.to_string(),
             group: group.to_string(),
             summary: summary.to_string(),
-            detail: format!(
-                "[keywords: {}] some detail about {}",
-                keywords.join(" "),
-                name.to_lowercase()
-            ),
+            detail,
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: keywords.into_iter().map(String::from).collect(),
         }
     }
 
@@ -655,7 +660,6 @@ mod tests {
             detail: "[keywords: read file] detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec!["read".into(), "file".into()],
         };
         // Exact name match (10) + keyword "read" matches (5) = 15
         let score = score_tool(&desc, "read");
@@ -671,7 +675,6 @@ mod tests {
             detail: "[keywords: read file] detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec!["read".into(), "file".into()],
         };
         let desc_no_kw = ToolDescriptor {
             name: "AuditLog".into(),
@@ -680,7 +683,6 @@ mod tests {
             detail: "no keywords here".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec![],
         };
         let kw_score = score_tool(&desc_with_kw, "read");
         let sub_score = score_tool(&desc_no_kw, "read");
@@ -701,7 +703,6 @@ mod tests {
             detail: "[keywords: read file content] detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec!["read".into(), "file".into(), "content".into()],
         };
         // Query "read file" matches 2 keywords → 2 * SCORE_KEYWORD
         let score = score_tool(&desc, "read file");
@@ -717,7 +718,6 @@ mod tests {
             detail: "[keywords: read file] detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec!["read".into(), "file".into()],
         };
         let score = score_tool(&desc, "zzz_unknown");
         assert_eq!(score, 0);
@@ -732,7 +732,6 @@ mod tests {
             detail: "no keywords here".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec![],
         };
         // No keywords, no name match, "read" appears in summary → SCORE_SUBSTRING
         let score = score_tool(&desc, "read");
@@ -748,7 +747,6 @@ mod tests {
             detail: "[keywords: read file] detail with read in it".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec!["read".into(), "file".into()],
         };
         // No name match, keyword "read" matches → score = SCORE_KEYWORD = 5
         // Substring fallback should NOT add extra points
@@ -766,7 +764,6 @@ mod tests {
             detail: "detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec![],
         };
         // Tool B: no name match, 2 keyword matches
         let desc_b = ToolDescriptor {
@@ -776,7 +773,6 @@ mod tests {
             detail: "[keywords: read file] detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec!["read".into(), "file".into()],
         };
         let score_a = score_tool(&desc_a, "read");
         let score_b = score_tool(&desc_b, "read");
@@ -792,7 +788,6 @@ mod tests {
             detail: "[keywords: read file] detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec!["read".into(), "file".into()],
         };
         let score_c = score_tool(&desc_c, "read");
         // C: name exact (10) + keyword (5) = 15 > both A and B
@@ -808,7 +803,6 @@ mod tests {
             detail: "no keywords".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec![],
         };
         let score = score_tool(&desc, "anything");
         assert_eq!(score, 0);
@@ -823,7 +817,6 @@ mod tests {
             detail: "This tool handles file operations".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec![],
         };
         // "file" appears in detail but not in summary → still matches via detail
         let score = score_tool(&desc, "file");
@@ -839,7 +832,6 @@ mod tests {
             detail: "detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec![],
         };
         // Query "hello world" — neither word appears in summary or detail
         let score = score_tool(&desc, "hello world");
@@ -855,7 +847,6 @@ mod tests {
             detail: "detail".into(),
             input_schema: json!({}),
             flags: CommonFlags::default(),
-            keywords: vec![],
         };
         // Query "web search" — "web" matches in summary, "search" matches in summary
         // Since no keywords, fallback checks: summary.contains("web search") → false
