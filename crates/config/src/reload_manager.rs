@@ -665,6 +665,7 @@ pub fn filename_to_section(filename: &str) -> Option<ConfigSection> {
         "memory.json" => Some(ConfigSection::Memory),
         "skills.json" => Some(ConfigSection::Skills),
         "media.json" => Some(ConfigSection::Media),
+        "tools.json" => Some(ConfigSection::Tools),
         _ => None,
     }
 }

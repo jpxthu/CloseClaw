@@ -179,6 +179,7 @@ fn test_format_no_truncation_returns_none() {
         lines_read: 1,
         total_lines: 1,
         trigger: None,
+        total_bytes: 0,
     };
     assert!(format_truncation_message(&r, 1).is_none());
 }
@@ -191,6 +192,7 @@ fn test_format_lines_trigger() {
         lines_read: 2000,
         total_lines: 5000,
         trigger: Some(TruncationTrigger::Lines),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
     assert_eq!(
@@ -207,9 +209,10 @@ fn test_format_bytes_trigger() {
         lines_read: 150,
         total_lines: 300,
         trigger: Some(TruncationTrigger::Bytes),
+        total_bytes: 48_000,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
-    assert!(msg.contains("50KB limit"));
+    assert!(msg.contains("(50KB limit)"));
     assert!(msg.contains("Use offset=151 to continue."));
 }
 
@@ -221,6 +224,7 @@ fn test_format_limit_trigger() {
         lines_read: 5,
         total_lines: 20,
         trigger: Some(TruncationTrigger::Limit),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 10).unwrap();
     assert_eq!(msg, "[6 more lines in file. Use offset=15 to continue.]");
@@ -234,6 +238,7 @@ fn test_format_offset_calculation() {
         lines_read: 100,
         total_lines: 500,
         trigger: Some(TruncationTrigger::Lines),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 50).unwrap();
     // start=50, end=149, next=150
@@ -267,10 +272,11 @@ fn test_human_readable_bytes() {
         lines_read: 10,
         total_lines: 20,
         trigger: Some(TruncationTrigger::Bytes),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
-    // 51200 / 1024 = 50, so "50KB"
-    assert!(msg.contains("50KB"));
+    // 51200 / 1024 = 50, so "50KB" — format is "{actual} (50KB limit)"
+    assert!(msg.contains("(50KB limit)"));
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +291,7 @@ fn test_format_tokens_trigger() {
         lines_read: 100,
         total_lines: 500,
         trigger: Some(TruncationTrigger::Tokens),
+        total_bytes: 0,
     };
     let msg = format_truncation_message(&r, 1).unwrap();
     assert!(msg.contains("token limit"));
@@ -306,6 +313,7 @@ fn test_truncation_content_includes_message_suffix() {
     output.push_str(&msg);
     // The output should contain actual lines AND the truncation hint
     assert!(output.starts_with("line 1\n"));
+    // Lines trigger — message shows line range without byte info
     assert!(output.contains("[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]"));
 }
 
@@ -336,6 +344,7 @@ fn test_format_single_line_byte_limit_hint() {
         lines_read: 1,
         total_lines: 3,
         trigger: Some(TruncationTrigger::Bytes),
+        total_bytes: actual_bytes,
     };
     let msg = format_truncation_message(&r, 42).unwrap();
     assert!(msg.contains("Line 42 is"));
@@ -360,4 +369,74 @@ fn test_offset_near_end_with_limit() {
     assert_eq!(r.lines_read, 2);
     assert!(r.content.contains("line 9\n"));
     assert!(r.content.contains("line 10\n"));
+}
+
+// ---------------------------------------------------------------------------
+// from_config — token config via ConfigManager
+// ---------------------------------------------------------------------------
+
+use closeclaw_config::{ConfigManager, ConfigSection};
+use tempfile::TempDir;
+
+/// Helper: create a ConfigManager with an optional tools.json content.
+fn make_config_manager(tools_json: Option<&str>) -> (TempDir, ConfigManager) {
+    let tmp = TempDir::new().unwrap();
+    // Write tools.json if provided
+    if let Some(content) = tools_json {
+        std::fs::write(tmp.path().join("tools.json"), content).unwrap();
+    }
+    // ConfigManager::new + load expects mandatory sections; we bypass load()
+    // by directly inserting into the in-memory cache via section insert.
+    let cm = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    if let Some(content) = tools_json {
+        let value: serde_json::Value = serde_json::from_str(content).unwrap();
+        cm.update_section_cache(ConfigSection::Tools, tmp.path().join("tools.json"), value);
+    }
+    (tmp, cm)
+}
+
+#[test]
+fn test_from_config_valid_max_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": 5000}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, 5000);
+    // Other values remain default
+    assert_eq!(cfg.max_lines, DEFAULT_MAX_LINES);
+    assert_eq!(cfg.max_bytes, DEFAULT_MAX_BYTES);
+}
+
+#[test]
+fn test_from_config_missing_tools_json() {
+    let (_tmp, cm) = make_config_manager(None);
+    let cfg = TruncationConfig::from_config(&cm);
+    // Falls back to default
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_invalid_zero_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": 0}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_invalid_negative_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": -1}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_invalid_non_number_tokens() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": "abc"}}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+}
+
+#[test]
+fn test_from_config_missing_read_section() {
+    let (_tmp, cm) = make_config_manager(Some(r#"{}"#));
+    let cfg = TruncationConfig::from_config(&cm);
+    assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
 }

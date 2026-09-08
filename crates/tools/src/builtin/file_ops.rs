@@ -304,7 +304,7 @@ impl Tool for ReadTool {
             if let Some(cached) = check_dedup_cache(ctx, path, mtime, offset, limit) {
                 return Ok(cached);
             }
-            read_and_truncate(path, offset, limit, mtime, ctx).await
+            read_and_truncate(path, offset, limit, mtime, ctx, &self.config_manager).await
         })
         .await
     }
@@ -833,16 +833,43 @@ fn check_dedup_cache(
 }
 
 /// Read file, apply truncation, and record range for dedup.
+///
+/// Image files (jpg/jpeg/png/gif/webp) are handled via a separate
+/// pipeline: raw bytes → resize → base64 data URI.
 async fn read_and_truncate(
     path: &str,
     offset: usize,
     limit: Option<usize>,
     mtime: Option<std::time::SystemTime>,
     ctx: &ToolContext,
+    config_manager: &ConfigManager,
 ) -> Result<ToolResult, ToolCallError> {
+    // --- Image file path ---
+    if super::read_image::is_image_file(path) {
+        let raw_bytes = std::fs::read(path)
+            .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
+        let (data_uri, _mime) = super::read_image::process_image(path, &raw_bytes)
+            .map_err(ToolCallError::ExecutionFailed)?;
+        let description = format!("[Image file: {path} — resized and encoded as base64 data URI]");
+        let content = format!("{description}\n{data_uri}");
+        if let Some(session) = ctx.session.as_ref() {
+            session.record_file_read(path, mtime).await;
+            // Images are always full-range reads.
+            session
+                .record_file_read_range(path, mtime, ReadRange { offset, limit })
+                .await;
+        }
+        return Ok(ToolResult {
+            data: serde_json::json!({ "content": content }),
+            new_messages: vec![],
+            context_modifier: None,
+        });
+    }
+
+    // --- Text file path ---
     let raw = std::fs::read_to_string(path)
         .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
-    let config = super::read_truncator::TruncationConfig::default();
+    let config = super::read_truncator::TruncationConfig::from_config(config_manager);
     let result = super::read_truncator::truncate_lines(&raw, offset, limit, &config);
     let truncation_msg = super::read_truncator::format_truncation_message(&result, offset);
     let mut output = result.content;
