@@ -68,10 +68,14 @@ pub(crate) fn encode_base64_data_uri(bytes: &[u8], mime: &str) -> String {
 /// Full pipeline: detect image, resize, encode as data URI.
 ///
 /// Returns `(data_uri, mime_type)` on success.
+///
+/// Note: `resize_image` always re-encodes as PNG, so the MIME type is
+/// always `image/png` regardless of the original file extension.
 pub(crate) fn process_image(path: &str, raw_bytes: &[u8]) -> Result<(String, String), String> {
-    let mime =
-        mime_from_extension(path).ok_or_else(|| format!("unsupported image extension: {path}"))?;
+    // Validate the file has a supported image extension.
+    mime_from_extension(path).ok_or_else(|| format!("unsupported image extension: {path}"))?;
     let resized = resize_image(raw_bytes, MAX_IMAGE_DIM)?;
+    let mime = "image/png";
     let data_uri = encode_base64_data_uri(&resized, mime);
     Ok((data_uri, mime.to_string()))
 }
@@ -227,5 +231,19 @@ mod tests {
         let result = process_image("file.txt", b"not image data");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unsupported image extension"));
+    }
+
+    #[test]
+    fn test_process_image_jpeg_returns_png_mime() {
+        // resize_image always outputs PNG, so even a JPEG input should produce
+        // a data:image/png;base64,... URI.
+        let img = image::RgbaImage::from_fn(100, 50, |_, _| image::Rgba([0, 0, 255, 255]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
+        let raw = buf.into_inner();
+
+        let (data_uri, mime) = process_image("photo.jpg", &raw).unwrap();
+        assert_eq!(mime, "image/png");
+        assert!(data_uri.starts_with("data:image/png;base64,"));
     }
 }
