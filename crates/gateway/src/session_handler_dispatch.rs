@@ -31,14 +31,14 @@ use closeclaw_session::persistence::PendingMessage;
 /// pre-spawn path (user message) and inside the spawned task
 /// (assistant message) without borrowing `&self` across `tokio::spawn`.
 #[derive(Clone)]
-struct SearcherTriggerDeps {
-    session_manager: Arc<SessionManager>,
-    fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
-    memory_db_path: Option<std::path::PathBuf>,
+pub(crate) struct SearcherTriggerDeps {
+    pub(crate) session_manager: Arc<SessionManager>,
+    pub(crate) fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+    pub(crate) memory_db_path: Option<std::path::PathBuf>,
     /// Pre-loaded agent model (avoids redundant config load in closures).
-    agent_model: Option<String>,
+    pub(crate) agent_model: Option<String>,
     /// Pre-loaded memory config JSON (avoids redundant config load).
-    memory_config: Option<serde_json::Value>,
+    pub(crate) memory_config: Option<serde_json::Value>,
 }
 
 type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'static>>;
@@ -411,7 +411,11 @@ impl SessionMessageHandler {
     }
 
     /// Trigger active-searcher for a user message (best-effort, non-blocking).
-    async fn trigger_searcher_user(&self, session_id: &str, content: &str) -> SearcherTriggerDeps {
+    pub(crate) async fn trigger_searcher_user(
+        &self,
+        session_id: &str,
+        content: &str,
+    ) -> SearcherTriggerDeps {
         let deps = SearcherTriggerDeps {
             session_manager: Arc::clone(&self.session_manager),
             fallback_llm_caller: Arc::clone(&self.fallback_llm_caller),
@@ -419,6 +423,18 @@ impl SessionMessageHandler {
             agent_model: None,
             memory_config: None,
         };
+        // Child sessions do not load long-term memory and must not
+        // trigger active-searcher (design doc §Role Exclusion).
+        if self
+            .session_manager
+            .children
+            .read()
+            .await
+            .get_parent(session_id)
+            .is_some()
+        {
+            return deps;
+        }
         if let Some(agent_id) = self.session_manager.get_chat_id(session_id).await {
             let (model, mem_cfg, ctx_turns) =
                 load_agent_config_with_context_turns(&self.session_manager, &agent_id).await;
@@ -508,12 +524,17 @@ impl SessionMessageHandler {
     }
 
     /// Trigger active-searcher for an assistant message.
-    async fn trigger_searcher_assistant(
+    pub(crate) async fn trigger_searcher_assistant(
         sm: &Arc<SessionManager>,
         searcher_deps: &SearcherTriggerDeps,
         session_id: &str,
         assistant_text: &str,
     ) {
+        // Child sessions do not load long-term memory and must not
+        // trigger active-searcher (design doc §Role Exclusion).
+        if sm.children.read().await.get_parent(session_id).is_some() {
+            return;
+        }
         if let Some(agent_id) = sm.get_chat_id(session_id).await {
             let (model, mem_cfg, ctx_turns) =
                 load_agent_config_with_context_turns(sm, &agent_id).await;
