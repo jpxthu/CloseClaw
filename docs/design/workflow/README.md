@@ -10,7 +10,7 @@ Workflow Engine 由四个子功能组成：
 
 **Workflow Definition**：定义 workflow 的 YAML frontmatter 结构（Step、Verify、Jump、Transition），以及 create-workflow skill 内置的校验规则。步骤编号从 0 开始。
 
-**Execution Engine**：运行时状态机，管理 executing、verifying、jumping、blocked、complete 五个 phase。Engine 按三阶段协议（goal → verify → jump）驱动步骤推进。跳转条件评估全硬编码——按 transitions 顺序做布尔/枚举/字符串比对，不依赖 LLM。
+**Execution Engine**：运行时状态机，管理 executing、verifying、jumping、blocked、complete 五个 phase。Engine 按三阶段协议（goal → verify → jump）驱动步骤推进。跳转条件评估全硬编码——按 transitions 顺序做布尔/枚举比对，不依赖 LLM。
 
 **Session Integration**：WorkflowRun 状态随 session checkpoint 持久化。重启后扫描活跃 session 检测未完成的 workflow 并注入恢复消息。进入 workflow 模式后 Engine 通过 system prompt 追加区注入 workflow context。
 

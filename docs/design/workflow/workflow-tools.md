@@ -61,7 +61,6 @@ verify 只是"我做完了"的信号。验收清单来源于 Step 定义中的 v
 
 - boolean：YAML 原生布尔值 true / false
 - enum：对应的选项字母（A/B/C/D...），非选项内部值
-- string：自由文本
 
 jump 问题来自当前步骤定义中的 jump 字段，option_labels 用于将选项内部值渲染为 ABCD 标签。
 
