@@ -132,40 +132,38 @@ impl Tool for ToolSearchTool {
 impl ToolSearchTool {
     /// Try to find a tool by exact name match (case-insensitive).
     async fn try_exact_match(&self, query_lower: &str) -> Option<ToolResult> {
-        let names = self.registry.list_tool_names().await;
-        for name in &names {
-            if name.to_lowercase() == query_lower {
-                let desc = self.registry.get_tool_detail(name).await?;
-                let schema = self.registry.get_tool_schema(name).await;
-                return Some(ToolResult {
-                    data: json!({
-                        "name": desc.name,
-                        "group": desc.group,
-                        "summary": desc.summary,
-                        "detail": desc.detail,
-                        "input_schema": schema,
-                    }),
-                    new_messages: vec![],
-                    context_modifier: None,
-                });
-            }
-        }
-        None
+        let descs = self.registry.get_tool_descriptors(None, None, None).await;
+        let matched = descs
+            .iter()
+            .find(|d| d.name.to_lowercase() == query_lower)?;
+        let schema = self.registry.get_tool_schema(&matched.name).await;
+        Some(ToolResult {
+            data: json!({
+                "name": matched.name,
+                "group": matched.group,
+                "summary": matched.summary,
+                "detail": matched.detail,
+                "input_schema": schema,
+            }),
+            new_messages: vec![],
+            context_modifier: None,
+        })
     }
 
     /// Score all tools against the query and return top results.
     async fn keyword_search(&self, query_lower: &str) -> Vec<Value> {
-        let names = self.registry.list_tool_names().await;
-        let mut scored: Vec<(String, String, String, u32)> = Vec::with_capacity(names.len());
+        let descs = self.registry.get_tool_descriptors(None, None, None).await;
+        let mut scored: Vec<(String, String, String, u32)> = Vec::with_capacity(descs.len());
 
-        for name in &names {
-            let desc = match self.registry.get_tool_detail(name).await {
-                Some(d) => d,
-                None => continue,
-            };
-            let score = score_tool(&desc, query_lower);
+        for desc in &descs {
+            let score = score_tool(desc, query_lower);
             if score > 0 {
-                scored.push((desc.name, desc.group, desc.summary, score));
+                scored.push((
+                    desc.name.clone(),
+                    desc.group.clone(),
+                    desc.summary.clone(),
+                    score,
+                ));
             }
         }
 
@@ -182,6 +180,11 @@ impl ToolSearchTool {
 }
 
 /// Compute a relevance score for a tool against a lowered query.
+///
+/// Keyword matching uses word-level matching: the query is split by
+/// whitespace into a word set, and a keyword matches only if it is a
+/// complete word in that set. This prevents short keywords (e.g. "r",
+/// "in") from causing false positives via substring matching.
 fn score_tool(desc: &closeclaw_common::tool_registry::ToolDescriptor, query_lower: &str) -> u32 {
     let mut score: u32 = 0;
 
@@ -190,9 +193,10 @@ fn score_tool(desc: &closeclaw_common::tool_registry::ToolDescriptor, query_lowe
         score += SCORE_NAME_EXACT;
     }
 
-    // 2. Keyword matches — each hit adds SCORE_KEYWORD
+    // 2. Keyword matches — word-level: keyword must be a complete word in the query
+    let query_words: std::collections::HashSet<&str> = query_lower.split_whitespace().collect();
     for kw in &desc.keywords {
-        if query_lower.contains(&kw.to_lowercase()) {
+        if query_words.contains(kw.as_str()) {
             score += SCORE_KEYWORD;
         }
     }
@@ -203,8 +207,8 @@ fn score_tool(desc: &closeclaw_common::tool_registry::ToolDescriptor, query_lowe
         let detail_lower = desc.detail.to_lowercase();
         let text_match = summary_lower.contains(query_lower)
             || detail_lower.contains(query_lower)
-            || query_lower
-                .split_whitespace()
+            || query_words
+                .iter()
                 .any(|w| summary_lower.contains(w) || detail_lower.contains(w));
         if text_match {
             score += SCORE_SUBSTRING;
