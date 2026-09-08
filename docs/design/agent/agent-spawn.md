@@ -28,7 +28,7 @@ SpawnValidator 前置检查通过 → sessions_spawn 经 tools 模块触发 Perm
 全部检查通过 → SpawnController 创建 child session：
   - 加载目标 agent 的配置档案（config.json + permissions.json）
   - workspace：由 Session 模块按工作目录解析顺序确定（spawn 参数指定 → 目标 agent.workspace → 子 session 默认工作目录），详见 [working-directory.md](../session/working-directory.md)
-  - bootstrap 模式：lightContext=true → minimal；否则 → 目标 agent.bootstrapMode（bootstrap 文件集由目标 agent 配置的 bootstrapMode/agentDir 决定，spawn 不提供独立的 bootstrap 文件路径覆盖）
+  - Session 角色：子 session 触发时标记为 Sub（spawn 角色，见下方角色标记行）；子 Session 的加载边界由此角色决定——不加载自定义引导指令（BOOTSTRAP.md）与长期记忆，与目标 agent 的 `bootstrapMode` 无关。bootstrap 文件路径由目标 agent 配置的 agentDir 决定，spawn 不提供独立覆盖
   - 注入 task 到子 session 的 system prompt（不属于对话消息，压缩时不受影响）
   - tools：`allowedTools` 参数提供时完全替换子 agent 的 config.tools，否则使用 agent 配置的工具白名单；有效预算 ≤ 0 时从白名单中移除 sessions_spawn
   - skills：按 agent 配置的 skills 白名单过滤
@@ -269,7 +269,7 @@ Spawn 树由 Session 模块内部的 spawn_tree 子组件维护，记录父子 s
 | 模块 | 调用关系 |
 |------|---------|
 | Session | 创建 child session、注入 task 到 system prompt、管理 announce 队列。spawn_tree 作为 Session 模块的内部子组件，其存储、查询、回收、级联清理和重启恢复见 [spawn-tree.md](../session/spawn-tree.md) |
-| System Prompt | 按 lightContext/agent.bootstrapMode 决定子 session 的 bootstrap 文件集 |
+| System Prompt | 子 session 以 Session 角色=Sub 触发构建，System Prompt 据此不加载可选内容（角色与加载判据见 [system_prompt/static-layer.md](../system_prompt/static-layer.md)）；父主 session 按 agent.bootstrapMode 决定是否加载自定义引导指令 |
 
 ### 无关
 

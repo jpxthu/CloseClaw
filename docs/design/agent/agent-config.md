@@ -30,10 +30,10 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `memory` | per-agent memory 配置覆盖（active_searcher 参数等），仅在明确需要覆盖默认值时使用，详见 [memory 模块设计文档](../memory/config.md) | 否 | null |
 
 `bootstrapMode` 取值：
-- `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、BOOTSTRAP.md）
-- `"minimal"`：仅加载核心文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md），减少上下文占用
+- `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、BOOTSTRAP.md)
+- `"minimal"`：仅加载核心文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md），不加载自定义引导指令（BOOTSTRAP.md），减少上下文占用
 
-> Minimal / Full 两种模式的文件集合以 system_prompt 模块为权威源：完整清单见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载。MEMORY.md 不属于 bootstrap 集合——它作为长期记忆由 MemorySection 独立管理（Full 模式生成），详见该文档。
+`bootstrapMode` 只决定自定义引导指令（BOOTSTRAP.md）在主 Agent Session 是否加载；长期记忆（MEMORY.md）的加载取决于 Session 角色（主 Session 加载、子 Session 不加载），与 `bootstrapMode` 无关——精简模式主 Agent Session 仍加载长期记忆。子 Session 不加载 BOOTSTRAP.md 与长期记忆，与目标 agent 的 `bootstrapMode` 无关。文件/记忆判据的权威定义见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载与 [fragment-provider.md](../system_prompt/fragment-provider.md)。MEMORY.md 不属于 bootstrap 集合，作为长期记忆由 MemorySection 独立管理。
 
 `subagents` 子字段：
 

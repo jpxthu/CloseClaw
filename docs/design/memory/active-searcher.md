@@ -30,7 +30,7 @@ active-searcher 将浓缩摘要写入 session 的 `memory_injection` 槽位，�
 - 用户消息触发 → 写入 `AfterCurrent`（摘要插入用户消息之后）
 - agent 消息触发 → 写入 `BeforeNext`（摘要插入下一轮用户消息之前）
 
-**角色排除**：memory-miner 自身、dreaming 浓缩 session 不触发 active-searcher。
+**角色排除**：memory-miner 自身、dreaming 浓缩 session，以及子 Session 的对话轮次（子 Session 不加载长期记忆，见 system_prompt §F8），均不触发 active-searcher。
 
 ## 数据流
 
