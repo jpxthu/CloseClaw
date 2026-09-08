@@ -147,8 +147,8 @@ impl ToolRegistryImpl {
 
     /// Format a single group into a section line, returning (output, new_total_len).
     ///
-    /// When the total length would exceed `max_len`, tools are added one by one
-    /// and the group is truncated (rather than discarded entirely).
+    /// When the total length would exceed `max_len`, the entire group is
+    /// discarded (not truncated) so that partial group output is never produced.
     ///
     /// Output format:
     /// - group header: `**{group}** — (always loaded)` if the group has eager tools, else `**{group}** — (deferred)`
@@ -182,11 +182,12 @@ impl ToolRegistryImpl {
         let mut sorted_tools: Vec<_> = tools.iter().collect();
         sorted_tools.sort_by_key(|t| t.name.clone());
 
-        // Start with header; add tools one by one, stop when limit reached.
-        let mut lines = vec![header];
-        let mut current_len = total_len + header_len;
+        // Compute total length of all tool lines (including wrapping) to decide
+        // whether the entire group fits.  If it doesn't, skip the whole group.
+        let mut all_tool_lines: Vec<String> = Vec::new();
+        let mut all_tools_len: usize = 0;
 
-        for tool in sorted_tools {
+        for tool in &sorted_tools {
             let danger_mark = if tool.is_destructive {
                 " (destructive)"
             } else if tool.is_read_only {
@@ -202,22 +203,21 @@ impl ToolRegistryImpl {
 
             // Split long lines at word boundaries to stay within LINE_WIDTH.
             let wrapped = Self::split_long_line(&raw_line, LINE_WIDTH);
-            let mut fits = true;
             for chunk in &wrapped {
                 let chunk_len = chunk.chars().count() + 1; // +1 for trailing newline
-                if current_len + chunk_len > max_len {
-                    fits = false;
-                    break;
-                }
-                current_len += chunk_len;
-            }
-            if fits {
-                for chunk in &wrapped {
-                    lines.push(chunk.clone());
-                }
+                all_tools_len += chunk_len;
+                all_tool_lines.push(chunk.clone());
             }
         }
 
+        // Atomicity check: the entire group (header + all tools) must fit.
+        if total_len + header_len + all_tools_len > max_len {
+            return (String::new(), total_len);
+        }
+
+        // Everything fits — output the complete group.
+        let mut lines = vec![header];
+        lines.extend(all_tool_lines);
         let output = lines.join("\n") + "\n";
         let new_len = total_len + output.chars().count();
         (output, new_len)
