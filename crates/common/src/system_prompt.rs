@@ -8,6 +8,7 @@ use std::path::Path;
 use async_trait::async_trait;
 
 use crate::bootstrap::BootstrapMode;
+use crate::fragment::SessionRole;
 use crate::request_context::RequestContext;
 use crate::session_mode::SessionMode;
 
@@ -62,6 +63,7 @@ pub trait SystemPromptBuilder: Send + Sync {
         agent_id: &str,
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
+        session_role: SessionRole,
     ) -> String;
 
     /// Build a system prompt including activated conditional skills.
@@ -82,10 +84,17 @@ pub trait SystemPromptBuilder: Send + Sync {
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
         activated_skills: Vec<String>,
+        session_role: SessionRole,
     ) -> String {
         let _ = activated_skills;
-        self.build_prompt(session_id, agent_id, overrides, bootstrap_mode_override)
-            .await
+        self.build_prompt(
+            session_id,
+            agent_id,
+            overrides,
+            bootstrap_mode_override,
+            session_role,
+        )
+        .await
     }
 
     /// Invalidate cached prompt sections.

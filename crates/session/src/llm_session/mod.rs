@@ -20,7 +20,7 @@ use closeclaw_common::{
     ChildCompletionStatus, ChildSessionState, LlmState, SkillListingProvider, ToolExecState,
 };
 use closeclaw_common::{ContentBlock, UnifiedUsage};
-use closeclaw_common::{LlmCaller, PromptOverrides, SystemPromptBuilder};
+use closeclaw_common::{LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder};
 use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
 use closeclaw_tasks::NotificationPriority;
 
@@ -630,6 +630,13 @@ impl ConversationSession {
         // Pass activated conditional skills so that SkillsFragmentProvider
         // includes them in the rebuilt listing (SP rebuild path).
         let activated: Vec<String> = self.activated_conditional_skills.iter().cloned().collect();
+        // Derive session role from sub-agent flag: Main for top-level
+        // sessions, Sub for spawned child sessions.
+        let session_role = if self.is_sub_agent {
+            SessionRole::Sub
+        } else {
+            SessionRole::Main
+        };
         let prompt = builder
             .build_prompt_with_activated(
                 session_id,
@@ -637,6 +644,7 @@ impl ConversationSession {
                 self.prompt_overrides.as_ref(),
                 bootstrap_mode_override,
                 activated,
+                session_role,
             )
             .await;
         self.replace_system_prompt(prompt.clone());

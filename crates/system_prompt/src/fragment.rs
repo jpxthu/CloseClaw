@@ -1,1 +1,3 @@
-pub use closeclaw_common::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
+pub use closeclaw_common::{
+    FragmentContext, PromptFragment, PromptFragmentProvider, SectionType, SessionRole,
+};

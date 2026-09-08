@@ -2,7 +2,7 @@
 
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::system_prompt::PromptOverrides;
-use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SystemPromptBuilder};
+use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SessionRole, SystemPromptBuilder};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -117,7 +117,7 @@ async fn test_build_prompt_returns_non_empty_string() {
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let result = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
     assert!(!result.is_empty());
 }
@@ -132,7 +132,7 @@ async fn test_build_prompt_includes_bootstrap_content() {
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let result = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
     assert!(
         result.contains("bootstrap content here"),
@@ -152,13 +152,13 @@ async fn test_invalidate_cache_clears_sections() {
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     // Build once to populate the cache.
     let result_before = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
     assert!(!result_before.is_empty());
 
     // Verify cache is populated by building again (should be cached).
     let result_cached = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
     assert_eq!(result_before, result_cached);
 
@@ -167,7 +167,7 @@ async fn test_invalidate_cache_clears_sections() {
 
     // After invalidation, build should regenerate (still works correctly).
     let result_after = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
     assert_eq!(
         result_before, result_after,
@@ -190,7 +190,13 @@ async fn test_prompt_overrides_override_replaces_static() {
         custom_prompt: None,
     };
     let result = adapter
-        .build_prompt("session-1", agent_id, Some(&overrides), None)
+        .build_prompt(
+            "session-1",
+            agent_id,
+            Some(&overrides),
+            None,
+            SessionRole::Main,
+        )
         .await;
     assert_eq!(result, "REPLACED");
     assert!(!result.contains("original content"));
@@ -211,7 +217,13 @@ async fn test_prompt_overrides_agent_prompt_appends() {
         custom_prompt: None,
     };
     let result = adapter
-        .build_prompt("session-1", agent_id, Some(&overrides), None)
+        .build_prompt(
+            "session-1",
+            agent_id,
+            Some(&overrides),
+            None,
+            SessionRole::Main,
+        )
         .await;
     // BootstrapFragmentProvider reads BOOTSTRAP.md from the workspace dir.
     assert!(result.contains("base content"));
@@ -232,7 +244,13 @@ async fn test_prompt_overrides_priority_override_gt_agent_gt_custom() {
         custom_prompt: Some("CUSTOM".to_string()),
     };
     let result = adapter
-        .build_prompt("session-1", agent_id, Some(&overrides), None)
+        .build_prompt(
+            "session-1",
+            agent_id,
+            Some(&overrides),
+            None,
+            SessionRole::Main,
+        )
         .await;
     // override_prompt replaces everything; agent_prompt and custom_prompt are ignored.
     assert_eq!(result, "OVERRIDE");
@@ -244,7 +262,13 @@ async fn test_workspace_not_exists_fallback() {
     // No workspace directory created — adapter should degrade gracefully.
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let result = adapter
-        .build_prompt("session-1", "nonexistent-agent", None, None)
+        .build_prompt(
+            "session-1",
+            "nonexistent-agent",
+            None,
+            None,
+            SessionRole::Main,
+        )
         .await;
     // Should return DEFAULT_PROMPT since no workspace exists.
     assert!(!result.is_empty());
@@ -270,7 +294,13 @@ async fn test_bootstrap_mode_override_takes_precedence() {
 
     // Override with Full mode — should include BOOTSTRAP.md content.
     let result = adapter
-        .build_prompt("session-1", agent_id, None, Some(BootstrapMode::Full))
+        .build_prompt(
+            "session-1",
+            agent_id,
+            None,
+            Some(BootstrapMode::Full),
+            SessionRole::Main,
+        )
         .await;
     // The bootstrap provider reads BOOTSTRAP.md from disk in Full mode.
     assert!(
@@ -298,7 +328,7 @@ async fn test_bootstrap_mode_from_registry_when_no_override() {
     .await;
 
     let result = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
     assert!(
         !result.contains("bootstrap only in full"),
@@ -327,7 +357,7 @@ async fn test_adapter_multiple_providers_priority() {
 
     let adapter = test_adapter(tmp.path(), providers);
     let result = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
 
     // All three providers should contribute.
@@ -413,7 +443,14 @@ async fn test_build_prompt_with_activated_passes_skills_to_provider() {
     // Build with activated skills
     let activated = vec!["cond_skill_a".to_string(), "cond_skill_b".to_string()];
     let result = adapter
-        .build_prompt_with_activated("session-1", agent_id, None, None, activated.clone())
+        .build_prompt_with_activated(
+            "session-1",
+            agent_id,
+            None,
+            None,
+            activated.clone(),
+            SessionRole::Main,
+        )
         .await;
 
     // Verify the provider received the activated skills
@@ -443,7 +480,7 @@ async fn test_build_prompt_without_activated_empty_ctx() {
 
     // Build without activated skills (empty vec)
     let result = adapter
-        .build_prompt_with_activated("session-1", agent_id, None, None, vec![])
+        .build_prompt_with_activated("session-1", agent_id, None, None, vec![], SessionRole::Main)
         .await;
 
     // Provider should receive empty activated_skills
@@ -472,7 +509,7 @@ async fn test_build_prompt_vs_with_activated_different_output() {
 
     // Build without activated skills
     let result_base = adapter
-        .build_prompt("session-1", agent_id, None, None)
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
         .await;
 
     // Build with activated skills
@@ -483,10 +520,91 @@ async fn test_build_prompt_vs_with_activated_different_output() {
             None,
             None,
             vec!["cond_skill".to_string()],
+            SessionRole::Main,
         )
         .await;
 
     // Results should differ because activated skills change the output
     assert_ne!(result_base, result_activated);
     assert!(result_activated.contains("cond_skill"));
+}
+
+// ------------------------------------------------------------------
+// Dimension: pass-through correctness — adapter propagates
+// session_role into FragmentContext without mutation
+// ------------------------------------------------------------------
+
+struct RoleRecordingProvider {
+    recorded: std::sync::Arc<tokio::sync::Mutex<Vec<SessionRole>>>,
+}
+
+#[async_trait]
+impl PromptFragmentProvider for RoleRecordingProvider {
+    fn name(&self) -> &str {
+        "role_recorder"
+    }
+
+    fn priority(&self) -> u32 {
+        5
+    }
+
+    async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        let mut guard = self.recorded.lock().await;
+        guard.push(ctx.session_role);
+        Some(PromptFragment {
+            section_title: "## Role".to_string(),
+            section_type: SectionType::Bootstrap,
+            content: format!("role={:?}", ctx.session_role),
+        })
+    }
+
+    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+        None
+    }
+}
+
+/// Adapter passes Sub role from caller into FragmentContext as-is.
+#[tokio::test]
+async fn test_adapter_passes_sub_role_to_fragment_context() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<SessionRole>::new()));
+    let provider = RoleRecordingProvider {
+        recorded: recorded.clone(),
+    };
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    let _result = adapter
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Sub)
+        .await;
+
+    let roles = recorded.lock().await;
+    assert_eq!(roles.len(), 1);
+    assert_eq!(roles[0], SessionRole::Sub);
+}
+
+/// Adapter passes Main role from caller into FragmentContext as-is.
+#[tokio::test]
+async fn test_adapter_passes_main_role_to_fragment_context() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<SessionRole>::new()));
+    let provider = RoleRecordingProvider {
+        recorded: recorded.clone(),
+    };
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    let _result = adapter
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
+        .await;
+
+    let roles = recorded.lock().await;
+    assert_eq!(roles.len(), 1);
+    assert_eq!(roles[0], SessionRole::Main);
 }

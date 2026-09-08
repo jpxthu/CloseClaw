@@ -1,6 +1,6 @@
 use super::*;
 use crate::{GatewayConfig, Message};
-use closeclaw_common::{BootstrapMode, PromptOverrides, SystemPromptBuilder};
+use closeclaw_common::{BootstrapMode, PromptOverrides, SessionRole, SystemPromptBuilder};
 use closeclaw_config::manager::ConfigSnapshot;
 use closeclaw_session::persistence::SessionCheckpoint;
 use serial_test::serial;
@@ -38,6 +38,7 @@ impl SystemPromptBuilder for TestPromptBuilder {
         _agent_id: &str,
         _overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
+        _session_role: SessionRole,
     ) -> String {
         let mode = bootstrap_mode_override.unwrap_or(self.bootstrap_mode);
         let Some(ref workspace) = self.workspace_dir else {

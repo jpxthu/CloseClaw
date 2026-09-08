@@ -177,9 +177,16 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         agent_id: &str,
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
+        session_role: closeclaw_common::SessionRole,
     ) -> String {
-        self.build_prompt_inner(agent_id, overrides, bootstrap_mode_override, vec![])
-            .await
+        self.build_prompt_inner(
+            agent_id,
+            overrides,
+            bootstrap_mode_override,
+            vec![],
+            session_role,
+        )
+        .await
     }
 
     /// Invalidate all cached prompt sections.
@@ -204,12 +211,14 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
         activated_skills: Vec<String>,
+        session_role: closeclaw_common::SessionRole,
     ) -> String {
         self.build_prompt_inner(
             agent_id,
             overrides,
             bootstrap_mode_override,
             activated_skills,
+            session_role,
         )
         .await
     }
@@ -228,6 +237,7 @@ impl SystemPromptBuilderAdapter {
         overrides: Option<&PromptOverrides>,
         bootstrap_mode_override: Option<BootstrapMode>,
         activated_skills: Vec<String>,
+        session_role: closeclaw_common::SessionRole,
     ) -> String {
         let bootstrap_mode = match bootstrap_mode_override {
             Some(mode) => mode,
@@ -257,6 +267,7 @@ impl SystemPromptBuilderAdapter {
             bootstrap_mode_override: Some(bootstrap_mode),
             agent_id: Some(agent_id.to_string()),
             activated_skills,
+            session_role,
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(

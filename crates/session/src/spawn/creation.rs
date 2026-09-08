@@ -316,6 +316,11 @@ async fn configure_spawn_behavior(
     behavior: &SpawnBehaviorConfig<'_>,
     comm_config: &CommunicationConfig,
 ) -> ConversationSession {
+    // Mark as sub-agent before building the system prompt so that
+    // rebuild_system_prompt sees is_sub_agent == true and passes
+    // SessionRole::Sub to the builder (design doc §5, §8).
+    cs.set_sub_agent(true);
+
     // Build initial system prompt, then append spawn context.
     let base_prompt = cs
         .rebuild_system_prompt(
@@ -332,10 +337,6 @@ async fn configure_spawn_behavior(
         system_prompt.push_str(tpl_prefix);
     }
     cs.replace_system_prompt(system_prompt);
-
-    // Mark as sub-agent so the sub-agent sparse prompt variant
-    // is injected on subsequent LLM calls (design doc §5, §8).
-    cs.set_sub_agent(true);
 
     // Apply communication config: child may only communicate with parent.
     cs = cs.with_communication_config(comm_config.clone());
