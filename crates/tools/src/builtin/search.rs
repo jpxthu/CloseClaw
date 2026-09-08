@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
 use serde_json::{json, Value};
 
-use crate::registry::extract_keywords;
-use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use crate::registry::{extract_keywords, strip_keywords_prefix};
+use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult};
 
 // ---------------------------------------------------------------------------
 // Scoring constants
@@ -145,15 +145,19 @@ impl ToolSearchTool {
             .iter()
             .find(|d| d.name.to_lowercase() == query_lower)?;
         let schema = self.registry.get_tool_schema(&matched.name).await;
+        let detail = strip_keywords_prefix(&matched.detail);
         Some(ToolResult {
             data: json!({
                 "name": matched.name,
                 "group": matched.group,
                 "summary": matched.summary,
-                "detail": matched.detail,
+                "detail": detail.clone(),
                 "input_schema": schema,
             }),
-            new_messages: vec![],
+            new_messages: vec![ToolMessage {
+                content: detail,
+                is_meta: true,
+            }],
             context_modifier: None,
         })
     }
