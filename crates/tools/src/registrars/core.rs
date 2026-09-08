@@ -19,7 +19,7 @@ use crate::builtin::{
 };
 use crate::try_register;
 use crate::Tool;
-use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolRegistryQuery};
 
 /// Core tools registrar — registers all tools from the core domain.
 ///
@@ -30,6 +30,7 @@ pub struct CoreToolsRegistrar {
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    tool_registry: Arc<dyn ToolRegistryQuery>,
     audit_log_path: Option<PathBuf>,
 }
 
@@ -41,6 +42,7 @@ impl CoreToolsRegistrar {
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+        tool_registry: Arc<dyn ToolRegistryQuery>,
     ) -> Self {
         Self {
             permission_engine,
@@ -48,6 +50,7 @@ impl CoreToolsRegistrar {
             session_manager,
             config_manager,
             approval_flow,
+            tool_registry,
             audit_log_path: None,
         }
     }
@@ -130,7 +133,12 @@ impl ToolRegistrar for CoreToolsRegistrar {
             ),
             r
         );
-        try_register!(registry, registered, ToolSearchTool::new(), r);
+        try_register!(
+            registry,
+            registered,
+            ToolSearchTool::new(Arc::clone(&self.tool_registry)),
+            r
+        );
         try_register!(registry, registered, PermissionQueryTool::new(), r);
         try_register!(registry, registered, GitStatusTool::new(), r);
         try_register!(registry, registered, GitLogTool::new(), r);
