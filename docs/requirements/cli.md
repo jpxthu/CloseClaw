@@ -82,9 +82,9 @@ Owner 可以通过 CLI 查询和管理 Agent 实例。此功能依赖 daemon 已
 
 ### F6. Skill 管理
 
-Owner 可以通过 CLI 查询 Skill 列表，或触发 daemon 重新扫描技能目录加载新 Skill。此功能依赖 daemon 已运行。
+Owner 可以通过 CLI 查询 Skill 列表。此功能依赖 daemon 已运行。
 
-> **交叉引用**：Skill 即插即用的完整语义见 [skills §F1](skills.md)（技能即插即用）。
+> **交叉引用**：Skill 即插即用的完整语义见 [skills §F1](skills.md)（技能即插即用）；技能变更的生效时机见 [skills §F5](skills.md)（技能文件变更）。
 
 ### F7. 权限规则查看
 
