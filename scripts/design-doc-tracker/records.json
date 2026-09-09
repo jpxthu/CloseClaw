@@ -49,11 +49,11 @@
   },
   {
     "path": "docs/design/cli/admin.md",
-    "commit": "26c41c1c847f13c2c9e2683a687b01720f12736a",
-    "commit_time": "2026-08-24T06:20:43+08:00",
-    "confirmed_time": "2026-09-10T01:14:36.685445+08:00",
+    "commit": "016d2ed7d61e36937565a46b6c00ede17e378fc8",
+    "commit_time": "2026-09-10T02:16:19+08:00",
+    "confirmed_time": "2026-09-10T02:40:13.396932+08:00",
     "comment": "",
-    "blocked_reason": "设计文档内部矛盾：admin.md 定义 skill rescan 运行时立即重扫并更新 Skills Registry，但 skills/README.md 明确声明无运行时热生效路径、注册中心唯一生效时机为 System Prompt 组装边界且组装边界之间稳定。两文档对同一能力互斥，历史 PR #2644 已按 README 移除 rescan 代码，与 admin.md 定义冲突，需 Owner 裁决权威文档"
+    "blocked_reason": "设计目标不清晰：(1) config validate 校验深度歧义——'校验配置文件格式'未界定是仅 JSON 语法解析还是 schema 级校验，两种产品形态行为差异巨大；(2) rule check 输入格式未定义——'校验单条规则语法'未说明接受内联 JSON 字符串还是文件路径（CLI help 写 'Rule name or file' 亦与代码行为不一致）。需 Owner 明确设计意图后更新文档"
   },
   {
     "path": "docs/design/cli/chat.md",
