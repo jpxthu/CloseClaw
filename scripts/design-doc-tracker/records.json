@@ -753,9 +753,9 @@
   },
   {
     "path": "docs/design/system_prompt/static-layer.md",
-    "commit": "00305b05ae4af2f3c3bf1552c8407b249ee72ed5",
-    "commit_time": "2026-09-07T22:55:40+08:00",
-    "confirmed_time": "2026-09-07T23:55:11.924767+08:00",
+    "commit": "26256f8213da556956092116697e12581090445d",
+    "commit_time": "2026-09-10T07:04:17+08:00",
+    "confirmed_time": "2026-09-10T07:24:46.085548+08:00",
     "comment": "",
     "blocked_reason": ""
   },
