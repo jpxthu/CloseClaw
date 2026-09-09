@@ -163,7 +163,17 @@ impl ConversationSession {
         let (listing, new_snapshot) =
             self.compute_skill_listing_for_turn(&std::collections::HashSet::new());
 
-        (listing, new_snapshot, newly_activated)
+        // Save the snapshot so the next turn's diff is incremental
+        // (not a full listing from the "first turn" branch).
+        if let Some(snapshot) = new_snapshot {
+            self.skill_listing_snapshot = Some(snapshot);
+        }
+
+        (
+            listing,
+            self.skill_listing_snapshot.clone(),
+            newly_activated,
+        )
     }
 
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
