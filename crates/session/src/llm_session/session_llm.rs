@@ -78,45 +78,25 @@ impl ConversationSession {
 
     /// Prepare the skill listing for the current turn.
     ///
-    /// Corresponds to the design doc's "增量更新" section
-    /// (`docs/design/skills/skill-listing-injection.md`), which
-    /// specifies the processing order: "先更新文件变更引起的增量，
-    /// 再处理条件激活的增量" (first update increments caused by
-    /// file changes, then process conditional activation increments).
+    /// Handles conditional activation detection, state update, and
+    /// listing computation. Newly activated skills are NOT injected
+    /// in the current turn — only base-listing changes are included;
+    /// the activation entries will naturally appear in the next
+    /// turn's diff.
     ///
-    /// This function handles the conditional activation step:
-    /// extracts file paths from the user message, finds new
-    /// conditional matches, updates `activated_conditional_skills`
-    /// immediately (via [`apply_skill_listing_update`] with
-    /// `None` snapshot), then computes the incremental listing
-    /// using the current activation set. Newly activated skills
-    /// are NOT injected in the current turn — the listing is
-    /// computed with `newly_activated = empty`, so the diff only
-    /// reflects previously-activated skills. The newly activated
-    /// entries will naturally appear in the next turn's diff when
-    /// `activated_conditional_skills` already includes them.
-    ///
-    /// The ordering is guaranteed by the daemon's file listener,
-    /// which completes cache invalidation and re-scan *before* this
-    /// turn executes (see design doc's "文件监听与热重载" section).
-    /// The incremental diff in [`compute_skill_listing_for_turn`]
-    /// then naturally captures both file-change increments and
-    /// conditional activation increments in the correct order.
-    ///
-    /// Returns `(listing, new_snapshot, newly_activated_names)`.
-    fn prepare_turn_skill_listing(
-        &mut self,
-        content: &str,
-    ) -> (
-        Option<String>,
-        Option<String>,
-        std::collections::HashSet<String>,
-    ) {
-        // Compaction detection: if the session was compacted, clear
-        // the snapshot so that compute_skill_listing_for_turn enters
-        // the "first turn" branch and injects the full listing.
-        // After injection, apply_skill_listing_update sets a new
-        // snapshot, restoring the normal incremental diff path.
+    /// Returns the listing content to inject (`None` when nothing
+    /// to inject).
+    fn prepare_turn_skill_listing(&mut self, content: &str) -> Option<String> {
+        self.reset_compaction_snapshot_if_pending();
+        let newly_activated = self.detect_conditional_activations(content);
+        self.apply_conditional_activations(&newly_activated);
+        let (listing, new_snapshot) = self.compute_skill_listing_for_turn();
+        self.maybe_update_snapshot(&newly_activated, new_snapshot);
+        self.filter_listing_on_activation_turns(listing, &newly_activated)
+    }
+
+    /// Reset the skill listing snapshot after compaction.
+    fn reset_compaction_snapshot_if_pending(&mut self) {
         if self.pending_compaction_listing_reset && self.skill_listing_snapshot.is_some() {
             tracing::debug!(
                 session_id = %self.session_id,
@@ -125,16 +105,18 @@ impl ConversationSession {
             self.skill_listing_snapshot = None;
             self.pending_compaction_listing_reset = false;
         }
+    }
 
-        // 1. Extract file paths from user content and find newly
-        //    activated conditionals.
+    /// Extract file paths from the content and find newly activated
+    /// conditional skills.
+    fn detect_conditional_activations(&self, content: &str) -> std::collections::HashSet<String> {
         let paths = Self::extract_file_paths(content);
         let mut newly_activated = std::collections::HashSet::new();
         if !paths.is_empty() {
             if let Some(provider) = self.skill_listing_provider.as_ref() {
                 let matches = provider.find_conditional_matches(&paths);
                 for m in matches {
-                    if !self.activated_conditional_skills.contains(&m.name) {
+                    if !self.is_skill_newly_activated(&m.name) {
                         newly_activated.insert(m.name);
                     }
                 }
@@ -148,70 +130,88 @@ impl ConversationSession {
                 "conditionally activated skills for current turn"
             );
         }
+        newly_activated
+    }
 
-        // 2. Apply conditional activation to session state immediately
-        //    (but without updating the snapshot, so the next turn's
-        //    diff will pick up the new entries).
+    /// Check if a skill name is not yet in the activated set.
+    fn is_skill_newly_activated(&self, name: &str) -> bool {
+        self.activated_conditional_skills.contains(name)
+    }
+
+    /// Apply newly activated conditional skills to session state.
+    ///
+    /// Passes `None` for the snapshot to avoid updating it — the
+    /// next turn's diff will pick up the new entries.
+    fn apply_conditional_activations(
+        &mut self,
+        newly_activated: &std::collections::HashSet<String>,
+    ) {
         if !newly_activated.is_empty() {
-            self.apply_skill_listing_update(None, &newly_activated);
+            self.apply_skill_listing_update(None, newly_activated);
         }
+    }
 
-        // 3. Compute listing using the current activation set.
-        //    Pass empty newly_activated so the diff is computed
-        //    against the old snapshot. On activation turns, the diff
-        //    will include the newly activated entry — we filter it
-        //    out below so only base-listing changes are injected
-        //    this turn.
-        let (listing, new_snapshot) =
-            self.compute_skill_listing_for_turn(&std::collections::HashSet::new());
-
-        // 4. On activation turns, strip newly activated entries from
-        //    the diff. Only base-listing changes are injected this
-        //    turn; the activation entries will naturally appear in
-        //    the next turn's diff (old snapshot doesn't include them,
-        //    current listing does).
-        let listing = if !newly_activated.is_empty() {
-            listing.and_then(|l| {
-                let filtered: Vec<&str> = l
-                    .lines()
-                    .filter(|line| {
-                        if line.is_empty() {
-                            return true;
-                        }
-                        // Exclude lines that are entries for newly
-                        // activated skills.
-                        !(line.starts_with("- **")
-                            && newly_activated
-                                .iter()
-                                .any(|name| line.contains(&format!("**{}**:", name))))
-                    })
-                    .collect();
-                let result = filtered.join("\n");
-                if result.is_empty() {
-                    None
-                } else {
-                    Some(result)
-                }
-            })
-        } else {
-            listing
-        };
-
-        // 5. Snapshot update: only save on non-activation turns.
-        //    On activation turns, skip saving so the next turn's diff
-        //    naturally includes the newly activated entry (the old
-        //    snapshot vs. the current listing that now includes it).
+    /// Conditionally update the snapshot based on activation state.
+    ///
+    /// On activation turns, skip saving so the next turn's diff
+    /// naturally includes the newly activated entry.
+    fn maybe_update_snapshot(
+        &mut self,
+        newly_activated: &std::collections::HashSet<String>,
+        new_snapshot: Option<String>,
+    ) {
         if newly_activated.is_empty() {
             if let Some(snapshot) = new_snapshot {
                 self.skill_listing_snapshot = Some(snapshot);
             }
         }
+    }
 
-        (
-            listing,
-            self.skill_listing_snapshot.clone(),
-            newly_activated,
-        )
+    /// Strip newly activated entries from the listing on activation
+    /// turns so only base-listing changes are injected this turn.
+    fn filter_listing_on_activation_turns(
+        &self,
+        listing: Option<String>,
+        newly_activated: &std::collections::HashSet<String>,
+    ) -> Option<String> {
+        if newly_activated.is_empty() {
+            return listing;
+        }
+        listing.and_then(|l| Self::filter_listing_excluding_entries(l, newly_activated))
+    }
+
+    /// Filter a skill listing to exclude entries matching given skill
+    /// names.
+    ///
+    /// Removes lines that are formatted skill entries (starting with
+    /// `- **`) for the specified skill names, and returns `None` if
+    /// the result is empty.
+    fn filter_listing_excluding_entries(
+        listing: String,
+        exclude_names: &std::collections::HashSet<String>,
+    ) -> Option<String> {
+        let filtered: Vec<&str> = listing
+            .lines()
+            .filter(|line| !line.is_empty() && !Self::is_entry_for_skill(line, exclude_names))
+            .collect();
+        let result = filtered.join("\n");
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
+    }
+
+    /// Check if a listing line is an entry for one of the given skill
+    /// names.
+    ///
+    /// Matches the pattern `- **{name**:` to avoid substring false
+    /// matches on partial skill names.
+    fn is_entry_for_skill(line: &str, skill_names: &std::collections::HashSet<String>) -> bool {
+        line.starts_with("- **")
+            && skill_names
+                .iter()
+                .any(|name| line.contains(&format!("**{}**:", name)))
     }
 
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
@@ -242,7 +242,7 @@ impl ConversationSession {
             ));
         };
 
-        let (listing, _new_snapshot, _newly_activated) = self.prepare_turn_skill_listing(content);
+        let listing = self.prepare_turn_skill_listing(content);
         let messages = self.build_llm_messages_with_listing(content, listing);
 
         let request = self.build_llm_request(messages, false);
@@ -292,7 +292,7 @@ impl ConversationSession {
             ));
         };
 
-        let (listing, _new_snapshot, _newly_activated) = self.prepare_turn_skill_listing(content);
+        let listing = self.prepare_turn_skill_listing(content);
         let messages = self.build_llm_messages_with_listing(content, listing);
 
         let request = self.build_llm_request(messages, true);

@@ -186,9 +186,8 @@ fn test_compute_skill_listing_newly_activated_injects_complete_entry() {
     activated.insert("rs_helper".to_string());
     session.apply_skill_listing_update(None, &activated);
 
-    // compute_skill_listing_for_turn always receives empty newly_activated
-    let newly_activated = HashSet::new();
-    let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
+    // compute_skill_listing_for_turn takes no args
+    let (listing, new_snapshot) = session.compute_skill_listing_for_turn();
 
     // The diff should include rs_helper's complete entry
     let injected = listing.expect("should inject deferred rs_helper entry via diff");
@@ -215,8 +214,7 @@ fn test_compute_skill_listing_no_activation_no_change_no_injection() {
     session.set_skill_listing_provider(provider);
     session.skill_listing_snapshot = Some("- **skill_a**: desc_a".to_string());
 
-    let newly_activated = HashSet::new();
-    let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
+    let (listing, new_snapshot) = session.compute_skill_listing_for_turn();
 
     assert!(listing.is_none(), "no changes → no injection");
     assert!(new_snapshot.is_some(), "snapshot still updated");
@@ -234,8 +232,7 @@ fn test_compute_skill_listing_first_turn_injects_full_listing() {
     session.set_skill_listing_provider(provider);
     // No snapshot → first turn
 
-    let newly_activated = HashSet::new();
-    let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
+    let (listing, new_snapshot) = session.compute_skill_listing_for_turn();
 
     let injected = listing.expect("first turn should inject full listing");
     assert!(injected.contains("skill_a"));
@@ -255,10 +252,7 @@ fn test_compute_skill_listing_activated_not_in_listing_falls_back_to_diff() {
     session.set_skill_listing_provider(provider);
     session.skill_listing_snapshot = Some("- **skill_a**: desc_a".to_string());
 
-    let mut newly_activated = HashSet::new();
-    newly_activated.insert("nonexistent_skill".to_string());
-
-    let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
+    let (listing, new_snapshot) = session.compute_skill_listing_for_turn();
 
     // No diff since listing hasn't changed → None
     assert!(listing.is_none());
@@ -280,11 +274,12 @@ fn test_compute_skill_listing_multiple_newly_activated() {
     session.set_skill_listing_provider(provider);
     session.skill_listing_snapshot = Some("- **skill_a**: desc_a".to_string());
 
-    let mut newly_activated = HashSet::new();
-    newly_activated.insert("rs_helper".to_string());
-    newly_activated.insert("py_helper".to_string());
+    let mut activated = HashSet::new();
+    activated.insert("rs_helper".to_string());
+    activated.insert("py_helper".to_string());
+    session.apply_skill_listing_update(None, &activated);
 
-    let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
+    let (listing, new_snapshot) = session.compute_skill_listing_for_turn();
 
     let injected = listing.expect("should inject complete entries for both skills");
     assert!(injected.contains("rs_helper"));
