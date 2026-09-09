@@ -737,9 +737,9 @@
   },
   {
     "path": "docs/design/system_prompt/fragment-provider.md",
-    "commit": "dacc78de577e608004db22b01ead1b7bd6b4f11b",
-    "commit_time": "2026-09-07T14:21:09+08:00",
-    "confirmed_time": "2026-09-07T14:31:01.835341+08:00",
+    "commit": "96ae67c4fb0eb14abf0ee4b7554a723f6ce9d1e6",
+    "commit_time": "2026-09-10T00:42:02+08:00",
+    "confirmed_time": "2026-09-10T00:55:45.263547+08:00",
     "comment": "",
     "blocked_reason": ""
   },
