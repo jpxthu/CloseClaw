@@ -294,23 +294,25 @@ async fn test_conditional_activation_next_turn() {
     assert_eq!(tools1.len(), 1);
     assert!(!tools1[0].contains("rs_helper"));
 
-    // Second turn: .rs file → complete entry injected immediately
+    // Second turn: .rs file → activation is detected, deferred to
+    // the next turn. No base-listing changes → empty diff → no
+    // injection on this turn.
     let _ = session.invoke_llm("edit src/main.rs please").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
     let tools2 = skill_listing_messages(&req2);
     assert_eq!(
         tools2.len(),
-        1,
-        "should inject complete entry on activation turn"
+        0,
+        "activation turn with no file-change: no injection"
     );
-    assert!(tools2[0].contains("rs_helper"));
-    assert!(tools2[0].contains("⚡"));
 
-    // Third turn: already activated → no new injection
+    // Third turn: pending activation entry is injected
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 0, "no new activation → no injection");
+    assert_eq!(tools3.len(), 1, "should inject deferred rs_helper entry");
+    assert!(tools3[0].contains("rs_helper"));
+    assert!(tools3[0].contains("⚡"));
 }
 
 #[tokio::test]
@@ -336,15 +338,16 @@ async fn test_no_reactivation_of_already_activated() {
 
     let _ = session.invoke_llm("hello").await.unwrap();
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
+    // Turn 3: pending activation entry is injected
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     assert_eq!(
         skill_listing_messages(&req3).len(),
-        0,
-        "no new activation → no injection"
+        1,
+        "pending activation entry should be injected"
     );
 
-    // Same .rs path again → no new injection
+    // Turn 4: same .rs path again → already activated → no injection
     let _ = session.invoke_llm("edit src/lib.rs").await.unwrap();
     let req4 = fake_ref.last_request().unwrap();
     assert_eq!(
@@ -414,22 +417,29 @@ async fn test_selective_conditional_activation() {
     let _ = session.invoke_llm("hello").await.unwrap();
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
 
-    // Turn 2: rs_helper complete entry injected immediately
+    // Turn 2: activation detected, deferred to next turn. No base-
+    // listing changes → empty diff → no injection on this turn.
     let req2 = fake_ref.last_request().unwrap();
     let tools2 = skill_listing_messages(&req2);
     assert_eq!(
         tools2.len(),
-        1,
-        "should inject rs_helper entry on activation turn"
+        0,
+        "activation turn with no file-change: no injection"
     );
-    assert!(tools2[0].contains("rs_helper"));
-    assert!(!tools2[0].contains("py_helper"));
 
-    // Turn 3: no new activation → no injection
+    // Turn 3: pending activation entry is injected
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 0, "no new activation → no injection");
+    assert_eq!(tools3.len(), 1, "should inject deferred rs_helper entry");
+    assert!(tools3[0].contains("rs_helper"));
+    assert!(tools3[0].contains("⚡"));
+
+    // Turn 4: no new activation → no injection
+    let _ = session.invoke_llm("continue").await.unwrap();
+    let req4 = fake_ref.last_request().unwrap();
+    let tools4 = skill_listing_messages(&req4);
+    assert_eq!(tools4.len(), 0, "no new activation → no injection");
 }
 
 #[tokio::test]
@@ -521,33 +531,39 @@ async fn test_file_change_and_conditional_activation_same_turn() {
 - **skill_c**: desc_c",
     );
 
-    // Turn 2: file change + conditional activation. The combined
-    // set (base + newly_activated) is used, so rs_helper complete
-    // entry is injected. Base listing changes are captured in the
-    // snapshot for future diff comparisons.
+    // Turn 2: file change + conditional activation. Base listing
+    // changes are captured in the snapshot. rs_helper activation is
+    // detected but injection is deferred to the next turn.
     let _ = session
         .invoke_llm("edit src/main.rs for the feature")
         .await
         .unwrap();
     let req2 = fake_ref.last_request().unwrap();
     let tools2 = skill_listing_messages(&req2);
-    assert_eq!(
-        tools2.len(),
-        1,
-        "should inject complete entry for newly activated skill"
+    // Turn 2 should inject the base listing diff (skill_c added,
+    // skill_b removed) but NOT rs_helper (deferred)
+    assert!(
+        tools2.len() >= 1,
+        "should inject base listing diff on activation turn"
     );
     assert!(
-        tools2[0].contains("rs_helper"),
-        "should contain rs_helper complete entry"
+        !tools2[0].contains("rs_helper"),
+        "rs_helper should NOT be injected on activation turn (deferred)"
     );
-    assert!(tools2[0].contains("⚡"));
 
-    // Turn 3: rs_helper already activated, snapshot includes all
-    // current state (skill_a, skill_c, rs_helper) → no new injection
+    // Turn 3: rs_helper appears via deferred injection
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 0, "no new changes → no injection");
+    assert_eq!(tools3.len(), 1, "should inject deferred rs_helper entry");
+    assert!(tools3[0].contains("rs_helper"));
+    assert!(tools3[0].contains("⚡"));
+
+    // Turn 4: rs_helper already in snapshot → no new injection
+    let _ = session.invoke_llm("continue").await.unwrap();
+    let req4 = fake_ref.last_request().unwrap();
+    let tools4 = skill_listing_messages(&req4);
+    assert_eq!(tools4.len(), 0, "no new changes → no injection");
 }
 
 // ── File change that deactivates a conditional skill ─────────────────────
@@ -586,35 +602,42 @@ async fn test_file_change_removes_base_skill_with_conditional_active() {
     assert_eq!(tools1.len(), 1);
     assert!(tools1[0].contains("skill_a"));
 
-    // Turn 2: .rs path → rs_helper complete entry injected immediately
+    // Turn 2: .rs path → activation detected, deferred to next turn.
+    // No base-listing changes → empty diff → no injection.
     let _ = session.invoke_llm("edit src/lib.rs").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
     let tools2 = skill_listing_messages(&req2);
     assert_eq!(
         tools2.len(),
-        1,
-        "should inject rs_helper entry on activation turn"
+        0,
+        "activation turn with no file-change: no injection"
     );
-    assert!(tools2[0].contains("rs_helper"));
 
-    // Turn 3: no new activation → no injection
+    // Turn 3: pending activation entry is injected
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 0, "no new activation → no injection");
+    assert_eq!(tools3.len(), 1, "should inject deferred rs_helper entry");
+    assert!(tools3[0].contains("rs_helper"));
+
+    // Turn 4: no new activation → no injection
+    let _ = session.invoke_llm("continue").await.unwrap();
+    let req4 = fake_ref.last_request().unwrap();
+    let tools4 = skill_listing_messages(&req4);
+    assert_eq!(tools4.len(), 0, "no new activation → no injection");
 
     // Daemon removes skill_a from listing (but keeps something else
     // so the listing is not completely empty)
     provider.set_all_listing("- **skill_d**: desc_d");
     provider.set_base_listing("- **skill_d**: desc_d");
 
-    // Turn 4: listing changes → diff should show removals
-    let _ = session.invoke_llm("turn4").await.unwrap();
-    let req4 = fake_ref.last_request().unwrap();
-    let tools4 = skill_listing_messages(&req4);
-    assert_eq!(tools4.len(), 1, "should inject diff for removed skills");
+    // Turn 5: listing changes → diff should show removals
+    let _ = session.invoke_llm("turn5").await.unwrap();
+    let req5 = fake_ref.last_request().unwrap();
+    let tools5 = skill_listing_messages(&req5);
+    assert_eq!(tools5.len(), 1, "should inject diff for removed skills");
     assert!(
-        tools4[0].contains("- - **skill_a**"),
+        tools5[0].contains("- - **skill_a**"),
         "diff should show skill_a removal"
     );
 }

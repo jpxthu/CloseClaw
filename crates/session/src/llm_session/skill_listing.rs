@@ -195,7 +195,7 @@ impl ConversationSession {
     ///
     /// Combines the base listing (excluding conditional skills) with
     /// the activated conditional skills' listing lines.
-    fn generate_listing_with_activated(
+    pub(crate) fn generate_listing_with_activated(
         &self,
         provider: &Arc<dyn SkillListingProvider>,
         activated: &HashSet<String>,

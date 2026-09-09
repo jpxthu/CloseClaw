@@ -236,15 +236,26 @@ async fn test_gap1_conditional_activation_after_provider_set() {
     assert_eq!(systems1.len(), 1);
     assert!(!systems1[0].contains("rs_helper"));
 
-    // Turn 2: .rs file triggers activation, complete entry injected
-    // immediately
+    // Turn 2: .rs file triggers activation, but injection is deferred
+    // to the next turn per design doc. No base-listing changes →
+    // empty diff → no injection on this turn.
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
     let systems2 = system_messages(&req2);
-    assert_eq!(systems2.len(), 1);
+    assert_eq!(
+        systems2.len(),
+        0,
+        "activation turn with no file-change: no injection"
+    );
+
+    // Turn 3: pending activation entry is injected
+    let _ = session.invoke_llm("continue").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    let systems3 = system_messages(&req3);
+    assert_eq!(systems3.len(), 1);
     assert!(
-        systems2[0].contains("rs_helper"),
-        "activated conditional skill should be injected on activation turn"
+        systems3[0].contains("rs_helper"),
+        "activated conditional skill should be injected on the turn after activation"
     );
 }
 

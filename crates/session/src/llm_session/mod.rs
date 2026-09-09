@@ -148,13 +148,10 @@ pub struct ConversationSession {
     /// (entered via `sessions_yield`). User messages are queued until resume.
     is_yielding: Arc<AtomicBool>,
     /// Communication configuration for spawned child sessions.
-    /// When set, restricts which agents the child may communicate with.
     communication_config: Option<CommunicationConfig>,
     /// Bootstrap mode cached from AgentRegistry at session creation.
-    /// Defaults to [`BootstrapMode::Full`].
     bootstrap_mode: crate::bootstrap::loader::BootstrapMode,
-    /// Per-session memory-injection slot, managed by active-searcher.
-    /// Not persisted across process restarts.
+    /// Per-session memory-injection slot (not persisted across restarts).
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every mutation.
     last_activity_at: i64,
@@ -171,6 +168,8 @@ pub struct ConversationSession {
     pub(crate) pending_compaction_listing_reset: bool,
     /// Conditional skills activated via file-path matching this session.
     pub(crate) activated_conditional_skills: HashSet<String>,
+    /// Deferred activation entries for next-turn injection.
+    pub(crate) pending_activation_listing: Vec<String>,
     tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
     /// Agent-level skill whitelist filter. `*` means no filtering.
     pub(crate) agent_skills: Option<Vec<String>>,
@@ -261,6 +260,7 @@ impl ConversationSession {
             skill_listing_snapshot: None,
             pending_compaction_listing_reset: false,
             activated_conditional_skills: HashSet::new(),
+            pending_activation_listing: Vec::new(),
             tool_registry: None,
             agent_skills: None,
             shutdown_handle: None,

@@ -159,11 +159,14 @@ fn assistant_msg(content: &str) -> SessionMessage {
 // Skill listing: conditional activation injection
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// When `newly_activated` is non-empty, a temporary combined set
-/// (`activated_conditional_skills ∪ newly_activated`) is used to
-/// generate the listing. This ensures the new skill's complete
-/// entry is included even though `apply_skill_listing_update` has
-/// not yet been called.
+/// Deferred injection: when `activated_conditional_skills` contains
+/// a skill that was activated in a previous turn, the diff in
+/// `compute_skill_listing_for_turn` correctly includes the new
+/// entry. In the new flow, `prepare_turn_skill_listing` calls
+/// `apply_skill_listing_update(None, &newly_activated)` to add
+/// the skill to `activated_conditional_skills` before calling
+/// `compute_skill_listing_for_turn` with an empty set. The diff
+/// mechanism then detects the newly added entry.
 #[test]
 fn test_compute_skill_listing_newly_activated_injects_complete_entry() {
     let provider = Arc::new(MockProvider::new(
@@ -173,16 +176,22 @@ fn test_compute_skill_listing_newly_activated_injects_complete_entry() {
     let mut session = ConversationSession::new("s_comp1".into(), "m".into(), tmp_path());
     session.set_skill_listing_provider(provider);
 
-    // Simulate an existing snapshot (turn 1 already happened)
+    // Simulate: turn 1 already happened (snapshot exists)
     session.skill_listing_snapshot = Some("- **skill_a**: desc_a".to_string());
 
-    let mut newly_activated = HashSet::new();
-    newly_activated.insert("rs_helper".to_string());
+    // Simulate: rs_helper was activated in a previous turn
+    // (prepare_turn_skill_listing calls apply_skill_listing_update
+    // with None snapshot to add to activated_conditional_skills)
+    let mut activated = HashSet::new();
+    activated.insert("rs_helper".to_string());
+    session.apply_skill_listing_update(None, &activated);
 
+    // compute_skill_listing_for_turn always receives empty newly_activated
+    let newly_activated = HashSet::new();
     let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
 
-    // Complete entry for rs_helper should be injected (not diff)
-    let injected = listing.expect("should inject complete entry for newly activated skill");
+    // The diff should include rs_helper's complete entry
+    let injected = listing.expect("should inject deferred rs_helper entry via diff");
     assert!(
         injected.contains("rs_helper"),
         "injected listing should contain rs_helper"
@@ -322,8 +331,8 @@ async fn test_conditional_activation_via_invoke_llm_injects_complete_entry() {
     assert_eq!(sys1.len(), 1);
     assert!(!sys1[0].content.contains("rs_helper"));
 
-    // Turn 2: .rs file → marks activation, complete entry injected
-    // immediately (uses temporary combined set to include new skill)
+    // Turn 2: .rs file → marks activation, deferred to next turn.
+    // No base-listing changes → empty diff → no injection.
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
     let sys2: Vec<_> = req2
@@ -331,12 +340,26 @@ async fn test_conditional_activation_via_invoke_llm_injects_complete_entry() {
         .iter()
         .filter(|m| m.role == "system")
         .collect();
-    assert_eq!(sys2.len(), 1);
-    assert!(
-        sys2[0].content.contains("rs_helper"),
-        "turn 2 should inject complete entry for newly activated skill"
+    assert_eq!(sys2.len(), 0, "activation turn: no injection (deferred)");
+
+    // Turn 3: pending activation entry is injected
+    let _ = session.invoke_llm("continue").await.unwrap();
+    let req3 = fake_ref.last_request().unwrap();
+    let sys3: Vec<_> = req3
+        .messages
+        .iter()
+        .filter(|m| m.role == "system")
+        .collect();
+    assert_eq!(
+        sys3.len(),
+        1,
+        "turn 3 should inject deferred rs_helper entry"
     );
-    assert!(sys2[0].content.contains("⚡"));
+    assert!(
+        sys3[0].content.contains("rs_helper"),
+        "turn 3 should inject complete entry for activated skill"
+    );
+    assert!(sys3[0].content.contains("⚡"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

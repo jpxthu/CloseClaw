@@ -163,6 +163,61 @@ impl ConversationSession {
         let (listing, new_snapshot) =
             self.compute_skill_listing_for_turn(&std::collections::HashSet::new());
 
+        // 4. Deferred injection handling.
+        //    On the activation turn: extract activation entries from
+        //    the diff, save them for next-turn injection, and strip
+        //    them from the current diff (only base-listing changes
+        //    are injected this turn).
+        //    On the next turn: inject any pending activation entries.
+        let listing = if !newly_activated.is_empty() {
+            // Activation turn: separate activation entries from
+            // base-listing diff entries.
+            listing.and_then(|l| {
+                let mut activation_entries = Vec::new();
+                let filtered: Vec<&str> = l
+                    .lines()
+                    .filter(|line| {
+                        if line.is_empty() {
+                            return true;
+                        }
+                        // Check if this line is a complete entry for
+                        // a newly activated skill.
+                        let is_activation = line.starts_with("- **")
+                            && newly_activated
+                                .iter()
+                                .any(|name| line.contains(&format!("**{}**:", name)));
+                        if is_activation {
+                            activation_entries.push(line.to_string());
+                            false
+                        } else {
+                            true
+                        }
+                    })
+                    .collect();
+                // Save activation entries for next-turn injection.
+                if !activation_entries.is_empty() {
+                    self.pending_activation_listing = activation_entries;
+                }
+                let result = filtered.join("\n");
+                if result.is_empty() {
+                    None
+                } else {
+                    Some(result)
+                }
+            })
+        } else if !self.pending_activation_listing.is_empty() {
+            // Next turn after activation: inject pending entries.
+            let pending = std::mem::take(&mut self.pending_activation_listing);
+            let injected = pending.join("\n");
+            // Merge with any base-listing diff from this turn.
+            match listing {
+                Some(base_diff) => Some(format!("{}\n{}", base_diff, injected)),
+                None => Some(injected),
+            }
+        } else {
+            listing
+        };
+
         // Save the snapshot so the next turn's diff is incremental
         // (not a full listing from the "first turn" branch).
         if let Some(snapshot) = new_snapshot {
