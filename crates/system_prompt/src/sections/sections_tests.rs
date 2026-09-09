@@ -257,8 +257,6 @@ fn test_section_cache_invalidate_all_clears_all() {
     assert_eq!(cache.get("k3", None), None);
 }
 
-/// invalidate_all on empty cache is a no-op.
-///
 /// Cache with mtime validation: stale entry returns None.
 #[test]
 fn test_section_cache_mtime_stale_returns_none() {
