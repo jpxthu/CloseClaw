@@ -11,6 +11,17 @@ use closeclaw_common::fragment::{
 };
 use closeclaw_common::skill_listing_provider::SkillListingProvider;
 
+/// Maximum length of the skills section (in bytes).
+///
+/// Skills are truncated atomically at entry boundaries when the listing
+/// exceeds this byte limit, mirroring `TOOLS_SECTION_MAX_LEN` for tools.
+/// Value is intentionally lower than the tools limit to respect the
+/// compression priority: tools first, then skills.
+///
+/// Limit is in **bytes** (UTF-8 length), not characters, to avoid
+/// per-character counting overhead.
+pub(crate) const SKILLS_SECTION_MAX_LEN: usize = 4000;
+
 /// Provider that contributes the skill listing to the system prompt.
 ///
 /// Holds an [`Arc<dyn SkillListingProvider>`] and delegates to
@@ -58,6 +69,8 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
             return None;
         }
 
+        let content = truncate_listing(&content, SKILLS_SECTION_MAX_LEN);
+
         Some(PromptFragment {
             section_title: "## Skills".to_string(),
             section_type: SectionType::Skills,
@@ -70,12 +83,58 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
         // states produce distinct cache entries.
         let mut sorted_activated = ctx.activated_skills.clone();
         sorted_activated.sort();
+        let fingerprint = self.listing.fingerprint();
         Some(format!(
-            "skill_listing:{}:{}",
+            "skill_listing:{}:{}:{}",
             ctx.agent_id,
-            sorted_activated.join(",")
+            sorted_activated.join(","),
+            fingerprint
         ))
     }
+}
+
+/// Truncate a skill listing to fit within `max_len` bytes (UTF-8),
+/// preserving whole skill entries (one entry per line).
+///
+/// At least one entry is always kept, even if it exceeds the limit.
+/// No truncation hint text is appended (matches ToolsSection behavior).
+pub(crate) fn truncate_listing(listing: &str, max_len: usize) -> String {
+    let total_len = listing.len();
+    if total_len <= max_len {
+        return listing.to_string();
+    }
+
+    let lines: Vec<&str> = listing.lines().collect();
+    if lines.is_empty() {
+        return listing.to_string();
+    }
+
+    let mut kept: Vec<&str> = Vec::new();
+    let mut running_len: usize = 0;
+
+    for line in lines.iter() {
+        let line_len = line.len();
+        let new_len = if kept.is_empty() {
+            line_len
+        } else {
+            running_len + 1 + line_len // +1 for the \n separator
+        };
+
+        if new_len > max_len && !kept.is_empty() {
+            break;
+        }
+
+        // Always keep at least 1 entry, even if it exceeds the limit.
+        if new_len > max_len && kept.is_empty() {
+            kept.push(line);
+            break;
+        }
+
+        kept.push(line);
+        running_len = new_len;
+    }
+
+    kept.join("\n")
 }
 
 #[cfg(test)]
@@ -136,10 +195,11 @@ mod tests {
         }));
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-xyz".to_string();
-        // Empty activated skills → trailing colon + empty string
-        assert_eq!(
-            provider.cache_key(&ctx).unwrap(),
-            "skill_listing:agent-xyz:"
+        // Empty activated skills → trailing colon + empty string + fingerprint
+        let key = provider.cache_key(&ctx).unwrap();
+        assert!(
+            key.starts_with("skill_listing:agent-xyz:"),
+            "key should start with agent prefix, got: {key}"
         );
     }
 
@@ -474,5 +534,445 @@ mod tests {
         let frag = provider.generate(&ctx).await.expect("expected fragment");
         assert_eq!(frag.section_title, "## Skills");
         assert_eq!(frag.section_type, SectionType::Skills);
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Fingerprint — default mock returns "0"
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_mock_default_fingerprint_is_zero() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+        assert_eq!(provider.listing.fingerprint(), "0");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Cache key includes fingerprint
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_cache_key_includes_fingerprint() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+        let key = provider.cache_key(&ctx).unwrap();
+        assert!(
+            key.ends_with(":0"),
+            "cache key should end with fingerprint ':0', got: {key}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Cache key varies with fingerprint
+    // ------------------------------------------------------------------
+
+    /// Mock that returns a configurable fingerprint.
+    struct FingerprintMockProvider {
+        output: String,
+        fp: String,
+    }
+
+    impl SkillListingProvider for FingerprintMockProvider {
+        fn rescan(&self) {}
+        fn fingerprint(&self) -> String {
+            self.fp.clone()
+        }
+        fn generate_listing(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.output.clone()
+        }
+        fn generate_listing_excluding_conditional(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.output.clone()
+        }
+        fn find_conditional_matches(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+            vec![]
+        }
+    }
+
+    #[test]
+    fn test_cache_key_varies_with_fingerprint() {
+        let provider_a = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "fp_a".to_string(),
+        }));
+        let provider_b = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "fp_b".to_string(),
+        }));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+        assert_ne!(
+            provider_a.cache_key(&ctx),
+            provider_b.cache_key(&ctx),
+            "different fingerprints must produce different cache keys"
+        );
+    }
+
+    #[test]
+    fn test_cache_key_same_fingerprint_same_key() {
+        let provider_a = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "same_fp".to_string(),
+        }));
+        let provider_b = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "same_fp".to_string(),
+        }));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+        assert_eq!(
+            provider_a.cache_key(&ctx),
+            provider_b.cache_key(&ctx),
+            "same fingerprints must produce same cache keys"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — within limit preserves byte-identical output
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_within_limit_unchanged() {
+        let listing = "- **alpha**: desc alpha\n- **beta**: desc beta";
+        let result = truncate_listing(listing, 4000);
+        assert_eq!(result, listing);
+    }
+
+    #[test]
+    fn test_truncate_listing_exact_limit_unchanged() {
+        let listing = "- **alpha**: desc alpha";
+        assert_eq!(listing.len(), 23);
+        let result = truncate_listing(listing, 23);
+        assert_eq!(result, listing);
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — drops whole entries, no half entries
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_drops_whole_entry() {
+        let listing =
+            "- **alpha**: short\n- **beta**: a much longer description that takes many characters";
+        let result = truncate_listing(listing, 50);
+        assert_eq!(result, "- **alpha**: short");
+    }
+
+    #[test]
+    fn test_truncate_listing_never_produces_half_entry() {
+        let listing = "- **a**: short\n- **b**: medium length\n- **c**: another entry";
+        let result = truncate_listing(listing, 30);
+        for line in result.lines() {
+            assert!(
+                line.starts_with("- **"),
+                "truncated entry must be whole: {line}"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — at least 1 entry preserved
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_at_least_one_entry() {
+        let long_entry = format!("- **mega**: {}", "x".repeat(500));
+        let result = truncate_listing(&long_entry, 100);
+        assert_eq!(
+            result, long_entry,
+            "must keep the single entry even if it exceeds the limit"
+        );
+    }
+
+    #[test]
+    fn test_truncate_listing_at_least_one_with_multiple_entries() {
+        let listing = "- **a**: very long description\n- **b**: second entry";
+        let result = truncate_listing(listing, 10);
+        assert_eq!(result.lines().count(), 1);
+        assert!(result.starts_with("- **a"));
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — exactly at limit boundary
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_boundary_exactly_fits_two() {
+        let listing = "- **a**: 1234\n- **b**: 5678";
+        let result = truncate_listing(listing, 27);
+        assert_eq!(result, listing);
+    }
+
+    #[test]
+    fn test_truncate_listing_boundary_one_over() {
+        let listing = "- **a**: 1234\n- **b**: 5678";
+        // Total = 27 bytes. max_len = 26 forces truncation after first entry.
+        let result = truncate_listing(listing, 26);
+        assert_eq!(result, "- **a**: 1234");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — multi-byte UTF-8 entries
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_multibyte_utf8_within_limit() {
+        let listing = "- **skill_cn**: 描述一个中文技能\n- **skill_en**: Another skill";
+        assert!(!listing.is_empty());
+        let result = truncate_listing(listing, 4000);
+        assert_eq!(result, listing);
+    }
+
+    #[test]
+    fn test_truncate_listing_multibyte_utf8_truncates_at_byte_boundary() {
+        // 描述 = 6 bytes (3 each), 技能 = 6 bytes (3 each)
+        let listing = "- **skill_cn**: 描述一个中文技能\n- **skill_en**: Another skill";
+        // Choose a limit that cuts within the first entry but not at a char boundary
+        let limit = "- **skill_cn**: 描述一中".len();
+        let result = truncate_listing(listing, limit);
+        // Should keep at least the first entry (even if it exceeds limit)
+        assert!(
+            result.starts_with("- **skill_cn"),
+            "must keep first entry, got: {result}"
+        );
+        // Result must be valid UTF-8
+        assert!(
+            std::str::from_utf8(result.as_bytes()).is_ok(),
+            "result must be valid UTF-8"
+        );
+        // Should not contain the second entry
+        assert!(
+            !result.contains("skill_en"),
+            "second entry must not appear when truncated"
+        );
+    }
+
+    #[test]
+    fn test_truncate_listing_multibyte_utf8_preserves_whole_entries() {
+        // Two entries with multi-byte chars; limit fits first but not second
+        let entry1 = "- **cn_skill**: 中文描述";
+        let entry2 = "- **en_skill**: English description";
+        let listing = format!("{}\n{}", entry1, entry2);
+        let limit = entry1.len() + 5; // fits entry1 + separator but not entry2
+        let result = truncate_listing(&listing, limit);
+        assert_eq!(result, entry1, "should keep only the first whole entry");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — empty input
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_empty_string() {
+        assert_eq!(truncate_listing("", 4000), "");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — constant value check
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_skills_section_max_len_value() {
+        assert_eq!(SKILLS_SECTION_MAX_LEN, 4000);
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — multiple entries partial truncation
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_multiple_entries_partial() {
+        // Each entry = 14 bytes. 3 entries with separators = 14+1+14+1+14 = 44.
+        // max_len = 43: first 2 entries (29 bytes) fit, adding 3rd (44) > 43, so 2 kept.
+        let listing = "- **a**: short\n- **b**: short\n- **c**: short\n- **d\": short";
+        let result = truncate_listing(listing, 43);
+        assert!(result.starts_with("- **a"));
+        assert!(result.contains("- **b"));
+        assert!(!result.contains("- **c"));
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Cache invalidation — long chain: change → assemble →
+    //   change → assemble → both rebuilds reflect latest skill set
+    // ------------------------------------------------------------------
+
+    use std::sync::atomic::AtomicUsize;
+
+    /// Mock backed by a shared generation counter.
+    /// When the generation changes, the fingerprint and output change.
+    struct GenerationMock {
+        generation: Arc<AtomicUsize>,
+    }
+
+    impl GenerationMock {
+        fn new(gen: Arc<AtomicUsize>) -> Self {
+            Self { generation: gen }
+        }
+    }
+
+    impl SkillListingProvider for GenerationMock {
+        fn rescan(&self) {}
+        fn fingerprint(&self) -> String {
+            format!("gen:{}", self.generation.load(Ordering::SeqCst))
+        }
+        fn generate_listing(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            let gen = self.generation.load(Ordering::SeqCst);
+            (0..=gen)
+                .map(|i| format!("- **skill-{i}**: desc {i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        fn generate_listing_excluding_conditional(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.generate_listing(_agent_id, _agent_skills)
+        }
+        fn find_conditional_matches(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+            vec![]
+        }
+    }
+
+    /// Long chain: two skill-file changes, two assemblies, each
+    /// rebuilds with the latest skill set.
+    #[tokio::test]
+    async fn test_long_chain_reflects_latest_skills() {
+        let gen = Arc::new(AtomicUsize::new(0));
+        let provider = SkillsFragmentProvider::new(Arc::new(GenerationMock::new(gen.clone())));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+
+        // Cycle 1: initial state (1 skill)
+        let key1 = provider.cache_key(&ctx).unwrap();
+        assert!(key1.contains("gen:0"));
+        let frag1 = provider.generate(&ctx).await.expect("fragment");
+        assert!(frag1.content.contains("skill-0"));
+        assert!(!frag1.content.contains("skill-1"));
+
+        // Change: add skill-1
+        gen.store(1, Ordering::SeqCst);
+        let key2 = provider.cache_key(&ctx).unwrap();
+        assert_ne!(key1, key2, "cache key must change after skill addition");
+        let frag2 = provider.generate(&ctx).await.expect("fragment");
+        assert!(frag2.content.contains("skill-1"), "must reflect new skill");
+
+        // Change: add skill-2
+        gen.store(2, Ordering::SeqCst);
+        let key3 = provider.cache_key(&ctx).unwrap();
+        assert_ne!(key2, key3, "cache key must change after second addition");
+        let frag3 = provider.generate(&ctx).await.expect("fragment");
+        assert!(
+            frag3.content.contains("skill-2"),
+            "must reflect latest skill"
+        );
+        assert!(
+            frag3.content.contains("skill-1"),
+            "must still include previous skill"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Error path — fingerprint degrades when listing fails
+    // ------------------------------------------------------------------
+
+    /// Mock that simulates listing failure (empty output) with
+    /// a stable fingerprint that doesn't panic.
+    struct FailingListingMock {
+        fp: String,
+    }
+
+    impl SkillListingProvider for FailingListingMock {
+        fn rescan(&self) {}
+        fn fingerprint(&self) -> String {
+            self.fp.clone()
+        }
+        fn generate_listing(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            String::new() // simulates listing failure
+        }
+        fn generate_listing_excluding_conditional(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            String::new()
+        }
+        fn find_conditional_matches(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+            vec![]
+        }
+    }
+
+    /// When listing is empty (degraded), generate returns None without panic,
+    /// and cache_key still produces a valid key.
+    #[tokio::test]
+    async fn test_degraded_listing_empty_output_no_panic() {
+        let mock = FailingListingMock {
+            fp: "degraded".to_string(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let ctx = FragmentContext::test_default();
+
+        // generate should return None (empty output), no panic
+        let result = provider.generate(&ctx).await;
+        assert!(result.is_none(), "empty listing must produce None");
+
+        // cache_key should still work
+        let key = provider.cache_key(&ctx).unwrap();
+        assert!(key.ends_with("degraded"));
+    }
+
+    /// When listing fails across multiple fingerprint versions,
+    /// generate always returns None but cache keys remain distinct.
+    #[tokio::test]
+    async fn test_degraded_listing_fingerprint_evolution() {
+        let mock_v1 = FailingListingMock {
+            fp: "v1".to_string(),
+        };
+        let provider1 = SkillsFragmentProvider::new(Arc::new(mock_v1));
+        let ctx = FragmentContext::test_default();
+        let key1 = provider1.cache_key(&ctx).unwrap();
+        assert!(provider1.generate(&ctx).await.is_none());
+
+        let mock_v2 = FailingListingMock {
+            fp: "v2".to_string(),
+        };
+        let provider2 = SkillsFragmentProvider::new(Arc::new(mock_v2));
+        let key2 = provider2.cache_key(&ctx).unwrap();
+        assert!(provider2.generate(&ctx).await.is_none());
+
+        assert_ne!(
+            key1, key2,
+            "different degraded states must have distinct keys"
+        );
     }
 }

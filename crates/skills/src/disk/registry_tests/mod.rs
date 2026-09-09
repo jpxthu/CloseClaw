@@ -859,3 +859,111 @@ fn test_conditional_activation_no_match_yields_empty_diff() {
     let matches = r.find_conditional_matches(&[]);
     assert!(matches.is_empty());
 }
+
+// ---- Fingerprint tests ----
+
+#[test]
+fn test_fingerprint_no_scan_config_returns_count_fallback() {
+    let r = DiskSkillRegistry::new(vec![
+        skill("a", SkillSource::Bundled),
+        skill("b", SkillSource::Bundled),
+    ]);
+    assert_eq!(r.fingerprint(), "count:2");
+}
+
+#[test]
+fn test_fingerprint_empty_registry_no_config() {
+    let r = DiskSkillRegistry::new(vec![]);
+    assert_eq!(r.fingerprint(), "count:0");
+}
+
+#[test]
+fn test_fingerprint_changes_with_new_skill_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "skill-a", "skill a");
+
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    let fp1 = reg.fingerprint();
+
+    // Add a new skill file
+    create_skill_file(dir, "skill-b", "skill b");
+    reg.rescan();
+    let fp2 = reg.fingerprint();
+
+    assert_ne!(fp1, fp2, "fingerprint must change when new skill is added");
+}
+
+#[test]
+fn test_fingerprint_stable_without_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "skill-a", "skill a");
+
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    let fp1 = reg.fingerprint();
+    let fp2 = reg.fingerprint();
+
+    assert_eq!(fp1, fp2, "fingerprint must be stable without changes");
+}
+
+#[test]
+fn test_fingerprint_changes_with_modified_skill() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "skill-a", "original");
+
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    let fp1 = reg.fingerprint();
+
+    // Modify the skill file with a deterministic future mtime
+    // to guarantee the fingerprint changes without relying on sleep.
+    let skill_file = dir.join("skill-a").join("SKILL.md");
+    std::fs::write(&skill_file, "modified").unwrap();
+    filetime::set_file_mtime(
+        &skill_file,
+        filetime::FileTime::from_unix_time(1_500_000_000, 0),
+    )
+    .unwrap();
+    reg.rescan();
+    let fp2 = reg.fingerprint();
+
+    assert_ne!(
+        fp1, fp2,
+        "fingerprint must change when skill file is modified"
+    );
+}
+
+#[test]
+fn test_fingerprint_changes_with_removed_skill() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    create_skill_file(dir, "skill-a", "skill a");
+    create_skill_file(dir, "skill-b", "skill b");
+
+    let mut reg = rescan_registry(dir);
+    reg.rescan();
+    let fp1 = reg.fingerprint();
+
+    // Remove a skill
+    std::fs::remove_dir_all(dir.join("skill-b")).unwrap();
+    reg.rescan();
+    let fp2 = reg.fingerprint();
+
+    assert_ne!(fp1, fp2, "fingerprint must change when skill is removed");
+}
+
+#[test]
+fn test_fingerprint_unreadable_dir_does_not_panic() {
+    let mut reg = DiskSkillRegistry::new(vec![]);
+    reg.set_scan_config(ScanConfig {
+        global_dir: Some("/nonexistent/path".into()),
+        ..Default::default()
+    });
+    // Should not panic; falls back to count-based fingerprint
+    let fp = reg.fingerprint();
+    assert!(fp.starts_with("count:"), "fallback fingerprint: {fp}");
+}
