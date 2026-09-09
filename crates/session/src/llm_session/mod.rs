@@ -611,6 +611,9 @@ impl ConversationSession {
     }
 
     /// Rebuild the system prompt via [`InjectionParams`] (§注入链路的参数契约).
+    /// Assembles params from session state, delegates to the injected builder,
+    /// and clears activated conditional skills after rebuild. When
+    /// `bootstrap_mode_override` is `None`, the agent default is used.
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,

@@ -109,17 +109,9 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
             agent_role: self.agent_role.clone(),
             agent_type: self.agent_type.clone(),
         };
-        // Use the provider-level registry for `build_tools_section`,
-        // which requires the concrete `&ToolRegistry` type.
-        //
-        // When `ctx.tool_registry` is `Some`, it carries the same
-        // `ToolRegistryImpl` instance via §注入链路的参数契约 — the
-        // injection chain ensures the registry reference reaches all
-        // providers through `FragmentContext`.  This provider already
-        // holds the concrete reference from construction, so we use it
-        // directly; other providers (that depend only on
-        // `ToolRegistryQuery`) consume `ctx.tool_registry` via the
-        // trait interface.
+        // Use the provider-level registry (concrete &ToolRegistry).
+        // ctx.tool_registry carries the same instance via §注入链路,
+        // but build_tools_section requires the concrete type.
         let content = build_tools_section(&self.registry, &tool_ctx, &params).await;
 
         if content.is_empty() {

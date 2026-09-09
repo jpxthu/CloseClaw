@@ -198,10 +198,6 @@ fn test_mock_provider_cache_key_includes_agent_id() {
 // activated_skills field
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// activated_skills field
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_fragment_context_activated_skills_default_empty() {
     let ctx = FragmentContext::test_default();

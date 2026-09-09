@@ -61,7 +61,8 @@ pub struct InjectionParams {
 
     /// Optional ToolRegistry reference for the injection chain.
     ///
-    /// When `Some`, the builder forwards it to [`FragmentContext`][crate::fragment::FragmentContext]
+    /// When `Some`, the builder forwards it to
+    /// [`FragmentContext`][crate::fragment::FragmentContext]
     /// so that [`ToolsFragmentProvider`][crate::fragment::PromptFragmentProvider]
     /// can consume it at generation time.  `None` falls back to the
     /// provider-level default (e.g. closure-held reference).
