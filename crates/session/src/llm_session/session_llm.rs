@@ -147,7 +147,7 @@ impl ConversationSession {
 
         // 2. Compute listing using ONLY current activation set
         //    (newly activated skills are applied after this turn)
-        let (listing, new_snapshot) = self.compute_skill_listing_for_turn();
+        let (listing, new_snapshot) = self.compute_skill_listing_for_turn(&newly_activated);
 
         (listing, new_snapshot, newly_activated)
     }
