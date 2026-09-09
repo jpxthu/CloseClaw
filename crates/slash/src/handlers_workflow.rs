@@ -142,11 +142,11 @@ impl WorkflowSlashHandler {
             })
     }
 
-    /// Inject workflow context into system_appends.
+    /// Inject workflow context into system_injection_appends.
     async fn inject_workflow_context(&self, workflow: &Workflow, session_id: &str) {
         let context = Self::build_workflow_context_append(workflow);
         self.session_manager
-            .add_system_append(session_id, context)
+            .add_system_injection_append(session_id, context)
             .await;
     }
 
