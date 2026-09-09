@@ -62,7 +62,7 @@ TerminalRenderer 接收 ContentBlock[]（定义见 [common ContentBlock](../comm
 5. TerminalPlugin 调用 TerminalRenderer 执行渲染：获取终端能力信息（经 platform 模块，确定渲染模式与终端宽度）+ DSL 交互元素预处理（按钮/选择器 → 纯文本提示行，其他 DSL → 忽略）+ 逐块渲染（各块类型渲染策略见 [Terminal Renderer](renderer.md)，块间空行分隔，超宽截断）
 6. TerminalRenderer 返回单个 RenderedOutput，TerminalPlugin 的 send 方法写入 stdout
 
-> **流式路径**：LLM 流式输出时，不走 TerminalRenderer 批量渲染路径。ContentBlock[] 经统一预处理（VerbosityFilter → DslParser 零开销透传）后，IM Adapter 流式渲染组件驱动，TerminalPlugin 逐行产生增量 RenderedOutput 后立即写入 stdout。流式结束后，DslParser 完整解析 → OutboundRawLog 写入出站日志。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+> **流式路径**：LLM 流式输出时，不走 TerminalRenderer 批量渲染路径。ContentBlock[] 经统一预处理（VerbosityFilter → DslParser 零开销透传）后，TerminalPlugin 委托 IM Adapter 流式渲染组件逐行产生增量 RenderedOutput 后立即写入 stdout。流式结束后，DslParser 完整解析 → OutboundRawLog 写入出站日志。详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
 
 ## 模块关系
 

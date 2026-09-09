@@ -23,7 +23,7 @@ closeclaw <command>
     ├── closeclaw stop         — 停止 daemon
     ├── closeclaw config       — 管理配置文件
     ├── closeclaw agent        — 管理 agent
-    ├── closeclaw rule         — 查看权限规则（只读）
+    ├── closeclaw rule         — 校验规则语法 / 列出已有规则（只读）
     └── closeclaw skill        — 管理 skill
 ```
 
