@@ -762,6 +762,11 @@ fn test_section_name_all_variants() {
         }
         .name(),
         Section::ModeTransition(ModeTransition::PlanModeReentry).name(),
+        Section::PlanFile {
+            path: String::new(),
+            content: String::new(),
+        }
+        .name(),
     ];
     for name in &names {
         assert!(!name.is_empty(), "section name must not be empty");
