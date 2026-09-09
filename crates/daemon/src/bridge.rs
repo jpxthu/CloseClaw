@@ -308,9 +308,37 @@ impl SkillListingProviderWrapper {
 
         disk_matches
     }
+
+    /// Compute a combined fingerprint from disk and builtin registries.
+    ///
+    /// Disk side: mtime-based fingerprint from scan directories (via
+    /// [`DiskSkillRegistry::fingerprint`]). Builtin side: sorted skill
+    /// names joined as a simple content hash — builtin skills are
+    /// compiled-in and rarely change, so this is cheap.
+    fn combined_fingerprint(&self) -> String {
+        let disk_fp = self
+            .disk
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.fingerprint()))
+            .unwrap_or_else(|| "none".to_string());
+
+        let builtin_fp = {
+            let rt = tokio::runtime::Handle::current();
+            let names = rt.block_on(self.builtin.list());
+            let mut sorted = names;
+            sorted.sort();
+            sorted.join(",")
+        };
+
+        format!("disk:{}|builtin:{}", disk_fp, builtin_fp)
+    }
 }
 
 impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
+    fn fingerprint(&self) -> String {
+        self.combined_fingerprint()
+    }
     fn rescan(&self) {
         // Step 1: Read scan_config under a short read lock.
         let scan_config = self
@@ -860,6 +888,83 @@ mod tests {
             assert!(wrapper
                 .generate_listing_excluding_conditional(None, None)
                 .is_empty());
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Fingerprint changes when disk skills are modified
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_fingerprint_changes_after_rescan_picks_up_new_skill() {
+        run_with_runtime(|| {
+            let temp = tempfile::tempdir().unwrap();
+            let skill_dir = temp.path().join("skill-a");
+            std::fs::create_dir_all(&skill_dir).unwrap();
+            std::fs::write(
+                skill_dir.join("SKILL.md"),
+                "---\ndescription: a\nuser-invocable: true\n---\n# A\n",
+            )
+            .unwrap();
+
+            let mut disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
+            disk_reg.set_scan_config(closeclaw_skills::ScanConfig {
+                global_dir: Some(temp.path().to_path_buf()),
+                ..Default::default()
+            });
+            disk_reg.rescan();
+
+            let disk = Arc::new(std::sync::RwLock::new(Some(disk_reg)));
+            let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+            let wrapper = SkillListingProviderWrapper::new(disk.clone(), builtin);
+
+            let fp_before = wrapper.fingerprint();
+            let listing_before = wrapper.generate_listing(None, None);
+            assert!(listing_before.contains("skill-a"));
+
+            // Add new skill
+            let new_dir = temp.path().join("skill-b");
+            std::fs::create_dir_all(&new_dir).unwrap();
+            std::fs::write(
+                new_dir.join("SKILL.md"),
+                "---\ndescription: b\nuser-invocable: true\n---\n# B\n",
+            )
+            .unwrap();
+
+            wrapper.rescan();
+            let fp_after = wrapper.fingerprint();
+            let listing_after = wrapper.generate_listing(None, None);
+
+            assert_ne!(fp_before, fp_after, "fingerprint must change after rescan");
+            assert!(listing_after.contains("skill-a"));
+            assert!(listing_after.contains("skill-b"));
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Fingerprint stable with degraded disk (no scan_config)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_fingerprint_stable_when_no_scan_config() {
+        run_with_runtime(|| {
+            let disk = make_disk_registry(vec![make_disk_skill(
+                SkillSource::Bundled,
+                "existing",
+                true,
+                vec![],
+            )]);
+            let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+            let wrapper = make_wrapper(disk, builtin);
+
+            // No scan_config set → fingerprint uses count fallback
+            let fp = wrapper.fingerprint();
+            assert!(
+                fp.starts_with("disk:count:"),
+                "should use count fallback: {fp}"
+            );
+            // Multiple calls return the same value
+            assert_eq!(fp, wrapper.fingerprint());
         });
     }
 }

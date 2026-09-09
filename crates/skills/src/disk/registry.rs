@@ -105,6 +105,68 @@ impl DiskSkillRegistry {
         self.scan_config.clone()
     }
 
+    /// Compute a fingerprint from the modification times of all
+    /// `SKILL.md` files across the scan directories.
+    ///
+    /// Returns a stable string that changes when any skill file is
+    /// added, removed, or modified. On error (unreadable directory),
+    /// falls back to the skill count as a degraded but non-panicking
+    /// value.
+    pub fn fingerprint(&self) -> String {
+        let Some(ref config) = self.scan_config else {
+            return self.skill_count_fallback();
+        };
+        let mut parts: Vec<String> = Vec::new();
+        Self::collect_dir_fingerprints(config.global_dir.as_deref(), &mut parts);
+        Self::collect_dir_fingerprints(config.project_root.as_deref(), &mut parts);
+        Self::collect_dir_fingerprints(config.agent_skills_dir.as_deref(), &mut parts);
+        for dir in &config.extra_dirs {
+            Self::collect_dir_fingerprints(Some(dir), &mut parts);
+        }
+        if parts.is_empty() {
+            return self.skill_count_fallback();
+        }
+        parts.sort();
+        parts.join(":")
+    }
+
+    /// Degraded fingerprint based on skill count.
+    ///
+    /// Used when scan_config is absent or all directories are
+    /// unreadable. Not collision-resistant, but avoids panics and
+    /// changes when skills are added/removed.
+    fn skill_count_fallback(&self) -> String {
+        format!("count:{}", self.skills.len())
+    }
+
+    /// Walk one scan directory and push `"{name}:{mtime:?}"` for each
+    /// skill subdirectory's `SKILL.md`.
+    fn collect_dir_fingerprints(dir: Option<&std::path::Path>, parts: &mut Vec<String>) {
+        let Some(dir) = dir else {
+            return;
+        };
+        let readdir = match std::fs::read_dir(dir) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        for entry in readdir.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let skill_md = path.join("SKILL.md");
+            if !skill_md.is_file() {
+                continue;
+            }
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let mtime = std::fs::metadata(&skill_md)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            parts.push(format!("{}:{:?}", name, mtime));
+        }
+    }
+
     /// Returns skills that have path-based conditional activation
     /// (`paths` is non-empty).
     ///

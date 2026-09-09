@@ -33,6 +33,17 @@ pub trait SkillListingProvider: Send + Sync {
     /// implementation is a no-op.
     fn rescan(&self) {}
 
+    /// Return a fingerprint that changes when the underlying skill
+    /// registry content changes.
+    ///
+    /// Used for cache-key fingerprinting: when the fingerprint changes,
+    /// the cache key changes, forcing a rebuild. The default
+    /// implementation returns a constant (suitable for mocks/test
+    /// doubles that don't track content changes).
+    fn fingerprint(&self) -> String {
+        "0".to_string()
+    }
+
     /// Generate a formatted skill listing string for the given agent.
     ///
     /// When `agent_id` is provided, the listing is filtered to skills
