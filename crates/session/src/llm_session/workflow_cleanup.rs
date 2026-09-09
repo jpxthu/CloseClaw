@@ -12,7 +12,7 @@ impl ConversationSession {
     ///
     /// Coordinates all four cleanup steps:
     ///
-    /// 1. Remove workflow context markers from `user_appends`
+    /// 1. Remove workflow context markers from `system_injection_appends`
     ///    (delegates to [`crate::workflow_recovery::cleanup_workflow_exit`]).
     /// 2. Remove workflow control messages (role == `"workflow"`) from the
     ///    in-memory transcript.
@@ -25,7 +25,7 @@ impl ConversationSession {
     pub async fn cleanup_workflow_exit(&mut self) {
         use crate::workflow_recovery::{cleanup_workflow_exit as cp_cleanup, WorkflowExitReport};
 
-        // 1 & 3: Checkpoint-level cleanup (user_appends + workflow_run).
+        // 1 & 3: Checkpoint-level cleanup (system_injection_appends + workflow_run).
         // Build a temporary checkpoint to apply the cleanup, then merge
         // the results back into the session state.
         let mut cp = self.build_cleanup_checkpoint();

@@ -1,20 +1,20 @@
 //! Workflow recovery state injection during session recovery.
 //!
 //! Detects active workflow runs in recovered checkpoints and injects
-//! workflow context and recovery notifications into `user_appends`.
+//! workflow context and recovery notifications into `system_injection_appends`.
 
 use crate::persistence::SessionCheckpoint;
 use closeclaw_workflow::context_append::{build_workflow_context_append, has_workflow_context};
 use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
 use closeclaw_workflow::run::Phase;
 
-/// Prefix marker for workflow recovery notification in `user_appends`.
+/// Prefix marker for workflow recovery notification in `system_injection_appends`.
 pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
 
 /// Inject workflow recovery state for sessions with active workflow runs.
 ///
 /// When a checkpoint contains a `workflow_run` with phase != Complete:
-/// 1. Re-injects workflow context into `user_appends` (if not already present)
+/// 1. Re-injects workflow context into `system_injection_appends` (if not already present)
 /// 2. Stores a recovery notification with step information
 /// 3. Handles definition_version changes (transitions to blocked if current
 ///    step no longer exists in the new definition)
@@ -53,7 +53,7 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
         workflow_name = %wf_run.definition_name,
         step = step_num,
         phase = ?wf_run.phase,
-        "injected workflow recovery state into user_appends"
+        "injected workflow recovery state into system_injection_appends"
     );
 }
 
@@ -65,7 +65,7 @@ fn try_reload_definition(
 }
 
 /// Extract step info from a workflow run and store a recovery notification
-/// in `user_appends`.
+/// in `system_injection_appends`.
 fn store_recovery_notification(
     wf_run: &closeclaw_workflow::run::WorkflowRun,
     checkpoint: &mut SessionCheckpoint,
@@ -139,9 +139,9 @@ fn handle_definition_version_change(
 ///
 /// Performs the four cleanup steps required by the workflow exit flow:
 ///
-/// 1. Remove workflow context markers from `user_appends`
+/// 1. Remove workflow context markers from `system_injection_appends`
 ///    (items starting with `"--- WORKFLOW ---"`).
-/// 2. Remove workflow recovery notification entries from `user_appends`
+/// 2. Remove workflow recovery notification entries from `system_injection_appends`
 ///    (items starting with [`WORKFLOW_RECOVERY_PREFIX`]).
 /// 3. Set `workflow_run` to `None`.
 /// 4. The caller is responsible for persisting the checkpoint after
@@ -190,9 +190,9 @@ pub fn cleanup_workflow_exit(checkpoint: &mut SessionCheckpoint) -> WorkflowExit
 /// Summary of what [`cleanup_workflow_exit`] cleaned up from a checkpoint.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WorkflowExitReport {
-    /// Number of workflow context markers removed from `user_appends`.
+    /// Number of workflow context markers removed from `system_injection_appends`.
     pub removed_contexts: usize,
-    /// Number of recovery notification entries removed from `user_appends`.
+    /// Number of recovery notification entries removed from `system_injection_appends`.
     pub removed_recovery_notifications: usize,
     /// Whether a `workflow_run` was present (and now cleared).
     pub had_workflow_run: bool,

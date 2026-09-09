@@ -1,7 +1,7 @@
 //! Workflow context injection helpers.
 //!
 //! Provides [`build_workflow_context_append`] for constructing the
-//! system_appends workflow context string, used by:
+//! system_injection_appends workflow context string, used by:
 //!
 //! - Step 1.3: `/workflow <name>` slash handler (initial injection)
 //! - Step 1.4: Post-compaction re-injection
@@ -11,7 +11,7 @@
 
 use crate::definition::Workflow;
 
-/// Build the workflow context string to inject into system_appends.
+/// Build the workflow context string to inject into system_injection_appends.
 ///
 /// Returns a string in the format:
 ///
@@ -57,10 +57,10 @@ pub fn has_workflow_context(system_appends: &[String]) -> bool {
 ///
 /// Removes items that start with `"--- WORKFLOW ---"`. Returns the
 /// count of items removed.
-pub fn remove_workflow_context(system_appends: &mut Vec<String>) -> usize {
-    let before = system_appends.len();
-    system_appends.retain(|s| !s.starts_with("--- WORKFLOW ---"));
-    before - system_appends.len()
+pub fn remove_workflow_context(injection_appends: &mut Vec<String>) -> usize {
+    let before = injection_appends.len();
+    injection_appends.retain(|s| !s.starts_with("--- WORKFLOW ---"));
+    before - injection_appends.len()
 }
 
 #[cfg(test)]
