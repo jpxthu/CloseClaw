@@ -157,47 +157,35 @@ impl ConversationSession {
         }
 
         // 3. Compute listing using the current activation set.
-        //    Pass empty newly_activated so the diff only reflects
-        //    previously-activated skills. Newly activated entries
-        //    will appear in the next turn's diff.
+        //    Pass empty newly_activated so the diff is computed
+        //    against the old snapshot. On activation turns, the diff
+        //    will include the newly activated entry — we filter it
+        //    out below so only base-listing changes are injected
+        //    this turn.
         let (listing, new_snapshot) =
             self.compute_skill_listing_for_turn(&std::collections::HashSet::new());
 
-        // 4. Deferred injection handling.
-        //    On the activation turn: extract activation entries from
-        //    the diff, save them for next-turn injection, and strip
-        //    them from the current diff (only base-listing changes
-        //    are injected this turn).
-        //    On the next turn: inject any pending activation entries.
+        // 4. On activation turns, strip newly activated entries from
+        //    the diff. Only base-listing changes are injected this
+        //    turn; the activation entries will naturally appear in
+        //    the next turn's diff (old snapshot doesn't include them,
+        //    current listing does).
         let listing = if !newly_activated.is_empty() {
-            // Activation turn: separate activation entries from
-            // base-listing diff entries.
             listing.and_then(|l| {
-                let mut activation_entries = Vec::new();
                 let filtered: Vec<&str> = l
                     .lines()
                     .filter(|line| {
                         if line.is_empty() {
                             return true;
                         }
-                        // Check if this line is a complete entry for
-                        // a newly activated skill.
-                        let is_activation = line.starts_with("- **")
+                        // Exclude lines that are entries for newly
+                        // activated skills.
+                        !(line.starts_with("- **")
                             && newly_activated
                                 .iter()
-                                .any(|name| line.contains(&format!("**{}**:", name)));
-                        if is_activation {
-                            activation_entries.push(line.to_string());
-                            false
-                        } else {
-                            true
-                        }
+                                .any(|name| line.contains(&format!("**{}**:", name))))
                     })
                     .collect();
-                // Save activation entries for next-turn injection.
-                if !activation_entries.is_empty() {
-                    self.pending_activation_listing = activation_entries;
-                }
                 let result = filtered.join("\n");
                 if result.is_empty() {
                     None
@@ -205,23 +193,18 @@ impl ConversationSession {
                     Some(result)
                 }
             })
-        } else if !self.pending_activation_listing.is_empty() {
-            // Next turn after activation: inject pending entries.
-            let pending = std::mem::take(&mut self.pending_activation_listing);
-            let injected = pending.join("\n");
-            // Merge with any base-listing diff from this turn.
-            match listing {
-                Some(base_diff) => Some(format!("{}\n{}", base_diff, injected)),
-                None => Some(injected),
-            }
         } else {
             listing
         };
 
-        // Save the snapshot so the next turn's diff is incremental
-        // (not a full listing from the "first turn" branch).
-        if let Some(snapshot) = new_snapshot {
-            self.skill_listing_snapshot = Some(snapshot);
+        // 5. Snapshot update: only save on non-activation turns.
+        //    On activation turns, skip saving so the next turn's diff
+        //    naturally includes the newly activated entry (the old
+        //    snapshot vs. the current listing that now includes it).
+        if newly_activated.is_empty() {
+            if let Some(snapshot) = new_snapshot {
+                self.skill_listing_snapshot = Some(snapshot);
+            }
         }
 
         (
