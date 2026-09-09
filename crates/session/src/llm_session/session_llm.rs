@@ -297,7 +297,7 @@ impl ConversationSession {
         });
 
         // ── Skill listing attachment — at position 0 when non-empty ──
-        let skill_listing_inserted = if let Some(listing) = skill_listing {
+        if let Some(listing) = skill_listing {
             if !listing.is_empty() {
                 let entry_count = listing.lines().filter(|l| !l.is_empty()).count();
                 let first_entry = listing
@@ -321,13 +321,8 @@ impl ConversationSession {
                     first_entry = %first_entry,
                     "injecting skill listing as system message"
                 );
-                true
-            } else {
-                false
             }
-        } else {
-            false
-        };
+        }
 
         // ── Memory injection — positioned per InjectionPosition ────
         if let Some(injection) = self.take_memory_injection() {
@@ -348,7 +343,10 @@ impl ConversationSession {
                     messages.push(tool_msg);
                 }
                 super::InjectionPosition::BeforeNext => {
-                    let insert_pos = if skill_listing_inserted { 1 } else { 0 };
+                    // Insert before the last user message (the new message
+                    // for this turn), matching the design doc:
+                    // [history..., tool: memory摘要, 用户: new_message]
+                    let insert_pos = messages.len() - 1;
                     messages.insert(insert_pos, tool_msg);
                 }
             }
