@@ -721,9 +721,9 @@
   },
   {
     "path": "docs/design/system_prompt/appends.md",
-    "commit": "cbfeb6a2486f8aa43b035a84339a6199a992790e",
-    "commit_time": "2026-08-06T02:23:00+08:00",
-    "confirmed_time": "2026-08-06T02:45:11.587027+08:00",
+    "commit": "93005102b0a58d393f5fc2a33cfa300325fcb49f",
+    "commit_time": "2026-09-10T00:30:50+08:00",
+    "confirmed_time": "2026-09-10T00:41:10.374688+08:00",
     "comment": "",
     "blocked_reason": ""
   },
