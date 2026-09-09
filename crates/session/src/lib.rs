@@ -52,6 +52,8 @@ mod pending_operations_outbound_tests;
 #[cfg(test)]
 mod pending_operations_tests;
 #[cfg(test)]
+mod persistence_system_appends_tests;
+#[cfg(test)]
 mod persistence_tests;
 #[cfg(test)]
 mod persistence_type_tests;

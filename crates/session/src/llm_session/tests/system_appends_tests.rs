@@ -2,8 +2,8 @@
 //! surface on `ConversationSession` and the corresponding
 //! `SessionCheckpoint::system_appends` persistence field.
 //!
-//! These tests cover Step 1.5 of issue #860. Each test is a 1:1
-//! mapping to a bullet in the plan's "Step 1.5：单元测试" section.
+//! These tests cover Step 1.7 of the system_appends split plan.
+//! Each test maps to a bullet in the plan's behavior dimensions.
 
 use super::super::*;
 use crate::persistence::SessionCheckpoint;
@@ -147,30 +147,247 @@ fn test_system_appends_checkpoint_roundtrip() {
     assert_eq!(restored.user_appends, cp.user_appends);
 }
 
-// ── test_system_appends_checkpoint_default_empty ────────────────────────
+// ── test_add_system_injection_append ───────────────────────────────────
+
+#[test]
+fn test_add_system_injection_append() {
+    let mut session = new_session();
+    assert!(session.system_injection_appends().is_empty());
+
+    let i0 = session.add_system_injection_append("inject0".to_string());
+    assert_eq!(i0, 0);
+
+    let i1 = session.add_system_injection_append("inject1".to_string());
+    assert_eq!(i1, 1);
+
+    let items = session.system_injection_appends();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0], "inject0");
+    assert_eq!(items[1], "inject1");
+}
+
+// ── test_independence_clear_user不影响_injection ─────────────────────────
+
+#[test]
+fn test_clear_user_appends_does_not_affect_injection() {
+    let mut session = new_session();
+    session.add_system_append("user1".to_string());
+    session.add_system_append("user2".to_string());
+    session.add_system_injection_append("inj1".to_string());
+    session.add_system_injection_append("inj2".to_string());
+
+    assert_eq!(session.clear_system_appends(), 2);
+
+    // user_appends should be empty
+    assert!(session.user_system_appends().is_empty());
+    // system_injection_appends should be untouched
+    assert_eq!(session.system_injection_appends().len(), 2);
+    assert_eq!(session.system_injection_appends()[0], "inj1");
+    assert_eq!(session.system_injection_appends()[1], "inj2");
+}
+
+// ── test_independence_clear_injection不影响_user ─────────────────────────
+
+#[test]
+fn test_clear_injection_appends_does_not_affect_user() {
+    let mut session = new_session();
+    session.add_system_append("user1".to_string());
+    session.add_system_append("user2".to_string());
+    session.add_system_injection_append("inj1".to_string());
+    session.add_system_injection_append("inj2".to_string());
+
+    assert_eq!(session.clear_system_injection_appends(), 2);
+
+    // system_injection_appends should be empty
+    assert!(session.system_injection_appends().is_empty());
+    // user_appends should be untouched
+    assert_eq!(session.user_system_appends().len(), 2);
+    assert_eq!(session.user_system_appends()[0], "user1");
+    assert_eq!(session.user_system_appends()[1], "user2");
+}
+
+// ── test_merged_output_order ────────────────────────────────────────────
+
+#[test]
+fn test_system_appends_returns_user_before_injection() {
+    let mut session = new_session();
+    session.add_system_append("u1".to_string());
+    session.add_system_append("u2".to_string());
+    session.add_system_injection_append("i1".to_string());
+    session.add_system_injection_append("i2".to_string());
+
+    let merged = session.system_appends();
+    assert_eq!(merged.len(), 4);
+    assert_eq!(merged[0], "u1");
+    assert_eq!(merged[1], "u2");
+    assert_eq!(merged[2], "i1");
+    assert_eq!(merged[3], "i2");
+}
+
+// ── test_boundary_both_empty ────────────────────────────────────────────
+
+#[test]
+fn test_system_appends_both_empty() {
+    let session = new_session();
+    assert!(session.system_appends().is_empty());
+    assert!(session.user_system_appends().is_empty());
+    assert!(session.system_injection_appends().is_empty());
+}
+
+// ── test_boundary_only_user_empty ───────────────────────────────────────
+
+#[test]
+fn test_system_appends_only_user_empty() {
+    let mut session = new_session();
+    session.add_system_injection_append("only_injection".to_string());
+
+    let merged = session.system_appends();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0], "only_injection");
+    assert!(session.user_system_appends().is_empty());
+}
+
+// ── test_boundary_only_injection_empty ──────────────────────────────────
+
+#[test]
+fn test_system_appends_only_injection_empty() {
+    let mut session = new_session();
+    session.add_system_append("only_user".to_string());
+
+    let merged = session.system_appends();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0], "only_user");
+    assert!(session.system_injection_appends().is_empty());
+}
+
+// ── test_state_transition_clear_then_add ────────────────────────────────
+
+#[test]
+fn test_clear_then_add_user_correct_count() {
+    let mut session = new_session();
+    session.add_system_append("a".to_string());
+    session.add_system_append("b".to_string());
+    assert_eq!(session.system_appends().len(), 2);
+
+    let cleared = session.clear_system_appends();
+    assert_eq!(cleared, 2);
+    assert!(session.system_appends().is_empty());
+
+    // After clear, add again — count starts from 0
+    let idx = session.add_system_append("c".to_string());
+    assert_eq!(idx, 0);
+    assert_eq!(session.system_appends().len(), 1);
+    assert_eq!(session.system_appends()[0], "c");
+}
+
+#[test]
+fn test_clear_then_add_injection_correct_count() {
+    let mut session = new_session();
+    session.add_system_injection_append("x".to_string());
+    session.add_system_injection_append("y".to_string());
+    assert_eq!(session.system_injection_appends().len(), 2);
+
+    let cleared = session.clear_system_injection_appends();
+    assert_eq!(cleared, 2);
+    assert!(session.system_injection_appends().is_empty());
+
+    let idx = session.add_system_injection_append("z".to_string());
+    assert_eq!(idx, 0);
+    assert_eq!(session.system_injection_appends().len(), 1);
+    assert_eq!(session.system_injection_appends()[0], "z");
+}
+
+// ── test_clear_injection_idempotent ─────────────────────────────────────
+
+#[test]
+fn test_clear_injection_appends_empty_returns_zero() {
+    let mut session = new_session();
+    assert_eq!(session.clear_system_injection_appends(), 0);
+    // Double-clear is idempotent
+    assert_eq!(session.clear_system_injection_appends(), 0);
+}
+
+// ── test_checkpoint_roundtrip_no_injection_field ────────────────────────
+
+#[test]
+fn test_checkpoint_no_system_injection_appends_field() {
+    // system_injection_appends is #[serde(skip)] — must NOT appear in JSON
+    let mut cp = SessionCheckpoint::new("sess_no_inj".to_string());
+    cp.system_injection_appends = vec!["runtime_only".to_string()];
+
+    let json = serde_json::to_string(&cp).expect("serialize");
+    assert!(
+        !json.contains("system_injection_appends"),
+        "system_injection_appends must not appear in serialized JSON"
+    );
+
+    // Deserialize — system_injection_appends should default to empty
+    let restored: SessionCheckpoint = serde_json::from_str(&json).expect("deserialize");
+    assert!(
+        restored.system_injection_appends.is_empty(),
+        "system_injection_appends must default to empty after deserialization"
+    );
+}
+
+// ── test_checkpoint_old_format_system_appends_alias ─────────────────────
+
+#[test]
+fn test_checkpoint_old_format_system_appends_deserializes_to_user_appends() {
+    // Simulate old checkpoint JSON with only "system_appends" key
+    // (no "user_appends" — serde alias maps it to user_appends)
+    let old_json = r#"{
+        "session_id": "old_sess",
+        "system_appends": ["old_a", "old_b"],
+        "reasoning_mode": "direct",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "ttl_seconds": 604800,
+        "status": "active",
+        "message_count": 0,
+        "reasoning_level": "high",
+        "outbound_pending": [],
+        "mode_state": {"current_step": 0, "total_steps": 0, "step_messages": [], "is_complete": false},
+        "pending_operations": [],
+        "pending_tool_failures": [],
+        "progress_tool_calls": [],
+        "approval_tool_calls": [],
+        "plan_references": [],
+        "pending_messages": [],
+        "snapshot_metas": []
+    }"#;
+
+    let cp: SessionCheckpoint =
+        serde_json::from_str(old_json).expect("old format must deserialize");
+    assert_eq!(cp.user_appends, vec!["old_a", "old_b"]);
+}
+
+// ── test_checkpoint_new_format_user_appends ─────────────────────────────
+
+#[test]
+fn test_checkpoint_new_format_user_appends_deserializes_correctly() {
+    let mut cp = SessionCheckpoint::new("new_sess".to_string());
+    cp.user_appends = vec!["new_a".to_string(), "new_b".to_string()];
+
+    let json = serde_json::to_string(&cp).expect("serialize");
+    let restored: SessionCheckpoint = serde_json::from_str(&json).expect("deserialize");
+
+    assert_eq!(restored.user_appends, vec!["new_a", "new_b"]);
+}
+
+// ── test_checkpoint_default_empty ───────────────────────────────────────
 
 #[test]
 fn test_system_appends_checkpoint_default_empty() {
     // Simulate a pre-#860 checkpoint JSON that has no `system_appends`
     // field. `#[serde(default)]` on the field must make it deserialize
     // to an empty Vec instead of erroring out.
-    //
-    // We build this by constructing a full valid `SessionCheckpoint`,
-    // serializing it, then stripping the `system_appends` key from the
-    // resulting JSON. This guarantees the rest of the payload is
-    // shape-correct (we don't have to maintain a hand-written JSON
-    // literal that mirrors every other required field).
     let mut full = SessionCheckpoint::new("legacy_sess".to_string());
-    // Pre-populate other fields so the round-trip mirror is realistic.
     full.message_count = 42;
     full.last_message_at = Some(chrono::Utc::now());
 
     let mut json: serde_json::Value =
         serde_json::to_value(&full).expect("serialize SessionCheckpoint");
 
-    // Sanity check: the field exists on a freshly-serialized checkpoint
-    // (even if empty). This confirms we're testing the right "remove
-    // the key" scenario.
     assert!(
         json.get("user_appends").is_some(),
         "freshly serialized checkpoint should contain user_appends key"
