@@ -713,9 +713,9 @@
   },
   {
     "path": "docs/design/system_prompt/README.md",
-    "commit": "2fd0a31b1ac72b75c32c3195cca2a0b0f596d7e8",
-    "commit_time": "2026-09-07T21:57:35+08:00",
-    "confirmed_time": "2026-09-07T22:11:34.095074+08:00",
+    "commit": "0efcceb3e6239bc12d950b603abd639043913363",
+    "commit_time": "2026-09-10T00:09:11+08:00",
+    "confirmed_time": "2026-09-10T00:29:49.791129+08:00",
     "comment": "",
     "blocked_reason": ""
   },
