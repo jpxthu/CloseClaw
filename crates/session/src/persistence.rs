@@ -574,7 +574,7 @@ impl SessionCheckpoint {
 /// `SessionMode` controls session-level behavior constraints
 /// (tool visibility, permission boundaries, prompt instructions).
 /// The two are stored independently and switched independently.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ReasoningModeState {
     /// 当前步骤编号（1-indexed）
     pub current_step: u32,
