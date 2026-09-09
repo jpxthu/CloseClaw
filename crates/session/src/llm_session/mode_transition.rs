@@ -108,7 +108,20 @@ impl super::ConversationSession {
         tokio::spawn(async move {
             let mut cp = match storage.load_checkpoint(&session_id).await {
                 Ok(Some(cp)) => cp,
-                _ => crate::persistence::SessionCheckpoint::new(session_id),
+                Ok(None) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "spawn_mode_checkpoint_writeback: no checkpoint found, skipping save"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "spawn_mode_checkpoint_writeback: load failed: {}", e
+                    );
+                    return;
+                }
             };
             cp.session_mode = mode;
             if switched {

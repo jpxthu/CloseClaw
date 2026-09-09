@@ -71,6 +71,10 @@ async fn await_writeback() {
 async fn test_set_session_mode_persists_new_mode() {
     let (mut cs, storage, _temp) = make_session("sess_set_mode");
 
+    // Pre-seed checkpoint so writeback has something to update.
+    let seed = SessionCheckpoint::new("sess_set_mode".into());
+    storage.save_checkpoint(&seed).await.unwrap();
+
     cs.set_session_mode(SessionMode::Plan, ModeChangeSource::Manual);
     await_writeback().await;
 
@@ -89,6 +93,10 @@ async fn test_set_session_mode_persists_new_mode() {
 #[tokio::test]
 async fn test_lazy_apply_persists_session_mode() {
     let (cs, storage, _temp) = make_session("sess_lazy_apply");
+
+    // Pre-seed checkpoint so writeback has something to update.
+    let seed = SessionCheckpoint::new("sess_lazy_apply".into());
+    storage.save_checkpoint(&seed).await.unwrap();
 
     cs.set_pending_session_mode(SessionMode::Auto);
     // session_mode() triggers apply_pending_session_mode_if_needed
