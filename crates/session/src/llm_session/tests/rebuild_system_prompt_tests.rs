@@ -570,7 +570,7 @@ async fn test_rebuild_listing_excludes_previously_merged_skills() {
     assert_eq!(session.activated_conditional_skills().len(), 1);
 
     // First turn: full listing (base + cond-skill), snapshot established.
-    let (listing1, snap1) = session.compute_skill_listing_for_turn();
+    let (listing1, snap1) = session.compute_skill_listing_for_turn(&HashSet::new());
     let text1 = listing1.unwrap_or_default();
     assert_eq!(text1, "base-skill\n- **cond-skill**: test conditional");
     // Apply snapshot so the next call computes a diff.
@@ -584,7 +584,7 @@ async fn test_rebuild_listing_excludes_previously_merged_skills() {
     );
 
     // Listing now excludes cond-skill → diff shows deletion.
-    let (listing2, snap2) = session.compute_skill_listing_for_turn();
+    let (listing2, snap2) = session.compute_skill_listing_for_turn(&HashSet::new());
     let text2 = listing2.unwrap_or_default();
     assert_eq!(
         text2, "- - **cond-skill**: test conditional",
@@ -600,8 +600,8 @@ async fn test_rebuild_listing_excludes_previously_merged_skills() {
     session.apply_skill_listing_update(None, &re);
     assert_eq!(session.activated_conditional_skills().len(), 1);
 
-    // Listing re-includes cond-skill → diff shows addition.
-    let (listing3, _snap3) = session.compute_skill_listing_for_turn();
+    // Listing re-includes cond-skill → complete entry injected.
+    let (listing3, _snap3) = session.compute_skill_listing_for_turn(&re);
     let text3 = listing3.unwrap_or_default();
     assert_eq!(
         text3, "- **cond-skill**: test conditional",

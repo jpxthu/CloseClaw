@@ -7,7 +7,7 @@
 //! Implements the "增量更新" (incremental update) section of the
 //! design doc (`docs/design/skills/skill-listing-injection.md`).
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use super::ConversationSession;
 use closeclaw_common::SkillListingProvider;
@@ -17,85 +17,121 @@ impl ConversationSession {
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///
-    /// Implements the design doc's "增量更新" (incremental update)
-    /// mechanism (see `docs/design/skills/skill-listing-injection.md`).
+    /// Implements the design doc's conditional activation injection:
+    /// when `newly_activated` is non-empty, the complete formatted
+    /// entries (with ⚡) for those skills are injected as-is, not as
+    /// a diff. The snapshot is still updated via the diff mechanism
+    /// to track overall state.
     ///
-    /// The design doc specifies the processing order: "先更新文件
-    /// 变更引起的增量，再处理条件激活的增量" (first update increments
-    /// caused by file changes, then process conditional activation
-    /// increments). In this implementation, the two sources of
-    /// change are merged implicitly rather than via a separate
-    /// two-step diff. This is correct because:
-    ///
-    /// - The daemon's file listener completes cache invalidation
-    ///   and re-scan *before* this turn starts (see design doc's
-    ///   "文件监听与热重载" section).
-    /// - [`prepare_turn_skill_listing`] detects newly activated
-    ///   conditional skills from the user message.
-    /// - The current listing already includes all activated
-    ///   conditionals, so a line-level diff against the previous
-    ///   snapshot naturally captures both file-change increments
-    ///   and conditional activation increments in the correct
-    ///   order.
+    /// When `newly_activated` is empty, falls back to the original
+    /// incremental diff behavior: computes a line-level diff against
+    /// the previous snapshot and injects additions/deletions.
     ///
     /// On the first turn (no snapshot), generates a full listing
-    /// excluding conditional skills. On subsequent turns, generates
-    /// the current listing (including activated conditional skills)
-    /// and computes a line-level diff against the previous snapshot.
-    ///
-    /// Uses the current `activated_conditional_skills` set.
+    /// regardless of `newly_activated`.
     ///
     /// Returns `(listing_to_inject, new_snapshot)` where
     /// `listing_to_inject` is the content for the system-role attachment
     /// (`None` when nothing to inject) and `new_snapshot` is the
     /// updated snapshot to persist.
-    pub(crate) fn compute_skill_listing_for_turn(&self) -> (Option<String>, Option<String>) {
+    pub(crate) fn compute_skill_listing_for_turn(
+        &self,
+        newly_activated: &HashSet<String>,
+    ) -> (Option<String>, Option<String>) {
         let Some(provider) = self.skill_listing_provider.as_ref() else {
             return (None, None);
         };
 
-        // Generate the current listing (including activated
-        // conditional skills).
-        let current_listing =
-            self.generate_listing_with_activated(provider, &self.activated_conditional_skills);
+        // Generate the current listing. When newly_activated is
+        // non-empty, use a temporary combined set so the listing
+        // includes the new skills' entries (they haven't been added
+        // to activated_conditional_skills yet).
+        let combined_activated: HashSet<String> = if newly_activated.is_empty() {
+            self.activated_conditional_skills.clone()
+        } else {
+            self.activated_conditional_skills
+                .union(newly_activated)
+                .cloned()
+                .collect()
+        };
+        let current_listing = self.generate_listing_with_activated(provider, &combined_activated);
         if current_listing.is_empty() {
             return (None, None);
         }
 
-        // Compute incremental diff against snapshot.
         match self.skill_listing_snapshot.as_deref() {
             None => {
                 // First turn — inject full listing
                 (Some(current_listing.clone()), Some(current_listing))
             }
             Some(old_snapshot) => {
-                let old_lines: HashSet<&str> =
-                    old_snapshot.lines().filter(|l| !l.is_empty()).collect();
-                let new_lines: HashSet<&str> =
-                    current_listing.lines().filter(|l| !l.is_empty()).collect();
-                // Additions: lines in current but not in snapshot
-                let additions: Vec<String> = current_listing
-                    .lines()
-                    .filter(|l| !l.is_empty() && !old_lines.contains(*l))
-                    .map(|l| l.to_string())
-                    .collect();
-                // Deletions: lines in snapshot but not in current
-                let deletions: Vec<String> = old_snapshot
-                    .lines()
-                    .filter(|l| !l.is_empty() && !new_lines.contains(*l))
-                    .map(|l| format!("- {}", l))
-                    .collect();
-                // Update snapshot to reflect current state
-                let new_snapshot = current_listing;
-                let mut diff_parts = additions;
-                diff_parts.extend(deletions);
-                if diff_parts.is_empty() {
-                    (None, Some(new_snapshot))
+                if !newly_activated.is_empty() {
+                    // Conditional activation: inject complete entries
+                    // for newly activated skills (per design doc: "以
+                    // 系统消息形式注入该 skill 的清单条目（含 ⚡ 标记，
+                    // 不含正文）").
+                    // Use BTreeSet for deterministic iteration order
+                    // across turns and platforms.
+                    let new_lines: BTreeSet<&str> =
+                        current_listing.lines().filter(|l| !l.is_empty()).collect();
+                    let entries: Vec<String> = new_lines
+                        .iter()
+                        .filter(|line| {
+                            // Match complete entry lines (e.g.
+                            // `- **name**: ...`) to avoid substring
+                            // false matches on partial skill names.
+                            line.starts_with("- **")
+                                && newly_activated
+                                    .iter()
+                                    .any(|name| line.contains(&format!("**{}**:", name)))
+                        })
+                        .map(|l| l.to_string())
+                        .collect();
+                    if entries.is_empty() {
+                        // Newly activated skills not found in listing;
+                        // fall back to diff.
+                        let diff = Self::compute_listing_diff(old_snapshot, &current_listing);
+                        if diff.is_empty() {
+                            (None, Some(current_listing))
+                        } else {
+                            (Some(diff), Some(current_listing))
+                        }
+                    } else {
+                        (Some(entries.join("\n")), Some(current_listing))
+                    }
                 } else {
-                    (Some(diff_parts.join("\n")), Some(new_snapshot))
+                    // No newly activated skills: incremental diff.
+                    let diff = Self::compute_listing_diff(old_snapshot, &current_listing);
+                    if diff.is_empty() {
+                        (None, Some(current_listing))
+                    } else {
+                        (Some(diff), Some(current_listing))
+                    }
                 }
             }
         }
+    }
+
+    /// Compute a line-level diff between old and new listings.
+    ///
+    /// Returns a diff string with additions and deletions, or an
+    /// empty string if there are no changes.
+    fn compute_listing_diff(old_snapshot: &str, current_listing: &str) -> String {
+        let old_lines: HashSet<&str> = old_snapshot.lines().filter(|l| !l.is_empty()).collect();
+        let new_lines: HashSet<&str> = current_listing.lines().filter(|l| !l.is_empty()).collect();
+        let additions: Vec<String> = current_listing
+            .lines()
+            .filter(|l| !l.is_empty() && !old_lines.contains(*l))
+            .map(|l| l.to_string())
+            .collect();
+        let deletions: Vec<String> = old_snapshot
+            .lines()
+            .filter(|l| !l.is_empty() && !new_lines.contains(*l))
+            .map(|l| format!("- {}", l))
+            .collect();
+        let mut parts = additions;
+        parts.extend(deletions);
+        parts.join("\n")
     }
 
     /// Preserve skill listing state across conversation compaction.

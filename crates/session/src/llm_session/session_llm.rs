@@ -147,7 +147,7 @@ impl ConversationSession {
 
         // 2. Compute listing using ONLY current activation set
         //    (newly activated skills are applied after this turn)
-        let (listing, new_snapshot) = self.compute_skill_listing_for_turn();
+        let (listing, new_snapshot) = self.compute_skill_listing_for_turn(&newly_activated);
 
         (listing, new_snapshot, newly_activated)
     }
@@ -297,7 +297,7 @@ impl ConversationSession {
         });
 
         // ── Skill listing attachment — at position 0 when non-empty ──
-        let skill_listing_inserted = if let Some(listing) = skill_listing {
+        if let Some(listing) = skill_listing {
             if !listing.is_empty() {
                 let entry_count = listing.lines().filter(|l| !l.is_empty()).count();
                 let first_entry = listing
@@ -321,13 +321,8 @@ impl ConversationSession {
                     first_entry = %first_entry,
                     "injecting skill listing as system message"
                 );
-                true
-            } else {
-                false
             }
-        } else {
-            false
-        };
+        }
 
         // ── Memory injection — positioned per InjectionPosition ────
         if let Some(injection) = self.take_memory_injection() {
@@ -348,7 +343,15 @@ impl ConversationSession {
                     messages.push(tool_msg);
                 }
                 super::InjectionPosition::BeforeNext => {
-                    let insert_pos = if skill_listing_inserted { 1 } else { 0 };
+                    // Insert before the last user message (the new message
+                    // for this turn), matching the design doc:
+                    // [history..., tool: memory摘要, 用户: new_message]
+                    //
+                    // `messages.len() - 1` always points to the last
+                    // element, which is the user message we just pushed
+                    // above (nothing else modifies `messages` between
+                    // the push and this insert).
+                    let insert_pos = messages.len() - 1;
                     messages.insert(insert_pos, tool_msg);
                 }
             }
