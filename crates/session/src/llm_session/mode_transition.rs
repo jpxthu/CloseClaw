@@ -1,6 +1,6 @@
 //! Mode transition detection for system prompt injection.
 
-use crate::persistence::SessionMode;
+use crate::persistence::{ReasoningModeState, SessionMode};
 use closeclaw_common::system_prompt::ModeTransition;
 
 /// Pending mode transition type alias.
@@ -84,13 +84,44 @@ impl super::ConversationSession {
                 self.has_been_in_plan
                     .store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            let switched = detect(prev, mode, has_been, ModeChangeSource::Manual).is_some();
             if let Some(t) = detect(prev, mode, has_been, ModeChangeSource::Manual) {
                 *self
                     .pending_mode_transition
                     .lock()
                     .expect("pending_mode_transition lock poisoned") = Some(t);
             }
+            self.spawn_mode_checkpoint_writeback(mode, switched);
         }
+    }
+
+    /// Spawn an async task to persist the new session_mode (and
+    /// optionally reset mode_state) into the checkpoint.
+    ///
+    /// Called after a mode switch in the sync apply path. The spawn
+    /// avoids blocking the calling context.
+    pub(crate) fn spawn_mode_checkpoint_writeback(&self, mode: SessionMode, switched: bool) {
+        let Some(storage) = self.checkpoint_storage.clone() else {
+            return;
+        };
+        let session_id = self.session_id.clone();
+        tokio::spawn(async move {
+            let mut cp = match storage.load_checkpoint(&session_id).await {
+                Ok(Some(cp)) => cp,
+                _ => crate::persistence::SessionCheckpoint::new(session_id),
+            };
+            cp.session_mode = mode;
+            if switched {
+                cp.mode_state = ReasoningModeState::default();
+            }
+            cp.touch();
+            if let Err(e) = storage.save_checkpoint(&cp).await {
+                tracing::warn!(
+                    session_id = %cp.session_id,
+                    "spawn_mode_checkpoint_writeback: save failed: {}", e
+                );
+            }
+        });
     }
 }
 

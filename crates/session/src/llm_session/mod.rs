@@ -506,10 +506,12 @@ impl ConversationSession {
         if mode == SessionMode::Plan {
             self.has_been_in_plan.store(true, Ordering::Relaxed);
         }
-        if let Some(t) = mode_transition::detect(prev, mode, has_been, source) {
+        let transition = mode_transition::detect(prev, mode, has_been, source);
+        if let Some(t) = transition {
             let pmt = &self.pending_mode_transition;
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
         }
+        self.spawn_mode_checkpoint_writeback(mode, transition.is_some());
     }
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
@@ -794,7 +796,6 @@ impl ConversationSession {
         self.user_appends.clear();
         n
     }
-
     /// Clear system-injected items only.
     pub fn clear_system_injection_appends(&mut self) -> usize {
         let n = self.system_injection_appends.len();
@@ -821,7 +822,6 @@ impl ConversationSession {
     pub fn user_system_appends(&self) -> &[String] {
         &self.user_appends
     }
-
     /// System-injected append-section items.
     pub fn system_injection_appends(&self) -> &[String] {
         &self.system_injection_appends
