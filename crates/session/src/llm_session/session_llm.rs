@@ -86,11 +86,15 @@ impl ConversationSession {
     ///
     /// This function handles the conditional activation step:
     /// extracts file paths from the user message, finds new
-    /// conditional matches, computes the incremental listing using
-    /// only the currently activated skills (newly activated skills
-    /// are applied AFTER this turn via [`apply_skill_listing_update`]),
-    /// and returns the listing to inject plus the updated state for
-    /// the caller to apply.
+    /// conditional matches, updates `activated_conditional_skills`
+    /// immediately (via [`apply_skill_listing_update`] with
+    /// `None` snapshot), then computes the incremental listing
+    /// using the current activation set. Newly activated skills
+    /// are NOT injected in the current turn — the listing is
+    /// computed with `newly_activated = empty`, so the diff only
+    /// reflects previously-activated skills. The newly activated
+    /// entries will naturally appear in the next turn's diff when
+    /// `activated_conditional_skills` already includes them.
     ///
     /// The ordering is guaranteed by the daemon's file listener,
     /// which completes cache invalidation and re-scan *before* this
@@ -145,9 +149,19 @@ impl ConversationSession {
             );
         }
 
-        // 2. Compute listing using ONLY current activation set
-        //    (newly activated skills are applied after this turn)
-        let (listing, new_snapshot) = self.compute_skill_listing_for_turn(&newly_activated);
+        // 2. Apply conditional activation to session state immediately
+        //    (but without updating the snapshot, so the next turn's
+        //    diff will pick up the new entries).
+        if !newly_activated.is_empty() {
+            self.apply_skill_listing_update(None, &newly_activated);
+        }
+
+        // 3. Compute listing using the current activation set.
+        //    Pass empty newly_activated so the diff only reflects
+        //    previously-activated skills. Newly activated entries
+        //    will appear in the next turn's diff.
+        let (listing, new_snapshot) =
+            self.compute_skill_listing_for_turn(&std::collections::HashSet::new());
 
         (listing, new_snapshot, newly_activated)
     }
