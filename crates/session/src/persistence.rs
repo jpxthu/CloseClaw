@@ -96,11 +96,14 @@ pub struct SessionCheckpoint {
     pub role: Option<AgentRole>,
     /// 推理深度等级
     pub reasoning_level: ReasoningLevel,
-    /// Per-session 追加区内容（system prompt append section）
+    /// Per-session Owner 动态指令追加内容（system prompt append section）
     ///
+    /// Owner 动态指令，经 `/system add` 写入，`/system clear` 清除。
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    /// 用 `#[serde(alias = "system_appends")]` 兼容旧格式（旧字段名映射到 user_appends）。
     #[serde(default)]
-    pub system_appends: Vec<String>,
+    #[serde(alias = "system_appends")]
+    pub user_appends: Vec<String>,
     /// 话题 ID（IM 渠道话题消息的线程标识）
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
@@ -210,7 +213,7 @@ pub struct SessionCheckpoint {
     ///
     /// Stores approval calls (tool name, plan summary, request ID) so
     /// that when PlanState persistence and plan file disk are unavailable,
-    /// the recovery service can inject approval history into `system_appends`.
+    /// the recovery service can inject approval history into `user_appends`.
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
@@ -297,7 +300,7 @@ impl SessionCheckpoint {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
             thread_id: None,
             reply_ref: None,
             sender_id: None,

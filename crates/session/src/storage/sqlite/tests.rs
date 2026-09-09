@@ -32,7 +32,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         agent_id: None,
         role: None,
         reasoning_level: ReasoningLevel::default(),
-        system_appends: Vec::new(),
+        user_appends: Vec::new(),
         thread_id: None,
         reply_ref: None,
         sender_id: None,
@@ -66,7 +66,7 @@ async fn test_save_load_system_appends_roundtrip() {
     let storage = SqliteStorage::new(tmp.path()).unwrap();
 
     let mut checkpoint = create_test_checkpoint("roundtrip-sa");
-    checkpoint.system_appends = vec!["append-A".to_string(), "append-B".to_string()];
+    checkpoint.user_appends = vec!["append-A".to_string(), "append-B".to_string()];
 
     // Save
     storage.save_checkpoint(&checkpoint).await.unwrap();
@@ -75,7 +75,7 @@ async fn test_save_load_system_appends_roundtrip() {
     let loaded = storage.load_checkpoint("roundtrip-sa").await.unwrap();
     assert!(loaded.is_some(), "loaded checkpoint should exist");
     let loaded = loaded.unwrap();
-    assert_eq!(loaded.system_appends, checkpoint.system_appends);
+    assert_eq!(loaded.user_appends, checkpoint.user_appends);
 }
 
 #[tokio::test]
@@ -85,7 +85,7 @@ async fn test_load_system_appends_backward_compat() {
 
     // 1. Save a checkpoint so the transcript file is created
     let mut checkpoint = create_test_checkpoint("compat-sa");
-    checkpoint.system_appends = vec!["should-be-cleared".to_string()];
+    checkpoint.user_appends = vec!["should-be-cleared".to_string()];
     storage.save_checkpoint(&checkpoint).await.unwrap();
 
     // 2. Manually rewrite metadata to remove system_appends key
@@ -114,7 +114,7 @@ async fn test_load_system_appends_backward_compat() {
     assert!(loaded.is_some(), "loaded checkpoint should exist");
     let loaded = loaded.unwrap();
     assert!(
-        loaded.system_appends.is_empty(),
+        loaded.user_appends.is_empty(),
         "missing system_appends key in metadata should yield empty Vec"
     );
 }
@@ -507,7 +507,7 @@ async fn test_load_session_mode_backward_compat_missing_key() {
             "outbound_pending":
                 serde_json::to_string(&cp.outbound_pending).unwrap(),
             "system_appends":
-                serde_json::to_string(&cp.system_appends).unwrap(),
+                serde_json::to_string(&cp.user_appends).unwrap(),
             // intentionally omit "session_mode"
         })
         .to_string();
@@ -582,7 +582,7 @@ async fn test_load_session_mode_invalid_value_fallback() {
             "outbound_pending":
                 serde_json::to_string(&cp.outbound_pending).unwrap(),
             "system_appends":
-                serde_json::to_string(&cp.system_appends).unwrap(),
+                serde_json::to_string(&cp.user_appends).unwrap(),
             "session_mode": "nonexistent_mode",
         })
         .to_string();

@@ -31,7 +31,7 @@ fn make_checkpoint_with_transcript(
         agent_id: None,
         role: None,
         reasoning_level: crate::persistence::ReasoningLevel::default(),
-        system_appends: Vec::new(),
+        user_appends: Vec::new(),
         thread_id: None,
         reply_ref: None,
         sender_id: None,

@@ -8,24 +8,24 @@ use crate::persistence::{
 };
 use std::collections::{HashMap, HashSet};
 
-/// Prefix marker for progress-related entries in `system_appends`.
+/// Prefix marker for progress-related entries in `user_appends`.
 pub const PROGRESS_APPEND_PREFIX: &str = "__progress__:";
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Prefix marker for approval history entries in `system_appends`.
+/// Prefix marker for approval history entries in `user_appends`.
 ///
 /// When injected as a fallback (layer 3), this prefix tags the entry
 /// so it can be identified in subsequent recovery scans.
 pub const APPROVAL_HISTORY_PREFIX: &str = "__approval_history__:";
 /// Prefix marker for plan references extracted from message history
-/// in `system_appends`.
+/// in `user_appends`.
 ///
 /// When injected as a fallback (layer 4), this prefix tags the entry
 /// so it can be identified in subsequent recovery scans.
 pub const PLAN_REFERENCES_PREFIX: &str = "__plan_references__:";
 /// Prefix marker for plan file Tasks section injected into
-/// `system_appends` during recovery.
+/// `user_appends` during recovery.
 ///
 /// When a session in Executing or Paused state is recovered, the
 /// Tasks section is extracted from the plan file and injected with
@@ -234,7 +234,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             if let Some(cp) = checkpoints.get_mut(session_id) {
                 // Inject plan file Tasks section for executing/paused sessions
                 self.inject_plan_tasks(session_id, cp);
-                // Layer 3: inject approval tool call history into system_appends
+                // Layer 3: inject approval tool call history into user_appends
                 self.inject_approval_history(session_id, cp);
                 // Layer 4: fallback — inject plan references from message history
                 // when layers 1–3 are all unavailable
@@ -284,10 +284,10 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         })
     }
 
-    /// Inject approval tool call history into checkpoint's system_appends (layer 3).
+    /// Inject approval tool call history into checkpoint's user_appends (layer 3).
     ///
     /// When a checkpoint has `approval_tool_calls`, this method formats them
-    /// and adds them to `system_appends` with [`APPROVAL_HISTORY_PREFIX`]
+    /// and adds them to `user_appends` with [`APPROVAL_HISTORY_PREFIX`]
     /// so the session can recover plan context from approval records.
     ///
     /// If no approval tool calls exist, the checkpoint is left unchanged
@@ -302,26 +302,26 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
         let tagged = format!("{}{}", APPROVAL_HISTORY_PREFIX, summary);
         if let Some(slot) = checkpoint
-            .system_appends
+            .user_appends
             .iter_mut()
             .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
         {
             *slot = tagged;
         } else {
-            checkpoint.system_appends.push(tagged);
+            checkpoint.user_appends.push(tagged);
         }
         tracing::info!(
             session_id = %session_id,
             call_count = checkpoint.approval_tool_calls.len(),
-            "injected approval tool call history into system_appends"
+            "injected approval tool call history into user_appends"
         );
     }
 
-    /// Inject the plan file Tasks section into checkpoint's system_appends.
+    /// Inject the plan file Tasks section into checkpoint's user_appends.
     ///
     /// For sessions in Executing or Paused state with a `plan_state`,
     /// extracts the Tasks section from the plan file and adds it to
-    /// `system_appends` with [`PLAN_TASKS_PREFIX`].
+    /// `user_appends` with [`PLAN_TASKS_PREFIX`].
     ///
     /// If the session has no `plan_state` or the plan file cannot be read,
     /// the checkpoint is left unchanged (graceful degradation).
@@ -352,29 +352,29 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
         let tagged = format!("{}{}", PLAN_TASKS_PREFIX, tasks_content);
         if let Some(slot) = checkpoint
-            .system_appends
+            .user_appends
             .iter_mut()
             .find(|s| s.starts_with(PLAN_TASKS_PREFIX))
         {
             *slot = tagged;
         } else {
-            checkpoint.system_appends.push(tagged);
+            checkpoint.user_appends.push(tagged);
         }
         tracing::info!(
             session_id = %session_id,
             plan_file = %plan_file_path,
-            "injected plan file Tasks section into system_appends"
+            "injected plan file Tasks section into user_appends"
         );
     }
 
     /// Inject plan references from session message history into checkpoint's
-    /// system_appends (layer 4 fallback).
+    /// user_appends (layer 4 fallback).
     ///
     /// When the first three layers are all unavailable — no `plan_state`
-    /// (layer 1), no approval history in `system_appends` (layer 2), and no
+    /// (layer 1), no approval history in `user_appends` (layer 2), and no
     /// approval tool call history injected (layer 3) — this method checks
     /// `plan_references` in the checkpoint. If non-empty, it builds a
-    /// summary and adds it to `system_appends` with
+    /// summary and adds it to `user_appends` with
     /// [`PLAN_REFERENCES_PREFIX`].
     ///
     /// The trigger condition is explicit: only when layers 1–3 are all
@@ -385,14 +385,14 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             return;
         }
         if checkpoint
-            .system_appends
+            .user_appends
             .iter()
             .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
         {
             return;
         }
         if checkpoint
-            .system_appends
+            .user_appends
             .iter()
             .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX))
         {
@@ -407,18 +407,18 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
         let tagged = format!("{}{}", PLAN_REFERENCES_PREFIX, summary);
         if let Some(slot) = checkpoint
-            .system_appends
+            .user_appends
             .iter_mut()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX))
         {
             *slot = tagged;
         } else {
-            checkpoint.system_appends.push(tagged);
+            checkpoint.user_appends.push(tagged);
         }
         tracing::info!(
             session_id = %session_id,
             ref_count = checkpoint.plan_references.len(),
-            "layer 4 fallback: injected plan references into system_appends"
+            "layer 4 fallback: injected plan references into user_appends"
         );
     }
 

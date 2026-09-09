@@ -12,7 +12,7 @@ impl ConversationSession {
     ///
     /// Coordinates all four cleanup steps:
     ///
-    /// 1. Remove workflow context markers from `system_appends`
+    /// 1. Remove workflow context markers from `user_appends`
     ///    (delegates to [`crate::workflow_recovery::cleanup_workflow_exit`]).
     /// 2. Remove workflow control messages (role == `"workflow"`) from the
     ///    in-memory transcript.
@@ -25,7 +25,7 @@ impl ConversationSession {
     pub async fn cleanup_workflow_exit(&mut self) {
         use crate::workflow_recovery::{cleanup_workflow_exit as cp_cleanup, WorkflowExitReport};
 
-        // 1 & 3: Checkpoint-level cleanup (system_appends + workflow_run).
+        // 1 & 3: Checkpoint-level cleanup (user_appends + workflow_run).
         // Build a temporary checkpoint to apply the cleanup, then merge
         // the results back into the session state.
         let mut cp = self.build_cleanup_checkpoint();
@@ -62,14 +62,14 @@ impl ConversationSession {
     fn build_cleanup_checkpoint(&self) -> crate::persistence::SessionCheckpoint {
         use crate::persistence::SessionCheckpoint;
         let mut cp = SessionCheckpoint::new(self.session_id.clone());
-        cp.system_appends = self.user_system_appends().to_vec();
+        cp.user_appends = self.user_system_appends().to_vec();
         cp.workflow_run = self.workflow_run().cloned();
         cp
     }
 
     /// Apply cleanup results from a checkpoint back into session state.
     fn apply_cleanup_checkpoint(&mut self, cp: &crate::persistence::SessionCheckpoint) {
-        self.restore_system_appends(cp.system_appends.clone());
+        self.restore_system_appends(cp.user_appends.clone());
         self.set_workflow_run(cp.workflow_run.clone());
     }
 }

@@ -899,7 +899,7 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
             )
         });
         cp.pending_operations.extend(collected_ops);
-        cp.system_appends = system_appends;
+        cp.user_appends = system_appends;
         cp.verbosity_level = verbosity;
         cp.workflow_run = workflow_run;
         cp.touch();

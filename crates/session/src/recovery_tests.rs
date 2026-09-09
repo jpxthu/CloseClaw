@@ -38,7 +38,7 @@ mod tests {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
             thread_id: None,
             reply_ref: None,
             sender_id: None,
@@ -567,7 +567,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let approval_append = loaded
-            .system_appends
+            .user_appends
             .iter()
             .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
         assert!(
@@ -596,7 +596,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(loaded.system_appends.is_empty(), "no injection for empty");
+        assert!(loaded.user_appends.is_empty(), "no injection for empty");
     }
 
     #[tokio::test]
@@ -611,7 +611,7 @@ mod tests {
             request_id: None,
             timestamp: None,
         }];
-        cp.system_appends
+        cp.user_appends
             .push(format!("{}old data", APPROVAL_HISTORY_PREFIX));
         storage.save_checkpoint(&cp).await.unwrap();
 
@@ -625,7 +625,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let approvals: Vec<_> = loaded
-            .system_appends
+            .user_appends
             .iter()
             .filter(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
             .collect();
@@ -646,7 +646,7 @@ mod tests {
             request_id: None,
             timestamp: None,
         }];
-        cp.system_appends.push("other content".to_string());
+        cp.user_appends.push("other content".to_string());
         storage.save_checkpoint(&cp).await.unwrap();
 
         let service = SessionRecoveryService::new(Arc::clone(&storage));
@@ -658,10 +658,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(loaded.system_appends.len(), 2);
-        assert!(loaded.system_appends.contains(&"other content".to_string()));
+        assert_eq!(loaded.user_appends.len(), 2);
+        assert!(loaded.user_appends.contains(&"other content".to_string()));
         let approval = loaded
-            .system_appends
+            .user_appends
             .iter()
             .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
         assert!(approval.is_some());
@@ -770,7 +770,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let pa = loaded1
-            .system_appends
+            .user_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(pa.is_some(), "plan references should be injected");
@@ -782,7 +782,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let pa2 = loaded2
-            .system_appends
+            .user_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(

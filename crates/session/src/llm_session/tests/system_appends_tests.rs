@@ -133,18 +133,18 @@ fn test_system_appends_no_truncation() {
 fn test_system_appends_checkpoint_roundtrip() {
     // Build a checkpoint with non-empty system_appends.
     let mut cp = SessionCheckpoint::new("sess_ckpt".to_string());
-    cp.system_appends = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+    cp.user_appends = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
 
     // Serialize → deserialize.
     let json = serde_json::to_string(&cp).expect("serialize SessionCheckpoint");
     let restored: SessionCheckpoint =
         serde_json::from_str(&json).expect("deserialize SessionCheckpoint");
 
-    assert_eq!(restored.system_appends.len(), 3);
-    assert_eq!(restored.system_appends[0], "alpha");
-    assert_eq!(restored.system_appends[1], "beta");
-    assert_eq!(restored.system_appends[2], "gamma");
-    assert_eq!(restored.system_appends, cp.system_appends);
+    assert_eq!(restored.user_appends.len(), 3);
+    assert_eq!(restored.user_appends[0], "alpha");
+    assert_eq!(restored.user_appends[1], "beta");
+    assert_eq!(restored.user_appends[2], "gamma");
+    assert_eq!(restored.user_appends, cp.user_appends);
 }
 
 // ── test_system_appends_checkpoint_default_empty ────────────────────────
@@ -172,27 +172,27 @@ fn test_system_appends_checkpoint_default_empty() {
     // (even if empty). This confirms we're testing the right "remove
     // the key" scenario.
     assert!(
-        json.get("system_appends").is_some(),
-        "freshly serialized checkpoint should contain system_appends key"
+        json.get("user_appends").is_some(),
+        "freshly serialized checkpoint should contain user_appends key"
     );
 
-    // Remove the `system_appends` key to simulate a pre-#860 file.
+    // Remove the `user_appends` key to simulate a pre-#860 file.
     if let Some(obj) = json.as_object_mut() {
-        obj.remove("system_appends");
+        obj.remove("user_appends");
     }
 
     let legacy_json = serde_json::to_string(&json).expect("re-serialize legacy JSON");
     assert!(
-        !legacy_json.contains("system_appends"),
-        "stripped JSON must not contain system_appends key, got: {legacy_json}"
+        !legacy_json.contains("user_appends"),
+        "stripped JSON must not contain user_appends key, got: {legacy_json}"
     );
 
     let cp: SessionCheckpoint =
         serde_json::from_str(&legacy_json).expect("legacy JSON must still deserialize");
 
     assert!(
-        cp.system_appends.is_empty(),
+        cp.user_appends.is_empty(),
         "legacy checkpoint without system_appends must default to empty Vec, got {:?}",
-        cp.system_appends
+        cp.user_appends
     );
 }
