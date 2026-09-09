@@ -756,4 +756,173 @@ mod tests {
         assert!(result.contains("- **b"));
         assert!(!result.contains("- **c"));
     }
+
+    // ------------------------------------------------------------------
+    // Dimension: Cache invalidation — long chain: change → assemble →
+    //   change → assemble → both rebuilds reflect latest skill set
+    // ------------------------------------------------------------------
+
+    use std::sync::atomic::AtomicUsize;
+
+    /// Mock backed by a shared generation counter.
+    /// When the generation changes, the fingerprint and output change.
+    struct GenerationMock {
+        generation: Arc<AtomicUsize>,
+    }
+
+    impl GenerationMock {
+        fn new(gen: Arc<AtomicUsize>) -> Self {
+            Self { generation: gen }
+        }
+    }
+
+    impl SkillListingProvider for GenerationMock {
+        fn rescan(&self) {}
+        fn fingerprint(&self) -> String {
+            format!("gen:{}", self.generation.load(Ordering::SeqCst))
+        }
+        fn generate_listing(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            let gen = self.generation.load(Ordering::SeqCst);
+            (0..=gen)
+                .map(|i| format!("- **skill-{i}**: desc {i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        fn generate_listing_excluding_conditional(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.generate_listing(_agent_id, _agent_skills)
+        }
+        fn find_conditional_matches(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+            vec![]
+        }
+    }
+
+    /// Long chain: two skill-file changes, two assemblies, each
+    /// rebuilds with the latest skill set.
+    #[tokio::test]
+    async fn test_long_chain_reflects_latest_skills() {
+        let gen = Arc::new(AtomicUsize::new(0));
+        let provider = SkillsFragmentProvider::new(Arc::new(GenerationMock::new(gen.clone())));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+
+        // Cycle 1: initial state (1 skill)
+        let key1 = provider.cache_key(&ctx).unwrap();
+        assert!(key1.contains("gen:0"));
+        let frag1 = provider.generate(&ctx).await.expect("fragment");
+        assert!(frag1.content.contains("skill-0"));
+        assert!(!frag1.content.contains("skill-1"));
+
+        // Change: add skill-1
+        gen.store(1, Ordering::SeqCst);
+        let key2 = provider.cache_key(&ctx).unwrap();
+        assert_ne!(key1, key2, "cache key must change after skill addition");
+        let frag2 = provider.generate(&ctx).await.expect("fragment");
+        assert!(frag2.content.contains("skill-1"), "must reflect new skill");
+
+        // Change: add skill-2
+        gen.store(2, Ordering::SeqCst);
+        let key3 = provider.cache_key(&ctx).unwrap();
+        assert_ne!(key2, key3, "cache key must change after second addition");
+        let frag3 = provider.generate(&ctx).await.expect("fragment");
+        assert!(
+            frag3.content.contains("skill-2"),
+            "must reflect latest skill"
+        );
+        assert!(
+            frag3.content.contains("skill-1"),
+            "must still include previous skill"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Error path — fingerprint degrades when listing fails
+    // ------------------------------------------------------------------
+
+    /// Mock that simulates listing failure (empty output) with
+    /// a stable fingerprint that doesn't panic.
+    struct FailingListingMock {
+        fp: String,
+    }
+
+    impl SkillListingProvider for FailingListingMock {
+        fn rescan(&self) {}
+        fn fingerprint(&self) -> String {
+            self.fp.clone()
+        }
+        fn generate_listing(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            String::new() // simulates listing failure
+        }
+        fn generate_listing_excluding_conditional(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            String::new()
+        }
+        fn find_conditional_matches(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+            vec![]
+        }
+    }
+
+    /// When listing is empty (degraded), generate returns None without panic,
+    /// and cache_key still produces a valid key.
+    #[tokio::test]
+    async fn test_degraded_listing_empty_output_no_panic() {
+        let mock = FailingListingMock {
+            fp: "degraded".to_string(),
+        };
+        let provider = SkillsFragmentProvider::new(Arc::new(mock));
+        let ctx = FragmentContext::test_default();
+
+        // generate should return None (empty output), no panic
+        let result = provider.generate(&ctx).await;
+        assert!(result.is_none(), "empty listing must produce None");
+
+        // cache_key should still work
+        let key = provider.cache_key(&ctx).unwrap();
+        assert!(key.ends_with("degraded"));
+    }
+
+    /// When listing fails across multiple fingerprint versions,
+    /// generate always returns None but cache keys remain distinct.
+    #[tokio::test]
+    async fn test_degraded_listing_fingerprint_evolution() {
+        let mock_v1 = FailingListingMock {
+            fp: "v1".to_string(),
+        };
+        let provider1 = SkillsFragmentProvider::new(Arc::new(mock_v1));
+        let ctx = FragmentContext::test_default();
+        let key1 = provider1.cache_key(&ctx).unwrap();
+        assert!(provider1.generate(&ctx).await.is_none());
+
+        let mock_v2 = FailingListingMock {
+            fp: "v2".to_string(),
+        };
+        let provider2 = SkillsFragmentProvider::new(Arc::new(mock_v2));
+        let key2 = provider2.cache_key(&ctx).unwrap();
+        assert!(provider2.generate(&ctx).await.is_none());
+
+        assert_ne!(
+            key1, key2,
+            "different degraded states must have distinct keys"
+        );
+    }
 }
