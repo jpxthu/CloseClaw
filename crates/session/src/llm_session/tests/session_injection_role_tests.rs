@@ -236,17 +236,15 @@ async fn test_gap1_conditional_activation_after_provider_set() {
     assert_eq!(systems1.len(), 1);
     assert!(!systems1[0].contains("rs_helper"));
 
-    // Turn 2: .rs file triggers activation (applied next turn)
+    // Turn 2: .rs file triggers activation, complete entry injected
+    // immediately
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
-
-    // Turn 3: activated skill appears
-    let _ = session.invoke_llm("continue").await.unwrap();
-    let req3 = fake_ref.last_request().unwrap();
-    let systems3 = system_messages(&req3);
-    assert_eq!(systems3.len(), 1);
+    let req2 = fake_ref.last_request().unwrap();
+    let systems2 = system_messages(&req2);
+    assert_eq!(systems2.len(), 1);
     assert!(
-        systems3[0].contains("rs_helper"),
-        "activated conditional skill should appear in listing"
+        systems2[0].contains("rs_helper"),
+        "activated conditional skill should be injected on activation turn"
     );
 }
 
