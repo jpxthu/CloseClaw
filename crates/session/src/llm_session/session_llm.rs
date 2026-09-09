@@ -194,9 +194,8 @@ impl ConversationSession {
             ));
         };
 
-        let (listing, new_snapshot, newly_activated) = self.prepare_turn_skill_listing(content);
+        let (listing, _new_snapshot, _newly_activated) = self.prepare_turn_skill_listing(content);
         let messages = self.build_llm_messages_with_listing(content, listing);
-        self.apply_skill_listing_update(new_snapshot, &newly_activated);
 
         let request = self.build_llm_request(messages, false);
 
@@ -245,9 +244,8 @@ impl ConversationSession {
             ));
         };
 
-        let (listing, new_snapshot, newly_activated) = self.prepare_turn_skill_listing(content);
+        let (listing, _new_snapshot, _newly_activated) = self.prepare_turn_skill_listing(content);
         let messages = self.build_llm_messages_with_listing(content, listing);
-        self.apply_skill_listing_update(new_snapshot, &newly_activated);
 
         let request = self.build_llm_request(messages, true);
 
