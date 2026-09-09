@@ -11,7 +11,7 @@ use closeclaw_common::fragment::{
 };
 use closeclaw_common::skill_listing_provider::SkillListingProvider;
 
-/// Maximum length of the skills section (in characters).
+/// Maximum length of the skills section (in bytes).
 ///
 /// Skills are truncated atomically at entry boundaries when the listing
 /// exceeds this byte limit, mirroring `TOOLS_SECTION_MAX_LEN` for tools.
@@ -657,7 +657,7 @@ mod tests {
     #[test]
     fn test_truncate_listing_exact_limit_unchanged() {
         let listing = "- **alpha**: desc alpha";
-        assert_eq!(listing.chars().count(), 23);
+        assert_eq!(listing.len(), 23);
         let result = truncate_listing(listing, 23);
         assert_eq!(result, listing);
     }
@@ -722,9 +722,56 @@ mod tests {
     #[test]
     fn test_truncate_listing_boundary_one_over() {
         let listing = "- **a**: 1234\n- **b**: 5678";
-        // Total = 27 chars. max_len = 26 forces truncation after first entry.
+        // Total = 27 bytes. max_len = 26 forces truncation after first entry.
         let result = truncate_listing(listing, 26);
         assert_eq!(result, "- **a**: 1234");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — multi-byte UTF-8 entries
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_multibyte_utf8_within_limit() {
+        let listing = "- **skill_cn**: 描述一个中文技能\n- **skill_en**: Another skill";
+        assert!(!listing.is_empty());
+        let result = truncate_listing(listing, 4000);
+        assert_eq!(result, listing);
+    }
+
+    #[test]
+    fn test_truncate_listing_multibyte_utf8_truncates_at_byte_boundary() {
+        // 描述 = 6 bytes (3 each), 技能 = 6 bytes (3 each)
+        let listing = "- **skill_cn**: 描述一个中文技能\n- **skill_en**: Another skill";
+        // Choose a limit that cuts within the first entry but not at a char boundary
+        let limit = "- **skill_cn**: 描述一中".len();
+        let result = truncate_listing(listing, limit);
+        // Should keep at least the first entry (even if it exceeds limit)
+        assert!(
+            result.starts_with("- **skill_cn"),
+            "must keep first entry, got: {result}"
+        );
+        // Result must be valid UTF-8
+        assert!(
+            std::str::from_utf8(result.as_bytes()).is_ok(),
+            "result must be valid UTF-8"
+        );
+        // Should not contain the second entry
+        assert!(
+            !result.contains("skill_en"),
+            "second entry must not appear when truncated"
+        );
+    }
+
+    #[test]
+    fn test_truncate_listing_multibyte_utf8_preserves_whole_entries() {
+        // Two entries with multi-byte chars; limit fits first but not second
+        let entry1 = "- **cn_skill**: 中文描述";
+        let entry2 = "- **en_skill**: English description";
+        let listing = format!("{}\n{}", entry1, entry2);
+        let limit = entry1.len() + 5; // fits entry1 + separator but not entry2
+        let result = truncate_listing(&listing, limit);
+        assert_eq!(result, entry1, "should keep only the first whole entry");
     }
 
     // ------------------------------------------------------------------
