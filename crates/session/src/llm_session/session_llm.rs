@@ -116,7 +116,7 @@ impl ConversationSession {
             if let Some(provider) = self.skill_listing_provider.as_ref() {
                 let matches = provider.find_conditional_matches(&paths);
                 for m in matches {
-                    if !self.is_skill_newly_activated(&m.name) {
+                    if !self.is_skill_already_activated(&m.name) {
                         newly_activated.insert(m.name);
                     }
                 }
@@ -134,7 +134,7 @@ impl ConversationSession {
     }
 
     /// Check if a skill name is not yet in the activated set.
-    fn is_skill_newly_activated(&self, name: &str) -> bool {
+    fn is_skill_already_activated(&self, name: &str) -> bool {
         self.activated_conditional_skills.contains(name)
     }
 
