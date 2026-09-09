@@ -81,14 +81,17 @@ impl ConversationSession {
     }
 
     /// Remove workflow context ("--- WORKFLOW ---" items)
-    /// from system_appends.
+    /// from system_injection_appends.
     pub fn remove_workflow_context_from_appends(&mut self) {
-        let before = self.system_appends.len();
-        self.system_appends
+        let before = self.system_injection_appends.len();
+        self.system_injection_appends
             .retain(|s| !s.starts_with("--- WORKFLOW ---"));
-        let removed = before - self.system_appends.len();
+        let removed = before - self.system_injection_appends.len();
         if removed > 0 {
-            tracing::debug!(removed, "removed workflow context from system_appends");
+            tracing::debug!(
+                removed,
+                "removed workflow context from system_injection_appends"
+            );
         }
     }
 
