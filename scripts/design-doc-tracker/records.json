@@ -51,9 +51,9 @@
     "path": "docs/design/cli/admin.md",
     "commit": "26c41c1c847f13c2c9e2683a687b01720f12736a",
     "commit_time": "2026-08-24T06:20:43+08:00",
-    "confirmed_time": "2026-08-24T06:31:05.658800+08:00",
+    "confirmed_time": "2026-09-10T01:14:36.685445+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "设计文档内部矛盾：admin.md 定义 skill rescan 运行时立即重扫并更新 Skills Registry，但 skills/README.md 明确声明无运行时热生效路径、注册中心唯一生效时机为 System Prompt 组装边界且组装边界之间稳定。两文档对同一能力互斥，历史 PR #2644 已按 README 移除 rescan 代码，与 admin.md 定义冲突，需 Owner 裁决权威文档"
   },
   {
     "path": "docs/design/cli/chat.md",
