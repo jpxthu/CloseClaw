@@ -526,49 +526,6 @@ async fn test_build_tools_section_no_orphan_header() {
     );
 }
 
-// ---- AgentToolsConfigQuery path tests ----
-// Tests for ToolRegistry's ability to query agent tools configuration.
-// These tests require a mock AgentToolsConfigQuery implementation.
-// For now, marked #[ignore] until moved to integration tests.
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-
-#[allow(dead_code)]
-fn make_agent_config(
-    id: &str,
-    tools: Vec<String>,
-    disallowed_tools: Vec<String>,
-) -> ResolvedAgentConfig {
-    ResolvedAgentConfig {
-        id: id.to_string(),
-        name: id.to_string(),
-        parent_id: None,
-        model: None,
-        workspace: None,
-        agent_dir: None,
-        bootstrap_mode: BootstrapMode::Full,
-        skills: vec![],
-        tools,
-        disallowed_tools,
-        subagents: Default::default(),
-        memory: MemoryConfig::default(),
-        hooks: Vec::new(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: ConfigSource::User,
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires mock AgentToolsConfigQuery — move to integration tests"]
-async fn test_query_agent_tools_config_not_set() {
-    let reg = ToolRegistry::new();
-    // No query set — should return (None, None)
-    let (tools, disallowed) = reg.query_agent_tools_config("any-agent").await;
-    assert_eq!(tools, None);
-    assert_eq!(disallowed, None);
-}
-
 // =========================================================================
 // RegistryError — Display and variant tests
 // =========================================================================
@@ -703,7 +660,8 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
 }
 
 #[tokio::test]
-async fn test_normal_mode_does_not_filter_write_tools() {
+async fn test_normal_mode_and_no_session_mode_do_not_filter() {
+    // Normal mode shows all tools
     let reg = ToolRegistry::new();
     reg.register(DummyTool {
         name: "Write".to_string(),
@@ -716,7 +674,7 @@ async fn test_normal_mode_does_not_filter_write_tools() {
     .await
     .unwrap();
 
-    let ctx = PromptGenerationContext {
+    let normal_ctx = PromptGenerationContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
         available_tool_names: vec![],
@@ -726,29 +684,11 @@ async fn test_normal_mode_does_not_filter_write_tools() {
         agent_role: None,
         agent_type: None,
     };
-    let section = reg.build_tools_section(&ctx).await;
+    let section = reg.build_tools_section(&normal_ctx).await;
+    assert!(section.contains("Write"), "Write visible in Normal mode");
 
-    assert!(
-        section.contains("Write"),
-        "Write should be visible in Normal mode"
-    );
-}
-
-#[tokio::test]
-async fn test_no_session_mode_does_not_filter() {
-    let reg = ToolRegistry::new();
-    reg.register(DummyTool {
-        name: "Write".to_string(),
-        group: "file_ops".to_string(),
-        summary_text: "Write file".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-    })
-    .await
-    .unwrap();
-
-    let ctx = PromptGenerationContext {
+    // No session_mode also shows all tools
+    let no_mode_ctx = PromptGenerationContext {
         agent_id: "test-agent".to_string(),
         workdir: None,
         available_tool_names: vec![],
@@ -758,11 +698,10 @@ async fn test_no_session_mode_does_not_filter() {
         agent_role: None,
         agent_type: None,
     };
-    let section = reg.build_tools_section(&ctx).await;
-
+    let section = reg.build_tools_section(&no_mode_ctx).await;
     assert!(
         section.contains("Write"),
-        "Write should be visible without session_mode"
+        "Write visible without session_mode"
     );
 }
 
@@ -849,36 +788,34 @@ async fn test_plan_mode_hides_plan_approval_tool() {
 // =========================================================================
 
 #[test]
-fn test_strip_keywords_prefix_strips_when_present() {
+fn test_strip_keywords_prefix_variants() {
+    // With prefix -> stripped
     assert_eq!(
         strip_keywords_prefix("[keywords: read file cat] Read file contents"),
         "Read file contents"
     );
     assert_eq!(
-        strip_keywords_prefix("[keywords: a b c d e f g h i j] detail text"),
-        "detail text"
-    );
-    assert_eq!(strip_keywords_prefix("[keywords: search find]"), "");
-    // Space after `keywords:` is a valid non-bracket char → prefix stripped.
-    assert_eq!(
         strip_keywords_prefix("[keywords: ] some detail"),
         "some detail"
     );
-}
-
-#[test]
-fn test_strip_keywords_prefix_no_match() {
-    // No prefix → unchanged.
+    assert_eq!(strip_keywords_prefix("[keywords: search find]"), "");
+    // Without prefix -> unchanged
     assert_eq!(
         strip_keywords_prefix("Just a regular description"),
         "Just a regular description"
     );
     assert_eq!(strip_keywords_prefix(""), "");
-    // Prefix in middle → not stripped.
+    // Prefix in middle -> not stripped
     assert_eq!(
         strip_keywords_prefix("Some text [keywords: read file] and after"),
         "Some text [keywords: read file] and after"
     );
+    // Empty bracket -> unchanged
+    assert_eq!(
+        strip_keywords_prefix("[keywords:] some detail"),
+        "[keywords:] some detail"
+    );
+    assert_eq!(strip_keywords_prefix("[keywords:]"), "[keywords:]");
 }
 
 #[test]
@@ -921,18 +858,6 @@ fn test_from_tool_strips_keywords_from_detail() {
     });
     let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["PlainTool"]));
     assert_eq!(info.detail, "Plain description");
-}
-
-#[test]
-fn test_strip_keywords_prefix_empty_bracket() {
-    // `[keywords:]` — no keywords listed, regex requires at least one
-    // non-`]` char after `keywords:`, so this does NOT match → unchanged.
-    assert_eq!(
-        strip_keywords_prefix("[keywords:] some detail"),
-        "[keywords:] some detail"
-    );
-    // Bare `[keywords:]` with nothing after it → unchanged.
-    assert_eq!(strip_keywords_prefix("[keywords:]"), "[keywords:]");
 }
 
 // =========================================================================
