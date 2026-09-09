@@ -8,14 +8,13 @@ Workflow Engine 深度集成在 session 生命周期中：WorkflowRun 状态随 
 
 ### 持久化数据
 
-WorkflowRun 作为 session 的附加状态随 session checkpoint 持久化：
+WorkflowRun 作为 session 的附加状态随 session checkpoint 持久化（SessionCheckpoint 数据模型见 [session-lifecycle.md](../session/session-lifecycle.md)）：
 
 - workflow_id：关联的 workflow 定义标识
 - definition_version：定义版本号，用于检测定义变更
 - current_step：当前步骤编号
 - phase：executing / verifying / jumping / blocked / complete
 - step_history：已完成步骤记录（步骤编号、进入时间、完成时间、状态）
-- step_data：跨步骤共享的运行时数据（键值对）
 - pending_verify：验证重试状态（注入次数、最后注入时间、最大重试次数）
 - paused_reason：暂停原因（仅在 phase 为 blocked 时写入，取值因触发来源而异：主动阻塞为 Agent 提供的 reason；被动暂停（验收重试耗尽）为固定文本「验收重试次数耗尽」；恢复时检测到当前步骤在最新定义中已不存在时为「当前步骤在最新定义中已不存在」。非 blocked 阶段为空。）
 
@@ -71,7 +70,7 @@ workflow 一旦开始即不可回退为普通 Session——只能由 Engine 判�
 ### 轮次间持久化
 
 每次 checkpoint 写入时附带 WorkflowRun 的完整字段：
-workflow_id、definition_version、current_step、phase、step_history、step_data、pending_verify、paused_reason。
+workflow_id、definition_version、current_step、phase、step_history、pending_verify、paused_reason。
 
 ### 从归档恢复
 
@@ -86,14 +85,14 @@ Session 归档恢复时，Engine 重建会话后检测未完成 workflow，并�
    - Engine 注入当前步骤 goal 消息（role: workflow）
    - Engine 通过 System Prompt 重新注入 workflow context
    - Agent 从中断点继续
-4. 若当前步骤在最新定义中已不存在（定义已变更）→ 按「定义版本变更」转为暂停：phase 置 blocked、填入暂停原因、通知 owner，不自动恢复
+4. 若当前步骤在最新定义中已不存在（定义已变更）→ 按「定义版本变更」转为暂停：phase 置 blocked、填入暂停原因、通知 Owner，不自动恢复
 
 **暂停中恢复（phase = blocked）**
 
 1. Session 从归档恢复，SessionManager 重建 ConversationSession
 2. Engine 检测 WorkflowRun phase = blocked
 3. Engine 判断当前步骤在最新定义中是否仍存在：
-   - 已不存在（定义已变更）→ 按「定义版本变更」处置：将 paused_reason 置为固定文本「当前步骤在最新定义中已不存在」，通知 owner，该暂停仅能由 Owner 终止
+   - 已不存在（定义已变更）→ 按「定义版本变更」处置：将 paused_reason 置为固定文本「当前步骤在最新定义中已不存在」，通知 Owner，该暂停仅能由 Owner 终止
    - 仍存在或未检出定义变更 → 保持暂停，不自动恢复。Engine 通过 System Prompt 重新注入 workflow context，并经 Gateway 重新告知 Owner 持久化的暂停原因（paused_reason），等待 Owner 处理
 4. 对该仍存在的阻塞性暂停（来源为验收重试耗尽或 Agent 主动阻塞），Owner 回复后 Engine 按 F6（见 execution-engine.md 阻塞处理）解除：保留当前步骤目标消息、pending_verify 归零、清理残留 verify 消息、注入 verify，Agent 从暂停前阶段继续；Owner 亦可直接终止 workflow
 
@@ -101,7 +100,7 @@ Session 归档恢复时，Engine 重建会话后检测未完成 workflow，并�
 
 ### 退出 Workflow 模式
 
-1. Workflow 正常结束（phase = complete）或 owner 终止
+1. Workflow 正常结束（phase = complete）或 Owner 终止
 2. Engine 从追加区移除 workflow context
 3. Engine 清理消息历史中的 workflow 控制消息（goal + recovered）
 4. Engine 清空 WorkflowRun 状态
@@ -112,7 +111,7 @@ Session 归档恢复时，Engine 重建会话后检测未完成 workflow，并�
 
 判定依据：恢复时对比持久化的定义版本与最新定义，若当前步骤已在最新定义中删除，则无法续跑/无法按原解除路径继续。处置按暂停与否分：
 
-- **运行中**：phase 转为 blocked，填入暂停原因「当前步骤在最新定义中已不存在」，通知 owner。该暂停仅能由 Owner 终止，不能解除续跑（无法对已不存在的步骤复写验收流程）
+- **运行中**：phase 转为 blocked，填入暂停原因「当前步骤在最新定义中已不存在」，通知 Owner。该暂停仅能由 Owner 终止，不能解除续跑（无法对已不存在的步骤复写验收流程）
 - **暂停中（phase = blocked）**：保持暂停（按暂停中恢复 step3 处置），Engine 告知 Owner「当前步骤在最新定义中已不存在」，该暂停仅能由 Owner 终止，不能解除。
 
 ## 模块关系

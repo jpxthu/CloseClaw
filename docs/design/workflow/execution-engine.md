@@ -21,7 +21,7 @@ Engine 管理五个 phase。进入每个 phase 前 Engine 执行相应的注入�
    - Agent 继续干活（调工具、spawn 子 session 等）→ 等下次验收判定条件满足再注入 verify → 循环回 verifying
    - Agent 完成，调用 workflow_verify → jumping
    - Agent 调用 workflow_blocked（当前步骤允许时）→ blocked
-   - pending_verify 计数超过上限 → blocked
+   - pending_verify 计数达到上限 → blocked
 
 3. **jumping**
    Engine 已注入跳转问题，等待 Agent 调用 workflow_jump 回答。离开转换：
@@ -30,9 +30,9 @@ Engine 管理五个 phase。进入每个 phase 前 Engine 执行相应的注入�
    - complete → complete
 
 4. **blocked**
-   阻塞状态，等待 owner 介入。触发来源：
+   阻塞状态，等待 Owner 介入。触发来源：
    - Agent 调用 workflow_blocked（当前步骤 allow_blocked 为 true）
-   - verify 连续注入次数超过上限
+   - verify 连续注入次数达到上限
 
    离开转换：
    - Owner 输入解除 → 保留当前步骤目标消息，pending_verify 归零，清理残留 verify 消息，注入 verify → verifying
@@ -98,21 +98,21 @@ Engine 判定当前步骤执行是否可进入 verifying：在 Agent 当前 turn
 
 ### 跳转评估
 
-Engine 收到 workflow_jump({answers}) 后按 transitions 顺序匹配条件（布尔比对、枚举匹配）。第一个全部满足的 transition 生效，都不满足则执行 default。全硬编码，不依赖 LLM。
+Engine 收到 workflow_jump({answers}) 后按 transitions 顺序匹配条件。boolean 用原生布尔值直接比对；enum 先按 options 顺序将答案字母映射回内部值，再与 expected_value 比对。第一个全部满足的 transition 生效，都不满足则执行 default。全硬编码，不依赖 LLM。
 
 ### 跳转动作
 
-goto(N)：前进到 Step N，清空 step_data，step_history 追加完成记录。目标 phase 为 executing。
-reexecute(N)：重入 Step N，保留 step_data，不追加完成记录，goal 注入时附加重新执行提示。目标 phase 为 executing。
+goto(N)：前进到 Step N，step_history 追加完成记录。目标 phase 为 executing。
+reexecute(N)：重入 Step N，不追加完成记录，goal 注入时附加重新执行提示。目标 phase 为 executing。
 complete：Workflow 结束。目标 phase 为 complete。
 
 ### 验证重试
 
 Engine 每次注入 verify 后 pending_verify 计数加一。Agent 调用 workflow_verify 后计数归零。
 
-计数超过上限（默认 3，可在 workflow 定义中配置，每个 workflow 一个上限值）→ phase 转为 blocked。转入 blocked 时，pending_verify 数值保留不动，owner 解除阻塞后归零。转入 blocked 前残留的旧 verify 消息在 owner 解除时一并清理。
+计数达到上限（默认 3，可在 workflow 定义中配置，每个 workflow 一个上限值）→ phase 转为 blocked。转入 blocked 时，pending_verify 数值保留不动，Owner 解除阻塞后归零。转入 blocked 前残留的旧 verify 消息在 Owner 解除时一并清理。
 
-pending_verify 在以下情况下归零：Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、owner 解除 blocked。
+pending_verify 在以下情况下归零：Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、Owner 解除 blocked。
 
 没有超时机制。Agent 只要还在执行步骤内容，不管多久 Engine 都等——步骤长度由任务复杂度决定，Engine 不设时间上限。
 
@@ -121,14 +121,14 @@ pending_verify 在以下情况下归零：Agent 调用 workflow_verify、goto �
 **Agent 主动阻塞**（当前步骤 allow_blocked 为 true）：
 
 1. Agent 在 verify 阶段调用 workflow_blocked({reason})
-2. Engine 将 phase 设为 blocked，通过 Gateway 通知 owner
+2. Engine 将 phase 设为 blocked，通过 Gateway 通知 Owner
 3. Owner 回复后 Engine 解除阻塞 → 保留当前步骤目标消息，pending_verify 归零，清理残留 verify 消息，注入 verify → verifying
 4. Owner 终止 → complete，Engine 执行退出清理
 
 **verify 重试耗尽：**
 
-1. pending_verify 计数超过上限
-2. Engine 将 phase 设为 blocked，通过 Gateway 通知 owner
+1. pending_verify 计数达到上限
+2. Engine 将 phase 设为 blocked，通过 Gateway 通知 Owner
 3. Owner 回复后 Engine 解除阻塞 → 保留当前步骤目标消息，pending_verify 归零，清理残留 verify 消息，注入 verify → verifying
 4. Owner 终止 → complete，Engine 执行退出清理
 
@@ -138,5 +138,5 @@ pending_verify 在以下情况下归零：Agent 调用 workflow_verify、goto �
 - **Session Integration**（同模块）：Engine 将 WorkflowRun 写入 session checkpoint 持久化。
 - **Workflow Tools**（同模块）：Engine 接收并处理 workflow_verify/jump/blocked 工具调用。
 - **Session**（跨模块）：提供四维活跃维度与验收判定相关查询——Engine 据此在 Agent turn 结束后判断是否进入 verifying。
-- **Gateway**（跨模块）：blocked 通知 owner 时通过 Gateway 发送。
+- **Gateway**（跨模块）：blocked 通知 Owner 时通过 Gateway 发送。
 - **LLM Provider**（无关）：Engine 不直接调用 LLM，通过注入 workflow 消息驱动。

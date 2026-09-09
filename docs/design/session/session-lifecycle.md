@@ -15,6 +15,7 @@
 - 生命周期状态：status（active / migrating / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
 - 运行时快照：pending_messages（transcript，含消息列表）、session_mode（对话模式：normal/plan/auto）、mode_state（推理步骤状态）
+- 工作流状态：workflow_run（workflow 模块的 WorkflowRun，随 checkpoint 持久化的附加状态；进入 workflow 模式时写入、退出时清空，恢复语义见 [workflow/session-integration.md](../workflow/session-integration.md)）
 - 出站交付记录：outbound_pending（记录每条出站消息含过滤后内容与 dsl_result、发送标记 sent；未发送成功的条目崩溃/停止后重投递，需求 [session F7](../../requirements/session.md)）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
 - 统计：last_message_at（最后消息时间，含用户和非用户消息，恢复查询使用；Sweeper idle 判定作为 last_user_activity_at 的回避源）、last_user_activity_at（最后用户活动时间，仅含用户消息，Sweeper idle 判定的主依据）
