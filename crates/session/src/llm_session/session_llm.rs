@@ -280,7 +280,7 @@ impl ConversationSession {
     ///
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
-    fn build_llm_messages_with_listing(
+    pub(crate) fn build_llm_messages_with_listing(
         &self,
         content: &str,
         skill_listing: Option<String>,
