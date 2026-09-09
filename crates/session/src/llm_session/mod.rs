@@ -297,12 +297,10 @@ impl ConversationSession {
         s.cancel_token = cancel_token;
         s
     }
-
     /// Returns the current working directory.
     pub fn workdir(&self) -> &Path {
         &self.workdir
     }
-
     /// Sets the working directory.
     pub fn set_workdir(&mut self, path: PathBuf) {
         self.workdir = path;
@@ -312,12 +310,10 @@ impl ConversationSession {
         self.system_prompt = Some(prompt.into());
         self
     }
-
     /// Returns the Unix timestamp (seconds) when this session was created.
     pub fn session_created_at(&self) -> i64 {
         self.created_at
     }
-
     /// Returns the Unix timestamp (seconds) of the last activity.
     /// Updated on every message push or significant state mutation.
     pub fn last_activity_at(&self) -> i64 {
@@ -430,6 +426,11 @@ impl ConversationSession {
     pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
         self.prompt_overrides = overrides;
     }
+    /// Inject a [`ToolRegistryQuery`] into this session.
+    ///
+    /// Called by Gateway after session creation so the builder can
+    /// propagate the registry through [`FragmentContext`] to
+    /// [`ToolsFragmentProvider`](closeclaw_tools::ToolsFragmentProvider).
     pub fn set_tool_registry(&mut self, registry: Arc<dyn ToolRegistryQuery>) {
         self.tool_registry = Some(registry);
     }
@@ -523,7 +524,6 @@ impl ConversationSession {
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
         }
     }
-
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
         *self.request_context.lock().expect("rc poisoned") = ctx;
@@ -567,7 +567,6 @@ impl ConversationSession {
         *slot = Some(injection);
         true
     }
-
     /// Take the current memory-injection payload, replacing the slot
     /// with `None`. Returns `None` if the slot was already empty.
     pub fn take_memory_injection(&self) -> Option<MemoryInjection> {
@@ -588,7 +587,6 @@ impl ConversationSession {
             inj.add_injected_event_id(event_id);
         }
     }
-
     /// Returns `true` if `event_id` was already injected in this session.
     pub fn is_event_injected(&self, event_id: i64) -> bool {
         let slot = self
@@ -599,7 +597,6 @@ impl ConversationSession {
             .map(|inj| inj.is_event_injected(event_id))
             .unwrap_or(false)
     }
-
     /// Replace the system prompt on an existing session.
     /// Used by `SessionManager::rebuild_system_prompt` after compaction.
     pub fn replace_system_prompt(&mut self, prompt: impl Into<String>) {
@@ -609,11 +606,16 @@ impl ConversationSession {
     pub fn system_prompt(&self) -> Option<&str> {
         self.system_prompt.as_deref()
     }
-
     /// Rebuild the system prompt via [`InjectionParams`] (§注入链路的参数契约).
+    ///
     /// Assembles params from session state, delegates to the injected builder,
     /// and clears activated conditional skills after rebuild. When
     /// `bootstrap_mode_override` is `None`, the agent default is used.
+    ///
+    /// # Returns
+    ///
+    /// The rebuilt prompt string; empty string if no builder is configured
+    /// (see `resolve.rs` for the typical call site).
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,
@@ -674,7 +676,6 @@ impl ConversationSession {
         });
         self.last_activity_at = chrono::Utc::now().timestamp();
     }
-
     /// Sets the LLM busy state.
     pub fn set_llm_busy(&self, busy: bool) {
         self.is_llm_busy.store(busy, Ordering::SeqCst);
@@ -756,7 +757,6 @@ impl ConversationSession {
     pub fn stats(&self) -> &RunningStats {
         &self.stats
     }
-
     /// Returns a mutable reference to the running usage statistics.
     pub fn stats_mut(&mut self) -> &mut RunningStats {
         &mut self.stats

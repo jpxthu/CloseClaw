@@ -243,18 +243,14 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
 }
 
 impl SystemPromptBuilderAdapter {
-    /// Shared implementation for both [`build_prompt`],
-    /// [`build_prompt_with_activated`], and [`build_prompt_with_params`].
-    ///
-    /// Resolves the bootstrap mode, constructs the workspace path,
-    /// builds the static layer via the provider pipeline with the
-    /// given `activated_skills` and optional `tool_registry`,
-    /// and applies overrides.
     /// Shared implementation for [`build_prompt`],
     /// [`build_prompt_with_activated`], and [`build_prompt_with_params`].
     ///
     /// Accepts [`InjectionParams`] (§注入链路的参数契约) to stay within
-    /// the CONTRIBUTING.md ≤6 parameter limit.
+    /// the CONTRIBUTING.md ≤6 parameter limit. Resolves the bootstrap
+    /// mode, constructs the workspace path, builds the static layer via
+    /// the provider pipeline with the given `activated_skills` and
+    /// optional `tool_registry`, and applies overrides.
     async fn build_prompt_inner(&self, params: &InjectionParams) -> String {
         let bootstrap_mode = match params.bootstrap_mode_override {
             Some(mode) => mode,
