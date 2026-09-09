@@ -100,12 +100,6 @@ pub struct AgentCreateOutput {
     pub name: String,
 }
 
-#[derive(Serialize)]
-pub struct SkillRescanOutput {
-    pub status: &'static str,
-    pub count: usize,
-}
-
 // ---------------------------------------------------------------------------
 // Path helpers
 // ---------------------------------------------------------------------------

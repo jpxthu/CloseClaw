@@ -53,8 +53,6 @@ pub enum RuleAction {
 pub enum SkillAction {
     /// List installed skills
     List,
-    /// Rescan skill directories
-    Rescan,
 }
 
 /// Interactive chat with an agent via the terminal.
@@ -82,13 +80,6 @@ mod tests {
     fn test_skill_list_arg_parsing() {
         let cli = TestCli::try_parse_from(["test", "list"]).unwrap();
         assert!(matches!(cli.action, SkillAction::List));
-    }
-
-    /// Normal path: `skill rescan` parses to SkillAction::Rescan.
-    #[test]
-    fn test_skill_rescan_arg_parsing() {
-        let cli = TestCli::try_parse_from(["test", "rescan"]).unwrap();
-        assert!(matches!(cli.action, SkillAction::Rescan));
     }
 
     /// Error path: unknown subcommand is rejected.
