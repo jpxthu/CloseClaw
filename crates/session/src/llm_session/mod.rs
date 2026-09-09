@@ -20,7 +20,10 @@ use closeclaw_common::{
     ChildCompletionStatus, ChildSessionState, LlmState, SkillListingProvider, ToolExecState,
 };
 use closeclaw_common::{ContentBlock, UnifiedUsage};
-use closeclaw_common::{LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder};
+use closeclaw_common::{
+    InjectionParams, LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder,
+    ToolRegistryQuery,
+};
 use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
 use closeclaw_tasks::NotificationPriority;
 
@@ -168,6 +171,7 @@ pub struct ConversationSession {
     pub(crate) pending_compaction_listing_reset: bool,
     /// Conditional skills activated via file-path matching this session.
     pub(crate) activated_conditional_skills: HashSet<String>,
+    tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
     /// Agent-level skill whitelist filter. `*` means no filtering.
     pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
@@ -257,6 +261,7 @@ impl ConversationSession {
             skill_listing_snapshot: None,
             pending_compaction_listing_reset: false,
             activated_conditional_skills: HashSet::new(),
+            tool_registry: None,
             agent_skills: None,
             shutdown_handle: None,
             verbosity_level: VerbosityLevel::default(),
@@ -292,12 +297,10 @@ impl ConversationSession {
         s.cancel_token = cancel_token;
         s
     }
-
     /// Returns the current working directory.
     pub fn workdir(&self) -> &Path {
         &self.workdir
     }
-
     /// Sets the working directory.
     pub fn set_workdir(&mut self, path: PathBuf) {
         self.workdir = path;
@@ -307,12 +310,10 @@ impl ConversationSession {
         self.system_prompt = Some(prompt.into());
         self
     }
-
     /// Returns the Unix timestamp (seconds) when this session was created.
     pub fn session_created_at(&self) -> i64 {
         self.created_at
     }
-
     /// Returns the Unix timestamp (seconds) of the last activity.
     /// Updated on every message push or significant state mutation.
     pub fn last_activity_at(&self) -> i64 {
@@ -425,6 +426,14 @@ impl ConversationSession {
     pub fn set_prompt_overrides(&mut self, overrides: Option<PromptOverrides>) {
         self.prompt_overrides = overrides;
     }
+    /// Inject a [`ToolRegistryQuery`] into this session.
+    ///
+    /// Called by Gateway after session creation so the builder can
+    /// propagate the registry through [`FragmentContext`] to
+    /// [`ToolsFragmentProvider`](closeclaw_tools::ToolsFragmentProvider).
+    pub fn set_tool_registry(&mut self, registry: Arc<dyn ToolRegistryQuery>) {
+        self.tool_registry = Some(registry);
+    }
     /// Set the git_status config switch for this session.
     ///
     /// Called by Gateway after session creation so the dynamic builder
@@ -515,7 +524,6 @@ impl ConversationSession {
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
         }
     }
-
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
         *self.request_context.lock().expect("rc poisoned") = ctx;
@@ -559,7 +567,6 @@ impl ConversationSession {
         *slot = Some(injection);
         true
     }
-
     /// Take the current memory-injection payload, replacing the slot
     /// with `None`. Returns `None` if the slot was already empty.
     pub fn take_memory_injection(&self) -> Option<MemoryInjection> {
@@ -580,7 +587,6 @@ impl ConversationSession {
             inj.add_injected_event_id(event_id);
         }
     }
-
     /// Returns `true` if `event_id` was already injected in this session.
     pub fn is_event_injected(&self, event_id: i64) -> bool {
         let slot = self
@@ -591,7 +597,6 @@ impl ConversationSession {
             .map(|inj| inj.is_event_injected(event_id))
             .unwrap_or(false)
     }
-
     /// Replace the system prompt on an existing session.
     /// Used by `SessionManager::rebuild_system_prompt` after compaction.
     pub fn replace_system_prompt(&mut self, prompt: impl Into<String>) {
@@ -601,19 +606,16 @@ impl ConversationSession {
     pub fn system_prompt(&self) -> Option<&str> {
         self.system_prompt.as_deref()
     }
-
-    /// Rebuild the system prompt using the session's own builder and overrides.
+    /// Rebuild the system prompt via [`InjectionParams`] (§注入链路的参数契约).
     ///
-    /// This is the session-side entry point for prompt rebuilds after
-    /// compaction or config changes. The session owns the builder and
-    /// overrides; no external references are needed.
+    /// Assembles params from session state, delegates to the injected builder,
+    /// and clears activated conditional skills after rebuild. When
+    /// `bootstrap_mode_override` is `None`, the agent default is used.
     ///
-    /// * `bootstrap_mode_override` — optional override for the bootstrap mode
-    ///   used when building the prompt. Pass `None` for standard rebuilds;
-    ///   spawn callers should pass the child's bootstrap mode.
+    /// # Returns
     ///
-    /// Returns the rebuilt prompt string for callers that need it
-    /// (e.g. initial session creation in `resolve.rs`).
+    /// The rebuilt prompt string; empty string if no builder is configured
+    /// (see `resolve.rs` for the typical call site).
     pub async fn rebuild_system_prompt(
         &mut self,
         session_id: &str,
@@ -627,26 +629,22 @@ impl ConversationSession {
             );
             return String::new();
         };
-        // Pass activated conditional skills so that SkillsFragmentProvider
-        // includes them in the rebuilt listing (SP rebuild path).
         let activated: Vec<String> = self.activated_conditional_skills.iter().cloned().collect();
-        // Derive session role from sub-agent flag: Main for top-level
-        // sessions, Sub for spawned child sessions.
         let session_role = if self.is_sub_agent {
             SessionRole::Sub
         } else {
             SessionRole::Main
         };
-        let prompt = builder
-            .build_prompt_with_activated(
-                session_id,
-                agent_id,
-                self.prompt_overrides.as_ref(),
-                bootstrap_mode_override,
-                activated,
-                session_role,
-            )
-            .await;
+        let params = InjectionParams {
+            session_id: session_id.to_owned(),
+            agent_id: agent_id.to_owned(),
+            overrides: self.prompt_overrides.clone(),
+            bootstrap_mode_override,
+            activated_skills: activated,
+            session_role,
+            tool_registry: self.tool_registry.clone(),
+        };
+        let prompt = builder.build_prompt_with_params(&params).await;
         self.replace_system_prompt(prompt.clone());
         // Clear the activation markers: merged into static layer during
         // rebuild, so they must not reappear in subsequent per-turn
@@ -678,7 +676,6 @@ impl ConversationSession {
         });
         self.last_activity_at = chrono::Utc::now().timestamp();
     }
-
     /// Sets the LLM busy state.
     pub fn set_llm_busy(&self, busy: bool) {
         self.is_llm_busy.store(busy, Ordering::SeqCst);
@@ -760,7 +757,6 @@ impl ConversationSession {
     pub fn stats(&self) -> &RunningStats {
         &self.stats
     }
-
     /// Returns a mutable reference to the running usage statistics.
     pub fn stats_mut(&mut self) -> &mut RunningStats {
         &mut self.stats
@@ -943,6 +939,10 @@ impl std::fmt::Debug for ConversationSession {
             .field(
                 "activated_conditional_skills",
                 &self.activated_conditional_skills,
+            )
+            .field(
+                "tool_registry",
+                &self.tool_registry.as_ref().map(|_| "<TR>"),
             )
             .field("agent_skills", &self.agent_skills)
             .field(

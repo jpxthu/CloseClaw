@@ -109,6 +109,9 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
             agent_role: self.agent_role.clone(),
             agent_type: self.agent_type.clone(),
         };
+        // Use the provider-level registry (concrete &ToolRegistry).
+        // ctx.tool_registry carries the same instance via §注入链路,
+        // but build_tools_section requires the concrete type.
         let content = build_tools_section(&self.registry, &tool_ctx, &params).await;
 
         if content.is_empty() {

@@ -25,6 +25,7 @@ mod session_exec_tests;
 mod session_injection_role_tests;
 mod session_llm_tests;
 mod skill_listing_incremental_tests;
+mod skill_listing_injection_event_tests;
 mod skill_listing_tests;
 mod step1_4_behavior_tests;
 mod step1_5_ut_tests;

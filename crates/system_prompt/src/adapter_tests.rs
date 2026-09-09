@@ -608,3 +608,114 @@ async fn test_adapter_passes_main_role_to_fragment_context() {
     assert_eq!(roles.len(), 1);
     assert_eq!(roles[0], SessionRole::Main);
 }
+
+// ------------------------------------------------------------------
+// Dimension: tool_registry propagation — build_prompt_with_params
+// passes the ToolRegistry reference through WorkspaceBuildConfig
+// into FragmentContext.
+// ------------------------------------------------------------------
+
+struct ToolRegistryRecordingProvider {
+    recorded: std::sync::Arc<
+        tokio::sync::Mutex<
+            Vec<Option<Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>>>,
+        >,
+    >,
+}
+
+#[async_trait]
+impl PromptFragmentProvider for ToolRegistryRecordingProvider {
+    fn name(&self) -> &str {
+        "registry_recorder"
+    }
+
+    fn priority(&self) -> u32 {
+        6
+    }
+
+    async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        let mut guard = self.recorded.lock().await;
+        guard.push(ctx.tool_registry.clone());
+        Some(PromptFragment {
+            section_title: "## Registry".to_string(),
+            section_type: SectionType::Tools,
+            content: "registry test".to_string(),
+        })
+    }
+
+    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+        None
+    }
+}
+
+/// build_prompt_with_params propagates tool_registry from
+/// InjectionParams through WorkspaceBuildConfig into FragmentContext.
+#[tokio::test]
+async fn test_build_prompt_with_params_propagates_tool_registry() {
+    use closeclaw_common::injection_params::InjectionParams;
+    use closeclaw_common::SessionRole;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<
+        Option<Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>>,
+    >::new()));
+    let provider = ToolRegistryRecordingProvider {
+        recorded: recorded.clone(),
+    };
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    // Create a fake ToolRegistryQuery implementation.
+    let fake_registry: Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery> =
+        Arc::new(closeclaw_tools::ToolRegistry::new());
+
+    let params = InjectionParams {
+        session_id: "session-1".to_string(),
+        agent_id: agent_id.to_string(),
+        overrides: None,
+        bootstrap_mode_override: None,
+        activated_skills: vec![],
+        session_role: SessionRole::Main,
+        tool_registry: Some(fake_registry.clone()),
+    };
+
+    let _result = adapter.build_prompt_with_params(&params).await;
+
+    let registries = recorded.lock().await;
+    assert_eq!(registries.len(), 1, "provider should be called once");
+    assert!(
+        registries[0].is_some(),
+        "tool_registry should be propagated as Some"
+    );
+}
+
+/// build_prompt (without params) passes tool_registry as None.
+#[tokio::test]
+async fn test_build_prompt_passes_tool_registry_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<
+        Option<Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>>,
+    >::new()));
+    let provider = ToolRegistryRecordingProvider {
+        recorded: recorded.clone(),
+    };
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    let _result = adapter
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
+        .await;
+
+    let registries = recorded.lock().await;
+    assert_eq!(registries.len(), 1, "provider should be called once");
+    assert!(
+        registries[0].is_none(),
+        "tool_registry should be None when not provided via params"
+    );
+}

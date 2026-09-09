@@ -2,12 +2,44 @@
 //!
 //! Covers the normal path (builder rebuilds prompt and replaces),
 //! edge cases for the `overrides` parameter, the no-builder path,
-//! and the activated-conditional-skills clearing behavior.
+//! the activated-conditional-skills clearing behavior, and the
+//! InjectionParams contract (§注入链路的参数契约).
 
 use super::super::*;
 use closeclaw_common::{PromptOverrides, SessionRole, SkillListingProvider, SystemPromptBuilder};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex as StdMutex};
+
+// ── Fake ToolRegistryQuery for testing ────────────────────────────────────
+
+struct FakeToolRegistryQuery;
+
+#[async_trait::async_trait]
+impl closeclaw_common::ToolRegistryQuery for FakeToolRegistryQuery {
+    async fn list_tool_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+    async fn get_tool_descriptors(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_tools: Option<&[String]>,
+        _agent_disallowed_tools: Option<&[String]>,
+    ) -> Vec<closeclaw_common::ToolDescriptor> {
+        Vec::new()
+    }
+    async fn has_tool(&self, _name: &str) -> bool {
+        false
+    }
+    async fn get_tool_schema(&self, _name: &str) -> Option<serde_json::Value> {
+        None
+    }
+    async fn get_tool_detail(&self, _name: &str) -> Option<closeclaw_common::ToolDescriptor> {
+        None
+    }
+    async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
+        Vec::new()
+    }
+}
 
 // ── test doubles ──────────────────────────────────────────────────────────
 
@@ -630,4 +662,207 @@ async fn test_rebuild_system_prompt_main_session_output_unchanged() {
     let roles = role_recorded.lock().await;
     assert_eq!(roles.len(), 2);
     assert!(roles.iter().all(|r| *r == SessionRole::Main));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// InjectionParams contract (§注入链路的参数契约)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Builder that captures the [`InjectionParams`] passed to
+/// `build_prompt_with_params`, so tests can verify the contract
+/// fields without depending on the real builder implementation.
+struct ParamsCapturingBuilder {
+    captured: Arc<StdMutex<Option<InjectionParams>>>,
+}
+
+impl ParamsCapturingBuilder {
+    fn new(captured: Arc<StdMutex<Option<InjectionParams>>>) -> Self {
+        Self { captured }
+    }
+}
+
+#[async_trait::async_trait]
+impl SystemPromptBuilder for ParamsCapturingBuilder {
+    async fn build_prompt(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        _overrides: Option<&PromptOverrides>,
+        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
+        _session_role: SessionRole,
+    ) -> String {
+        "default-prompt".to_string()
+    }
+
+    async fn build_prompt_with_params(
+        &self,
+        params: &closeclaw_common::injection_params::InjectionParams,
+    ) -> String {
+        *self.captured.lock().unwrap() = Some(params.clone());
+        "params-prompt".to_string()
+    }
+
+    async fn invalidate_cache(&self) {}
+}
+
+/// rebuild_system_prompt passes tool_registry from setter into
+/// InjectionParams.tool_registry.
+#[tokio::test]
+async fn test_rebuild_passes_tool_registry_to_injection_params() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+
+    // Inject a tool_registry via the setter.
+    let fake_registry: Arc<dyn closeclaw_common::ToolRegistryQuery> =
+        Arc::new(FakeToolRegistryQuery);
+    let registry_ptr = Arc::as_ptr(&fake_registry);
+    session.set_tool_registry(fake_registry);
+
+    session.rebuild_system_prompt("sess", "agent-1", None).await;
+
+    let params = captured.lock().unwrap();
+    let p = params
+        .as_ref()
+        .expect("build_prompt_with_params should have been called");
+    let reg = p
+        .tool_registry
+        .as_ref()
+        .expect("tool_registry should be Some");
+    assert_eq!(
+        Arc::as_ptr(reg),
+        registry_ptr,
+        "tool_registry in params must point to the same Arc as the setter"
+    );
+}
+
+/// rebuild_system_prompt passes session_id and agent_id into params.
+#[tokio::test]
+async fn test_rebuild_passes_session_id_and_agent_id() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+
+    session
+        .rebuild_system_prompt("my-session", "my-agent", None)
+        .await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert_eq!(p.session_id, "my-session");
+    assert_eq!(p.agent_id, "my-agent");
+}
+
+/// rebuild_system_prompt passes overrides from setter into params.
+#[tokio::test]
+async fn test_rebuild_passes_overrides_to_params() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+    session.set_prompt_overrides(Some(PromptOverrides {
+        override_prompt: Some("custom-ov".to_string()),
+        agent_prompt: None,
+        custom_prompt: None,
+    }));
+
+    session.rebuild_system_prompt("sess", "agent", None).await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert!(p.overrides.is_some());
+    assert_eq!(
+        p.overrides.as_ref().unwrap().override_prompt.as_deref(),
+        Some("custom-ov")
+    );
+}
+
+/// rebuild_system_prompt derives session_role from is_sub_agent flag.
+#[tokio::test]
+async fn test_rebuild_passes_session_role_main() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+    // Default is_sub_agent == false → Main.
+
+    session.rebuild_system_prompt("sess", "agent", None).await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert_eq!(p.session_role, SessionRole::Main);
+}
+
+/// rebuild_system_prompt derives Sub role when is_sub_agent is true.
+#[tokio::test]
+async fn test_rebuild_passes_session_role_sub() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+    session.set_sub_agent(true);
+
+    session.rebuild_system_prompt("sess", "agent", None).await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert_eq!(p.session_role, SessionRole::Sub);
+}
+
+/// rebuild_system_prompt passes activated_conditional_skills into params.
+#[tokio::test]
+async fn test_rebuild_passes_activated_skills_to_params() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+
+    // Simulate two activated conditional skills.
+    let mut newly: HashSet<String> = HashSet::new();
+    newly.insert("skill-a".into());
+    newly.insert("skill-b".into());
+    session.apply_skill_listing_update(None, &newly);
+    assert_eq!(session.activated_conditional_skills().len(), 2);
+
+    session.rebuild_system_prompt("sess", "agent", None).await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert_eq!(p.activated_skills.len(), 2);
+    assert!(p.activated_skills.contains(&"skill-a".to_string()));
+    assert!(p.activated_skills.contains(&"skill-b".to_string()));
+}
+
+/// rebuild_system_prompt passes bootstrap_mode_override into params.
+#[tokio::test]
+async fn test_rebuild_passes_bootstrap_mode_override_to_params() {
+    use closeclaw_common::BootstrapMode;
+
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+
+    session
+        .rebuild_system_prompt("sess", "agent", Some(BootstrapMode::Minimal))
+        .await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert_eq!(p.bootstrap_mode_override, Some(BootstrapMode::Minimal));
+}
+
+/// Boundary: session without tool_registry (None) — params.tool_registry is
+/// None, chain must not panic and falls back to default.
+#[tokio::test]
+async fn test_rebuild_no_registry_params_none() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+    // No set_tool_registry call — registry stays None.
+
+    let prompt = session.rebuild_system_prompt("sess", "agent", None).await;
+
+    assert_eq!(prompt, "params-prompt");
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert!(
+        p.tool_registry.is_none(),
+        "tool_registry must be None when not set"
+    );
 }

@@ -51,13 +51,15 @@ fn test_fragment_context_all_fields() {
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/home/user/project"),
         activated_skills: vec!["skill-a".into(), "skill-b".into()],
+        tool_registry: None,
     };
     assert_eq!(ctx.agent_id, "my-agent");
     assert_eq!(ctx.session_role, SessionRole::Sub);
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
     assert_eq!(ctx.bootstrap_dir, String::from("/home/user/project"));
     assert_eq!(ctx.activated_skills, vec!["skill-a", "skill-b"]);
-    // Verify struct has exactly 5 fields — adding or removing a field here
+    assert!(ctx.tool_registry.is_none());
+    // Verify struct has exactly 6 fields — adding or removing a field here
     // will cause a compile error, enforcing alignment with design doc.
     let FragmentContext {
         agent_id: _,
@@ -65,6 +67,7 @@ fn test_fragment_context_all_fields() {
         bootstrap_mode: _,
         bootstrap_dir: _,
         activated_skills: _,
+        tool_registry: _,
     } = ctx;
 }
 
@@ -76,6 +79,7 @@ fn test_fragment_context_clone() {
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/clone"),
         activated_skills: vec!["activated-skill".into()],
+        tool_registry: None,
     };
     let cloned = ctx.clone();
     assert_eq!(ctx.agent_id, cloned.agent_id);
@@ -171,6 +175,7 @@ async fn test_mock_provider_generates_with_valid_fields() {
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/workspace"),
         activated_skills: Vec::new(),
+        tool_registry: None,
     };
     let frag = provider.generate(&ctx).await.unwrap();
     assert_eq!(frag.section_type, SectionType::Bootstrap);
@@ -215,6 +220,30 @@ fn test_fragment_context_activated_skills_is_independent_of_default() {
     ctx.activated_skills.push("x".into());
     let fresh = FragmentContext::test_default();
     assert!(fresh.activated_skills.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// tool_registry field
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_fragment_context_tool_registry_default_none() {
+    let ctx = FragmentContext::test_default();
+    assert!(ctx.tool_registry.is_none());
+}
+
+#[test]
+fn test_fragment_context_tool_registry_none_preserved_by_clone() {
+    let ctx = FragmentContext::test_default();
+    let cloned = ctx.clone();
+    assert!(cloned.tool_registry.is_none());
+}
+
+#[test]
+fn test_fragment_context_debug_includes_tool_registry_placeholder() {
+    let ctx = FragmentContext::test_default();
+    let dbg = format!("{:?}", ctx);
+    assert!(dbg.contains("tool_registry: None"));
 }
 
 // ---------------------------------------------------------------------------

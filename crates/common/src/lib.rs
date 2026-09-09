@@ -15,6 +15,7 @@ pub mod identity;
 pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
+pub mod injection_params;
 pub mod lazy_tool;
 #[cfg(test)]
 pub mod lazy_tool_tests;
@@ -88,6 +89,7 @@ pub use im_plugin::{
     AdapterError, CardActionEvent, IMPlugin, MediaRef, MediaType, MessageType, NormalizedMessage,
     RenderedOutput, StreamingOutput,
 };
+pub use injection_params::InjectionParams;
 pub use llm_caller::LlmCaller;
 pub use llm_error::{ErrorKind, LLMError};
 pub use llm_stats::{detect_cache_break, CacheBreakInfo, CacheBreakThresholds, RunningStats};
