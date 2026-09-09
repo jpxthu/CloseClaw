@@ -17,41 +17,6 @@ impl ConversationSession {
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///
-    /// Implements the design doc's "增量更新" (incremental update)
-    /// mechanism (see `docs/design/skills/skill-listing-injection.md`).
-    ///
-    /// The design doc specifies the processing order: "先更新文件
-    /// 变更引起的增量，再处理条件激活的增量" (first update increments
-    /// caused by file changes, then process conditional activation
-    /// increments). In this implementation, the two sources of
-    /// change are merged implicitly rather than via a separate
-    /// two-step diff. This is correct because:
-    ///
-    /// - The daemon's file listener completes cache invalidation
-    ///   and re-scan *before* this turn starts (see design doc's
-    ///   "文件监听与热重载" section).
-    /// - [`prepare_turn_skill_listing`] detects newly activated
-    ///   conditional skills from the user message.
-    /// - The current listing already includes all activated
-    ///   conditionals, so a line-level diff against the previous
-    ///   snapshot naturally captures both file-change increments
-    ///   and conditional activation increments in the correct
-    ///   order.
-    ///
-    /// On the first turn (no snapshot), generates a full listing
-    /// excluding conditional skills. On subsequent turns, generates
-    /// the current listing (including activated conditional skills)
-    /// and computes a line-level diff against the previous snapshot.
-    ///
-    /// Uses the current `activated_conditional_skills` set.
-    ///
-    /// Returns `(listing_to_inject, new_snapshot)` where
-    /// `listing_to_inject` is the content for the system-role attachment
-    /// (`None` when nothing to inject) and `new_snapshot` is the
-    /// updated snapshot to persist.
-    /// Compute the skill listing for the current turn without
-    /// mutating session state.
-    ///
     /// Implements the design doc's conditional activation injection:
     /// when `newly_activated` is non-empty, the complete formatted
     /// entries (with ⚡) for those skills are injected as-is, not as
@@ -77,10 +42,19 @@ impl ConversationSession {
             return (None, None);
         };
 
-        // Generate the current listing (including activated
-        // conditional skills).
-        let current_listing =
-            self.generate_listing_with_activated(provider, &self.activated_conditional_skills);
+        // Generate the current listing. When newly_activated is
+        // non-empty, use a temporary combined set so the listing
+        // includes the new skills' entries (they haven't been added
+        // to activated_conditional_skills yet).
+        let combined_activated: HashSet<String> = if newly_activated.is_empty() {
+            self.activated_conditional_skills.clone()
+        } else {
+            self.activated_conditional_skills
+                .union(newly_activated)
+                .cloned()
+                .collect()
+        };
+        let current_listing = self.generate_listing_with_activated(provider, &combined_activated);
         if current_listing.is_empty() {
             return (None, None);
         }

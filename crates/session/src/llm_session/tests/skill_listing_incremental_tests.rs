@@ -294,23 +294,23 @@ async fn test_conditional_activation_next_turn() {
     assert_eq!(tools1.len(), 1);
     assert!(!tools1[0].contains("rs_helper"));
 
-    // Second turn: .rs file → marks activation, not injected yet
+    // Second turn: .rs file → complete entry injected immediately
     let _ = session.invoke_llm("edit src/main.rs please").await.unwrap();
     let req2 = fake_ref.last_request().unwrap();
     let tools2 = skill_listing_messages(&req2);
     assert_eq!(
         tools2.len(),
-        0,
-        "current turn should not inject conditional skill yet"
+        1,
+        "should inject complete entry on activation turn"
     );
+    assert!(tools2[0].contains("rs_helper"));
+    assert!(tools2[0].contains("⚡"));
 
-    // Third turn: activated skill appears as incremental
+    // Third turn: already activated → no new injection
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 1);
-    assert!(tools3[0].contains("rs_helper"));
-    assert!(tools3[0].contains("⚡"));
+    assert_eq!(tools3.len(), 0, "no new activation → no injection");
 }
 
 #[tokio::test]
@@ -338,7 +338,11 @@ async fn test_no_reactivation_of_already_activated() {
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
-    assert_eq!(skill_listing_messages(&req3).len(), 1);
+    assert_eq!(
+        skill_listing_messages(&req3).len(),
+        0,
+        "no new activation → no injection"
+    );
 
     // Same .rs path again → no new injection
     let _ = session.invoke_llm("edit src/lib.rs").await.unwrap();
@@ -409,12 +413,23 @@ async fn test_selective_conditional_activation() {
 
     let _ = session.invoke_llm("hello").await.unwrap();
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
+
+    // Turn 2: rs_helper complete entry injected immediately
+    let req2 = fake_ref.last_request().unwrap();
+    let tools2 = skill_listing_messages(&req2);
+    assert_eq!(
+        tools2.len(),
+        1,
+        "should inject rs_helper entry on activation turn"
+    );
+    assert!(tools2[0].contains("rs_helper"));
+    assert!(!tools2[0].contains("py_helper"));
+
+    // Turn 3: no new activation → no injection
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 1);
-    assert!(tools3[0].contains("rs_helper"));
-    assert!(!tools3[0].contains("py_helper"));
+    assert_eq!(tools3.len(), 0, "no new activation → no injection");
 }
 
 #[tokio::test]
@@ -506,8 +521,10 @@ async fn test_file_change_and_conditional_activation_same_turn() {
 - **skill_c**: desc_c",
     );
 
-    // Turn 2: file change (listing updated) + .rs path triggers
-    // conditional activation in the same turn
+    // Turn 2: file change + conditional activation. The combined
+    // set (base + newly_activated) is used, so rs_helper complete
+    // entry is injected. Base listing changes are captured in the
+    // snapshot for future diff comparisons.
     let _ = session
         .invoke_llm("edit src/main.rs for the feature")
         .await
@@ -517,29 +534,20 @@ async fn test_file_change_and_conditional_activation_same_turn() {
     assert_eq!(
         tools2.len(),
         1,
-        "should inject a diff on the turn with changes"
-    );
-    // The diff should show: skill_b removed, skill_c added
-    assert!(
-        tools2[0].contains("- - **skill_b**"),
-        "diff should include deletion of skill_b"
+        "should inject complete entry for newly activated skill"
     );
     assert!(
-        tools2[0].contains("skill_c"),
-        "diff should include addition of skill_c"
+        tools2[0].contains("rs_helper"),
+        "should contain rs_helper complete entry"
     );
-    // rs_helper is NOT yet activated this turn (activation applies
-    // next turn), so it should not appear in this turn's listing
-    assert!(!tools2[0].contains("rs_helper"));
+    assert!(tools2[0].contains("⚡"));
 
-    // Turn 3: rs_helper activated from last turn's path match
+    // Turn 3: rs_helper already activated, snapshot includes all
+    // current state (skill_a, skill_c, rs_helper) → no new injection
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 1);
-    assert!(tools3[0].contains("rs_helper"));
-    // skill_c is already in the snapshot, so it should NOT appear in the diff
-    assert!(!tools3[0].contains("skill_c"));
+    assert_eq!(tools3.len(), 0, "no new changes → no injection");
 }
 
 // ── File change that deactivates a conditional skill ─────────────────────
@@ -578,14 +586,22 @@ async fn test_file_change_removes_base_skill_with_conditional_active() {
     assert_eq!(tools1.len(), 1);
     assert!(tools1[0].contains("skill_a"));
 
-    // Turn 2: .rs path → marks rs_helper for activation
+    // Turn 2: .rs path → rs_helper complete entry injected immediately
     let _ = session.invoke_llm("edit src/lib.rs").await.unwrap();
-    // Turn 3: rs_helper now activated → incremental injection
+    let req2 = fake_ref.last_request().unwrap();
+    let tools2 = skill_listing_messages(&req2);
+    assert_eq!(
+        tools2.len(),
+        1,
+        "should inject rs_helper entry on activation turn"
+    );
+    assert!(tools2[0].contains("rs_helper"));
+
+    // Turn 3: no new activation → no injection
     let _ = session.invoke_llm("continue").await.unwrap();
     let req3 = fake_ref.last_request().unwrap();
     let tools3 = skill_listing_messages(&req3);
-    assert_eq!(tools3.len(), 1);
-    assert!(tools3[0].contains("rs_helper"));
+    assert_eq!(tools3.len(), 0, "no new activation → no injection");
 
     // Daemon removes skill_a from listing (but keeps something else
     // so the listing is not completely empty)

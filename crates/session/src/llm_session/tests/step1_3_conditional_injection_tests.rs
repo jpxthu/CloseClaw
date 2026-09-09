@@ -39,16 +39,6 @@ impl MockProvider {
         }
     }
 
-    #[allow(dead_code)]
-    fn set_all_listing(&self, listing: impl Into<String>) {
-        *self.all_listing.lock().unwrap() = listing.into();
-    }
-
-    #[allow(dead_code)]
-    fn set_base_listing(&self, listing: impl Into<String>) {
-        *self.base_listing.lock().unwrap() = listing.into();
-    }
-
     fn add_conditional_rule(&self, pattern: impl Into<String>, skill: ConditionalSkillMatch) {
         self.conditional_rules
             .lock()
@@ -169,17 +159,13 @@ fn assistant_msg(content: &str) -> SessionMessage {
 // Skill listing: conditional activation injection
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// When `newly_activated` is non-empty but the activated skills are
-/// not yet in `activated_conditional_skills` (normal flow),
-/// `compute_skill_listing_for_turn` returns `None` because the
-/// skills are filtered out of `current_listing`.
-///
-/// The complete entry injection path is reached only when the
-/// activated skill is already present in `current_listing`, which
-/// happens on subsequent turns after `apply_skill_listing_update`
-/// has been called.
+/// When `newly_activated` is non-empty, a temporary combined set
+/// (`activated_conditional_skills ∪ newly_activated`) is used to
+/// generate the listing. This ensures the new skill's complete
+/// entry is included even though `apply_skill_listing_update` has
+/// not yet been called.
 #[test]
-fn test_compute_skill_listing_newly_activated_not_yet_in_listing() {
+fn test_compute_skill_listing_newly_activated_injects_complete_entry() {
     let provider = Arc::new(MockProvider::new(
         "- **skill_a**: desc_a\n- **rs_helper**: rs desc ⚡ auto-activates on: *.rs",
         "- **skill_a**: desc_a",
@@ -193,14 +179,17 @@ fn test_compute_skill_listing_newly_activated_not_yet_in_listing() {
     let mut newly_activated = HashSet::new();
     newly_activated.insert("rs_helper".to_string());
 
-    // activated_conditional_skills is empty → rs_helper not in listing
     let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
 
-    // rs_helper is not yet in activated_conditional_skills, so it's
-    // filtered out of current_listing → falls back to diff → no diff
+    // Complete entry for rs_helper should be injected (not diff)
+    let injected = listing.expect("should inject complete entry for newly activated skill");
     assert!(
-        listing.is_none(),
-        "newly activated skill not in listing → no injection (diff fallback)"
+        injected.contains("rs_helper"),
+        "injected listing should contain rs_helper"
+    );
+    assert!(
+        injected.contains("⚡"),
+        "injected listing should contain ⚡ marker"
     );
     assert!(new_snapshot.is_some(), "snapshot still updated");
 }
@@ -267,9 +256,9 @@ fn test_compute_skill_listing_activated_not_in_listing_falls_back_to_diff() {
     assert!(new_snapshot.is_some());
 }
 
-/// Multiple newly activated skills: when skills are already in
-/// `activated_conditional_skills`, each gets its complete entry.
-/// When not yet in the set, the diff fallback applies.
+/// Multiple newly activated skills: complete entries for all
+/// newly activated skills are injected (not diff), even when
+/// `activated_conditional_skills` doesn't contain them yet.
 #[test]
 fn test_compute_skill_listing_multiple_newly_activated() {
     let provider = Arc::new(MockProvider::new(
@@ -286,14 +275,12 @@ fn test_compute_skill_listing_multiple_newly_activated() {
     newly_activated.insert("rs_helper".to_string());
     newly_activated.insert("py_helper".to_string());
 
-    // Neither skill is in activated_conditional_skills yet → diff fallback
     let (listing, new_snapshot) = session.compute_skill_listing_for_turn(&newly_activated);
 
-    // Falls back to diff; no diff since listing unchanged from snapshot
-    assert!(
-        listing.is_none(),
-        "newly activated skills not yet in listing → no injection"
-    );
+    let injected = listing.expect("should inject complete entries for both skills");
+    assert!(injected.contains("rs_helper"));
+    assert!(injected.contains("py_helper"));
+    assert!(injected.contains("⚡"));
     assert!(new_snapshot.is_some());
 }
 
@@ -335,21 +322,21 @@ async fn test_conditional_activation_via_invoke_llm_injects_complete_entry() {
     assert_eq!(sys1.len(), 1);
     assert!(!sys1[0].content.contains("rs_helper"));
 
-    // Turn 2: .rs file → marks activation, but injection uses diff
-    // (because the activated skill is not yet in the listing)
+    // Turn 2: .rs file → marks activation, complete entry injected
+    // immediately (uses temporary combined set to include new skill)
     let _ = session.invoke_llm("edit src/main.rs").await.unwrap();
-
-    // Turn 3: rs_helper now activated → appears in listing via diff
-    let _ = session.invoke_llm("continue").await.unwrap();
-    let req3 = fake_ref.last_request().unwrap();
-    let sys3: Vec<_> = req3
+    let req2 = fake_ref.last_request().unwrap();
+    let sys2: Vec<_> = req2
         .messages
         .iter()
         .filter(|m| m.role == "system")
         .collect();
-    assert_eq!(sys3.len(), 1);
-    assert!(sys3[0].content.contains("rs_helper"));
-    assert!(sys3[0].content.contains("⚡"));
+    assert_eq!(sys2.len(), 1);
+    assert!(
+        sys2[0].content.contains("rs_helper"),
+        "turn 2 should inject complete entry for newly activated skill"
+    );
+    assert!(sys2[0].content.contains("⚡"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
