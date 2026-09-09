@@ -43,11 +43,11 @@ pub fn build_workflow_context_append(workflow: &Workflow) -> String {
 }
 
 /// Check whether a workflow context marker exists in the given
-/// `system_injection_appends` list.
+/// `injection_appends` list.
 ///
 /// Returns `true` if any item starts with `"--- WORKFLOW ---"`.
-pub fn has_workflow_context(system_appends: &[String]) -> bool {
-    system_appends
+pub fn has_workflow_context(injection_appends: &[String]) -> bool {
+    injection_appends
         .iter()
         .any(|s| s.starts_with("--- WORKFLOW ---"))
 }

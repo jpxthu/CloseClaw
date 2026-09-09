@@ -287,7 +287,7 @@ pub struct SessionCheckpoint {
     ///
     /// This field is intentionally excluded from persistence:
     /// - Not serialized by `build_metadata_json` (SQLite metadata)
-    /// - Not part of the `#[derive(Serialize, Deserialize)]` —
+    /// - Excluded from serialization via `#[serde(skip)]` —
     ///   runtime-only, consumed once during session restore
     #[serde(skip)]
     pub system_injection_appends: Vec<String>,

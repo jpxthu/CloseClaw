@@ -63,6 +63,7 @@ impl ConversationSession {
         use crate::persistence::SessionCheckpoint;
         let mut cp = SessionCheckpoint::new(self.session_id.clone());
         cp.user_appends = self.user_system_appends().to_vec();
+        cp.system_injection_appends = self.system_injection_appends().to_vec();
         cp.workflow_run = self.workflow_run().cloned();
         cp
     }
@@ -70,6 +71,7 @@ impl ConversationSession {
     /// Apply cleanup results from a checkpoint back into session state.
     fn apply_cleanup_checkpoint(&mut self, cp: &crate::persistence::SessionCheckpoint) {
         self.restore_system_appends(cp.user_appends.clone());
+        self.restore_system_injection_appends(cp.system_injection_appends.clone());
         self.set_workflow_run(cp.workflow_run.clone());
     }
 }
@@ -157,9 +159,12 @@ mod tests {
 
         session.cleanup_workflow_exit().await;
 
-        let appends = session.user_system_appends();
-        assert!(appends.iter().all(|s| !s.starts_with("--- WORKFLOW ---")));
-        assert!(appends.contains(&"user-append".to_string()));
+        let injection_appends = session.system_injection_appends();
+        assert!(injection_appends
+            .iter()
+            .all(|s| !s.starts_with("--- WORKFLOW ---")));
+        let user_appends = session.user_system_appends();
+        assert!(user_appends.contains(&"user-append".to_string()));
     }
 
     #[tokio::test]
