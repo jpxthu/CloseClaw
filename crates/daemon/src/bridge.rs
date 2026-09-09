@@ -308,9 +308,37 @@ impl SkillListingProviderWrapper {
 
         disk_matches
     }
+
+    /// Compute a combined fingerprint from disk and builtin registries.
+    ///
+    /// Disk side: mtime-based fingerprint from scan directories (via
+    /// [`DiskSkillRegistry::fingerprint`]). Builtin side: sorted skill
+    /// names joined as a simple content hash — builtin skills are
+    /// compiled-in and rarely change, so this is cheap.
+    fn combined_fingerprint(&self) -> String {
+        let disk_fp = self
+            .disk
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|r| r.fingerprint()))
+            .unwrap_or_else(|| "none".to_string());
+
+        let builtin_fp = {
+            let rt = tokio::runtime::Handle::current();
+            let names = rt.block_on(self.builtin.list());
+            let mut sorted = names;
+            sorted.sort();
+            sorted.join(",")
+        };
+
+        format!("disk:{}|builtin:{}", disk_fp, builtin_fp)
+    }
 }
 
 impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
+    fn fingerprint(&self) -> String {
+        self.combined_fingerprint()
+    }
     fn rescan(&self) {
         // Step 1: Read scan_config under a short read lock.
         let scan_config = self

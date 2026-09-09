@@ -70,10 +70,12 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
         // states produce distinct cache entries.
         let mut sorted_activated = ctx.activated_skills.clone();
         sorted_activated.sort();
+        let fingerprint = self.listing.fingerprint();
         Some(format!(
-            "skill_listing:{}:{}",
+            "skill_listing:{}:{}:{}",
             ctx.agent_id,
-            sorted_activated.join(",")
+            sorted_activated.join(","),
+            fingerprint
         ))
     }
 }
@@ -136,10 +138,11 @@ mod tests {
         }));
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-xyz".to_string();
-        // Empty activated skills → trailing colon + empty string
-        assert_eq!(
-            provider.cache_key(&ctx).unwrap(),
-            "skill_listing:agent-xyz:"
+        // Empty activated skills → trailing colon + empty string + fingerprint
+        let key = provider.cache_key(&ctx).unwrap();
+        assert!(
+            key.starts_with("skill_listing:agent-xyz:"),
+            "key should start with agent prefix, got: {key}"
         );
     }
 
@@ -474,5 +477,112 @@ mod tests {
         let frag = provider.generate(&ctx).await.expect("expected fragment");
         assert_eq!(frag.section_title, "## Skills");
         assert_eq!(frag.section_type, SectionType::Skills);
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Fingerprint — default mock returns "0"
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_mock_default_fingerprint_is_zero() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+        assert_eq!(provider.listing.fingerprint(), "0");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Cache key includes fingerprint
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_cache_key_includes_fingerprint() {
+        let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
+            output: String::new(),
+            rescan_called: Arc::new(AtomicBool::new(false)),
+        }));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+        let key = provider.cache_key(&ctx).unwrap();
+        assert!(
+            key.ends_with(":0"),
+            "cache key should end with fingerprint ':0', got: {key}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: Cache key varies with fingerprint
+    // ------------------------------------------------------------------
+
+    /// Mock that returns a configurable fingerprint.
+    struct FingerprintMockProvider {
+        output: String,
+        fp: String,
+    }
+
+    impl SkillListingProvider for FingerprintMockProvider {
+        fn rescan(&self) {}
+        fn fingerprint(&self) -> String {
+            self.fp.clone()
+        }
+        fn generate_listing(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.output.clone()
+        }
+        fn generate_listing_excluding_conditional(
+            &self,
+            _agent_id: Option<&str>,
+            _agent_skills: Option<&[String]>,
+        ) -> String {
+            self.output.clone()
+        }
+        fn find_conditional_matches(
+            &self,
+            _paths: &[std::path::PathBuf],
+        ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+            vec![]
+        }
+    }
+
+    #[test]
+    fn test_cache_key_varies_with_fingerprint() {
+        let provider_a = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "fp_a".to_string(),
+        }));
+        let provider_b = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "fp_b".to_string(),
+        }));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+        assert_ne!(
+            provider_a.cache_key(&ctx),
+            provider_b.cache_key(&ctx),
+            "different fingerprints must produce different cache keys"
+        );
+    }
+
+    #[test]
+    fn test_cache_key_same_fingerprint_same_key() {
+        let provider_a = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "same_fp".to_string(),
+        }));
+        let provider_b = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
+            output: String::new(),
+            fp: "same_fp".to_string(),
+        }));
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-1".to_string();
+        assert_eq!(
+            provider_a.cache_key(&ctx),
+            provider_b.cache_key(&ctx),
+            "same fingerprints must produce same cache keys"
+        );
     }
 }
