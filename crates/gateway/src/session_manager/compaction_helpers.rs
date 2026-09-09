@@ -59,7 +59,7 @@ impl SessionManager {
             let conv_sessions = self.conversation_sessions.read().await;
             if let Some(cs) = conv_sessions.get(session_id) {
                 let cs = cs.read().await;
-                cp.system_appends = cs.user_system_appends().to_vec();
+                cp.user_appends = cs.user_system_appends().to_vec();
             }
         }
         cp.touch();
@@ -191,9 +191,13 @@ impl SessionManager {
             return;
         }
 
-        // Check if workflow context already exists in system_appends.
-        if closeclaw_workflow::context_append::has_workflow_context(&cp.system_appends) {
-            return;
+        // Check if workflow context already exists in the ConversationSession.
+        // workflow context is system injection, checked in the merged list.
+        if let Some(cs_arc) = self.get_conversation_session(session_id).await {
+            let cs = cs_arc.read().await;
+            if closeclaw_workflow::context_append::has_workflow_context(&cs.system_appends()) {
+                return;
+            }
         }
 
         // Workflow context is missing — reload the definition and re-inject.
@@ -214,10 +218,10 @@ impl SessionManager {
             None => return,
         };
 
-        // Inject into ConversationSession's system_appends.
+        // Inject into ConversationSession's system_injection_appends.
         if let Some(cs) = self.get_conversation_session(session_id).await {
             let mut cs = cs.write().await;
-            cs.add_system_append(context);
+            cs.add_system_injection_append(context);
         }
     }
 

@@ -196,7 +196,7 @@ async fn sync_conversation_metadata(
     let conv_guard = conv.read().await;
     if let Some(cs) = conv_guard.get(session_id) {
         let guard = cs.read().await;
-        cp.system_appends = guard.user_system_appends().to_vec();
+        cp.user_appends = guard.user_system_appends().to_vec();
         cp.verbosity_level = guard.verbosity_level();
     }
 }

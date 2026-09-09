@@ -213,7 +213,7 @@ impl SessionManager {
     /// communication config from checkpoint.
     fn restore_conv_metadata(&self, conv: &mut ConversationSession, cp: &SessionCheckpoint) {
         conv.restore_pending_messages(cp.outbound_pending.clone());
-        conv.restore_system_appends(cp.system_appends.clone());
+        conv.restore_system_appends(cp.user_appends.clone());
         conv.set_verbosity_level(cp.verbosity_level);
         if let Some(ref comm_config) = cp.communication_config {
             conv.set_communication_config(comm_config.clone());

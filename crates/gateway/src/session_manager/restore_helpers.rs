@@ -201,7 +201,7 @@ impl SessionManager {
         if let Some(cs) = cs.get(session_id) {
             let mut cs = cs.write().await;
             cs.restore_pending_messages(cp.outbound_pending.clone());
-            cs.restore_system_appends(cp.system_appends.clone());
+            cs.restore_system_appends(cp.user_appends.clone());
             cs.set_verbosity_level(cp.verbosity_level);
             if let Some(ref comm_config) = cp.communication_config {
                 cs.set_communication_config(comm_config.clone());

@@ -531,7 +531,7 @@ impl SessionManager {
             // Sync per-session append-section list from ConversationSession
             // (issue #860: archived session restore preserves append content).
             if let Some(appends) = appends_map.get(session_id) {
-                cp.system_appends = appends.clone();
+                cp.user_appends = appends.clone();
             }
             if cm.save_raw(&cp).await.is_ok() {
                 saved += 1;
