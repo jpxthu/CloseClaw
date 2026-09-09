@@ -1,6 +1,6 @@
 //! Mode transition detection for system prompt injection.
 
-use crate::persistence::SessionMode;
+use crate::persistence::{ReasoningModeState, SessionMode};
 use closeclaw_common::system_prompt::ModeTransition;
 
 /// Pending mode transition type alias.
@@ -84,13 +84,57 @@ impl super::ConversationSession {
                 self.has_been_in_plan
                     .store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            let switched = prev != mode;
             if let Some(t) = detect(prev, mode, has_been, ModeChangeSource::Manual) {
                 *self
                     .pending_mode_transition
                     .lock()
                     .expect("pending_mode_transition lock poisoned") = Some(t);
             }
+            if switched {
+                self.spawn_mode_checkpoint_writeback(mode);
+            }
         }
+    }
+
+    /// Spawn an async task to persist the new session_mode (and
+    /// optionally reset mode_state) into the checkpoint.
+    ///
+    /// Called after a mode switch in the sync apply path. The spawn
+    /// avoids blocking the calling context.
+    pub(crate) fn spawn_mode_checkpoint_writeback(&self, mode: SessionMode) {
+        let Some(storage) = self.checkpoint_storage.clone() else {
+            return;
+        };
+        let session_id = self.session_id.clone();
+        tokio::spawn(async move {
+            let mut cp = match storage.load_checkpoint(&session_id).await {
+                Ok(Some(cp)) => cp,
+                Ok(None) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "spawn_mode_checkpoint_writeback: no checkpoint found, skipping save"
+                    );
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        "spawn_mode_checkpoint_writeback: load failed: {}", e
+                    );
+                    return;
+                }
+            };
+            cp.session_mode = mode;
+            cp.mode_state = ReasoningModeState::default();
+            cp.touch();
+            if let Err(e) = storage.save_checkpoint(&cp).await {
+                tracing::warn!(
+                    session_id = %cp.session_id,
+                    "spawn_mode_checkpoint_writeback: save failed: {}", e
+                );
+            }
+        });
     }
 }
 

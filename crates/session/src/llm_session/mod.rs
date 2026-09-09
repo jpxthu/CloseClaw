@@ -506,9 +506,13 @@ impl ConversationSession {
         if mode == SessionMode::Plan {
             self.has_been_in_plan.store(true, Ordering::Relaxed);
         }
-        if let Some(t) = mode_transition::detect(prev, mode, has_been, source) {
+        let transition = mode_transition::detect(prev, mode, has_been, source);
+        if let Some(t) = transition {
             let pmt = &self.pending_mode_transition;
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
+        }
+        if prev != mode {
+            self.spawn_mode_checkpoint_writeback(mode);
         }
     }
     /// Set per-request context for dynamic-layer injection.
@@ -772,8 +776,6 @@ impl ConversationSession {
 
 /// System appends and progress notification methods.
 impl ConversationSession {
-    // ── System appends ──────────────────────────────────────────
-
     /// Append to user-managed list; returns new index.
     pub fn add_system_append(&mut self, content: String) -> usize {
         let next_index = self.user_appends.len();
@@ -830,8 +832,6 @@ impl ConversationSession {
 
 /// Active-yield (Waiting state) methods.
 impl ConversationSession {
-    // ── Active-yield (Waiting state) methods ───────────────────
-
     /// Enter active Waiting state (set yielding flag).
     pub fn enter_waiting(&self) {
         self.is_yielding.store(true, Ordering::SeqCst);
