@@ -8,18 +8,13 @@ Workflow 定义描述一个多步骤流程的结构化信息，供 Engine 读取
 
 ### 文件位置
 
-Workflow 定义文件放在 agent workspace 或全局目录下，目录结构效仿 skill：
+Workflow 定义文件按优先级查找，与技能隔离同维度（多 Agent 隔离，详见 [skills](../skills/skill-definition.md)）：
 
-```
-workspace/
-├── skills/          ← 普通 skill
-└── workflows/       ← workflow skill（含 YAML frontmatter）
-    └── design-doc-modify/
-        ├── SKILL.md        ← 正文 + workflow frontmatter
-        └── references/     ← 分身指令等
-```
+1. Agent 专属目录下的 `workflows/` 目录
+2. 全局 `workflows/` 目录
+3. 系统内置
 
-优先级查找：agent workspace/workflows/ > .closeclaw/workflows/ > 内置。与 skill 目录同构但独立——workflow 不参与 system prompt skill listing。
+Agent 专属目录为该 Agent 独有、对其全部 User 共享。workflow 定义独立于 skill 目录，不参与 system prompt skill listing。
 
 ### 定义结构
 
@@ -30,7 +25,6 @@ Workflow
   ├── id、name、description
   ├── allow_blocked        // 是否允许 Agent 调用 workflow_blocked（可选，默认 false）
   ├── verify_retry_limit   // 验证重试上限（可选，默认 3）
-  ├── step_data_schema     // 跨步骤共享数据的字段声明，格式为 { 字段名: 类型 }
   └── steps: Step[]        // 步骤序列
 
 Step
@@ -53,6 +47,7 @@ Transition
   ├── when（可选的 Condition） // 匹配条件，以 JumpQuestion.id 为键名
   │                             // 格式：{ <jump_id>: <expected_value>, ... }，多条件 AND
   │                             // boolean 类型用 YAML 原生布尔值 true/false
+  │                             // enum 类型 expected_value 取 options 中的内部值（非选项字母）
   │                             // 最后一条省略 when 表示 default 兜底
   ├── action（goto | reexecute | complete）
   └── target_step         // goto/reexecute 时的目标步骤
@@ -62,12 +57,12 @@ Transition
 
 allow_blocked（默认 false）：控制 Agent 是否可以在 verify 阶段调用 workflow_blocked 主动请求阻塞。可在 workflow 级别设置默认值，step 级别覆盖。为 true 时，Engine 在 verify 消息末尾附加 blocked 提示；为 false 时 Agent 调用 workflow_blocked 直接返回错误。
 
-verify_retry_limit（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调 verify 则待下次验收判定条件满足时由 Engine 重新注入，计数继续累加。计数超过上限 → phase 转为 blocked 并通知 owner。Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、或 owner 解除 blocked 后计数归零（详见 execution-engine.md）。
+verify_retry_limit（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调 verify 则待下次验收判定条件满足时由 Engine 重新注入，计数继续累加。计数达到上限 → phase 转为 blocked 并通知 Owner。Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、或 Owner 解除 blocked 后计数归零（详见 execution-engine.md）。
 
 ### 跳转动作
 
-goto：前进到指定步骤，清空 step_data，目标 phase 为 executing。
-reexecute：重入指定步骤，保留 step_data，goal 注入时附加重新执行提示，目标 phase 为 executing。
+goto：前进到指定步骤，目标 phase 为 executing。
+reexecute：重入指定步骤，goal 注入时附加重新执行提示，目标 phase 为 executing。
 complete：Workflow 结束，目标 phase 为 complete。
 
 ## 数据流
@@ -76,11 +71,11 @@ complete：Workflow 结束，目标 phase 为 complete。
 
 Engine 按优先级查找定义文件：
 
-1. agent workspace/workflows/<name>/SKILL.md
-2. .closeclaw/workflows/<name>/SKILL.md
-3. 内置 workflow/<name>/SKILL.md
+1. Agent 专属目录下的 `workflows/<name>/SKILL.md`
+2. 全局 `workflows/<name>/SKILL.md`
+3. 系统内置
 
-三级均未命中 → 返回错误。命中即用，不继续查找下一级。Engine 解析 YAML frontmatter 得到 Workflow 结构体，缓存定义（session 生命周期内不变）。
+三级均未命中 → 返回错误。命中即用，不继续查找下一级。Engine 解析 YAML frontmatter 得到 Workflow 结构体。定义在每次 workflow 启动时重新加载，执行期间保持不变——变更自下一次启动生效，执行中的 workflow 不受影响（中断续跑恢复视为一次启动，见 session-integration.md）。
 
 ### 定义注入
 
@@ -97,9 +92,10 @@ SKILL.md 正文中的原则和注意事项不自动注入——Agent 如需参�
 create-workflow skill 内置校验脚本，产出 workflow 定义时必须通过。校验覆盖以下项：
 
 - 步骤编号合法性：步骤 id 从 0 开始、连续递增，无重复、无遗漏
-- 跳转规则合法性：无重复条件、必有兜底分支（default）、goto/reexecute 目标步骤必须存在；enum/boolean expected_value 取值合法
+- 跳转规则合法性：无重复条件、必有兜底分支（default，且为最后一条）、goto/reexecute 目标步骤必须存在；enum/boolean expected_value 取值合法
+- 步骤内容完整性：每个步骤的 name、goal 非空
 - 验收清单完整性：每个步骤提供非空 verify 清单
-- 枚举选项规范性：enum 类型必填非空无重复的 options，option_labels（若提供）与 options 一一对应
+- 枚举选项规范性：enum 类型必填非空无重复的 options，数量不超过 26（选项字母渲染上限）；option_labels（若提供）与 options 一一对应
 
 校验在定义被 Engine 加载时也会再执行一次（防御性）。
 
@@ -116,4 +112,4 @@ create-workflow skill 内置校验脚本，产出 workflow 定义时必须通过
 
 ### 无关
 
-- **普通 Skill**：workflow 定义文件复用 skill 目录结构，但不走 skill 加载和 listing 流程。
+- **普通 Skill**：workflow 定义与技能隔离同维度，但不走 skill 加载和 listing 流程。

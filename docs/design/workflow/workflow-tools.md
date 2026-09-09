@@ -32,7 +32,7 @@ Workflow 工具在 ToolRegistry 初始化时注册，属于系统级工具——
 ### workflow_start
 
 1. Agent 调用 workflow_start({name})
-2. Engine 按优先级查找定义文件（agent workspace/workflows/ → .closeclaw/workflows/ → 内置），三级均未命中则返回错误
+2. Engine 按优先级查找定义文件（Agent 专属目录下的 workflows/ 目录 → 全局 workflows/ 目录 → 系统内置），三级均未命中则返回错误
 3. Engine 解析 YAML frontmatter
 4. Engine 初始化 WorkflowRun：current_step 置 0，phase 置 executing
 5. Engine 向 system prompt 注入 workflow context，待注入完毕后注入 Step 0 goal 消息（role: workflow）
@@ -62,15 +62,15 @@ verify 只是"我做完了"的信号。验收清单来源于 Step 定义中的 v
 - boolean：YAML 原生布尔值 true / false
 - enum：对应的选项字母（A/B/C/D...），非选项内部值
 
-jump 问题来自当前步骤定义中的 jump 字段，option_labels 用于将选项内部值渲染为 ABCD 标签。
+jump 问题来自当前步骤定义中的 jump 字段，option_labels 用于将选项内部值渲染为 ABCD 标签。Engine 收到字母答案后按 options 顺序映射回内部值，再与 transitions 的 expected_value 比对。
 
 ### workflow_blocked
 
 1. Agent 调用 workflow_blocked({reason})
 2. Engine 检查当前 step 的 allow_blocked：为 false 则返回错误，Agent 继续 verify 循环
-3. Engine 将 phase 设为 blocked，通过 Gateway 向 owner 发送通知（含 reason）
+3. Engine 将 phase 设为 blocked，通过 Gateway 向 Owner 发送通知（含 reason）
 4. 返回 tool result（被抹除）
-5. Owner 回复：Engine 通过 Gateway 感知 owner 消息 → 解除阻塞 → 保留当前步骤目标消息 → pending_verify 归零 → 清理残留 verify 消息 → 注入 verify 消息
+5. Owner 回复：Engine 通过 Gateway 感知 Owner 消息 → 解除阻塞 → 保留当前步骤目标消息 → pending_verify 归零 → 清理残留 verify 消息 → 注入 verify 消息
 6. Agent 按正常 verify → jump 流程继续
 
 ### 斜杠指令
@@ -92,7 +92,7 @@ jump 问题来自当前步骤定义中的 jump 字段，option_labels 用于将�
 
 - **ToolRegistry**：workflow 工具注册到 ToolRegistry 供 Agent 发现和调用。
 - **Engine**（同模块）：接收工具调用结果，驱动状态机转换。
-- **Gateway**：blocked 状态通知 owner 时通过 Gateway 出站。斜杠指令确认消息和 owner 回复感知均通过 Gateway。
+- **Gateway**：blocked 状态通知 Owner 时通过 Gateway 出站。斜杠指令确认消息和 Owner 回复感知均通过 Gateway。
 
 ### 无关
 
