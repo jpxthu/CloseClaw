@@ -182,31 +182,25 @@ async fn test_plan_entry_resets_mode_state() {
     );
 }
 
-// ── 5. same-mode set_session_mode does not reset mode_state ──────────
+// ── 5. same-mode set_session_mode does not save ─────────────────────
 
 #[tokio::test]
-async fn test_same_mode_no_mode_state_reset() {
-    let (mut cs, storage, _temp) = make_session("sess_same_mode");
+async fn test_same_mode_no_save() {
+    let (mut cs, storage, _temp) = make_session("sess_same_mode_save");
 
-    // First set to Plan to create a checkpoint.
-    cs.set_session_mode(SessionMode::Plan, ModeChangeSource::Manual);
+    // Pre-seed checkpoint.
+    let seed = SessionCheckpoint::new("sess_same_mode_save".into());
+    storage.save_checkpoint(&seed).await.unwrap();
+    let baseline = storage.save_count();
+
+    // Set to Normal (same as default) — should NOT trigger writeback.
+    cs.set_session_mode(SessionMode::Normal, ModeChangeSource::Manual);
     await_writeback().await;
 
-    // Overwrite with dirty mode_state.
-    let cp = checkpoint_with_mode_state("sess_same_mode", SessionMode::Plan, dirty_mode_state());
-    storage.save_checkpoint(&cp).await.unwrap();
-
-    // Set to Plan again (same mode) — should NOT reset mode_state.
-    cs.set_session_mode(SessionMode::Plan, ModeChangeSource::Manual);
-    await_writeback().await;
-
-    let cp = load_cp(&storage, "sess_same_mode")
-        .await
-        .expect("checkpoint should exist");
     assert_eq!(
-        cp.mode_state,
-        dirty_mode_state(),
-        "mode_state should NOT be reset when mode is unchanged"
+        storage.save_count(),
+        baseline,
+        "save should NOT be called when mode is unchanged"
     );
 }
 
@@ -251,5 +245,32 @@ async fn test_lazy_apply_plan_entry_resets_mode_state() {
         cp.mode_state,
         ReasoningModeState::default(),
         "mode_state should be reset on lazy apply plan entry"
+    );
+}
+
+// ── 8. lazy apply same-mode does not save ───────────────────────────
+
+#[tokio::test]
+async fn test_lazy_apply_same_mode_no_save() {
+    let (cs, storage, _temp) = make_session("sess_lazy_same_mode");
+
+    // Pre-seed checkpoint with dirty mode_state.
+    let cp = checkpoint_with_mode_state(
+        "sess_lazy_same_mode",
+        SessionMode::Normal,
+        dirty_mode_state(),
+    );
+    storage.save_checkpoint(&cp).await.unwrap();
+    let baseline = storage.save_count();
+
+    // Set pending to Normal (same as current) — should NOT write back.
+    cs.set_pending_session_mode(SessionMode::Normal);
+    let _ = cs.session_mode();
+    await_writeback().await;
+
+    assert_eq!(
+        storage.save_count(),
+        baseline,
+        "save should NOT be called when pending mode matches current mode"
     );
 }

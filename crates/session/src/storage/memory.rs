@@ -7,6 +7,7 @@ use crate::persistence::{DreamingStatus, PersistenceError, PersistenceService, S
 use crate::run_health::SnapshotMeta;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
 
 /// Memory storage backend (only for testing)
@@ -17,6 +18,8 @@ pub struct MemoryStorage {
     migrating: RwLock<HashMap<String, SessionCheckpoint>>,
     /// Independent snapshot metadata storage — not shared with checkpoints.
     snapshot_metas: RwLock<HashMap<String, Vec<SnapshotMeta>>>,
+    /// Number of `save_checkpoint` calls (for testing).
+    save_count: AtomicUsize,
 }
 
 impl MemoryStorage {
@@ -27,7 +30,14 @@ impl MemoryStorage {
             archived: RwLock::new(HashMap::new()),
             migrating: RwLock::new(HashMap::new()),
             snapshot_metas: RwLock::new(HashMap::new()),
+            save_count: AtomicUsize::new(0),
         }
+    }
+
+    /// Return the number of `save_checkpoint` calls since creation.
+    #[cfg(test)]
+    pub fn save_count(&self) -> usize {
+        self.save_count.load(Ordering::Relaxed)
     }
 
     /// Insert a session ID into the archived list without checkpoint data.
@@ -73,6 +83,7 @@ impl PersistenceService for MemoryStorage {
         &self,
         checkpoint: &SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
+        self.save_count.fetch_add(1, Ordering::Relaxed);
         // Route to the correct map based on status
         match checkpoint.status {
             crate::persistence::SessionStatus::Archived => {

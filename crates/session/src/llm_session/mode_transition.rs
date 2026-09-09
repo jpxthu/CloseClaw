@@ -91,7 +91,9 @@ impl super::ConversationSession {
                     .lock()
                     .expect("pending_mode_transition lock poisoned") = Some(t);
             }
-            self.spawn_mode_checkpoint_writeback(mode, switched);
+            if switched {
+                self.spawn_mode_checkpoint_writeback(mode);
+            }
         }
     }
 
@@ -100,7 +102,7 @@ impl super::ConversationSession {
     ///
     /// Called after a mode switch in the sync apply path. The spawn
     /// avoids blocking the calling context.
-    pub(crate) fn spawn_mode_checkpoint_writeback(&self, mode: SessionMode, switched: bool) {
+    pub(crate) fn spawn_mode_checkpoint_writeback(&self, mode: SessionMode) {
         let Some(storage) = self.checkpoint_storage.clone() else {
             return;
         };
@@ -124,9 +126,7 @@ impl super::ConversationSession {
                 }
             };
             cp.session_mode = mode;
-            if switched {
-                cp.mode_state = ReasoningModeState::default();
-            }
+            cp.mode_state = ReasoningModeState::default();
             cp.touch();
             if let Err(e) = storage.save_checkpoint(&cp).await {
                 tracing::warn!(

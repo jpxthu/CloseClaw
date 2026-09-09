@@ -511,7 +511,9 @@ impl ConversationSession {
             let pmt = &self.pending_mode_transition;
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
         }
-        self.spawn_mode_checkpoint_writeback(mode, prev != mode);
+        if prev != mode {
+            self.spawn_mode_checkpoint_writeback(mode);
+        }
     }
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
@@ -774,8 +776,6 @@ impl ConversationSession {
 
 /// System appends and progress notification methods.
 impl ConversationSession {
-    // ── System appends ──────────────────────────────────────────
-
     /// Append to user-managed list; returns new index.
     pub fn add_system_append(&mut self, content: String) -> usize {
         let next_index = self.user_appends.len();
@@ -796,6 +796,7 @@ impl ConversationSession {
         self.user_appends.clear();
         n
     }
+
     /// Clear system-injected items only.
     pub fn clear_system_injection_appends(&mut self) -> usize {
         let n = self.system_injection_appends.len();
@@ -822,6 +823,7 @@ impl ConversationSession {
     pub fn user_system_appends(&self) -> &[String] {
         &self.user_appends
     }
+
     /// System-injected append-section items.
     pub fn system_injection_appends(&self) -> &[String] {
         &self.system_injection_appends
@@ -830,8 +832,6 @@ impl ConversationSession {
 
 /// Active-yield (Waiting state) methods.
 impl ConversationSession {
-    // ── Active-yield (Waiting state) methods ───────────────────
-
     /// Enter active Waiting state (set yielding flag).
     pub fn enter_waiting(&self) {
         self.is_yielding.store(true, Ordering::SeqCst);
