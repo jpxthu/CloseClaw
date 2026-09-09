@@ -81,6 +81,9 @@ impl SlashSessionQuery for MockQuery {
     async fn add_system_append(&self, _: &str, _: String) {
         unimplemented!()
     }
+    async fn add_system_injection_append(&self, _: &str, _: String) {
+        unimplemented!()
+    }
     async fn get_model(&self, _: &str) -> Option<String> {
         unimplemented!()
     }

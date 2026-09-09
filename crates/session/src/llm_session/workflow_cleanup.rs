@@ -12,7 +12,7 @@ impl ConversationSession {
     ///
     /// Coordinates all four cleanup steps:
     ///
-    /// 1. Remove workflow context markers from `system_appends`
+    /// 1. Remove workflow context markers from `system_injection_appends`
     ///    (delegates to [`crate::workflow_recovery::cleanup_workflow_exit`]).
     /// 2. Remove workflow control messages (role == `"workflow"`) from the
     ///    in-memory transcript.
@@ -25,7 +25,7 @@ impl ConversationSession {
     pub async fn cleanup_workflow_exit(&mut self) {
         use crate::workflow_recovery::{cleanup_workflow_exit as cp_cleanup, WorkflowExitReport};
 
-        // 1 & 3: Checkpoint-level cleanup (system_appends + workflow_run).
+        // 1 & 3: Checkpoint-level cleanup (system_injection_appends + workflow_run).
         // Build a temporary checkpoint to apply the cleanup, then merge
         // the results back into the session state.
         let mut cp = self.build_cleanup_checkpoint();
@@ -62,14 +62,16 @@ impl ConversationSession {
     fn build_cleanup_checkpoint(&self) -> crate::persistence::SessionCheckpoint {
         use crate::persistence::SessionCheckpoint;
         let mut cp = SessionCheckpoint::new(self.session_id.clone());
-        cp.system_appends = self.user_system_appends().to_vec();
+        cp.user_appends = self.user_system_appends().to_vec();
+        cp.system_injection_appends = self.system_injection_appends().to_vec();
         cp.workflow_run = self.workflow_run().cloned();
         cp
     }
 
     /// Apply cleanup results from a checkpoint back into session state.
     fn apply_cleanup_checkpoint(&mut self, cp: &crate::persistence::SessionCheckpoint) {
-        self.restore_system_appends(cp.system_appends.clone());
+        self.restore_system_appends(cp.user_appends.clone());
+        self.restore_system_injection_appends(cp.system_injection_appends.clone());
         self.set_workflow_run(cp.workflow_run.clone());
     }
 }
@@ -152,14 +154,17 @@ mod tests {
             PathBuf::from("/tmp"),
         );
         session.set_workflow_run(Some(make_test_run()));
-        session.add_system_append(build_workflow_context_append(&make_test_workflow()));
+        session.add_system_injection_append(build_workflow_context_append(&make_test_workflow()));
         session.add_system_append("user-append".to_string());
 
         session.cleanup_workflow_exit().await;
 
-        let appends = session.user_system_appends();
-        assert!(appends.iter().all(|s| !s.starts_with("--- WORKFLOW ---")));
-        assert!(appends.contains(&"user-append".to_string()));
+        let injection_appends = session.system_injection_appends();
+        assert!(injection_appends
+            .iter()
+            .all(|s| !s.starts_with("--- WORKFLOW ---")));
+        let user_appends = session.user_system_appends();
+        assert!(user_appends.contains(&"user-append".to_string()));
     }
 
     #[tokio::test]

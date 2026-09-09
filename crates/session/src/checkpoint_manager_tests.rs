@@ -274,7 +274,7 @@ async fn test_empty_checkpoint_save_load() {
     let loaded = cm.load("empty-session").await.unwrap().unwrap();
     assert_eq!(loaded.session_id, "empty-session");
     assert!(loaded.outbound_pending.is_empty());
-    assert!(loaded.system_appends.is_empty());
+    assert!(loaded.user_appends.is_empty());
 }
 
 // ── Boundary: large checkpoint save/load ────────────────────────────────────

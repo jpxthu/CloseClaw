@@ -572,16 +572,16 @@ impl SessionManager {
                             self.rebuild_archived_session_prompt(&archived_id, &cp, message)
                                 .await;
                         }
-                        // Restore pending messages, system_appends, verbosity_level,
+                        // Restore pending messages, user_appends, verbosity_level,
                         // and communication_config from checkpoint.
-                        // NOTE: system_appends must be restored AFTER rebuild_system_prompt
+                        // NOTE: user_appends must be restored AFTER rebuild_system_prompt
                         // so that user appends layer on top of the rebuilt prompt.
                         {
                             let cs = self.conversation_sessions.read().await;
                             if let Some(cs) = cs.get(&archived_id) {
                                 let mut cs = cs.write().await;
                                 cs.restore_pending_messages(cp.outbound_pending.clone());
-                                cs.restore_system_appends(cp.system_appends.clone());
+                                cs.restore_system_appends(cp.user_appends.clone());
                                 cs.set_verbosity_level(cp.verbosity_level);
                                 // Restore communication config for spawned sessions.
                                 if let Some(ref comm_config) = cp.communication_config {

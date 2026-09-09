@@ -182,7 +182,7 @@ async fn load_or_create_checkpoint(
     }
 }
 
-/// Sync `system_appends` and `verbosity_level` from the conversation session.
+/// Sync `user_appends` and `verbosity_level` from the conversation session.
 async fn sync_conversation_metadata(
     conv: &tokio::sync::RwLock<
         std::collections::HashMap<
@@ -196,7 +196,7 @@ async fn sync_conversation_metadata(
     let conv_guard = conv.read().await;
     if let Some(cs) = conv_guard.get(session_id) {
         let guard = cs.read().await;
-        cp.system_appends = guard.user_system_appends().to_vec();
+        cp.user_appends = guard.user_system_appends().to_vec();
         cp.verbosity_level = guard.verbosity_level();
     }
 }

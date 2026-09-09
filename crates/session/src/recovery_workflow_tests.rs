@@ -45,7 +45,7 @@ mod tests {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
             thread_id: None,
             reply_ref: None,
             sender_id: None,
@@ -69,6 +69,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         }
     }
 
@@ -80,7 +81,7 @@ mod tests {
         inject_workflow_recovery("wf-1", &mut cp).await;
 
         let notif = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX));
         assert!(notif.is_some(), "recovery notification not found");
@@ -98,7 +99,7 @@ mod tests {
         inject_workflow_recovery("wf-2", &mut cp).await;
 
         let has_recovery = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .any(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX));
         assert!(!has_recovery, "should skip completed workflow");
@@ -114,7 +115,7 @@ mod tests {
         inject_workflow_recovery("wf-3", &mut cp).await;
 
         let notif = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
             .unwrap();
@@ -129,7 +130,7 @@ mod tests {
         inject_workflow_recovery("wf-4", &mut cp).await;
 
         let notif = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
             .unwrap();
@@ -140,12 +141,12 @@ mod tests {
     async fn test_preserves_other_appends() {
         let mut cp = make_test_checkpoint("wf-5");
         cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
-        cp.system_appends.push("existing-append".to_string());
+        cp.user_appends.push("existing-append".to_string());
 
         inject_workflow_recovery("wf-5", &mut cp).await;
 
         assert!(
-            cp.system_appends.iter().any(|s| s == "existing-append"),
+            cp.user_appends.iter().any(|s| s == "existing-append"),
             "existing append should be preserved"
         );
     }
@@ -158,7 +159,7 @@ mod tests {
         inject_workflow_recovery("wf-6", &mut cp).await;
 
         let has_recovery = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .any(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX));
         assert!(!has_recovery, "should not inject without workflow_run");
@@ -168,20 +169,20 @@ mod tests {
     async fn test_replaces_existing_notification() {
         let mut cp = make_test_checkpoint("wf-7");
         cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
-        cp.system_appends
+        cp.system_injection_appends
             .push(format!("{}old notification", WORKFLOW_RECOVERY_PREFIX));
 
         inject_workflow_recovery("wf-7", &mut cp).await;
 
         let notif_count = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .filter(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
             .count();
         assert_eq!(notif_count, 1, "should have exactly one notification");
 
         let notif = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
             .unwrap();
@@ -198,7 +199,7 @@ mod tests {
         inject_workflow_recovery("wf-8", &mut cp).await;
 
         let notif = cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
             .unwrap();
@@ -236,14 +237,14 @@ mod tests {
     fn test_cleanup_removes_workflow_context() {
         let mut cp = make_test_checkpoint("wf-c1");
         cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
-        cp.system_appends
+        cp.system_injection_appends
             .push(build_workflow_context_append(&make_test_workflow_def()));
 
         let report = cleanup_workflow_exit(&mut cp);
 
         assert_eq!(report.removed_contexts, 1);
         assert!(cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .all(|s| !s.starts_with("--- WORKFLOW ---")));
     }
@@ -252,14 +253,14 @@ mod tests {
     fn test_cleanup_removes_recovery_notification() {
         let mut cp = make_test_checkpoint("wf-c2");
         cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
-        cp.system_appends
+        cp.system_injection_appends
             .push(format!("{}recovery msg", WORKFLOW_RECOVERY_PREFIX));
 
         let report = cleanup_workflow_exit(&mut cp);
 
         assert_eq!(report.removed_recovery_notifications, 1);
         assert!(cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .all(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX)));
     }
@@ -290,24 +291,21 @@ mod tests {
     fn test_cleanup_preserves_non_workflow_appends() {
         let mut cp = make_test_checkpoint("wf-c5");
         cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
-        cp.system_appends
+        cp.system_injection_appends
             .push(build_workflow_context_append(&make_test_workflow_def()));
-        cp.system_appends
+        cp.system_injection_appends
             .push(format!("{}recovery", WORKFLOW_RECOVERY_PREFIX));
-        cp.system_appends.push("user-managed-append".to_string());
-        cp.system_appends.push("another-user-append".to_string());
+        cp.user_appends.push("user-managed-append".to_string());
+        cp.user_appends.push("another-user-append".to_string());
 
         let report = cleanup_workflow_exit(&mut cp);
 
         assert_eq!(report.removed_contexts, 1);
         assert_eq!(report.removed_recovery_notifications, 1);
-        assert_eq!(cp.system_appends.len(), 2);
-        assert!(cp
-            .system_appends
-            .contains(&"user-managed-append".to_string()));
-        assert!(cp
-            .system_appends
-            .contains(&"another-user-append".to_string()));
+        assert!(cp.system_injection_appends.is_empty());
+        assert_eq!(cp.user_appends.len(), 2);
+        assert!(cp.user_appends.contains(&"user-managed-append".to_string()));
+        assert!(cp.user_appends.contains(&"another-user-append".to_string()));
     }
 
     #[test]
@@ -315,9 +313,9 @@ mod tests {
         // Simulate a complete workflow lifecycle: inject → cleanup.
         let mut cp = make_test_checkpoint("wf-c6");
         cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
-        cp.system_appends
+        cp.system_injection_appends
             .push(build_workflow_context_append(&make_test_workflow_def()));
-        cp.system_appends.push("user-append".to_string());
+        cp.user_appends.push("user-append".to_string());
 
         // First inject recovery state (as would happen on resume).
         tokio::runtime::Runtime::new()
@@ -326,7 +324,7 @@ mod tests {
 
         // Verify injection happened.
         assert!(cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .any(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX)));
         assert!(cp.workflow_run.is_some());
@@ -339,13 +337,13 @@ mod tests {
         assert!(report.had_workflow_run);
         assert!(cp.workflow_run.is_none());
         assert!(cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .all(|s| !s.starts_with("--- WORKFLOW ---")));
         assert!(cp
-            .system_appends
+            .system_injection_appends
             .iter()
             .all(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX)));
-        assert!(cp.system_appends.contains(&"user-append".to_string()));
+        assert!(cp.user_appends.contains(&"user-append".to_string()));
     }
 }
