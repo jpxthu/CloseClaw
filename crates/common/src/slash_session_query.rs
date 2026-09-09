@@ -64,6 +64,12 @@ pub trait SlashSessionQuery: Send + Sync {
     /// Add a system append to a session.
     async fn add_system_append(&self, session_id: &str, content: String);
 
+    /// Add a system injection append to a session.
+    ///
+    /// System injection appends are written by functional modules (workflow,
+    /// recovery) and are **not** cleared by `/system clear`.
+    async fn add_system_injection_append(&self, session_id: &str, content: String);
+
     // ── Session state queries (return primitive types, no session dep) ─
 
     /// Get the model name for a session.
