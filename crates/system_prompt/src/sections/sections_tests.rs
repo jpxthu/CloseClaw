@@ -109,11 +109,15 @@ fn test_sanitize_workdir_path() {
 #[test]
 fn test_section_cache_invalidate_skill_listing() {
     let mut cache = SectionCache::new();
-    // Pre-populate the skill_listing cache with known content
-    cache.put("skill_listing", "old skill content".to_string(), Some(999));
+    // Pre-populate the skill_listing cache with composite key format
+    cache.put(
+        "skill_listing:agent-1:0",
+        "old skill content".to_string(),
+        Some(999),
+    );
     // Verify it's cached
     assert_eq!(
-        cache.get("skill_listing", Some(999)),
+        cache.get("skill_listing:agent-1:0", Some(999)),
         Some("old skill content".to_string())
     );
 
@@ -121,7 +125,7 @@ fn test_section_cache_invalidate_skill_listing() {
     cache.invalidate_skill_listing();
 
     // Cache should be cleared
-    assert_eq!(cache.get("skill_listing", Some(999)), None);
+    assert_eq!(cache.get("skill_listing:agent-1:0", Some(999)), None);
 }
 
 // -----------------------------------------------------------------------
@@ -163,25 +167,30 @@ fn test_section_cache_invalidate_isolation() {
     assert_eq!(cache_b.get("shared-key", None), Some("from-b".to_string()));
 }
 
-/// invalidate_tools removes only the tools entry, leaving other entries intact.
+/// invalidate_tools removes only the tools entries (by prefix),
+/// leaving other entries intact.
 #[test]
 fn test_invalidate_tools() {
     let mut cache = SectionCache::new();
-    cache.put("tools", "tool content".to_string(), None);
+    // Use composite key format matching ToolsFragmentProvider::cache_key()
+    cache.put("tools:agent-1:0", "tool content".to_string(), None);
     cache.put("memory", "memory content".to_string(), None);
 
     // Verify both entries are cached
-    assert_eq!(cache.get("tools", None), Some("tool content".to_string()));
+    assert_eq!(
+        cache.get("tools:agent-1:0", None),
+        Some("tool content".to_string())
+    );
     assert_eq!(
         cache.get("memory", None),
         Some("memory content".to_string())
     );
 
-    // Invalidate tools only
+    // Invalidate tools only (prefix-based)
     cache.invalidate_tools();
 
     // Tools entry removed
-    assert_eq!(cache.get("tools", None), None);
+    assert_eq!(cache.get("tools:agent-1:0", None), None);
     // Memory entry unaffected
     assert_eq!(
         cache.get("memory", None),
