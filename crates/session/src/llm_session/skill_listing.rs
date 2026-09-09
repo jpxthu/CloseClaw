@@ -7,7 +7,7 @@
 //! Implements the "增量更新" (incremental update) section of the
 //! design doc (`docs/design/skills/skill-listing-injection.md`).
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 use super::ConversationSession;
 use closeclaw_common::SkillListingProvider;
@@ -17,44 +17,21 @@ impl ConversationSession {
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///
-    /// Implements the design doc's conditional activation injection:
-    /// when `newly_activated` is non-empty, the complete formatted
-    /// entries (with ⚡) for those skills are injected as-is, not as
-    /// a diff. The snapshot is still updated via the diff mechanism
-    /// to track overall state.
-    ///
-    /// When `newly_activated` is empty, falls back to the original
-    /// incremental diff behavior: computes a line-level diff against
-    /// the previous snapshot and injects additions/deletions.
-    ///
-    /// On the first turn (no snapshot), generates a full listing
-    /// regardless of `newly_activated`.
+    /// Generates a line-level incremental diff against the previous
+    /// snapshot. On the first turn (no snapshot), generates a full
+    /// listing.
     ///
     /// Returns `(listing_to_inject, new_snapshot)` where
     /// `listing_to_inject` is the content for the system-role attachment
     /// (`None` when nothing to inject) and `new_snapshot` is the
     /// updated snapshot to persist.
-    pub(crate) fn compute_skill_listing_for_turn(
-        &self,
-        newly_activated: &HashSet<String>,
-    ) -> (Option<String>, Option<String>) {
+    pub(crate) fn compute_skill_listing_for_turn(&self) -> (Option<String>, Option<String>) {
         let Some(provider) = self.skill_listing_provider.as_ref() else {
             return (None, None);
         };
 
-        // Generate the current listing. When newly_activated is
-        // non-empty, use a temporary combined set so the listing
-        // includes the new skills' entries (they haven't been added
-        // to activated_conditional_skills yet).
-        let combined_activated: HashSet<String> = if newly_activated.is_empty() {
-            self.activated_conditional_skills.clone()
-        } else {
-            self.activated_conditional_skills
-                .union(newly_activated)
-                .cloned()
-                .collect()
-        };
-        let current_listing = self.generate_listing_with_activated(provider, &combined_activated);
+        let current_listing =
+            self.generate_listing_with_activated(provider, &self.activated_conditional_skills);
         if current_listing.is_empty() {
             return (None, None);
         }
@@ -65,48 +42,11 @@ impl ConversationSession {
                 (Some(current_listing.clone()), Some(current_listing))
             }
             Some(old_snapshot) => {
-                if !newly_activated.is_empty() {
-                    // Conditional activation: inject complete entries
-                    // for newly activated skills (per design doc: "以
-                    // 系统消息形式注入该 skill 的清单条目（含 ⚡ 标记，
-                    // 不含正文）").
-                    // Use BTreeSet for deterministic iteration order
-                    // across turns and platforms.
-                    let new_lines: BTreeSet<&str> =
-                        current_listing.lines().filter(|l| !l.is_empty()).collect();
-                    let entries: Vec<String> = new_lines
-                        .iter()
-                        .filter(|line| {
-                            // Match complete entry lines (e.g.
-                            // `- **name**: ...`) to avoid substring
-                            // false matches on partial skill names.
-                            line.starts_with("- **")
-                                && newly_activated
-                                    .iter()
-                                    .any(|name| line.contains(&format!("**{}**:", name)))
-                        })
-                        .map(|l| l.to_string())
-                        .collect();
-                    if entries.is_empty() {
-                        // Newly activated skills not found in listing;
-                        // fall back to diff.
-                        let diff = Self::compute_listing_diff(old_snapshot, &current_listing);
-                        if diff.is_empty() {
-                            (None, Some(current_listing))
-                        } else {
-                            (Some(diff), Some(current_listing))
-                        }
-                    } else {
-                        (Some(entries.join("\n")), Some(current_listing))
-                    }
+                let diff = Self::compute_listing_diff(old_snapshot, &current_listing);
+                if diff.is_empty() {
+                    (None, Some(current_listing))
                 } else {
-                    // No newly activated skills: incremental diff.
-                    let diff = Self::compute_listing_diff(old_snapshot, &current_listing);
-                    if diff.is_empty() {
-                        (None, Some(current_listing))
-                    } else {
-                        (Some(diff), Some(current_listing))
-                    }
+                    (Some(diff), Some(current_listing))
                 }
             }
         }
