@@ -919,9 +919,15 @@ fn test_fingerprint_changes_with_modified_skill() {
     reg.rescan();
     let fp1 = reg.fingerprint();
 
-    // Modify the skill file (touch to change mtime)
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    create_skill_file(dir, "skill-a", "modified");
+    // Modify the skill file with a deterministic future mtime
+    // to guarantee the fingerprint changes without relying on sleep.
+    let skill_file = dir.join("skill-a").join("SKILL.md");
+    std::fs::write(&skill_file, "modified").unwrap();
+    filetime::set_file_mtime(
+        &skill_file,
+        filetime::FileTime::from_unix_time(1_500_000_000, 0),
+    )
+    .unwrap();
     reg.rescan();
     let fp2 = reg.fingerprint();
 

@@ -14,9 +14,12 @@ use closeclaw_common::skill_listing_provider::SkillListingProvider;
 /// Maximum length of the skills section (in characters).
 ///
 /// Skills are truncated atomically at entry boundaries when the listing
-/// exceeds this limit, mirroring `TOOLS_SECTION_MAX_LEN` for tools.
+/// exceeds this byte limit, mirroring `TOOLS_SECTION_MAX_LEN` for tools.
 /// Value is intentionally lower than the tools limit to respect the
 /// compression priority: tools first, then skills.
+///
+/// Limit is in **bytes** (UTF-8 length), not characters, to avoid
+/// per-character counting overhead.
 pub(crate) const SKILLS_SECTION_MAX_LEN: usize = 4000;
 
 /// Provider that contributes the skill listing to the system prompt.
@@ -90,14 +93,14 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
     }
 }
 
-/// Truncate a skill listing to fit within `max_len` characters,
+/// Truncate a skill listing to fit within `max_len` bytes (UTF-8),
 /// preserving whole skill entries (one entry per line).
 ///
 /// At least one entry is always kept, even if it exceeds the limit.
 /// No truncation hint text is appended (matches ToolsSection behavior).
 pub(crate) fn truncate_listing(listing: &str, max_len: usize) -> String {
-    let total_chars = listing.chars().count();
-    if total_chars <= max_len {
+    let total_len = listing.len();
+    if total_len <= max_len {
         return listing.to_string();
     }
 
@@ -107,14 +110,14 @@ pub(crate) fn truncate_listing(listing: &str, max_len: usize) -> String {
     }
 
     let mut kept: Vec<&str> = Vec::new();
-    let mut total_len: usize = 0;
+    let mut running_len: usize = 0;
 
     for line in lines.iter() {
-        let line_chars = line.chars().count();
+        let line_len = line.len();
         let new_len = if kept.is_empty() {
-            line_chars
+            line_len
         } else {
-            total_len + 1 + line_chars // +1 for the \n separator
+            running_len + 1 + line_len // +1 for the \n separator
         };
 
         if new_len > max_len && !kept.is_empty() {
@@ -128,7 +131,7 @@ pub(crate) fn truncate_listing(listing: &str, max_len: usize) -> String {
         }
 
         kept.push(line);
-        total_len = new_len;
+        running_len = new_len;
     }
 
     kept.join("\n")
@@ -748,8 +751,8 @@ mod tests {
 
     #[test]
     fn test_truncate_listing_multiple_entries_partial() {
-        // Each entry = 14 chars. 3 entries with separators = 14+1+14+1+14 = 44.
-        // max_len = 43: first 2 entries (29 chars) fit, adding 3rd (44) > 43, so 2 kept.
+        // Each entry = 14 bytes. 3 entries with separators = 14+1+14+1+14 = 44.
+        // max_len = 43: first 2 entries (29 bytes) fit, adding 3rd (44) > 43, so 2 kept.
         let listing = "- **a**: short\n- **b**: short\n- **c**: short\n- **d\": short";
         let result = truncate_listing(listing, 43);
         assert!(result.starts_with("- **a"));
