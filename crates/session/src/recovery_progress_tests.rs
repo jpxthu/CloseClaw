@@ -68,6 +68,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         }
     }
 
@@ -166,7 +167,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let pa = loaded1
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(pa.is_some(), "plan references should be injected");
@@ -178,7 +179,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let pa2 = loaded2
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
@@ -194,7 +195,7 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let mut cp = create_test_checkpoint("has-progress-summary");
         cp.plan_state = None;
-        cp.user_appends
+        cp.system_injection_appends
             .push(format!("{}Step 1 done", PROGRESS_APPEND_PREFIX));
         cp.plan_references = vec!["some ref".to_string()];
         storage.save_checkpoint(&cp).await.unwrap();
@@ -208,7 +209,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let history = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
@@ -217,7 +218,7 @@ mod tests {
         );
         // The original layer 2 entry must remain untouched
         let progress = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PROGRESS_APPEND_PREFIX));
         assert!(
@@ -249,7 +250,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let history = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
@@ -269,9 +270,9 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let mut cp = create_test_checkpoint("both-layers-2-and-3");
         cp.plan_state = None;
-        cp.user_appends
+        cp.system_injection_appends
             .push(format!("{}Step 1 done", PROGRESS_APPEND_PREFIX));
-        cp.user_appends
+        cp.system_injection_appends
             .push(format!("{}approval data", APPROVAL_HISTORY_PREFIX));
         cp.plan_references = vec!["ref 1".to_string()];
         storage.save_checkpoint(&cp).await.unwrap();
@@ -286,7 +287,7 @@ mod tests {
             .unwrap();
         // Layer 4 should not inject — either layer 3 or layer 2 short-circuits
         let history = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(
@@ -296,14 +297,14 @@ mod tests {
         // Both original entries must remain untouched
         assert!(
             loaded
-                .user_appends
+                .system_injection_appends
                 .iter()
                 .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX)),
             "layer 2 entry should remain"
         );
         assert!(
             loaded
-                .user_appends
+                .system_injection_appends
                 .iter()
                 .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX)),
             "layer 3 entry should remain"
@@ -319,7 +320,7 @@ mod tests {
         // Checkpoint A: has layer 2 progress summary → layer 4 skipped
         let mut cp_a = create_test_checkpoint("transition-with-layer2");
         cp_a.plan_state = None;
-        cp_a.user_appends
+        cp_a.system_injection_appends
             .push(format!("{}Step 0 done", PROGRESS_APPEND_PREFIX));
         cp_a.plan_references = vec!["ref a".to_string()];
         storage.save_checkpoint(&cp_a).await.unwrap();
@@ -344,7 +345,7 @@ mod tests {
             .unwrap();
         assert!(
             loaded_a
-                .user_appends
+                .system_injection_appends
                 .iter()
                 .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX))
                 .is_none(),
@@ -359,7 +360,7 @@ mod tests {
             .unwrap();
         assert!(
             loaded_b
-                .user_appends
+                .system_injection_appends
                 .iter()
                 .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX))
                 .is_some(),
@@ -416,7 +417,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let tasks_append = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_TASKS_PREFIX));
         assert!(
@@ -445,7 +446,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let tasks_append = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_TASKS_PREFIX));
         assert!(
@@ -468,7 +469,11 @@ mod tests {
         let loaded = storage.load_checkpoint("no-plan").await.unwrap().unwrap();
         assert!(
             loaded.user_appends.is_empty(),
-            "no injection when plan_state is absent"
+            "no user_appends when plan_state is absent"
+        );
+        assert!(
+            loaded.system_injection_appends.is_empty(),
+            "no system_injection_appends when plan_state is absent"
         );
     }
 
@@ -489,7 +494,11 @@ mod tests {
             .unwrap();
         assert!(
             loaded.user_appends.is_empty(),
-            "graceful skip when plan file not found"
+            "no user_appends when plan file not found"
+        );
+        assert!(
+            loaded.system_injection_appends.is_empty(),
+            "no system_injection_appends when plan file not found"
         );
     }
 
@@ -516,7 +525,11 @@ mod tests {
             .unwrap();
         assert!(
             loaded.user_appends.is_empty(),
-            "no injection when Tasks section is empty"
+            "no user_appends when Tasks section is empty"
+        );
+        assert!(
+            loaded.system_injection_appends.is_empty(),
+            "no system_injection_appends when Tasks section is empty"
         );
     }
 
@@ -527,7 +540,7 @@ mod tests {
 
         let storage = Arc::new(MemoryStorage::new());
         let mut cp = checkpoint_with_plan("replace-tasks", &plan_path);
-        cp.user_appends
+        cp.system_injection_appends
             .push(format!("{}old tasks data", PLAN_TASKS_PREFIX));
         storage.save_checkpoint(&cp).await.unwrap();
 
@@ -541,7 +554,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let tasks: Vec<_> = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .filter(|s| s.starts_with(PLAN_TASKS_PREFIX))
             .collect();
@@ -569,10 +582,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(loaded.user_appends.len(), 2);
+        assert_eq!(loaded.user_appends.len(), 1);
         assert!(loaded.user_appends.contains(&"other content".to_string()));
         let tasks = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_TASKS_PREFIX));
         assert!(tasks.is_some());

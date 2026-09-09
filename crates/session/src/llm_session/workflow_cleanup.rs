@@ -152,7 +152,7 @@ mod tests {
             PathBuf::from("/tmp"),
         );
         session.set_workflow_run(Some(make_test_run()));
-        session.add_system_append(build_workflow_context_append(&make_test_workflow()));
+        session.add_system_injection_append(build_workflow_context_append(&make_test_workflow()));
         session.add_system_append("user-append".to_string());
 
         session.cleanup_workflow_exit().await;

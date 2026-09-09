@@ -26,11 +26,11 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
 
     let wf = try_reload_definition(&wf_run.definition_name);
 
-    // 1. Re-inject workflow context into user_appends if not already present
-    if !has_workflow_context(&checkpoint.user_appends) {
+    // 1. Re-inject workflow context into system_injection_appends if not already present
+    if !has_workflow_context(&checkpoint.system_injection_appends) {
         if let Some(ref wf) = wf {
             checkpoint
-                .user_appends
+                .system_injection_appends
                 .push(build_workflow_context_append(wf));
         } else {
             tracing::warn!(
@@ -79,13 +79,13 @@ fn store_recovery_notification(
     let notification = build_recovery_notification(&wf_run.definition_name, step_num, step_name);
     let tagged = format!("{}{}", WORKFLOW_RECOVERY_PREFIX, notification);
     if let Some(slot) = checkpoint
-        .user_appends
+        .system_injection_appends
         .iter_mut()
         .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
     {
         *slot = tagged;
     } else {
-        checkpoint.user_appends.push(tagged);
+        checkpoint.system_injection_appends.push(tagged);
     }
 }
 
@@ -155,16 +155,17 @@ fn handle_definition_version_change(
 ///
 /// A [`WorkflowExitReport`] summarising what was cleaned up.
 pub fn cleanup_workflow_exit(checkpoint: &mut SessionCheckpoint) -> WorkflowExitReport {
-    // 1. Remove workflow context markers from user_appends.
-    let removed_contexts =
-        closeclaw_workflow::context_append::remove_workflow_context(&mut checkpoint.user_appends);
+    // 1. Remove workflow context markers from system_injection_appends.
+    let removed_contexts = closeclaw_workflow::context_append::remove_workflow_context(
+        &mut checkpoint.system_injection_appends,
+    );
 
     // 2. Remove workflow recovery notification entries.
-    let before = checkpoint.user_appends.len();
+    let before = checkpoint.system_injection_appends.len();
     checkpoint
-        .user_appends
+        .system_injection_appends
         .retain(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX));
-    let removed_recovery_notifications = before - checkpoint.user_appends.len();
+    let removed_recovery_notifications = before - checkpoint.system_injection_appends.len();
 
     // 3. Clear workflow_run.
     let had_workflow_run = checkpoint.workflow_run.is_some();

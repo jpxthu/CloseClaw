@@ -67,6 +67,7 @@ fn make_checkpoint_with_transcript(
         communication_config: None,
         snapshot_metas: Vec::new(),
         workflow_run: None,
+        system_injection_appends: Vec::new(),
     }
 }
 

@@ -292,12 +292,12 @@ struct SpawnBehaviorConfig<'a> {
 ///
 /// Design doc §Spawn control flow: "task 注入子 session 的 system prompt,
 /// 不属于对话消息, 压缩时不受影响". The task goes into
-/// `add_system_append` (persisted, survives compaction); the trigger message
+/// `add_system_injection_append` (runtime-only, not persisted); the trigger message
 /// contains no task content and serves only to kick off the pending-drain
 /// mechanism.
 fn inject_task_and_trigger(task: &str, child_session_id: &str, cs: &mut ConversationSession) {
     let task_section = format!("## Task\n{}", task);
-    cs.add_system_append(task_section);
+    cs.add_system_injection_append(task_section);
 
     let trigger_msg = PendingMessage::with_role(
         format!("{}-task", child_session_id),

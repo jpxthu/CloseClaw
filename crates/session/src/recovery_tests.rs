@@ -62,6 +62,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         }
     }
     #[tokio::test]
@@ -566,13 +567,15 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        // Approval history is injected into system_injection_appends
+        // (runtime-only, not persisted to user_appends)
         let approval_append = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
         assert!(
             approval_append.is_some(),
-            "approval history should be in system_appends"
+            "approval history should be in system_injection_appends"
         );
         let content = approval_append.unwrap();
         assert!(content.contains("ModeExecutionTrigger"));
@@ -596,7 +599,11 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(loaded.user_appends.is_empty(), "no injection for empty");
+        assert!(loaded.user_appends.is_empty(), "no user_appends for empty");
+        assert!(
+            loaded.system_injection_appends.is_empty(),
+            "no system_injection_appends for empty"
+        );
     }
 
     #[tokio::test]
@@ -611,7 +618,7 @@ mod tests {
             request_id: None,
             timestamp: None,
         }];
-        cp.user_appends
+        cp.system_injection_appends
             .push(format!("{}old data", APPROVAL_HISTORY_PREFIX));
         storage.save_checkpoint(&cp).await.unwrap();
 
@@ -624,8 +631,9 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        // Approval history should be in system_injection_appends, not user_appends
         let approvals: Vec<_> = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .filter(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
             .collect();
@@ -658,10 +666,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(loaded.user_appends.len(), 2);
+        // user_appends should only contain the original "other content"
+        assert_eq!(loaded.user_appends.len(), 1);
         assert!(loaded.user_appends.contains(&"other content".to_string()));
+        // Approval history should be in system_injection_appends
         let approval = loaded
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX));
         assert!(approval.is_some());
@@ -770,7 +780,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let pa = loaded1
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(pa.is_some(), "plan references should be injected");
@@ -782,7 +792,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let pa2 = loaded2
-            .user_appends
+            .system_injection_appends
             .iter()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX));
         assert!(

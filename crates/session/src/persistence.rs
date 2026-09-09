@@ -275,6 +275,22 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
+
+    /// Transient system-injected append-section items (runtime only).
+    ///
+    /// Populated by the recovery service during session recovery
+    /// (approval_history, plan_references, plan_tasks, workflow context,
+    /// recovery notifications). Consumed by the gateway when rebuilding
+    /// the ConversationSession — injected into
+    /// `ConversationSession::system_injection_appends` and not persisted
+    /// to storage.
+    ///
+    /// This field is intentionally excluded from persistence:
+    /// - Not serialized by `build_metadata_json` (SQLite metadata)
+    /// - Not part of the `#[derive(Serialize, Deserialize)]` —
+    ///   runtime-only, consumed once during session restore
+    #[serde(skip)]
+    pub system_injection_appends: Vec<String>,
 }
 
 impl SessionCheckpoint {
@@ -325,6 +341,7 @@ impl SessionCheckpoint {
 
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         }
     }
 

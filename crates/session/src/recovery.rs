@@ -302,13 +302,13 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
         let tagged = format!("{}{}", APPROVAL_HISTORY_PREFIX, summary);
         if let Some(slot) = checkpoint
-            .user_appends
+            .system_injection_appends
             .iter_mut()
             .find(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
         {
             *slot = tagged;
         } else {
-            checkpoint.user_appends.push(tagged);
+            checkpoint.system_injection_appends.push(tagged);
         }
         tracing::info!(
             session_id = %session_id,
@@ -352,13 +352,13 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
         let tagged = format!("{}{}", PLAN_TASKS_PREFIX, tasks_content);
         if let Some(slot) = checkpoint
-            .user_appends
+            .system_injection_appends
             .iter_mut()
             .find(|s| s.starts_with(PLAN_TASKS_PREFIX))
         {
             *slot = tagged;
         } else {
-            checkpoint.user_appends.push(tagged);
+            checkpoint.system_injection_appends.push(tagged);
         }
         tracing::info!(
             session_id = %session_id,
@@ -385,14 +385,14 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
             return;
         }
         if checkpoint
-            .user_appends
+            .system_injection_appends
             .iter()
             .any(|s| s.starts_with(APPROVAL_HISTORY_PREFIX))
         {
             return;
         }
         if checkpoint
-            .user_appends
+            .system_injection_appends
             .iter()
             .any(|s| s.starts_with(PROGRESS_APPEND_PREFIX))
         {
@@ -407,13 +407,13 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         }
         let tagged = format!("{}{}", PLAN_REFERENCES_PREFIX, summary);
         if let Some(slot) = checkpoint
-            .user_appends
+            .system_injection_appends
             .iter_mut()
             .find(|s| s.starts_with(PLAN_REFERENCES_PREFIX))
         {
             *slot = tagged;
         } else {
-            checkpoint.user_appends.push(tagged);
+            checkpoint.system_injection_appends.push(tagged);
         }
         tracing::info!(
             session_id = %session_id,
