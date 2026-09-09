@@ -10,6 +10,8 @@ use std::sync::LazyLock;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
+mod tool_registry_injection_tests;
+
 /// Clear section cache. No-op: the global SECTION_CACHE was removed during
 /// Step 1.5 refactor. Kept for call-site compatibility.
 pub(crate) fn clear_global_prompt_state() {}

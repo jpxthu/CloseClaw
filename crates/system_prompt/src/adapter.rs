@@ -8,6 +8,7 @@
 use async_trait::async_trait;
 use closeclaw_agent::lookup::AgentLookup;
 use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::injection_params::InjectionParams;
 use closeclaw_common::system_prompt::PromptOverrides;
 use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SystemPromptBuilder};
 use std::path::PathBuf;
@@ -179,14 +180,16 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         bootstrap_mode_override: Option<BootstrapMode>,
         session_role: closeclaw_common::SessionRole,
     ) -> String {
-        self.build_prompt_inner(
-            agent_id,
-            overrides,
+        let params = InjectionParams {
+            session_id: String::new(),
+            agent_id: agent_id.to_owned(),
+            overrides: overrides.cloned(),
             bootstrap_mode_override,
-            vec![],
+            activated_skills: vec![],
             session_role,
-        )
-        .await
+            tool_registry: None,
+        };
+        self.build_prompt_inner(&params).await
     }
 
     /// Invalidate all cached prompt sections.
@@ -213,44 +216,54 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
         activated_skills: Vec<String>,
         session_role: closeclaw_common::SessionRole,
     ) -> String {
-        self.build_prompt_inner(
-            agent_id,
-            overrides,
+        let params = InjectionParams {
+            session_id: String::new(),
+            agent_id: agent_id.to_owned(),
+            overrides: overrides.cloned(),
             bootstrap_mode_override,
             activated_skills,
             session_role,
-        )
-        .await
+            tool_registry: None,
+        };
+        self.build_prompt_inner(&params).await
+    }
+
+    /// Build a system prompt using the injection parameter contract.
+    ///
+    /// Propagates [`ToolRegistryQuery`] from `params.tool_registry`
+    /// through [`WorkspaceBuildConfig`] into [`FragmentContext`],
+    /// completing the design doc §注入链路的参数契约 for the
+    /// System Prompt Builder leg.
+    async fn build_prompt_with_params(
+        &self,
+        params: &closeclaw_common::injection_params::InjectionParams,
+    ) -> String {
+        self.build_prompt_inner(params).await
     }
 }
 
 impl SystemPromptBuilderAdapter {
-    /// Shared implementation for both [`build_prompt`] and
-    /// [`build_prompt_with_activated`].
+    /// Shared implementation for [`build_prompt`],
+    /// [`build_prompt_with_activated`], and [`build_prompt_with_params`].
     ///
-    /// Resolves the bootstrap mode, constructs the workspace path,
-    /// builds the static layer via the provider pipeline with the
-    /// given `activated_skills`, and applies overrides.
-    async fn build_prompt_inner(
-        &self,
-        agent_id: &str,
-        overrides: Option<&PromptOverrides>,
-        bootstrap_mode_override: Option<BootstrapMode>,
-        activated_skills: Vec<String>,
-        session_role: closeclaw_common::SessionRole,
-    ) -> String {
-        let bootstrap_mode = match bootstrap_mode_override {
+    /// Accepts [`InjectionParams`] (§注入链路的参数契约) to stay within
+    /// the CONTRIBUTING.md ≤6 parameter limit. Resolves the bootstrap
+    /// mode, constructs the workspace path, builds the static layer via
+    /// the provider pipeline with the given `activated_skills` and
+    /// optional `tool_registry`, and applies overrides.
+    async fn build_prompt_inner(&self, params: &InjectionParams) -> String {
+        let bootstrap_mode = match params.bootstrap_mode_override {
             Some(mode) => mode,
             None => {
                 let guard = self.agent_registry.read().await;
                 guard
-                    .query_bootstrap_mode(agent_id)
+                    .query_bootstrap_mode(&params.agent_id)
                     .await
                     .unwrap_or(BootstrapMode::Full)
             }
         };
 
-        let workspace_path = self.workspace_dir.join("agents").join(agent_id);
+        let workspace_path = self.workspace_dir.join("agents").join(&params.agent_id);
 
         let providers: Vec<Box<dyn PromptFragmentProvider>> = self
             .providers
@@ -265,9 +278,10 @@ impl SystemPromptBuilderAdapter {
             dynamic_sections: vec![],
             append_section: None,
             bootstrap_mode_override: Some(bootstrap_mode),
-            agent_id: Some(agent_id.to_string()),
-            activated_skills,
-            session_role,
+            agent_id: Some(params.agent_id.clone()),
+            activated_skills: params.activated_skills.clone(),
+            session_role: params.session_role,
+            tool_registry: params.tool_registry.clone(),
         };
 
         let static_layer = crate::builder::build_from_workspace_with_cache(
@@ -277,7 +291,7 @@ impl SystemPromptBuilderAdapter {
         )
         .await;
 
-        apply_overrides(&static_layer, overrides)
+        apply_overrides(&static_layer, params.overrides.as_ref())
     }
 }
 

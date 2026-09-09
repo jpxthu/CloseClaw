@@ -153,6 +153,11 @@ impl SessionManager {
             conv.set_system_prompt_builder(builder);
         }
         conv.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Inject tool registry for injection chain
+        // (design doc §注入链路的参数契约).
+        if let Some(registry) = self.get_tool_registry().await {
+            conv.set_tool_registry(registry);
+        }
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
             conv.set_dynamic_prompt_builder(dpb);
         }

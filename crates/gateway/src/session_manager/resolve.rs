@@ -516,6 +516,10 @@ impl SessionManager {
                                 conv_session.set_system_prompt_builder(builder);
                             }
                             conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+                            // Inject tool registry (design doc §注入链路的参数契约).
+                            if let Some(registry) = self.get_tool_registry().await {
+                                conv_session.set_tool_registry(registry);
+                            }
                             // Inject dynamic prompt builder for per-request
                             // dynamic-layer injection (ChannelContext, etc.).
                             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
@@ -715,6 +719,11 @@ impl SessionManager {
             conv_session.set_system_prompt_builder(builder);
         }
         conv_session.set_prompt_overrides(self.get_prompt_overrides().await);
+        // Inject tool registry for injection chain
+        // (design doc §注入链路的参数契约).
+        if let Some(registry) = self.get_tool_registry().await {
+            conv_session.set_tool_registry(registry);
+        }
         // Inject dynamic prompt builder for per-request dynamic-layer
         // injection (ChannelContext, etc.).
         if let Some(dpb) = self.get_dynamic_prompt_builder().await {
@@ -931,6 +940,11 @@ impl SessionManager {
             }
             // Inject prompt overrides (missing — added for parity with new session path).
             cs.set_prompt_overrides(self.get_prompt_overrides().await);
+            // Inject tool registry for injection chain
+            // (design doc §注入链路的参数契约).
+            if let Some(registry) = self.get_tool_registry().await {
+                cs.set_tool_registry(registry);
+            }
             // Inject dynamic prompt builder for per-request dynamic-layer injection.
             if let Some(dpb) = self.get_dynamic_prompt_builder().await {
                 cs.set_dynamic_prompt_builder(dpb);

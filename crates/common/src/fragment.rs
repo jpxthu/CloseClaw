@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use crate::bootstrap::BootstrapMode;
+use crate::tool_registry::ToolRegistryQuery;
 
 /// Session role — determines identity-gated behaviour in prompt construction.
 ///
@@ -23,7 +26,7 @@ pub enum SessionRole {
 }
 
 /// Context passed to each [`PromptFragmentProvider`] during system prompt construction.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FragmentContext {
     /// Agent identifier — used by skills providers to filter visible skills.
     pub agent_id: String,
@@ -49,6 +52,31 @@ pub struct FragmentContext {
     /// This field is only meaningful for the SP rebuild path; per-turn
     /// incremental injection uses its own mechanism.
     pub activated_skills: Vec<String>,
+    /// ToolRegistry reference for the injection chain.
+    ///
+    /// When `Some`, providers that need tool information (e.g.
+    /// [`ToolsFragmentProvider`]) can query the registry directly.
+    /// `None` falls back to the provider-level default.
+    ///
+    /// Carried from [`InjectionParams`][crate::injection_params::InjectionParams]
+    /// through the builder into each per-call [`FragmentContext`].
+    pub tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
+}
+
+impl std::fmt::Debug for FragmentContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FragmentContext")
+            .field("agent_id", &self.agent_id)
+            .field("session_role", &self.session_role)
+            .field("bootstrap_mode", &self.bootstrap_mode)
+            .field("bootstrap_dir", &self.bootstrap_dir)
+            .field("activated_skills", &self.activated_skills)
+            .field(
+                "tool_registry",
+                &self.tool_registry.as_ref().map(|_| "<ToolRegistryQuery>"),
+            )
+            .finish()
+    }
 }
 
 impl FragmentContext {
@@ -67,6 +95,7 @@ impl FragmentContext {
             bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
             activated_skills: Vec::new(),
+            tool_registry: None,
         }
     }
 }

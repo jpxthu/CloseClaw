@@ -280,7 +280,7 @@ impl ConversationSession {
     ///
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
-    fn build_llm_messages_with_listing(
+    pub(crate) fn build_llm_messages_with_listing(
         &self,
         content: &str,
         skill_listing: Option<String>,
@@ -299,6 +299,12 @@ impl ConversationSession {
         // ── Skill listing attachment — at position 0 when non-empty ──
         let skill_listing_inserted = if let Some(listing) = skill_listing {
             if !listing.is_empty() {
+                let entry_count = listing.lines().filter(|l| !l.is_empty()).count();
+                let first_entry = listing
+                    .lines()
+                    .find(|l| !l.is_empty())
+                    .map(|l| l.to_string())
+                    .unwrap_or_default();
                 messages.insert(
                     0,
                     InternalMessage {
@@ -307,6 +313,13 @@ impl ConversationSession {
                         content_blocks: None,
                         tool_call_id: None,
                     },
+                );
+                tracing::info!(
+                    session_id = %self.session_id,
+                    event = "skill_listing_injection",
+                    entry_count,
+                    first_entry = %first_entry,
+                    "injecting skill listing as system message"
                 );
                 true
             } else {

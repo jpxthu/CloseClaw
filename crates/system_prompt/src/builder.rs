@@ -4,6 +4,7 @@
 
 use crate::fragment::{FragmentContext, PromptFragmentProvider, SessionRole};
 use crate::sections::{Section, SectionCache};
+use closeclaw_common::tool_registry::ToolRegistryQuery;
 use closeclaw_common::BootstrapMode;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -177,6 +178,11 @@ pub struct WorkspaceBuildConfig {
     /// can gate identity-dependent behaviour (e.g. memory loading,
     /// bootstrap instruction injection).
     pub session_role: SessionRole,
+    /// ToolRegistry reference — passed through to [`FragmentContext`]
+    /// so that providers like [`ToolsFragmentProvider`] can query the
+    /// registry at generation time rather than relying on a
+    /// provider-level default.
+    pub tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
 }
 
 // --- Private helpers -------------------------------------------------------
@@ -216,6 +222,7 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
         bootstrap_dir: root.to_string_lossy().to_string(),
         activated_skills: config.activated_skills,
+        tool_registry: config.tool_registry,
     };
 
     let builder = match shared_cache {
@@ -324,6 +331,7 @@ mod tests {
             agent_id: None,
             activated_skills: vec![],
             session_role: SessionRole::Main,
+            tool_registry: None,
         };
         assert!(config.providers.is_empty());
     }
@@ -338,6 +346,7 @@ mod tests {
             agent_id: None,
             activated_skills: vec![],
             session_role: SessionRole::Main,
+            tool_registry: None,
         };
         assert_eq!(config.session_role, SessionRole::Main);
     }
