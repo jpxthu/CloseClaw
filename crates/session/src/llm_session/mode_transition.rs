@@ -84,7 +84,7 @@ impl super::ConversationSession {
                 self.has_been_in_plan
                     .store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            let switched = detect(prev, mode, has_been, ModeChangeSource::Manual).is_some();
+            let switched = prev != mode;
             if let Some(t) = detect(prev, mode, has_been, ModeChangeSource::Manual) {
                 *self
                     .pending_mode_transition

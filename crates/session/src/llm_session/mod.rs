@@ -511,7 +511,7 @@ impl ConversationSession {
             let pmt = &self.pending_mode_transition;
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);
         }
-        self.spawn_mode_checkpoint_writeback(mode, transition.is_some());
+        self.spawn_mode_checkpoint_writeback(mode, prev != mode);
     }
     /// Set per-request context for dynamic-layer injection.
     pub fn set_request_context(&self, ctx: closeclaw_common::RequestContext) {
