@@ -80,17 +80,13 @@ pub struct AnnounceEvent {
     pub child_session_id: String,
     /// Agent ID of the child that completed.
     pub child_agent_id: String,
-    /// Concatenated Text content blocks from the child's final assistant
-    /// message. Thinking blocks are filtered out.
+    /// Concatenated Text blocks from the child's final assistant message.
     pub result_text: String,
     /// When the child session finished. Used for logging / debug.
     pub completed_at: DateTime<Utc>,
-    /// Delivery priority. Controls insertion order in the announce queue
-    /// so higher-priority events are drained first.
+    /// Delivery priority in the announce queue.
     pub priority: NotificationPriority,
-    /// Completion status of the child session. Controls the injection
-    /// text so the parent session knows whether the child completed
-    /// successfully, errored, or was terminated.
+    /// Completion status of the child session.
     pub status: ChildCompletionStatus,
 }
 
@@ -112,15 +108,18 @@ pub struct ConversationSession {
     is_llm_busy: Arc<AtomicBool>,
     unified_queue: session_pending_queue::UnifiedMessageQueue,
     reasoning_level: ReasoningLevel,
-    /// Effective reasoning level after provider downgrade (`None` = fallback to `reasoning_level`).
+    /// Effective reasoning level after provider downgrade.
     effective_reasoning_level: Option<ReasoningLevel>,
     workdir: PathBuf,
     stats: RunningStats,
     streaming_sink: Option<Arc<dyn StreamingSink>>,
     stream_enabled: bool,
-    /// Per-session append-section items, managed by `/system` subcommand.
-    /// Persisted in `SessionCheckpoint::system_appends`.
-    system_appends: Vec<String>,
+    /// User-managed append-section items, managed by `/system` subcommand.
+    /// Persisted in `SessionCheckpoint::user_appends` (alias: `system_appends`).
+    user_appends: Vec<String>,
+    /// System-injected append-section items (e.g. workflow context, recovery).
+    /// Not persisted — re-injected at runtime by functional modules.
+    system_injection_appends: Vec<String>,
     /// LLM interaction state. See [`super::session_state`].
     pub llm_state: Arc<RwLock<LlmState>>,
     /// Per-call tool states. See [`super::session_state`].
@@ -128,8 +127,7 @@ pub struct ConversationSession {
     /// Per-child session states. See [`super::session_state`].
     pub child_states:
         Arc<RwLock<HashMap<String, (ChildSessionState, Option<PendingOperationDetail>)>>>,
-    /// When this session was created (Unix timestamp, seconds).
-    /// Used by `build_dynamic_sections` as the ChannelContext timestamp.
+    /// When this session was created (Unix seconds).
     created_at: i64,
     /// Tool process kill handles. See [`super::session_handles`].
     pub tool_handles: Arc<RwLock<HashMap<String, Arc<dyn KillHandle>>>>,
@@ -144,70 +142,58 @@ pub struct ConversationSession {
     snapshot_manager: Option<RuntimeSnapshotManager>,
     /// Per-session health checker (Arc<Mutex> for Clone compat).
     health_checker: Option<Arc<tokio::sync::Mutex<RunHealthChecker>>>,
-    /// Active-yield flag. When `true`, the session is in主动 Waiting state
-    /// (entered via `sessions_yield`). User messages are queued until resume.
+    /// Active-yield flag; when true, user messages are queued.
     is_yielding: Arc<AtomicBool>,
-    /// Communication configuration for spawned child sessions.
-    /// When set, restricts which agents the child may communicate with.
+    /// Communication config for child sessions.
     communication_config: Option<CommunicationConfig>,
-    /// Bootstrap mode cached from AgentRegistry at session creation.
-    /// Defaults to [`BootstrapMode::Full`].
+    /// Bootstrap mode cached from AgentRegistry.
     bootstrap_mode: crate::bootstrap::loader::BootstrapMode,
-    /// Per-session memory-injection slot, managed by active-searcher.
-    /// Not persisted across process restarts.
+    /// Memory-injection slot, managed by active-searcher.
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every mutation.
     last_activity_at: i64,
     /// Task IDs already injected this session (session-level dedup).
     injected_task_ids: Arc<Mutex<HashSet<String>>>,
-    /// Skill listing provider injected by Gateway for per-turn skill injection.
+    /// Skill listing provider for per-turn injection.
     pub(crate) skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
-    /// Snapshot of the last skill listing (excluding conditional skills)
-    /// used for incremental diff computation. `None` on the first turn.
+    /// Snapshot for incremental skill-listing diff; `None` on first turn.
     pub(crate) skill_listing_snapshot: Option<String>,
-    /// One-shot flag set by [`mark_compacted`] to trigger full listing
-    /// re-injection on the next turn. Cleared by
-    /// [`prepare_turn_skill_listing`] after the snapshot is reset.
+    /// Trigger full listing re-injection on next turn.
     pub(crate) pending_compaction_listing_reset: bool,
-    /// Conditional skills activated via file-path matching this session.
+    /// Conditional skills activated via file-path matching.
     pub(crate) activated_conditional_skills: HashSet<String>,
     tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
-    /// Agent-level skill whitelist filter. `*` means no filtering.
+    /// Agent skill whitelist filter; `*` means no filtering.
     pub(crate) agent_skills: Option<Vec<String>>,
     /// Shutdown handle for busy-count tracking during tool execution.
     shutdown_handle: Option<Arc<dyn closeclaw_common::ShutdownSignal>>,
-    /// File mtime tracking for staleness checks on Edit/Write.
+    /// File mtime tracking for staleness checks.
     file_mtimes: Arc<RwLock<HashMap<PathBuf, SystemTime>>>,
     /// Per-turn read range tracking for file dedup.
     file_read_ranges: Arc<RwLock<HashMap<PathBuf, closeclaw_common::FileReadCache>>>,
     /// Verbosity level controlling outbound content filtering.
     verbosity_level: VerbosityLevel,
-    /// Session mode controlling session-level behavior constraints (§6).
+    /// Session mode (§6).
     session_mode: Arc<Mutex<SessionMode>>,
     pending_session_mode: Arc<Mutex<Option<SessionMode>>>,
     pending_mode_transition: mode_transition::PendingTransition,
-    /// Whether this session has ever entered Plan Mode (§6).
+    /// Whether this session has ever entered Plan Mode.
     has_been_in_plan: Arc<AtomicBool>,
     /// Per-request context for dynamic-layer injection.
     request_context: Arc<Mutex<closeclaw_common::RequestContext>>,
-    /// LLM caller injected by Gateway for delegating LLM requests.
-    /// Set via [`set_llm_caller`](Self::set_llm_caller) after construction.
+    /// LLM caller injected by Gateway.
     llm_caller: Option<Arc<dyn LlmCaller>>,
-    /// System prompt builder injected by Gateway for prompt rebuilds.
-    /// Set via [`set_system_prompt_builder`](Self::set_system_prompt_builder) after construction.
+    /// System prompt builder injected by Gateway.
     system_prompt_builder: Option<Arc<dyn SystemPromptBuilder>>,
-    /// Prompt overrides injected by Gateway for prompt rebuilds.
-    /// Set via [`set_prompt_overrides`](Self::set_prompt_overrides) after construction.
+    /// Prompt overrides injected by Gateway.
     prompt_overrides: Option<PromptOverrides>,
     dynamic_prompt_builder: Option<Arc<dyn closeclaw_common::DynamicPromptBuilder>>,
     /// Manual backgrounding signal. When notified, foreground commands
     /// being executed should be moved to background.
     pub manual_background_signal: Arc<tokio::sync::Notify>,
-    /// Persistence service for persist_pending_checkpoint (injected by Gateway).
+    /// Persistence service for persist_pending_checkpoint.
     checkpoint_storage: Option<Arc<dyn crate::persistence::PersistenceService>>,
-    /// Whether the session has the git_status config switch enabled.
-    /// When `true`, the dynamic builder may inject a GitStatus section
-    /// if the working directory is a git repository.
+    /// Whether git_status config switch is enabled.
     is_git_status_enabled: bool,
     /// Active workflow run state. Persisted in SessionCheckpoint.
     workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
@@ -241,7 +227,8 @@ impl ConversationSession {
             created_at: Utc::now().timestamp(),
             streaming_sink: None,
             stream_enabled: false,
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
+            system_injection_appends: Vec::new(),
             llm_state: Arc::new(RwLock::new(LlmState::Idle)),
             tool_states: Arc::new(RwLock::new(HashMap::new())),
             child_states: Arc::new(RwLock::new(HashMap::new())),
@@ -718,16 +705,7 @@ impl ConversationSession {
         None
     }
 
-    /// Find the text content of an assistant message in the transcript
-    /// that matches the given target content.
-    ///
-    /// Walks messages in reverse (most recent first), extracts Text
-    /// blocks from assistant messages, and returns the first match.
-    /// Returns `None` if no matching assistant message is found.
-    ///
-    /// Used by `drain_outbound_pending_for_session` to look up message
-    /// content from the transcript (authoritative source) instead of
-    /// relying on the outbound_pending cache.
+    /// Find assistant text matching `target` (reverse walk, first match).
     pub fn find_assistant_text_by_content(
         messages: &[SessionMessage],
         target: &str,
@@ -796,35 +774,57 @@ impl ConversationSession {
 impl ConversationSession {
     // ── System appends ──────────────────────────────────────────
 
-    /// Append `content` to the per-session append-section list.
-    /// Returns the index of the newly added item (0-based, sequential).
+    /// Append to user-managed list; returns new index.
     pub fn add_system_append(&mut self, content: String) -> usize {
-        let next_index = self.system_appends.len();
-        self.system_appends.push(content);
+        let next_index = self.user_appends.len();
+        self.user_appends.push(content);
         next_index
     }
 
-    /// Clear all append-section items. Returns the count cleared.
+    /// Append to system-injected list; returns new index.
+    pub fn add_system_injection_append(&mut self, content: String) -> usize {
+        let next_index = self.system_injection_appends.len();
+        self.system_injection_appends.push(content);
+        next_index
+    }
+
+    /// Clear user-managed items only (system-injected unaffected).
     pub fn clear_system_appends(&mut self) -> usize {
-        let n = self.system_appends.len();
-        self.system_appends.clear();
+        let n = self.user_appends.len();
+        self.user_appends.clear();
         n
     }
 
-    /// Replace the current append-section list with `items`
-    /// (typically called from a checkpoint restore path).
+    /// Clear system-injected items only.
+    pub fn clear_system_injection_appends(&mut self) -> usize {
+        let n = self.system_injection_appends.len();
+        self.system_injection_appends.clear();
+        n
+    }
+    /// Restore user-managed items (checkpoint restore path).
     pub fn restore_system_appends(&mut self, items: Vec<String>) {
-        self.system_appends = items;
+        self.user_appends = items;
+    }
+    /// Restore system-injected items (checkpoint transient field).
+    pub fn restore_system_injection_appends(&mut self, items: Vec<String>) {
+        self.system_injection_appends = items;
     }
 
-    /// Read-only access to the append-section list in insertion order.
+    /// Merged list: user_appends followed by system_injection_appends.
     pub fn system_appends(&self) -> Vec<String> {
-        self.system_appends.clone()
+        let mut result = self.user_appends.clone();
+        result.extend(self.system_injection_appends.iter().cloned());
+        result
     }
 
-    /// Returns the user-managed append-section items.
+    /// User-managed append-section items.
     pub fn user_system_appends(&self) -> &[String] {
-        &self.system_appends
+        &self.user_appends
+    }
+
+    /// System-injected append-section items.
+    pub fn system_injection_appends(&self) -> &[String] {
+        &self.system_injection_appends
     }
 }
 

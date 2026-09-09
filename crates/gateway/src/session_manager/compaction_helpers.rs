@@ -52,14 +52,14 @@ impl SessionManager {
                 cp.pending_messages = cs.messages().to_vec();
             }
         }
-        // Sync system_appends from ConversationSession so checkpoint
-        // reflects any in-memory additions (e.g. workflow context injection)
+        // Sync user_appends from ConversationSession so checkpoint
+        // reflects any in-memory additions (e.g. /system add commands)
         // that happened since the last checkpoint save.
         {
             let conv_sessions = self.conversation_sessions.read().await;
             if let Some(cs) = conv_sessions.get(session_id) {
                 let cs = cs.read().await;
-                cp.system_appends = cs.user_system_appends().to_vec();
+                cp.user_appends = cs.user_system_appends().to_vec();
             }
         }
         cp.touch();
@@ -167,9 +167,9 @@ impl SessionManager {
         cs.snapshot_count()
     }
 
-    /// Re-inject workflow context into system_appends after compaction.
+    /// Re-inject workflow context into system_injection_appends after compaction.
     ///
-    /// After compaction completes, system_appends may have been cleared.
+    /// After compaction completes, system_injection_appends may have been cleared.
     /// If an active workflow exists in the checkpoint (phase != Complete),
     /// reload the definition via three-level lookup and re-inject the
     /// workflow context so the agent maintains workflow awareness.
@@ -191,9 +191,13 @@ impl SessionManager {
             return;
         }
 
-        // Check if workflow context already exists in system_appends.
-        if closeclaw_workflow::context_append::has_workflow_context(&cp.system_appends) {
-            return;
+        // Check if workflow context already exists in the ConversationSession.
+        // workflow context is system injection, checked in the merged list.
+        if let Some(cs_arc) = self.get_conversation_session(session_id).await {
+            let cs = cs_arc.read().await;
+            if closeclaw_workflow::context_append::has_workflow_context(&cs.system_appends()) {
+                return;
+            }
         }
 
         // Workflow context is missing — reload the definition and re-inject.
@@ -214,10 +218,10 @@ impl SessionManager {
             None => return,
         };
 
-        // Inject into ConversationSession's system_appends.
+        // Inject into ConversationSession's system_injection_appends.
         if let Some(cs) = self.get_conversation_session(session_id).await {
             let mut cs = cs.write().await;
-            cs.add_system_append(context);
+            cs.add_system_injection_append(context);
         }
     }
 

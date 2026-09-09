@@ -319,7 +319,7 @@ pub fn load_checkpoint_inner(
     #[allow(unused_mut)]
     let mut mode_state_val: crate::persistence::ReasoningModeState;
     let mode_val: String;
-    let mut system_appends: Vec<String> = Vec::new();
+    let mut user_appends: Vec<String> = Vec::new();
     let mut outbound_pending: Vec<crate::persistence::PendingMessage> = Vec::new();
     let transcript_messages: Vec<crate::llm_session::SessionMessage> =
         transcript_messages_from_jsonl;
@@ -337,8 +337,9 @@ pub fn load_checkpoint_inner(
             .or_else(|| v.get("mode"))
             .and_then(|x| x.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "direct".to_string());
-        system_appends = v
-            .get("system_appends")
+        user_appends = v
+            .get("user_appends")
+            .or_else(|| v.get("system_appends"))
             .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
             .unwrap_or_default();
         if let Some(mode_str) = v.get("session_mode").and_then(|x| x.as_str()) {
@@ -408,7 +409,7 @@ pub fn load_checkpoint_inner(
             _ => None,
         },
         reasoning_level: crate::persistence::ReasoningLevel::default(),
-        system_appends,
+        user_appends,
         account_id: account_id_new,
         thread_id,
         reply_ref: None,
@@ -435,6 +436,7 @@ pub fn load_checkpoint_inner(
         communication_config: None,
         snapshot_metas: Vec::new(),
         workflow_run: None,
+        system_injection_appends: Vec::new(),
     }))
 }
 
@@ -679,13 +681,13 @@ fn build_metadata_json(checkpoint: &SessionCheckpoint) -> Result<String, Persist
         serde_json::to_string(&checkpoint.mode_state).map_err(PersistenceError::Serialization)?;
     let pending_json = serde_json::to_string(&checkpoint.outbound_pending)
         .map_err(PersistenceError::Serialization)?;
-    let system_appends_json = serde_json::to_string(&checkpoint.system_appends)
-        .map_err(PersistenceError::Serialization)?;
+    let user_appends_json =
+        serde_json::to_string(&checkpoint.user_appends).map_err(PersistenceError::Serialization)?;
     serde_json::to_string(&serde_json::json!({
         "reasoning_mode": reasoning_mode_to_str(checkpoint.reasoning_mode),
         "mode_state": mode_state_json,
         "outbound_pending": pending_json,
-        "system_appends": system_appends_json,
+        "user_appends": user_appends_json,
         "session_mode": checkpoint.session_mode.to_string(),
     }))
     .map_err(PersistenceError::Serialization)

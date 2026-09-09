@@ -664,7 +664,7 @@ pub(crate) async fn persist_outbound_checkpoint(
         .await
     {
         let cs = cs.read().await;
-        cp.system_appends = cs.user_system_appends().to_vec();
+        cp.user_appends = cs.user_system_appends().to_vec();
     }
     cp.touch();
     cp.last_message_at = Some(chrono::Utc::now());

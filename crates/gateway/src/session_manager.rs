@@ -492,7 +492,7 @@ impl SessionManager {
         let session_ids: Vec<String> = sessions.keys().cloned().collect();
         drop(sessions);
 
-        // Collect pending messages and system_appends using async RwLock read.
+        // Collect pending messages and user_appends using async RwLock read.
         let mut pending_map: HashMap<String, Vec<PendingMessage>> = HashMap::new();
         let mut appends_map: HashMap<String, Vec<String>> = HashMap::new();
         {
@@ -531,7 +531,7 @@ impl SessionManager {
             // Sync per-session append-section list from ConversationSession
             // (issue #860: archived session restore preserves append content).
             if let Some(appends) = appends_map.get(session_id) {
-                cp.system_appends = appends.clone();
+                cp.user_appends = appends.clone();
             }
             if cm.save_raw(&cp).await.is_ok() {
                 saved += 1;

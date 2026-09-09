@@ -114,6 +114,14 @@ impl SlashSessionQuery for SessionManager {
         guard.add_system_append(content);
     }
 
+    async fn add_system_injection_append(&self, session_id: &str, content: String) {
+        let Some(cs) = get_cs(self, session_id).await else {
+            return;
+        };
+        let mut guard = cs.write().await;
+        guard.add_system_injection_append(content);
+    }
+
     async fn get_model(&self, session_id: &str) -> Option<String> {
         let cs = get_cs(self, session_id).await?;
         let guard = cs.read().await;

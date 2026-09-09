@@ -32,7 +32,7 @@ mod tests {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
             thread_id: None,
             reply_ref: None,
             sender_id: None,
@@ -57,6 +57,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         }
     }
 
@@ -412,7 +413,7 @@ mod tests {
             agent_id: Some("agent-eda".to_string()),
             role: Some(AgentRole::SubAgent),
             reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
             thread_id: None,
             reply_ref: None,
             sender_id: None,
@@ -437,6 +438,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 
@@ -473,7 +475,7 @@ mod tests {
             agent_id: Some("my-agent".to_string()),
             role: Some(AgentRole::MainAgent),
             reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
             thread_id: None,
             reply_ref: None,
             sender_id: None,
@@ -498,6 +500,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
 

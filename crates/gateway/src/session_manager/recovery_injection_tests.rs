@@ -445,3 +445,115 @@ async fn test_invalidate_static_cache_unconditional() {
         "cache must be invalidated for each recovered session (got {count})"
     );
 }
+
+// =========================================================================
+// Step 1.8: system_injection_appends restore path tests
+// =========================================================================
+
+/// Verify that `system_injection_appends` from the checkpoint transient
+/// field are restored into the ConversationSession during recovery.
+#[tokio::test]
+async fn test_restore_system_injection_appends() {
+    let mut cp = SessionCheckpoint::new("sess-inj-1".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-inj-1".to_string())
+        .with_recovery_notification(Some("inj test".to_string()));
+    // Populate the transient system_injection_appends field as the
+    // recovery service would (approval_history, plan_references, etc.).
+    cp.system_injection_appends = vec![
+        "approval_history: approved plan X".to_string(),
+        "plan_references: /path/to/plan.md".to_string(),
+        "workflow_recovery: step 3 of 5".to_string(),
+    ];
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    mgr.inject_startup_recovery_notifications(&["sess-inj-1".to_string()])
+        .await;
+
+    let conv = mgr
+        .get_conversation_session("sess-inj-1")
+        .await
+        .expect("ConversationSession should exist");
+    let conv = conv.read().await;
+
+    // system_injection_appends should be restored.
+    let inj = conv.system_injection_appends();
+    assert_eq!(
+        inj.len(),
+        3,
+        "should have 3 system_injection_appends, got {}",
+        inj.len()
+    );
+    assert_eq!(inj[0], "approval_history: approved plan X");
+    assert_eq!(inj[1], "plan_references: /path/to/plan.md");
+    assert_eq!(inj[2], "workflow_recovery: step 3 of 5");
+
+    // Merged system_appends should contain both user and injection items.
+    let merged = conv.system_appends();
+    assert_eq!(merged.len(), 3, "merged should contain injection items");
+}
+
+/// Verify that user_appends and system_injection_appends are restored
+/// independently — user_appends from persistence, injection from transient.
+#[tokio::test]
+async fn test_restore_user_and_injection_appends_independently() {
+    let mut cp = SessionCheckpoint::new("sess-inj-2".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-inj-2".to_string())
+        .with_recovery_notification(Some("dual test".to_string()));
+    // user_appends is persisted; system_injection_appends is transient.
+    cp.user_appends = vec!["owner instruction 1".to_string()];
+    cp.system_injection_appends = vec!["injected context".to_string()];
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    mgr.inject_startup_recovery_notifications(&["sess-inj-2".to_string()])
+        .await;
+
+    let conv = mgr
+        .get_conversation_session("sess-inj-2")
+        .await
+        .expect("ConversationSession should exist");
+    let conv = conv.read().await;
+
+    // user_appends restored from checkpoint.
+    assert_eq!(conv.user_system_appends().len(), 1);
+    assert_eq!(conv.user_system_appends()[0], "owner instruction 1");
+
+    // system_injection_appends restored from transient field.
+    assert_eq!(conv.system_injection_appends().len(), 1);
+    assert_eq!(conv.system_injection_appends()[0], "injected context");
+
+    // Merged order: user_appends first, then system_injection_appends.
+    let merged = conv.system_appends();
+    assert_eq!(merged.len(), 2);
+    assert_eq!(merged[0], "owner instruction 1");
+    assert_eq!(merged[1], "injected context");
+}
+
+/// Boundary: empty system_injection_appends should not cause issues.
+#[tokio::test]
+async fn test_restore_empty_system_injection_appends() {
+    let cp = SessionCheckpoint::new("sess-inj-3".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-inj-3".to_string())
+        .with_recovery_notification(Some("empty inj".to_string()));
+    // system_injection_appends is empty (default).
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    mgr.inject_startup_recovery_notifications(&["sess-inj-3".to_string()])
+        .await;
+
+    let conv = mgr
+        .get_conversation_session("sess-inj-3")
+        .await
+        .expect("ConversationSession should exist");
+    let conv = conv.read().await;
+
+    assert!(
+        conv.system_injection_appends().is_empty(),
+        "empty system_injection_appends should remain empty"
+    );
+}

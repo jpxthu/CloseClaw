@@ -96,11 +96,14 @@ pub struct SessionCheckpoint {
     pub role: Option<AgentRole>,
     /// 推理深度等级
     pub reasoning_level: ReasoningLevel,
-    /// Per-session 追加区内容（system prompt append section）
+    /// Per-session Owner 动态指令追加内容（system prompt append section）
     ///
+    /// Owner 动态指令，经 `/system add` 写入，`/system clear` 清除。
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    /// 用 `#[serde(alias = "system_appends")]` 兼容旧格式（旧字段名映射到 user_appends）。
     #[serde(default)]
-    pub system_appends: Vec<String>,
+    #[serde(alias = "system_appends")]
+    pub user_appends: Vec<String>,
     /// 话题 ID（IM 渠道话题消息的线程标识）
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
@@ -210,7 +213,7 @@ pub struct SessionCheckpoint {
     ///
     /// Stores approval calls (tool name, plan summary, request ID) so
     /// that when PlanState persistence and plan file disk are unavailable,
-    /// the recovery service can inject approval history into `system_appends`.
+    /// the recovery service can inject approval history into `system_injection_appends`.
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]
@@ -272,6 +275,22 @@ pub struct SessionCheckpoint {
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
+
+    /// Transient system-injected append-section items (runtime only).
+    ///
+    /// Populated by the recovery service during session recovery
+    /// (approval_history, plan_references, plan_tasks, workflow context,
+    /// recovery notifications). Consumed by the gateway when rebuilding
+    /// the ConversationSession — injected into
+    /// `ConversationSession::system_injection_appends` and not persisted
+    /// to storage.
+    ///
+    /// This field is intentionally excluded from persistence:
+    /// - Not serialized by `build_metadata_json` (SQLite metadata)
+    /// - Excluded from serialization via `#[serde(skip)]` —
+    ///   runtime-only, consumed once during session restore
+    #[serde(skip)]
+    pub system_injection_appends: Vec<String>,
 }
 
 impl SessionCheckpoint {
@@ -297,7 +316,7 @@ impl SessionCheckpoint {
             agent_id: None,
             role: None,
             reasoning_level: ReasoningLevel::default(),
-            system_appends: Vec::new(),
+            user_appends: Vec::new(),
             thread_id: None,
             reply_ref: None,
             sender_id: None,
@@ -322,6 +341,7 @@ impl SessionCheckpoint {
 
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            system_injection_appends: Vec::new(),
         }
     }
 
