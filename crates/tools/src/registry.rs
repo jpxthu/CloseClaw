@@ -695,10 +695,10 @@ impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistryImpl {
             });
         }
         guard.insert(name.clone(), arc_tool);
+        self.generation.fetch_add(1, Ordering::Release);
         drop(guard);
         let mut owners = self.owners.write().await;
         owners.insert(name, registrar_name.to_string());
-        self.generation.fetch_add(1, Ordering::Release);
         Ok(())
     }
 

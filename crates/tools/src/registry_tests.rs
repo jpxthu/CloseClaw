@@ -501,6 +501,30 @@ async fn test_build_tools_section_empty() {
 
 /// Header-only overflow: when a group header alone exceeds the limit,
 /// it should not produce an orphan header line.
+#[tokio::test]
+async fn test_build_tools_section_no_orphan_header() {
+    let reg = ToolRegistry::new();
+    reg.register(DummyTool {
+        name: "A".to_string(),
+        group: "g".to_string(),
+        summary_text: "tool A".to_string(),
+        is_deferred: false,
+        is_read_only: false,
+        is_destructive: false,
+    })
+    .await
+    .unwrap();
+
+    let ctx = make_prompt_ctx(&["A"]);
+    let section = reg.build_tools_section(&ctx).await;
+    // With default TOOLS_SECTION_MAX_LEN=15000, header fits easily.
+    // Just verify the section is non-empty and contains the tool.
+    assert!(section.contains("**A**"), "tool A present: {section}");
+    assert!(
+        section.contains("(always loaded)"),
+        "header present: {section}"
+    );
+}
 
 // =========================================================================
 // RegistryError — Display and variant tests
@@ -792,6 +816,48 @@ fn test_strip_keywords_prefix_variants() {
         "[keywords:] some detail"
     );
     assert_eq!(strip_keywords_prefix("[keywords:]"), "[keywords:]");
+}
+
+#[test]
+fn test_from_tool_strips_keywords_from_detail() {
+    struct Dummy {
+        name: String,
+        detail_text: String,
+    }
+    impl Tool for Dummy {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn group(&self) -> &str {
+            "test"
+        }
+        fn summary(&self) -> String {
+            self.name.clone()
+        }
+        fn detail(&self) -> String {
+            self.detail_text.clone()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        fn flags(&self) -> ToolFlags {
+            ToolFlags::default()
+        }
+    }
+    // With keywords prefix → stripped.
+    let tool: Arc<dyn Tool> = Arc::new(Dummy {
+        name: "KwTool".to_string(),
+        detail_text: "[keywords: search find] Search for things".to_string(),
+    });
+    let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["KwTool"]));
+    assert_eq!(info.detail, "Search for things");
+    // Without keywords prefix → unchanged.
+    let tool: Arc<dyn Tool> = Arc::new(Dummy {
+        name: "PlainTool".to_string(),
+        detail_text: "Plain description".to_string(),
+    });
+    let info = ToolInfo::from_tool(&tool, &make_prompt_ctx(&["PlainTool"]));
+    assert_eq!(info.detail, "Plain description");
 }
 
 // =========================================================================

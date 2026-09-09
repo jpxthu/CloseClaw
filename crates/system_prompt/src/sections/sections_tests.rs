@@ -4,6 +4,7 @@
 //! to keep that file focused on rendering logic.
 
 use super::*;
+use closeclaw_common::system_prompt::ModeTransition;
 use tempfile::tempdir;
 
 #[test]
@@ -257,7 +258,7 @@ fn test_section_cache_invalidate_all_clears_all() {
 }
 
 /// invalidate_all on empty cache is a no-op.
-
+///
 /// Cache with mtime validation: stale entry returns None.
 #[test]
 fn test_section_cache_mtime_stale_returns_none() {
@@ -762,6 +763,7 @@ fn test_section_name_all_variants() {
             sub_agent: false,
         }
         .name(),
+        Section::ModeTransition(ModeTransition::PlanModeReentry).name(),
     ];
     for name in &names {
         assert!(!name.is_empty(), "section name must not be empty");
@@ -805,6 +807,7 @@ fn test_section_render_no_panic_all_variants() {
             sparse: false,
             sub_agent: false,
         },
+        Section::ModeTransition(ModeTransition::PlanModeReentry),
     ];
     for s in &sections {
         let rendered = s.render();
@@ -856,12 +859,6 @@ Step 1: do stuff
     assert!(rendered.contains("## Plan File"));
     assert!(rendered.contains("路径："));
 }
-
-/// PlanFile section name is "plan_file" and is not cacheable.
-
-/// PlanFile section renders without panic for empty content.
-
-/// PlanFile is included in the full Section enum name uniqueness check.
 
 // -----------------------------------------------------------------------
 // Step 1.3: Prefix invalidation boundary tests
@@ -950,19 +947,31 @@ fn test_invalidate_skill_listing_removes_only_skill_entries() {
     );
 }
 
-/// Partial prefix match does not cause incorrect removal.
+/// Partial prefix match does cause removal.
+///
+/// `"tools:agent"` is a prefix of `"tools:agent-1:0"`, so
+/// `invalidate_matching("tools:agent")` will remove it. A non-matching prefix
+/// like `"memory"` does not affect unrelated entries.
 #[test]
 fn test_invalidate_matching_prefix_boundary() {
     let mut cache = SectionCache::new();
-    // "tool:" should NOT match "tools:" prefix
+    // "tools:agent-1:0" starts with "tools:agent" — prefix match
     cache.put("tools:agent-1:0", "tools content".to_string(), None);
+    cache.put("memory:section", "memory content".to_string(), None);
 
-    cache.invalidate_matching("tool:");
-    // "tool:" does not start with "tools:" — wait, actually "tools:" starts with "tool:"
-    // Let's check: "tools:agent-1:0".starts_with("tool:") → true (because "tool" matches)
-    // So "tool:" prefix WILL match "tools:..." entries. This is correct behavior.
-    // The important thing is that "tools:" does NOT match "skill_listing:" entries.
-    // Let's add a more precise test.
+    // "tools:agent" matches "tools:agent-1:0" (starts_with)
+    cache.invalidate_matching("tools:agent");
+    assert_eq!(
+        cache.get("tools:agent-1:0", None),
+        None,
+        "\"tools:agent\" prefix should match and remove \"tools:agent-1:0\""
+    );
+    // "memory:section" does NOT start with "tools:agent" — preserved
+    assert_eq!(
+        cache.get("memory:section", None),
+        Some("memory content".to_string()),
+        "\"memory:section\" should not be affected by \"tools:agent\" prefix"
+    );
 }
 
 /// invalidate_matching("tools:") does NOT match "skill_listing:" entries.
