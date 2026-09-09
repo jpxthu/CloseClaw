@@ -2,7 +2,7 @@
 //!
 //! 支持注册、查询、列表操作，内部使用 `tokio::sync::RwLock` 保证并发安全。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::{PromptGenerationContext, Tool, ToolContext, ToolError, ToolSummary};
@@ -66,6 +66,9 @@ pub struct ToolRegistryImpl {
     agent_tools_query: OnceLock<Arc<dyn AgentToolsConfigQuery>>,
     /// When `true`, no further registrations are accepted.
     frozen: AtomicBool,
+    /// Generation counter incremented on each successful tool registration.
+    /// Exposed via [`Self::generation`] for cache-key fingerprinting.
+    generation: AtomicU64,
 }
 
 impl std::fmt::Debug for ToolRegistryImpl {
@@ -278,7 +281,16 @@ impl ToolRegistryImpl {
             owners: tokio::sync::RwLock::new(std::collections::HashMap::new()),
             agent_tools_query: OnceLock::new(),
             frozen: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
         }
+    }
+
+    /// Returns the current generation counter.
+    ///
+    /// The counter is incremented after each successful tool registration.
+    /// It is used as part of the cache key to detect tool definition changes.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
     }
 
     /// Registers a tool.
@@ -296,6 +308,7 @@ impl ToolRegistryImpl {
             return Err(ToolError::AlreadyRegistered(name));
         }
         guard.insert(name, Arc::new(tool));
+        self.generation.fetch_add(1, Ordering::Release);
         Ok(())
     }
 
@@ -682,6 +695,7 @@ impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistryImpl {
             });
         }
         guard.insert(name.clone(), arc_tool);
+        self.generation.fetch_add(1, Ordering::Release);
         drop(guard);
         let mut owners = self.owners.write().await;
         owners.insert(name, registrar_name.to_string());

@@ -260,21 +260,34 @@ impl SectionCache {
         self.entries.clear();
     }
 
+    /// Remove all cache entries whose keys start with `prefix`.
+    ///
+    /// This is the primary mechanism for section-specific invalidation:
+    /// composite cache keys (e.g. `"tools:agent-1:0"`) are matched by
+    /// their section prefix (`"tools:"`), so all variant entries for
+    /// that section are removed in one pass.
+    pub fn invalidate_matching(&mut self, prefix: &str) {
+        self.entries.retain(|k, _| !k.starts_with(prefix));
+    }
+
     /// Invalidate the tools section cache.
     ///
-    /// Call this when tool definitions change (e.g. a new tool is
-    /// registered or the ToolRegistry is updated) so the next system
-    /// prompt build regenerates the tools listing.
+    /// Removes all entries whose keys start with `"tools:"`, covering
+    /// every agent-specific tools variant. Call this when tool definitions
+    /// change (e.g. a new tool is registered or the ToolRegistry is
+    /// updated) so the next system prompt build regenerates the tools
+    /// listing.
     pub fn invalidate_tools(&mut self) {
-        self.invalidate("tools");
+        self.invalidate_matching("tools:");
     }
 
     /// Invalidate the skill listing section cache.
     ///
+    /// Removes all entries whose keys start with `"skill_listing:"`.
     /// Call this when skill files change so the next system prompt build
     /// regenerates the listing from the current registry state.
     pub fn invalidate_skill_listing(&mut self) {
-        self.invalidate("skill_listing");
+        self.invalidate_matching("skill_listing:");
     }
 }
 

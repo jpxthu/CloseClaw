@@ -131,7 +131,11 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
     /// the generated tools listing across repeated builds. Includes the
     /// agent id to avoid cross-agent cache pollution.
     fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
-        Some(format!("tools:{}", ctx.agent_id))
+        Some(format!(
+            "tools:{}:{}",
+            ctx.agent_id,
+            self.registry.generation()
+        ))
     }
 }
 
@@ -150,14 +154,14 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key_includes_agent_id() {
+    fn test_cache_key_includes_agent_id_and_generation() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None);
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-abc".to_string();
         assert_eq!(
             provider.cache_key(&ctx),
-            Some("tools:agent-abc".to_string())
+            Some("tools:agent-abc:0".to_string())
         );
     }
 
@@ -172,6 +176,59 @@ mod tests {
         ctx_b.agent_id = "agent-b".to_string();
 
         assert_ne!(provider.cache_key(&ctx_a), provider.cache_key(&ctx_b));
+    }
+
+    #[test]
+    fn test_cache_key_varies_with_generation() {
+        let registry = Arc::new(ToolRegistry::new());
+        let provider = ToolsFragmentProvider::new(registry, None, None);
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-x".to_string();
+
+        // Initial generation = 0 → key includes "tools:agent-x:0"
+        let key_gen0 = provider.cache_key(&ctx);
+        assert_eq!(key_gen0, Some("tools:agent-x:0".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cache_key_changes_after_registration() {
+        use crate::ToolFlags;
+        use crate::ToolRegistryImpl as ToolRegistry;
+
+        struct SimpleTool;
+        impl crate::Tool for SimpleTool {
+            fn name(&self) -> &str {
+                "SimpleTool"
+            }
+            fn group(&self) -> &str {
+                "test"
+            }
+            fn summary(&self) -> String {
+                "simple tool".into()
+            }
+            fn detail(&self) -> String {
+                "detail".into()
+            }
+            fn input_schema(&self) -> serde_json::Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            fn flags(&self) -> ToolFlags {
+                ToolFlags::default()
+            }
+        }
+
+        let registry = Arc::new(ToolRegistry::new());
+        assert_eq!(registry.generation(), 0);
+        registry.register(SimpleTool).await.unwrap();
+        assert_eq!(registry.generation(), 1);
+
+        let provider = ToolsFragmentProvider::new(registry, None, None);
+        let mut ctx = FragmentContext::test_default();
+        ctx.agent_id = "agent-x".to_string();
+        assert_eq!(
+            provider.cache_key(&ctx),
+            Some("tools:agent-x:1".to_string())
+        );
     }
 
     #[tokio::test]

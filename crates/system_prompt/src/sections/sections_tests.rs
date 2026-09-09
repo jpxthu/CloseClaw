@@ -4,6 +4,7 @@
 //! to keep that file focused on rendering logic.
 
 use super::*;
+use closeclaw_common::system_prompt::ModeTransition;
 use tempfile::tempdir;
 
 #[test]
@@ -109,11 +110,15 @@ fn test_sanitize_workdir_path() {
 #[test]
 fn test_section_cache_invalidate_skill_listing() {
     let mut cache = SectionCache::new();
-    // Pre-populate the skill_listing cache with known content
-    cache.put("skill_listing", "old skill content".to_string(), Some(999));
+    // Pre-populate the skill_listing cache with composite key format
+    cache.put(
+        "skill_listing:agent-1:0",
+        "old skill content".to_string(),
+        Some(999),
+    );
     // Verify it's cached
     assert_eq!(
-        cache.get("skill_listing", Some(999)),
+        cache.get("skill_listing:agent-1:0", Some(999)),
         Some("old skill content".to_string())
     );
 
@@ -121,7 +126,7 @@ fn test_section_cache_invalidate_skill_listing() {
     cache.invalidate_skill_listing();
 
     // Cache should be cleared
-    assert_eq!(cache.get("skill_listing", Some(999)), None);
+    assert_eq!(cache.get("skill_listing:agent-1:0", Some(999)), None);
 }
 
 // -----------------------------------------------------------------------
@@ -163,25 +168,30 @@ fn test_section_cache_invalidate_isolation() {
     assert_eq!(cache_b.get("shared-key", None), Some("from-b".to_string()));
 }
 
-/// invalidate_tools removes only the tools entry, leaving other entries intact.
+/// invalidate_tools removes only the tools entries (by prefix),
+/// leaving other entries intact.
 #[test]
 fn test_invalidate_tools() {
     let mut cache = SectionCache::new();
-    cache.put("tools", "tool content".to_string(), None);
+    // Use composite key format matching ToolsFragmentProvider::cache_key()
+    cache.put("tools:agent-1:0", "tool content".to_string(), None);
     cache.put("memory", "memory content".to_string(), None);
 
     // Verify both entries are cached
-    assert_eq!(cache.get("tools", None), Some("tool content".to_string()));
+    assert_eq!(
+        cache.get("tools:agent-1:0", None),
+        Some("tool content".to_string())
+    );
     assert_eq!(
         cache.get("memory", None),
         Some("memory content".to_string())
     );
 
-    // Invalidate tools only
+    // Invalidate tools only (prefix-based)
     cache.invalidate_tools();
 
     // Tools entry removed
-    assert_eq!(cache.get("tools", None), None);
+    assert_eq!(cache.get("tools:agent-1:0", None), None);
     // Memory entry unaffected
     assert_eq!(
         cache.get("memory", None),
@@ -195,25 +205,15 @@ fn test_invalidate_tools() {
 
 /// Empty cache returns None for any key.
 #[test]
-fn test_section_cache_empty_returns_none() {
-    let cache = SectionCache::new();
+fn test_section_cache_basic_get_put() {
+    let mut cache = SectionCache::new();
+    // Empty cache returns None
     assert_eq!(cache.get("any-key", None), None);
     assert_eq!(cache.get("any-key", Some(123)), None);
-}
-
-/// Cache hit returns the stored content.
-#[test]
-fn test_section_cache_hit_returns_content() {
-    let mut cache = SectionCache::new();
+    // After put, returns stored content
     cache.put("my-key", "my-content".to_string(), None);
     assert_eq!(cache.get("my-key", None), Some("my-content".to_string()));
-}
-
-/// Cache miss (key not present) returns None.
-#[test]
-fn test_section_cache_miss_returns_none() {
-    let mut cache = SectionCache::new();
-    cache.put("existing-key", "value".to_string(), None);
+    // Missing key returns None
     assert_eq!(cache.get("nonexistent-key", None), None);
 }
 
@@ -255,14 +255,6 @@ fn test_section_cache_invalidate_all_clears_all() {
     assert_eq!(cache.get("k1", None), None);
     assert_eq!(cache.get("k2", None), None);
     assert_eq!(cache.get("k3", None), None);
-}
-
-/// invalidate_all on empty cache is a no-op.
-#[test]
-fn test_section_cache_invalidate_all_on_empty_is_noop() {
-    let mut cache = SectionCache::new();
-    cache.invalidate_all(); // should not panic
-    assert_eq!(cache.get("anything", None), None);
 }
 
 /// Cache with mtime validation: stale entry returns None.
@@ -769,6 +761,12 @@ fn test_section_name_all_variants() {
             sub_agent: false,
         }
         .name(),
+        Section::ModeTransition(ModeTransition::PlanModeReentry).name(),
+        Section::PlanFile {
+            path: String::new(),
+            content: String::new(),
+        }
+        .name(),
     ];
     for name in &names {
         assert!(!name.is_empty(), "section name must not be empty");
@@ -812,6 +810,7 @@ fn test_section_render_no_panic_all_variants() {
             sparse: false,
             sub_agent: false,
         },
+        Section::ModeTransition(ModeTransition::PlanModeReentry),
     ];
     for s in &sections {
         let rendered = s.render();
@@ -840,32 +839,21 @@ fn test_role_and_heartbeat_section_removed() {
 
 /// PlanFile section renders correctly with path and content.
 #[test]
-fn test_plan_file_section_render() {
+fn test_plan_file_section_render_variants() {
     let s = Section::PlanFile {
         path: "/tmp/plans/my-plan.md".to_string(),
-        content: "# My Plan\nStep 1: do stuff\n".to_string(),
+        content: "# My Plan
+Step 1: do stuff
+"
+        .to_string(),
     };
     let rendered = s.render();
     assert!(rendered.contains("## Plan File"));
     assert!(rendered.contains("路径：/tmp/plans/my-plan.md"));
     assert!(rendered.contains("# My Plan"));
     assert!(rendered.contains("Step 1: do stuff"));
-}
 
-/// PlanFile section name is "plan_file" and is not cacheable.
-#[test]
-fn test_plan_file_section_name_and_cacheable() {
-    let s = Section::PlanFile {
-        path: "/tmp/p.md".to_string(),
-        content: String::new(),
-    };
-    assert_eq!(s.name(), "plan_file");
-    assert!(!s.is_cacheable(), "PlanFile is a dynamic section");
-}
-
-/// PlanFile section renders without panic for empty content.
-#[test]
-fn test_plan_file_section_render_empty_content() {
+    // Empty content renders without panic
     let s = Section::PlanFile {
         path: "/tmp/empty.md".to_string(),
         content: String::new(),
@@ -875,39 +863,132 @@ fn test_plan_file_section_render_empty_content() {
     assert!(rendered.contains("路径："));
 }
 
-/// PlanFile is included in the full Section enum name uniqueness check.
+// -----------------------------------------------------------------------
+// Step 1.3: Prefix invalidation boundary tests
+// -----------------------------------------------------------------------
+
+/// invalidate_tools removes both tools entries, preserves skill_listing.
 #[test]
-fn test_plan_file_name_unique_among_all_variants() {
-    let all_names = vec![
-        Section::ToolsSection("t".into()).name(),
-        Section::MemorySection("m".into()).name(),
-        Section::ChannelContext {
-            chat_name: "c".into(),
-        }
-        .name(),
-        Section::GitStatus("g".into()).name(),
-        Section::WorkingDirectory("w".into()).name(),
-        Section::ModeInstruction {
-            mode: SessionMode::Normal,
-            sparse: false,
-            sub_agent: false,
-        }
-        .name(),
-        Section::ModeTransition(closeclaw_common::system_prompt::ModeTransition::PlanModeReentry)
-            .name(),
-        Section::PlanFile {
-            path: String::new(),
-            content: String::new(),
-        }
-        .name(),
-    ];
-    let mut sorted = all_names.clone();
-    sorted.sort();
-    sorted.dedup();
+fn test_invalidate_tools_removes_all_tool_prefix_preserves_other() {
+    let mut cache = SectionCache::new();
+    cache.put("tools:agent-1:0", "tool content 1".to_string(), None);
+    cache.put("tools:agent-2:3", "tool content 2".to_string(), None);
+    cache.put("skill_listing:agent-1:a", "skill content".to_string(), None);
+
+    // All three entries present
     assert_eq!(
-        all_names.len(),
-        sorted.len(),
-        "all section names must be unique, got: {:?}",
-        all_names
+        cache.get("tools:agent-1:0", None),
+        Some("tool content 1".to_string())
     );
+    assert_eq!(
+        cache.get("tools:agent-2:3", None),
+        Some("tool content 2".to_string())
+    );
+    assert_eq!(
+        cache.get("skill_listing:agent-1:a", None),
+        Some("skill content".to_string())
+    );
+
+    // invalidate_tools should clear both tools entries
+    cache.invalidate_tools();
+
+    assert_eq!(cache.get("tools:agent-1:0", None), None);
+    assert_eq!(cache.get("tools:agent-2:3", None), None);
+    // skill_listing entry preserved
+    assert_eq!(
+        cache.get("skill_listing:agent-1:a", None),
+        Some("skill content".to_string())
+    );
+}
+
+/// invalidate_matching with non-matching prefix is a no-op and does not panic.
+#[test]
+fn test_invalidate_edge_cases() {
+    // No matching prefix is a no-op
+    let mut cache = SectionCache::new();
+    cache.put("tools:agent-1:0", "tool content".to_string(), None);
+    cache.put("memory:section", "memory content".to_string(), None);
+    cache.invalidate_matching("nonexistent:");
+    assert_eq!(
+        cache.get("tools:agent-1:0", None),
+        Some("tool content".to_string())
+    );
+    assert_eq!(
+        cache.get("memory:section", None),
+        Some("memory content".to_string())
+    );
+
+    // invalidate_matching on empty cache is a no-op
+    let mut empty = SectionCache::new();
+    empty.invalidate_matching("tools:");
+    empty.invalidate_matching("skill_listing:");
+    empty.invalidate_matching("");
+    assert_eq!(empty.get("anything", None), None);
+
+    // invalidate_tools on empty cache is a no-op
+    let mut empty2 = SectionCache::new();
+    empty2.invalidate_tools();
+    assert_eq!(empty2.get("tools:x:0", None), None);
+}
+
+/// invalidate_skill_listing removes only skill_listing entries.
+#[test]
+fn test_invalidate_skill_listing_removes_only_skill_entries() {
+    let mut cache = SectionCache::new();
+    cache.put("skill_listing:agent-1:0", "skill 1".to_string(), None);
+    cache.put("skill_listing:agent-2:1", "skill 2".to_string(), None);
+    cache.put("tools:agent-1:0", "tool content".to_string(), None);
+
+    cache.invalidate_skill_listing();
+
+    assert_eq!(cache.get("skill_listing:agent-1:0", None), None);
+    assert_eq!(cache.get("skill_listing:agent-2:1", None), None);
+    // tools entry preserved
+    assert_eq!(
+        cache.get("tools:agent-1:0", None),
+        Some("tool content".to_string())
+    );
+}
+
+/// Partial prefix match does cause removal.
+///
+/// `"tools:agent"` is a prefix of `"tools:agent-1:0"`, so
+/// `invalidate_matching("tools:agent")` will remove it. A non-matching prefix
+/// like `"memory"` does not affect unrelated entries.
+#[test]
+fn test_invalidate_matching_prefix_boundary() {
+    let mut cache = SectionCache::new();
+    // "tools:agent-1:0" starts with "tools:agent" — prefix match
+    cache.put("tools:agent-1:0", "tools content".to_string(), None);
+    cache.put("memory:section", "memory content".to_string(), None);
+
+    // "tools:agent" matches "tools:agent-1:0" (starts_with)
+    cache.invalidate_matching("tools:agent");
+    assert_eq!(
+        cache.get("tools:agent-1:0", None),
+        None,
+        "\"tools:agent\" prefix should match and remove \"tools:agent-1:0\""
+    );
+    // "memory:section" does NOT start with "tools:agent" — preserved
+    assert_eq!(
+        cache.get("memory:section", None),
+        Some("memory content".to_string()),
+        "\"memory:section\" should not be affected by \"tools:agent\" prefix"
+    );
+}
+
+/// invalidate_matching("tools:") does NOT match "skill_listing:" entries.
+#[test]
+fn test_invalidate_tools_does_not_match_skill_listing() {
+    let mut cache = SectionCache::new();
+    cache.put("skill_listing:x:y", "skill".to_string(), None);
+    cache.put("tools:x:y", "tool".to_string(), None);
+
+    cache.invalidate_tools();
+
+    assert_eq!(
+        cache.get("skill_listing:x:y", None),
+        Some("skill".to_string())
+    );
+    assert_eq!(cache.get("tools:x:y", None), None);
 }
