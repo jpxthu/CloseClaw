@@ -137,6 +137,7 @@ pub(crate) async fn gw_system_append(
             SystemAppendAction::Clear => {
                 let n = cs.clear_system_appends();
                 sm.invalidate_static_cache().await;
+                sm.rebuild_system_prompt_for_session(session_id).await;
                 n
             }
         };
@@ -145,6 +146,13 @@ pub(crate) async fn gw_system_append(
         }
         n
     };
+    if let Err(e) = sm.persist_checkpoint(session_id).await {
+        tracing::warn!(
+            session_id,
+            error = ?e,
+            "failed to persist checkpoint after system append"
+        );
+    }
     count
 }
 

@@ -82,6 +82,17 @@ impl SessionManager {
 // ── checkpoint persistence ─────────────────────────────────────────────
 
 impl SessionManager {
+    /// Persist a session checkpoint for runtime paths (e.g. slash commands)
+    /// that need immediate durability without pending operations.
+    ///
+    /// Delegates to [`persist_checkpoint_with_pending`] with an empty operation
+    /// list.  Use this after add/clear mutations so the checkpoint on disk
+    /// always reflects the latest in-memory state.
+    pub async fn persist_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
+        self.persist_checkpoint_with_pending(session_id, Vec::new())
+            .await
+    }
+
     /// Persist a session checkpoint with optional pending operations.
     /// Non-empty `pending_ops` (forceful shutdown) are recorded for recovery.
     pub(super) async fn persist_checkpoint_with_pending(

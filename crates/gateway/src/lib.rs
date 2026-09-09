@@ -73,6 +73,8 @@ mod shutdown_card;
 pub mod shutdown_handle;
 pub mod slash_executor_helpers;
 #[cfg(test)]
+mod slash_executor_system_append_behavior_tests;
+#[cfg(test)]
 mod slash_executor_system_append_tests;
 #[cfg(test)]
 mod slash_executor_test_utils;
