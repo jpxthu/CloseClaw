@@ -1,6 +1,6 @@
 //! Skill handler functions for CLI admin.
 
-use super::common::{config_dir, json_error, json_output, SkillInstallOutput};
+use super::common::{config_dir, json_error, json_output, SkillRescanOutput};
 use crate::admin::{admin_socket_path, AdminClient, AdminRequest, AdminResponse};
 use crate::args::SkillAction;
 use anyhow::Result;
@@ -14,7 +14,7 @@ pub async fn handle_skill_with(action: SkillAction, cfg_dir: PathBuf, json: bool
     let client = AdminClient::new(admin_socket_path(&cfg_dir).to_string_lossy().into_owned());
     match action {
         SkillAction::List => handle_skill_list_rpc(&client, json).await,
-        SkillAction::Install { name } => handle_skill_install_rpc(&client, &name, json).await,
+        SkillAction::Rescan => handle_skill_rescan_rpc(&client, json).await,
     }
 }
 
@@ -47,23 +47,21 @@ async fn handle_skill_list_rpc(client: &AdminClient, json: bool) -> Result<()> {
     Ok(())
 }
 
-async fn handle_skill_install_rpc(client: &AdminClient, name: &str, json: bool) -> Result<()> {
+async fn handle_skill_rescan_rpc(client: &AdminClient, json: bool) -> Result<()> {
     let resp = client
-        .call(&AdminRequest::SkillInstall {
-            name: name.to_string(),
-        })
+        .call(&AdminRequest::SkillRescan)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to daemon: {}", e))?;
     match resp {
-        AdminResponse::Ok => {
+        AdminResponse::SkillRescanResult { count } => {
             if json {
-                json_output(&SkillInstallOutput {
-                    status: "installed",
-                    name: name.to_string(),
+                json_output(&SkillRescanOutput {
+                    status: "rescanned",
+                    count,
                 });
                 return Ok(());
             }
-            println!("Skill '{}' installed.", name);
+            println!("Rescanned skills: {} loaded.", count);
         }
         AdminResponse::Error { message } => {
             if json {
