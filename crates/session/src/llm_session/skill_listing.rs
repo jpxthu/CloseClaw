@@ -7,7 +7,7 @@
 //! Implements the "增量更新" (incremental update) section of the
 //! design doc (`docs/design/skills/skill-listing-injection.md`).
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use super::ConversationSession;
 use closeclaw_common::SkillListingProvider;
@@ -70,14 +70,20 @@ impl ConversationSession {
                     // for newly activated skills (per design doc: "以
                     // 系统消息形式注入该 skill 的清单条目（含 ⚡ 标记，
                     // 不含正文）").
-                    let new_lines: HashSet<&str> =
+                    // Use BTreeSet for deterministic iteration order
+                    // across turns and platforms.
+                    let new_lines: BTreeSet<&str> =
                         current_listing.lines().filter(|l| !l.is_empty()).collect();
                     let entries: Vec<String> = new_lines
                         .iter()
                         .filter(|line| {
-                            newly_activated
-                                .iter()
-                                .any(|name| line.contains(&format!("**{}**", name)))
+                            // Match complete entry lines (e.g.
+                            // `- **name**: ...`) to avoid substring
+                            // false matches on partial skill names.
+                            line.starts_with("- **")
+                                && newly_activated
+                                    .iter()
+                                    .any(|name| line.contains(&format!("**{}**:", name)))
                         })
                         .map(|l| l.to_string())
                         .collect();

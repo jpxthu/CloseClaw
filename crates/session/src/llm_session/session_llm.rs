@@ -346,6 +346,11 @@ impl ConversationSession {
                     // Insert before the last user message (the new message
                     // for this turn), matching the design doc:
                     // [history..., tool: memory摘要, 用户: new_message]
+                    //
+                    // `messages.len() - 1` always points to the last
+                    // element, which is the user message we just pushed
+                    // above (nothing else modifies `messages` between
+                    // the push and this insert).
                     let insert_pos = messages.len() - 1;
                     messages.insert(insert_pos, tool_msg);
                 }
