@@ -801,10 +801,13 @@ impl ConversationSession {
         self.system_injection_appends.clear();
         n
     }
-
     /// Restore user-managed items (checkpoint restore path).
     pub fn restore_system_appends(&mut self, items: Vec<String>) {
         self.user_appends = items;
+    }
+    /// Restore system-injected items (checkpoint transient field).
+    pub fn restore_system_injection_appends(&mut self, items: Vec<String>) {
+        self.system_injection_appends = items;
     }
 
     /// Merged list: user_appends followed by system_injection_appends.

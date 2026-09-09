@@ -254,7 +254,7 @@ async fn test_archived_restore_system_appends_stacked_on_rebuilt_prompt() {
         .with_peer_id("agent-b".to_string())
         .with_agent_id("agent-b".to_string());
     cp.platform = Some("feishu".to_string());
-    cp.system_appends = vec!["custom-append-1".to_string(), "custom-append-2".to_string()];
+    cp.user_appends = vec!["custom-append-1".to_string(), "custom-append-2".to_string()];
 
     let mock = Arc::new(RebuildMockPersist::new(cp));
     let mgr = SessionManager::new(
@@ -432,7 +432,7 @@ async fn test_archived_restore_path3_needs_conv_false() {
         .with_peer_id("agent-b".to_string())
         .with_agent_id("agent-b".to_string());
     cp.platform = Some("feishu".to_string());
-    cp.system_appends = vec!["path3-append".to_string()];
+    cp.user_appends = vec!["path3-append".to_string()];
     cp.sender_id = Some("user-a".to_string());
     cp.account_id = None;
 
