@@ -12,7 +12,7 @@ Admin 命令通过 `closeclaw <command> [args]` 调用，由 handler 函数执�
 2. 参数解析（clap）
 3. handler 函数按命令类型分派：
    - 本地操作（不需要 daemon 运行）：run — 启动 daemon 进程；stop — 终止 daemon 进程；config — 读/写配置文件；rule — 校验/列出权限规则（只读）
-   - daemon RPC（需要 daemon 已运行）：agent — 查询 agent；skill — 查询 skill 列表 / 触发重扫
+   - daemon RPC（需要 daemon 已运行）：agent — 查询 agent；skill — 查询 skill 列表
 
 ### 与斜杠指令的关系
 
@@ -27,13 +27,13 @@ Admin 命令通过 `closeclaw <command> [args]` 调用，由 handler 函数执�
 
 run 命令启动 daemon 进程：启动前检测 PID 文件——存在且对应进程存活则拒绝启动并提示已有实例；存在但进程已不存在（异常残留）则清理后正常启动。启动流程为读取配置目录、初始化所有组件后进入消息循环。stop 命令读取 PID 文件，向 daemon 进程发送终止信号，等待退出后清理 PID 文件；PID 文件不存在（daemon 未运行）时正常退出，不报错。
 
-config 命令管理配置文件。setup 子命令启动交互式配置向导（详见 [LLM Provider 配置向导](../llm/provider-config-wizard.md)），引导用户选择 Provider、输入凭据、发现模型并写入配置，首次配置时引导创建初始 Agent（创建规则见 [agent §F5](../../requirements/agent.md)）。validate 子命令校验配置文件格式。
+config 命令管理配置文件。setup 子命令启动交互式配置向导（详见 [LLM Provider 配置向导](../llm/provider-config-wizard.md)），引导用户选择 Provider、输入凭据、发现模型并写入配置，首次配置时引导创建初始 Agent（创建规则见 [agent §F5](../../requirements/agent.md)）。validate 子命令校验配置文件：逐个子配置做 schema 级校验（字段/类型/必填），校验规则复用 [config 模块「校验规则」](../config/README.md)，不另建 schema。
 
-rule 命令查看权限规则（只读——权限规则的修改通过斜杠指令完成，对应需求 [cli §F7](../../requirements/cli.md)）：check 子命令校验单条规则语法，list 子命令列出已有规则。
+rule 命令查看权限规则（只读——权限规则的修改通过斜杠指令完成，对应需求 [cli §F7](../../requirements/cli.md)）：check 子命令校验单条规则语法，接受内联 JSON 字符串或文件路径（自动探测：以 `/`、`./`、`../` 开头或以 `.json` 结尾视为文件路径，否则视为内联 JSON），规则语法见 [权限模块](../permission/README.md)；list 子命令列出已有规则。
 
-**daemon RPC**：依赖 daemon 已运行，通过管理协议查询或操作 daemon 状态。
+**daemon RPC**：依赖 daemon 已运行，通过管理协议查询 daemon 状态。
 
-agent 命令查询 agent 实例（列表、详情）。skill 命令管理技能加载：skill list 查询已加载的 skill 列表，skill rescan 触发 daemon 重新扫描技能目录——即插即用机制下技能文件放入目录即生效，rescan 用于跳过变更检测等待立即加载。
+agent 命令查询 agent 实例（列表、详情）。skill 命令查询已加载的 skill 列表（只读）：skill list 查询已加载的 skill 列表。技能即插即用与变更生效边界见 [skills 模块](../skills/README.md)——技能文件放入目录后自下次 System Prompt 组装时生效，无运行时热加载路径。
 
 agent 查询的返回内容按命令区分粒度：
 
@@ -48,17 +48,17 @@ agent 查询的返回内容按命令区分粒度：
      1. run：检测 PID 文件（存活实例 → 拒绝启动；异常残留 → 清理）→ 启动 daemon 子进程 → 等待运行中
      2. stop：读 PID 文件 → 终止进程 → 清理 PID 文件；PID 文件不存在 → 正常退出
      3. config setup：交互式向导（选 Provider、输入凭据）→ 拉取模型列表 → 用户选择 → 写入配置 → 首次配置时创建初始 Agent
-     4. config validate：读文件 → 校验格式 → 输出结果
-     5. rule check/list：读规则文件 → 校验/列表 → 输出结果
+     4. config validate：读文件 → 语法解析（解析失败即报错）→ 按 [config 模块校验规则](../config/README.md) 逐子配置校验 → 汇总输出所有问题
+     5. rule check：解析输入（内联 JSON 或文件路径）→ 校验单条规则语法 → 输出结果；rule list：读规则文件 → 列出已有规则 → 输出结果
    - **daemon RPC**（发送 RPC → daemon 执行 → 返回结果）：
      1. agent list：daemon 遍历 AgentRegistry → 返回摘要列表
      2. agent info：daemon 按 ID 查询 AgentRegistry → 返回完整配置档案，未命中返回错误
-     3. skill list：daemon 查询 Skills Registry → 返回已加载技能列表；skill rescan：daemon 重新扫描技能目录 → 更新 Skills Registry → 返回加载结果
+     3. skill list：daemon 查询 Skills Registry → 返回已加载技能列表
 3. 结果输出到 stdout（格式化文本 / 表格 / JSON）；run/stop 以状态提示与退出码反馈结果，不产出数据型输出
 
 ## 模块关系
 
 - **上游**：操作系统命令行参数
-- **下游**：Daemon（run 创建 daemon 实例，stop 终止 daemon 进程，agent/skill RPC 查询与操作 daemon 状态）、Config 模块（config setup 写 models.json 和凭据文件；config validate 校验配置格式）、Agent 模块（config setup 首次配置时创建初始 Agent）、Permission 模块（rule 命令只读查看权限规则）、LLM 模块（config setup 向导中调用模型发现能力）
+- **下游**：Daemon（run 创建 daemon 实例，stop 终止 daemon 进程，agent/skill RPC 查询 daemon 状态）、Config 模块（config setup 写 models.json 和凭据文件；config validate 按 schema 级校验配置）、Agent 模块（config setup 首次配置时创建初始 Agent）、Permission 模块（rule 命令只读查看权限规则）、LLM 模块（config setup 向导中调用模型发现能力）
 - **与模块内其他子功能**：与 CLI Chat 共享 platform 层（PID 文件、配置目录、进程信号），但不共享消息链路
 - **无关**：Gateway（Admin 命令不经 Gateway 路由）、Processor Chain（Admin 命令不经消息处理链）、Session（Admin 命令无 session 上下文）
