@@ -131,7 +131,7 @@ pub(crate) async fn dispatch(request: AdminRequest, context: &AdminContext) -> A
             dispatch_agent_create(&name, model, context).await
         }
         AdminRequest::SkillList => dispatch_skill_list(context).await,
-        AdminRequest::SkillInstall { name } => dispatch_skill_install(&name, context).await,
+        AdminRequest::SkillRescan => dispatch_skill_rescan(context).await,
 
         AdminRequest::Ping => AdminResponse::Pong,
         AdminRequest::ForceRestart => dispatch_force_restart(context).await,
@@ -327,85 +327,58 @@ pub(crate) async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse
     }
 }
 
-/// Validate that the source skill exists and destination is not already
-/// installed. Returns `(source, dest)` paths on success.
-async fn validate_skill_install_paths(
-    name: &str,
-    context: &AdminContext,
-) -> Result<(std::path::PathBuf, std::path::PathBuf), AdminResponse> {
-    let global_dir = context.config_dir.parent().map(|p| p.join("skills"));
-    let bundled_dir = context.config_dir.join("skills");
-
-    let global_dir = match global_dir {
-        Some(d) => d,
-        None => {
-            return Err(AdminResponse::Error {
-                message: "cannot determine global skills directory".to_string(),
-            })
+/// Rescan skill directories and update the registry.
+///
+/// Mirrors the rescan pattern from `bridge.rs`: short read lock to grab
+/// config → `spawn_blocking` disk scan outside any lock → short write
+/// lock to replace skills.
+pub(crate) async fn dispatch_skill_rescan(context: &AdminContext) -> AdminResponse {
+    // Step 1: Short read lock to get scan_config.
+    let scan_config = {
+        let guard = context
+            .skill_registry
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        match guard.as_ref() {
+            Some(registry) => registry.scan_config(),
+            None => {
+                return AdminResponse::Error {
+                    message: "skill registry not initialized".to_string(),
+                }
+            }
         }
     };
 
-    let source_skill_dir = global_dir.join(name);
-    if tokio::fs::metadata(&source_skill_dir).await.is_err() {
-        return Err(AdminResponse::Error {
-            message: format!(
-                "skill '{}' not found in global directory {}",
-                name,
-                global_dir.display()
-            ),
-        });
-    }
-
-    let source_skill_md = source_skill_dir.join("SKILL.md");
-    if tokio::fs::metadata(&source_skill_md).await.is_err() {
-        return Err(AdminResponse::Error {
-            message: format!("skill '{}' does not contain SKILL.md", name),
-        });
-    }
-
-    let dest_skill_dir = bundled_dir.join(name);
-    if tokio::fs::metadata(&dest_skill_dir).await.is_ok() {
-        return Err(AdminResponse::Error {
-            message: format!("skill '{}' is already installed", name),
-        });
-    }
-
-    Ok((source_skill_dir, dest_skill_dir))
-}
-
-/// Install a skill from the global skills directory to the bundled directory.
-pub(crate) async fn dispatch_skill_install(name: &str, context: &AdminContext) -> AdminResponse {
-    let (source_skill_dir, dest_skill_dir) = match validate_skill_install_paths(name, context).await
-    {
-        Ok(paths) => paths,
-        Err(resp) => return resp,
-    };
-
-    if let Err(e) = copy_skill_dir(&source_skill_dir, &dest_skill_dir).await {
+    let Some(config) = scan_config else {
         return AdminResponse::Error {
-            message: format!("failed to copy skill: {}", e),
+            message: "skill registry has no scan configuration".to_string(),
         };
-    }
+    };
 
-    tracing::info!(name = name, "skill installed successfully");
-    AdminResponse::Ok
-}
+    // Step 2: Spawn blocking disk scan outside any lock.
+    let new_skills =
+        match tokio::task::spawn_blocking(move || closeclaw_skills::disk::scan_all_skills(&config))
+            .await
+        {
+            Ok(skills) => skills,
+            Err(e) => {
+                return AdminResponse::Error {
+                    message: format!("skill rescan task failed: {}", e),
+                }
+            }
+        };
 
-/// Recursively copy a skill directory using async I/O.
-async fn copy_skill_dir(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    tokio::fs::create_dir_all(dst).await?;
-    let mut entries = tokio::fs::read_dir(src).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let file_type = entry.file_type().await?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if file_type.is_dir() {
-            Box::pin(copy_skill_dir(&src_path, &dst_path)).await?;
-        } else {
-            tokio::fs::copy(&src_path, &dst_path).await?;
+    let count = new_skills.len();
+
+    // Step 3: Brief write lock to replace skills.
+    if let Ok(mut guard) = context.skill_registry.write() {
+        if let Some(ref mut registry) = *guard {
+            registry.replace_skills(new_skills);
         }
     }
-    Ok(())
+
+    tracing::info!(count = count, "skill rescan completed");
+    AdminResponse::SkillRescanResult { count }
 }
 
 /// Send a force-restart signal to the daemon (true = force immediate).

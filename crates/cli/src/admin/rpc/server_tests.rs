@@ -6,9 +6,10 @@ use closeclaw_skills::DiskSkillRegistry;
 
 use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfoResult};
 use crate::admin::rpc::server::{
-    dispatch, dispatch_agent_create, dispatch_agent_info, dispatch_agent_list,
-    dispatch_skill_install, dispatch_skill_list, reload_registry, AdminContext,
+    dispatch, dispatch_agent_create, dispatch_agent_info, dispatch_agent_list, dispatch_skill_list,
+    dispatch_skill_rescan, reload_registry, AdminContext,
 };
+use closeclaw_skills::disk::types::ScanConfig;
 
 fn make_test_context() -> AdminContext {
     let config_dir = tempfile::tempdir().unwrap().keep();
@@ -56,18 +57,6 @@ async fn test_dispatch_skill_list_empty() {
     match resp {
         AdminResponse::SkillListResult { skills } => assert!(skills.is_empty()),
         _ => panic!("expected SkillListResult"),
-    }
-}
-
-#[tokio::test]
-async fn test_dispatch_skill_install_not_found() {
-    let ctx = make_test_context();
-    let resp = dispatch_skill_install("test-skill", &ctx).await;
-    match resp {
-        AdminResponse::Error { message } => {
-            assert!(message.contains("not found"));
-        }
-        _ => panic!("expected Error for missing skill"),
     }
 }
 
@@ -290,6 +279,239 @@ fn test_populate_then_reload_no_stale_data() {
         2,
         "registry should contain exactly 2 agents after reload"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 1.3 — skill rescan behavior dimension tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Helper: create a SKILL.md file in the given directory.
+fn create_skill_md(dir: &std::path::Path, name: &str, description: &str) {
+    let skill_dir = dir.join(name);
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        format!("---\ndescription: {}\n---\n# {}\n", description, name),
+    )
+    .unwrap();
+}
+
+/// Configuration for building an AdminContext with a specific skill_registry state.
+struct ContextBuilderConfig<'a> {
+    /// If Some(path), registry has a ScanConfig pointing at this directory.
+    /// If None, registry uses defaults (no scan_config).
+    scan_dir: Option<&'a std::path::Path>,
+    /// If true, skill_registry is None (uninitialized).
+    registry_none: bool,
+}
+
+/// Helper: build an AdminContext with configurable skill_registry state.
+///
+/// - `scan_dir = Some(path)` → registry with ScanConfig pointing at path
+/// - `scan_dir = None, registry_none = false` → registry with defaults (no scan_config)
+/// - `registry_none = true` → skill_registry = None
+fn build_context_with_registry(config: ContextBuilderConfig<'_>) -> AdminContext {
+    let config_dir = tempfile::tempdir().unwrap().keep();
+    let config_sub = config_dir.join("config");
+    std::fs::create_dir_all(&config_sub).unwrap();
+    std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
+    let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
+
+    let skill_registry = if config.registry_none {
+        Arc::new(std::sync::RwLock::new(None))
+    } else {
+        let mut registry = DiskSkillRegistry::default();
+        if let Some(dir) = config.scan_dir {
+            registry.set_scan_config(ScanConfig {
+                global_dir: Some(dir.to_path_buf()),
+                ..Default::default()
+            });
+        }
+        Arc::new(std::sync::RwLock::new(Some(registry)))
+    };
+
+    AdminContext {
+        agent_registry: Arc::new(AgentRegistry::new()),
+        skill_registry,
+        config_manager,
+        config_dir,
+        restart_tx: None,
+    }
+}
+
+/// Normal path: temp dir has skills → rescan returns count ≥ 1,
+/// registry reflects disk content.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_normal() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_skill_md(tmp.path(), "skill-alpha", "Alpha skill");
+    create_skill_md(tmp.path(), "skill-beta", "Beta skill");
+
+    let ctx = build_context_with_registry(ContextBuilderConfig {
+        scan_dir: Some(tmp.path()),
+        registry_none: false,
+    });
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::SkillRescanResult { count } => {
+            assert_eq!(count, 2, "should find 2 skills on disk");
+        }
+        other => panic!("expected SkillRescanResult, got {:?}", other),
+    }
+
+    // Verify registry content matches disk
+    let guard = ctx.skill_registry.read().unwrap();
+    let registry = guard.as_ref().unwrap();
+    assert!(registry.contains("skill-alpha"));
+    assert!(registry.contains("skill-beta"));
+    assert_eq!(registry.len(), 2);
+}
+
+/// Error path: skill_registry is None → Error with clear message.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_registry_none() {
+    let ctx = build_context_with_registry(ContextBuilderConfig {
+        scan_dir: None,
+        registry_none: true,
+    });
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::Error { message } => {
+            assert!(
+                message.contains("not initialized"),
+                "error should mention registry not initialized: {}",
+                message
+            );
+        }
+        other => panic!("expected Error, got {:?}", other),
+    }
+}
+
+/// Error path: registry exists but scan_config is None → Error.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_no_scan_config() {
+    let ctx = build_context_with_registry(ContextBuilderConfig {
+        scan_dir: None,
+        registry_none: false,
+    });
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::Error { message } => {
+            assert!(
+                message.contains("no scan configuration"),
+                "error should mention missing scan config: {}",
+                message
+            );
+        }
+        other => panic!("expected Error, got {:?}", other),
+    }
+}
+
+/// Boundary: empty skill directory → rescan succeeds with count=0.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_empty_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    // No skills in tmp.path()
+    let ctx = build_context_with_registry(ContextBuilderConfig {
+        scan_dir: Some(tmp.path()),
+        registry_none: false,
+    });
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::SkillRescanResult { count } => {
+            assert_eq!(count, 0, "empty directory should yield count=0");
+        }
+        other => panic!("expected SkillRescanResult, got {:?}", other),
+    }
+}
+
+/// Boundary: directory changes between two rescans → second rescan
+/// reflects the updated state (skills added, then removed).
+#[tokio::test]
+async fn test_dispatch_skill_rescan_incremental() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ctx = build_context_with_registry(ContextBuilderConfig {
+        scan_dir: Some(tmp.path()),
+        registry_none: false,
+    });
+
+    // First rescan: one skill
+    create_skill_md(tmp.path(), "only-skill", "The only skill");
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::SkillRescanResult { count } => assert_eq!(count, 1),
+        other => panic!("expected SkillRescanResult, got {:?}", other),
+    }
+
+    // Add a second skill on disk
+    create_skill_md(tmp.path(), "second-skill", "Second skill");
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::SkillRescanResult { count } => assert_eq!(count, 2),
+        other => panic!("expected SkillRescanResult, got {:?}", other),
+    }
+
+    // Remove the first skill from disk
+    std::fs::remove_dir_all(tmp.path().join("only-skill")).unwrap();
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::SkillRescanResult { count } => assert_eq!(count, 1),
+        other => panic!("expected SkillRescanResult, got {:?}", other),
+    }
+
+    // Verify only second-skill remains
+    let guard = ctx.skill_registry.read().unwrap();
+    let registry = guard.as_ref().unwrap();
+    assert!(!registry.contains("only-skill"));
+    assert!(registry.contains("second-skill"));
+}
+
+/// Consistency: rescan then list → list output matches disk skills.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_then_list_consistency() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_skill_md(tmp.path(), "gamma", "Gamma skill");
+    create_skill_md(tmp.path(), "delta", "Delta skill");
+
+    let ctx = build_context_with_registry(ContextBuilderConfig {
+        scan_dir: Some(tmp.path()),
+        registry_none: false,
+    });
+
+    // Rescan to populate registry
+    let resp = dispatch_skill_rescan(&ctx).await;
+    match resp {
+        AdminResponse::SkillRescanResult { count } => assert_eq!(count, 2),
+        other => panic!("expected SkillRescanResult, got {:?}", other),
+    }
+
+    // List should reflect the same skills
+    let resp = dispatch_skill_list(&ctx).await;
+    match resp {
+        AdminResponse::SkillListResult { skills } => {
+            let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+            assert!(names.contains(&"gamma"), "list should contain gamma");
+            assert!(names.contains(&"delta"), "list should contain delta");
+            assert_eq!(skills.len(), 2);
+        }
+        other => panic!("expected SkillListResult, got {:?}", other),
+    }
+}
+
+/// Dispatch path: AdminRequest::SkillRescan reaches dispatch_skill_rescan.
+#[tokio::test]
+async fn test_dispatch_skill_rescan_via_dispatch() {
+    let tmp = tempfile::tempdir().unwrap();
+    create_skill_md(tmp.path(), "dispatch-skill", "Dispatch test");
+    let ctx = build_context_with_registry(ContextBuilderConfig {
+        scan_dir: Some(tmp.path()),
+        registry_none: false,
+    });
+    let resp = dispatch(AdminRequest::SkillRescan, &ctx).await;
+    match resp {
+        AdminResponse::SkillRescanResult { count } => assert_eq!(count, 1),
+        other => panic!("expected SkillRescanResult, got {:?}", other),
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

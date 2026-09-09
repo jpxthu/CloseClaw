@@ -101,9 +101,9 @@ pub struct AgentCreateOutput {
 }
 
 #[derive(Serialize)]
-pub struct SkillInstallOutput {
+pub struct SkillRescanOutput {
     pub status: &'static str,
-    pub name: String,
+    pub count: usize,
 }
 
 // ---------------------------------------------------------------------------

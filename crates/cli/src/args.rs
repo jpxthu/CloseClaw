@@ -53,11 +53,8 @@ pub enum RuleAction {
 pub enum SkillAction {
     /// List installed skills
     List,
-    /// Install a skill
-    Install {
-        /// Skill name
-        name: String,
-    },
+    /// Rescan skill directories
+    Rescan,
 }
 
 /// Interactive chat with an agent via the terminal.
@@ -87,14 +84,11 @@ mod tests {
         assert!(matches!(cli.action, SkillAction::List));
     }
 
-    /// Normal path: `skill install my-skill` parses with name.
+    /// Normal path: `skill rescan` parses to SkillAction::Rescan.
     #[test]
-    fn test_skill_install_arg_parsing() {
-        let cli = TestCli::try_parse_from(["test", "install", "my-skill"]).unwrap();
-        match cli.action {
-            SkillAction::Install { name } => assert_eq!(name, "my-skill"),
-            _ => panic!("expected SkillAction::Install"),
-        }
+    fn test_skill_rescan_arg_parsing() {
+        let cli = TestCli::try_parse_from(["test", "rescan"]).unwrap();
+        assert!(matches!(cli.action, SkillAction::Rescan));
     }
 
     /// Error path: unknown subcommand is rejected.
