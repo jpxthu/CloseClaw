@@ -11,6 +11,14 @@ use closeclaw_common::fragment::{
 };
 use closeclaw_common::skill_listing_provider::SkillListingProvider;
 
+/// Maximum length of the skills section (in characters).
+///
+/// Skills are truncated atomically at entry boundaries when the listing
+/// exceeds this limit, mirroring `TOOLS_SECTION_MAX_LEN` for tools.
+/// Value is intentionally lower than the tools limit to respect the
+/// compression priority: tools first, then skills.
+pub(crate) const SKILLS_SECTION_MAX_LEN: usize = 4000;
+
 /// Provider that contributes the skill listing to the system prompt.
 ///
 /// Holds an [`Arc<dyn SkillListingProvider>`] and delegates to
@@ -58,6 +66,8 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
             return None;
         }
 
+        let content = truncate_listing(&content, SKILLS_SECTION_MAX_LEN);
+
         Some(PromptFragment {
             section_title: "## Skills".to_string(),
             section_type: SectionType::Skills,
@@ -78,6 +88,50 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
             fingerprint
         ))
     }
+}
+
+/// Truncate a skill listing to fit within `max_len` characters,
+/// preserving whole skill entries (one entry per line).
+///
+/// At least one entry is always kept, even if it exceeds the limit.
+/// No truncation hint text is appended (matches ToolsSection behavior).
+pub(crate) fn truncate_listing(listing: &str, max_len: usize) -> String {
+    let total_chars = listing.chars().count();
+    if total_chars <= max_len {
+        return listing.to_string();
+    }
+
+    let lines: Vec<&str> = listing.lines().collect();
+    if lines.is_empty() {
+        return listing.to_string();
+    }
+
+    let mut kept: Vec<&str> = Vec::new();
+    let mut total_len: usize = 0;
+
+    for line in lines.iter() {
+        let line_chars = line.chars().count();
+        let new_len = if kept.is_empty() {
+            line_chars
+        } else {
+            total_len + 1 + line_chars // +1 for the \n separator
+        };
+
+        if new_len > max_len && !kept.is_empty() {
+            break;
+        }
+
+        // Always keep at least 1 entry, even if it exceeds the limit.
+        if new_len > max_len && kept.is_empty() {
+            kept.push(line);
+            break;
+        }
+
+        kept.push(line);
+        total_len = new_len;
+    }
+
+    kept.join("\n")
 }
 
 #[cfg(test)]
@@ -584,5 +638,122 @@ mod tests {
             provider_b.cache_key(&ctx),
             "same fingerprints must produce same cache keys"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — within limit preserves byte-identical output
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_within_limit_unchanged() {
+        let listing = "- **alpha**: desc alpha\n- **beta**: desc beta";
+        let result = truncate_listing(listing, 4000);
+        assert_eq!(result, listing);
+    }
+
+    #[test]
+    fn test_truncate_listing_exact_limit_unchanged() {
+        let listing = "- **alpha**: desc alpha";
+        assert_eq!(listing.chars().count(), 23);
+        let result = truncate_listing(listing, 23);
+        assert_eq!(result, listing);
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — drops whole entries, no half entries
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_drops_whole_entry() {
+        let listing =
+            "- **alpha**: short\n- **beta**: a much longer description that takes many characters";
+        let result = truncate_listing(listing, 50);
+        assert_eq!(result, "- **alpha**: short");
+    }
+
+    #[test]
+    fn test_truncate_listing_never_produces_half_entry() {
+        let listing = "- **a**: short\n- **b**: medium length\n- **c**: another entry";
+        let result = truncate_listing(listing, 30);
+        for line in result.lines() {
+            assert!(
+                line.starts_with("- **"),
+                "truncated entry must be whole: {line}"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — at least 1 entry preserved
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_at_least_one_entry() {
+        let long_entry = format!("- **mega**: {}", "x".repeat(500));
+        let result = truncate_listing(&long_entry, 100);
+        assert_eq!(
+            result, long_entry,
+            "must keep the single entry even if it exceeds the limit"
+        );
+    }
+
+    #[test]
+    fn test_truncate_listing_at_least_one_with_multiple_entries() {
+        let listing = "- **a**: very long description\n- **b**: second entry";
+        let result = truncate_listing(listing, 10);
+        assert_eq!(result.lines().count(), 1);
+        assert!(result.starts_with("- **a"));
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — exactly at limit boundary
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_boundary_exactly_fits_two() {
+        let listing = "- **a**: 1234\n- **b**: 5678";
+        let result = truncate_listing(listing, 27);
+        assert_eq!(result, listing);
+    }
+
+    #[test]
+    fn test_truncate_listing_boundary_one_over() {
+        let listing = "- **a**: 1234\n- **b**: 5678";
+        // Total = 27 chars. max_len = 26 forces truncation after first entry.
+        let result = truncate_listing(listing, 26);
+        assert_eq!(result, "- **a**: 1234");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — empty input
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_empty_string() {
+        assert_eq!(truncate_listing("", 4000), "");
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — constant value check
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_skills_section_max_len_value() {
+        assert_eq!(SKILLS_SECTION_MAX_LEN, 4000);
+    }
+
+    // ------------------------------------------------------------------
+    // Dimension: truncate_listing — multiple entries partial truncation
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_listing_multiple_entries_partial() {
+        // Each entry = 14 chars. 3 entries with separators = 14+1+14+1+14 = 44.
+        // max_len = 43: first 2 entries (29 chars) fit, adding 3rd (44) > 43, so 2 kept.
+        let listing = "- **a**: short\n- **b**: short\n- **c**: short\n- **d\": short";
+        let result = truncate_listing(listing, 43);
+        assert!(result.starts_with("- **a"));
+        assert!(result.contains("- **b"));
+        assert!(!result.contains("- **c"));
     }
 }
