@@ -24,7 +24,7 @@ use closeclaw_workflow::engine::WorkflowEngine;
 /// 2. Load workflow definition via three-level lookup
 /// 3. Initialize WorkflowRun via WorkflowEngine::start
 /// 4. Persist WorkflowRun to session checkpoint
-/// 5. Inject workflow context into system_appends
+/// 5. Inject workflow context into system_injection_appends
 /// 6. Push Step 0 goal message as pending
 /// 7. Return confirmation
 #[derive(Clone)]
@@ -48,7 +48,7 @@ impl WorkflowSlashHandler {
         }
     }
 
-    /// Build the workflow context string to inject into system_appends.
+    /// Build the workflow context string to inject into system_injection_appends.
     ///
     /// Delegates to [`closeclaw_workflow::context_append::build_workflow_context_append`].
     pub fn build_workflow_context_append(workflow: &Workflow) -> String {

@@ -194,7 +194,7 @@ impl SessionManager {
         }
     }
 
-    /// Restore pending messages, system_appends, verbosity, and
+    /// Restore pending messages, user_appends, verbosity, and
     /// transcript from checkpoint into the ConversationSession.
     async fn restore_checkpoint_state(&self, session_id: &str, cp: &SessionCheckpoint) {
         let cs = self.conversation_sessions.read().await;

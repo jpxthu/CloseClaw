@@ -52,8 +52,8 @@ impl SessionManager {
                 cp.pending_messages = cs.messages().to_vec();
             }
         }
-        // Sync system_appends from ConversationSession so checkpoint
-        // reflects any in-memory additions (e.g. workflow context injection)
+        // Sync user_appends from ConversationSession so checkpoint
+        // reflects any in-memory additions (e.g. /system add commands)
         // that happened since the last checkpoint save.
         {
             let conv_sessions = self.conversation_sessions.read().await;
@@ -167,9 +167,9 @@ impl SessionManager {
         cs.snapshot_count()
     }
 
-    /// Re-inject workflow context into system_appends after compaction.
+    /// Re-inject workflow context into system_injection_appends after compaction.
     ///
-    /// After compaction completes, system_appends may have been cleared.
+    /// After compaction completes, system_injection_appends may have been cleared.
     /// If an active workflow exists in the checkpoint (phase != Complete),
     /// reload the definition via three-level lookup and re-inject the
     /// workflow context so the agent maintains workflow awareness.

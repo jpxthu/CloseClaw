@@ -213,7 +213,7 @@ pub struct SessionCheckpoint {
     ///
     /// Stores approval calls (tool name, plan summary, request ID) so
     /// that when PlanState persistence and plan file disk are unavailable,
-    /// the recovery service can inject approval history into `user_appends`.
+    /// the recovery service can inject approval history into `system_injection_appends`.
     ///
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
     #[serde(default)]

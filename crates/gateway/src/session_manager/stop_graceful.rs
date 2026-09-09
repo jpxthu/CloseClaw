@@ -182,7 +182,7 @@ async fn load_or_create_checkpoint(
     }
 }
 
-/// Sync `system_appends` and `verbosity_level` from the conversation session.
+/// Sync `user_appends` and `verbosity_level` from the conversation session.
 async fn sync_conversation_metadata(
     conv: &tokio::sync::RwLock<
         std::collections::HashMap<

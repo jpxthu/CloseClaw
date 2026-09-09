@@ -492,7 +492,7 @@ impl SessionManager {
         let session_ids: Vec<String> = sessions.keys().cloned().collect();
         drop(sessions);
 
-        // Collect pending messages and system_appends using async RwLock read.
+        // Collect pending messages and user_appends using async RwLock read.
         let mut pending_map: HashMap<String, Vec<PendingMessage>> = HashMap::new();
         let mut appends_map: HashMap<String, Vec<String>> = HashMap::new();
         {
