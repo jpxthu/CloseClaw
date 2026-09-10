@@ -207,6 +207,8 @@ async fn test_handle_run_foreground_cleans_stale_pid() {
         mock.was_called(),
         "DaemonRunner should be called after stale PID is cleaned"
     );
+    // Clean up: handle_run_foreground rewrites the PID file on success.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 7: Foreground succeeds with no existing PID file ───────────────────
@@ -280,6 +282,8 @@ async fn test_handle_run_background_cleans_stale_pid() {
         !mock.was_called(),
         "DaemonRunner should not be called in background mode"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── ensure_no_running_daemon tests ──────────────────────────────────────
