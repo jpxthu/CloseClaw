@@ -44,7 +44,7 @@ pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
         closeclaw_platform::config::root_dir()?
     } else {
-        PathBuf::from(config_dir)
+        closeclaw_platform::fs::expand_path(&PathBuf::from(config_dir))
     };
 
     let pid_file = closeclaw_platform::process::pid_file_path(&config_dir);
