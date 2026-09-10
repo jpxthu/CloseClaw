@@ -13,7 +13,6 @@ closeclaw-debug-log = { path = "../debug_log" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-tools = { path = "../tools" }
-closeclaw-platform = { path = "../platform" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }
@@ -56,7 +55,9 @@ url = "2"
 # Plugin auto-discovery
 inventory = "0.3"
 
+# Home directory expansion
 
+dirs = "5"
 
 # HTTP server (for adapter tests)
 axum = "0.7"

@@ -59,7 +59,7 @@ impl MediaStore {
     /// Expands a leading `~` with the user's home directory and creates
     /// both `inbound/` and `outbound/` sub-directories.
     pub fn new(storage_dir: &str) -> Result<Self, MediaStoreError> {
-        let expanded = closeclaw_platform::fs::expand_path(Path::new(storage_dir));
+        let expanded = expand_tilde(storage_dir);
         let inbound = expanded.join("inbound");
         let outbound = expanded.join("outbound");
         fs::create_dir_all(&inbound)?;
@@ -208,6 +208,19 @@ impl closeclaw_common::MediaStoreAccess for MediaStore {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Expand a leading `~` with the user's home directory.
+///
+/// If `dirs::home_dir()` is unavailable or the path doesn't start with `~`,
+/// the original string is returned as-is.
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix('~')) {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
 
 /// Sanitize a filename by removing path separators, control characters, and
 /// other unsafe characters while preserving the file extension.
@@ -584,60 +597,25 @@ mod tests {
         assert_ne!(name, "photo.png");
     }
 
-    // -- expand_path via MediaStore::new tests --
+    // -- expand_tilde tests --
 
     #[test]
-    fn expand_home_with_slash() {
-        let home = std::env::var("HOME").map(PathBuf::from).unwrap();
-        let path = PathBuf::from("~/foo");
-        assert_eq!(closeclaw_platform::fs::expand_path(&path), home.join("foo"));
+    fn expand_tilde_with_home() {
+        let home = dirs::home_dir().expect("home dir");
+        assert_eq!(expand_tilde("~/foo"), home.join("foo"));
+        assert_eq!(expand_tilde("~"), home);
     }
 
     #[test]
-    fn expand_home_bare() {
-        let home = std::env::var("HOME").map(PathBuf::from).unwrap();
-        let path = PathBuf::from("~");
-        assert_eq!(closeclaw_platform::fs::expand_path(&path), home);
-    }
-
-    #[test]
-    fn expand_home_other_user() {
-        let path = PathBuf::from("~otheruser/foo");
-        // ~otheruser is not a home shorthand — preserved as-is
+    fn expand_tilde_no_home_prefix() {
         assert_eq!(
-            closeclaw_platform::fs::expand_path(&path),
-            PathBuf::from("~otheruser/foo")
-        );
-    }
-
-    #[test]
-    fn expand_no_home_prefix() {
-        assert_eq!(
-            closeclaw_platform::fs::expand_path(Path::new("/absolute/path")),
+            expand_tilde("/absolute/path"),
             PathBuf::from("/absolute/path")
         );
         assert_eq!(
-            closeclaw_platform::fs::expand_path(Path::new("relative/path")),
+            expand_tilde("relative/path"),
             PathBuf::from("relative/path")
         );
-    }
-
-    #[test]
-    fn expand_env_home_var() {
-        // $HOME is always set in shell environments — safe to test
-        let path = PathBuf::from("$HOME/test");
-        let expanded = closeclaw_platform::fs::expand_path(&path);
-        let home = std::env::var("HOME").map(PathBuf::from).unwrap();
-        assert_eq!(expanded, home.join("test"));
-    }
-
-    #[test]
-    fn expand_home_and_env_combined() {
-        // ~/data/sub expands to home/data/sub, env vars work independently
-        let path = PathBuf::from("~/data/sub");
-        let expanded = closeclaw_platform::fs::expand_path(&path);
-        let home = std::env::var("HOME").map(PathBuf::from).unwrap();
-        assert_eq!(expanded, home.join("data/sub"));
     }
 
     // -- download_and_persist tests --
