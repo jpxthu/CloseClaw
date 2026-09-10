@@ -108,6 +108,15 @@ pub struct AgentCreateOutput {
 // Path helpers
 // ---------------------------------------------------------------------------
 
+/// Return the CloseClaw root directory via the platform interface.
+///
+/// This is a thin wrapper around [`closeclaw_platform::config::root_dir`]
+/// that keeps the error type as [`anyhow::Result`] for ergonomic `?`
+/// propagation inside CLI admin handlers.
+pub(crate) fn config_root() -> anyhow::Result<PathBuf> {
+    closeclaw_platform::config::root_dir()
+}
+
 #[allow(dead_code)]
 pub fn mask_key(key: &str) -> String {
     if key.len() <= 8 {
@@ -115,13 +124,4 @@ pub fn mask_key(key: &str) -> String {
     } else {
         format!("{}....{}", &key[..4], &key[key.len() - 4..])
     }
-}
-
-pub fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME not set");
-    config_dir_for(home)
-}
-
-pub fn config_dir_for(home: impl AsRef<std::path::Path>) -> PathBuf {
-    PathBuf::from(home.as_ref()).join(".closeclaw")
 }
