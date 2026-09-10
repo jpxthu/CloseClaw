@@ -65,7 +65,8 @@ pub(crate) struct RegistryContext<'a> {
 ///    into SessionManager for session lifecycle operations.
 /// 3. `spawn_builtin_tools` registers all builtin tools (including
 ///    session tools via `SessionToolsRegistrar`) via the Registrar
-///    pattern and freezes the registry via `register_all`.
+///    pattern, registers system-level tools via `register_before_freeze`,
+///    and explicitly freezes the registry.
 ///
 /// Returns a [`ConfigWatcherHandle`] for config hot-reload.
 /// Propagates errors when hot-reload initialization fails.
