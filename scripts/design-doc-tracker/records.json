@@ -177,9 +177,9 @@
   },
   {
     "path": "docs/design/fake_llm/kv-cache-simulation.md",
-    "commit": "eea00ce7f27f2199ddefbf113b0ead811468a1cb",
-    "commit_time": "2026-08-21T15:18:19+08:00",
-    "confirmed_time": "2026-08-21T15:41:57.462039+08:00",
+    "commit": "8affa724e83dd9d13a464686aa388c324313b65b",
+    "commit_time": "2026-09-10T16:46:59+08:00",
+    "confirmed_time": "2026-09-10T16:58:33.332007+08:00",
     "comment": "",
     "blocked_reason": ""
   },
