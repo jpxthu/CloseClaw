@@ -515,6 +515,7 @@ impl ToolRegistryImpl {
 
         let mut lines: Vec<String> = Vec::new();
         let mut total_len = 0;
+        let mut groups_skipped = false;
 
         let mut sorted_groups: Vec<_> = groups_map.into_iter().collect();
         sorted_groups.sort_by_key(|(g, _)| g.clone());
@@ -523,12 +524,23 @@ impl ToolRegistryImpl {
             let (line, new_len) =
                 Self::format_group_line(&group_name, &tools, total_len, TOOLS_SECTION_MAX_LEN);
             if new_len == total_len {
+                groups_skipped = true;
                 continue;
             }
             total_len = new_len;
             lines.push(line);
             if total_len >= TOOLS_SECTION_MAX_LEN {
                 break;
+            }
+        }
+
+        if groups_skipped && total_len < TOOLS_SECTION_MAX_LEN {
+            let hint = concat!(
+                "\nSome tools were omitted due to length limits. ",
+                "Use ToolSearch to discover them by name or keyword.\n",
+            );
+            if total_len + hint.len() <= TOOLS_SECTION_MAX_LEN {
+                lines.push(hint.to_string());
             }
         }
 
