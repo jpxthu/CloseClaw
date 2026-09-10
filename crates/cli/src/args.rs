@@ -49,7 +49,7 @@ pub enum RuleAction {
     List,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum SkillAction {
     /// List installed skills
     List,
@@ -69,7 +69,7 @@ mod tests {
     use clap::Parser;
 
     /// Wrapper to test subcommand parsing in isolation.
-    #[derive(Parser)]
+    #[derive(Parser, Debug)]
     struct TestCli {
         #[command(subcommand)]
         action: SkillAction,
@@ -87,5 +87,24 @@ mod tests {
     fn test_skill_unknown_subcommand_rejected() {
         let result = TestCli::try_parse_from(["test", "unknown"]);
         assert!(result.is_err(), "unknown subcommand should fail parsing");
+    }
+
+    // ── Step 1.3 — skill rescan removal ──────────────────────────────────
+
+    /// skill rescan command must not exist: clap rejects the "rescan" variant
+    /// that was removed as part of the design doc alignment (no runtime hot-reload).
+    #[test]
+    fn test_skill_rescan_arg_parsing_fails() {
+        let result = TestCli::try_parse_from(["test", "rescan"]);
+        assert!(
+            result.is_err(),
+            "skill rescan should be rejected by clap (command removed)"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("rescan") || err_msg.contains("unexpected"),
+            "error should mention rescan or unexpected subcommand: {}",
+            err_msg
+        );
     }
 }

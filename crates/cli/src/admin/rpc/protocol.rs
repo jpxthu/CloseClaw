@@ -307,4 +307,18 @@ mod tests {
             serde_json::to_string(&deserialized).unwrap()
         );
     }
+
+    // ── Step 1.3 — skill rescan removal (protocol) ─────────────────────
+
+    /// AdminRequest::SkillRescan was removed as part of design doc alignment.
+    /// Verifying that the old wire format "skill_rescan" no longer deserializes.
+    #[test]
+    fn test_skill_rescan_request_deserialization_fails() {
+        let json = r#"{"type":"skill_rescan"}"#;
+        let result = serde_json::from_str::<AdminRequest>(json);
+        assert!(
+            result.is_err(),
+            "AdminRequest::SkillRescan should not deserialize (variant removed)"
+        );
+    }
 }
