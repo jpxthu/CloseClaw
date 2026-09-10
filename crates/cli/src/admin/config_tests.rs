@@ -257,6 +257,27 @@ async fn test_config_validate_unknown_file_invalid_json() {
     );
 }
 
+/// Unknown filename with valid JSON in JSON output mode → valid=true, notes present.
+#[tokio::test]
+async fn test_config_validate_unknown_file_json_output() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("mystery.json");
+    fs::write(&file, r#"{"key": "value"}"#).unwrap();
+
+    let result = handle_config(
+        ConfigAction::Validate {
+            file: file.to_str().unwrap().to_string(),
+        },
+        true,
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "unknown file JSON output should succeed: {:?}",
+        result
+    );
+}
+
 // ── Boundary: empty JSON object ────────────────────────────────────────────
 
 /// Empty JSON object `{}` on a valid section → validator should pass

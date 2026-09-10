@@ -49,6 +49,8 @@ pub struct ConfigValidateOutput {
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 #[derive(Serialize)]

@@ -51,6 +51,7 @@ fn handle_config_validate(file: &str, json: bool) -> Result<()> {
                     valid: false,
                     version: None,
                     issues: vec![msg],
+                    notes: vec![],
                 });
                 return Ok(());
             }
@@ -61,6 +62,7 @@ fn handle_config_validate(file: &str, json: bool) -> Result<()> {
     // Schema-level validation for known config sections
     let section = filename_to_section(&filename);
     let mut issues = Vec::new();
+    let mut notes = Vec::new();
     match section {
         Some(sec) => {
             let validator = for_section(sec);
@@ -69,8 +71,8 @@ fn handle_config_validate(file: &str, json: bool) -> Result<()> {
             }
         }
         None => {
-            // Unknown config file — syntax-only, prompt user
-            issues.push(format!(
+            // Unknown config file — syntax-only, informational note
+            notes.push(format!(
                 "unknown config file '{}'; no schema validation available",
                 filename
             ));
@@ -87,6 +89,7 @@ fn handle_config_validate(file: &str, json: bool) -> Result<()> {
             valid,
             version,
             issues,
+            notes,
         });
         return Ok(());
     }
@@ -96,10 +99,16 @@ fn handle_config_validate(file: &str, json: bool) -> Result<()> {
         if let Some(ver) = &version {
             println!("   version: {}", ver);
         }
+        for note in &notes {
+            println!("   ℹ️  {}", note);
+        }
     } else {
         println!("❌ {}: {} issue(s)", filename, issues.len());
         for issue in &issues {
             println!("   - {}", issue);
+        }
+        for note in &notes {
+            println!("   ℹ️  {}", note);
         }
         anyhow::bail!(
             "Validation failed for '{}' with {} issue(s)",
