@@ -47,6 +47,10 @@ pub struct ConfigValidateOutput {
     pub valid: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -98,12 +102,6 @@ pub struct RunOutput {
 pub struct AgentCreateOutput {
     pub status: &'static str,
     pub name: String,
-}
-
-#[derive(Serialize)]
-pub struct SkillRescanOutput {
-    pub status: &'static str,
-    pub count: usize,
 }
 
 // ---------------------------------------------------------------------------

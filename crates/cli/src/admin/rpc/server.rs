@@ -131,7 +131,6 @@ pub(crate) async fn dispatch(request: AdminRequest, context: &AdminContext) -> A
             dispatch_agent_create(&name, model, context).await
         }
         AdminRequest::SkillList => dispatch_skill_list(context).await,
-        AdminRequest::SkillRescan => dispatch_skill_rescan(context).await,
 
         AdminRequest::Ping => AdminResponse::Pong,
         AdminRequest::ForceRestart => dispatch_force_restart(context).await,
@@ -325,60 +324,6 @@ pub(crate) async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse
         }
         None => AdminResponse::SkillListResult { skills: vec![] },
     }
-}
-
-/// Rescan skill directories and update the registry.
-///
-/// Mirrors the rescan pattern from `bridge.rs`: short read lock to grab
-/// config → `spawn_blocking` disk scan outside any lock → short write
-/// lock to replace skills.
-pub(crate) async fn dispatch_skill_rescan(context: &AdminContext) -> AdminResponse {
-    // Step 1: Short read lock to get scan_config.
-    let scan_config = {
-        let guard = context
-            .skill_registry
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        match guard.as_ref() {
-            Some(registry) => registry.scan_config(),
-            None => {
-                return AdminResponse::Error {
-                    message: "skill registry not initialized".to_string(),
-                }
-            }
-        }
-    };
-
-    let Some(config) = scan_config else {
-        return AdminResponse::Error {
-            message: "skill registry has no scan configuration".to_string(),
-        };
-    };
-
-    // Step 2: Spawn blocking disk scan outside any lock.
-    let new_skills =
-        match tokio::task::spawn_blocking(move || closeclaw_skills::disk::scan_all_skills(&config))
-            .await
-        {
-            Ok(skills) => skills,
-            Err(e) => {
-                return AdminResponse::Error {
-                    message: format!("skill rescan task failed: {}", e),
-                }
-            }
-        };
-
-    let count = new_skills.len();
-
-    // Step 3: Brief write lock to replace skills.
-    if let Ok(mut guard) = context.skill_registry.write() {
-        if let Some(ref mut registry) = *guard {
-            registry.replace_skills(new_skills);
-        }
-    }
-
-    tracing::info!(count = count, "skill rescan completed");
-    AdminResponse::SkillRescanResult { count }
 }
 
 /// Send a force-restart signal to the daemon (true = force immediate).
