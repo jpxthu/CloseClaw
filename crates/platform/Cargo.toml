@@ -8,7 +8,9 @@ description = "OS abstraction layer for CloseClaw"
 
 [dependencies]
 anyhow = "1.0"
+dirs = "5"
 libc = "0.2"
+regex = "1"
 terminal_size = "0.4"
 tokio = { version = "=1.35.0", features = ["signal", "macros"] }
 tracing = "=0.1.43"

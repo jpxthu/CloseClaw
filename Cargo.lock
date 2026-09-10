@@ -926,7 +926,9 @@ name = "closeclaw-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "libc",
+ "regex",
  "tempfile",
  "terminal_size",
  "tokio",
