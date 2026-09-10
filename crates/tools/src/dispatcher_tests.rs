@@ -538,7 +538,16 @@ async fn test_build_pending_call_no_file_path() {
 // ToolRegistryExecutor tests
 // ---------------------------------------------------------------------------
 
-use closeclaw_common::tool_trait::ToolContext;
+use crate::permission_check::PermDeps;
+use closeclaw_common::tool_trait::{ToolCallError, ToolContext, ToolResult};
+use closeclaw_config::ConfigManager;
+use closeclaw_gateway::SessionManager;
+use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
+use closeclaw_permission::engine::engine_eval::PermissionEngine;
+use closeclaw_permission::engine::engine_types::{Action, Effect, Rule};
+use closeclaw_permission::rules::RuleSetBuilder;
+use closeclaw_permission::{Defaults, RuleSet};
+use tokio::sync::Mutex as TokioMutex;
 
 /// A simple tool that echoes its args back.
 struct EchoTool;
@@ -560,13 +569,8 @@ impl crate::Tool for EchoTool {
     fn input_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object", "properties": {"msg": {"type": "string"}}})
     }
-    async fn call(
-        &self,
-        args: Value,
-        _ctx: &ToolContext,
-    ) -> Result<closeclaw_common::tool_trait::ToolResult, closeclaw_common::tool_trait::ToolCallError>
-    {
-        Ok(closeclaw_common::tool_trait::ToolResult {
+    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Ok(ToolResult {
             data: args,
             new_messages: vec![],
             context_modifier: None,
@@ -691,13 +695,8 @@ impl crate::Tool for FailTool {
     fn input_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    async fn call(
-        &self,
-        _args: Value,
-        _ctx: &ToolContext,
-    ) -> Result<closeclaw_common::tool_trait::ToolResult, closeclaw_common::tool_trait::ToolCallError>
-    {
-        Err(closeclaw_common::tool_trait::ToolCallError::NotImplemented)
+    async fn call(&self, _args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Err(ToolCallError::NotImplemented)
     }
     fn flags(&self) -> crate::ToolFlags {
         crate::ToolFlags::default()
@@ -777,4 +776,159 @@ async fn test_end_to_end_dispatch_with_real_executor() {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].data, serde_json::json!({"msg": "hi"}));
     assert_eq!(results[1].data, serde_json::json!({"msg": "bye"}));
+}
+
+// ===========================================================================
+// Permission integration tests — ToolRegistryExecutor + PermDeps
+// ===========================================================================
+
+/// Build PermDeps with configurable rules.
+fn make_perm_deps(rules: Vec<Rule>) -> PermDeps {
+    let rs = RuleSetBuilder::new()
+        .rules(rules)
+        .defaults(Defaults {
+            tool_call: Effect::Deny,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let perm = Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(rs),
+    ));
+    let sm = {
+        use closeclaw_gateway::GatewayConfig;
+        use closeclaw_session::persistence::ReasoningLevel;
+        Arc::new(SessionManager::new(
+            &GatewayConfig {
+                name: "test".to_string(),
+                rate_limit_per_minute: 100,
+                max_message_size: 1024,
+                ..Default::default()
+            },
+            None,
+            None,
+            ReasoningLevel::default(),
+        ))
+    };
+    let cm = {
+        let tmp = tempfile::TempDir::new().unwrap();
+        Arc::new(
+            ConfigManager::new(tmp.path().to_path_buf())
+                .expect("ConfigManager::new should succeed"),
+        )
+    };
+    let af = Arc::new(TokioMutex::new(ApprovalFlow::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+        RuleSet::default(),
+    )));
+    (perm, sm, cm, af)
+}
+
+/// Allow rule for a tool group.
+fn make_allow_rule(agent: &str, skill: &str) -> Rule {
+    Rule {
+        name: format!("allow-{skill}"),
+        subject: Rule::parse_subject(agent),
+        effect: Effect::Allow,
+        actions: vec![Action::ToolCall {
+            skill: skill.to_string(),
+            methods: vec!["call".to_string()],
+        }],
+        template: None,
+        priority: 0,
+    }
+}
+
+/// ToolContext for permission tests.
+fn make_perm_ctx(session_id: Option<&str>) -> ToolContext {
+    ToolContext {
+        agent_id: "test-agent".into(),
+        workdir: None,
+        session_id: session_id.map(String::from),
+        call_id: None,
+        session: None,
+        session_mode: None,
+        manual_background_signal: None,
+        media_store: None,
+    }
+}
+
+/// PendingToolCall targeting the "test" group.
+fn make_perm_call(id: &str) -> PendingToolCall {
+    PendingToolCall {
+        id: id.into(),
+        tool_name: "Echo".into(),
+        args: serde_json::json!({"msg": "hello"}),
+        file_path: None,
+        is_concurrency_safe: true,
+    }
+}
+
+/// When permission is allowed, the tool executes normally.
+#[tokio::test]
+async fn test_permission_allowed_tool_executes() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(EchoTool).await.unwrap();
+
+    let deps = make_perm_deps(vec![make_allow_rule("test-agent", "test")]);
+    let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
+
+    let result = executor.execute(&make_perm_call("ok-1")).await;
+    assert_eq!(result.data, serde_json::json!({"msg": "hello"}));
+}
+
+/// Permission denied via ToolRegistryExecutor returns error result.
+#[tokio::test]
+async fn test_perm_denied_executor_returns_error() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(EchoTool).await.unwrap();
+
+    // Empty rules + Deny default → tool_call denied
+    let deps = make_perm_deps(vec![]);
+    let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
+
+    let result = executor.execute(&make_perm_call("denied-1")).await;
+    // Permission denied → result has "error" field with approval-pending info
+    assert!(
+        result.data.get("error").is_some() || result.data.get("status").is_some(),
+        "denied permission should produce error or status in result, got: {:?}",
+        result.data
+    );
+}
+
+/// When no PermDeps are set, the tool executes without permission check.
+#[tokio::test]
+async fn test_no_perm_deps_skips_check() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(EchoTool).await.unwrap();
+
+    let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None));
+    // No with_perm_deps() → perm_deps is None → skip check
+    let result = executor.execute(&make_perm_call("noperm-1")).await;
+    assert_eq!(result.data, serde_json::json!({"msg": "hello"}));
+}
+
+/// Verify check_tool_permission is invoked (different group → denied).
+#[tokio::test]
+async fn test_permission_check_actually_called() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    // Register EchoTool which has group="test"
+    registry.register(EchoTool).await.unwrap();
+
+    // Allow only a DIFFERENT group
+    let deps = make_perm_deps(vec![make_allow_rule("test-agent", "other_group")]);
+    let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
+
+    let result = executor.execute(&make_perm_call("verify-1")).await;
+    // "test" group has no allow rule → denied
+    assert!(
+        result.data.get("error").is_some() || result.data.get("status").is_some(),
+        "different group rule should not allow 'test' group, got: {:?}",
+        result.data
+    );
 }

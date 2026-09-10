@@ -1,7 +1,7 @@
 //! ImAdapter tools registrar — Feishu tool group.
 //!
-//! Registers the 7 Feishu tools (im, calendar, task, bitable, doc, drive, sheet)
-//! wrapped in [`LazyTool`] so actual tool creation is deferred to first call.
+//! Registers the 22 Feishu sub-tools wrapped in [`LazyTool`] so
+//! actual tool creation is deferred to first call.
 
 use async_trait::async_trait;
 
@@ -11,13 +11,19 @@ use closeclaw_common::ToolMeta;
 use closeclaw_tools::{ToolRegistrar, ToolRegistrarError};
 
 use crate::platforms::feishu::tools::{
-    FeishuBitableTool, FeishuCalendarTool, FeishuDocTool, FeishuDriveTool, FeishuImTool,
-    FeishuSheetTool, FeishuTaskTool,
+    FeishuBitableAppTableFieldTool, FeishuBitableAppTableRecordTool, FeishuBitableAppTableTool,
+    FeishuBitableAppTableViewTool, FeishuBitableAppTool, FeishuCalendarCalendarTool,
+    FeishuCalendarEventAttendeeTool, FeishuCalendarEventTool, FeishuCalendarFreebusyTool,
+    FeishuDocCommentsTool, FeishuDocMediaTool, FeishuDriveFileTool, FeishuImUserGetMessagesTool,
+    FeishuImUserGetThreadMessagesTool, FeishuImUserMessageTool, FeishuSearchDocWikiTool,
+    FeishuSearchUserTool, FeishuSheetTool, FeishuTaskCommentTool, FeishuTaskSubtaskTool,
+    FeishuTaskTaskTool, FeishuTaskTasklistTool,
 };
 
 /// Feishu / IM-Adapter tools registrar.
 ///
-/// Covers the `feishu_im` and related Feishu tool groups (7 tools).
+/// Covers 22 Feishu sub-tools (im ×4, calendar ×4, task ×4,
+/// bitable ×5, doc ×3, drive ×1, sheet ×1).
 pub struct ImAdapterToolsRegistrar;
 
 impl ImAdapterToolsRegistrar {
@@ -51,6 +57,33 @@ macro_rules! lazy_feishu_tool {
     }};
 }
 
+/// Register a single tool into the registry.
+macro_rules! register {
+    (
+        $registry:expr,
+        $registered:expr,
+        $tool_type:ty,
+        $name:expr,
+        $group:expr,
+        $summary:expr,
+        $detail:expr,
+        $r:expr
+    ) => {{
+        let tool = lazy_feishu_tool!(
+            $tool_type,
+            ToolMeta {
+                name: $name.to_string(),
+                group: $group.to_string(),
+                summary: $summary.to_string(),
+                detail: $detail.to_string(),
+                input_schema: serde_json::json!({}),
+                flags: feishu_flags(),
+            }
+        );
+        closeclaw_tools::try_register!($registry, $registered, tool, $r);
+    }};
+}
+
 #[async_trait]
 impl ToolRegistrar for ImAdapterToolsRegistrar {
     fn name(&self) -> &str {
@@ -67,123 +100,244 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
     ) -> Result<(), ToolRegistrarError> {
         let mut registered = 0usize;
         let r = self.name();
-        let flags = feishu_flags();
 
-        let feishu_im = lazy_feishu_tool!(
-            FeishuImTool,
-            ToolMeta {
-                name: "FeishuIm".to_string(),
-                group: "feishu_im".to_string(),
-                summary: "Feishu IM message operations".to_string(),
-                detail: "Send, recall, edit, and react to Feishu messages. \
-                     Supports text and card message formats, thread replies, \
-                     and message deletion."
-                    .to_string(),
-                input_schema: serde_json::json!({}),
-                flags,
-            }
+        // ── feishu_im (4) ──────────────────────────────────────────────
+        register!(
+            registry,
+            registered,
+            FeishuImUserMessageTool,
+            "feishu_im_user_message",
+            "feishu_im",
+            "Send or manage a Feishu IM message",
+            "Send, recall, edit, and react to a single Feishu IM message.",
+            r
         );
-        closeclaw_tools::try_register!(registry, registered, feishu_im, r);
-
-        let feishu_calendar = lazy_feishu_tool!(
-            FeishuCalendarTool,
-            ToolMeta {
-                name: "FeishuCalendar".to_string(),
-                group: "feishu_calendar".to_string(),
-                summary: "Feishu calendar management".to_string(),
-                detail: "Create, update, delete, and query Feishu calendar \
-                         events. Supports attendee management, recurring \
-                         events, and calendar list operations."
-                    .to_string(),
-                input_schema: serde_json::json!({}),
-                flags,
-            }
+        register!(
+            registry,
+            registered,
+            FeishuImUserGetMessagesTool,
+            "feishu_im_user_get_messages",
+            "feishu_im",
+            "Get messages from a Feishu IM conversation",
+            "Retrieve message history from a Feishu IM conversation.",
+            r
         );
-        closeclaw_tools::try_register!(registry, registered, feishu_calendar, r);
-
-        let feishu_task = lazy_feishu_tool!(
-            FeishuTaskTool,
-            ToolMeta {
-                name: "FeishuTask".to_string(),
-                group: "feishu_task".to_string(),
-                summary: "Feishu task management".to_string(),
-                detail: "Create, update, complete, and query Feishu tasks. \
-                         Supports task lists, reminders, and collaborator \
-                         management."
-                    .to_string(),
-                input_schema: serde_json::json!({}),
-                flags,
-            }
+        register!(
+            registry,
+            registered,
+            FeishuImUserGetThreadMessagesTool,
+            "feishu_im_user_get_thread_messages",
+            "feishu_im",
+            "Get messages from a Feishu IM thread",
+            "Retrieve message replies within a Feishu IM thread (topic).",
+            r
         );
-        closeclaw_tools::try_register!(registry, registered, feishu_task, r);
-
-        let feishu_bitable = lazy_feishu_tool!(
-            FeishuBitableTool,
-            ToolMeta {
-                name: "FeishuBitable".to_string(),
-                group: "feishu_bitable".to_string(),
-                summary: "Feishu Bitable table operations".to_string(),
-                detail: "Create, read, update, and delete records in Feishu \
-                         Bitable. Supports table and field management, view \
-                         configuration, and batch operations."
-                    .to_string(),
-                input_schema: serde_json::json!({}),
-                flags,
-            }
+        register!(
+            registry,
+            registered,
+            FeishuSearchUserTool,
+            "feishu_search_user",
+            "feishu_im",
+            "Search for Feishu users",
+            "Search for Feishu users by name or keyword.",
+            r
         );
-        closeclaw_tools::try_register!(registry, registered, feishu_bitable, r);
 
-        let feishu_doc = lazy_feishu_tool!(
-            FeishuDocTool,
-            ToolMeta {
-                name: "FeishuDoc".to_string(),
-                group: "feishu_doc".to_string(),
-                summary: "Feishu document operations".to_string(),
-                detail: "Create, read, update, and manage Feishu documents. \
-                         Supports content editing, permission management, \
-                         and document metadata."
-                    .to_string(),
-                input_schema: serde_json::json!({}),
-                flags,
-            }
+        // ── feishu_calendar (4) ────────────────────────────────────────
+        register!(
+            registry,
+            registered,
+            FeishuCalendarEventTool,
+            "feishu_calendar_event",
+            "feishu_calendar",
+            "Manage a Feishu calendar event",
+            "Create, update, delete, and query Feishu calendar events.",
+            r
         );
-        closeclaw_tools::try_register!(registry, registered, feishu_doc, r);
-
-        let feishu_drive = lazy_feishu_tool!(
-            FeishuDriveTool,
-            ToolMeta {
-                name: "FeishuDrive".to_string(),
-                group: "feishu_drive".to_string(),
-                summary: "Feishu Drive file operations".to_string(),
-                detail: "Upload, download, list, and manage files in Feishu \
-                         Drive. Supports folder operations, file sharing, \
-                         and permission management."
-                    .to_string(),
-                input_schema: serde_json::json!({}),
-                flags,
-            }
+        register!(
+            registry,
+            registered,
+            FeishuCalendarEventAttendeeTool,
+            "feishu_calendar_event_attendee",
+            "feishu_calendar",
+            "Manage attendees for a Feishu calendar event",
+            "Add, remove, or update attendees for a Feishu calendar event.",
+            r
         );
-        closeclaw_tools::try_register!(registry, registered, feishu_drive, r);
+        register!(
+            registry,
+            registered,
+            FeishuCalendarFreebusyTool,
+            "feishu_calendar_freebusy",
+            "feishu_calendar",
+            "Query free/busy status for Feishu calendars",
+            "Query free/busy time slots for one or more Feishu calendar users.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuCalendarCalendarTool,
+            "feishu_calendar_calendar",
+            "feishu_calendar",
+            "Manage Feishu calendars",
+            "List, create, update, and manage Feishu calendars.",
+            r
+        );
 
-        let feishu_sheet = lazy_feishu_tool!(
+        // ── feishu_task (4) ────────────────────────────────────────────
+        register!(
+            registry,
+            registered,
+            FeishuTaskTaskTool,
+            "feishu_task_task",
+            "feishu_task",
+            "Manage a Feishu task",
+            "Create, update, complete, and query individual Feishu tasks.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuTaskTasklistTool,
+            "feishu_task_tasklist",
+            "feishu_task",
+            "Manage Feishu task lists",
+            "Create, update, and manage Feishu task lists.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuTaskCommentTool,
+            "feishu_task_comment",
+            "feishu_task",
+            "Manage comments on a Feishu task",
+            "Add, update, and retrieve comments on Feishu tasks.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuTaskSubtaskTool,
+            "feishu_task_subtask",
+            "feishu_task",
+            "Manage subtasks of a Feishu task",
+            "Create, update, and manage subtasks under a Feishu task.",
+            r
+        );
+
+        // ── feishu_bitable (5) ─────────────────────────────────────────
+        register!(
+            registry,
+            registered,
+            FeishuBitableAppTool,
+            "feishu_bitable_app",
+            "feishu_bitable",
+            "Manage a Feishu Bitable app",
+            "Create, read, update, and manage Feishu Bitable apps.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuBitableAppTableTool,
+            "feishu_bitable_app_table",
+            "feishu_bitable",
+            "Manage tables within a Feishu Bitable app",
+            "Create, list, update, and delete tables within a Feishu Bitable app.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuBitableAppTableRecordTool,
+            "feishu_bitable_app_table_record",
+            "feishu_bitable",
+            "Manage records in a Feishu Bitable table",
+            "Create, read, update, and delete records in a Feishu Bitable table.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuBitableAppTableFieldTool,
+            "feishu_bitable_app_table_field",
+            "feishu_bitable",
+            "Manage fields in a Feishu Bitable table",
+            "List, create, update, and delete fields (columns) in a Feishu Bitable table.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuBitableAppTableViewTool,
+            "feishu_bitable_app_table_view",
+            "feishu_bitable",
+            "Manage views in a Feishu Bitable table",
+            "List, create, update, and configure views in a Feishu Bitable table.",
+            r
+        );
+
+        // ── feishu_doc (3) ─────────────────────────────────────────────
+        register!(
+            registry,
+            registered,
+            FeishuDocCommentsTool,
+            "feishu_doc_comments",
+            "feishu_doc",
+            "Manage comments on a Feishu document",
+            "List, add, reply to, and resolve comments on Feishu documents.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuDocMediaTool,
+            "feishu_doc_media",
+            "feishu_doc",
+            "Manage media in a Feishu document",
+            "Upload, download, and manage images and file attachments in Feishu documents.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuSearchDocWikiTool,
+            "feishu_search_doc_wiki",
+            "feishu_doc",
+            "Search Feishu documents and wiki pages",
+            "Search for Feishu documents and wiki pages by keyword.",
+            r
+        );
+
+        // ── feishu_drive (1) ───────────────────────────────────────────
+        register!(
+            registry,
+            registered,
+            FeishuDriveFileTool,
+            "feishu_drive_file",
+            "feishu_drive",
+            "Manage files in Feishu Drive",
+            "Upload, download, list, and manage files in Feishu Drive.",
+            r
+        );
+
+        // ── feishu_sheet (1) ───────────────────────────────────────────
+        register!(
+            registry,
+            registered,
             FeishuSheetTool,
-            ToolMeta {
-                name: "FeishuSheet".to_string(),
-                group: "feishu_sheet".to_string(),
-                summary: "Feishu spreadsheet operations".to_string(),
-                detail: "Read, write, and manage Feishu spreadsheets. \
-                         Supports cell operations, sheet management, \
-                         and data range manipulation."
-                    .to_string(),
-                input_schema: serde_json::json!({}),
-                flags,
-            }
+            "feishu_sheet",
+            "feishu_sheet",
+            "Manage Feishu spreadsheets",
+            "Read, write, and manage Feishu spreadsheets.",
+            r
         );
-        closeclaw_tools::try_register!(registry, registered, feishu_sheet, r);
 
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 7 tools failed to register".to_string(),
+                "all 22 tools failed to register".to_string(),
             ));
         }
         Ok(())
