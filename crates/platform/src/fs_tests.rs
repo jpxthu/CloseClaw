@@ -218,13 +218,11 @@ fn test_expand_env_dollar_digit() {
     assert_eq!(result, PathBuf::from("foo/$1bar"));
 }
 
-/// `$` in the middle of a word (surrounded by alphanumeric) — not matched
-/// because regex requires `$` at a word boundary (preceded by non-id char).
+/// `$` followed by identifier chars in a path segment — the regex matches
+/// `$baz` as an undefined variable reference and preserves it.
 #[test]
 fn test_expand_env_dollar_in_middle_of_word() {
     let result = expand_env(Path::new("foo/bar$baz/qux"));
-    // $baz is preceded by $, which is not an identifier char, so it matches
-    // and $baz is preserved as undefined.
     assert_eq!(result, PathBuf::from("foo/bar$baz/qux"));
 }
 
