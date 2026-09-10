@@ -540,3 +540,214 @@ async fn test_level2_fileops_no_path_skips_check() {
         result.data
     );
 }
+
+// =========================================================================
+// Workflow permission exemption tests
+// =========================================================================
+
+/// Local helper: PermDeps with deny-all at Level 1 (tool_call: Deny).
+/// Used to test that workflow tools bypass Level 1 permission check.
+fn make_deny_all_perm_deps() -> PermDeps {
+    let rs = RuleSetBuilder::new()
+        .rules(vec![])
+        .defaults(Defaults {
+            tool_call: Effect::Deny,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+    let perm = Arc::new(tokio::sync::RwLock::new(
+        PermissionEngine::new_with_default_data_root(rs),
+    ));
+    let sm = {
+        use closeclaw_gateway::GatewayConfig;
+        use closeclaw_session::persistence::ReasoningLevel;
+        Arc::new(SessionManager::new(
+            &GatewayConfig {
+                name: "test".to_string(),
+                rate_limit_per_minute: 100,
+                max_message_size: 1024,
+                ..Default::default()
+            },
+            None,
+            None,
+            ReasoningLevel::default(),
+        ))
+    };
+    let cm = {
+        let tmp = tempfile::TempDir::new().unwrap();
+        Arc::new(
+            ConfigManager::new(tmp.path().to_path_buf())
+                .expect("ConfigManager::new should succeed"),
+        )
+    };
+    let af = Arc::new(TokioMutex::new(ApprovalFlow::new(
+        Arc::clone(&sm) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(|_| {}),
+        Arc::new(|_: &str| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+        closeclaw_permission::RuleSet::default(),
+    )));
+    (perm, sm, cm, af)
+}
+
+/// A tool with group="workflow" for testing permission exemption.
+struct WorkflowStartTool;
+
+#[async_trait]
+impl crate::Tool for WorkflowStartTool {
+    fn name(&self) -> &str {
+        "WorkflowStart"
+    }
+    fn group(&self) -> &str {
+        "workflow"
+    }
+    fn summary(&self) -> String {
+        "workflow start".into()
+    }
+    fn detail(&self) -> String {
+        "workflow start".into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "plan_path": { "type": "string" }
+            },
+            "required": ["plan_path"]
+        })
+    }
+    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Ok(ToolResult {
+            data: args,
+            new_messages: vec![],
+            context_modifier: None,
+        })
+    }
+    fn flags(&self) -> crate::ToolFlags {
+        crate::ToolFlags {
+            is_concurrency_safe: true,
+            ..Default::default()
+        }
+    }
+}
+
+/// A simple echo tool for non-workflow permission tests.
+struct LocalEchoTool;
+
+#[async_trait]
+impl crate::Tool for LocalEchoTool {
+    fn name(&self) -> &str {
+        "Echo"
+    }
+    fn group(&self) -> &str {
+        "test"
+    }
+    fn summary(&self) -> String {
+        "echo".into()
+    }
+    fn detail(&self) -> String {
+        "echo".into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object", "properties": {"msg": {"type": "string"}}})
+    }
+    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Ok(ToolResult {
+            data: args,
+            new_messages: vec![],
+            context_modifier: None,
+        })
+    }
+    fn flags(&self) -> crate::ToolFlags {
+        crate::ToolFlags {
+            is_concurrency_safe: true,
+            ..Default::default()
+        }
+    }
+}
+
+/// Workflow tool: Level 1 permission denied for all groups → still executes.
+/// Verifies that workflow group bypasses Level 1 check entirely.
+#[tokio::test]
+async fn test_workflow_permission_exempt_level1() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(WorkflowStartTool).await.unwrap();
+
+    // Deny all groups at Level 1 (empty rules + Deny default)
+    let deps = make_deny_all_perm_deps();
+    let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
+
+    let call = PendingToolCall {
+        id: "wf-1".into(),
+        tool_name: "WorkflowStart".into(),
+        args: serde_json::json!({"plan_path": "/tmp/plan.md"}),
+        file_path: None,
+        is_concurrency_safe: true,
+    };
+    let result = executor.execute(&call).await;
+    // Workflow tool should execute successfully despite deny-all rules
+    assert!(
+        result.data.get("error").is_none(),
+        "workflow tool should execute without permission check, got: {:?}",
+        result.data
+    );
+    assert_eq!(
+        result.data["plan_path"], "/tmp/plan.md",
+        "workflow tool should return its args"
+    );
+}
+
+/// Workflow tool: Level 2 permission check also bypassed.
+/// Even with deny-all approval flow, workflow tools execute.
+#[tokio::test]
+async fn test_workflow_permission_exempt_level2() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(WorkflowStartTool).await.unwrap();
+
+    let deps = make_l2_perm_deps_deny(vec![]);
+    let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
+
+    let call = PendingToolCall {
+        id: "wf-2".into(),
+        tool_name: "WorkflowStart".into(),
+        args: serde_json::json!({"plan_path": "/tmp/plan.md"}),
+        file_path: None,
+        is_concurrency_safe: true,
+    };
+    let result = executor.execute(&call).await;
+    assert!(
+        result.data.get("error").is_none(),
+        "workflow tool should bypass Level 2 checks, got: {:?}",
+        result.data
+    );
+}
+
+/// Non-workflow tool: permission check still applies.
+/// Verifies that exemption is limited to workflow group.
+#[tokio::test]
+async fn test_non_workflow_permission_not_exempt() {
+    let registry = Arc::new(crate::ToolRegistryImpl::new());
+    registry.register(LocalEchoTool).await.unwrap();
+
+    // Deny all groups at Level 1
+    let deps = make_deny_all_perm_deps();
+    let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
+
+    let call = PendingToolCall {
+        id: "nw-1".into(),
+        tool_name: "Echo".into(),
+        args: serde_json::json!({"msg": "hello"}),
+        file_path: None,
+        is_concurrency_safe: true,
+    };
+    let result = executor.execute(&call).await;
+    // Non-workflow tool should be denied by empty rules
+    assert!(
+        result.data.get("error").is_some() || result.data.get("status").is_some(),
+        "non-workflow tool should be denied, got: {:?}",
+        result.data
+    );
+}

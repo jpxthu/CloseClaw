@@ -264,111 +264,123 @@ impl ToolExecutor for ToolRegistryExecutor {
         // --- Centralized permission check (Level 1: ToolCall) ---
         // Design doc "安全边界": permission checks are executed by the
         // orchestration layer before calling tool.call().
-        if let Some(ref perm_deps) = self.perm_deps {
-            let tool_group = tool.group().to_string();
-            let debug_ctx = ToolsDebugLogContext {
-                debug_log: self.debug_log.as_deref(),
-                trace_id: &self.trace_id,
-                session_key: self.session_key.as_deref(),
-            };
-            match check_tool_permission(perm_deps, &ctx, &tool_group, "call", Some(debug_ctx)).await
-            {
-                Ok(Some(denied)) => return denied,
-                Ok(None) => {} // permitted
-                Err(e) => {
-                    return closeclaw_common::tool_trait::ToolResult {
-                        data: serde_json::json!({ "error": e.to_string() }),
-                        new_messages: vec![],
-                        context_modifier: None,
-                    };
+        // Workflow tools are system-level and exempt from all permission checks.
+        let tool_group = tool.group().to_string();
+        if tool_group != "workflow" {
+            if let Some(ref perm_deps) = self.perm_deps {
+                let debug_ctx = ToolsDebugLogContext {
+                    debug_log: self.debug_log.as_deref(),
+                    trace_id: &self.trace_id,
+                    session_key: self.session_key.as_deref(),
+                };
+                match check_tool_permission(perm_deps, &ctx, &tool_group, "call", Some(debug_ctx))
+                    .await
+                {
+                    Ok(Some(denied)) => return denied,
+                    Ok(None) => {} // permitted
+                    Err(e) => {
+                        return closeclaw_common::tool_trait::ToolResult {
+                            data: serde_json::json!({ "error": e.to_string() }),
+                            new_messages: vec![],
+                            context_modifier: None,
+                        };
+                    }
                 }
-            }
 
-            // --- Level 2: domain-specific permission checks ---
-            let debug_ctx2 = ToolsDebugLogContext {
-                debug_log: self.debug_log.as_deref(),
-                trace_id: &self.trace_id,
-                session_key: self.session_key.as_deref(),
-            };
-            match tool_group.as_str() {
-                "bash" => {
-                    // CommandExec dimension: extract command from args.
-                    if let Some(full_cmd) = args.get("command").and_then(serde_json::Value::as_str)
-                    {
-                        // Split into base command name + args for permission matching.
-                        let parts: Vec<&str> = full_cmd.split_whitespace().collect();
-                        let base_cmd = parts.first().copied().unwrap_or("");
-                        let cmd_args: Vec<String> =
-                            parts[1..].iter().map(|s| s.to_string()).collect();
-                        match check_command_permission(
-                            perm_deps,
-                            &ctx,
-                            base_cmd,
-                            &cmd_args,
-                            Some(debug_ctx2),
-                        )
-                        .await
+                // --- Level 2: domain-specific permission checks ---
+                let debug_ctx2 = ToolsDebugLogContext {
+                    debug_log: self.debug_log.as_deref(),
+                    trace_id: &self.trace_id,
+                    session_key: self.session_key.as_deref(),
+                };
+                match tool_group.as_str() {
+                    "bash" => {
+                        // CommandExec dimension: extract command from args.
+                        if let Some(full_cmd) =
+                            args.get("command").and_then(serde_json::Value::as_str)
                         {
-                            CommandPermissionResult::Permitted => {}
-                            CommandPermissionResult::PendingApproval(result) => return result,
-                            CommandPermissionResult::Denied(reason) => {
-                                return closeclaw_common::tool_trait::ToolResult {
-                                    data: serde_json::json!({
-                                        "error": format!(
-                                            "command permission denied: {reason}"
-                                        )
-                                    }),
-                                    new_messages: vec![],
-                                    context_modifier: None,
-                                };
+                            // Split into base command name + args for permission matching.
+                            let parts: Vec<&str> = full_cmd.split_whitespace().collect();
+                            let base_cmd = parts.first().copied().unwrap_or("");
+                            let cmd_args: Vec<String> =
+                                parts[1..].iter().map(|s| s.to_string()).collect();
+                            match check_command_permission(
+                                perm_deps,
+                                &ctx,
+                                base_cmd,
+                                &cmd_args,
+                                Some(debug_ctx2),
+                            )
+                            .await
+                            {
+                                CommandPermissionResult::Permitted => {}
+                                CommandPermissionResult::PendingApproval(result) => return result,
+                                CommandPermissionResult::Denied(reason) => {
+                                    return closeclaw_common::tool_trait::ToolResult {
+                                        data: serde_json::json!({
+                                            "error": format!(
+                                                "command permission denied: {reason}"
+                                            )
+                                        }),
+                                        new_messages: vec![],
+                                        context_modifier: None,
+                                    };
+                                }
                             }
                         }
                     }
-                }
-                "file_ops" => {
-                    // FileOp dimension: extract file path from args.
-                    if let Some(path) = args.get("path").and_then(serde_json::Value::as_str) {
-                        let op = if tool.flags().is_read_only {
-                            "read"
-                        } else {
-                            "write"
-                        };
-                        match check_file_op_permission(perm_deps, &ctx, path, op, Some(debug_ctx2))
+                    "file_ops" => {
+                        // FileOp dimension: extract file path from args.
+                        if let Some(path) = args.get("path").and_then(serde_json::Value::as_str) {
+                            let op = if tool.flags().is_read_only {
+                                "read"
+                            } else {
+                                "write"
+                            };
+                            match check_file_op_permission(
+                                perm_deps,
+                                &ctx,
+                                path,
+                                op,
+                                Some(debug_ctx2),
+                            )
                             .await
-                        {
-                            Ok(Some(denied)) => return denied,
-                            Ok(None) => {}
-                            Err(e) => {
-                                return closeclaw_common::tool_trait::ToolResult {
-                                    data: serde_json::json!({ "error": e.to_string() }),
-                                    new_messages: vec![],
-                                    context_modifier: None,
-                                };
+                            {
+                                Ok(Some(denied)) => return denied,
+                                Ok(None) => {}
+                                Err(e) => {
+                                    return closeclaw_common::tool_trait::ToolResult {
+                                        data: serde_json::json!({ "error": e.to_string() }),
+                                        new_messages: vec![],
+                                        context_modifier: None,
+                                    };
+                                }
                             }
-                        }
-                        // ConfigWrite dimension: check for config file writes.
-                        if op == "write" {
-                            let config_manager = &perm_deps.2;
-                            let data_root = config_manager.config_dir();
-                            if closeclaw_permission::is_config_file_path(data_root, path) {
-                                match check_config_write_permission(perm_deps, &ctx, path).await {
-                                    Ok(Some(denied)) => return denied,
-                                    Ok(None) => {}
-                                    Err(e) => {
-                                        return closeclaw_common::tool_trait::ToolResult {
-                                            data: serde_json::json!({ "error": e.to_string() }),
-                                            new_messages: vec![],
-                                            context_modifier: None,
-                                        };
+                            // ConfigWrite dimension: check for config file writes.
+                            if op == "write" {
+                                let config_manager = &perm_deps.2;
+                                let data_root = config_manager.config_dir();
+                                if closeclaw_permission::is_config_file_path(data_root, path) {
+                                    match check_config_write_permission(perm_deps, &ctx, path).await
+                                    {
+                                        Ok(Some(denied)) => return denied,
+                                        Ok(None) => {}
+                                        Err(e) => {
+                                            return closeclaw_common::tool_trait::ToolResult {
+                                                data: serde_json::json!({ "error": e.to_string() }),
+                                                new_messages: vec![],
+                                                context_modifier: None,
+                                            };
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                    _ => {} // No Level 2 check for other groups.
                 }
-                _ => {} // No Level 2 check for other groups.
-            }
-        }
+            } // end perm_deps
+        } // end workflow exemption
 
         // Emit tool.execution.start
         emit_tool_event(ToolsEmitEventParams {

@@ -5,4 +5,3 @@
 pub mod core;
 pub mod mode;
 pub mod skills;
-pub mod workflow;
