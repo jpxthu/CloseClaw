@@ -18,9 +18,15 @@ use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_risk::RiskLevel;
+#[cfg(test)]
 use closeclaw_permission::engine::engine_types::{
     Caller, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
+#[cfg(not(test))]
+use closeclaw_permission::engine::engine_types::{
+    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
+};
+#[cfg(test)]
 use closeclaw_permission::is_config_file_path;
 use closeclaw_permission::PermissionResponse as PR;
 
@@ -198,11 +204,7 @@ pub(crate) async fn is_session_sub_agent(
         .is_some_and(|depth| depth > 0)
 }
 
-/// Check if a file path targets a config file.
-///
-/// Uses [`closeclaw_permission::is_config_file_path`] with the data root
-/// obtained from [`ConfigManager::config_dir`].  Returns `true` when the
-/// path is inside the config directory but outside any workspace.
+#[cfg(test)]
 pub(crate) fn is_config_file(config_manager: &ConfigManager, path: &str) -> bool {
     let data_root = config_manager.config_dir();
     is_config_file_path(data_root, path)
@@ -358,7 +360,7 @@ pub(crate) async fn check_file_op_permission(
 ///
 /// Validates whether the agent is allowed to send/receive messages
 /// in the given direction to/from the specified target.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) async fn check_message_permission(
     deps: &PermDeps,
     ctx: &crate::ToolContext,

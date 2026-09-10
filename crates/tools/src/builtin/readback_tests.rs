@@ -154,9 +154,7 @@ fn write_with_readback_ok_when_write_succeeds() {
 /// content should succeed via readback recovery.
 #[tokio::test]
 async fn write_tool_recovers_on_readonly_file_with_matching_content() {
-    use crate::builtin::file_ops::tests::{
-        allow_file, allow_tool, make_af, make_cm, make_ctx, make_engine, make_sm,
-    };
+    use crate::builtin::file_ops::tests::make_ctx;
     use crate::builtin::file_ops::WriteTool;
 
     if is_root() {
@@ -170,11 +168,7 @@ async fn write_tool_recovers_on_readonly_file_with_matching_content() {
     std::fs::write(&path, "expected").unwrap();
     make_readonly(&path);
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "write"),
-    ];
-    let tool = WriteTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = WriteTool::new();
     let args = serde_json::json!({
         "path": path.to_str().unwrap(),
         "content": "expected"
@@ -200,20 +194,14 @@ async fn write_tool_recovers_on_readonly_file_with_matching_content() {
 /// unit tests; this verifies the full EditTool pipeline works end-to-end.
 #[tokio::test]
 async fn edit_tool_succeeds_through_readback_path() {
-    use crate::builtin::file_ops::tests::{
-        allow_file, allow_tool, make_af, make_cm, make_ctx, make_engine, make_sm,
-    };
+    use crate::builtin::file_ops::tests::make_ctx;
     use crate::builtin::file_ops::EditTool;
 
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("tool_edit_readback.txt");
     std::fs::write(&path, "old text here").unwrap();
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "write"),
-    ];
-    let tool = EditTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = EditTool::new();
     let args = serde_json::json!({
         "path": path.to_str().unwrap(),
         "edits": [{ "oldText": "old text", "newText": "new text" }]

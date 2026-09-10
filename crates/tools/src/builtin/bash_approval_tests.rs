@@ -212,27 +212,9 @@ async fn test_bash_approval_allow_path() {
 // Path 2: deny + enqueue success → approval_pending
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn test_bash_approval_deny_enqueue_success() {
-    let tool = make_tool(deny_all_engine());
-    let result = tool
-        .call(json!({"command": "echo hello"}), &make_ctx())
-        .await;
-    assert!(
-        result.is_ok(),
-        "deny+enqueue should return Ok, got: {:?}",
-        result.err()
-    );
-    let output = result.unwrap();
-    assert_eq!(
-        output.data["status"], "approval_pending",
-        "should return approval_pending status"
-    );
-    assert!(
-        output.data["request_id"].is_string(),
-        "should include request_id"
-    );
-}
+// NOTE: test_bash_approval_deny_enqueue_success removed — permission checks
+// are now centralized in the dispatcher layer (ToolRegistryExecutor::execute).
+// Tool-level permission denial and approval routing is no longer tested here.
 
 // ---------------------------------------------------------------------------
 // Step 1.3: Trust-level branching tests

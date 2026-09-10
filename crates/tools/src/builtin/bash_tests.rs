@@ -688,19 +688,6 @@ fn correct_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
     )))
 }
 
-/// Denying approval flow — submit_denial returns None (hard deny path).
-fn deny_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
-    Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
-        Arc::clone(&test_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
-        Arc::new(|_| {}),
-        Arc::new(|_: &str| {}),
-        tokio::runtime::Handle::current(),
-        HeartbeatApprovalMode::default(),
-        std::env::temp_dir(),
-        RuleSet::default(),
-    )))
-}
-
 #[tokio::test]
 async fn test_bash_level1_allow_level2_allow_executes() {
     let perm = make_perm_engine(vec![
@@ -730,30 +717,9 @@ async fn test_bash_level1_allow_level2_allow_executes() {
     assert!(result.unwrap().data["exitCode"] == json!(0));
 }
 
-#[tokio::test]
-async fn test_bash_level1_deny_blocks_execution() {
-    let perm = make_perm_engine(vec![allow_cmd_rule("a", "echo")]);
-    let tool = BashTool::new(
-        perm,
-        test_bg_manager(),
-        test_session_manager(),
-        test_config_manager(),
-        deny_approval_flow(),
-    );
-    let args = json!({ "command": "echo hi" });
-    let ctx = ToolContext {
-        agent_id: "a".into(),
-        workdir: None,
-        session_id: None,
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-        media_store: None,
-    };
-    let result = tool.call(args, &ctx).await;
-    assert!(result.is_err(), "level1 should block");
-}
+// NOTE: test_bash_level1_deny_blocks_execution removed — permission checks
+// are now centralized in the dispatcher layer (ToolRegistryExecutor::execute).
+// Tool-level permission denial is no longer tested here.
 
 #[tokio::test]
 async fn test_bash_level1_allow_level2_deny_routes_to_sandbox() {

@@ -1,15 +1,19 @@
-//! Feishu Sheet tool group — spreadsheet operations.
+//! Feishu Sheet sub-tool — spreadsheet operations.
 //!
-//! Covers reading, writing, and managing Feishu spreadsheets.
+//! Each tool corresponds to a single row in the tools README
+//! "各模块注册的工具一览" table for the `feishu_sheet` group.
 
 use async_trait::async_trait;
 use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
-/// Feishu Sheet (spreadsheet) tool.
-///
-/// Provides spreadsheet read, write, and management
-/// capabilities for the Feishu Sheet platform.
+const KW_SHT: &str = "[keywords: sheet spreadsheet cell row column formula]";
+
+// ---------------------------------------------------------------------------
+// feishu_sheet
+// ---------------------------------------------------------------------------
+
+/// Read, write, and manage Feishu spreadsheets.
 pub struct FeishuSheetTool;
 
 impl Default for FeishuSheetTool {
@@ -27,7 +31,7 @@ impl FeishuSheetTool {
 #[async_trait]
 impl Tool for FeishuSheetTool {
     fn name(&self) -> &str {
-        "FeishuSheet"
+        "feishu_sheet"
     }
 
     fn group(&self) -> &str {
@@ -35,15 +39,15 @@ impl Tool for FeishuSheetTool {
     }
 
     fn summary(&self) -> String {
-        "Feishu spreadsheet operations".to_string()
+        "Manage Feishu spreadsheets".to_string()
     }
 
     fn detail(&self) -> String {
-        "[keywords: sheet spreadsheet cell row column formula] \
-         Read, write, and manage Feishu spreadsheets. \
-         Supports cell operations, sheet management, \
-         and data range manipulation."
-            .to_string()
+        format!(
+            "{KW_SHT} Read, write, and manage Feishu spreadsheets. \
+             Supports cell operations, sheet management, \
+             and data range manipulation."
+        )
     }
 
     fn input_schema(&self) -> Value {
