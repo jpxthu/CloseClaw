@@ -1,7 +1,7 @@
 //! Rule handler functions for CLI admin.
 
 use super::common::{
-    config_dir, effect_to_str, json_error, json_output, RuleCheckOutput, RuleListEntry,
+    config_root, effect_to_str, json_error, json_output, RuleCheckOutput, RuleListEntry,
     RuleListOutput,
 };
 use crate::args::RuleAction;
@@ -10,7 +10,7 @@ use closeclaw_permission::{Rule, RuleSet};
 use std::path::{Path, PathBuf};
 
 pub async fn handle_rule(action: RuleAction, json: bool) -> Result<()> {
-    handle_rule_with(action, config_dir(), json).await
+    handle_rule_with(action, config_root()?, json).await
 }
 
 pub async fn handle_rule_with(action: RuleAction, config_dir: PathBuf, json: bool) -> Result<()> {

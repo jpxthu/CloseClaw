@@ -1,6 +1,6 @@
 //! Agent handler functions for CLI admin.
 
-use super::common::{config_dir, json_error, json_output, AgentCreateOutput};
+use super::common::{config_root, json_error, json_output, AgentCreateOutput};
 use crate::admin::rpc::protocol::AgentInfoResult;
 use crate::admin::{admin_socket_path, AdminClient, AdminRequest, AdminResponse};
 use crate::args::AgentAction;
@@ -9,7 +9,7 @@ use closeclaw_config::agents::{MemoryConfig, SubagentsConfig};
 use std::path::PathBuf;
 
 pub async fn handle_agent(action: AgentAction, json: bool) -> Result<()> {
-    handle_agent_with(action, config_dir(), json).await
+    handle_agent_with(action, config_root()?, json).await
 }
 
 pub async fn handle_agent_with(action: AgentAction, cfg_dir: PathBuf, json: bool) -> Result<()> {
