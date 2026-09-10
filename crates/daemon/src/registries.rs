@@ -11,7 +11,7 @@ use closeclaw_gateway::{Gateway, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionToolsRegistrar};
-use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillCreatorTool};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use closeclaw_tools::builtin::SkillTool;
 use closeclaw_tools::{
@@ -254,8 +254,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::clone(disk_reg),
         Arc::clone(ctx.builtin_registry),
     ));
-    let skill_creator_tool: Arc<dyn closeclaw_common::Tool> = Arc::new(SkillCreatorTool::new());
-    let skills_registrar = SkillsToolsRegistrar::new(vec![skill_tool, skill_creator_tool]);
+    let skills_registrar = SkillsToolsRegistrar::new(vec![skill_tool]);
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
     let mode_registrar = ModeToolsRegistrar::new(
         Arc::clone(ctx.session_manager),
