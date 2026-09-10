@@ -12,7 +12,7 @@ use super::run::{
 use closeclaw_platform::process::{pid_file_path, write_pid_file};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tempfile::TempDir;
 
 // ── Mock DaemonRunner ──────────────────────────────────────────────────────
@@ -433,6 +433,7 @@ fn test_prepare_run_bare_tilde_is_home() {
 // target env set and parsing the output.
 
 /// Run the helper binary with optional env vars set and return its stdout.
+/// On failure, outputs both stdout and stderr for debugging.
 fn run_helper(helper: &std::path::Path, config_dir: &str, envs: &[(&str, &str)]) -> String {
     let mut cmd = std::process::Command::new(helper);
     cmd.arg(config_dir);
@@ -442,7 +443,8 @@ fn run_helper(helper: &std::path::Path, config_dir: &str, envs: &[(&str, &str)])
     let output = cmd.output().expect("failed to execute helper binary");
     assert!(
         output.status.success(),
-        "helper binary failed: {}",
+        "helper binary failed\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("helper output is not UTF-8")
@@ -450,11 +452,21 @@ fn run_helper(helper: &std::path::Path, config_dir: &str, envs: &[(&str, &str)])
 
 /// Helper binary source: compiled into a temporary crate at test time.
 /// Prints the config_dir path returned by prepare_run.
+/// Panics immediately if config_dir argument is missing.
 const HELPER_SRC: &str = r#"fn main() {
-    let config_dir = std::env::args().nth(1).unwrap_or_default();
+    let config_dir = std::env::args().nth(1).expect("missing config_dir argument");
     let (resolved, _) = closeclaw_cli::admin::prepare_run(&config_dir).unwrap();
     println!("{}", resolved.display());
 }"#;
+
+// ── Helper infrastructure for env var tests ────────────────────────────────
+// Compiled once via OnceLock so all env var test cases share a single build
+// (CI red line: single case >5s must fix).
+static HELPER: OnceLock<(tempfile::TempDir, std::path::PathBuf)> = OnceLock::new();
+
+fn helper_path() -> &'static std::path::Path {
+    &HELPER.get_or_init(create_helper_project).1
+}
 
 /// Write a minimal Cargo project that depends on closeclaw-cli and compiles
 /// the helper binary. Returns (temp_dir, binary_path).
@@ -507,45 +519,36 @@ closeclaw-cli = {{ path = "{}" }}"#,
     (tmp, helper)
 }
 
-/// $TESTVAR is expanded to its value when set.
+/// Env var expansion: table-driven test covering all cases.
+/// Helper binary is compiled once via OnceLock and shared across all cases.
+/// Cases: (input, env vars, expected output)
 #[test]
-fn test_prepare_run_env_var_expanded_when_set() {
-    let (tmp, helper) = create_helper_project();
-    let result = run_helper(&helper, "$TESTVAR/sub", &[("TESTVAR", "/opt/testval")]);
-    let expected = "/opt/testval/sub";
-    assert_eq!(
-        result.trim(),
-        expected,
-        "$TESTVAR should expand to the env value"
-    );
-    drop(tmp);
-}
-
-/// ${TESTVAR} brace syntax is also expanded.
-#[test]
-fn test_prepare_run_env_var_brace_syntax() {
-    let (tmp, helper) = create_helper_project();
-    let result = run_helper(&helper, "${TESTVAR}/sub", &[("TESTVAR", "/opt/braced")]);
-    assert_eq!(
-        result.trim(),
-        "/opt/braced/sub",
-        "brace syntax should expand like bare dollar syntax"
-    );
-    drop(tmp);
-}
-
-/// Undefined env var is preserved as literal text (no error, no empty).
-#[test]
-fn test_prepare_run_undefined_env_var_preserved() {
-    let (tmp, helper) = create_helper_project();
-    // Run without setting TESTVAR — the literal $TESTVAR should remain.
-    let result = run_helper(&helper, "$UNDEFINED_XYZ_12345/sub", &[]);
-    assert_eq!(
-        result.trim(),
-        "$UNDEFINED_XYZ_12345/sub",
-        "undefined env var should be preserved as literal"
-    );
-    drop(tmp);
+fn test_prepare_run_env_var_expansion() {
+    let helper = helper_path();
+    let cases: &[(&str, &[(&str, &str)], &str)] = &[
+        // $TESTVAR is expanded to its value when set
+        (
+            "$TESTVAR/sub",
+            &[("TESTVAR", "/opt/testval")],
+            "/opt/testval/sub",
+        ),
+        // ${TESTVAR} brace syntax is also expanded
+        (
+            "${TESTVAR}/sub",
+            &[("TESTVAR", "/opt/braced")],
+            "/opt/braced/sub",
+        ),
+        // Undefined env var is preserved as literal text
+        ("$UNDEFINED_XYZ_12345/sub", &[], "$UNDEFINED_XYZ_12345/sub"),
+    ];
+    for (input, envs, expected) in cases {
+        let result = run_helper(helper, input, envs);
+        assert_eq!(
+            result.trim(),
+            *expected,
+            "env var expansion failed for input={input}"
+        );
+    }
 }
 
 /// root_dir() failure (HOME unset) propagates as an error.
