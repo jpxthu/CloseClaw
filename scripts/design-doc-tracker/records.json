@@ -577,9 +577,9 @@
   },
   {
     "path": "docs/design/skills/README.md",
-    "commit": "cc8806b45c9e99ceb99b7cb69246cb76865354f0",
-    "commit_time": "2026-09-07T06:06:25+08:00",
-    "confirmed_time": "2026-09-07T06:16:38.097950+08:00",
+    "commit": "1e3f553f0c350e18f08d6cf5c5e6c5a94f3848e2",
+    "commit_time": "2026-09-10T16:59:48+08:00",
+    "confirmed_time": "2026-09-10T17:09:05.399410+08:00",
     "comment": "",
     "blocked_reason": ""
   },
