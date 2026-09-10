@@ -456,6 +456,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/platform/config-directory.md",
+    "commit": "",
+    "commit_time": "",
+    "confirmed_time": "2026-09-10T23:11:37.608452+08:00",
+    "comment": "",
+    "blocked_reason": "文档「模块关系>无关」声明 Gateway、IM Adapter 不涉及配置目录，但代码中两者均为 config_dir 核心消费者：gateway/src/lib.rs 持有 config_dir 字段及 set/get 方法，im_adapter 平台插件经 register_platform_plugins(config_dir) 加载 platforms.json/accounts.json 等配置。代码无法向该事实性错误声明对齐（剥离将破坏功能），文档禁止修改，属文档事实错误。"
+  },
+  {
     "path": "docs/design/processor_chain/README.md",
     "commit": "ff1dff6233907940e3d0984e8cd06f13c891b34a",
     "commit_time": "2026-09-06T04:38:08+08:00",
