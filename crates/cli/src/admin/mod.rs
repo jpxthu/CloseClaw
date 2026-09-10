@@ -16,7 +16,7 @@ pub use rpc::{
 
 pub use agent::{handle_agent, handle_agent_with};
 pub use common::{
-    config_dir, mask_key, ConfigListFile, ConfigListOutput, ConfigValidateOutput, RuleCheckOutput,
+    mask_key, ConfigListFile, ConfigListOutput, ConfigValidateOutput, RuleCheckOutput,
     RuleListEntry, RuleListOutput, RunOutput, StopOutput,
 };
 pub use config::{handle_config, handle_config_with, read_config_files};

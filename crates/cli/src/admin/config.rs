@@ -1,7 +1,7 @@
 //! Config handler functions for CLI admin.
 
 use super::common::{
-    config_dir, json_error, json_output, ConfigListFile, ConfigListOutput, ConfigValidateOutput,
+    config_root, json_error, json_output, ConfigListFile, ConfigListOutput, ConfigValidateOutput,
 };
 use crate::args::ConfigAction;
 use anyhow::Result;
@@ -10,7 +10,7 @@ use closeclaw_config::validators::for_section;
 use std::path::{Path, PathBuf};
 
 pub async fn handle_config(action: ConfigAction, json: bool) -> Result<()> {
-    handle_config_with(action, config_dir(), json).await
+    handle_config_with(action, config_root()?, json).await
 }
 
 pub async fn handle_config_with(
@@ -20,7 +20,7 @@ pub async fn handle_config_with(
 ) -> Result<()> {
     match action {
         ConfigAction::Validate { file } => handle_config_validate(&file, json),
-        ConfigAction::List => handle_config_list(&config_dir, json),
+        ConfigAction::List => handle_config_list(&config_dir.join("config"), json),
         ConfigAction::Setup { yes } => handle_config_setup(yes).await,
     }
 }
@@ -212,11 +212,9 @@ pub async fn handle_config_setup(skip: bool) -> Result<()> {
     config_wizard::write_wizard_config(&output)?;
 
     // Ensure the master agent exists after writing config.
-    let config_path = std::env::var("HOME")
-        .map(|h| std::path::PathBuf::from(h).join(".closeclaw"))
-        .map_err(|e| anyhow::anyhow!("HOME not set: {}", e))?;
-    let agents_dir = config_path.join("agents");
-    let config_dir = config_path.join("config");
+    let config_root = config_root()?;
+    let agents_dir = config_root.join("agents");
+    let config_dir = config_root.join("config");
     config_wizard::ensure_master_agent(&config_dir, &agents_dir)?;
 
     Ok(())

@@ -117,17 +117,6 @@ pub(crate) fn config_root() -> anyhow::Result<PathBuf> {
     closeclaw_platform::config::root_dir()
 }
 
-/// Return the legacy config root path (non-Result).
-///
-/// This is a compatibility shim kept temporarily so callers that have not
-/// yet migrated to [`config_root`] continue to compile.  It will be
-/// removed in Step 1.2.
-// TODO(step-1.2): remove once callers use config_root()
-#[allow(dead_code)]
-pub fn config_dir() -> PathBuf {
-    config_root().expect("HOME not set")
-}
-
 #[allow(dead_code)]
 pub fn mask_key(key: &str) -> String {
     if key.len() <= 8 {

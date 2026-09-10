@@ -1,13 +1,13 @@
 //! Skill handler functions for CLI admin.
 
-use super::common::{config_dir, json_output};
+use super::common::{config_root, json_output};
 use crate::admin::{admin_socket_path, AdminClient, AdminRequest, AdminResponse};
 use crate::args::SkillAction;
 use anyhow::Result;
 use std::path::PathBuf;
 
 pub async fn handle_skill(action: SkillAction, json: bool) -> Result<()> {
-    handle_skill_with(action, config_dir(), json).await
+    handle_skill_with(action, config_root()?, json).await
 }
 
 pub async fn handle_skill_with(action: SkillAction, cfg_dir: PathBuf, json: bool) -> Result<()> {
