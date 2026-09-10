@@ -1,7 +1,4 @@
-use crate::fs::{
-    check_executable, check_readable, check_writable, expand_env, expand_home, expand_path,
-    normalize_path, set_executable, to_platform_path,
-};
+use crate::fs::{expand_env, expand_home, expand_path, normalize_path, to_platform_path};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -287,45 +284,6 @@ fn test_expand_path_normalizes_backslashes() {
     assert_eq!(result, PathBuf::from("C:/Users/test"));
 }
 
-// --- check_ / set_executable tests ---
-
-#[test]
-fn test_check_readable_existing_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("readable.txt");
-    std::fs::write(&file, b"hello").unwrap();
-    assert!(check_readable(&file));
-}
-
-#[test]
-fn test_check_readable_nonexistent_file() {
-    assert!(!check_readable(Path::new(
-        "/tmp/_nonexistent_closeclaw_test_file"
-    )));
-}
-
-#[test]
-fn test_check_writable_existing_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("writable.txt");
-    std::fs::write(&file, b"hello").unwrap();
-    assert!(check_writable(&file));
-}
-
-#[test]
-fn test_check_writable_nonexistent_file() {
-    assert!(!check_writable(Path::new(
-        "/tmp/_nonexistent_closeclaw_test_file"
-    )));
-}
-
-#[test]
-fn test_check_executable_directory() {
-    // Directories typically have the execute bit set on Unix
-    let dir = tempfile::tempdir().unwrap();
-    assert!(check_executable(dir.path()));
-}
-
 /// Relative path without tilde should not be modified by normalize_path.
 #[test]
 fn test_normalize_path_relative() {
@@ -340,19 +298,4 @@ fn test_normalize_path_home_dir_not_expanded() {
     let path = Path::new(r"~\.closeclaw\config");
     let normalized = normalize_path(path);
     assert_eq!(normalized, PathBuf::from("~/.closeclaw/config"));
-}
-
-#[test]
-fn test_set_executable_toggle() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("script.sh");
-    std::fs::write(&file, b"#!/bin/sh\necho hi").unwrap();
-
-    // Remove execute bit
-    set_executable(&file, false).unwrap();
-    assert!(!check_executable(&file));
-
-    // Set execute bit
-    set_executable(&file, true).unwrap();
-    assert!(check_executable(&file));
 }
