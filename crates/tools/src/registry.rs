@@ -314,9 +314,9 @@ impl ToolRegistryImpl {
 
     /// Register all tools from the given registrars, sorted by priority.
     ///
-    /// After all registrars have been called successfully, the registry is
-    /// frozen — subsequent calls to [`register`](Self::register) will return
-    /// [`ToolError::Frozen`].
+    /// After all registrars have been called successfully, the registry remains
+    /// unfrozen — callers must explicitly call [`freeze()`](Self::freeze) after
+    /// all tools (including system-level tools) have been registered.
     ///
     /// # Errors
     /// Returns [`ToolRegistrarError::Conflict`] if a tool name collision is
@@ -340,7 +340,6 @@ impl ToolRegistryImpl {
                 .await?;
         }
 
-        self.frozen.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -455,6 +454,37 @@ impl ToolRegistryImpl {
     /// Returns the number of registered tools.
     pub async fn len_for_test(&self) -> usize {
         self.tools.read().await.len()
+    }
+
+    /// Register a single tool before the registry is frozen.
+    ///
+    /// This method is intended for system-level tools (e.g., Mode and Workflow
+    /// tools) that must be registered after the standard Registrar chain but
+    /// before `freeze()` is called.
+    ///
+    /// # Errors
+    /// Returns [`ToolError::Frozen`] if the registry is already frozen.
+    /// Returns [`ToolError::AlreadyRegistered`] if a tool with the same name
+    /// already exists.
+    pub async fn register_before_freeze(
+        &self,
+        tool: Arc<dyn Tool>,
+        registrar_name: &str,
+    ) -> Result<(), ToolError> {
+        if self.frozen.load(Ordering::Acquire) {
+            return Err(ToolError::Frozen);
+        }
+        let name = tool.name().to_string();
+        let mut guard = self.tools.write().await;
+        if guard.contains_key(&name) {
+            return Err(ToolError::AlreadyRegistered(name));
+        }
+        guard.insert(name.clone(), tool);
+        self.generation.fetch_add(1, Ordering::Release);
+        drop(guard);
+        let mut owners = self.owners.write().await;
+        owners.insert(name, registrar_name.to_string());
+        Ok(())
     }
 }
 
