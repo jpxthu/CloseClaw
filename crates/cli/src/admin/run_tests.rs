@@ -6,8 +6,11 @@
 //! 3. DaemonRunner error propagates through handle_run_foreground
 //! 4. Foreground mode writes the PID file correctly
 
-use super::run::{ensure_no_running_daemon, handle_run, handle_run_foreground, DaemonRunner};
+use super::run::{
+    ensure_no_running_daemon, handle_run, handle_run_foreground, prepare_run, DaemonRunner,
+};
 use closeclaw_platform::process::{pid_file_path, write_pid_file};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -320,4 +323,248 @@ fn test_ensure_no_running_daemon_alive() {
         pid_file.exists(),
         "PID file should be preserved for alive process"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// prepare_run path expansion tests
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// These tests verify the behavioral dimensions required by the plan:
+// - Normal paths: relative preserved, ~ expanded to absolute home
+// - Env var expansion: $VAR/${VAR} expanded via subprocess
+//   (env mutation prohibited by CONTRIBUTING.md §7)
+// - Edge cases: empty string → root_dir(), bare ~ → home
+// - Error propagation: root_dir() failure
+
+/// Relative path without shorthand is preserved as-is by expand_path
+/// (expand_home / expand_env are no-ops for paths without ~ or $).
+#[test]
+fn test_prepare_run_relative_path_preserved() {
+    let (config_dir, pid_file) = prepare_run("some/relative/path").unwrap();
+    let expected = PathBuf::from("some/relative/path");
+    assert_eq!(
+        config_dir, expected,
+        "relative path should be preserved without modification"
+    );
+    assert!(
+        pid_file.starts_with(&expected),
+        "pid_file should be under the config_dir"
+    );
+}
+
+/// Absolute path (no shorthand) passes through expand_path idempotently.
+#[test]
+fn test_prepare_run_absolute_path_idempotent() {
+    let (config_dir, _pid_file) = prepare_run("/tmp/absolute/test").unwrap();
+    assert_eq!(
+        config_dir,
+        PathBuf::from("/tmp/absolute/test"),
+        "absolute path without shorthand should be unchanged"
+    );
+    assert!(config_dir.is_absolute());
+}
+
+/// `~` prefix expands to the user's actual home directory.
+/// The expanded path must be absolute and must NOT start with `~`.
+#[test]
+fn test_prepare_run_tilde_expands_to_absolute_home() {
+    let (config_dir, _pid_file) = prepare_run("~/conf").unwrap();
+    assert!(
+        config_dir.is_absolute(),
+        "expanded ~ path should be absolute, got: {}",
+        config_dir.display()
+    );
+    assert!(
+        !config_dir.to_string_lossy().starts_with('~'),
+        "expanded path should not start with ~, got: {}",
+        config_dir.display()
+    );
+    // Should end with /conf (the suffix after ~/).
+    assert!(
+        config_dir.ends_with("conf"),
+        "expanded path should retain the suffix, got: {}",
+        config_dir.display()
+    );
+}
+
+/// Empty string falls back to root_dir() default (same as no --config-dir).
+#[test]
+fn test_prepare_run_empty_string_uses_root_dir_default() {
+    let (config_dir_empty, _) = prepare_run("").unwrap();
+    let (config_dir_default, _) = prepare_run("").unwrap();
+    // Both calls should produce the same root_dir() result.
+    assert_eq!(
+        config_dir_empty, config_dir_default,
+        "empty string should consistently use root_dir() default"
+    );
+    assert!(
+        config_dir_empty.is_absolute(),
+        "root_dir() should return an absolute path"
+    );
+}
+
+/// Bare `~` expands to the home directory itself (no suffix appended).
+#[test]
+fn test_prepare_run_bare_tilde_is_home() {
+    let (config_dir, _pid_file) = prepare_run("~").unwrap();
+    assert!(
+        config_dir.is_absolute(),
+        "bare ~ should expand to an absolute home path, got: {}",
+        config_dir.display()
+    );
+    assert!(
+        !config_dir.to_string_lossy().ends_with('~'),
+        "bare ~ should not remain literal, got: {}",
+        config_dir.display()
+    );
+    // The result should be exactly the home directory (no extra segments).
+    let home = dirs::home_dir().expect("HOME should be available in test env");
+    assert_eq!(
+        config_dir, home,
+        "bare ~ should resolve to home dir exactly"
+    );
+}
+
+// ── Env var expansion tests (subprocess-based) ────────────────────────────
+// Env mutation is prohibited by CONTRIBUTING.md §7,
+// so env var expansion is tested by spawning a subprocess with the
+// target env set and parsing the output.
+
+/// Run the helper binary with optional env vars set and return its stdout.
+fn run_helper(helper: &std::path::Path, config_dir: &str, envs: &[(&str, &str)]) -> String {
+    let mut cmd = std::process::Command::new(helper);
+    cmd.arg(config_dir);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let output = cmd.output().expect("failed to execute helper binary");
+    assert!(
+        output.status.success(),
+        "helper binary failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("helper output is not UTF-8")
+}
+
+/// Helper binary source: compiled into a temporary crate at test time.
+/// Prints the config_dir path returned by prepare_run.
+const HELPER_SRC: &str = r#"fn main() {
+    let config_dir = std::env::args().nth(1).unwrap_or_default();
+    let (resolved, _) = closeclaw_cli::admin::run::prepare_run(&config_dir).unwrap();
+    println!("{}", resolved.display());
+}"#;
+
+/// Write a minimal Cargo project that depends on closeclaw-cli and compiles
+/// the helper binary. Returns (temp_dir, binary_path).
+fn create_helper_project() -> (TempDir, std::path::PathBuf) {
+    let tmp = TempDir::new().unwrap();
+    let proj = tmp.path().join("helper_proj");
+    std::fs::create_dir_all(proj.join("src")).unwrap();
+
+    // Find workspace root for path dependencies.
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+    let cli_path = workspace_root.join("crates").join("cli");
+    // Write Cargo.toml with path dep to closeclaw-cli.
+    let cargo_toml = format!(
+        r#"[package]
+name = "prepare_run_helper"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+closeclaw-cli = {{ path = "{}" }}"#,
+        cli_path.display()
+    );
+    std::fs::write(proj.join("Cargo.toml"), &cargo_toml).unwrap();
+    std::fs::write(proj.join("src").join("main.rs"), HELPER_SRC).unwrap();
+
+    // Build.
+    let status = std::process::Command::new("cargo")
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(proj.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(tmp.path().join("target"))
+        .current_dir(&workspace_root)
+        .status()
+        .expect("failed to compile helper binary");
+    assert!(status.success(), "helper binary compilation failed");
+
+    let helper = tmp
+        .path()
+        .join("target")
+        .join("debug")
+        .join("prepare_run_helper");
+    assert!(
+        helper.exists(),
+        "helper binary not found at {}",
+        helper.display()
+    );
+
+    (tmp, helper)
+}
+
+/// $TESTVAR is expanded to its value when set.
+#[test]
+fn test_prepare_run_env_var_expanded_when_set() {
+    let (tmp, helper) = create_helper_project();
+    let result = run_helper(&helper, "$TESTVAR/sub", &[("TESTVAR", "/opt/testval")]);
+    let expected = "/opt/testval/sub";
+    assert_eq!(
+        result.trim(),
+        expected,
+        "$TESTVAR should expand to the env value"
+    );
+    drop(tmp);
+}
+
+/// ${TESTVAR} brace syntax is also expanded.
+#[test]
+fn test_prepare_run_env_var_brace_syntax() {
+    let (tmp, helper) = create_helper_project();
+    let result = run_helper(&helper, "${TESTVAR}/sub", &[("TESTVAR", "/opt/braced")]);
+    assert_eq!(
+        result.trim(),
+        "/opt/braced/sub",
+        "brace syntax should expand like bare dollar syntax"
+    );
+    drop(tmp);
+}
+
+/// Undefined env var is preserved as literal text (no error, no empty).
+#[test]
+fn test_prepare_run_undefined_env_var_preserved() {
+    let (tmp, helper) = create_helper_project();
+    // Run without setting TESTVAR — the literal $TESTVAR should remain.
+    let result = run_helper(&helper, "$UNDEFINED_XYZ_12345/sub", &[]);
+    assert_eq!(
+        result.trim(),
+        "$UNDEFINED_XYZ_12345/sub",
+        "undefined env var should be preserved as literal"
+    );
+    drop(tmp);
+}
+
+/// root_dir() failure (HOME unset) propagates as an error.
+/// When HOME is unset, root_dir() returns an error, and prepare_run(""")
+/// must propagate it rather than panicking.
+#[test]
+fn test_prepare_run_root_dir_failure_propagates() {
+    let (tmp, helper) = create_helper_project();
+    let output = std::process::Command::new(&helper)
+        .arg("")
+        .env_remove("HOME")
+        .output()
+        .expect("failed to execute helper binary");
+    assert!(
+        !output.status.success(),
+        "should fail when HOME is unset and config_dir is empty"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("HOME") || stderr.contains("environment variable"),
+        "error should reference HOME or environment variable, got: {stderr}"
+    );
+    drop(tmp);
 }
