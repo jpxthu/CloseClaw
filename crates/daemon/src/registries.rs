@@ -5,6 +5,7 @@ use crate::config_watcher;
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
 use closeclaw_agent::AgentConfigLookup;
+use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
@@ -14,9 +15,7 @@ use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionToolsRegistrar
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use closeclaw_tools::builtin::SkillTool;
-use closeclaw_tools::{
-    CoreToolsRegistrar, ModeToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry,
-};
+use closeclaw_tools::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -256,20 +255,53 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     ));
     let skills_registrar = SkillsToolsRegistrar::new(vec![skill_tool]);
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
-    let mode_registrar = ModeToolsRegistrar::new(
-        Arc::clone(ctx.session_manager),
-        Arc::clone(ctx.confirm_flow),
-    );
 
+    // Four standard registrars per docs/design/tools/tool-registrar.md:
+    // core(1) → session(2) → skills(3) → im_adapter(4)
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
         Box::new(core_registrar),
         Box::new(session_registrar),
         Box::new(skills_registrar),
         Box::new(im_adapter_registrar),
-        Box::new(mode_registrar),
     ];
 
     if let Err(e) = ctx.tool_registry.register_all(registrars).await {
         tracing::error!(error = %e, "failed to register builtin tools via registrars");
+        return;
     }
+
+    // System-level tools registered after standard chain, before freeze.
+    // Mode execution trigger tool
+    let mode_tool: Arc<dyn closeclaw_common::Tool> =
+        Arc::new(closeclaw_tools::builtin::ModeExecutionTriggerTool::new(
+            Arc::clone(ctx.session_manager),
+            Arc::clone(ctx.confirm_flow),
+        ));
+    if let Err(e) = ctx
+        .tool_registry
+        .register_before_freeze(mode_tool, "SystemLevel")
+        .await
+    {
+        tracing::error!(error = %e, "failed to register ModeExecutionTrigger tool");
+    }
+
+    // Workflow tools
+    let workflow_tools: Vec<Arc<dyn closeclaw_common::Tool>> = vec![
+        Arc::new(closeclaw_tools::builtin::WorkflowStartTool),
+        Arc::new(closeclaw_tools::builtin::WorkflowVerifyTool),
+        Arc::new(closeclaw_tools::builtin::WorkflowJumpTool),
+        Arc::new(closeclaw_tools::builtin::WorkflowBlockedTool),
+    ];
+    for tool in workflow_tools {
+        if let Err(e) = ctx
+            .tool_registry
+            .register_before_freeze(tool, "SystemLevel")
+            .await
+        {
+            tracing::error!(error = %e, "failed to register Workflow tool");
+        }
+    }
+
+    // Freeze the registry — no further registrations accepted
+    ctx.tool_registry.freeze();
 }
