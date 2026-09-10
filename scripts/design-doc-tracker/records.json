@@ -761,11 +761,11 @@
   },
   {
     "path": "docs/design/tools/README.md",
-    "commit": "5944b0d40dea92283b604b9a0d7de115c72176ad",
-    "commit_time": "2026-09-08T13:22:28+08:00",
-    "confirmed_time": "2026-09-10T17:25:12.422077+08:00",
+    "commit": "ea9d391afd9d4ff1e45565d7ea4fd8990f933443",
+    "commit_time": "2026-09-10T19:48:41+08:00",
+    "confirmed_time": "2026-09-10T20:03:07.257033+08:00",
     "comment": "",
-    "blocked_reason": "飞书工具名称矛盾：文档列出细粒度工具名（如 feishu_im_user_message），代码实际注册聚合名称（FeishuIm、FeishuCalendar 等）。文档声称的工具名在代码中不存在，导致开发者无法根据文档定位工具注册。"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/tools/background-tasks.md",
