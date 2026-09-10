@@ -17,6 +17,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **工作目录**：Agent 的默认工作目录
 - **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效，子 Session 加载范围见 system_prompt §F8）
 - **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格，见 F2）所在目录
+- **无 Bootstrap 文件声明**（可选）：声明该 Agent 运行时不使用任何 Bootstrap 文件。声明后该 Agent 的 Session 按无 Bootstrap 文件的 Session 类型运行（见 [system_prompt §F8](system_prompt.md)（Session 类型适配））
 - **工具白名单/黑名单**：Agent 可以使用的工具范围
 - **技能白名单**：Agent 可以使用的技能范围。技能的发现、目录结构和多 Agent 隔离详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）
 - **子 Session 创建控制**：Agent 创建子 Session 的控制参数（目标白名单、层级深度、并发数量、子 Session 默认模型等）
@@ -32,11 +33,11 @@ Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent
 配置档案中的能力配置和身份人格是两层独立的概念：
 
 - **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案，见 F3）
-- **Bootstrap 文件**定义 Agent 的身份人格——操作规程、角色定义、Owner 偏好等
+- **Bootstrap 文件**定义 Agent 的身份人格
 
 Agent 的身份人格文件由配置档案指定，相关字段包括身份加载模式和 Bootstrap 文件目录。
 
-> **交叉引用**：完整模式与精简模式各自加载的文件范围。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：Bootstrap 文件的类型清单，以及完整模式与精简模式各自加载的文件范围。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
 
 ### F3. Agent 能力组合
 
@@ -59,7 +60,7 @@ Agent 的能力边界由配置档案中的字段组合与权限基线共同决�
 
 ### F6. 运行时配置查询
 
-系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、工具白名单/黑名单、技能白名单、子 Session 创建控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力，例如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
+系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、无 Bootstrap 文件声明、工具白名单/黑名单、技能白名单、子 Session 创建控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力，例如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
 
 配置变更的检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。注册清单变更（Agent 增删）或 Agent 配置变更生效后，新创建的 Session 使用最新配置，已运行的 Session 沿用创建时的配置。
 
