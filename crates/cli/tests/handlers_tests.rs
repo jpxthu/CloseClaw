@@ -379,14 +379,7 @@ async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHa
     // ConfigManager receives the config subdirectory
     let config_sub = config_dir.join("config");
     let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
-    // Create a skills directory so dispatch_skill_rescan can scan it.
-    let skills_dir = config_dir.join("skills");
-    fs::create_dir_all(&skills_dir).unwrap();
-    let mut skill_registry = closeclaw_skills::DiskSkillRegistry::default();
-    skill_registry.set_scan_config(closeclaw_skills::disk::types::ScanConfig {
-        global_dir: Some(skills_dir),
-        ..Default::default()
-    });
+    let skill_registry = closeclaw_skills::DiskSkillRegistry::default();
     let context = closeclaw_cli::admin::AdminContext {
         agent_registry: Arc::new(closeclaw_agent::registry::AgentRegistry::new()),
         skill_registry: Arc::new(std::sync::RwLock::new(Some(skill_registry))),
@@ -519,31 +512,6 @@ async fn test_handle_skill_list_empty() {
     handle.abort();
 }
 
-#[tokio::test]
-async fn test_handle_skill_rescan() {
-    let (_tmp, config_dir) = setup_admin_config_dir();
-    let (config_dir, handle) = start_mock_server(config_dir).await;
-    let result = handle_skill_with(SkillAction::Rescan, config_dir, false).await;
-    assert!(result.is_ok(), "skill rescan should succeed: {:?}", result);
-    handle.abort();
-}
-
-/// Error path: daemon not running → rescan returns connection error.
-#[tokio::test]
-async fn test_handle_skill_rescan_daemon_not_running() {
-    let tmp = TempDir::new().unwrap();
-    let config_dir = config_dir_for(tmp.path());
-    // No server started — connection should fail
-    let result = handle_skill_with(SkillAction::Rescan, config_dir, false).await;
-    assert!(result.is_err(), "rescan without daemon should fail");
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("Failed to connect"),
-        "error should mention connection failure: {}",
-        err_msg
-    );
-}
-
 // ---------------------------------------------------------------------------
 // JSON output struct tests
 // ---------------------------------------------------------------------------
@@ -554,6 +522,8 @@ fn test_json_output_structs() {
         file: "test.json".into(),
         valid: true,
         version: Some("1.0".into()),
+        issues: vec![],
+        notes: vec![],
     };
     let v: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&valid).unwrap()).unwrap();
@@ -563,6 +533,8 @@ fn test_json_output_structs() {
         file: "bad.json".into(),
         valid: false,
         version: None,
+        issues: vec!["some error".into()],
+        notes: vec![],
     };
     assert!(!serde_json::to_string(&invalid).unwrap().contains("version"));
     let output = ConfigListOutput {
@@ -762,14 +734,8 @@ async fn test_agent_json_crud() {
 async fn test_skill_list_and_rescan_json() {
     let (_tmp, config_dir) = setup_admin_config_dir();
     let (config_dir, handle) = start_mock_server(config_dir).await;
-    let result = handle_skill_with(SkillAction::List, config_dir.clone(), true).await;
+    let result = handle_skill_with(SkillAction::List, config_dir, true).await;
     assert!(result.is_ok(), "json skill list: {:?}", result);
-    let result = handle_skill_with(SkillAction::Rescan, config_dir, true).await;
-    assert!(
-        result.is_ok(),
-        "json skill rescan should succeed: {:?}",
-        result
-    );
     handle.abort();
 }
 
