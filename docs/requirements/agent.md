@@ -33,11 +33,11 @@ Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent
 配置档案中的能力配置和身份人格是两层独立的概念：
 
 - **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案，见 F3）
-- **Bootstrap 文件**定义 Agent 的身份人格——操作规程、角色定义、Owner 偏好等
+- **Bootstrap 文件**定义 Agent 的身份人格
 
 Agent 的身份人格文件由配置档案指定，相关字段包括身份加载模式和 Bootstrap 文件目录。
 
-> **交叉引用**：完整模式与精简模式各自加载的文件范围。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：Bootstrap 文件的类型清单，以及完整模式与精简模式各自加载的文件范围。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
 
 ### F3. Agent 能力组合
 
