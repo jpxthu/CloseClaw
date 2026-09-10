@@ -118,9 +118,8 @@ pub fn parse_model_selection(input: &str, total: usize) -> anyhow::Result<Vec<us
 }
 
 /// Locate the project config directory (`~/.closeclaw/config/`).
-fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home).join(".closeclaw").join("config")
+fn config_dir() -> anyhow::Result<PathBuf> {
+    closeclaw_platform::config::config_dir()
 }
 
 /// Create the initial `master` agent if it does not already exist.
@@ -309,7 +308,7 @@ pub fn write_wizard_config_to(output: &WizardOutput, config_path: &Path) -> anyh
 
 /// Write wizard output to config files in the default config directory.
 pub fn write_wizard_config(output: &WizardOutput) -> anyhow::Result<()> {
-    write_wizard_config_to(output, &config_dir())
+    write_wizard_config_to(output, &config_dir()?)
 }
 
 /// Compute a default selection string for already-configured models.
