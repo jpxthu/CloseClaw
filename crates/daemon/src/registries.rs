@@ -195,18 +195,45 @@ pub(crate) fn spawn_plan_archive_sweeper(
     (shutdown_tx, task)
 }
 
-/// Register builtin tools via the Registrar pattern.
+/// Build a `SessionToolsRegistrar` from the daemon context.
 ///
-/// Constructs all registrars (core, skills, session, im_adapter, plan),
-/// collects them into a `Vec<Box<dyn ToolRegistrar>>`, and calls
-/// [`ToolRegistry::register_all`] to register everything and freeze
-/// the registry.
+/// Uses trait adapters to bridge `PermissionEngine` and `ApprovalFlow`
+/// into the session tool interfaces.
+fn build_session_registrar(ctx: &RegistryContext<'_>) -> SessionToolsRegistrar {
+    let spawn_validator: Arc<dyn closeclaw_session::spawn_validation::SpawnValidator> =
+        Arc::clone(&ctx.spawn_controller)
+            as Arc<dyn closeclaw_session::spawn_validation::SpawnValidator>;
+    let agent_config_lookup: Arc<dyn AgentConfigLookup> =
+        Arc::clone(ctx.agent_registry) as Arc<dyn AgentConfigLookup>;
+    let permission_evaluator: Arc<dyn closeclaw_common::permission_types::PermissionEvaluator> =
+        Arc::new(PermissionEngineAdapter(Arc::clone(ctx.permission_engine)));
+    let approval_submission: Arc<
+        tokio::sync::Mutex<dyn closeclaw_common::permission_types::ApprovalSubmission>,
+    > = Arc::new(tokio::sync::Mutex::new(ApprovalFlowAdapter(Arc::clone(
+        ctx.approval_flow,
+    ))));
+
+    SessionToolsRegistrar::new(
+        spawn_validator,
+        Arc::clone(&ctx.late_bound_session_manager)
+            as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
+        agent_config_lookup,
+        permission_evaluator,
+        approval_submission,
+    )
+}
+
+/// Register the four standard registrars via `register_all`.
 ///
-/// `SessionToolsRegistrar` is registered at priority 2, after
-/// `CoreToolsRegistrar` (priority 1), per `docs/design/tools/tool-registrar.md`.
-async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
-    // Reuse the task_manager already created and set on SessionManager
-    // by spawn_background_services.
+/// Priority order per `docs/design/tools/tool-registrar.md`:
+/// core(1) → session(2) → skills(3) → im_adapter(4)
+///
+/// Returns `Ok(())` on success; logs and returns `Err` on failure.
+async fn register_standard_registrars(
+    registry: &ToolRegistry,
+    ctx: &RegistryContext<'_>,
+    disk_reg: &Arc<DiskSkillRegistry>,
+) -> anyhow::Result<()> {
     let task_manager: Arc<dyn closeclaw_tasks::TaskManager> = ctx
         .session_manager
         .get_task_manager()
@@ -224,30 +251,7 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     )
     .with_audit_log_path(ctx.data_dir.join("logs").join("audit.log"));
 
-    // Build trait adapters for SessionToolsRegistrar dependencies.
-    // Use the late-bound proxy so tool registration (layer 3) can proceed
-    // before SessionManager (layer 4) is created.
-    let spawn_validator: Arc<dyn closeclaw_session::spawn_validation::SpawnValidator> =
-        Arc::clone(&ctx.spawn_controller)
-            as Arc<dyn closeclaw_session::spawn_validation::SpawnValidator>;
-    let agent_config_lookup: Arc<dyn AgentConfigLookup> =
-        Arc::clone(ctx.agent_registry) as Arc<dyn AgentConfigLookup>;
-    let permission_evaluator: Arc<dyn closeclaw_common::permission_types::PermissionEvaluator> =
-        Arc::new(PermissionEngineAdapter(Arc::clone(ctx.permission_engine)));
-    let approval_submission: Arc<
-        tokio::sync::Mutex<dyn closeclaw_common::permission_types::ApprovalSubmission>,
-    > = Arc::new(tokio::sync::Mutex::new(ApprovalFlowAdapter(Arc::clone(
-        ctx.approval_flow,
-    ))));
-
-    let session_registrar = SessionToolsRegistrar::new(
-        spawn_validator,
-        Arc::clone(&ctx.late_bound_session_manager)
-            as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
-        agent_config_lookup,
-        permission_evaluator,
-        approval_submission,
-    );
+    let session_registrar = build_session_registrar(ctx);
 
     let skill_tool: Arc<dyn closeclaw_common::Tool> = Arc::new(SkillTool::new(
         Arc::clone(disk_reg),
@@ -256,8 +260,6 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
     let skills_registrar = SkillsToolsRegistrar::new(vec![skill_tool]);
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
 
-    // Four standard registrars per docs/design/tools/tool-registrar.md:
-    // core(1) → session(2) → skills(3) → im_adapter(4)
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
         Box::new(core_registrar),
         Box::new(session_registrar),
@@ -265,20 +267,25 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Box::new(im_adapter_registrar),
     ];
 
-    if let Err(e) = ctx.tool_registry.register_all(registrars).await {
-        tracing::error!(error = %e, "failed to register builtin tools via registrars");
-        return;
-    }
+    registry
+        .register_all(registrars)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))
+}
 
-    // System-level tools registered after standard chain, before freeze.
+/// Register system-level tools (Mode + Workflow) and freeze the registry.
+///
+/// Mode and Workflow tools are system-level exceptions that bypass the
+/// standard Registrar chain. They are registered after `register_all`
+/// completes but before `freeze()`.
+async fn register_system_level_tools(registry: &ToolRegistry, ctx: &RegistryContext<'_>) {
     // Mode execution trigger tool
     let mode_tool: Arc<dyn closeclaw_common::Tool> =
         Arc::new(closeclaw_tools::builtin::ModeExecutionTriggerTool::new(
             Arc::clone(ctx.session_manager),
             Arc::clone(ctx.confirm_flow),
         ));
-    if let Err(e) = ctx
-        .tool_registry
+    if let Err(e) = registry
         .register_before_freeze(mode_tool, "SystemLevel")
         .await
     {
@@ -293,17 +300,26 @@ async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkill
         Arc::new(closeclaw_tools::builtin::WorkflowBlockedTool),
     ];
     for tool in workflow_tools {
-        if let Err(e) = ctx
-            .tool_registry
-            .register_before_freeze(tool, "SystemLevel")
-            .await
-        {
+        if let Err(e) = registry.register_before_freeze(tool, "SystemLevel").await {
             tracing::error!(error = %e, "failed to register Workflow tool");
         }
     }
 
     // Freeze the registry — no further registrations accepted
-    ctx.tool_registry.freeze();
+    registry.freeze();
+}
+
+/// Register builtin tools via the Registrar pattern.
+///
+/// Delegates to [`register_standard_registrars`] for the four standard
+/// registrars (core → session → skills → im_adapter), then to
+/// [`register_system_level_tools`] for Mode + Workflow tools and freeze.
+async fn spawn_builtin_tools(ctx: &RegistryContext<'_>, disk_reg: &Arc<DiskSkillRegistry>) {
+    if let Err(e) = register_standard_registrars(ctx.tool_registry, ctx, disk_reg).await {
+        tracing::error!(error = %e, "failed to register builtin tools via registrars");
+        return;
+    }
+    register_system_level_tools(ctx.tool_registry, ctx).await;
 }
 
 #[cfg(test)]
