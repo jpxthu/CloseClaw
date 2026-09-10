@@ -10,59 +10,16 @@ use serde_json::Value;
 use std::path::Path;
 use std::sync::Arc;
 
-use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
-
-use crate::permission_check;
-use crate::permission_check::PermDeps;
-use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_common::ReadRange;
+use closeclaw_config::ConfigManager;
+
+use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
 
-type PermEngine = Arc<tokio::sync::RwLock<PermissionEngine>>;
-type SessionMgr = Arc<SessionManager>;
 type ConfigMgr = Arc<ConfigManager>;
-type ApprovalMtx = Arc<tokio::sync::Mutex<ApprovalFlow>>;
-
-// ---------------------------------------------------------------------------
-// Shared two-level permission check + I/O dispatch
-// ---------------------------------------------------------------------------
-
-/// Two-level permission check then execute `io_fn`.
-///
-/// Level 1: ToolCall dimension — agent must be allowed to invoke the tool.
-/// Level 2: FileOp dimension — agent must have read/write access to the path.
-/// On denial, routes through [`ApprovalFlow`].
-async fn check_and_execute<F>(
-    deps: &PermDeps,
-    ctx: &ToolContext,
-    path: &str,
-    op: &str,
-    io_fn: F,
-) -> Result<ToolResult, ToolCallError>
-where
-    F: std::future::Future<Output = Result<ToolResult, ToolCallError>>,
-{
-    if let Some(r) =
-        permission_check::check_tool_permission(deps, ctx, "file_ops", "call", None).await?
-    {
-        return Ok(r);
-    }
-    if let Some(r) = permission_check::check_file_op_permission(deps, ctx, path, op, None).await? {
-        return Ok(r);
-    }
-    if op == "write" && permission_check::is_config_file(deps.2.as_ref(), path) {
-        if let Some(r) = permission_check::check_config_write_permission(deps, ctx, path).await? {
-            return Ok(r);
-        }
-    }
-    io_fn.await
-}
 
 /// Extract a required string argument from `args`, returning an error if missing.
 fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError> {
@@ -141,20 +98,12 @@ async fn list_dir(path: &str) -> Result<ToolResult, ToolCallError> {
 // ---------------------------------------------------------------------------
 
 pub struct ReadTool {
-    permission_engine: PermEngine,
-    session_manager: SessionMgr,
     config_manager: ConfigMgr,
-    approval_flow: ApprovalMtx,
 }
 
 impl ReadTool {
-    pub fn new(perm: PermEngine, sm: SessionMgr, cm: ConfigMgr, af: ApprovalMtx) -> Self {
-        Self {
-            permission_engine: perm,
-            session_manager: sm,
-            config_manager: cm,
-            approval_flow: af,
-        }
+    pub fn new(cm: ConfigMgr) -> Self {
+        Self { config_manager: cm }
     }
 }
 
@@ -293,20 +242,11 @@ impl Tool for ReadTool {
             .get("limit")
             .and_then(Value::as_f64)
             .map(|v| v as usize);
-        let deps = (
-            self.permission_engine.clone(),
-            self.session_manager.clone(),
-            self.config_manager.clone(),
-            self.approval_flow.clone(),
-        );
-        check_and_execute(&deps, ctx, path, "read", async {
-            let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-            if let Some(cached) = check_dedup_cache(ctx, path, mtime, offset, limit) {
-                return Ok(cached);
-            }
-            read_and_truncate(path, offset, limit, mtime, ctx, &self.config_manager).await
-        })
-        .await
+        let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+        if let Some(cached) = check_dedup_cache(ctx, path, mtime, offset, limit) {
+            return Ok(cached);
+        }
+        read_and_truncate(path, offset, limit, mtime, ctx, &self.config_manager).await
     }
 }
 
@@ -314,21 +254,17 @@ impl Tool for ReadTool {
 // WriteTool
 // ---------------------------------------------------------------------------
 
-pub struct WriteTool {
-    permission_engine: PermEngine,
-    session_manager: SessionMgr,
-    config_manager: ConfigMgr,
-    approval_flow: ApprovalMtx,
-}
+pub struct WriteTool;
 
 impl WriteTool {
-    pub fn new(perm: PermEngine, sm: SessionMgr, cm: ConfigMgr, af: ApprovalMtx) -> Self {
-        Self {
-            permission_engine: perm,
-            session_manager: sm,
-            config_manager: cm,
-            approval_flow: af,
-        }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for WriteTool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -383,21 +319,12 @@ impl Tool for WriteTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let path = required_str(&args, "path")?;
         let content = required_str(&args, "content")?;
-        let deps = (
-            self.permission_engine.clone(),
-            self.session_manager.clone(),
-            self.config_manager.clone(),
-            self.approval_flow.clone(),
-        );
         let path_owned = path.to_string();
-        check_and_execute(&deps, ctx, path, "write", async move {
-            // Staleness check: ensure file hasn't changed since last Read.
-            if Path::new(&path_owned).exists() {
-                check_staleness(ctx, &path_owned).await?;
-            }
-            write_file(&path_owned, content).await
-        })
-        .await
+        // Staleness check: ensure file hasn't changed since last Read.
+        if Path::new(&path_owned).exists() {
+            check_staleness(ctx, &path_owned).await?;
+        }
+        write_file(&path_owned, content).await
     }
 }
 
@@ -405,21 +332,17 @@ impl Tool for WriteTool {
 // EditTool
 // ---------------------------------------------------------------------------
 
-pub struct EditTool {
-    permission_engine: PermEngine,
-    session_manager: SessionMgr,
-    config_manager: ConfigMgr,
-    approval_flow: ApprovalMtx,
-}
+pub struct EditTool;
 
 impl EditTool {
-    pub fn new(perm: PermEngine, sm: SessionMgr, cm: ConfigMgr, af: ApprovalMtx) -> Self {
-        Self {
-            permission_engine: perm,
-            session_manager: sm,
-            config_manager: cm,
-            approval_flow: af,
-        }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for EditTool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -567,30 +490,24 @@ impl Tool for EditTool {
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let path = required_str(&args, "path")?;
         let (edits, replace_all) = parse_edits(&args)?;
-        let deps = (
-            self.permission_engine.clone(),
-            self.session_manager.clone(),
-            self.config_manager.clone(),
-            self.approval_flow.clone(),
-        );
         let path_owned = path.to_string();
-        check_and_execute(&deps, ctx, path, "write", async move {
-            // Staleness check: ensure file hasn't changed since last Read.
-            check_staleness(ctx, &path_owned).await?;
+        // Staleness check: ensure file hasn't changed since last Read.
+        check_staleness(ctx, &path_owned).await?;
 
-            let content = std::fs::read_to_string(&path_owned)
-                .map_err(|e| ToolCallError::ExecutionFailed(format!("{path_owned}: {e}")))?;
-            let (updated, edits_applied) =
-                crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
-                    .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
-            super::readback::write_with_readback(Path::new(&path_owned), &updated)?;
-            Ok(ToolResult {
-                data: serde_json::json!({ "content": updated, "edits_applied": edits_applied }),
-                new_messages: vec![],
-                context_modifier: None,
-            })
+        let content = std::fs::read_to_string(&path_owned)
+            .map_err(|e| ToolCallError::ExecutionFailed(format!("{path_owned}: {e}")))?;
+        let (updated, edits_applied) =
+            crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
+                .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
+        super::readback::write_with_readback(Path::new(&path_owned), &updated)?;
+        Ok(ToolResult {
+            data: serde_json::json!({
+                "content": updated,
+                "edits_applied": edits_applied,
+            }),
+            new_messages: vec![],
+            context_modifier: None,
         })
-        .await
     }
 }
 
@@ -598,21 +515,17 @@ impl Tool for EditTool {
 // GrepTool
 // ---------------------------------------------------------------------------
 
-pub struct GrepTool {
-    permission_engine: PermEngine,
-    session_manager: SessionMgr,
-    config_manager: ConfigMgr,
-    approval_flow: ApprovalMtx,
-}
+pub struct GrepTool;
 
 impl GrepTool {
-    pub fn new(perm: PermEngine, sm: SessionMgr, cm: ConfigMgr, af: ApprovalMtx) -> Self {
-        Self {
-            permission_engine: perm,
-            session_manager: sm,
-            config_manager: cm,
-            approval_flow: af,
-        }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for GrepTool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -668,7 +581,7 @@ impl Tool for GrepTool {
         }
     }
 
-    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let pattern = required_str(&args, "pattern")?;
         let dir = args.get("path").and_then(Value::as_str).unwrap_or(".");
         let is_regex = args.get("is_regex") == Some(&Value::Bool(true));
@@ -679,22 +592,13 @@ impl Tool for GrepTool {
             Regex::new(&regex::escape(pattern))
                 .map_err(|e| ToolCallError::InvalidArgs(format!("regex error: {e}")))?
         };
-        let deps = (
-            self.permission_engine.clone(),
-            self.session_manager.clone(),
-            self.config_manager.clone(),
-            self.approval_flow.clone(),
-        );
-        check_and_execute(&deps, ctx, dir, "read", async move {
-            let mut results = Vec::new();
-            grep_walk(Path::new(dir), &re, &mut results);
-            Ok(ToolResult {
-                data: serde_json::json!({ "results": results }),
-                new_messages: vec![],
-                context_modifier: None,
-            })
+        let mut results = Vec::new();
+        grep_walk(Path::new(dir), &re, &mut results);
+        Ok(ToolResult {
+            data: serde_json::json!({ "results": results }),
+            new_messages: vec![],
+            context_modifier: None,
         })
-        .await
     }
 }
 
@@ -702,21 +606,17 @@ impl Tool for GrepTool {
 // LsTool
 // ---------------------------------------------------------------------------
 
-pub struct LsTool {
-    permission_engine: PermEngine,
-    session_manager: SessionMgr,
-    config_manager: ConfigMgr,
-    approval_flow: ApprovalMtx,
-}
+pub struct LsTool;
 
 impl LsTool {
-    pub fn new(perm: PermEngine, sm: SessionMgr, cm: ConfigMgr, af: ApprovalMtx) -> Self {
-        Self {
-            permission_engine: perm,
-            session_manager: sm,
-            config_manager: cm,
-            approval_flow: af,
-        }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for LsTool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -763,15 +663,9 @@ impl Tool for LsTool {
         }
     }
 
-    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+    async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let path = args.get("path").and_then(Value::as_str).unwrap_or(".");
-        let deps = (
-            self.permission_engine.clone(),
-            self.session_manager.clone(),
-            self.config_manager.clone(),
-            self.approval_flow.clone(),
-        );
-        check_and_execute(&deps, ctx, path, "read", list_dir(path)).await
+        list_dir(path).await
     }
 }
 

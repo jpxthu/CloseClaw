@@ -10,9 +10,7 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 use tempfile::TempDir;
 
-use super::file_ops::tests::{
-    allow_file, allow_tool, make_af, make_cm, make_ctx, make_engine, make_sm,
-};
+use super::file_ops::tests::{make_cm, make_ctx};
 
 // ---------------------------------------------------------------------------
 // Mock ToolSession for dedup cache tests
@@ -111,11 +109,7 @@ async fn test_read_offset_limit_parsing() {
     let content: String = (1..=20).map(|i| format!("line {i}\n")).collect();
     std::fs::write(&file, &content).unwrap();
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "read"),
-    ];
-    let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = ReadTool::new(make_cm());
     let args = serde_json::json!({
         "path": file.to_str().unwrap(),
         "offset": 5,
@@ -137,11 +131,7 @@ async fn test_read_large_file_truncation_with_hint() {
     let content: String = (1..=2500).map(|i| format!("line {i}\n")).collect();
     std::fs::write(&file, &content).unwrap();
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "read"),
-    ];
-    let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = ReadTool::new(make_cm());
     let args = serde_json::json!({ "path": file.to_str().unwrap() });
     let result = tool.call(args, &make_ctx("a")).await.unwrap();
     let text = result.data["content"].as_str().unwrap();
@@ -169,11 +159,7 @@ async fn test_read_dedup_cache_hit() {
         },
     );
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "read"),
-    ];
-    let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = ReadTool::new(make_cm());
     let args = serde_json::json!({ "path": file.to_str().unwrap() });
     let result = tool
         .call(args, &make_ctx_with_session(session))
@@ -203,11 +189,7 @@ async fn test_read_dedup_cache_miss_different_range() {
         },
     );
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "read"),
-    ];
-    let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = ReadTool::new(make_cm());
     let args = serde_json::json!({
         "path": file.to_str().unwrap(),
         "offset": 3,
@@ -244,11 +226,7 @@ async fn test_read_dedup_cache_miss_mtime_changed() {
         },
     );
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "read"),
-    ];
-    let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = ReadTool::new(make_cm());
     let args = serde_json::json!({ "path": file.to_str().unwrap() });
     let result = tool
         .call(args, &make_ctx_with_session(session))
@@ -267,11 +245,7 @@ async fn test_read_large_file_with_offset_continuation() {
     let content: String = (1..=2500).map(|i| format!("line {i}\n")).collect();
     std::fs::write(&file, &content).unwrap();
 
-    let rules = vec![
-        allow_tool("a", "file_ops"),
-        allow_file("a", "/tmp/**", "read"),
-    ];
-    let tool = ReadTool::new(make_engine(rules), make_sm(), make_cm(), make_af());
+    let tool = ReadTool::new(make_cm());
     let args = serde_json::json!({
         "path": file.to_str().unwrap(),
         "offset": 2001

@@ -81,58 +81,13 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(
             registry,
             registered,
-            ReadTool::new(
-                self.permission_engine.clone(),
-                self.session_manager.clone(),
-                self.config_manager.clone(),
-                self.approval_flow.clone(),
-            ),
+            ReadTool::new(self.config_manager.clone()),
             r
         );
-        try_register!(
-            registry,
-            registered,
-            WriteTool::new(
-                self.permission_engine.clone(),
-                self.session_manager.clone(),
-                self.config_manager.clone(),
-                self.approval_flow.clone(),
-            ),
-            r
-        );
-        try_register!(
-            registry,
-            registered,
-            EditTool::new(
-                self.permission_engine.clone(),
-                self.session_manager.clone(),
-                self.config_manager.clone(),
-                self.approval_flow.clone(),
-            ),
-            r
-        );
-        try_register!(
-            registry,
-            registered,
-            GrepTool::new(
-                self.permission_engine.clone(),
-                self.session_manager.clone(),
-                self.config_manager.clone(),
-                self.approval_flow.clone(),
-            ),
-            r
-        );
-        try_register!(
-            registry,
-            registered,
-            LsTool::new(
-                self.permission_engine.clone(),
-                self.session_manager.clone(),
-                self.config_manager.clone(),
-                self.approval_flow.clone(),
-            ),
-            r
-        );
+        try_register!(registry, registered, WriteTool::new(), r);
+        try_register!(registry, registered, EditTool::new(), r);
+        try_register!(registry, registered, GrepTool::new(), r);
+        try_register!(registry, registered, LsTool::new(), r);
         try_register!(
             registry,
             registered,

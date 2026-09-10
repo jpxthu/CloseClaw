@@ -10,10 +10,8 @@
 //! etc.) live in the sibling module [`super::bash_kill`] to keep this
 //! file under the CONTRIBUTING.md 500-line hard cap.
 use crate::bash::CommandSandbox;
-use crate::permission_check::{
-    check_command_permission, check_tool_permission, CommandPermissionResult, PermDeps,
-};
-use crate::security::{BashSecurityAnalyzer, ParseResult, SimpleCommand, TrustLevel};
+use crate::permission_check::PermDeps;
+use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
 use closeclaw_common::ToolExecState;
@@ -488,49 +486,6 @@ fn analyze_security(command: &str) -> Result<ParseResult, ToolCallError> {
     Ok(sec_result)
 }
 
-/// Check Level 2 command permission, routing through approval or sandbox.
-///
-/// When `dangerouslyDisable_sandbox` is true, the sandbox is bypassed
-/// entirely even for denied commands.  Otherwise, denied commands have
-/// landlock + seccomp restrictions applied before execution.
-///
-/// Returns `(Ok(Some(ToolResult)), true)` when routed to the approval flow,
-/// `(Ok(None), true)` when the sandbox was already applied,
-/// `(Ok(None), false)` when permitted (caller proceeds with normal
-/// execution), or `Err` on security analysis errors.
-///
-/// The second element (`sandbox_applied`) tells the caller whether
-/// sandbox restrictions were applied so they must not be applied again.
-async fn check_command_permission_and_route(
-    deps: &PermDeps,
-    ctx: &ToolContext,
-    command: &str,
-    cmd_name: &str,
-    cmd_args: &[String],
-    dangerously_disable_sandbox: bool,
-) -> Result<(Option<ToolResult>, bool), ToolCallError> {
-    match check_command_permission(deps, ctx, cmd_name, cmd_args, None).await {
-        CommandPermissionResult::Permitted => Ok((None, false)),
-        CommandPermissionResult::PendingApproval(result) => Ok((Some(result), false)),
-        CommandPermissionResult::Denied(reason) => {
-            // Design doc: commands without permission are routed to the
-            // sandbox for restricted execution, not directly rejected.
-            tracing::info!(
-                command = %command,
-                reason = %reason,
-                "Command denied by permission engine; routing to sandbox"
-            );
-            if !dangerously_disable_sandbox {
-                let cwd = resolve_cwd(&serde_json::json!({}), ctx);
-                CommandSandbox::apply_sandbox_restrictions(&cwd)?;
-                return Ok((None, true));
-            }
-            // dangerouslyDisableSandbox=true: sandbox fully bypassed
-            Ok((None, false))
-        }
-    }
-}
-
 /// Submit a trust-level denial to the approval flow and optionally notify the owner.
 ///
 /// Builds a [`Caller`] and [`PermissionRequestBody`] from the tool context, then
@@ -615,56 +570,18 @@ async fn route_trust_level(
     }
 }
 
-/// Extract command name and argv from the parse result.
-fn extract_argv(command: &str, commands: &[SimpleCommand]) -> (String, Vec<String>) {
-    commands
-        .first()
-        .map(|cmd| {
-            let name = cmd.argv.first().cloned().unwrap_or_else(|| "*".into());
-            let args = cmd.argv[1..].to_vec();
-            (name, args)
-        })
-        .unwrap_or_else(|| {
-            let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-            let name = cmd_parts.first().copied().unwrap_or("*").to_string();
-            let args = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
-            (name, args)
-        })
-}
-
-/// Analyze security, extract argv, check Level 2 permission, and apply sandbox.
-///
-/// Returns `(Ok(Some(ToolResult)), _)` if routed to approval,
-/// or `(Ok(None), cwd)` to proceed with normal execution.
+/// Resolve working directory and apply sandbox restrictions if needed.
 async fn prepare_and_sandbox(
-    deps: &PermDeps,
     ctx: &ToolContext,
     command: &str,
     args: &Value,
-) -> Result<(Option<ToolResult>, String), ToolCallError> {
-    let sec_result = analyze_security(command)?;
-    let (cmd_name, cmd_args) = extract_argv(command, &sec_result.commands);
+) -> Result<String, ToolCallError> {
     let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
-    let (approval_result, sandbox_already_applied) = check_command_permission_and_route(
-        deps,
-        ctx,
-        command,
-        &cmd_name,
-        &cmd_args,
-        dangerously_disable,
-    )
-    .await?;
-    if let Some(r) = approval_result {
-        return Ok((Some(r), String::new()));
-    }
     let cwd = resolve_cwd(args, ctx);
-    if !sandbox_already_applied
-        && !dangerously_disable
-        && CommandSandbox::should_sandbox(command, true)
-    {
+    if !dangerously_disable && CommandSandbox::should_sandbox(command, true) {
         CommandSandbox::apply_sandbox_restrictions(&cwd)?;
     }
-    Ok((None, cwd))
+    Ok(cwd)
 }
 
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
@@ -701,15 +618,7 @@ async fn execute_bash_call(
         TrustDecision::Trusted => {}
     }
 
-    // Level 1: ToolCall - verify agent may invoke Bash tool.
-    if let Some(r) = check_tool_permission(deps, ctx, "bash", "call", None).await? {
-        return Ok(r);
-    }
-
-    let (approval_result, cwd) = prepare_and_sandbox(deps, ctx, command, &args).await?;
-    if let Some(r) = approval_result {
-        return Ok(r);
-    }
+    let cwd = prepare_and_sandbox(ctx, command, &args).await?;
 
     let session_id = ctx.session_id.as_deref().unwrap_or("");
     execute_command(

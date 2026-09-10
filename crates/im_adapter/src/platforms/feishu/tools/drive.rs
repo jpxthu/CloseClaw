@@ -1,34 +1,37 @@
-//! Feishu Drive tool group — cloud storage operations.
+//! Feishu Drive sub-tool — cloud storage file operations.
 //!
-//! Covers file upload, download, listing, and management in
-//! Feishu Drive.
+//! Each tool corresponds to a single row in the tools README
+//! "各模块注册的工具一览" table for the `feishu_drive` group.
 
 use async_trait::async_trait;
 use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
-/// Feishu Drive (cloud storage) tool.
-///
-/// Provides file upload, download, listing, and management
-/// capabilities for the Feishu Drive platform.
-pub struct FeishuDriveTool;
+const KW_DRV: &str = "[keywords: drive file folder upload download share]";
 
-impl Default for FeishuDriveTool {
+// ---------------------------------------------------------------------------
+// feishu_drive_file
+// ---------------------------------------------------------------------------
+
+/// Manage files in Feishu Drive.
+pub struct FeishuDriveFileTool;
+
+impl Default for FeishuDriveFileTool {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl FeishuDriveTool {
+impl FeishuDriveFileTool {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[async_trait]
-impl Tool for FeishuDriveTool {
+impl Tool for FeishuDriveFileTool {
     fn name(&self) -> &str {
-        "FeishuDrive"
+        "feishu_drive_file"
     }
 
     fn group(&self) -> &str {
@@ -36,15 +39,15 @@ impl Tool for FeishuDriveTool {
     }
 
     fn summary(&self) -> String {
-        "Feishu Drive file operations".to_string()
+        "Manage files in Feishu Drive".to_string()
     }
 
     fn detail(&self) -> String {
-        "[keywords: drive file folder upload download share] \
-         Upload, download, list, and manage files in Feishu Drive. \
-         Supports folder operations, file sharing, and \
-         permission management."
-            .to_string()
+        format!(
+            "{KW_DRV} Upload, download, list, and manage files \
+             in Feishu Drive. Supports folder operations and \
+             permission management."
+        )
     }
 
     fn input_schema(&self) -> Value {
