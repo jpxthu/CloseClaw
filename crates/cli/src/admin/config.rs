@@ -5,6 +5,8 @@ use super::common::{
 };
 use crate::args::ConfigAction;
 use anyhow::Result;
+use closeclaw_config::reload_manager::filename_to_section;
+use closeclaw_config::validators::for_section;
 use std::path::{Path, PathBuf};
 
 pub async fn handle_config(action: ConfigAction, json: bool) -> Result<()> {
@@ -38,37 +40,72 @@ fn handle_config_validate(file: &str, json: bool) -> Result<()> {
             anyhow::bail!("Failed to read '{}': {}", file, e);
         }
     };
-    match serde_json::from_str::<serde_json::Value>(&contents) {
-        Ok(value) => {
-            if json {
-                let version = value
-                    .get("version")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                json_output(&ConfigValidateOutput {
-                    file: filename,
-                    valid: true,
-                    version,
-                });
-                return Ok(());
-            }
-            println!("✅ {}: valid JSON", filename);
-            if let Some(ver) = value.get("version").and_then(|v| v.as_str()) {
-                println!("   version: {}", ver);
-            }
-        }
+    // JSON syntax check
+    let value = match serde_json::from_str::<serde_json::Value>(&contents) {
+        Ok(v) => v,
         Err(e) => {
+            let msg = format!("JSON parse error: {}", e);
             if json {
                 json_output(&ConfigValidateOutput {
                     file: filename,
                     valid: false,
                     version: None,
+                    issues: vec![msg],
                 });
                 return Ok(());
             }
-            println!("❌ {}: {}", filename, e);
-            anyhow::bail!("Validation failed for '{}': {}", file, e);
+            println!("❌ {}: {}", filename, msg);
+            anyhow::bail!("Validation failed for '{}': {}", file, msg);
         }
+    };
+    // Schema-level validation for known config sections
+    let section = filename_to_section(&filename);
+    let mut issues = Vec::new();
+    match section {
+        Some(sec) => {
+            let validator = for_section(sec);
+            if let Err(msg) = validator(&value) {
+                issues.push(msg);
+            }
+        }
+        None => {
+            // Unknown config file — syntax-only, prompt user
+            issues.push(format!(
+                "unknown config file '{}'; no schema validation available",
+                filename
+            ));
+        }
+    }
+    let valid = issues.is_empty();
+    let version = value
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    if json {
+        json_output(&ConfigValidateOutput {
+            file: filename,
+            valid,
+            version,
+            issues,
+        });
+        return Ok(());
+    }
+    // Text output mode
+    if valid {
+        println!("✅ {}: valid", filename);
+        if let Some(ver) = &version {
+            println!("   version: {}", ver);
+        }
+    } else {
+        println!("❌ {}: {} issue(s)", filename, issues.len());
+        for issue in &issues {
+            println!("   - {}", issue);
+        }
+        anyhow::bail!(
+            "Validation failed for '{}' with {} issue(s)",
+            filename,
+            issues.len()
+        );
     }
     Ok(())
 }

@@ -522,6 +522,7 @@ fn test_json_output_structs() {
         file: "test.json".into(),
         valid: true,
         version: Some("1.0".into()),
+        issues: vec![],
     };
     let v: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&valid).unwrap()).unwrap();
@@ -531,6 +532,7 @@ fn test_json_output_structs() {
         file: "bad.json".into(),
         valid: false,
         version: None,
+        issues: vec!["some error".into()],
     };
     assert!(!serde_json::to_string(&invalid).unwrap().contains("version"));
     let output = ConfigListOutput {
