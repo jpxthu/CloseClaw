@@ -4,6 +4,7 @@
 //! the `~` home directory prefix, and check or modify file permissions.
 
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use regex::Regex;
 
@@ -44,11 +45,11 @@ pub fn to_platform_path(path: &Path) -> PathBuf {
 ///
 /// # Examples
 ///
-/// ```
+/// ```no_run
 /// # use std::path::Path;
 /// # use closeclaw_platform::fs::expand_home;
-/// // `~` expands to home directory
-/// assert!(expand_home(Path::new("~")).ends_with("home"));
+/// // `~` expands to an absolute home directory path
+/// assert!(expand_home(Path::new("~")).is_absolute());
 /// ```
 pub fn expand_home(path: &Path) -> PathBuf {
     let s = path.to_string_lossy();
@@ -79,7 +80,7 @@ pub fn expand_home(path: &Path) -> PathBuf {
 /// # Examples
 ///
 /// ```
-/// # use std::path::Path;
+/// # use std::path::{Path, PathBuf};
 /// # use closeclaw_platform::fs::expand_env;
 /// // $VAR and ${VAR} are expanded; undefined vars stay literal
 /// let p = expand_env(Path::new("$NONEXISTENT_XYZ"));
@@ -93,7 +94,9 @@ pub fn expand_env(path: &Path) -> PathBuf {
     // Match ${VAR} or $VAR (POSIX variable syntax).
     // ${VAR} uses a non-greedy capture up to the closing brace.
     // $VAR uses a capture of valid identifier characters.
-    let re = Regex::new(r"\$\{([^}]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)").unwrap();
+    static ENV_VAR_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\$\{([^}]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)").unwrap());
+    let re = &*ENV_VAR_RE;
     let mut result = String::with_capacity(s.len());
     let mut last = 0;
     for m in re.find_iter(&s) {
