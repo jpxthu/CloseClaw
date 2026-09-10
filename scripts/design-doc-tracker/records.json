@@ -49,11 +49,11 @@
   },
   {
     "path": "docs/design/cli/admin.md",
-    "commit": "016d2ed7d61e36937565a46b6c00ede17e378fc8",
-    "commit_time": "2026-09-10T02:16:19+08:00",
-    "confirmed_time": "2026-09-10T02:40:13.396932+08:00",
+    "commit": "ccca0c35ad74a0cd77e0fd3b72ec6dcf038994b2",
+    "commit_time": "2026-09-10T08:58:40+08:00",
+    "confirmed_time": "2026-09-10T16:46:05.942319+08:00",
     "comment": "",
-    "blocked_reason": "设计目标不清晰：(1) config validate 校验深度歧义——'校验配置文件格式'未界定是仅 JSON 语法解析还是 schema 级校验，两种产品形态行为差异巨大；(2) rule check 输入格式未定义——'校验单条规则语法'未说明接受内联 JSON 字符串还是文件路径（CLI help 写 'Rule name or file' 亦与代码行为不一致）。需 Owner 明确设计意图后更新文档"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/cli/chat.md",
@@ -177,9 +177,9 @@
   },
   {
     "path": "docs/design/fake_llm/kv-cache-simulation.md",
-    "commit": "eea00ce7f27f2199ddefbf113b0ead811468a1cb",
-    "commit_time": "2026-08-21T15:18:19+08:00",
-    "confirmed_time": "2026-08-21T15:41:57.462039+08:00",
+    "commit": "8affa724e83dd9d13a464686aa388c324313b65b",
+    "commit_time": "2026-09-10T16:46:59+08:00",
+    "confirmed_time": "2026-09-10T16:58:33.332007+08:00",
     "comment": "",
     "blocked_reason": ""
   },
