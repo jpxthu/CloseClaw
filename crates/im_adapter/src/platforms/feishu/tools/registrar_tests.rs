@@ -1,7 +1,7 @@
 //! Tests for ImAdapterToolsRegistrar registration behavior.
 //!
-//! Verifies that the registrar registers exactly 7 Feishu tools with the
-//! correct names, groups, and deferred flags.
+//! Verifies that the registrar registers exactly 22 Feishu sub-tools
+//! with the correct names, groups, and deferred flags.
 
 use closeclaw_tools::{ToolContext, ToolRegistrar, ToolRegistry};
 
@@ -19,7 +19,7 @@ fn make_ctx() -> ToolContext {
 }
 
 #[tokio::test]
-async fn test_im_adapter_registrar_registers_seven_tools() {
+async fn test_im_adapter_registrar_registers_twenty_two_tools() {
     let registry = ToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
@@ -28,7 +28,7 @@ async fn test_im_adapter_registrar_registers_seven_tools() {
 
     let ctx = make_ctx();
     let descriptors = registry.list_descriptors(&ctx).await;
-    assert_eq!(descriptors.len(), 7, "expected 7 feishu tools");
+    assert_eq!(descriptors.len(), 22, "expected 22 feishu tools");
 }
 
 #[tokio::test]
@@ -43,15 +43,32 @@ async fn test_im_adapter_registrar_tool_names() {
     let descriptors = registry.list_descriptors(&ctx).await;
     let names: Vec<&str> = descriptors.iter().map(|d| d.name.as_str()).collect();
 
-    for expected in &[
-        "FeishuIm",
-        "FeishuCalendar",
-        "FeishuTask",
-        "FeishuBitable",
-        "FeishuDoc",
-        "FeishuDrive",
-        "FeishuSheet",
-    ] {
+    let expected_names = [
+        "feishu_im_user_message",
+        "feishu_im_user_get_messages",
+        "feishu_im_user_get_thread_messages",
+        "feishu_search_user",
+        "feishu_calendar_event",
+        "feishu_calendar_event_attendee",
+        "feishu_calendar_freebusy",
+        "feishu_calendar_calendar",
+        "feishu_task_task",
+        "feishu_task_tasklist",
+        "feishu_task_comment",
+        "feishu_task_subtask",
+        "feishu_bitable_app",
+        "feishu_bitable_app_table",
+        "feishu_bitable_app_table_record",
+        "feishu_bitable_app_table_field",
+        "feishu_bitable_app_table_view",
+        "feishu_doc_comments",
+        "feishu_doc_media",
+        "feishu_search_doc_wiki",
+        "feishu_drive_file",
+        "feishu_sheet",
+    ];
+
+    for expected in &expected_names {
         assert!(
             names.contains(expected),
             "tool '{}' not found in {:?}",
@@ -118,18 +135,37 @@ async fn test_im_adapter_registrar_name_and_priority() {
 async fn test_im_adapter_registrar_idempotent_via_conflict() {
     let registry = ToolRegistry::new();
 
-    // First registration succeeds.
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await
         .unwrap();
 
-    // Second registration should fail with Conflict.
     let result = crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await;
     assert!(result.is_err());
 
-    // Count should still be 7.
-    assert_eq!(registry.len_for_test().await, 7);
+    assert_eq!(registry.len_for_test().await, 22);
+}
+
+#[tokio::test]
+async fn test_im_adapter_registrar_group_counts() {
+    let registry = ToolRegistry::new();
+    crate::ImAdapterToolsRegistrar::new()
+        .register(&registry)
+        .await
+        .unwrap();
+
+    let ctx = make_ctx();
+    let descriptors = registry.list_descriptors(&ctx).await;
+
+    let count = |group: &str| -> usize { descriptors.iter().filter(|d| d.group == group).count() };
+
+    assert_eq!(count("feishu_im"), 4);
+    assert_eq!(count("feishu_calendar"), 4);
+    assert_eq!(count("feishu_task"), 4);
+    assert_eq!(count("feishu_bitable"), 5);
+    assert_eq!(count("feishu_doc"), 3);
+    assert_eq!(count("feishu_drive"), 1);
+    assert_eq!(count("feishu_sheet"), 1);
 }
