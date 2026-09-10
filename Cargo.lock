@@ -834,8 +834,8 @@ dependencies = [
  "closeclaw-debug-log",
  "closeclaw-gateway",
  "closeclaw-llm",
+ "closeclaw-platform",
  "closeclaw-tools",
- "dirs",
  "futures",
  "inventory",
  "regex",
@@ -926,7 +926,9 @@ name = "closeclaw-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "libc",
+ "regex",
  "tempfile",
  "terminal_size",
  "tokio",
