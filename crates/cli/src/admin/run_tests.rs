@@ -338,13 +338,15 @@ fn test_ensure_no_running_daemon_alive() {
 
 /// Relative path without shorthand is preserved as-is by expand_path
 /// (expand_home / expand_env are no-ops for paths without ~ or $).
+/// expand_path performs no semantic change on /-separated paths that lack
+/// ~ or $ prefixes.
 #[test]
 fn test_prepare_run_relative_path_preserved() {
     let (config_dir, pid_file) = prepare_run("some/relative/path").unwrap();
     let expected = PathBuf::from("some/relative/path");
     assert_eq!(
         config_dir, expected,
-        "relative path should be preserved without modification"
+        "relative path should be unchanged (expand_path is a no-op for paths without ~ or $)"
     );
     assert!(
         pid_file.starts_with(&expected),
@@ -450,7 +452,7 @@ fn run_helper(helper: &std::path::Path, config_dir: &str, envs: &[(&str, &str)])
 /// Prints the config_dir path returned by prepare_run.
 const HELPER_SRC: &str = r#"fn main() {
     let config_dir = std::env::args().nth(1).unwrap_or_default();
-    let (resolved, _) = closeclaw_cli::admin::run::prepare_run(&config_dir).unwrap();
+    let (resolved, _) = closeclaw_cli::admin::prepare_run(&config_dir).unwrap();
     println!("{}", resolved.display());
 }"#;
 
