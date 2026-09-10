@@ -574,3 +574,48 @@ fn test_prepare_run_root_dir_failure_propagates() {
     );
     drop(tmp);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// prepare_run decoupling: --config-dir does NOT affect PID file location
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// When different custom config_dir values are passed, prepare_run must
+/// return config_dir that varies with the input, but pid_file must always
+/// be the fixed platform path (~/.closeclaw/daemon.pid). This verifies
+/// that --config-dir is decoupled from PID file location.
+#[test]
+fn test_prepare_run_config_dir_decoupled_from_pid_file() {
+    let (cfg1, pid1) = prepare_run("/custom/a").unwrap();
+    let (cfg2, pid2) = prepare_run("/custom/b").unwrap();
+    let (cfg3, pid3) = prepare_run("~/other").unwrap();
+
+    // config_dir varies with input
+    assert_ne!(
+        cfg1, cfg2,
+        "different inputs must yield different config_dir"
+    );
+    assert_ne!(
+        cfg1, cfg3,
+        "different inputs must yield different config_dir"
+    );
+
+    // pid_file is always the same fixed path regardless of config_dir
+    assert_eq!(
+        pid1, pid2,
+        "pid_file must be identical despite different config_dir"
+    );
+    assert_eq!(
+        pid2, pid3,
+        "pid_file must be identical despite different config_dir"
+    );
+    assert_eq!(
+        pid1,
+        closeclaw_platform::process::pid_file_path().unwrap(),
+        "pid_file must match the platform fixed path"
+    );
+    assert!(
+        pid1.to_string_lossy().ends_with("daemon.pid"),
+        "pid_file must end with daemon.pid, got: {}",
+        pid1.display()
+    );
+}

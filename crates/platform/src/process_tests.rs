@@ -1,6 +1,7 @@
 use crate::process::{
-    check_stale_pid, is_process_alive, pid_file_path_inner, read_pid_file, send_signal,
-    spawn_daemon, stop_daemon, wait_for_exit, write_pid_file, SpawnOptions, StopOutcome,
+    check_stale_pid, is_process_alive, pid_file_path, pid_file_path_inner, read_pid_file,
+    send_signal, spawn_daemon, stop_daemon, wait_for_exit, write_pid_file, SpawnOptions,
+    StopOutcome,
 };
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -138,6 +139,51 @@ fn test_pid_file_path_inner() {
 fn test_pid_file_path_inner_empty_home() {
     let path = pid_file_path_inner("");
     assert_eq!(path, std::path::PathBuf::from(".closeclaw/daemon.pid"));
+}
+
+// ── pid_file_path_inner pure computation tests ───────────────────────
+
+/// pid_file_path_inner is pure path computation — no I/O side effects.
+/// Running it twice with the same input must produce identical results,
+/// and the path must NOT refer to a file that was created as a side effect.
+#[test]
+fn test_pid_file_path_inner_is_pure_no_io() {
+    let path1 = pid_file_path_inner("/some/home");
+    let path2 = pid_file_path_inner("/some/home");
+    assert_eq!(path1, path2, "pure function must be idempotent");
+    assert!(
+        !path1.exists(),
+        "pure function must not create files on disk"
+    );
+}
+
+// ── pid_file_path() consistency tests ───────────────────────────────
+
+/// pid_file_path() must return the same result as pid_file_path_inner(HOME)
+/// — the public API delegates to the injectable inner, forming a single
+/// source of truth for the fixed PID path.
+#[test]
+fn test_pid_file_path_matches_inner_with_home() {
+    let public = pid_file_path().unwrap();
+    let home = std::env::var("HOME").unwrap();
+    let inner = pid_file_path_inner(&home);
+    assert_eq!(
+        public, inner,
+        "pid_file_path() must equal pid_file_path_inner(HOME)"
+    );
+    assert!(public.is_absolute(), "fixed PID path must be absolute");
+    assert!(public.to_string_lossy().ends_with("daemon.pid"));
+}
+
+/// pid_file_path() is a no-arg constant — multiple calls must always
+/// return the same value, regardless of when or how often called.
+#[test]
+fn test_pid_file_path_is_stable_constant() {
+    let first = pid_file_path().unwrap();
+    let second = pid_file_path().unwrap();
+    let third = pid_file_path().unwrap();
+    assert_eq!(first, second);
+    assert_eq!(second, third);
 }
 
 // ── send_signal tests ──────────────────────────────────────────────
