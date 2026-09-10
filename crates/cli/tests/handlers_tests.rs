@@ -891,6 +891,8 @@ async fn test_handle_stop_no_pid_and_self_kill() {
         err_msg.contains("Refusing to kill self"),
         "error should mention self-kill refusal, got: {err_msg}"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Step 1.3 — handle_stop_at: signal → wait → cleanup full chain ──

@@ -310,9 +310,10 @@ fn test_spawn_daemon_writes_pid_file() {
         "PID file should contain the spawned child PID"
     );
 
-    // Clean up child process.
+    // Clean up: child process + PID file left at the fixed path.
     child.kill().ok();
     child.wait().ok();
+    std::fs::remove_file(&path).ok();
 }
 
 #[test]

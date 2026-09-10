@@ -151,6 +151,8 @@ async fn test_handle_run_foreground_writes_pid_file() {
         std::process::id(),
         "PID file should contain the current process ID"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 5: Foreground rejects start when alive instance detected ───────────
@@ -178,6 +180,8 @@ async fn test_handle_run_foreground_rejects_alive_daemon() {
         !mock.was_called(),
         "DaemonRunner should NOT be called when daemon is alive"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 6: Foreground cleans stale PID file and starts normally ────────────
@@ -247,6 +251,8 @@ async fn test_handle_run_background_rejects_alive_daemon() {
         !mock.was_called(),
         "DaemonRunner should NOT be called when daemon is alive"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 9: Background cleans stale PID file ────────────────────────────────
