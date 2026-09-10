@@ -1,6 +1,7 @@
 //! Tests for `register_before_freeze` method on ToolRegistryImpl.
 
 use super::*;
+use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
 use std::sync::Arc;
 
 /// Normal registration: tool can be queried after `register_before_freeze`.
@@ -39,9 +40,10 @@ async fn test_register_before_freeze_frozen() {
     .await
     .unwrap();
 
-    // Freeze via register_all (single registrar)
+    // register_all no longer freezes; freeze explicitly
     let registrar = make_simple_registrar(vec![]);
     reg.register_all(vec![Box::new(registrar)]).await.unwrap();
+    reg.freeze();
     assert!(reg.is_frozen());
 
     let tool = Arc::new(DummyTool {
@@ -139,7 +141,6 @@ async fn test_register_before_freeze_records_owner() {
 /// Multiple `register_before_freeze` calls before freeze works correctly.
 #[tokio::test]
 async fn test_register_before_freeze_multiple_then_freeze() {
-    use closeclaw_common::ToolRegistry as ToolRegistryTrait;
     let reg = ToolRegistry::new();
     let tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(DummyTool {
@@ -203,7 +204,6 @@ async fn test_register_before_freeze_multiple_then_freeze() {
 /// and then frozen via the trait method.
 #[tokio::test]
 async fn test_register_before_freeze_then_freeze_via_trait() {
-    use closeclaw_common::ToolRegistry as ToolRegistryTrait;
     let reg = ToolRegistry::new();
     let tool = Arc::new(DummyTool {
         name: "ModeTrigger".to_string(),

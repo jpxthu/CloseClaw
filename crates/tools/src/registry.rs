@@ -314,9 +314,9 @@ impl ToolRegistryImpl {
 
     /// Register all tools from the given registrars, sorted by priority.
     ///
-    /// After all registrars have been called successfully, the registry is
-    /// frozen — subsequent calls to [`register`](Self::register) will return
-    /// [`ToolError::Frozen`].
+    /// After all registrars have been called successfully, the registry remains
+    /// unfrozen — callers must explicitly call [`freeze()`](Self::freeze) after
+    /// all tools (including system-level tools) have been registered.
     ///
     /// # Errors
     /// Returns [`ToolRegistrarError::Conflict`] if a tool name collision is
@@ -340,7 +340,6 @@ impl ToolRegistryImpl {
                 .await?;
         }
 
-        self.frozen.store(true, Ordering::Release);
         Ok(())
     }
 
