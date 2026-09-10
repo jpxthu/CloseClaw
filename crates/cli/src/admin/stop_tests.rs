@@ -45,14 +45,17 @@ fn test_stop_not_running_json_no_pid_file() {
 /// and handle_stop_at reports "not running".
 #[test]
 fn test_stop_not_running_stale_pid() {
-    let tmp = TempDir::new().unwrap();
-    let pid_file = pid_file_path(tmp.path());
+    let pid_file = pid_file_path().unwrap();
     // Write a PID that does not exist.
     write_pid_file(&pid_file, 999_999_999).unwrap();
 
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false, false));
+        .block_on(handle_stop_at(
+            std::path::Path::new("/unused"),
+            false,
+            false,
+        ));
     assert!(result.is_ok(), "should succeed with stale PID: {result:?}");
     assert!(
         !pid_file.exists(),
@@ -66,13 +69,16 @@ fn test_stop_not_running_stale_pid() {
 /// with "Refusing to kill self." and NOT call stop_daemon.
 #[test]
 fn test_stop_self_kill_protection() {
-    let tmp = TempDir::new().unwrap();
-    let pid_file = pid_file_path(tmp.path());
+    let pid_file = pid_file_path().unwrap();
     write_pid_file(&pid_file, std::process::id()).unwrap();
 
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false, false));
+        .block_on(handle_stop_at(
+            std::path::Path::new("/unused"),
+            false,
+            false,
+        ));
     assert!(result.is_err(), "should bail when PID is self");
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -84,6 +90,8 @@ fn test_stop_self_kill_protection() {
         pid_file.exists(),
         "PID file should be preserved when self-kill guard triggers"
     );
+    // Clean up: remove the PID file we wrote to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 4: Stopped path mapping ───────────────────────────────────────────

@@ -79,9 +79,36 @@ pub fn check_stale_pid(pid_file: &Path) -> anyhow::Result<Option<u32>> {
     }
 }
 
-/// Returns the PID file path: `{config_dir}/daemon.pid`.
-pub fn pid_file_path(config_dir: &Path) -> PathBuf {
-    config_dir.join("daemon.pid")
+/// The directory name under the user's home, matching platform conventions.
+const CLOSECLAW_DIR: &str = ".closeclaw";
+
+/// The PID file name within the CloseClaw root directory.
+const PID_FILE_NAME: &str = "daemon.pid";
+
+/// Computes the fixed PID file path under the given home directory.
+///
+/// Returns `{home}/.closeclaw/daemon.pid`. Pure path computation —
+/// no I/O, no environment variable access.
+///
+/// This is the injectable inner function used by tests; production
+/// code should use [`pid_file_path`].
+pub(crate) fn pid_file_path_inner(home: &str) -> PathBuf {
+    PathBuf::from(home).join(CLOSECLAW_DIR).join(PID_FILE_NAME)
+}
+
+/// Returns the fixed PID file path: `~/.closeclaw/daemon.pid`.
+///
+/// Reads the `HOME` environment variable and delegates to
+/// [`pid_file_path_inner`]. This is the sole authority for PID file
+/// location — callers must not compute their own paths.
+///
+/// # Errors
+///
+/// Returns an error if the `HOME` environment variable is not set.
+pub fn pid_file_path() -> anyhow::Result<PathBuf> {
+    let home =
+        std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
+    Ok(pid_file_path_inner(&home))
 }
 
 /// Writes the given PID to the specified file, creating or overwriting it.
@@ -214,24 +241,22 @@ pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
 /// Spawns a daemon process, writes its PID file, and returns a child handle.
 ///
 /// The daemon is started by executing the given command with the provided
-/// arguments. After successful spawn, the child PID is written to
-/// `{config_dir}/daemon.pid` using [`write_pid_file`].
+/// arguments. After successful spawn, the child PID is written to the
+/// fixed PID file path (`~/.closeclaw/daemon.pid`) using [`write_pid_file`].
 ///
 /// # Arguments
 ///
 /// * `command` - The program to execute (e.g. `"/usr/bin/my-daemon"`).
 /// * `args` - Arguments to pass to the program.
-/// * `config_dir` - Directory where `daemon.pid` will be written.
 /// * `options` - Additional spawn configuration ([`SpawnOptions`]).
 ///
 /// # Errors
 ///
-/// Returns an error if the process cannot be spawned or if the PID file
-/// cannot be written.
+/// Returns an error if the process cannot be spawned, if `HOME` is not
+/// set, or if the PID file cannot be written.
 pub fn spawn_daemon(
     command: &str,
     args: &[&str],
-    config_dir: &Path,
     options: &SpawnOptions,
 ) -> anyhow::Result<std::process::Child> {
     let mut cmd = std::process::Command::new(command);
@@ -254,7 +279,7 @@ pub fn spawn_daemon(
     let child = cmd.spawn()?;
     let pid = child.id();
 
-    let path = pid_file_path(config_dir);
+    let path = pid_file_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

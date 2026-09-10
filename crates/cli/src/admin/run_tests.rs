@@ -9,7 +9,7 @@
 use super::run::{
     ensure_no_running_daemon, handle_run, handle_run_foreground, prepare_run, DaemonRunner,
 };
-use closeclaw_platform::process::{pid_file_path, write_pid_file};
+use closeclaw_platform::process::write_pid_file;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -137,7 +137,7 @@ async fn test_handle_run_foreground_writes_pid_file() {
     assert!(mock.was_called(), "mock should have been called");
 
     // Verify PID file exists and contains a valid PID.
-    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    let pid_file = closeclaw_platform::process::pid_file_path().unwrap();
     assert!(
         pid_file.exists(),
         "PID file should exist at {}",
@@ -151,6 +151,8 @@ async fn test_handle_run_foreground_writes_pid_file() {
         std::process::id(),
         "PID file should contain the current process ID"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 5: Foreground rejects start when alive instance detected ───────────
@@ -163,7 +165,7 @@ async fn test_handle_run_foreground_rejects_alive_daemon() {
     let config_dir = tmp.path().to_str().unwrap().to_string();
 
     // Write our own PID to simulate a running daemon.
-    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    let pid_file = closeclaw_platform::process::pid_file_path().unwrap();
     closeclaw_platform::process::write_pid_file(&pid_file, std::process::id()).unwrap();
 
     let mock = MockDaemonRunner::success();
@@ -178,6 +180,8 @@ async fn test_handle_run_foreground_rejects_alive_daemon() {
         !mock.was_called(),
         "DaemonRunner should NOT be called when daemon is alive"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 6: Foreground cleans stale PID file and starts normally ────────────
@@ -190,7 +194,7 @@ async fn test_handle_run_foreground_cleans_stale_pid() {
     let config_dir = tmp.path().to_str().unwrap().to_string();
 
     // Write a PID that does not exist (stale).
-    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    let pid_file = closeclaw_platform::process::pid_file_path().unwrap();
     closeclaw_platform::process::write_pid_file(&pid_file, 99999999).unwrap();
 
     let mock = MockDaemonRunner::success();
@@ -203,6 +207,8 @@ async fn test_handle_run_foreground_cleans_stale_pid() {
         mock.was_called(),
         "DaemonRunner should be called after stale PID is cleaned"
     );
+    // Clean up: handle_run_foreground rewrites the PID file on success.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 7: Foreground succeeds with no existing PID file ───────────────────
@@ -232,7 +238,7 @@ async fn test_handle_run_background_rejects_alive_daemon() {
     let config_dir = tmp.path().to_str().unwrap().to_string();
 
     // Write our own PID to simulate a running daemon.
-    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    let pid_file = closeclaw_platform::process::pid_file_path().unwrap();
     closeclaw_platform::process::write_pid_file(&pid_file, std::process::id()).unwrap();
 
     let mock = MockDaemonRunner::success();
@@ -247,6 +253,8 @@ async fn test_handle_run_background_rejects_alive_daemon() {
         !mock.was_called(),
         "DaemonRunner should NOT be called when daemon is alive"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 9: Background cleans stale PID file ────────────────────────────────
@@ -258,8 +266,8 @@ async fn test_handle_run_background_cleans_stale_pid() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().to_str().unwrap().to_string();
 
-    // Write a PID that does not exist (stale).
-    let pid_file = closeclaw_platform::process::pid_file_path(tmp.path());
+    // Write a PID that does not exist (stale) to the fixed path.
+    let pid_file = closeclaw_platform::process::pid_file_path().unwrap();
     closeclaw_platform::process::write_pid_file(&pid_file, 99999999).unwrap();
 
     let mock = MockDaemonRunner::success();
@@ -274,6 +282,8 @@ async fn test_handle_run_background_cleans_stale_pid() {
         !mock.was_called(),
         "DaemonRunner should not be called in background mode"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── ensure_no_running_daemon tests ──────────────────────────────────────
@@ -282,7 +292,7 @@ async fn test_handle_run_background_cleans_stale_pid() {
 #[test]
 fn test_ensure_no_running_daemon_no_file() {
     let tmp = TempDir::new().unwrap();
-    let pid_file = pid_file_path(tmp.path());
+    let pid_file = tmp.path().join("daemon.pid");
     assert!(ensure_no_running_daemon(&pid_file).is_ok());
 }
 
@@ -290,7 +300,7 @@ fn test_ensure_no_running_daemon_no_file() {
 #[test]
 fn test_ensure_no_running_daemon_stale() {
     let tmp = TempDir::new().unwrap();
-    let pid_file = pid_file_path(tmp.path());
+    let pid_file = tmp.path().join("daemon.pid");
     write_pid_file(&pid_file, 99999999).unwrap();
     assert!(pid_file.exists(), "PID file should exist before check");
 
@@ -303,7 +313,7 @@ fn test_ensure_no_running_daemon_stale() {
 #[test]
 fn test_ensure_no_running_daemon_alive() {
     let tmp = TempDir::new().unwrap();
-    let pid_file = pid_file_path(tmp.path());
+    let pid_file = tmp.path().join("daemon.pid");
     let my_pid = std::process::id();
     write_pid_file(&pid_file, my_pid).unwrap();
 
@@ -349,8 +359,9 @@ fn test_prepare_run_relative_path_preserved() {
         "relative path should be unchanged (expand_path is a no-op for paths without ~ or $)"
     );
     assert!(
-        pid_file.starts_with(&expected),
-        "pid_file should be under the config_dir"
+        pid_file.to_str().unwrap().contains("daemon.pid"),
+        "pid_file should be the fixed daemon.pid path, got: {}",
+        pid_file.display()
     );
 }
 
@@ -572,4 +583,49 @@ fn test_prepare_run_root_dir_failure_propagates() {
         "error should reference HOME or environment variable, got: {stderr}"
     );
     drop(tmp);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// prepare_run decoupling: --config-dir does NOT affect PID file location
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// When different custom config_dir values are passed, prepare_run must
+/// return config_dir that varies with the input, but pid_file must always
+/// be the fixed platform path (~/.closeclaw/daemon.pid). This verifies
+/// that --config-dir is decoupled from PID file location.
+#[test]
+fn test_prepare_run_config_dir_decoupled_from_pid_file() {
+    let (cfg1, pid1) = prepare_run("/custom/a").unwrap();
+    let (cfg2, pid2) = prepare_run("/custom/b").unwrap();
+    let (cfg3, pid3) = prepare_run("~/other").unwrap();
+
+    // config_dir varies with input
+    assert_ne!(
+        cfg1, cfg2,
+        "different inputs must yield different config_dir"
+    );
+    assert_ne!(
+        cfg1, cfg3,
+        "different inputs must yield different config_dir"
+    );
+
+    // pid_file is always the same fixed path regardless of config_dir
+    assert_eq!(
+        pid1, pid2,
+        "pid_file must be identical despite different config_dir"
+    );
+    assert_eq!(
+        pid2, pid3,
+        "pid_file must be identical despite different config_dir"
+    );
+    assert_eq!(
+        pid1,
+        closeclaw_platform::process::pid_file_path().unwrap(),
+        "pid_file must match the platform fixed path"
+    );
+    assert!(
+        pid1.to_string_lossy().ends_with("daemon.pid"),
+        "pid_file must end with daemon.pid, got: {}",
+        pid1.display()
+    );
 }

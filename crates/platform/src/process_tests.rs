@@ -1,6 +1,7 @@
 use crate::process::{
-    check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
-    stop_daemon, wait_for_exit, write_pid_file, SpawnOptions, StopOutcome,
+    check_stale_pid, is_process_alive, pid_file_path, pid_file_path_inner, read_pid_file,
+    send_signal, spawn_daemon, stop_daemon, wait_for_exit, write_pid_file, SpawnOptions,
+    StopOutcome,
 };
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -47,7 +48,7 @@ fn test_is_process_alive_after_kill() {
 #[test]
 fn test_check_stale_pid_alive_preserves_file() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     let my_pid = std::process::id();
     write_pid_file(&path, my_pid).unwrap();
 
@@ -63,7 +64,7 @@ fn test_check_stale_pid_alive_preserves_file() {
 #[test]
 fn test_check_stale_pid_stale_removes_file() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     write_pid_file(&path, 99999999).unwrap();
     assert!(path.exists(), "PID file should exist before check");
 
@@ -76,7 +77,7 @@ fn test_check_stale_pid_stale_removes_file() {
 #[test]
 fn test_check_stale_pid_no_file_no_side_effect() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     assert!(!path.exists());
 
     let result = check_stale_pid(&path).unwrap();
@@ -90,7 +91,7 @@ fn test_check_stale_pid_no_file_no_side_effect() {
 #[test]
 fn test_write_and_read_pid_file() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
 
     write_pid_file(&path, 12345).unwrap();
     let pid = read_pid_file(&path);
@@ -106,7 +107,7 @@ fn test_read_pid_file_missing() {
 #[test]
 fn test_write_pid_file_overwrite() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
 
     write_pid_file(&path, 111).unwrap();
     write_pid_file(&path, 222).unwrap();
@@ -117,7 +118,7 @@ fn test_write_pid_file_overwrite() {
 #[test]
 fn test_write_pid_file_invalid_content() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
 
     // Manually write non-numeric content.
     std::fs::write(&path, "not_a_number").unwrap();
@@ -126,10 +127,63 @@ fn test_write_pid_file_invalid_content() {
 }
 
 #[test]
-fn test_pid_file_path_format() {
-    let dir = std::path::Path::new("/tmp/test");
-    let path = pid_file_path(dir);
-    assert_eq!(path, std::path::PathBuf::from("/tmp/test/daemon.pid"));
+fn test_pid_file_path_inner() {
+    let path = pid_file_path_inner("/home/user");
+    assert_eq!(
+        path,
+        std::path::PathBuf::from("/home/user/.closeclaw/daemon.pid")
+    );
+}
+
+#[test]
+fn test_pid_file_path_inner_empty_home() {
+    let path = pid_file_path_inner("");
+    assert_eq!(path, std::path::PathBuf::from(".closeclaw/daemon.pid"));
+}
+
+// ── pid_file_path_inner pure computation tests ───────────────────────
+
+/// pid_file_path_inner is pure path computation — no I/O side effects.
+/// Running it twice with the same input must produce identical results,
+/// and the path must NOT refer to a file that was created as a side effect.
+#[test]
+fn test_pid_file_path_inner_is_pure_no_io() {
+    let path1 = pid_file_path_inner("/some/home");
+    let path2 = pid_file_path_inner("/some/home");
+    assert_eq!(path1, path2, "pure function must be idempotent");
+    assert!(
+        !path1.exists(),
+        "pure function must not create files on disk"
+    );
+}
+
+// ── pid_file_path() consistency tests ───────────────────────────────
+
+/// pid_file_path() must return the same result as pid_file_path_inner(HOME)
+/// — the public API delegates to the injectable inner, forming a single
+/// source of truth for the fixed PID path.
+#[test]
+fn test_pid_file_path_matches_inner_with_home() {
+    let public = pid_file_path().unwrap();
+    let home = std::env::var("HOME").unwrap();
+    let inner = pid_file_path_inner(&home);
+    assert_eq!(
+        public, inner,
+        "pid_file_path() must equal pid_file_path_inner(HOME)"
+    );
+    assert!(public.is_absolute(), "fixed PID path must be absolute");
+    assert!(public.to_string_lossy().ends_with("daemon.pid"));
+}
+
+/// pid_file_path() is a no-arg constant — multiple calls must always
+/// return the same value, regardless of when or how often called.
+#[test]
+fn test_pid_file_path_is_stable_constant() {
+    let first = pid_file_path().unwrap();
+    let second = pid_file_path().unwrap();
+    let third = pid_file_path().unwrap();
+    assert_eq!(first, second);
+    assert_eq!(second, third);
 }
 
 // ── send_signal tests ──────────────────────────────────────────────
@@ -243,17 +297,12 @@ fn test_send_signal_invalid_pid_force() {
 
 #[test]
 fn test_spawn_daemon_writes_pid_file() {
-    let config_dir = tempfile::tempdir().unwrap();
-    let mut child = spawn_daemon(
-        "sleep",
-        &["60"],
-        config_dir.path(),
-        &SpawnOptions::default(),
-    )
-    .expect("spawn_daemon failed");
+    let mut child =
+        spawn_daemon("sleep", &["60"], &SpawnOptions::default()).expect("spawn_daemon failed");
 
     let pid = child.id();
-    let path = pid_file_path(config_dir.path());
+    let home = std::env::var("HOME").unwrap();
+    let path = pid_file_path_inner(&home);
     let stored = read_pid_file(&path);
     assert_eq!(
         stored,
@@ -261,20 +310,15 @@ fn test_spawn_daemon_writes_pid_file() {
         "PID file should contain the spawned child PID"
     );
 
-    // Clean up child process.
+    // Clean up: child process + PID file left at the fixed path.
     child.kill().ok();
     child.wait().ok();
+    std::fs::remove_file(&path).ok();
 }
 
 #[test]
 fn test_spawn_daemon_invalid_command() {
-    let config_dir = tempfile::tempdir().unwrap();
-    let result = spawn_daemon(
-        "/nonexistent/command",
-        &[],
-        config_dir.path(),
-        &SpawnOptions::default(),
-    );
+    let result = spawn_daemon("/nonexistent/command", &[], &SpawnOptions::default());
     assert!(
         result.is_err(),
         "spawn_daemon with invalid command should return error"
@@ -367,7 +411,7 @@ fn test_wait_for_exit_nonexistent_pid() {
 #[test]
 fn test_stop_daemon_normal() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     let pid = spawn_detached_sleep_pid();
     write_pid_file(&path, pid).unwrap();
 
@@ -381,7 +425,7 @@ fn test_stop_daemon_normal() {
 #[test]
 fn test_stop_daemon_normal_force() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     let pid = spawn_detached_sleep_pid();
     write_pid_file(&path, pid).unwrap();
 
@@ -398,7 +442,7 @@ fn test_stop_daemon_normal_force() {
 #[test]
 fn test_stop_daemon_timeout() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     // Spawn sleep, then SIGSTOP it so it cannot exit.
     let mut child = std::process::Command::new("sleep")
         .arg("60")
@@ -435,7 +479,7 @@ fn test_stop_daemon_timeout() {
 #[test]
 fn test_stop_daemon_no_pid_file() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
 
     let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
     assert_eq!(outcome, StopOutcome::NotRunning);
@@ -445,7 +489,7 @@ fn test_stop_daemon_no_pid_file() {
 #[test]
 fn test_stop_daemon_stale_pid() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     write_pid_file(&path, 99999999).unwrap();
     assert!(path.exists());
 
@@ -458,7 +502,7 @@ fn test_stop_daemon_stale_pid() {
 #[test]
 fn test_stop_daemon_invalid_pid_content() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     std::fs::write(&path, "not_a_number").unwrap();
 
     let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
@@ -476,7 +520,7 @@ fn test_stop_daemon_invalid_pid_content() {
 #[test]
 fn test_stop_daemon_exit_race() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     // Spawn a child, kill it, and reap it — PID is now dead.
     let mut child = spawn_sleep_child();
     let pid = child.id();
@@ -500,7 +544,7 @@ fn test_stop_daemon_exit_race() {
 #[test]
 fn test_stop_daemon_normal_polling_wait() {
     let tmp = TempDir::new().unwrap();
-    let path = pid_file_path(tmp.path());
+    let path = tmp.path().join("daemon.pid");
     let pid = spawn_detached_sleep_pid();
     write_pid_file(&path, pid).unwrap();
 

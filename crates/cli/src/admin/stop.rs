@@ -8,8 +8,8 @@ pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
     handle_stop_at(&config_dir, force, json).await
 }
 
-pub async fn handle_stop_at(config_dir: &std::path::Path, force: bool, json: bool) -> Result<()> {
-    let p = closeclaw_platform::process::pid_file_path(config_dir);
+pub async fn handle_stop_at(_config_dir: &std::path::Path, force: bool, json: bool) -> Result<()> {
+    let p = closeclaw_platform::process::pid_file_path()?;
     // Self-kill guard: read PID before calling stop_daemon so we can bail
     // early without side effects.
     if let Some(pid) = closeclaw_platform::process::read_pid_file(&p) {

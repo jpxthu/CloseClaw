@@ -745,7 +745,7 @@ async fn test_skill_list_and_rescan_json() {
 
 #[test]
 fn test_pid() {
-    let path = closeclaw_platform::process::pid_file_path(std::path::Path::new("/tmp/test"));
+    let path = closeclaw_platform::process::pid_file_path().unwrap();
     assert!(path.to_str().unwrap().contains("daemon.pid"));
 }
 
@@ -880,9 +880,9 @@ async fn test_handle_stop_no_pid_and_self_kill() {
         result
     );
 
-    // Self-kill protection
+    // Self-kill protection: write to the fixed PID path
     let my_pid = std::process::id();
-    let pid_file = pid_file_path(config_dir);
+    let pid_file = pid_file_path().unwrap();
     write_pid_file(&pid_file, my_pid).unwrap();
     let result = handle_stop_at(config_dir, false, false).await;
     assert!(result.is_err(), "should refuse to kill self");
@@ -891,6 +891,8 @@ async fn test_handle_stop_no_pid_and_self_kill() {
         err_msg.contains("Refusing to kill self"),
         "error should mention self-kill refusal, got: {err_msg}"
     );
+    // Clean up: remove PID file written to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Step 1.3 — handle_stop_at: signal → wait → cleanup full chain ──
@@ -902,7 +904,7 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
     use closeclaw_platform::process::{pid_file_path, write_pid_file};
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path();
-    let pid_file = pid_file_path(config_dir);
+    let pid_file = pid_file_path().unwrap();
     let mut child = std::process::Command::new("sleep")
         .arg("60")
         .stdin(std::process::Stdio::null())
@@ -924,6 +926,8 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
     );
     child.kill().ok();
     let status = child.wait().unwrap();
+    // Clean up the PID file we wrote to the fixed path.
+    std::fs::remove_file(&pid_file).ok();
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
     #[cfg(unix)]

@@ -40,6 +40,9 @@ pub trait DaemonRunner: Send + Sync {
 ///
 /// Separated from [`handle_run_foreground`] so that tests can verify
 /// directory resolution without starting a real daemon.
+///
+/// The PID file path is the platform fixed-path constant
+/// `~/.closeclaw/daemon.pid` and is independent of `config_dir`.
 pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
         closeclaw_platform::config::root_dir()?
@@ -47,7 +50,7 @@ pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
         closeclaw_platform::fs::expand_path(&PathBuf::from(config_dir))
     };
 
-    let pid_file = closeclaw_platform::process::pid_file_path(&config_dir);
+    let pid_file = closeclaw_platform::process::pid_file_path()?;
 
     Ok((config_dir, pid_file))
 }
