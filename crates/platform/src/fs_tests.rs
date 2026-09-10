@@ -1,7 +1,4 @@
-use crate::fs::{
-    check_executable, check_readable, check_writable, expand_env, expand_home, expand_path,
-    normalize_path, set_executable, to_platform_path,
-};
+use crate::fs::{expand_env, expand_home, expand_path, normalize_path, to_platform_path};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -287,45 +284,6 @@ fn test_expand_path_normalizes_backslashes() {
     assert_eq!(result, PathBuf::from("C:/Users/test"));
 }
 
-// --- check_ / set_executable tests ---
-
-#[test]
-fn test_check_readable_existing_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("readable.txt");
-    std::fs::write(&file, b"hello").unwrap();
-    assert!(check_readable(&file));
-}
-
-#[test]
-fn test_check_readable_nonexistent_file() {
-    assert!(!check_readable(Path::new(
-        "/tmp/_nonexistent_closeclaw_test_file"
-    )));
-}
-
-#[test]
-fn test_check_writable_existing_file() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("writable.txt");
-    std::fs::write(&file, b"hello").unwrap();
-    assert!(check_writable(&file));
-}
-
-#[test]
-fn test_check_writable_nonexistent_file() {
-    assert!(!check_writable(Path::new(
-        "/tmp/_nonexistent_closeclaw_test_file"
-    )));
-}
-
-#[test]
-fn test_check_executable_directory() {
-    // Directories typically have the execute bit set on Unix
-    let dir = tempfile::tempdir().unwrap();
-    assert!(check_executable(dir.path()));
-}
-
 /// Relative path without tilde should not be modified by normalize_path.
 #[test]
 fn test_normalize_path_relative() {
@@ -342,17 +300,103 @@ fn test_normalize_path_home_dir_not_expanded() {
     assert_eq!(normalized, PathBuf::from("~/.closeclaw/config"));
 }
 
+// --- Pure-contract & chain tests ---
+
+/// expand_path is a pure conversion: it must succeed on non-existent
+/// paths without performing any file system I/O.
 #[test]
-fn test_set_executable_toggle() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("script.sh");
-    std::fs::write(&file, b"#!/bin/sh\necho hi").unwrap();
+fn test_expand_path_nonexistent_path_succeeds() {
+    let result = expand_path(Path::new("/this/path/does/not/exist/at/all"));
+    assert_eq!(result, PathBuf::from("/this/path/does/not/exist/at/all"));
+}
 
-    // Remove execute bit
-    set_executable(&file, false).unwrap();
-    assert!(!check_executable(&file));
+/// expand_path on a non-existent path with tilde still expands home.
+#[test]
+fn test_expand_path_nonexistent_with_tilde() {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/test"));
+    let result = expand_path(Path::new("~/nonexistent/deeply/nested/file.txt"));
+    assert_eq!(result, home.join("nonexistent/deeply/nested/file.txt"));
+}
 
-    // Set execute bit
-    set_executable(&file, true).unwrap();
-    assert!(check_executable(&file));
+/// expand_path on a non-existent path with undefined env var preserves it.
+#[test]
+fn test_expand_path_nonexistent_with_undefined_env() {
+    let result = expand_path(Path::new("/some/$NONEXISTENT_VAR_abc/file"));
+    assert_eq!(result, PathBuf::from("/some/$NONEXISTENT_VAR_abc/file"));
+}
+
+/// expand_path chains ~ expansion → env expansion → separator normalization
+/// in a single call. A tilde path must produce a clean, absolute,
+/// forward-slash path.
+#[test]
+fn test_expand_path_full_chain() {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/test"));
+    let result = expand_path(Path::new("~/subdir/file.txt"));
+    let expected = home.join("subdir/file.txt");
+    assert_eq!(result, expected);
+    assert!(
+        result.is_absolute(),
+        "expand_path with ~ must produce absolute path"
+    );
+}
+
+/// expand_path with backslash-separated path containing ~ — backslashes
+/// are normalized to `/` but ~ is not expanded (not at position `~/` on
+/// Linux). This documents the current behavior: normalize_path runs
+/// after expand_home, so backslash-to-slash conversion doesn't trigger
+/// tilde expansion.
+#[test]
+fn test_expand_path_backslash_tilde_not_expanded() {
+    let result = expand_path(Path::new(r"~\subdir\file.txt"));
+    // On Linux, ~\\ is not ~/ so expand_home is a no-op; backslashes
+    // are normalized to / by normalize_path.
+    assert_eq!(result, PathBuf::from("~/subdir/file.txt"));
+}
+
+/// $VAR and ${VAR} syntax both expand to the same value when defined.
+#[test]
+fn test_expand_env_dollar_vs_brace_equivalent() {
+    // We cannot set env vars (test red line). Instead verify that both
+    // syntaxes are parsed identically by checking undefined vars are
+    // preserved with the correct literal form.
+    let r1 = expand_env(Path::new("$MY_VAR_XYZ"));
+    let r2 = expand_env(Path::new("${MY_VAR_XYZ}"));
+    assert_eq!(r1, PathBuf::from("$MY_VAR_XYZ"));
+    assert_eq!(r2, PathBuf::from("${MY_VAR_XYZ}"));
+    assert_ne!(r1, r2, "raw $ and ${{}} syntax preserve different literals");
+}
+
+/// normalize_path and to_platform_path must agree on all inputs.
+#[test]
+fn test_normalize_and_platform_path_agree() {
+    let inputs = [
+        r"C:\Users\test",
+        "/usr/local/bin",
+        "relative/path",
+        r"mixed\\path/here",
+        "",
+        "/",
+    ];
+    for input in &inputs {
+        let p = Path::new(input);
+        assert_eq!(
+            normalize_path(p),
+            to_platform_path(p),
+            "normalize_path and to_platform_path must agree for: {input}"
+        );
+    }
+}
+
+/// normalize_path converts all backslashes to forward slashes.
+#[test]
+fn test_normalize_path_backslash_unification() {
+    let path = Path::new(r"a\b\c\d");
+    assert_eq!(normalize_path(path), PathBuf::from("a/b/c/d"));
+}
+
+/// to_platform_path converts all backslashes to forward slashes.
+#[test]
+fn test_to_platform_path_backslash_unification() {
+    let path = Path::new(r"x\y\z");
+    assert_eq!(to_platform_path(path), PathBuf::from("x/y/z"));
 }

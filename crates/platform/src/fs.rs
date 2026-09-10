@@ -1,7 +1,9 @@
-//! File path normalization and permissions.
+//! File path normalization.
 //!
-//! Provides utilities to normalize path separators to `/`, expand
-//! the `~` home directory prefix, and check or modify file permissions.
+//! Provides pure path conversion utilities: normalize path separators
+//! to `/`, expand the `~` home directory prefix, and expand environment
+//! variable references. All functions are pure conversions that do not
+//! perform file system I/O.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -147,68 +149,4 @@ pub fn expand_path(path: &Path) -> PathBuf {
     let expanded = expand_home(path);
     let expanded = expand_env(&expanded);
     normalize_path(&expanded)
-}
-
-/// Checks whether a file or directory is readable.
-///
-/// Returns `true` if the path exists and has read permission for the
-/// current user, `false` otherwise.
-pub fn check_readable(path: &Path) -> bool {
-    let metadata = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
-    let perms = metadata.permissions();
-    use std::os::unix::fs::PermissionsExt;
-    let mode = perms.mode();
-    mode & 0o400 != 0 // User read bit
-}
-
-/// Checks whether a file or directory is writable.
-///
-/// Returns `true` if the path exists and has write permission for the
-/// current user, `false` otherwise.
-pub fn check_writable(path: &Path) -> bool {
-    let metadata = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
-    let perms = metadata.permissions();
-    use std::os::unix::fs::PermissionsExt;
-    let mode = perms.mode();
-    mode & 0o200 != 0 // User write bit
-}
-
-/// Checks whether a file has the executable permission.
-///
-/// Returns `true` if the user-execute bit is set.
-pub fn check_executable(path: &Path) -> bool {
-    let metadata = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
-    let perms = metadata.permissions();
-    use std::os::unix::fs::PermissionsExt;
-    let mode = perms.mode();
-    mode & 0o100 != 0 // User execute bit
-}
-
-/// Sets the executable permission on a file.
-///
-/// Toggles the user-execute bit.
-///
-/// Returns an error if the file does not exist or the operation fails.
-pub fn set_executable(path: &Path, executable: bool) -> anyhow::Result<()> {
-    let metadata = std::fs::metadata(path)?;
-    let mut perms = metadata.permissions();
-    use std::os::unix::fs::PermissionsExt;
-    let mode = perms.mode();
-    let new_mode = if executable {
-        mode | 0o100
-    } else {
-        mode & !0o100
-    };
-    perms.set_mode(new_mode);
-    std::fs::set_permissions(path, perms)?;
-    Ok(())
 }
