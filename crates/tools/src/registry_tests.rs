@@ -919,6 +919,7 @@ async fn test_build_tools_section_strips_keywords() {
 // =========================================================================
 mod group_atomicity_tests;
 mod keyword_tests;
+mod register_before_freeze_tests;
 mod registry_integration_tests;
 mod spawn_filter_tests;
 mod tool_registry_query_tests;
