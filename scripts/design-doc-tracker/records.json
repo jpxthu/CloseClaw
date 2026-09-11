@@ -480,6 +480,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/platform/terminal.md",
+    "commit": "614457f0ef681d0a6e702fad053e97106f695ded",
+    "commit_time": "2026-09-11T14:24:29+08:00",
+    "confirmed_time": "2026-09-11T14:30:48.383205+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/processor_chain/README.md",
     "commit": "ff1dff6233907940e3d0984e8cd06f13c891b34a",
     "commit_time": "2026-09-06T04:38:08+08:00",
