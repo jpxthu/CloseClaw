@@ -396,29 +396,8 @@ impl ToolRegistryImpl {
             let mut sorted_tools: Vec<_> = tools.iter().collect();
             sorted_tools.sort_by_key(|t| t.name.clone());
             for tool in sorted_tools {
-                let danger_mark = if tool.is_destructive {
-                    " (destructive)"
-                } else if tool.is_read_only {
-                    " (read-only)"
-                } else {
-                    ""
-                };
-                let expensive_mark = if tool.is_expensive {
-                    " (expensive)"
-                } else {
-                    ""
-                };
-                if tool.is_deferred {
-                    lines.push(format!(
-                        "  - {}{}{}",
-                        tool.name, danger_mark, expensive_mark
-                    ));
-                } else {
-                    lines.push(format!(
-                        "  - **{}**{}{}: {}",
-                        tool.name, danger_mark, expensive_mark, tool.detail
-                    ));
-                }
+                let (wrapped, _length) = Self::format_tool_line(tool);
+                lines.extend(wrapped);
             }
             lines.push(String::new());
         }
