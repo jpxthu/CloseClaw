@@ -472,6 +472,14 @@
     "blocked_reason": ""
   },
   {
+    "path": "docs/design/platform/process.md",
+    "commit": "468328443326816e4dd9fc221dee1f1aeb5593e9",
+    "commit_time": "2026-09-11T14:02:31+08:00",
+    "confirmed_time": "2026-09-11T14:13:11.190039+08:00",
+    "comment": "",
+    "blocked_reason": ""
+  },
+  {
     "path": "docs/design/processor_chain/README.md",
     "commit": "ff1dff6233907940e3d0984e8cd06f13c891b34a",
     "commit_time": "2026-09-06T04:38:08+08:00",
