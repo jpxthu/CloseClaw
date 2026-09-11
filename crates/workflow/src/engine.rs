@@ -70,7 +70,7 @@ impl WorkflowEngine {
 
     /// Callback after a verify message has been injected.
     ///
-    /// Increments `pending_verify`. If the count exceeds the limit
+    /// Increments `pending_verify`. If the count reaches the limit
     /// defined in `workflow`, the phase transitions to `Blocked`.
     pub fn on_verify_injected(run: &mut WorkflowRun, verify_retry_limit: usize) {
         run.pending_verify += 1;
@@ -79,12 +79,12 @@ impl WorkflowEngine {
             limit = verify_retry_limit,
             "verify injected"
         );
-        if run.pending_verify > verify_retry_limit {
+        if run.pending_verify >= verify_retry_limit {
             run.phase = Phase::Blocked;
             tracing::warn!(
                 pending = run.pending_verify,
                 limit = verify_retry_limit,
-                "verify limit exceeded, entering blocked"
+                "verify limit reached, entering blocked"
             );
         }
     }
