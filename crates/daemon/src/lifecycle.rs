@@ -238,14 +238,15 @@ impl Daemon {
     /// Run the daemon — blocks until shutdown signal is received, then
     /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::SignalKind;
 
         // Phase 0: Signal reception & mode determination
-        // Register signal handlers and wait for the first shutdown signal.
-        let mut sigint = signal(SignalKind::interrupt())
-            .map_err(|e| anyhow::anyhow!("failed to register SIGINT handler: {}", e))?;
-        let mut sigterm = signal(SignalKind::terminate())
-            .map_err(|e| anyhow::anyhow!("failed to register SIGTERM handler: {}", e))?;
+        // Subscribe to shutdown signals via the platform interface.
+        // The returned handlers are reusable streams — after the first
+        // signal triggers graceful shutdown, they can still receive
+        // repeated signals during Phase 1 drain for escalation.
+        let shutdown_signal = closeclaw_platform::process::wait_for_shutdown_signal();
+        tokio::pin!(shutdown_signal);
 
         // Process restart signals until shutdown is initiated.
         // The restart_rx receives change summaries from DaemonReloadCallback
@@ -255,16 +256,20 @@ impl Daemon {
         let mut ready_rx = self.take_restart_ready_rx();
         let mut restart_rx_closed = false;
         let mut admin_restart_rx_closed = false;
+        let mut sigint;
+        let mut sigterm;
         loop {
             tokio::select! {
                 biased;
-                _ = sigint.recv() => {
-                    info!("Received Ctrl+C, initiating graceful shutdown...");
-                    self.shutdown.try_start_shutdown();
-                    break;
-                }
-                _ = sigterm.recv() => {
-                    info!("Received SIGTERM, initiating graceful shutdown...");
+                result = &mut shutdown_signal => {
+                    let (kind, s_int, s_term) = result?;
+                    sigint = s_int;
+                    sigterm = s_term;
+                    if kind == SignalKind::interrupt() {
+                        info!("Received Ctrl+C, initiating graceful shutdown...");
+                    } else {
+                        info!("Received SIGTERM, initiating graceful shutdown...");
+                    }
                     self.shutdown.try_start_shutdown();
                     break;
                 }

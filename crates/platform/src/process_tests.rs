@@ -1,11 +1,12 @@
 use crate::process::{
     check_stale_pid, is_process_alive, pid_file_path, pid_file_path_inner, read_pid_file,
-    send_signal, spawn_daemon, stop_daemon, wait_for_exit, write_pid_file, SpawnOptions,
-    StopOutcome,
+    send_signal, spawn_daemon, stop_daemon, wait_for_exit, wait_for_shutdown_signal,
+    write_pid_file, SpawnOptions, StopOutcome,
 };
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use tempfile::TempDir;
+use tokio::signal::unix::SignalKind;
 
 // ── is_process_alive boundary tests ──────────────────────────────
 
@@ -511,6 +512,145 @@ fn test_stop_daemon_invalid_pid_content() {
     // and the process is not alive. Invalid (non-numeric) content yields
     // None from read_pid_file, so the file is preserved as-as.
     assert!(path.exists(), "invalid PID file should be preserved");
+}
+
+// ── Step 1.3: wait_for_shutdown_signal return value tests ──────
+
+/// Signal tests use subprocess isolation to prevent cross-contamination.
+/// Parent tests spawn the child in a subprocess; child tests are gated
+/// by `SIGNAL_TEST_CHILD=1` to avoid running in the parent process.
+
+#[test]
+fn test_wait_for_shutdown_signal_sigterm() {
+    let test_binary = std::env::current_exe().expect("current exe");
+    let output = std::process::Command::new(test_binary)
+        .env("SIGNAL_TEST_CHILD", "1")
+        .arg("--exact")
+        .arg("process_tests::test_wait_for_shutdown_signal_sigterm_child")
+        .output()
+        .expect("failed to run subprocess");
+    assert!(
+        output.status.success(),
+        "SIGTERM subprocess failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_wait_for_shutdown_signal_sigint() {
+    let test_binary = std::env::current_exe().expect("current exe");
+    let output = std::process::Command::new(test_binary)
+        .env("SIGNAL_TEST_CHILD", "1")
+        .arg("--exact")
+        .arg("process_tests::test_wait_for_shutdown_signal_sigint_child")
+        .output()
+        .expect("failed to run subprocess");
+    assert!(
+        output.status.success(),
+        "SIGINT subprocess failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Subprocess child: sends SIGTERM and verifies return value.
+#[tokio::test]
+async fn test_wait_for_shutdown_signal_sigterm_child() {
+    if std::env::var("SIGNAL_TEST_CHILD").is_err() {
+        eprintln!("skipped: run via parent test subprocess");
+        return;
+    }
+    let my_pid = std::process::id();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // SAFETY: kill with SIGTERM is a standard POSIX operation.
+        unsafe {
+            libc::kill(my_pid as i32, libc::SIGTERM);
+        }
+    });
+    let (kind, _sigint, _sigterm) = wait_for_shutdown_signal()
+        .await
+        .expect("wait_for_shutdown_signal should succeed");
+    assert_eq!(kind, SignalKind::terminate(), "should return terminate");
+}
+
+/// Subprocess child: sends SIGINT and verifies return value.
+#[tokio::test]
+async fn test_wait_for_shutdown_signal_sigint_child() {
+    if std::env::var("SIGNAL_TEST_CHILD").is_err() {
+        eprintln!("skipped: run via parent test subprocess");
+        return;
+    }
+    let my_pid = std::process::id();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // SAFETY: kill with SIGINT is a standard POSIX operation.
+        unsafe {
+            libc::kill(my_pid as i32, libc::SIGINT);
+        }
+    });
+    let (kind, _sigint, _sigterm) = wait_for_shutdown_signal()
+        .await
+        .expect("wait_for_shutdown_signal should succeed");
+    assert_eq!(kind, SignalKind::interrupt(), "should return interrupt");
+}
+
+/// Returned handlers can be reused for subsequent recv calls.
+/// Parent test spawns a subprocess with isolation to avoid cross-test
+/// signal handler contamination.
+#[test]
+fn test_wait_for_shutdown_signal_handler_reuse() {
+    let test_binary = std::env::current_exe().expect("current exe");
+    let output = std::process::Command::new(test_binary)
+        .env("SIGNAL_TEST_CHILD", "1")
+        .arg("--exact")
+        .arg("process_tests::test_wait_for_shutdown_signal_handler_reuse_child")
+        .output()
+        .expect("failed to run subprocess");
+    assert!(
+        output.status.success(),
+        "handler reuse subprocess failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Subprocess child: verifies returned handlers are reusable.
+#[tokio::test]
+async fn test_wait_for_shutdown_signal_handler_reuse_child() {
+    if std::env::var("SIGNAL_TEST_CHILD").is_err() {
+        eprintln!("skipped: run via parent test subprocess");
+        return;
+    }
+    let my_pid = std::process::id();
+    // First signal: triggers wait_for_shutdown_signal to return.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // SAFETY: kill with SIGTERM is a standard POSIX operation.
+        unsafe {
+            libc::kill(my_pid as i32, libc::SIGTERM);
+        }
+    });
+    let (_kind, mut sigint, mut sigterm) = wait_for_shutdown_signal()
+        .await
+        .expect("wait_for_shutdown_signal should succeed");
+
+    // Second signal: verify returned handlers are still usable.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // SAFETY: kill with SIGINT is a standard POSIX operation.
+        unsafe {
+            libc::kill(my_pid as i32, libc::SIGINT);
+        }
+    });
+    // Use returned handlers in a new select to confirm they work.
+    let second_kind = tokio::select! {
+        _ = sigint.recv() => SignalKind::interrupt(),
+        _ = sigterm.recv() => SignalKind::terminate(),
+    };
+    assert_eq!(
+        second_kind,
+        SignalKind::interrupt(),
+        "handler reuse should capture the second signal"
+    );
 }
 
 // ── Step 1.6: exit race and polling-wait regression tests ────────
