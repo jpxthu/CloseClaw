@@ -234,6 +234,7 @@ impl SessionMessageHandler {
                     session_id,
                     stream_result.content_blocks,
                     &session_manager.file_mutex_map,
+                    gateway,
                 )
                 .await;
                 // Append response to session message history. `append_response`
