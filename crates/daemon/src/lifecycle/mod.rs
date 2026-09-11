@@ -6,7 +6,7 @@ use closeclaw_debug_log::{DebugLog, DebugLogConfig};
 use closeclaw_permission::engine::audit_log::AuditLogger;
 use closeclaw_platform::process;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 mod bg_task_helpers;
 
@@ -26,8 +26,15 @@ impl Daemon {
         Self::load_env(config_dir);
         // PID self-registration (design doc § PID 自注册).
         let pid_file_path = process::pid_file_path()?;
-        process::write_pid_file(&pid_file_path, std::process::id())?;
-        info!(pid_file = %pid_file_path.display(), "PID file written");
+        if let Err(e) = process::write_pid_file(&pid_file_path, std::process::id()) {
+            warn!(
+                error = %e,
+                pid_file = %pid_file_path.display(),
+                "failed to write PID file — daemon will continue without it"
+            );
+        } else {
+            info!(pid_file = %pid_file_path.display(), "PID file written");
+        }
         let (startup_layers, _phase_components) = Self::resolve_startup_order()?;
         Self::log_startup_order(&startup_layers);
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
@@ -179,7 +186,7 @@ impl Daemon {
         // Recovery injection may have created new ConversationSession / Session
         // entries. Rebuild key_registry so they are resolvable by routing key.
         if let Err(e) = session_manager.rebuild_key_registry().await {
-            tracing::warn!(
+            warn!(
                 error = %e,
                 "failed to rebuild key_registry after recovery injection \
                  — continuing"
@@ -355,7 +362,7 @@ impl Daemon {
         let plugins = gateway.get_all_plugins().await;
         for plugin in &plugins {
             if let Err(e) = plugin.shutdown_inbound().await {
-                tracing::warn!(
+                warn!(
                     platform = plugin.platform(),
                     error = %e,
                     "failed to shutdown plugin inbound — continuing"
@@ -369,7 +376,7 @@ impl Daemon {
     pub(crate) async fn try_send_heartbeat(&self, heartbeat: &mut ShutdownHeartbeat) -> bool {
         if heartbeat.should_send_heartbeat() {
             let mode = self.shutdown.mode();
-            tracing::info!(
+            info!(
                 elapsed = heartbeat.elapsed_secs(),
                 "shutdown heartbeat — sending periodic notification"
             );
@@ -560,7 +567,7 @@ impl Daemon {
             // Check if mode changed and update card
             let current_mode: closeclaw_common::shutdown::ShutdownMode = self.shutdown.mode();
             if current_mode != last_mode {
-                tracing::info!(
+                info!(
                     ?last_mode,
                     ?current_mode,
                     "shutdown mode changed, updating progress card"
@@ -595,7 +602,7 @@ impl Daemon {
         // join it in wait_all_bg_tasks (design doc: confirm all 5 tasks).
         if let Some(watcher) = self._config_watcher.take() {
             let subscriber = watcher.into_subscriber_handle();
-            tracing::info!("ConfigWatcher dropped in Phase 3");
+            info!("ConfigWatcher dropped in Phase 3");
             self.config_watcher_subscriber_handle = Some(subscriber);
         }
 
@@ -607,7 +614,7 @@ impl Daemon {
         // Stop the media cleanup task (RAII handle, drop signals shutdown).
         if let Some(handle) = self.media_cleanup_handle.take() {
             handle.shutdown();
-            tracing::info!("media cleanup task signaled to stop");
+            info!("media cleanup task signaled to stop");
         }
 
         let task_results = self.wait_all_bg_tasks().await;
@@ -631,12 +638,12 @@ impl Daemon {
     /// "全局 fsync 同步" (global fsync synchronization) for Phase 4.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
         match self.gateway().await.flush_all_sessions(mode).await {
-            Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
-            Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
+            Ok(n) => info!(count = n, mode = ?mode, "flushed session checkpoints"),
+            Err(e) => warn!(error = %e, "failed to flush sessions"),
         }
         match self.gateway().await.sync_storage().await {
-            Ok(()) => tracing::info!("storage fsync complete"),
-            Err(e) => tracing::warn!(error = %e, "storage fsync failed"),
+            Ok(()) => info!("storage fsync complete"),
+            Err(e) => warn!(error = %e, "storage fsync failed"),
         }
     }
 
@@ -648,8 +655,8 @@ impl Daemon {
     /// Phase 6: Storage close — release persistent connections/handles.
     async fn phase_6_storage_close(&self) {
         match self.gateway().await.close_storage().await {
-            Ok(()) => tracing::info!("storage closed"),
-            Err(e) => tracing::warn!(error = %e, "storage close failed"),
+            Ok(()) => info!("storage closed"),
+            Err(e) => warn!(error = %e, "storage close failed"),
         }
     }
 
@@ -678,14 +685,14 @@ impl Daemon {
             if is_stopped {
                 stopped_count += 1;
             } else {
-                tracing::warn!(
+                warn!(
                     session_id = %session.id,
                     "session still active and not stopped at exit — may need manual recovery"
                 );
             }
         }
         if !remaining.is_empty() {
-            tracing::info!(
+            info!(
                 remaining = remaining.len(),
                 stopped = stopped_count,
                 "phase 7: session table state at exit"
@@ -702,12 +709,12 @@ impl Daemon {
                 "PID file removed"
             ),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                tracing::debug!(
+                debug!(
                     pid_file = %self.pid_file_path.display(),
                     "PID file already absent — no cleanup needed"
                 );
             }
-            Err(e) => tracing::warn!(
+            Err(e) => warn!(
                 error = %e,
                 pid_file = %self.pid_file_path.display(),
                 "failed to remove PID file"
@@ -734,7 +741,7 @@ impl Daemon {
         let env_path = std::path::Path::new(config_dir).join(".env");
         if env_path.exists() {
             if let Err(e) = super::load_env_file(&env_path) {
-                tracing::warn!(error = %e, path = %env_path.display(), "failed to load .env file");
+                warn!(error = %e, path = %env_path.display(), "failed to load .env file");
             } else {
                 info!("Loaded environment from {}", env_path.display());
             }
@@ -758,7 +765,7 @@ impl Daemon {
         match closeclaw_config::migration::migrate_if_needed(&openclaw_json_path, config_dir) {
             Ok(true) => info!("Legacy openclaw.json migration completed successfully"),
             Ok(false) => info!("No migration needed — config directory is up to date"),
-            Err(e) => tracing::warn!(
+            Err(e) => warn!(
                 error = %e,
                 "openclaw.json migration failed — continuing with existing config"
             ),
@@ -774,14 +781,14 @@ impl Daemon {
             .join("config")
             .join("debug_log.json");
         if !config_path.exists() {
-            tracing::debug!("debug_log.json not found — skipping debug log init");
+            debug!("debug_log.json not found — skipping debug log init");
             return None;
         }
         match DebugLogConfig::from_file(&config_path).await {
             Ok(config) => match DebugLog::new(config).await {
                 Ok(debug_log) => Some(debug_log),
                 Err(e) => {
-                    tracing::warn!(
+                    warn!(
                         error = %e,
                         "failed to create DebugLog instance — continuing without"
                     );
@@ -789,7 +796,7 @@ impl Daemon {
                 }
             },
             Err(e) => {
-                tracing::warn!(
+                warn!(
                     error = %e,
                     path = %config_path.display(),
                     "failed to load debug_log.json — continuing without"

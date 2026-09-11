@@ -67,6 +67,10 @@ pub async fn handle_run_foreground(
     // Pre-check: reject if a daemon is already running, clean stale PID.
     ensure_no_running_daemon(&pid_file)?;
 
+    // Capture PID before daemon starts — in foreground mode the daemon
+    // runs in the same process, so std::process::id() is the real PID.
+    let pid = std::process::id();
+
     // Run daemon in-process (no subprocess spawn).
     daemon_runner
         .start_and_run(config_dir.to_str().unwrap_or("."))
@@ -74,7 +78,7 @@ pub async fn handle_run_foreground(
 
     if json {
         json_output(&RunOutput {
-            pid: 0,
+            pid,
             config_dir: config_dir.to_string_lossy().to_string(),
             started: true,
         });
