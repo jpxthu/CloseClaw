@@ -83,13 +83,16 @@ pub(crate) fn check_idle_verify_conditions(
     cs: &closeclaw_session::llm_session::ConversationSession,
     session_id: &str,
 ) -> Option<VerifyInjectParams> {
-    let exec_status = cs.exec_status();
-    let is_idle = matches!(exec_status, closeclaw_common::SessionExecStatus::Idle);
-    if !is_idle {
+    let dims = cs.activity_dimensions();
+    let is_all_inactive = !dims.any_active();
+    if !is_all_inactive {
         tracing::debug!(
             session_id = %session_id,
-            ?exec_status,
-            "idle hook: session not idle, skipping verify injection"
+            llm_active = dims.llm_active,
+            fg_tool_active = dims.foreground_tool_active,
+            bg_tool_active = dims.background_tool_active,
+            child_active = dims.child_active,
+            "idle hook: session still active, skipping verify injection"
         );
         return None;
     }
