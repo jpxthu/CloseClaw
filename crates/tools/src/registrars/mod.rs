@@ -3,5 +3,4 @@
 //! Each submodule implements [`ToolRegistrar`] for a specific domain.
 
 pub mod core;
-pub mod mode;
 pub mod skills;
