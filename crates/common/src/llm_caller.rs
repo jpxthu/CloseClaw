@@ -48,8 +48,8 @@ pub trait LlmCaller: Send + Sync {
     ///
     /// When `false`, the framework must serialize all tool calls for this
     /// provider, regardless of the agent-level `parallel_tool_calls` setting.
-    /// Default is `true`.
+    /// Default is `false` (conservative).
     fn supports_parallel_tool_calls(&self) -> bool {
-        true
+        false
     }
 }
