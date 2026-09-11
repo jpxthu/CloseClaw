@@ -356,26 +356,26 @@ fn test_on_verify_injected_twice() {
 }
 
 #[test]
-fn test_on_verify_injected_three_times_stays_executing() {
+fn test_on_verify_injected_two_times_stays_executing() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    // default verify_retry_limit = 3; 3 > 3 is false
-    for _ in 0..3 {
+    // verify_retry_limit = 3; 2 < 3 → still Executing
+    for _ in 0..2 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
-    assert_eq!(run.pending_verify, 3);
+    assert_eq!(run.pending_verify, 2);
     assert_eq!(run.phase, Phase::Executing);
 }
 
 #[test]
-fn test_on_verify_injected_four_times_enters_blocked() {
+fn test_on_verify_injected_three_times_enters_blocked() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    // default verify_retry_limit = 3; 4 > 3 → blocked
-    for _ in 0..4 {
+    // verify_retry_limit = 3; 3 >= 3 → blocked
+    for _ in 0..3 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
-    assert_eq!(run.pending_verify, 4);
+    assert_eq!(run.pending_verify, 3);
     assert_eq!(run.phase, Phase::Blocked);
 }
 
@@ -383,14 +383,14 @@ fn test_on_verify_injected_four_times_enters_blocked() {
 fn test_on_verify_injected_custom_limit() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    for _ in 0..5 {
+    for _ in 0..4 {
         WorkflowEngine::on_verify_injected(&mut run, 5);
     }
-    assert_eq!(run.pending_verify, 5);
+    assert_eq!(run.pending_verify, 4);
     assert_eq!(run.phase, Phase::Executing);
-    // one more → blocked
+    // 5th injection: pending=5, 5 >= 5 → blocked
     WorkflowEngine::on_verify_injected(&mut run, 5);
-    assert_eq!(run.pending_verify, 6);
+    assert_eq!(run.pending_verify, 5);
     assert_eq!(run.phase, Phase::Blocked);
 }
 

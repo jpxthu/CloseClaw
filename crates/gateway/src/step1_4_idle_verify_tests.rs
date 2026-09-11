@@ -224,14 +224,14 @@ async fn test_full_chain_re_inject_removes_old_verify() {
 #[tokio::test]
 async fn test_full_chain_exceeds_limit_blocks() {
     // verify_retry_limit = 3, start at pending_verify = 0.
-    // Phase transitions to Blocked when pending_verify > limit (i.e. after 4 injections).
+    // Phase transitions to Blocked when pending_verify >= limit (i.e. after 3 injections).
     let (sm, sid) = setup_session(Phase::Executing, 0).await;
 
-    // Inject 4 times (reaching the limit + 1 to trigger Blocked).
-    for i in 0..4 {
+    // Inject 3 times (at the 3rd injection, pending=3 >= limit=3 → Blocked).
+    for i in 0..3 {
         test_maybe_inject_workflow_verify(&sm, &sid, None).await;
         let (phase, pending) = read_handler_state(&sm, &sid).await;
-        if i < 3 {
+        if i < 2 {
             assert_eq!(
                 phase,
                 Phase::Executing,
@@ -242,7 +242,7 @@ async fn test_full_chain_exceeds_limit_blocks() {
         assert_eq!(pending, i + 1);
     }
 
-    // After 4 injections, pending_verify = 4 > limit = 3 → Blocked.
+    // After 3 injections, pending_verify = 3 >= limit = 3 → Blocked.
     let (phase, _) = read_handler_state(&sm, &sid).await;
     assert_eq!(phase, Phase::Blocked);
 
@@ -266,8 +266,8 @@ async fn test_full_chain_exceeds_limit_blocks() {
 async fn test_full_chain_notification_queued_after_blocked() {
     let (sm, sid) = setup_session(Phase::Executing, 0).await;
 
-    // Inject until Blocked (4 injections for limit=3).
-    for _ in 0..4 {
+    // Inject until Blocked (3 injections for limit=3, >= semantics).
+    for _ in 0..3 {
         test_maybe_inject_workflow_verify(&sm, &sid, None).await;
     }
     let (phase, _) = read_handler_state(&sm, &sid).await;
@@ -302,8 +302,8 @@ fn test_verify_injected_queues_notification_when_blocked() {
     };
     let mut handler = WorkflowHandler::new(run, make_test_workflow());
 
-    // Inject 4 times to exceed limit=3.
-    for _ in 0..4 {
+    // Inject 3 times to reach limit=3 (>= semantics).
+    for _ in 0..3 {
         handler.on_verify_injected(3);
     }
     assert_eq!(handler.run().phase, Phase::Blocked);

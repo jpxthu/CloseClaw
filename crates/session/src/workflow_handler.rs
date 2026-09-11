@@ -13,12 +13,15 @@ use closeclaw_workflow::run::{Phase, WorkflowRun};
 
 use closeclaw_common::ContentBlock;
 
-/// Result of processing a verify tool action, indicating whether
-/// the workflow transitioned to jumping phase.
+/// Result of processing a verify/jump tool action, indicating the
+/// resulting workflow phase transition.
 pub enum JumpResult {
     /// Phase transitioned to Jumping; caller should inject jump message.
     Jumped,
-    /// Phase did not transition to jumping (e.g., blocked, error, or no transitions).
+    /// Phase transitioned to Complete; caller should trigger exit cleanup.
+    Completed,
+    /// Phase did not transition to jumping or complete (e.g., blocked,
+    /// error, or no transitions).
     NotJumped,
 }
 
@@ -116,7 +119,7 @@ impl WorkflowHandler {
         match action {
             "workflow_start" => (self.handle_start_result(&data), JumpResult::NotJumped),
             "workflow_verify" => self.handle_verify_result(),
-            "workflow_jump" => (self.handle_jump_result(&data), JumpResult::NotJumped),
+            "workflow_jump" => self.handle_jump_result(&data),
             "workflow_blocked" => (self.handle_blocked_result(&data), JumpResult::NotJumped),
             _ => (false, JumpResult::NotJumped),
         }
@@ -139,6 +142,9 @@ impl WorkflowHandler {
                 }
                 if matches!(result, JumpResult::Jumped) {
                     jump_result = JumpResult::Jumped;
+                }
+                if matches!(result, JumpResult::Completed) {
+                    jump_result = JumpResult::Completed;
                 }
             }
         }
@@ -190,10 +196,13 @@ impl WorkflowHandler {
     /// Evaluates answers against transitions and executes the matched action.
     /// For enum questions, maps single-letter answers (A, B, C, …) to the
     /// corresponding internal option value before passing to the engine.
-    fn handle_jump_result(&mut self, data: &serde_json::Value) -> bool {
+    ///
+    /// Returns [`JumpResult::Completed`] when the workflow transitions
+    /// to the `Complete` phase.
+    fn handle_jump_result(&mut self, data: &serde_json::Value) -> (bool, JumpResult) {
         let answers = match data.get("answers") {
             Some(a) => a.as_object().cloned().unwrap_or_default(),
-            None => return false,
+            None => return (false, JumpResult::NotJumped),
         };
         let mut yaml_answers: HashMap<String, serde_yaml::Value> = answers
             .into_iter()
@@ -208,16 +217,21 @@ impl WorkflowHandler {
 
         match WorkflowEngine::handle_jump(&mut self.run, &self.definition, &yaml_answers) {
             Ok(action) => {
+                let jump_result = if self.run.phase == Phase::Complete {
+                    JumpResult::Completed
+                } else {
+                    JumpResult::NotJumped
+                };
                 tracing::debug!(
                     action = ?action,
                     step = self.run.current_step,
                     "jump processed"
                 );
-                true
+                (true, jump_result)
             }
             Err(e) => {
                 tracing::warn!(error = %e, "jump handling failed");
-                false
+                (false, JumpResult::NotJumped)
             }
         }
     }

@@ -353,16 +353,9 @@ pub(crate) mod tests {
         let mut cs = make_session_with_handler(Phase::Executing, 0);
         {
             let handler = cs.workflow_handler_mut().unwrap();
-            handler.on_verify_injected(1); // 1st: pending=1, limit=1 → not yet blocked
+            handler.on_verify_injected(1); // 1st: pending=1, limit=1 → blocked
         }
         assert_eq!(cs.workflow_handler().unwrap().run().pending_verify, 1);
-        assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Executing);
-
-        {
-            let handler = cs.workflow_handler_mut().unwrap();
-            handler.on_verify_injected(1); // 2nd: pending=2, limit=1 → blocked
-        }
-        assert_eq!(cs.workflow_handler().unwrap().run().pending_verify, 2);
         assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Blocked);
     }
 
