@@ -14,6 +14,7 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         is_deferred: false,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -24,6 +25,7 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         is_deferred: false,
         is_read_only: false,
         is_destructive: true,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -34,6 +36,7 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         is_deferred: true,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -44,6 +47,7 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         is_deferred: false,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();

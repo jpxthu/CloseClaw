@@ -217,6 +217,7 @@ async fn test_build_tools_section_truncation_hint() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -265,6 +266,7 @@ async fn test_build_tools_section_no_hint_when_no_truncation() {
         is_deferred: false,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -275,6 +277,7 @@ async fn test_build_tools_section_no_hint_when_no_truncation() {
         is_deferred: true,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -285,6 +288,7 @@ async fn test_build_tools_section_no_hint_when_no_truncation() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -313,6 +317,7 @@ async fn test_build_tools_section_hint_respects_max_len() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();

@@ -21,6 +21,7 @@ async fn test_normal_mode_sessions_spawn_visible() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -54,6 +55,7 @@ async fn test_disallowed_tools_excludes_sessions_spawn() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -88,6 +90,7 @@ async fn test_whitelist_excludes_sessions_spawn() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -98,6 +101,7 @@ async fn test_whitelist_excludes_sessions_spawn() {
         is_deferred: false,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();

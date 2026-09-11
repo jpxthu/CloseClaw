@@ -25,7 +25,6 @@ struct ToolInfo {
     is_deferred: bool,
     is_read_only: bool,
     is_destructive: bool,
-    #[allow(dead_code)]
     is_expensive: bool,
 }
 
@@ -160,10 +159,18 @@ impl ToolRegistryImpl {
         } else {
             ""
         };
-        let raw_line = if tool.is_deferred {
-            format!("  - {}{}", tool.name, danger_mark)
+        let expensive_mark = if tool.is_expensive {
+            " (expensive)"
         } else {
-            format!("  - **{}**{}: {}", tool.name, danger_mark, tool.detail)
+            ""
+        };
+        let raw_line = if tool.is_deferred {
+            format!("  - {}{}{}", tool.name, danger_mark, expensive_mark)
+        } else {
+            format!(
+                "  - **{}**{}{}: {}",
+                tool.name, danger_mark, expensive_mark, tool.detail
+            )
         };
 
         // Split long lines at word boundaries to stay within LINE_WIDTH.
@@ -389,21 +396,8 @@ impl ToolRegistryImpl {
             let mut sorted_tools: Vec<_> = tools.iter().collect();
             sorted_tools.sort_by_key(|t| t.name.clone());
             for tool in sorted_tools {
-                let danger_mark = if tool.is_destructive {
-                    " (destructive)"
-                } else if tool.is_read_only {
-                    " (read-only)"
-                } else {
-                    ""
-                };
-                if tool.is_deferred {
-                    lines.push(format!("  - {}{}", tool.name, danger_mark));
-                } else {
-                    lines.push(format!(
-                        "  - **{}**{}: {}",
-                        tool.name, danger_mark, tool.detail
-                    ));
-                }
+                let (wrapped, _length) = Self::format_tool_line(tool);
+                lines.extend(wrapped);
             }
             lines.push(String::new());
         }

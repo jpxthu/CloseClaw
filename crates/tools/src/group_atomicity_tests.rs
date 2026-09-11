@@ -79,6 +79,7 @@ async fn test_group_atomicity_second_group_skipped() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -92,6 +93,7 @@ async fn test_group_atomicity_second_group_skipped() {
             is_deferred: false,
             is_read_only: false,
             is_destructive: false,
+            is_expensive: false,
         })
         .await
         .unwrap();
@@ -104,6 +106,7 @@ async fn test_group_atomicity_second_group_skipped() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();

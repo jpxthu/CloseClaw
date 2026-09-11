@@ -9,6 +9,7 @@ struct DummyTool {
     is_deferred: bool,
     is_read_only: bool,
     is_destructive: bool,
+    is_expensive: bool,
 }
 
 impl Tool for DummyTool {
@@ -32,6 +33,7 @@ impl Tool for DummyTool {
         f.is_deferred_by_default = self.is_deferred;
         f.is_read_only = self.is_read_only;
         f.is_destructive = self.is_destructive;
+        f.is_expensive = self.is_expensive;
         f
     }
 }
@@ -73,6 +75,7 @@ async fn test_register_and_get_detail() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -98,6 +101,7 @@ async fn test_register_duplicate() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -110,6 +114,7 @@ async fn test_register_duplicate() {
             is_deferred: false,
             is_read_only: false,
             is_destructive: false,
+            is_expensive: false,
         })
         .await
         .unwrap_err();
@@ -126,6 +131,7 @@ async fn test_list_descriptors() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -136,6 +142,7 @@ async fn test_list_descriptors() {
         is_deferred: true,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -160,6 +167,7 @@ async fn test_list_by_group() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -170,6 +178,7 @@ async fn test_list_by_group() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -198,6 +207,7 @@ async fn test_tool_info_from_tool() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -224,6 +234,7 @@ async fn test_build_tools_section() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -234,6 +245,7 @@ async fn test_build_tools_section() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -265,6 +277,7 @@ async fn test_build_tools_section_with_detail() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -276,6 +289,7 @@ async fn test_build_tools_section_with_detail() {
         is_deferred: true,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -311,6 +325,7 @@ async fn test_build_tools_section_deferred_group() {
         is_deferred: true,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -321,6 +336,7 @@ async fn test_build_tools_section_deferred_group() {
         is_deferred: true,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -358,6 +374,7 @@ async fn test_build_tools_section_danger_marks() {
         is_deferred: false,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -369,6 +386,7 @@ async fn test_build_tools_section_danger_marks() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: true,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -380,6 +398,7 @@ async fn test_build_tools_section_danger_marks() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -391,6 +410,7 @@ async fn test_build_tools_section_danger_marks() {
         is_deferred: true,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -402,6 +422,7 @@ async fn test_build_tools_section_danger_marks() {
         is_deferred: true,
         is_read_only: false,
         is_destructive: true,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -441,6 +462,7 @@ async fn test_build_tools_section_eager_and_deferred_group() {
         is_deferred: false,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -452,6 +474,7 @@ async fn test_build_tools_section_eager_and_deferred_group() {
         is_deferred: true,
         is_read_only: false,
         is_destructive: true,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -463,6 +486,7 @@ async fn test_build_tools_section_eager_and_deferred_group() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -511,6 +535,7 @@ async fn test_build_tools_section_no_orphan_header() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -599,6 +624,7 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         is_deferred: false,
         is_read_only: true,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -612,6 +638,7 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -622,6 +649,7 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -634,6 +662,7 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -670,6 +699,7 @@ async fn test_normal_mode_and_no_session_mode_do_not_filter() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -715,6 +745,7 @@ async fn test_plan_mode_keeps_mode_execution_trigger() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -735,6 +766,7 @@ fn test_plan_mode_tool_visible_mode_execution_trigger() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     };
     let tool: Arc<dyn Tool> = Arc::new(tool);
     assert!(plan_mode_tool_visible(&tool));
@@ -753,6 +785,7 @@ fn test_plan_mode_tool_not_visible_plan_approval() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     };
     let tool: Arc<dyn Tool> = Arc::new(tool);
     assert!(!plan_mode_tool_visible(&tool));
@@ -770,6 +803,7 @@ async fn test_plan_mode_hides_plan_approval_tool() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -782,6 +816,8 @@ async fn test_plan_mode_hides_plan_approval_tool() {
         "plan_approval should be hidden in Plan mode, got: {section}"
     );
 }
+
+mod expensive_mark_tests;
 
 // =========================================================================
 // strip_keywords_prefix tests

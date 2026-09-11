@@ -94,6 +94,7 @@ async fn test_generation_increments_on_register() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -106,6 +107,7 @@ async fn test_generation_increments_on_register() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -123,6 +125,7 @@ async fn test_generation_no_increment_on_duplicate() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -136,6 +139,7 @@ async fn test_generation_no_increment_on_duplicate() {
             is_deferred: false,
             is_read_only: false,
             is_destructive: false,
+            is_expensive: false,
         })
         .await
         .unwrap_err();
@@ -158,6 +162,7 @@ async fn test_generation_no_increment_after_freeze() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -172,6 +177,7 @@ async fn test_generation_no_increment_after_freeze() {
             is_deferred: false,
             is_read_only: false,
             is_destructive: false,
+            is_expensive: false,
         })
         .await
         .unwrap_err();
@@ -196,6 +202,7 @@ async fn test_generation_increments_on_register_any() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     let tool_box = closeclaw_common::tool_registry::ToolBox(tool);
     reg.register_any(Box::new(tool_box), "test-registrar")
@@ -215,6 +222,7 @@ async fn test_generation_no_increment_on_register_any_conflict() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -227,6 +235,7 @@ async fn test_generation_no_increment_on_register_any_conflict() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     let tool_box = closeclaw_common::tool_registry::ToolBox(tool);
     let err = reg
@@ -255,6 +264,7 @@ async fn test_generation_no_increment_on_register_any_after_freeze() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -268,6 +278,7 @@ async fn test_generation_no_increment_on_register_any_after_freeze() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     let tool_box = closeclaw_common::tool_registry::ToolBox(tool);
     let err = reg
