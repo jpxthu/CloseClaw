@@ -2,9 +2,9 @@
 //!
 //! Verifies that `(read-only)` and `(destructive)` marks always appear
 //! in `build_tools_section` output regardless of whether a tool is
-/// eager or deferred. The design doc mandates these marks are always
-/// shown — Step 1.2 changes (expensive mark migration) must not break
-/// this existing behavior.
+//! eager or deferred. The design doc mandates these marks are always
+//! shown — Step 1.2 changes (expensive mark migration) must not break
+//! this existing behavior.
 use super::*;
 
 /// Helper: build a `ToolInfo` with configurable danger marks.
