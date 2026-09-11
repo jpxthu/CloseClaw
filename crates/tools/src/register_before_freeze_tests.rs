@@ -15,6 +15,7 @@ async fn test_register_before_freeze_normal() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
 
     reg.register_before_freeze(tool, "SystemLevel")
@@ -36,6 +37,7 @@ async fn test_register_before_freeze_frozen() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     })
     .await
     .unwrap();
@@ -53,6 +55,7 @@ async fn test_register_before_freeze_frozen() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
 
     let err = reg
@@ -74,6 +77,7 @@ async fn test_register_before_freeze_duplicate() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     reg.register_before_freeze(tool1, "SystemLevel")
         .await
@@ -86,6 +90,7 @@ async fn test_register_before_freeze_duplicate() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     let err = reg
         .register_before_freeze(tool2, "SystemLevel")
@@ -107,6 +112,7 @@ async fn test_register_before_freeze_increments_generation() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     reg.register_before_freeze(tool, "SystemLevel")
         .await
@@ -126,6 +132,7 @@ async fn test_register_before_freeze_records_owner() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     reg.register_before_freeze(tool, "WorkflowRegistrar")
         .await
@@ -150,6 +157,7 @@ async fn test_register_before_freeze_multiple_then_freeze() {
             is_deferred: false,
             is_read_only: false,
             is_destructive: false,
+            is_expensive: false,
         }),
         Arc::new(DummyTool {
             name: "WorkflowStart".to_string(),
@@ -158,6 +166,7 @@ async fn test_register_before_freeze_multiple_then_freeze() {
             is_deferred: false,
             is_read_only: false,
             is_destructive: false,
+            is_expensive: false,
         }),
         Arc::new(DummyTool {
             name: "WorkflowVerify".to_string(),
@@ -166,6 +175,7 @@ async fn test_register_before_freeze_multiple_then_freeze() {
             is_deferred: false,
             is_read_only: false,
             is_destructive: false,
+            is_expensive: false,
         }),
     ];
 
@@ -192,6 +202,7 @@ async fn test_register_before_freeze_multiple_then_freeze() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     let err = reg
         .register_before_freeze(tool, "SystemLevel")
@@ -212,6 +223,7 @@ async fn test_register_before_freeze_then_freeze_via_trait() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     reg.register_before_freeze(tool, "SystemLevel")
         .await
@@ -229,6 +241,7 @@ async fn test_register_before_freeze_then_freeze_via_trait() {
         is_deferred: false,
         is_read_only: false,
         is_destructive: false,
+        is_expensive: false,
     });
     let err = reg
         .register_before_freeze(tool2, "SystemLevel")
