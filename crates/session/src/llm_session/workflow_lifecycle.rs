@@ -4,7 +4,9 @@
 //! under the CONTRIBUTING.md 100-line cap.
 
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_workflow::definition::build_goal_message;
 use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
+use closeclaw_workflow::run::Phase;
 
 use super::ConversationSession;
 
@@ -101,6 +103,91 @@ impl ConversationSession {
         let removed = before - self.messages.len();
         if removed > 0 {
             tracing::debug!(removed, prefix, "removed workflow messages from transcript");
+        }
+    }
+}
+
+/// Transcript cleanup and post-jump phase dispatch.
+impl ConversationSession {
+    /// Remove all workflow control messages (role == "workflow")
+    /// from the transcript.
+    pub fn remove_workflow_messages(&mut self) {
+        let before = self.messages.len();
+        self.messages.retain(|m| m.role != "workflow");
+        let removed = before - self.messages.len();
+        if removed > 0 {
+            tracing::debug!(removed, "removed workflow control messages from transcript");
+        }
+    }
+
+    /// Inject a workflow control message (role == "workflow")
+    /// into the transcript.
+    pub fn inject_workflow_message(&mut self, content: &str) {
+        self.push_message("workflow", vec![ContentBlock::Text(content.to_string())]);
+    }
+
+    /// Remove workflow context ("--- WORKFLOW ---" items)
+    /// from system_injection_appends.
+    pub fn remove_workflow_context_from_appends(&mut self) {
+        let before = self.system_injection_appends.len();
+        self.system_injection_appends
+            .retain(|s| !s.starts_with("--- WORKFLOW ---"));
+        let removed = before - self.system_injection_appends.len();
+        if removed > 0 {
+            tracing::debug!(
+                removed,
+                "removed workflow context from system_injection_appends"
+            );
+        }
+    }
+
+    /// Reset workflow_run and handler to None.
+    pub fn clear_workflow_run(&mut self) {
+        self.workflow_run = None;
+        self.workflow_handler = None;
+    }
+
+    /// Dispatch post-jump phase transitions: inject goal for Executing
+    /// or trigger exit cleanup for Complete.
+    pub(crate) fn dispatch_post_jump_phase(
+        &mut self,
+        phase: Phase,
+        step: usize,
+        hint: closeclaw_workflow::run::GoalHint,
+    ) {
+        match phase {
+            Phase::Executing => {
+                let goal_msg = {
+                    let h = self.workflow_handler.as_ref().unwrap();
+                    h.definition()
+                        .steps
+                        .get(step)
+                        .map(|s| build_goal_message(s, hint))
+                };
+                if let Some(msg) = goal_msg {
+                    self.inject_workflow_message(&msg);
+                    if let Some(ref mut h) = self.workflow_handler {
+                        h.on_goal_injected();
+                        self.workflow_run = Some(h.run().clone());
+                    }
+                    tracing::debug!(step, "goal message injected after jump");
+                }
+            }
+            Phase::Complete => {
+                tracing::info!("workflow complete after jump, triggering exit cleanup");
+                self.workflow_run = Some(self.workflow_handler.as_ref().unwrap().run().clone());
+                let session = self.clone();
+                tokio::spawn(async move {
+                    let mut session = session;
+                    session.cleanup_workflow_exit().await;
+                });
+            }
+            _ => {
+                tracing::debug!(
+                    phase = ?phase,
+                    "jump completed with non-actionable phase"
+                );
+            }
         }
     }
 }

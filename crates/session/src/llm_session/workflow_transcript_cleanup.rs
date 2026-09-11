@@ -120,9 +120,10 @@ mod tests {
         assert_eq!(session.messages[0].role, "workflow");
         assert_eq!(session.messages[1].role, "assistant");
         assert_eq!(session.messages[1].content_blocks.len(), 1);
-        assert!(
-            matches!(&session.messages[1].content_blocks[0], ContentBlock::Text(t) if t == "I think it's done.")
-        );
+        assert!(matches!(
+            &session.messages[1].content_blocks[0],
+            ContentBlock::Text(t) if t == "I think it's done."
+        ));
         assert_eq!(session.messages[2].role, "user");
     }
 
