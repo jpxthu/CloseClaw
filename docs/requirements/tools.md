@@ -19,20 +19,21 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
 - Agent 看到的工具清单根据当前权限动态过滤，无权使用的工具不出现在清单中
 - Agent 可以查询当前的权限状态，了解自己能执行哪些操作
 
-本节面向 Agent 的提示词原文（产品定义，开发不改写），分三类：工具说明、使用引导、错误反馈。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
-工具说明：
+**工具说明**
 
-> 工具检索：用关键词或工具名查找工具，返回最相关的工具及其完整说明。权限状态查询：返回当前可执行的操作类别与受限项。
+- `ToolSearch` — `Search available tools by keyword or exact name; returns the best matches with their full descriptions.`
+- `PermissionQuery` — `Report the operation categories the current agent may or may not use.`
 
-使用引导：
+**使用引导**
 
-> 延迟加载的工具只展示名称和风险标记。调用前用工具检索获取完整说明——用自然语言描述要做的事，或直接给工具名。工具清单被截断时，未展示的工具也通过检索查询。
+- `Deferred tools show only their name and risk marker. Call ToolSearch before using one — describe what you want to do, or pass the exact tool name. When the tool list is truncated, find the unlisted tools the same way.`
 
-错误反馈（逐字文案，`K` 为实际数量）：
+**错误与提示**（`K` 为实际数量）
 
-> 检索零命中：`没有匹配的工具：换一类描述重试，或用工具名精确查询`
-> 清单截断提示（附在工具清单末尾）：`工具清单已截断：另有 K 个工具未展示，用工具检索按名称或功能查询`
+- 检索零命中 — `No matching tools. Describe the task differently, or search by the exact tool name.`
+- 工具清单截断（附在清单末尾）— `Tool list truncated: K more tools not shown. Use ToolSearch by name or keyword to find them.`
 
 > **交叉引用**：模块工具的接入方式。详见 [F9](#f9-工具扩展接入)（工具扩展接入）。
 
@@ -59,33 +60,38 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 
 - 在上述设计补齐前，图片读取工具**只实现、不接入产品**：实现读取、格式检测、压缩的全部能力（含本节的错误文案），但不注册进工具清单、不对 Agent 可见；接入时机另行决策
 
-本节面向 Agent 的提示词原文（产品定义，开发不改写），分三类：工具说明（随工具定义呈现）、使用引导（System Prompt 工具区）、错误反馈（失败时的工具返回）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
 
-工具说明：
+**工具说明**
 
-> 读取文本文件，返回带行号的内容。
-> 读取图片文件（PNG/JPEG/WebP/GIF），返回图片本身——读取返回前自动降采样：长边不超过 2000 像素；直接用本工具看图，不要为此安装图像库或制作缩略图；需要当前 Session 所选模型支持图片输入；同一消息中并发读取图片不超过 5 张。（注：按上文功能边界，本工具暂不接入产品，文案随接入时启用）
+- `Read` — `Read a text file and return its content with line numbers.`
+- `ReadImage` — `Read a PNG/JPEG/WebP/GIF image and return the image itself. The format is detected from the file content, not the file extension. Large images are downscaled to fit the model's input limit. Requires the current model to accept image input.`（本工具暂不接入产品，文案随接入启用）
+- `Ls` — `List the entries in a directory.`
+- `Grep` — `Search file contents with a regular expression; returns matching lines with line numbers.`
 
-使用引导：
+**使用引导**
 
-> 查看文本文件用读取工具——不要用 cat 等 shell 命令。结果带行号，大文件用起止行号续读。
-> 按路径查找文件用路径模式匹配，按内容查找用正则搜索——不要用 shell 的 find/grep。命中结果带行号、有数量上限，需要上下文时读取命中文件。
-> 列目录用目录浏览工具，不用 shell 的 ls。
+- `Use Read — not shell commands like cat — to inspect text files. Results are line-numbered; use offset and limit to continue through a large file.`
+- `Use Ls and Grep — not shell ls or grep — for directory listing and content search.`
+- `Use ReadImage to look at an image; it downscales large images, so do not install image libraries or build thumbnails.`（随图片工具接入启用）
 
-错误反馈（逐字文案，`path` 为实际路径，`{type}` 为检测到的 MIME 类型）：
+**错误与提示**（`<path>` 为实际路径，`<type>` 为检测到的类型，`<start>`/`<end>`/`<total>`/`<N>` 为实际数值）
 
-> 文件不存在：`无法读取 "path"：文件不存在`
-> 路径是目录：`无法读取 "path"：这是一个目录`
-> 二进制文件：`无法读取 "path"：二进制文件（检测类型：{type}）`——若为支持格式的图片，追加`用图片读取工具查看`
-> 文件存在但内容为空：`文件为空`（提示，不是错误）
-> 单次读取超上限（`{start}`/`{end}`/`{total}` 为实际行号，`N`/`M` 为实际数量）：`已返回第 {start}-{end} 行（文件共 {total} 行），剩余 M 行——从第 {end+1} 行续读`
-> 读取范围起始行超出文件末尾：`起始行 {start} 超出文件末尾（文件共 {total} 行）`
-> 重复读取命中去重：`文件未变更：内容与此前读取结果一致，参考此前的读取结果，无需重新读取`
-> 目录浏览路径不存在：`目录不存在："path"`
-> 目录浏览路径是文件：`这不是目录："path"`
-> 搜索正则表达式非法：`正则表达式非法：{regex}`
-> 模型不支持图片输入：`无法读取图片 "path"：当前模型不支持图片输入`
-> 图片压缩后仍超限：`无法读取图片 "path"：压缩后长边仍超过 2000 像素`
+- 文件不存在 — `cannot read "<path>": not found`
+- 路径不是普通文件 — `cannot read "<path>": not a regular file`
+- 二进制文件 — `cannot read "<path>": binary file (<type>)`；若为支持格式的图片，追加 `; use ReadImage to view it`
+- 文件为空（提示，非错误）— `The file is empty.`
+- 单次读取截断 — `(Showing lines <start>-<end> of <total>. Use offset=<end+1> to continue.)`
+- 起始行越界 — `offset <start> is out of range for "<path>" (<total> lines)`
+- 同轮重复读取命中去重（提示，非错误）— `File unchanged since the last read; reuse the earlier result.`
+- 目录不存在 — `cannot list "<path>": not found`
+- 路径不是目录 — `cannot list "<path>": not a directory`
+- 目录条目截断 — `(Showing <N> of <total> entries.)`
+- 搜索正则非法 — `invalid regular expression: <regex>`
+- 搜索命中截断 — `(Found <N> of <total> matches.)`
+- 模型不支持图片输入（随图片工具接入启用）— `cannot read "<path>" as an image: the current model does not accept image input`
+- 图片超过尺寸上限（随图片工具接入启用）— `cannot read "<path>" as an image: it exceeds the <N>px limit; downscale it and retry`
+- 图片编码后超请求大小限制（随图片工具接入启用）— `cannot read "<path>" as an image: the image exceeds the model's request size limit; downscale it and retry`
 
 ### F3. 文件写入与编辑
 
@@ -105,28 +111,31 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 - Agent 写入文件的行尾风格（换行符）按提交内容原样写入，系统不做自动转换
 - Agent 可以进行版本控制操作——查看变更状态和提交历史、提交修改、推送和拉取代码
 
-本节面向 Agent 的提示词原文（产品定义，开发不改写），分三类：工具说明、使用引导、错误反馈。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
 
-工具说明：
+**工具说明**
 
-> 写入：创建或完全替换文本文件。
-> 编辑：编辑已存在的文本文件，做字面文本替换。
+- `Write` — `Create a file or fully replace its contents. Creates parent directories as needed.`
+- `Edit` — `Edit an existing text file by replacing literal text.`
+- `Git`（GitStatus / GitLog / GitCommit / GitPush / GitPull）— `Inspect working-tree status and history, and commit, push, and pull.`
+- `Write` 参数：`file_path` — path to write; `content` — full text content
+- `Edit` 参数：`file_path` — path to edit; `old_string` — literal text to replace, must match exactly; `new_string` — replacement text, empty to delete; `replace_all` — replace all matches, default false
 
-使用引导：
+**使用引导**
 
-> 创建文件或整体替换内容用写入工具——已存在的文件会被整体覆盖，先读取再覆盖；局部修改优先用编辑工具，它只传输要改的部分。
-> 编辑把原文片段替换为新文本：默认原文必须唯一出现——多处出现时缩小原文范围，或明确要求全文替换。先读取文件再编辑，本对话中刚创建或刚编辑过的文件除外。
-> 同一文件的多处独立修改合并为一次编辑调用——所有替换基于文件原始内容匹配、互不重叠；相邻修改合并为一条，原文片段保持最小，能唯一定位即可。
-> 版本控制操作（查看状态、历史、提交、推送拉取）用专用工具，不手工拼命令；提交信息描述真实变更，不编造未做的事。
+- `Use Write to create a file or replace its whole contents; read an existing file first — an overwrite of a file you have not read is rejected. Prefer Edit for a partial change; it sends only the changed text.`
+- `Edit replaces literal old text with new text; by default the old text must appear exactly once. If it appears more than once, widen the old text or set replace_all. Read the file first — a file changed since it was read must be re-read.`
+- `Merge several distinct changes to one file into a single Edit call; every replacement matches the original content and none overlap. Keep each old text as small as it can be while staying unique.`
+- `Use the Git tools for status, history, commit, and push/pull — do not hand-assemble git commands. Write commit messages that describe the actual change.`
 
-错误反馈（逐字文案，`path` 为实际路径，`N`/`M` 为实际数量或序号）：
+**错误与提示**（`<path>` 为实际路径，`<N>`/`<M>` 为实际数量或序号）
 
-> 未读取先修改：`无法修改 "path"：文件尚未读取——先读取，再重试`
-> 读取后被外部修改（含分次编辑同一文件的后一次）：`无法修改 "path"：文件在读取后被修改——重新读取后再重试`
-> 替换原文匹配零处：`未找到要替换的文本：文件内容可能与预期不一致，重新读取文件确认后再试`
-> 替换原文匹配多处：`要替换的文本出现 N 处：扩大替换范围使其唯一，或明确要求全文替换`
-> 编辑条目重叠：`替换条目 N 与 M 的匹配区域重叠：合并为一条或调整范围`
-> 全文替换成功（返回，非错误）：`已替换 N 处`
+- 未读取先修改 — `cannot modify "<path>": the file has not been read — read it first, then retry`
+- 读取后文件被外部改动（含分次编辑同一文件的后续一次）— `cannot modify "<path>": the file changed after it was read — read it again, then retry`
+- 替换原文匹配零处 — `cannot edit "<path>": the old text was not found — the current content is attached; fix the text and retry`
+- 替换原文匹配多处 — `cannot edit "<path>": the old text appears <N> times — widen it to make it unique, or set replace_all`
+- 编辑条目重叠 — `cannot edit "<path>": entries <N> and <M> overlap — merge them or make them disjoint`
+- 全文替换成功（返回，非错误）— `Replaced <N> occurrences in "<path>".`
 
 > **交叉引用**：Agent 对文件的读/写权限判定。详见 [permission §F2](permission.md)（权限维度）。
 
@@ -136,33 +145,34 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 
 - Agent 可以执行 Shell 命令，在指定的工作目录下运行；工作目录不存在时命令被拒绝
 - 命令的标准输出与标准错误合并为单一输出流返回，输出内附带退出码，Agent 据此完整了解命令的执行结果
-- Agent 可以为命令设置超时时间（有系统上限，超上限的设置被截断到上限并在返回中告知）；Agent 设置的超时时间或系统阈值达到时（以先到者为准），命令自动转入后台继续运行，Agent 不会被阻塞等待，转后台结果中告知 Agent 命令仍在执行（含任务标识），完成后收到通知（详见 [F5](#f5-后台任务执行)）。三层时间阈值（Agent 可设超时上限 / 系统阻塞预算 / 单命令总执行时长兑底）的具体数值由设计文档定义
+- Agent 可以为命令设置超时时间（有系统上限，超上限的设置被截断到上限并在返回中告知）；Agent 设置的超时时间或系统阈值达到时（以先到者为准），命令自动转入后台继续运行，Agent 不会被阻塞等待，转后台结果中告知 Agent 命令仍在执行（含任务标识），完成后收到通知（详见 [F5](#f5-后台任务执行)）。三层时间阈值（Agent 可设超时上限 / 系统阻塞预算 / 单命令总执行时长兜底）的具体数值由设计文档定义
 - 命令输出超出显示上限（字符数阈值，默认值由设计文档定义）时，保留输出前段，完整输出持久化到文件，Agent 收到文件路径、原始大小和输出开头预览，可按需读取完整内容
 - 命令执行结束后（无论退出码），该命令的持久化输出文件生命周期与后台任务输出文件一致（详见 [F5](#f5-后台任务执行) 输出文件生命周期）；超时转后台的命令按 [F5](#f5-后台任务执行) 后台任务规则处理
 - 对于非零退出码不代表失败的命令（如 grep 未命中、diff 发现差异），Agent 看到的执行结果中附带退出码的语义说明，避免误判为命令失败。语义说明按命令内置（命令名 → 退出码含义），无内置语义的非零退出码按失败呈现
 - Agent 不使用 sleep 命令做延迟等待或定时轮询——延迟后重试、定时检查状态属于反模式，需要等待时应使用后台执行
 
-本节面向 Agent 的提示词原文（产品定义，开发不改写），分三类：工具说明、使用引导、错误反馈。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
 
-工具说明：
+**工具说明**
 
-> 在指定工作目录执行 Shell 命令，返回合并的输出流与退出码。输出超出上限时保留开头部分，完整输出可按返回中的指引读取。
+- `Bash` — `Execute a shell command in a working directory and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (working directory, variables) persists — pass the working directory as a parameter instead of using cd. Long output is truncated to its head; the full output is saved to a file whose path is returned when available.`
+- 参数 `Bash`：`command` — the shell command; `timeout` — timeout in milliseconds (has a default and a cap); `workdir` — working directory, defaults to the session working directory; `description` — short purpose, shown in progress and notifications
+- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令安全拦截与审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
 
-使用引导：
+**使用引导**
 
-> 多条独立命令在同一消息中并行发起；有依赖的命令用单次调用串联（&& 连接，仅在前序成败无关时用 ;）。工作目录由参数指定，不要用 cd 依赖会话状态。避免用它跑 find/grep/cat/ls 等已有专用工具能做的事——专用工具体验更好。临时文件用系统指定的临时目录环境变量，不要硬编码路径。
-> 预计耗时长的命令用后台执行，不用阻塞等待；命令会在后台继续，完成后自动收到通知，不需要主动检查，也不需要命令尾加 &。不要用 sleep 做延迟或定时重试。命令失败时先看退出码语义说明和错误输出，修复原因后重试，不要盲目重试或换着方式重试。
+- `Run independent commands as separate calls in the same message; chain dependent commands in a single call (&&, or ; when the earlier result does not matter). Pass the working directory as a parameter — do not rely on cd. Keep temporary files in the system temp directory; do not hardcode a path.`
+- `For a command expected to run long, run it in the background instead of blocking: the call returns immediately and you are notified when it finishes.`
+- `Check the exit code on every result; on failure read its meaning and the error output, fix the cause, then retry — do not retry blindly.`
 
-错误反馈（逐字文案，`{cmd}` 为命令首词，`{dir}` 为目录路径，`{N}` 为实际数量，`{path}` 为输出文件路径，`{X}` 为实际超时值）：
+**错误与提示**（`<cmd>` 为命令首词，`<dir>` 为工作目录，`<path>` 为输出文件路径，`<N>` 为实际数值）
 
-> 命令不存在：`命令未找到：{cmd}`
-> 工作目录不存在：`工作目录不存在：{dir}`
-> 超时参数超上限：`超时参数已截断到系统上限 {X} 秒`
-> 超时自动转后台（返回，非错误）：`命令已转后台执行（任务标识：{task_id}），输出写入：{path}，完成后自动通知`
-> 输出截断：`输出已截断：显示前 {N} 字符，完整输出（{M} 字符）已保存至 {path}，可读取该文件查看`
-> 非零退出码（默认语义）：`命令失败，退出码 {N}`；有内置语义的（如 grep 无匹配退出码 1）：`退出码 {N}：{语义说明}`（非错误呈现）
-> 命令被安全拦截：`命令被安全系统拦截：触发攻击模式检测（类别：{category}）——如需执行请联系 Owner 审批`
-> 命令待审批：`命令已进入审批流程（原因：{reason}），等待 Owner 决策，先继续其他工作，不要重复提交同一命令`
+- 命令不存在 — `command not found: <cmd>`
+- 工作目录不存在 — `cannot run in "<dir>": directory not found`
+- 超时参数超上限 — `timeout capped at <N>ms`
+- 输出截断 — `[output truncated; full output: <path>]`
+- 非零退出码，无内置语义（默认按失败呈现）— `[exit code: <N>]`
+- 非零退出码但有内置语义（非失败呈现，如 grep 未命中）— `[exit code: <N>: <meaning>]`
 
 ### F5. 后台任务执行
 
@@ -178,26 +188,31 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 - 后台任务运行中被交互式提示（如确认对话框）卡住时，Agent 收到警告通知，建议终止该任务并以非交互方式重新运行（如用管道输入自动应答）；同一任务不重复告警
 - Session 停止时，该 Session 的所有后台任务进程被终止，已产生的输出保留可读
 
-本节面向 Agent 的提示词原文（产品定义，开发不改写），分三类：工具说明、使用引导、通知文案（后台任务的返回与注入消息）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**通知与回执**（后台任务的返回与注入消息）。
 
-工具说明：
+**工具说明**
 
-> 提交命令为后台任务：立即返回任务标识与输出文件位置。终止指定后台任务。查看后台任务列表。
+- 后台任务工具（提交 / 读取输出 / 列出 / 终止）— `Submit a command as a background job and return its id immediately; read a job's output; list this session's jobs; stop a running job.`
+- 提交参数：`command`、`workdir` — see [F4](#f4-shell-命令执行)
+- 读取输出参数：`job_id` — job id; `wait` — block until a terminal status, default false
+- 终止参数：`job_id` — job id; `reason` — optional reason
 
-使用引导：
+**使用引导**
 
-> 长时间运行的命令用后台执行：提交后继续做其他工作，完成后自动收到终态通知，不需要轮询。需要终止时用终止工具，终止后不会再收到该任务的通知。
+- `Do not poll or sleep on a background job — you are notified in-session when it finishes. Keep working on independent steps, and do not duplicate a running job's work.`
+- `Before a final answer, read the output of every still-relevant job; stop jobs that no longer matter. Do not use sleep for delays or timed retries.`
 
-通知文案（逐字模板，`{task_id}` 为任务标识，`{cmd}` 为命令摘要，`{path}` 为输出文件路径，`{N}` 为退出码，`{tail}` 为阻塞提示的尾部输出，`{K}` 为数量）：
+**通知与回执**（逐字模板，`<job_id>` 为任务标识，`<cmd>` 为命令摘要，`<path>` 为输出文件路径，`<N>` 为退出码，`<tail>` 为阻塞时的尾部输出，`<K>` 为数量）
 
-> 后台提交返回：`后台任务已提交（任务标识：{task_id}），输出文件：{path}`
-> 终态通知（完成）：`后台任务已完成（任务标识：{task_id}，退出码：{N}）：{cmd}，输出：{path}`
-> 终态通知（失败）：`后台任务失败（任务标识：{task_id}，退出码：{N}）：{cmd}，输出：{path}`
-> 终态通知（被终止）：`后台任务已被终止（任务标识：{task_id}）：{cmd}，输出（截至终止）：{path}`
-> 卡住告警：`后台任务疑似被交互式提示阻塞（任务标识：{task_id}，尾部输出：{tail}）：建议终止后用非交互方式重跑（如管道喂答案、加 -y 参数）`
-> 终止返回：`任务 {task_id} 已终止，输出（截至终止）保留在 {path}`
-> 终止不存在的任务：`任务不存在：{task_id}`
-> 运行中列表注入（每轮开始时，无运行中任务时不注入）：`当前后台任务（{K} 个运行中）：\n- {task_id}：{cmd}（已运行 {duration}）`
+- 后台提交返回（返回，非错误）— `started background job <job_id>`
+- 超时自动转后台（返回，非错误）— `moved to the background as <job_id>; output: <path>`
+- 终态通知（完成）— `background job <job_id> finished [exit code: <N>]. Output: <path>`
+- 终态通知（失败）— `background job <job_id> failed [exit code: <N>]. Output: <path>`
+- 终态通知（被终止）— `background job <job_id> was terminated. Output: <path>`
+- 卡住告警 — `background job <job_id> looks blocked on an interactive prompt (tail: <tail>) — stop it and rerun non-interactively (pipe the answers, add -y).`
+- 终止返回 — `requested cancellation of job <job_id>; output so far: <path>`
+- 终止不存在的任务 — `no such background job: <job_id>`
+- 运行中列表注入（每轮开始；无运行中任务时不注入）— `Background jobs (<K> running):\n- <job_id>: <cmd>`
 
 > **交叉引用**：后台任务通知与 Session 消息队列的对接。详见 [session §F9](session.md)（消息注入）。
 
@@ -224,9 +239,9 @@ Agent 需要能够同时发起多个独立的工具调用，减少等待时间�
 - 每个工具声明自身的并发安全分类，完整枚举：**并发安全**（只读无副作用，可任意并行）、**需串行**（对共享资源有副作用，同类调用间排队）、**资源消耗型**（并发安全但消耗大，需限流）。未声明、声明字段缺失或取值非法的工具一律按需串行处理（fail-closed）
 - 资源消耗型工具的推荐并发上限由工具声明附带（如不超过 3），Agent 按声明控制并发数量
 
-本节面向 Agent 的使用引导提示词原文（产品定义，开发不改写；注入位置：系统提示词工具区）：
+面向 Agent 的使用引导提示词原文（产品定义，开发不改写；注入位置：System Prompt 工具区）：
 
-> 无依赖的工具调用在同一个消息中并行发起——多个读取、不同文件的修改、读 A 同时改 B，都可以并行。有依赖的操作等前序结果返回后再发起。修改同一文件的多处时合并为一次编辑调用，不要并行发多个编辑。标记为资源消耗型的工具按其声明的并发上限控制数量。
+- `Issue independent tool calls together in one message — several reads, edits to different files, a read of one file and an edit of another. A call that depends on an earlier result waits for it. Do not send parallel edits to the same file. Limit a resource-heavy tool to its declared concurrency.`
 
 ### F7. 工具使用引导
 
@@ -235,7 +250,7 @@ Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 - 工具说明能反映当前上下文——当权限受限时说明受限的操作范围，当工作目录确定时给出路径指引
 - 工具说明能提示 Agent 如何组合使用——哪些工具搭配效率更高
 - 工具说明能指出常见误用模式——哪些操作看似正确但有问题
-- 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误反馈段），编辑类工具匹配失败时附带当前文件内容（不超过 50 行时附全文；超过时附匹配尝试位置前后各 25 行），Agent 无需额外发起读取即可修正重试
+- 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误与提示段），编辑类工具匹配失败时附带当前文件内容（不超过 50 行时附全文；超过时附匹配尝试位置前后各 25 行），Agent 无需额外发起读取即可修正重试
 - 缺少上下文感知能力的工具说明降级为静态描述，功能不受影响
 - 进入 System Prompt 工具区的说明文本保持稳定——权限状态、运行中任务等易变信息不嵌入工具说明，通过消息注入传达，避免前缀缓存反复失效
 
@@ -250,9 +265,16 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 - 危险文件路径（系统关键文件、版本控制内部文件等）的操作不进入白名单，必须经 Owner 审批
 - 审批请求推送给 Owner 时，附带 Agent 提供的命令用途说明，帮助 Owner 理解命令意图
 
-命令用途说明的填写要求（面向 Agent 的提示词原文，产品定义，开发不改写）：
+命令用途说明（使用引导，面向 Agent 的提示词原文，产品定义，开发不改写）：
 
-> 每条命令附带一句用途说明：主动语态、说清楚操作对象和预期效果——包含操作类型（读/写/删/改）、操作对象（路径/命令/服务）、预期效果三要素。简单命令五到十个词（如"列出当前目录文件"）；含管道、冷门参数等不易一眼看懂的命令，说明必须让用户能判断它在干什么（如"递归查找并删除所有 .tmp 文件"）。不使用"复杂""危险"等主观词。三要素不全视为说明不充分，Owner 可拒绝审批。
+- `Give every command a one-sentence purpose — active voice, stating the operation (read / write / delete / modify), the target (path, command, or service), and the expected effect; five to ten words for simple commands ("list files in the current directory"). When pipes or uncommon flags would obscure it, the sentence must let the Owner judge what it does ("recursively find and delete all .tmp files"). A purpose missing any of the three elements is incomplete and may be denied; no subjective words like "complex" or "dangerous".`
+
+**错误与提示**（`<category>` 为攻击类别，`<reason>` 为原因）
+
+- 命令被安全拦截 — `command blocked by the security check (<category>); the Owner has been notified`
+- 命令待审批 — `command entered approval (reason: <reason>); waiting for the Owner. Continue other work; do not resubmit this command.`
+- 审批被拒绝 — `approval denied; the command did not run`
+- 审批超时 — `approval timed out; the command did not run`
 
 > **交叉引用**：命令级权限审批的入队、推送和回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
@@ -277,14 +299,14 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 
 ### F11. 面向 Agent 的行为约束提示词（跨工具域）
 
-F2-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使用引导 / 错误反馈或通知文案）；并发调用的使用引导归入 F6，后台执行的使用引导归入 F4——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
+F2-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使用引导 / 错误与提示）；并发调用的使用引导归入 F6，后台执行的引导归入 F4——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
 
-**子 Session 委派等待**（注入位置：spawn 工具及子 Session 管理工具的工具说明，子 Session 交互详见 [agent §F7](agent.md)（子 Session 创建（Spawn））、[session §F4](session.md)（子 Session 委托与协调））：
+**子 Session 委派**（注入位置：spawn 工具及子 Session 管理工具的系统提示词引导，子 Session 交互详见 [agent §F7](agent.md)（子 Session 创建（Spawn））、[session §F4](session.md)（子 Session 委托与协调））：
 
-> 委派出去的子任务完成后会自动收到通知。等待期间继续做独立工作，不要轮询它们的状态，也不要重复查询子 Session 列表。
-> 在结果到达之前，不要编造或预测它们的内容——用户问起时如实告知仍在进行中。
-> 如果最终答复之后才收到结果，不要再次总结它，直接静默即可。
-> 给子 Session 的任务描述必须自成一体：它看不到当前对话——说清楚目标、背景、已排除的方向和期望的输出格式；按角色委派时任务描述同样要完整。
+- `Delegated work auto-announces when it finishes. Keep doing independent work while it runs; do not poll its status or re-query the subagent list.`
+- `Do not invent or predict its result before it arrives — if asked, say the work is still running.`
+- `If a result arrives after your final answer, do not summarize it again — stay silent.`
+- `A task you delegate must be self-contained: the child cannot see this conversation. State the goal, the context, the directions already ruled out, and the expected output format; the same applies when delegating by role.`
 
 ## 非功能需求
 
