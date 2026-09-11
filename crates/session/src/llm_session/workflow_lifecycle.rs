@@ -401,4 +401,27 @@ mod tests {
         session.remove_workflow_jump_messages();
         assert!(session.messages.is_empty());
     }
+
+    #[test]
+    fn test_remove_jump_messages_only_removes_role_workflow() {
+        let mut session = ConversationSession::new(
+            "sid".to_string(),
+            "model".to_string(),
+            PathBuf::from("/tmp"),
+        );
+        // Non-workflow message with same prefix text — should NOT be removed.
+        session.push_message(
+            "assistant",
+            vec![ContentBlock::Text(
+                "Jump Step 0 (Step 0):\nQ1\n  A: fast".to_string(),
+            )],
+        );
+        session.inject_workflow_message("Jump Step 0 (Step 0):\nQ1\n  A: fast\n  B: slow");
+
+        session.remove_workflow_jump_messages();
+
+        // Assistant message preserved, workflow jump removed.
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].role, "assistant");
+    }
 }

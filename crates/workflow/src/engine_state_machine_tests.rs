@@ -205,6 +205,46 @@ steps:
     Workflow::parse_frontmatter(yaml).unwrap()
 }
 
+fn enum_jump_workflow() -> Workflow {
+    let yaml = r#"
+id: enum-jump
+name: Enum Jump
+description: Workflow with enum jump questions
+steps:
+  - id: 0
+    name: Decide
+    goal: Choose a strategy
+    jump:
+      - id: strategy
+        prompt: Which strategy?
+        type: enum
+        options:
+          - fast
+          - slow
+    transitions:
+      - when:
+          strategy: fast
+        action: goto
+        target_step: 1
+      - when:
+          strategy: slow
+        action: goto
+        target_step: 2
+      - action: complete
+  - id: 1
+    name: Fast Path
+    goal: Do it fast
+    transitions:
+      - action: complete
+  - id: 2
+    name: Slow Path
+    goal: Do it slow
+    transitions:
+      - action: complete
+"#;
+    Workflow::parse_frontmatter(yaml).unwrap()
+}
+
 // ===========================================================================
 // State machine tests
 // ===========================================================================
@@ -806,4 +846,70 @@ fn test_e2e_pending_verify_resets_after_verify() {
     // handle_verify resets pending_verify
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.pending_verify, 0);
+}
+
+// ===========================================================================
+// Enum answer mapping and lifecycle
+// ===========================================================================
+
+#[test]
+fn test_enum_answer_mapping_via_handler() {
+    let wf = enum_jump_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    // Simulate enum letter mapping done by WorkflowHandler
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("fast".into()));
+    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
+    assert_eq!(action, crate::definition::JumpAction::Goto(1));
+    assert_eq!(run.current_step, 1);
+}
+
+#[test]
+fn test_enum_answer_mapping_slow() {
+    let wf = enum_jump_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("slow".into()));
+    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
+    assert_eq!(action, crate::definition::JumpAction::Goto(2));
+    assert_eq!(run.current_step, 2);
+}
+
+#[test]
+fn test_e2e_verify_jumping_jump_goto_enum() {
+    let wf = enum_jump_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+
+    // Step 0: goal → idle → verify → jumping
+    WorkflowEngine::on_goal_injected(&mut run);
+    let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
+    assert_eq!(action, VerifyAction::Jump);
+    assert_eq!(run.phase, Phase::Jumping);
+
+    // Step 0: jump with mapped enum answer → goto step 1
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("fast".into()));
+    let jump_action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
+    assert_eq!(jump_action, crate::definition::JumpAction::Goto(1));
+    assert_eq!(run.current_step, 1);
+    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.step_history.len(), 1);
+
+    // Step 1: goal → verify (no jumps, default complete)
+    WorkflowEngine::on_goal_injected(&mut run);
+    let action2 = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
+    assert_eq!(action2, VerifyAction::Jump);
+    assert_eq!(run.phase, Phase::Complete);
+}
+
+#[test]
+fn test_boolean_answer_no_mapping_needed() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+    // Boolean answer is already native YAML bool — no mapping needed
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
+    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
+    assert_eq!(action, crate::definition::JumpAction::Goto(1));
 }
