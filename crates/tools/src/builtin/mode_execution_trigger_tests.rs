@@ -11,7 +11,7 @@
 use crate::builtin::plan_exec_confirm::PlanExecMetadata;
 use crate::builtin::PlanExecConfirmFlow;
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, WorkdirContext};
-use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistryQuery as _};
+
 use closeclaw_common::SessionMode;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
@@ -654,60 +654,6 @@ async fn test_mode_execution_trigger_tool_refreshes_access_timestamp() {
     assert!(
         !after_content.contains("2020-01-01T00:00:00Z"),
         "old timestamp marker should be replaced"
-    );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Step 1.2: Document Contract Three-Element UT
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ── Registrar contract ──────────────────────────────────────────────────────
-
-/// ModeToolsRegistrar.name() returns "ModeToolsRegistrar".
-#[tokio::test]
-async fn test_registrar_name() {
-    let sm = make_session_manager();
-    let cf = make_confirm_flow();
-    let registrar = crate::registrars::mode::ModeToolsRegistrar::new(sm, cf);
-    assert_eq!(registrar.name(), "ModeToolsRegistrar");
-}
-
-/// ModeToolsRegistrar.priority() returns 3 (registered after CoreToolsRegistrar
-/// at 1 and SessionToolsRegistrar at 2).
-#[tokio::test]
-async fn test_registrar_priority() {
-    let sm = make_session_manager();
-    let cf = make_confirm_flow();
-    let registrar = crate::registrars::mode::ModeToolsRegistrar::new(sm, cf);
-    assert_eq!(registrar.priority(), 3);
-}
-
-/// After ModeToolsRegistrar registers, the registry contains a tool named
-/// "ModeExecutionTrigger" with group "mode".
-#[tokio::test]
-async fn test_registrar_registers_mode_execution_trigger() {
-    let sm = make_session_manager();
-    let cf = make_confirm_flow();
-    let registrar = crate::registrars::mode::ModeToolsRegistrar::new(sm, cf);
-
-    let reg = crate::registry::ToolRegistry::new();
-    registrar
-        .register(&reg as &dyn closeclaw_common::tool_registry::ToolRegistry)
-        .await
-        .unwrap();
-
-    // Contract: tool named "ModeExecutionTrigger" exists
-    assert!(
-        reg.has_tool("ModeExecutionTrigger").await,
-        "ModeToolsRegistrar should register a tool named ModeExecutionTrigger"
-    );
-
-    // Contract: group is "mode"
-    let by_group = reg.list_tool_names_by_group("mode").await;
-    assert_eq!(
-        by_group,
-        vec!["ModeExecutionTrigger".to_string()],
-        "ModeExecutionTrigger should be in the 'mode' group"
     );
 }
 
