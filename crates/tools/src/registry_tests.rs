@@ -817,7 +817,10 @@ async fn test_plan_mode_hides_plan_approval_tool() {
     );
 }
 
+mod danger_mark_regression_tests;
 mod expensive_mark_tests;
+mod secondary_expensive_tests;
+mod sorting_tests;
 
 // =========================================================================
 // strip_keywords_prefix tests
