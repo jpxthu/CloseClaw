@@ -29,7 +29,6 @@ use closeclaw_tasks::NotificationPriority;
 
 /// Max length of an append-section item (chars).
 pub const APPEND_SECTION_MAX_LEN: usize = 500;
-
 // Re-export `KillHandle` from common so call sites that
 // `use closeclaw_session::KillHandle` keep working.
 pub use closeclaw_common::tool_session::KillHandle;
@@ -58,6 +57,7 @@ pub mod transcript_ops;
 mod workflow;
 mod workflow_cleanup;
 mod workflow_lifecycle;
+mod workflow_transcript_cleanup;
 pub use streaming_assembly::SessionStream;
 
 /// A single message in a conversation session.
