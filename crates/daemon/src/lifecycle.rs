@@ -1,12 +1,12 @@
 //! Daemon lifecycle: start, run, and shutdown phases.
 
 use super::{Daemon, Phase5Deps};
+use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig};
 use closeclaw_permission::engine::audit_log::AuditLogger;
+use closeclaw_platform::process;
 use std::sync::Arc;
 use tracing::{error, info, warn};
-
-use crate::shutdown_heartbeat::ShutdownHeartbeat;
 
 impl Daemon {
     /// Start the daemon with the given config directory.
@@ -15,16 +15,17 @@ impl Daemon {
         Self::start_with_engine(config_dir, audit_logger).await
     }
     /// Start the daemon with an optional audit logger.
-    ///
-    /// The `audit_logger` is injected into the [`PermissionEngine`] built
-    /// during phase-2 initialization. If `None`, the engine runs without
-    /// audit logging.
+    /// If `None`, the engine runs without audit logging.
     pub async fn start_with_engine(
         config_dir: &str,
         audit_logger: Option<Arc<dyn AuditLogger>>,
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
+        // PID self-registration (design doc § PID 自注册).
+        let pid_file_path = process::pid_file_path()?;
+        process::write_pid_file(&pid_file_path, std::process::id())?;
+        info!(pid_file = %pid_file_path.display(), "PID file written");
         let (startup_layers, _phase_components) = Self::resolve_startup_order()?;
         Self::log_startup_order(&startup_layers);
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
@@ -232,9 +233,9 @@ impl Daemon {
             restart_state: crate::gateway_restart::RestartHandle::new(),
             restart_rx: Some(restart_rx),
             admin_restart_rx: Some(admin_restart_rx),
+            pid_file_path,
         })
     }
-
     /// Run the daemon — blocks until shutdown signal is received, then
     /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
