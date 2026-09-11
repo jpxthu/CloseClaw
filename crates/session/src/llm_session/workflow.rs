@@ -2,6 +2,7 @@
 
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_workflow::definition::build_jump_message;
+use closeclaw_workflow::run::Phase;
 
 use crate::workflow_handler::JumpResult;
 
@@ -45,10 +46,12 @@ impl ConversationSession {
     pub fn process_workflow_tool_results(&mut self, blocks: &[ContentBlock]) -> bool {
         self.ensure_workflow_handler();
         if let Some(ref mut handler) = self.workflow_handler {
+            let was_jumping = handler.run().phase == Phase::Jumping;
             let (processed, jump_result) = handler.process_content_blocks(blocks);
             if processed {
                 self.workflow_run = Some(handler.run().clone());
             }
+            let now_jumping = handler.run().phase == Phase::Jumping;
             let jump_msg = if matches!(jump_result, JumpResult::Jumped) {
                 let current_step = handler.run().current_step;
                 handler
@@ -64,6 +67,9 @@ impl ConversationSession {
                 self.remove_workflow_verify_messages();
                 self.inject_workflow_message(&msg);
                 tracing::debug!("jump message injected into transcript");
+            } else if was_jumping && !now_jumping {
+                self.remove_workflow_jump_messages();
+                tracing::debug!("jump messages cleaned up after phase transition");
             }
             processed
         } else {

@@ -14,6 +14,12 @@ use super::ConversationSession;
 /// verify messages from goal/recovered messages in the transcript.
 pub const VERIFY_MESSAGE_PREFIX: &str = "Verify Step";
 
+/// Prefix used by [`closeclaw_workflow::definition::build_jump_message`]
+/// to render jump messages. Used by
+/// [`ConversationSession::remove_workflow_jump_messages`] to distinguish
+/// jump messages from goal/recovered messages in the transcript.
+pub const JUMP_MESSAGE_PREFIX: &str = "Jump Step";
+
 /// Handler lifecycle and verify-message transcript cleanup.
 impl ConversationSession {
     /// Lazily build the [`WorkflowHandler`] if a `workflow_run` exists
@@ -61,6 +67,21 @@ impl ConversationSession {
     /// content starting with [`VERIFY_MESSAGE_PREFIX`]. Goal and
     /// recovered messages are preserved.
     pub fn remove_workflow_verify_messages(&mut self) {
+        self.remove_workflow_messages_with_prefix(VERIFY_MESSAGE_PREFIX);
+    }
+
+    /// Remove only jump messages from the transcript.
+    ///
+    /// A jump message is identified by `role == "workflow"` and text
+    /// content starting with [`JUMP_MESSAGE_PREFIX`]. Goal and
+    /// recovered messages are preserved.
+    pub fn remove_workflow_jump_messages(&mut self) {
+        self.remove_workflow_messages_with_prefix(JUMP_MESSAGE_PREFIX);
+    }
+
+    /// Internal helper: remove workflow messages whose first text block
+    /// starts with the given prefix.
+    fn remove_workflow_messages_with_prefix(&mut self, prefix: &str) {
         let before = self.messages.len();
         self.messages.retain(|m| {
             if m.role != "workflow" {
@@ -75,11 +96,11 @@ impl ConversationSession {
                 })
                 .next()
                 .unwrap_or("");
-            !text.starts_with(VERIFY_MESSAGE_PREFIX)
+            !text.starts_with(prefix)
         });
         let removed = before - self.messages.len();
         if removed > 0 {
-            tracing::debug!(removed, "removed workflow verify messages from transcript");
+            tracing::debug!(removed, prefix, "removed workflow messages from transcript");
         }
     }
 }
@@ -310,6 +331,74 @@ mod tests {
             PathBuf::from("/tmp"),
         );
         session.remove_workflow_verify_messages();
+        assert!(session.messages.is_empty());
+    }
+
+    // ── remove_workflow_jump_messages ───────────────────────────
+
+    #[test]
+    fn test_remove_jump_messages_removes_jump() {
+        let mut session = ConversationSession::new(
+            "sid".to_string(),
+            "model".to_string(),
+            PathBuf::from("/tmp"),
+        );
+        session.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
+        session.push_message("user", vec![ContentBlock::Text("hello".to_string())]);
+        session.inject_workflow_message("Jump Step 0 (Step 0):\nQ1\n  A: fast\n  B: slow");
+        session.push_message("assistant", vec![ContentBlock::Text("done".to_string())]);
+
+        assert_eq!(session.messages.len(), 4);
+
+        session.remove_workflow_jump_messages();
+
+        // Goal, user, assistant remain; jump removed.
+        assert_eq!(session.messages.len(), 3);
+        let roles: Vec<&str> = session.messages.iter().map(|m| m.role.as_str()).collect();
+        assert_eq!(roles, vec!["workflow", "user", "assistant"]);
+    }
+
+    #[test]
+    fn test_remove_jump_messages_preserves_goal_and_verify() {
+        let mut session = ConversationSession::new(
+            "sid".to_string(),
+            "model".to_string(),
+            PathBuf::from("/tmp"),
+        );
+        session.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
+        session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
+        session.inject_workflow_message("Jump Step 0 (Step 0):\nQ1\n  A: fast");
+
+        session.remove_workflow_jump_messages();
+
+        // Goal and verify remain; jump removed.
+        assert_eq!(session.messages.len(), 2);
+        let texts: Vec<String> = session
+            .messages
+            .iter()
+            .map(|m| {
+                m.content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert!(texts[0].starts_with("[workflow goal]"));
+        assert!(texts[1].starts_with("Verify Step"));
+    }
+
+    #[test]
+    fn test_remove_jump_messages_empty_transcript() {
+        let mut session = ConversationSession::new(
+            "sid".to_string(),
+            "model".to_string(),
+            PathBuf::from("/tmp"),
+        );
+        session.remove_workflow_jump_messages();
         assert!(session.messages.is_empty());
     }
 }
