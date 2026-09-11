@@ -188,18 +188,23 @@ impl WorkflowHandler {
     /// Handle a `workflow_jump` tool result.
     ///
     /// Evaluates answers against transitions and executes the matched action.
+    /// For enum questions, maps single-letter answers (A, B, C, …) to the
+    /// corresponding internal option value before passing to the engine.
     fn handle_jump_result(&mut self, data: &serde_json::Value) -> bool {
         let answers = match data.get("answers") {
             Some(a) => a.as_object().cloned().unwrap_or_default(),
             None => return false,
         };
-        let yaml_answers: HashMap<String, serde_yaml::Value> = answers
+        let mut yaml_answers: HashMap<String, serde_yaml::Value> = answers
             .into_iter()
             .filter_map(|(k, v)| {
                 let yaml_val: serde_yaml::Value = serde_yaml::from_str(&v.to_string()).ok()?;
                 Some((k, yaml_val))
             })
             .collect();
+
+        // Map enum letter answers to internal option values.
+        self.map_enum_letter_answers(&mut yaml_answers);
 
         match WorkflowEngine::handle_jump(&mut self.run, &self.definition, &yaml_answers) {
             Ok(action) => {
@@ -213,6 +218,39 @@ impl WorkflowHandler {
             Err(e) => {
                 tracing::warn!(error = %e, "jump handling failed");
                 false
+            }
+        }
+    }
+
+    /// Map single-letter enum answers to their internal option values.
+    ///
+    /// When an agent answers an enum question with a letter like "A",
+    /// this maps it to the corresponding `options[index]` value so that
+    /// `evaluate_transitions` can match against `expected_value`.
+    fn map_enum_letter_answers(&self, answers: &mut HashMap<String, serde_yaml::Value>) {
+        let step = match self.definition.steps.get(self.run.current_step) {
+            Some(s) => s,
+            None => return,
+        };
+        for q in &step.jump {
+            if q.question_type != "enum" {
+                continue;
+            }
+            if q.options.is_empty() {
+                continue;
+            }
+            if let Some(answer_val) = answers.get(&q.id) {
+                if let Some(letter) = answer_val.as_str() {
+                    if letter.len() == 1 && letter.as_bytes()[0].is_ascii_uppercase() {
+                        let idx = (letter.as_bytes()[0] - b'A') as usize;
+                        if idx < q.options.len() {
+                            answers.insert(
+                                q.id.clone(),
+                                serde_yaml::Value::String(q.options[idx].clone()),
+                            );
+                        }
+                    }
+                }
             }
         }
     }
