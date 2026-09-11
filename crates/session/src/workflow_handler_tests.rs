@@ -56,7 +56,7 @@ fn make_test_run() -> WorkflowRun {
 fn test_process_tool_result_start() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "workflow_start", "name": "Test Workflow"}"#;
-    assert!(handler.process_tool_result(content));
+    assert!(handler.process_tool_result(content).0);
     assert_eq!(handler.run().phase, Phase::Executing);
 }
 
@@ -65,14 +65,14 @@ fn test_process_tool_result_verify_no_transitions() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "workflow_verify"}"#;
     // No jump questions in step 0 and no transitions → NoMatchingTransition error → returns false
-    assert!(!handler.process_tool_result(content));
+    assert!(!handler.process_tool_result(content).0);
 }
 
 #[test]
 fn test_process_tool_result_blocked_allowed() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
-    assert!(handler.process_tool_result(content));
+    assert!(handler.process_tool_result(content).0);
     assert_eq!(handler.run().phase, Phase::Blocked);
     let notif = handler.take_notification();
     assert!(notif.is_some());
@@ -87,7 +87,7 @@ fn test_process_tool_result_blocked_not_allowed() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.run_mut().current_step = 1; // step 1 has allow_blocked = false
     let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
-    assert!(!handler.process_tool_result(content));
+    assert!(!handler.process_tool_result(content).0);
     assert_eq!(handler.run().phase, Phase::Executing);
 }
 
@@ -95,13 +95,13 @@ fn test_process_tool_result_blocked_not_allowed() {
 fn test_process_tool_result_unknown_action() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "unknown_action"}"#;
-    assert!(!handler.process_tool_result(content));
+    assert!(!handler.process_tool_result(content).0);
 }
 
 #[test]
 fn test_process_tool_result_invalid_json() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
-    assert!(!handler.process_tool_result("not json"));
+    assert!(!handler.process_tool_result("not json").0);
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn test_process_content_blocks() {
             content: r#"{"action": "workflow_blocked", "reason": "test"}"#.to_string(),
         },
     ];
-    assert!(handler.process_content_blocks(&blocks));
+    assert!(handler.process_content_blocks(&blocks).0);
     assert_eq!(handler.run().phase, Phase::Blocked);
 }
 
@@ -125,7 +125,7 @@ fn test_process_content_blocks_no_workflow() {
         tool_call_id: "call-1".to_string(),
         content: r#"{"action": "some_other_tool"}"#.to_string(),
     }];
-    assert!(!handler.process_content_blocks(&blocks));
+    assert!(!handler.process_content_blocks(&blocks).0);
     assert_eq!(handler.run().phase, Phase::Executing);
 }
 

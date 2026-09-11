@@ -1,6 +1,9 @@
 //! Workflow-related methods for `ConversationSession`.
 
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_workflow::definition::build_jump_message;
+
+use crate::workflow_handler::JumpResult;
 
 use super::ConversationSession;
 
@@ -35,13 +38,32 @@ impl ConversationSession {
     }
 
     /// Process workflow tool results from LLM content blocks.
+    ///
     /// Returns `true` if any action was processed.
+    /// If the workflow transitions to jumping phase, removes completed
+    /// verify messages and injects a jump message into the transcript.
     pub fn process_workflow_tool_results(&mut self, blocks: &[ContentBlock]) -> bool {
         self.ensure_workflow_handler();
         if let Some(ref mut handler) = self.workflow_handler {
-            let processed = handler.process_content_blocks(blocks);
+            let (processed, jump_result) = handler.process_content_blocks(blocks);
             if processed {
                 self.workflow_run = Some(handler.run().clone());
+            }
+            let jump_msg = if matches!(jump_result, JumpResult::Jumped) {
+                let current_step = handler.run().current_step;
+                handler
+                    .definition()
+                    .steps
+                    .get(current_step)
+                    .map(build_jump_message)
+            } else {
+                None
+            };
+            // handler borrow ends here; safe to call self methods
+            if let Some(msg) = jump_msg {
+                self.remove_workflow_verify_messages();
+                self.inject_workflow_message(&msg);
+                tracing::debug!("jump message injected into transcript");
             }
             processed
         } else {
@@ -183,7 +205,7 @@ mod tests {
             tool_call_id: "c1".to_string(),
             content: r#"{"action": "workflow_blocked", "reason": "test"}"#.to_string(),
         }];
-        assert!(handler.process_content_blocks(&blocks));
+        assert!(handler.process_content_blocks(&blocks).0);
         assert_eq!(handler.run().phase, Phase::Blocked);
     }
 
@@ -208,7 +230,7 @@ mod tests {
             tool_call_id: "c1".to_string(),
             content: r#"{"action": "workflow_blocked", "reason": "test"}"#.to_string(),
         }];
-        let processed = session
+        let (processed, _) = session
             .workflow_handler_mut()
             .unwrap()
             .process_content_blocks(&blocks);
