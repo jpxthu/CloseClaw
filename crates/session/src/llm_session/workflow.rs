@@ -542,6 +542,306 @@ mod tests {
         assert_eq!(session.workflow_run().unwrap().phase, Phase::Complete);
     }
 
+    /// Write a two-step workflow SKILL.md with jump question and goto transition.
+    /// Step 0 has a jump question ("go_next"); when answered "yes" → goto step 1.
+    fn write_two_step_with_jump_skill_md(dir: &std::path::Path, workflow_name: &str) {
+        let wf_dir = dir.join("workflows").join(workflow_name);
+        std::fs::create_dir_all(&wf_dir).unwrap();
+        let yaml = concat!(
+            "id: test-wf\n",
+            "name: Test WF\n",
+            "description: test\n",
+            "steps:\n",
+            "  - id: 0\n",
+            "    name: Step 0\n",
+            "    goal: Do first thing\n",
+            "    verify:\n",
+            "      - Check output\n",
+            "    jump:\n",
+            "      - id: go_next\n",
+            "        prompt: Proceed to step 1?\n",
+            "        type: boolean\n",
+            "    transitions:\n",
+            "      - when:\n",
+            "          go_next: 'yes'\n",
+            "        action: goto\n",
+            "        target_step: 1\n",
+            "  - id: 1\n",
+            "    name: Step 1\n",
+            "    goal: Do second thing\n",
+        );
+        let content = format!("---\n{yaml}\n---\n\nBody.\n");
+        std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    }
+
+    /// Full chain: verify → jump → goto → new goal injection.
+    /// Verifies the complete end-to-end flow:
+    /// 1. Verify tool result transitions to Jumping, injects jump message.
+    /// 2. Jump tool result (goto) transitions to Executing, injects goal
+    ///    for new step.
+    #[test]
+    fn test_full_chain_verify_jump_goto_goal() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_two_step_with_jump_skill_md(tmp.path(), "Test WF");
+
+        let mut session = ConversationSession::new(
+            "sid".to_string(),
+            "model".to_string(),
+            tmp.path().to_path_buf(),
+        );
+        let mut run = make_test_run("Test WF");
+        run.phase = Phase::Executing;
+        run.current_step = 0;
+        session.set_workflow_run(Some(run));
+        session.ensure_workflow_handler();
+
+        // Inject verify message (simulating engine entering verifying phase).
+        session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
+
+        // Step 1: process workflow_verify → transitions to Jumping.
+        let verify_blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_verify".to_string(),
+            content: r#"{"action": "workflow_verify"}"#.to_string(),
+        }];
+        session.process_workflow_tool_results(&verify_blocks);
+
+        // Should be in Jumping phase now, jump message injected.
+        let wf_msgs: Vec<String> = session
+            .messages
+            .iter()
+            .filter(|m| m.role == "workflow")
+            .map(|m| {
+                m.content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert_eq!(wf_msgs.len(), 1, "jump message should be injected");
+        assert!(
+            wf_msgs[0].starts_with("Jump"),
+            "should be a jump message: {}",
+            wf_msgs[0]
+        );
+
+        // Simulate assistant answering the jump question.
+        session.push_message(
+            "assistant",
+            vec![ContentBlock::ToolUse {
+                id: "tc_jump".to_string(),
+                name: "workflow_jump".to_string(),
+                input: r#"{"answers": {"go_next": "yes"}}"#.to_string(),
+            }],
+        );
+
+        // Step 2: process workflow_jump → goto step 1, goal injected.
+        let jump_blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_jump".to_string(),
+            content: r#"{"action": "workflow_jump", "answers": {"go_next": "yes"}}"#.to_string(),
+        }];
+        session.process_workflow_tool_results(&jump_blocks);
+
+        // Should have exactly one workflow message: the goal for step 1.
+        let wf_msgs: Vec<String> = session
+            .messages
+            .iter()
+            .filter(|m| m.role == "workflow")
+            .map(|m| {
+                m.content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert_eq!(
+            wf_msgs.len(),
+            1,
+            "should have exactly one goal message after full chain"
+        );
+        assert!(
+            wf_msgs[0].starts_with("[workflow goal]"),
+            "should be a goal message: {}",
+            wf_msgs[0]
+        );
+        assert!(
+            wf_msgs[0].contains("Step 1"),
+            "goal should reference step 1: {}",
+            wf_msgs[0]
+        );
+
+        let handler = session.workflow_handler().unwrap();
+        assert_eq!(handler.run().phase, Phase::Executing);
+        assert_eq!(handler.run().current_step, 1);
+        assert_eq!(handler.run().pending_goal_hint, GoalHint::Normal);
+    }
+
+    /// When jump answers match no transition, no goal is injected.
+    #[test]
+    fn test_jump_no_match_does_not_inject_goal() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_two_step_with_jump_skill_md(tmp.path(), "Test WF");
+
+        let mut session = ConversationSession::new(
+            "sid".to_string(),
+            "model".to_string(),
+            tmp.path().to_path_buf(),
+        );
+        let mut run = make_test_run("Test WF");
+        run.phase = Phase::Jumping;
+        run.current_step = 0;
+        session.set_workflow_run(Some(run));
+        session.ensure_workflow_handler();
+
+        session.inject_workflow_message("Jump Step 0 (Step 0):\nProceed to step 1?");
+        session.push_message(
+            "assistant",
+            vec![ContentBlock::ToolUse {
+                id: "tc1".to_string(),
+                name: "workflow_jump".to_string(),
+                input: r#"{"answers": {"go_next": "no"}}"#.to_string(),
+            }],
+        );
+
+        // Answer "no" doesn't match the goto transition (expects "yes").
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc1".to_string(),
+            content: r#"{"action": "workflow_jump", "answers": {"go_next": "no"}}"#.to_string(),
+        }];
+        session.process_workflow_tool_results(&blocks);
+
+        // No goal message should be injected.
+        let wf_goals: Vec<&str> = session
+            .messages
+            .iter()
+            .filter(|m| m.role == "workflow")
+            .filter(|m| {
+                m.content_blocks.iter().any(|b| match b {
+                    ContentBlock::Text(t) => t.contains("[workflow goal]"),
+                    _ => false,
+                })
+            })
+            .map(|_| "goal")
+            .collect();
+        assert!(
+            wf_goals.is_empty(),
+            "no goal message should be injected when no transition matches"
+        );
+    }
+
+    /// Verify tool exchange is cleaned up when verify transitions to Jumping.
+    /// The assistant's workflow_verify tool_call and its tool_result are
+    /// removed, while non-workflow tool calls are preserved.
+    #[test]
+    fn test_verify_tool_exchange_cleanup_preserves_non_workflow() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_two_step_with_jump_skill_md(tmp.path(), "Test WF");
+
+        let mut session = ConversationSession::new(
+            "sid".to_string(),
+            "model".to_string(),
+            tmp.path().to_path_buf(),
+        );
+        let mut run = make_test_run("Test WF");
+        run.phase = Phase::Executing;
+        run.current_step = 0;
+        session.set_workflow_run(Some(run));
+        session.ensure_workflow_handler();
+
+        // Inject verify message + assistant tool_call + tool_result.
+        session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
+        session.push_message(
+            "assistant",
+            vec![ContentBlock::ToolUse {
+                id: "tc_v".to_string(),
+                name: "workflow_verify".to_string(),
+                input: r#"{"result": "pass"}"#.to_string(),
+            }],
+        );
+        session.push_message(
+            "user",
+            vec![ContentBlock::ToolResult {
+                tool_call_id: "tc_v".to_string(),
+                content: r#"{"action": "workflow_verify"}"#.to_string(),
+            }],
+        );
+        // Non-workflow tool call should survive cleanup.
+        session.push_message(
+            "assistant",
+            vec![ContentBlock::ToolUse {
+                id: "tc_read".to_string(),
+                name: "read_file".to_string(),
+                input: r#"{"path": "/tmp/x"}"#.to_string(),
+            }],
+        );
+        session.push_message(
+            "user",
+            vec![ContentBlock::ToolResult {
+                tool_call_id: "tc_read".to_string(),
+                content: "file data".to_string(),
+            }],
+        );
+
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_v".to_string(),
+            content: r#"{"action": "workflow_verify"}"#.to_string(),
+        }];
+        session.process_workflow_tool_results(&blocks);
+
+        // Phase transitions to Jumping; verify cleaned, jump injected.
+        let handler = session.workflow_handler().unwrap();
+        assert_eq!(handler.run().phase, Phase::Jumping);
+
+        // Verify workflow message replaced by jump message.
+        let wf_msgs: Vec<String> = session
+            .messages
+            .iter()
+            .filter(|m| m.role == "workflow")
+            .map(|m| {
+                m.content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert_eq!(
+            wf_msgs.len(),
+            1,
+            "should have exactly one workflow message (jump)"
+        );
+        assert!(
+            wf_msgs[0].starts_with("Jump"),
+            "should be a jump message, not verify: {}",
+            wf_msgs[0]
+        );
+
+        // read_file tool call and result should be preserved.
+        let read_tools: Vec<&str> = session
+            .messages
+            .iter()
+            .flat_map(|m| &m.content_blocks)
+            .filter_map(|b| match b {
+                ContentBlock::ToolUse { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            read_tools.contains(&"read_file"),
+            "non-workflow read_file tool should be preserved"
+        );
+    }
+
     /// After goal injection via pending_goal_hint, hint resets to Normal.
     #[test]
     fn test_pending_goal_hint_resets_after_injection() {
