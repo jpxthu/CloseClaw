@@ -11,8 +11,9 @@
 #![cfg(feature = "fake-llm")]
 
 use std::collections::HashMap;
-use std::os::unix::net::UnixStream;
 use std::sync::Arc;
+
+use super::helpers;
 
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_gateway::session_manager::SessionManager;
@@ -87,32 +88,6 @@ async fn setup_session_manager_with_storage() -> (Arc<SessionManager>, FakeProvi
     registry.register("fake".to_string(), wrapped).await;
 
     (sm, provider, test_root)
-}
-
-/// Poll the daemon admin socket until it accepts a connection or times out.
-///
-/// The admin socket is created in the daemon's final init phase, so its
-/// availability signals that the daemon is fully initialized and ready to
-/// receive SIGTERM. Bounded, signal-targeted readiness wait (no blind sleep).
-#[cfg(unix)]
-async fn wait_for_daemon_ready(config_dir: &std::path::Path) {
-    const SOCKET_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-    const SOCKET_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
-    let socket_path = config_dir.join("admin.sock");
-    let deadline = tokio::time::Instant::now() + SOCKET_WAIT_TIMEOUT;
-    loop {
-        if UnixStream::connect(&socket_path).is_ok() {
-            return;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            panic!(
-                "daemon admin socket not ready after {:?}: {}",
-                SOCKET_WAIT_TIMEOUT,
-                socket_path.display()
-            );
-        }
-        tokio::time::sleep(SOCKET_POLL_INTERVAL).await;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,11 +250,6 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
 #[tokio::test]
 #[cfg(unix)]
 async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
-    use std::process::Stdio;
-
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let daemon_bin = manifest_dir.join("target/debug/closeclaw");
-
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_dir = temp_dir.path();
 
@@ -294,34 +264,14 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
     closeclaw_common::test_helpers::write_mandatory_configs(&agents_dir)
         .expect("write mandatory config");
 
-    // Start the daemon in --foreground mode so the test owns the daemon PID
-    // and SIGTERM reaches the daemon process itself (not a wrapper).
-    let mut daemon = tokio::process::Command::new(&daemon_bin)
-        .args(["run", "--config-dir"])
-        .arg(config_dir.as_os_str())
-        .arg("--foreground")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
+    // Spawn daemon with HOME isolation
+    let mut daemon = helpers::spawn_daemon(config_dir);
 
     // Wait for the daemon admin socket (final init phase) to be ready.
-    wait_for_daemon_ready(config_dir).await;
+    helpers::wait_for_daemon_ready(config_dir).await;
 
     // Verify daemon is still running (didn't crash on startup)
-    match daemon.try_wait().expect("try_wait works") {
-        Some(status) => {
-            let output = daemon.wait_with_output().await.expect("wait_with_output");
-            panic!(
-                "daemon exited prematurely during startup: {:?}\nstdout:{}\nstderr:{}",
-                status,
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        None => { /* still running — good */ }
-    }
+    helpers::assert_daemon_alive(&mut daemon);
 
     // Send SIGTERM to trigger graceful shutdown
     let pid = daemon.id().expect("daemon has PID");
