@@ -54,6 +54,9 @@ impl ToolRegistryQuery for FakeToolRegistryQuery {
     async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
         Vec::new()
     }
+    async fn get_tool_concurrency_safe(&self, _name: &str) -> Option<bool> {
+        None
+    }
 }
 
 /// After find_or_create, the session's tool_registry is set from SessionManager.

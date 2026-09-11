@@ -699,6 +699,11 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
             .map(|t| t.name().to_string())
             .collect()
     }
+
+    async fn get_tool_concurrency_safe(&self, name: &str) -> Option<bool> {
+        let guard = self.tools.read().await;
+        guard.get(name).map(|t| t.flags().is_concurrency_safe)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

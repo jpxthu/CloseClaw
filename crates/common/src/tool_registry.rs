@@ -212,6 +212,12 @@ pub trait ToolRegistryQuery: Send + Sync {
     ///
     /// Returns an empty `Vec` if no tools belong to the group.
     async fn list_tool_names_by_group(&self, group: &str) -> Vec<String>;
+
+    /// Check if a tool is concurrency-safe.
+    ///
+    /// Returns `Some(true)` if the tool declares itself concurrency-safe,
+    /// `Some(false)` if not, or `None` if the tool does not exist.
+    async fn get_tool_concurrency_safe(&self, name: &str) -> Option<bool>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

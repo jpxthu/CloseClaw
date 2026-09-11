@@ -9,6 +9,8 @@ pub mod executor_test_utils;
 #[cfg(test)]
 pub mod executor_tests;
 
+pub mod dispatcher;
+pub mod file_mutex;
 pub mod fragment;
 pub mod hook_config;
 pub mod identity;
@@ -144,6 +146,10 @@ pub use system_prompt::{
     PromptOverrides, SystemPromptBuilder,
 };
 // TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
+pub use dispatcher::{
+    extract_file_path, DispatchGroup, PendingToolCall, ToolCallDispatcher, ToolExecutor,
+};
+pub use file_mutex::FileMutexMap;
 pub use lazy_tool::{LazyTool, ToolMeta};
 pub use tool_registry::{
     RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,

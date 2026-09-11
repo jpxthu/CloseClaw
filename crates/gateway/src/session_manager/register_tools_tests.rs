@@ -44,6 +44,9 @@ impl ToolRegistryQuery for MockRegistry {
     async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
         vec![]
     }
+    async fn get_tool_concurrency_safe(&self, _name: &str) -> Option<bool> {
+        None
+    }
 }
 
 #[async_trait::async_trait]
@@ -249,6 +252,9 @@ impl ToolRegistryQuery for TrackingRegistry {
     }
     async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
         vec![]
+    }
+    async fn get_tool_concurrency_safe(&self, _name: &str) -> Option<bool> {
+        None
     }
 }
 

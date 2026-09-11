@@ -288,6 +288,10 @@ mod tests {
         async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
             vec![]
         }
+
+        async fn get_tool_concurrency_safe(&self, _name: &str) -> Option<bool> {
+            None
+        }
     }
 
     fn make_desc(name: &str, group: &str, summary: &str, keywords: Vec<&str>) -> ToolDescriptor {
