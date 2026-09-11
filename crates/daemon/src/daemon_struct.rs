@@ -107,7 +107,6 @@ pub struct Daemon {
     /// Processed in `run()` select loop alongside config watcher signals.
     pub(crate) admin_restart_rx: Option<tokio::sync::mpsc::Receiver<bool>>,
     /// Path to the PID file — written on start, cleaned up on exit.
-    #[expect(dead_code, reason = "used in phase_7_exit after Step 1.2")]
     pub(crate) pid_file_path: PathBuf,
 }
 
