@@ -383,7 +383,15 @@ impl ToolRegistryImpl {
 
         let mut lines: Vec<String> = Vec::new();
         let mut sorted_groups: Vec<_> = groups_map.into_iter().collect();
-        sorted_groups.sort_by_key(|(g, _)| g.clone());
+        // Sort: groups containing eager tools first (alphabetically),
+        // then all-deferred groups (alphabetically).
+        sorted_groups.sort_by(|a, b| {
+            let a_has_eager = a.1.iter().any(|t| !t.is_deferred);
+            let b_has_eager = b.1.iter().any(|t| !t.is_deferred);
+            // false < true, so !has_eager (all-deferred) sorts before has_eager.
+            // Reverse to put eager groups first.
+            b_has_eager.cmp(&a_has_eager).then_with(|| a.0.cmp(&b.0))
+        });
 
         for (group_name, tools) in sorted_groups {
             let has_eager = tools.iter().any(|t| !t.is_deferred);
@@ -542,7 +550,16 @@ impl ToolRegistryImpl {
         let mut groups_skipped = false;
 
         let mut sorted_groups: Vec<_> = groups_map.into_iter().collect();
-        sorted_groups.sort_by_key(|(g, _)| g.clone());
+        // Sort: groups containing eager (always-loaded) tools first (alphabetically),
+        // then all-deferred groups (alphabetically). This ensures truncation from the
+        // tail drops deferred groups before eager groups.
+        sorted_groups.sort_by(|a, b| {
+            let a_has_eager = a.1.iter().any(|t| !t.is_deferred);
+            let b_has_eager = b.1.iter().any(|t| !t.is_deferred);
+            // false < true, so !has_eager (all-deferred) sorts before has_eager.
+            // Reverse to put eager groups first.
+            b_has_eager.cmp(&a_has_eager).then_with(|| a.0.cmp(&b.0))
+        });
 
         for (group_name, tools) in sorted_groups {
             let (line, new_len) =
