@@ -595,8 +595,31 @@ async fn test_wait_for_shutdown_signal_sigint_child() {
 }
 
 /// Returned handlers can be reused for subsequent recv calls.
+/// Parent test spawns a subprocess with isolation to avoid cross-test
+/// signal handler contamination.
+#[test]
+fn test_wait_for_shutdown_signal_handler_reuse() {
+    let test_binary = std::env::current_exe().expect("current exe");
+    let output = std::process::Command::new(test_binary)
+        .env("SIGNAL_TEST_CHILD", "1")
+        .arg("--exact")
+        .arg("process_tests::test_wait_for_shutdown_signal_handler_reuse_child")
+        .output()
+        .expect("failed to run subprocess");
+    assert!(
+        output.status.success(),
+        "handler reuse subprocess failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Subprocess child: verifies returned handlers are reusable.
 #[tokio::test]
-async fn test_wait_for_shutdown_signal_handler_reuse() {
+async fn test_wait_for_shutdown_signal_handler_reuse_child() {
+    if std::env::var("SIGNAL_TEST_CHILD").is_err() {
+        eprintln!("skipped: run via parent test subprocess");
+        return;
+    }
     let my_pid = std::process::id();
     // First signal: triggers wait_for_shutdown_signal to return.
     std::thread::spawn(move || {
