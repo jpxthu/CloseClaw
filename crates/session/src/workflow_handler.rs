@@ -13,6 +13,15 @@ use closeclaw_workflow::run::{Phase, WorkflowRun};
 
 use closeclaw_common::ContentBlock;
 
+/// Result of processing a verify tool action, indicating whether
+/// the workflow transitioned to jumping phase.
+pub enum JumpResult {
+    /// Phase transitioned to Jumping; caller should inject jump message.
+    Jumped,
+    /// Phase did not transition to jumping (e.g., blocked, error, or no transitions).
+    NotJumped,
+}
+
 /// Pending notification to send to the owner when the workflow is blocked.
 #[derive(Debug, Clone)]
 pub struct WorkflowNotification {
@@ -93,40 +102,47 @@ impl WorkflowHandler {
     /// Parses the `ContentBlock::ToolResult` content as JSON and routes
     /// the action to the appropriate engine method. Returns `true` if
     /// a workflow action was processed.
-    pub fn process_tool_result(&mut self, content: &str) -> bool {
+    pub fn process_tool_result(&mut self, content: &str) -> (bool, JumpResult) {
         let data: serde_json::Value = match serde_json::from_str(content) {
             Ok(v) => v,
-            Err(_) => return false,
+            Err(_) => return (false, JumpResult::NotJumped),
         };
 
         let action = match data.get("action").and_then(|v| v.as_str()) {
             Some(a) => a,
-            None => return false,
+            None => return (false, JumpResult::NotJumped),
         };
 
         match action {
-            "workflow_start" => self.handle_start_result(&data),
+            "workflow_start" => (self.handle_start_result(&data), JumpResult::NotJumped),
             "workflow_verify" => self.handle_verify_result(),
-            "workflow_jump" => self.handle_jump_result(&data),
-            "workflow_blocked" => self.handle_blocked_result(&data),
-            _ => false,
+            "workflow_jump" => (self.handle_jump_result(&data), JumpResult::NotJumped),
+            "workflow_blocked" => (self.handle_blocked_result(&data), JumpResult::NotJumped),
+            _ => (false, JumpResult::NotJumped),
         }
     }
 
     /// Process all workflow tool results from LLM content blocks.
     ///
     /// Scans `ContentBlock::ToolResult` blocks for workflow actions and
-    /// processes them. Returns `true` if any workflow action was processed.
-    pub fn process_content_blocks(&mut self, blocks: &[ContentBlock]) -> bool {
+    /// processes them. Returns `(processed, jump_result)` where
+    /// `processed` is `true` if any workflow action was processed, and
+    /// `jump_result` indicates whether the workflow entered jumping phase.
+    pub fn process_content_blocks(&mut self, blocks: &[ContentBlock]) -> (bool, JumpResult) {
         let mut processed = false;
+        let mut jump_result = JumpResult::NotJumped;
         for block in blocks {
             if let ContentBlock::ToolResult { content, .. } = block {
-                if self.process_tool_result(content) {
+                let (action_processed, result) = self.process_tool_result(content);
+                if action_processed {
                     processed = true;
+                }
+                if matches!(result, JumpResult::Jumped) {
+                    jump_result = JumpResult::Jumped;
                 }
             }
         }
-        processed
+        (processed, jump_result)
     }
 
     /// Handle a `workflow_start` tool result.
@@ -145,20 +161,26 @@ impl WorkflowHandler {
     /// Handle a `workflow_verify` tool result.
     ///
     /// Calls `WorkflowEngine::handle_verify` to evaluate transitions.
-    /// If the engine returns a blocked state, queues a notification.
-    fn handle_verify_result(&mut self) -> bool {
+    /// Returns [`JumpResult::Jumped`] if the workflow entered jumping phase,
+    /// [`JumpResult::NotJumped`] otherwise.
+    fn handle_verify_result(&mut self) -> (bool, JumpResult) {
         match WorkflowEngine::handle_verify(&mut self.run, &self.definition) {
             Ok(_action) => {
+                let jump_result = if self.run.phase == Phase::Jumping {
+                    JumpResult::Jumped
+                } else {
+                    JumpResult::NotJumped
+                };
                 tracing::debug!(
                     step = self.run.current_step,
                     phase = ?self.run.phase,
                     "verify processed"
                 );
-                true
+                (true, jump_result)
             }
             Err(e) => {
                 tracing::warn!(error = %e, "verify handling failed");
-                false
+                (false, JumpResult::NotJumped)
             }
         }
     }
@@ -166,18 +188,23 @@ impl WorkflowHandler {
     /// Handle a `workflow_jump` tool result.
     ///
     /// Evaluates answers against transitions and executes the matched action.
+    /// For enum questions, maps single-letter answers (A, B, C, …) to the
+    /// corresponding internal option value before passing to the engine.
     fn handle_jump_result(&mut self, data: &serde_json::Value) -> bool {
         let answers = match data.get("answers") {
             Some(a) => a.as_object().cloned().unwrap_or_default(),
             None => return false,
         };
-        let yaml_answers: HashMap<String, serde_yaml::Value> = answers
+        let mut yaml_answers: HashMap<String, serde_yaml::Value> = answers
             .into_iter()
             .filter_map(|(k, v)| {
                 let yaml_val: serde_yaml::Value = serde_yaml::from_str(&v.to_string()).ok()?;
                 Some((k, yaml_val))
             })
             .collect();
+
+        // Map enum letter answers to internal option values.
+        self.map_enum_letter_answers(&mut yaml_answers);
 
         match WorkflowEngine::handle_jump(&mut self.run, &self.definition, &yaml_answers) {
             Ok(action) => {
@@ -193,6 +220,57 @@ impl WorkflowHandler {
                 false
             }
         }
+    }
+
+    /// Map single-letter enum answers to their internal option values.
+    ///
+    /// When an agent answers an enum question with a letter like "A",
+    /// this maps it to the corresponding `options[index]` value so that
+    /// `evaluate_transitions` can match against `expected_value`.
+    pub(crate) fn map_enum_letter_answers(&self, answers: &mut HashMap<String, serde_yaml::Value>) {
+        let step = match self.definition.steps.get(self.run.current_step) {
+            Some(s) => s,
+            None => return,
+        };
+        for q in &step.jump {
+            if q.question_type != "enum" || q.options.is_empty() {
+                continue;
+            }
+            let answer_val = match answers.get(&q.id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let letter = match answer_val.as_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            let idx = match Self::try_map_enum_answer(letter) {
+                Some(i) => i,
+                None => continue,
+            };
+            if idx < q.options.len() {
+                answers.insert(
+                    q.id.clone(),
+                    serde_yaml::Value::String(q.options[idx].clone()),
+                );
+            }
+        }
+    }
+
+    /// Try to parse a single-letter enum answer into an option index.
+    ///
+    /// Returns `Some(index)` for a single uppercase ASCII letter (A → 0,
+    /// B → 1, …), or `None` if the letter is lowercase, multi-char,
+    /// or non-ASCII.
+    fn try_map_enum_answer(letter: &str) -> Option<usize> {
+        if letter.len() != 1 {
+            return None;
+        }
+        let b = letter.as_bytes()[0];
+        if !b.is_ascii_uppercase() {
+            return None;
+        }
+        Some((b - b'A') as usize)
     }
 
     /// Handle a `workflow_blocked` tool result.

@@ -4,6 +4,8 @@ use closeclaw_common::ContentBlock;
 use closeclaw_workflow::definition::{Step, Workflow};
 use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
 
+use std::collections::HashMap;
+
 use crate::workflow_handler::WorkflowHandler;
 
 fn make_test_workflow() -> Workflow {
@@ -38,6 +40,50 @@ fn make_test_workflow() -> Workflow {
     }
 }
 
+fn make_enum_workflow() -> Workflow {
+    use closeclaw_workflow::definition::JumpQuestion;
+    Workflow {
+        id: "enum-test".to_string(),
+        name: "Enum Test".to_string(),
+        description: "Workflow with enum questions".to_string(),
+        version: Some("0.1".to_string()),
+        allow_blocked: false,
+        verify_retry_limit: 3,
+        step_data_schema: serde_yaml::Value::Null,
+        steps: vec![Step {
+            id: 0,
+            name: "Decide".to_string(),
+            goal: "Choose".to_string(),
+            verify: vec![],
+            jump: vec![
+                JumpQuestion {
+                    id: "strategy".to_string(),
+                    prompt: "Which strategy?".to_string(),
+                    question_type: "enum".to_string(),
+                    options: vec!["fast".to_string(), "slow".to_string()],
+                    option_labels: vec![],
+                },
+                JumpQuestion {
+                    id: "mode".to_string(),
+                    prompt: "Which mode?".to_string(),
+                    question_type: "boolean".to_string(),
+                    options: vec![],
+                    option_labels: vec![],
+                },
+                JumpQuestion {
+                    id: "empty_opts".to_string(),
+                    prompt: "Empty options?".to_string(),
+                    question_type: "enum".to_string(),
+                    options: vec![],
+                    option_labels: vec![],
+                },
+            ],
+            transitions: vec![],
+            allow_blocked: None,
+        }],
+    }
+}
+
 fn make_test_run() -> WorkflowRun {
     WorkflowRun {
         workflow_id: "test-wf".to_string(),
@@ -56,7 +102,7 @@ fn make_test_run() -> WorkflowRun {
 fn test_process_tool_result_start() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "workflow_start", "name": "Test Workflow"}"#;
-    assert!(handler.process_tool_result(content));
+    assert!(handler.process_tool_result(content).0);
     assert_eq!(handler.run().phase, Phase::Executing);
 }
 
@@ -65,14 +111,14 @@ fn test_process_tool_result_verify_no_transitions() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "workflow_verify"}"#;
     // No jump questions in step 0 and no transitions → NoMatchingTransition error → returns false
-    assert!(!handler.process_tool_result(content));
+    assert!(!handler.process_tool_result(content).0);
 }
 
 #[test]
 fn test_process_tool_result_blocked_allowed() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
-    assert!(handler.process_tool_result(content));
+    assert!(handler.process_tool_result(content).0);
     assert_eq!(handler.run().phase, Phase::Blocked);
     let notif = handler.take_notification();
     assert!(notif.is_some());
@@ -87,7 +133,7 @@ fn test_process_tool_result_blocked_not_allowed() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.run_mut().current_step = 1; // step 1 has allow_blocked = false
     let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
-    assert!(!handler.process_tool_result(content));
+    assert!(!handler.process_tool_result(content).0);
     assert_eq!(handler.run().phase, Phase::Executing);
 }
 
@@ -95,13 +141,13 @@ fn test_process_tool_result_blocked_not_allowed() {
 fn test_process_tool_result_unknown_action() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     let content = r#"{"action": "unknown_action"}"#;
-    assert!(!handler.process_tool_result(content));
+    assert!(!handler.process_tool_result(content).0);
 }
 
 #[test]
 fn test_process_tool_result_invalid_json() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
-    assert!(!handler.process_tool_result("not json"));
+    assert!(!handler.process_tool_result("not json").0);
 }
 
 #[test]
@@ -114,7 +160,7 @@ fn test_process_content_blocks() {
             content: r#"{"action": "workflow_blocked", "reason": "test"}"#.to_string(),
         },
     ];
-    assert!(handler.process_content_blocks(&blocks));
+    assert!(handler.process_content_blocks(&blocks).0);
     assert_eq!(handler.run().phase, Phase::Blocked);
 }
 
@@ -125,7 +171,7 @@ fn test_process_content_blocks_no_workflow() {
         tool_call_id: "call-1".to_string(),
         content: r#"{"action": "some_other_tool"}"#.to_string(),
     }];
-    assert!(!handler.process_content_blocks(&blocks));
+    assert!(!handler.process_content_blocks(&blocks).0);
     assert_eq!(handler.run().phase, Phase::Executing);
 }
 
@@ -206,4 +252,69 @@ fn test_on_verify_injected_within_limit() {
     assert_eq!(handler.run().pending_verify, 1);
     assert_eq!(handler.run().phase, Phase::Executing);
     assert!(handler.take_notification().is_none());
+}
+
+// ── map_enum_letter_answers ──────────────────────────────────────
+
+#[test]
+fn test_enum_letter_a_maps_to_first_option() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("A".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(
+        answers["strategy"],
+        serde_yaml::Value::String("fast".into())
+    );
+}
+
+#[test]
+fn test_enum_letter_b_maps_to_second_option() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("B".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(
+        answers["strategy"],
+        serde_yaml::Value::String("slow".into())
+    );
+}
+
+#[test]
+fn test_enum_letter_c_out_of_range_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("C".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    // C (index 2) >= options.len() (2) → not mapped
+    assert_eq!(answers["strategy"], serde_yaml::Value::String("C".into()));
+}
+
+#[test]
+fn test_enum_non_enum_question_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    // "mode" has question_type = "boolean", not "enum"
+    answers.insert("mode".into(), serde_yaml::Value::String("A".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(answers["mode"], serde_yaml::Value::String("A".into()));
+}
+
+#[test]
+fn test_enum_lowercase_letter_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("a".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(answers["strategy"], serde_yaml::Value::String("a".into()));
+}
+
+#[test]
+fn test_enum_empty_options_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    // "empty_opts" has question_type = "enum" but options is empty
+    answers.insert("empty_opts".into(), serde_yaml::Value::String("A".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(answers["empty_opts"], serde_yaml::Value::String("A".into()));
 }
