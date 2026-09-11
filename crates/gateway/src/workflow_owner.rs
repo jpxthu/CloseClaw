@@ -6,6 +6,9 @@
 use super::Gateway;
 use super::HandleResult;
 
+#[cfg(test)]
+mod tests;
+
 impl Gateway {
     /// Handle owner response ("恢复"/"终止") to a blocked workflow (Step 1.6).
     pub(crate) async fn try_handle_workflow_owner_response(

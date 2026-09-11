@@ -365,4 +365,107 @@ pub(crate) mod tests {
         assert_eq!(cs.workflow_handler().unwrap().run().pending_verify, 2);
         assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Blocked);
     }
+
+    // ── Four-dimensional idle check (Step 1.3) ──────────────────────────
+
+    /// background_tool_active=true → not all inactive → None.
+    #[test]
+    fn test_check_conditions_bg_tool_active_returns_none() {
+        let cs = make_session_with_handler(Phase::Executing, 0);
+        cs.register_tool_call("bg-1", "bash", "ls");
+        cs.update_tool_state("bg-1", closeclaw_common::ToolExecState::RunningBackground);
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        assert!(
+            result.is_none(),
+            "bg_tool_active must prevent verify injection"
+        );
+    }
+
+    /// child_active=true → not all inactive → None.
+    #[test]
+    fn test_check_conditions_child_active_returns_none() {
+        let cs = make_session_with_handler(Phase::Executing, 0);
+        cs.register_child("child-1", "agent-a", "task");
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        assert!(
+            result.is_none(),
+            "child_active must prevent verify injection"
+        );
+    }
+
+    /// Only background_tool_active true, all others false → None.
+    #[test]
+    fn test_check_conditions_only_bg_tool_active_returns_none() {
+        let cs = make_session_with_handler(Phase::Executing, 0);
+        // LLM is Idle by default, no foreground tools, no children.
+        cs.register_tool_call("bg-only", "bash", "ls");
+        cs.update_tool_state(
+            "bg-only",
+            closeclaw_common::ToolExecState::RunningBackground,
+        );
+        let dims = cs.activity_dimensions();
+        assert!(!dims.llm_active);
+        assert!(!dims.foreground_tool_active);
+        assert!(dims.background_tool_active);
+        assert!(!dims.child_active);
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        assert!(
+            result.is_none(),
+            "only bg_tool_active must still return None (not all inactive)"
+        );
+    }
+
+    /// All four dimensions inactive + Executing → Some.
+    #[test]
+    fn test_check_conditions_all_inactive_executing_returns_params() {
+        let cs = make_session_with_handler(Phase::Executing, 0);
+        let dims = cs.activity_dimensions();
+        assert!(!dims.any_active(), "all dimensions should be inactive");
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        let params = result.expect("all inactive + Executing should return Some");
+        assert_eq!(params.current_step, 0);
+    }
+
+    /// child_active=true + Executing → None (previously would have
+    /// returned Some because exec_status was Idle with child running).
+    #[test]
+    fn test_check_conditions_child_active_prev_false_positive() {
+        let cs = make_session_with_handler(Phase::Executing, 0);
+        cs.register_child("child-fp", "agent-a", "task");
+        // Verify exec_status would be Idle (old behavior) but
+        // activity_dimensions catches child_active.
+        assert_eq!(
+            cs.exec_status(),
+            closeclaw_common::SessionExecStatus::Idle,
+            "child alone does not affect exec_status"
+        );
+        let dims = cs.activity_dimensions();
+        assert!(dims.child_active);
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        assert!(
+            result.is_none(),
+            "child_active must prevent verify (four-dimensional check)"
+        );
+    }
+
+    /// background_tool_active=true + Executing → None (previously would
+    /// have returned Some because exec_status was Idle with bg tool).
+    #[test]
+    fn test_check_conditions_bg_tool_prev_false_positive() {
+        let cs = make_session_with_handler(Phase::Executing, 0);
+        cs.register_tool_call("bg-fp", "bash", "ls");
+        cs.update_tool_state("bg-fp", closeclaw_common::ToolExecState::RunningBackground);
+        assert_eq!(
+            cs.exec_status(),
+            closeclaw_common::SessionExecStatus::Idle,
+            "bg tool alone does not affect exec_status"
+        );
+        let dims = cs.activity_dimensions();
+        assert!(dims.background_tool_active);
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        assert!(
+            result.is_none(),
+            "bg_tool_active must prevent verify (four-dimensional check)"
+        );
+    }
 }

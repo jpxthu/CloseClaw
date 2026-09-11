@@ -38,7 +38,16 @@ impl ConversationSession {
     ///
     /// Returns `true` if newly registered, `false` if a call with
     /// the same id already exists.
-    pub(crate) fn register_tool_call(
+    /// Registers a new tool call with detail information.
+    ///
+    /// Stores the `ToolExecState::Pending` alongside a
+    /// [`PendingOperationDetail::ToolCall`] carrying `tool_name` and
+    /// `args_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
+    /// can include them in checkpoint data.
+    ///
+    /// Returns `true` if newly registered, `false` if a call with
+    /// the same id already exists.
+    pub fn register_tool_call(
         &self,
         call_id: impl Into<String>,
         tool_name: impl Into<String>,
@@ -61,7 +70,7 @@ impl ConversationSession {
     /// When the new state is terminal ([`ToolExecState::is_terminal`]),
     /// the entry is removed from the map immediately — terminal-state
     /// tools no longer participate in exec-status evaluation.
-    pub(crate) fn update_tool_state(&self, call_id: &str, state: ToolExecState) {
+    pub fn update_tool_state(&self, call_id: &str, state: ToolExecState) {
         let mut states = self.tool_states.write().expect("tool_states lock poisoned");
         match states.get_mut(call_id) {
             Some((existing, _)) => {
@@ -80,7 +89,7 @@ impl ConversationSession {
 
     /// Deregisters a tool call. If the id is not registered, logs a
     /// warning and returns (no-op, no panic).
-    pub(crate) fn deregister_tool_call(&self, call_id: &str) {
+    pub fn deregister_tool_call(&self, call_id: &str) {
         let mut states = self.tool_states.write().expect("tool_states lock poisoned");
         if states.remove(call_id).is_none() {
             tracing::warn!(
@@ -155,7 +164,16 @@ impl ConversationSession {
     ///
     /// Returns `true` if newly registered, `false` if a child with the same id
     /// already exists.
-    pub(crate) fn register_child(
+    /// Registers a new child session in the `Running` state with detail information.
+    ///
+    /// Stores the `ChildSessionState::Running` alongside a
+    /// [`PendingOperationDetail::SubSessionSpawn`] carrying `agent_id` and
+    /// `task_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
+    /// can include them in checkpoint data.
+    ///
+    /// Returns `true` if newly registered, `false` if a child with the same id
+    /// already exists.
+    pub fn register_child(
         &self,
         child_id: impl Into<String>,
         agent_id: impl Into<String>,
@@ -194,7 +212,7 @@ impl ConversationSession {
 
     /// Deregisters a child session. If the id is not registered, logs a
     /// warning and returns (no-op, no panic).
-    pub(crate) fn deregister_child(&self, child_id: &str) {
+    pub fn deregister_child(&self, child_id: &str) {
         let mut states = self
             .child_states
             .write()
