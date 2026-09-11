@@ -153,7 +153,7 @@ mod tests {
     use super::*;
     use crate::builtin::SkillTool;
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
-    use crate::{CoreToolsRegistrar, ModeToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
+    use crate::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
     use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::SpawnController;
@@ -187,16 +187,6 @@ mod tests {
             std::env::temp_dir(),
             RuleSet::default(),
         )))
-    }
-
-    fn test_confirm_flow(
-        session_manager: &Arc<SessionManager>,
-    ) -> Arc<crate::builtin::PlanExecConfirmFlow> {
-        Arc::new(crate::builtin::PlanExecConfirmFlow::new(
-            Arc::clone(session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            tokio::runtime::Handle::current(),
-        ))
     }
 
     /// Build a minimal SpawnController + SessionManager pair for tests
@@ -252,7 +242,6 @@ mod tests {
         config_manager: Arc<ConfigManager>,
         agent_registry: Arc<AgentRegistry>,
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
-        confirm_flow: Arc<crate::builtin::PlanExecConfirmFlow>,
         tool_registry: Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     ) -> Vec<Box<dyn ToolRegistrar>> {
         let task_manager = Arc::new(BackgroundTaskManager::new());
@@ -274,17 +263,10 @@ mod tests {
                     approval_flow.clone(),
                 ))),
             )),
-            Box::new(SkillsToolsRegistrar::new(vec![
-                Arc::new(SkillTool::new(
-                    disk_registry,
-                    Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
-                )),
-                Arc::new(closeclaw_skills::SkillCreatorTool::new()),
-            ])),
-            Box::new(ModeToolsRegistrar::new(
-                session_manager.clone(),
-                confirm_flow,
-            )),
+            Box::new(SkillsToolsRegistrar::new(vec![Arc::new(SkillTool::new(
+                disk_registry,
+                Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+            ))])),
         ]
     }
 
@@ -302,7 +284,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -347,7 +328,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -397,7 +377,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -457,7 +436,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -538,7 +516,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -636,7 +613,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -734,7 +710,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -790,7 +765,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
@@ -840,7 +814,6 @@ mod tests {
                 config_manager,
                 agent_registry,
                 test_approval_flow(&session_manager),
-                test_confirm_flow(&session_manager),
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             ))
