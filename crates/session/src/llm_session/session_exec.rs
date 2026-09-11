@@ -38,15 +38,6 @@ impl ConversationSession {
     ///
     /// Returns `true` if newly registered, `false` if a call with
     /// the same id already exists.
-    /// Registers a new tool call with detail information.
-    ///
-    /// Stores the `ToolExecState::Pending` alongside a
-    /// [`PendingOperationDetail::ToolCall`] carrying `tool_name` and
-    /// `args_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
-    /// can include them in checkpoint data.
-    ///
-    /// Returns `true` if newly registered, `false` if a call with
-    /// the same id already exists.
     pub fn register_tool_call(
         &self,
         call_id: impl Into<String>,
@@ -155,15 +146,6 @@ impl ConversationSession {
 
 #[allow(dead_code)]
 impl ConversationSession {
-    /// Registers a new child session in the `Running` state with detail information.
-    ///
-    /// Stores the `ChildSessionState::Running` alongside a
-    /// [`PendingOperationDetail::SubSessionSpawn`] carrying `agent_id` and
-    /// `task_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
-    /// can include them in checkpoint data.
-    ///
-    /// Returns `true` if newly registered, `false` if a child with the same id
-    /// already exists.
     /// Registers a new child session in the `Running` state with detail information.
     ///
     /// Stores the `ChildSessionState::Running` alongside a
