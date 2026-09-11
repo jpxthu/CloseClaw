@@ -145,7 +145,11 @@ impl ToolSearchTool {
             .iter()
             .find(|d| d.name.to_lowercase() == query_lower)?;
         let schema = self.registry.get_tool_schema(&matched.name).await;
-        let detail = strip_keywords_prefix(&matched.detail);
+        let mut detail = strip_keywords_prefix(&matched.detail);
+        // Append (expensive) annotation for expensive tools in secondary detail.
+        if matched.flags.is_expensive {
+            detail = format!("{} ({})", detail.trim_end(), "expensive");
+        }
         Some(ToolResult {
             data: json!({
                 "name": matched.name,

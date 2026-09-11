@@ -159,18 +159,18 @@ impl ToolRegistryImpl {
         } else {
             ""
         };
-        let expensive_mark = if tool.is_expensive {
-            " (expensive)"
-        } else {
-            ""
-        };
         let raw_line = if tool.is_deferred {
-            format!("  - {}{}{}", tool.name, danger_mark, expensive_mark)
+            // Deferred tools: name + danger mark only, no detail or expensive.
+            format!("  - {}{}", tool.name, danger_mark)
         } else {
-            format!(
-                "  - **{}**{}{}: {}",
-                tool.name, danger_mark, expensive_mark, tool.detail
-            )
+            // Eager tools: bold name + danger mark + detail.
+            // Append (expensive) to detail text (rendering layer, not Tool trait).
+            let detail = if tool.is_expensive {
+                format!("{} ({})", tool.detail.trim_end(), "expensive")
+            } else {
+                tool.detail.clone()
+            };
+            format!("  - **{}**{}: {}", tool.name, danger_mark, detail)
         };
 
         // Split long lines at word boundaries to stay within LINE_WIDTH.
