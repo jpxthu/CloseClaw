@@ -117,13 +117,14 @@ async fn test_handle_run_foreground_propagates_daemon_runner_error() {
     );
 }
 
-// ── Test 4: PID file is written correctly in foreground mode ────────────────
+// ── Test 4: Foreground mode does NOT write PID file ────────────────────────
 
-/// In foreground mode, after the daemon runs, the PID file should contain the
-/// current process's PID (written by handle_run_foreground before the daemon
-/// runs). We verify the file exists and contains a valid PID.
+/// After Step 1.3, handle_run_foreground no longer writes the PID file —
+/// PID self-registration is the daemon's responsibility (Step 1.1). This
+/// test verifies that the CLI layer does NOT create a PID file as a side
+/// effect of running in foreground mode.
 #[tokio::test]
-async fn test_handle_run_foreground_writes_pid_file() {
+async fn test_handle_run_foreground_does_not_write_pid_file() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().to_str().unwrap().to_string();
 
@@ -136,23 +137,12 @@ async fn test_handle_run_foreground_writes_pid_file() {
     );
     assert!(mock.was_called(), "mock should have been called");
 
-    // Verify PID file exists and contains a valid PID.
+    // PID file should NOT exist — the daemon is responsible for writing it.
     let pid_file = closeclaw_platform::process::pid_file_path().unwrap();
     assert!(
-        pid_file.exists(),
-        "PID file should exist at {}",
-        pid_file.display()
+        !pid_file.exists(),
+        "PID file should NOT be created by handle_run_foreground (daemon owns PID self-registration)",
     );
-    let pid = closeclaw_platform::process::read_pid_file(&pid_file);
-    assert!(pid.is_some(), "PID file should contain a parseable PID");
-    // The PID should match the current process (written by handle_run_foreground).
-    assert_eq!(
-        pid.unwrap(),
-        std::process::id(),
-        "PID file should contain the current process ID"
-    );
-    // Clean up: remove PID file written to the fixed path.
-    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 5: Foreground rejects start when alive instance detected ───────────
@@ -207,7 +197,7 @@ async fn test_handle_run_foreground_cleans_stale_pid() {
         mock.was_called(),
         "DaemonRunner should be called after stale PID is cleaned"
     );
-    // Clean up: handle_run_foreground rewrites the PID file on success.
+    // Clean up: ensure_no_running_daemon already cleaned the stale PID file.
     std::fs::remove_file(&pid_file).ok();
 }
 
