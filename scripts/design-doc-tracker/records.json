@@ -851,9 +851,9 @@
     "path": "docs/design/tools/tool-registrar.md",
     "commit": "b6bc853ad479f56d09c26b406909ef8befbcc8d8",
     "commit_time": "2026-09-08T13:34:06+08:00",
-    "confirmed_time": "2026-09-08T13:41:52.473268+08:00",
+    "confirmed_time": "2026-09-11T18:52:38.034591+08:00",
     "comment": "",
-    "blocked_reason": ""
+    "blocked_reason": "F2b 发现设计矛盾：文档「无关」节声称'注册后的工具调用路径不受 ToolRegistrar 影响'，但代码中 ToolRegistryQuery trait 包含 call_tool 方法，registry 同时承担注册中心和执行入口两个角色，职责边界不清晰。另外 ImAdapter 工具数量文档与代码严重不符（文档14个，代码22个）。"
   },
   {
     "path": "docs/design/tools/tools-keywords.md",
