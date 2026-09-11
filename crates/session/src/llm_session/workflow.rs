@@ -63,11 +63,15 @@ impl ConversationSession {
             };
             // handler borrow ends here; safe to call self methods
             if let Some(msg) = jump_msg {
+                // Verify completed → remove verify messages + tool exchange.
                 self.remove_workflow_verify_messages();
+                self.remove_workflow_tool_exchange(&["workflow_verify", "workflow_blocked"]);
                 self.inject_workflow_message(&msg);
                 tracing::debug!("jump message injected into transcript");
             } else if was_jumping {
+                // Jump completed → remove jump messages + tool exchange.
                 self.remove_workflow_jump_messages();
+                self.remove_workflow_tool_exchange(&["workflow_jump"]);
                 tracing::debug!("jump messages cleaned up after phase transition");
             }
             processed
