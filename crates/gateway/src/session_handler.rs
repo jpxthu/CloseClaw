@@ -12,6 +12,7 @@
 use super::Gateway;
 use crate::session_manager::SessionManager;
 use crate::shutdown_handle::ShutdownHandle;
+use closeclaw_common::FileMutexMap;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::ProviderModelKnowledge;
@@ -87,6 +88,9 @@ pub struct SessionMessageHandler {
     pub(super) fallback_client: Arc<UnifiedFallbackClient>,
     pub(super) output_tx: OutputTx,
     pub(super) compaction_service: Arc<tokio::sync::Mutex<CompactionService>>,
+    /// Per-file mutex map for serializing concurrent writes to the same file.
+    #[allow(dead_code)] // Will be used by ToolCallDispatcher integration in Step 1.2
+    pub(super) file_mutex_map: Arc<FileMutexMap>,
     /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
     ///
     /// The active-searcher uses its own narrow [`ActiveSearchLlm`][closeclaw_memory::active_searcher_llm::ActiveSearchLlm]
@@ -145,6 +149,7 @@ impl SessionMessageHandler {
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
         compact_config: CompactConfig,
     ) -> Self {
+        let file_mutex_map = Arc::clone(&session_manager.file_mutex_map);
         Self {
             session_manager,
             fallback_client,
@@ -152,6 +157,7 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
                 compact_config,
             ))),
+            file_mutex_map,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
@@ -169,6 +175,7 @@ impl SessionMessageHandler {
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
         compact_config: CompactConfig,
     ) -> Self {
+        let file_mutex_map = Arc::clone(&session_manager.file_mutex_map);
         Self {
             session_manager,
             fallback_client,
@@ -176,6 +183,7 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
                 compact_config,
             ))),
+            file_mutex_map,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,

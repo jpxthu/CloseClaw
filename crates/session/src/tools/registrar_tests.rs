@@ -118,6 +118,17 @@ impl ToolRegistryQuery for MockToolRegistry {
     async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
         vec![]
     }
+    async fn get_tool_concurrency_safe(&self, _name: &str) -> Option<bool> {
+        None
+    }
+    async fn call_tool(
+        &self,
+        _name: &str,
+        _args: serde_json::Value,
+        _ctx: &closeclaw_common::ToolContext,
+    ) -> Result<closeclaw_common::ToolResult, closeclaw_common::ToolCallError> {
+        Err(closeclaw_common::ToolCallError::NotFound(_name.to_string()))
+    }
 }
 
 // ---------------------------------------------------------------------------

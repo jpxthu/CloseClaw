@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -91,7 +92,7 @@ fn test_classify_parallel_disabled_returns_serial() {
 async fn test_empty_calls() {
     let dispatcher = ToolCallDispatcher::new(Arc::new(FileMutexMap::new()), true);
     let (exec, _log) = RecordingExecutor::new();
-    let results = dispatcher.dispatch_all(vec![], &exec).await;
+    let results = dispatcher.dispatch_all(vec![], &exec, true).await;
     assert!(results.is_empty());
 }
 
@@ -104,7 +105,7 @@ async fn test_parallel_execution() {
         make_call("r2", "Read", true, Some("/b.txt")),
         make_call("r3", "Read", true, Some("/c.txt")),
     ];
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 3);
 
     let log = log.lock().unwrap();
@@ -140,7 +141,9 @@ async fn test_parallel_truly_concurrent() {
     ];
 
     let start = std::time::Instant::now();
-    let _results = dispatcher.dispatch_all(calls, &ConcurrentExecutor).await;
+    let _results = dispatcher
+        .dispatch_all(calls, &ConcurrentExecutor, true)
+        .await;
     let elapsed = start.elapsed();
 
     // Two futures each sleeping ~10ms, polled concurrently via join_all.
@@ -189,7 +192,7 @@ async fn test_same_file_mutex_serial() {
     let exec = SerialDetectingExecutor {
         counter: counter.clone(),
     };
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 2);
 }
 
@@ -220,7 +223,7 @@ async fn test_different_files_parallel() {
 
     let start = std::time::Instant::now();
     let results = dispatcher
-        .dispatch_all(calls, &ParallelDetectingExecutor)
+        .dispatch_all(calls, &ParallelDetectingExecutor, true)
         .await;
     let elapsed = start.elapsed();
     assert_eq!(results.len(), 2);
@@ -240,7 +243,7 @@ async fn test_serial_fallback_when_disabled() {
         make_call("s2", "Edit", false, Some("/a.txt")),
         make_call("s3", "Read", true, Some("/b.txt")),
     ];
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 3);
 
     let log = log.lock().unwrap();
@@ -256,7 +259,7 @@ async fn test_read_edit_same_file_ordering() {
         make_call("e", "Edit", false, Some("/shared.txt")),
         make_call("r", "Read", true, Some("/shared.txt")),
     ];
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 2);
 
     let log = log.lock().unwrap();
@@ -280,7 +283,7 @@ async fn test_result_order_matches_input() {
         make_call("d", "Edit", false, Some("/f2.txt")),
     ];
     let expected_ids: Vec<String> = calls.iter().map(|c| c.id.clone()).collect();
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 4);
 
     for (i, result) in results.iter().enumerate() {
@@ -301,7 +304,7 @@ async fn test_mixed_groups_correct_classification() {
         make_call("m2", "Edit", false, Some("/z.txt")),
         make_call("s1", "Bash", false, None),
     ];
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 5);
 
     let log = log.lock().unwrap();
@@ -313,7 +316,7 @@ async fn test_single_call() {
     let dispatcher = ToolCallDispatcher::new(Arc::new(FileMutexMap::new()), true);
     let (exec, log) = RecordingExecutor::new();
     let calls = vec![make_call("only", "Read", true, None)];
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 1);
     let log = log.lock().unwrap();
     assert_eq!(*log, vec!["only"]);
@@ -345,11 +348,30 @@ async fn test_fallback_all_serial_via_dispatch() {
         make_call("x", "Read", true, None),
         make_call("y", "Edit", false, Some("/a.txt")),
     ];
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 2);
 
     let log = log.lock().unwrap();
     assert_eq!(*log, vec!["x", "y"]);
+}
+
+/// When provider does not support parallel tool calls, all calls should be
+/// forced into serial execution even though `is_parallel_enabled` is true.
+#[tokio::test]
+async fn test_provider_unsupported_forces_serial_via_dispatch() {
+    let dispatcher = ToolCallDispatcher::new(Arc::new(FileMutexMap::new()), true);
+    let (exec, log) = RecordingExecutor::new();
+    let calls = vec![
+        make_call("r", "Read", true, None),
+        make_call("e", "Edit", false, Some("/a.txt")),
+        make_call("r2", "Read", true, Some("/b.txt")),
+    ];
+    let results = dispatcher.dispatch_all(calls, &exec, false).await;
+    assert_eq!(results.len(), 3);
+
+    // All calls should execute in input order (serial).
+    let log = log.lock().unwrap();
+    assert_eq!(*log, vec!["r", "e", "r2"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +392,7 @@ async fn test_multi_file_read_edit_race() {
         make_call("edit2", "Edit", false, Some("/race.txt")),
         make_call("read2", "Read", true, Some("/race.txt")),
     ];
-    let results = dispatcher.dispatch_all(calls, &exec).await;
+    let results = dispatcher.dispatch_all(calls, &exec, true).await;
     assert_eq!(results.len(), 4);
 
     let log = log.lock().unwrap();
@@ -404,7 +426,7 @@ async fn test_dispatch_cleanup_no_residual_entries() {
         make_call("e2", "Edit", false, Some("/file_a.txt")),
         make_call("e3", "Edit", false, Some("/file_b.txt")),
     ];
-    let _results = dispatcher.dispatch_all(calls, &exec).await;
+    let _results = dispatcher.dispatch_all(calls, &exec, true).await;
 
     // After dispatch, all entries should have been cleaned up.
     assert_eq!(
@@ -772,7 +794,7 @@ async fn test_end_to_end_dispatch_with_real_executor() {
         },
     ];
 
-    let results = dispatcher.dispatch_all(calls, &executor).await;
+    let results = dispatcher.dispatch_all(calls, &executor, true).await;
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].data, serde_json::json!({"msg": "hi"}));
     assert_eq!(results[1].data, serde_json::json!({"msg": "bye"}));

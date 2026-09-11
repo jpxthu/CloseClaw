@@ -212,6 +212,24 @@ pub trait ToolRegistryQuery: Send + Sync {
     ///
     /// Returns an empty `Vec` if no tools belong to the group.
     async fn list_tool_names_by_group(&self, group: &str) -> Vec<String>;
+
+    /// Check if a tool is concurrency-safe.
+    ///
+    /// Returns `Some(true)` if the tool declares itself concurrency-safe,
+    /// `Some(false)` if not, or `None` if the tool does not exist.
+    async fn get_tool_concurrency_safe(&self, name: &str) -> Option<bool>;
+
+    /// Execute a tool by name with the given arguments and context.
+    ///
+    /// Looks up the tool in the registry and calls [`Tool::call`] with
+    /// the provided arguments and context. Returns the tool result or
+    /// an error if the tool is not found or execution fails.
+    async fn call_tool(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+        ctx: &super::tool_trait::ToolContext,
+    ) -> Result<super::tool_trait::ToolResult, super::tool_trait::ToolCallError>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

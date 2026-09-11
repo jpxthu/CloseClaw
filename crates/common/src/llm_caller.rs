@@ -43,4 +43,13 @@ pub trait LlmCaller: Send + Sync {
     fn default_header_pairs(&self) -> Vec<(String, String)> {
         Vec::new()
     }
+
+    /// Returns whether the underlying provider supports parallel tool calls.
+    ///
+    /// When `false`, the framework must serialize all tool calls for this
+    /// provider, regardless of the agent-level `parallel_tool_calls` setting.
+    /// Default is `false` (conservative).
+    fn supports_parallel_tool_calls(&self) -> bool {
+        false
+    }
 }

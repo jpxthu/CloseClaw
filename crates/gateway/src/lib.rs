@@ -68,6 +68,7 @@ mod session_handler_compact;
 mod session_handler_dispatch;
 pub(crate) mod session_handler_reasoning;
 mod session_handler_streaming;
+mod session_handler_tool_dispatch;
 pub mod session_manager;
 mod shutdown_card;
 pub mod shutdown_handle;
@@ -169,31 +170,7 @@ impl Gateway {
     /// Create a new Gateway with the given config and a shared SessionManager.
     pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
         let registry = build_processor_registry(&config);
-        let gw = Self {
-            config,
-            plugins: RwLock::new(HashMap::new()),
-            session_manager,
-            processor_registry: std::sync::RwLock::new(Some(Arc::new(registry))),
-            checkpoint_manager: std::sync::RwLock::new(None),
-            session_handler: std::sync::OnceLock::new(),
-            approval_flow: RwLock::new(None),
-            plan_confirm_handler: RwLock::new(None),
-            slash_dispatcher: RwLock::new(None),
-            permission_engine: RwLock::new(None),
-            inbound_tx: std::sync::Mutex::new(None),
-            self_ref: std::sync::Mutex::new(None),
-            shutdown_handle: std::sync::Mutex::new(None),
-            outbound_middlewares: std::sync::RwLock::new(Vec::new()),
-            config_dir: RwLock::new(None),
-            metrics_emitter: std::sync::RwLock::new(None),
-            debug_log: std::sync::RwLock::new(None),
-            inbound_wal: std::sync::Mutex::new(None),
-            rebuild_stash: Arc::new(RebuildStash::new()),
-            media_store: std::sync::Mutex::new(None),
-            media_config: std::sync::RwLock::new(MediaConfigData::default()),
-        };
-        register_default_middlewares(&gw, &gw.config);
-        gw
+        Self::with_processor_registry(config, session_manager, Arc::new(registry))
     }
 
     /// Create a new Gateway with the given config, SessionManager and ProcessorRegistry.
@@ -342,6 +319,16 @@ impl Gateway {
     /// Get the current media store, if configured.
     pub fn get_media_store(&self) -> Option<Arc<dyn MediaStoreAccess>> {
         self.media_store.lock().ok().and_then(|s| s.clone())
+    }
+    /// Get the permission engine, if configured.
+    pub(crate) async fn get_permission_engine(
+        &self,
+    ) -> Option<Arc<tokio::sync::RwLock<PermissionEngine>>> {
+        self.permission_engine.read().await.clone()
+    }
+    /// Get the approval flow, if configured.
+    pub(crate) async fn get_approval_flow(&self) -> Option<Arc<tokio::sync::Mutex<ApprovalFlow>>> {
+        self.approval_flow.read().await.clone()
     }
     /// Update the media configuration.
     pub fn set_media_config(&self, config: MediaConfigData) {
