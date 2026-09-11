@@ -6,6 +6,9 @@
 use super::Gateway;
 use super::HandleResult;
 
+#[cfg(test)]
+mod tests;
+
 impl Gateway {
     /// Handle owner response ("恢复"/"终止") to a blocked workflow (Step 1.6).
     pub(crate) async fn try_handle_workflow_owner_response(
@@ -28,24 +31,10 @@ impl Gateway {
             .session_manager
             .get_conversation_session(session_id)
             .await?;
-        let (run_snapshot, definition_snapshot, current_step) = {
-            let cs_read = cs.read().await;
-            let handler = cs_read.workflow_handler()?;
-            (
-                handler.run().clone(),
-                handler.definition().clone(),
-                handler.run().current_step,
-            )
-        };
         let mut cs_write = cs.write().await;
         match action {
             "resolve" => {
-                Self::apply_resolve_action(
-                    &mut cs_write,
-                    &run_snapshot,
-                    &definition_snapshot,
-                    current_step,
-                );
+                Self::apply_resolve_action(&mut cs_write);
             }
             "terminate" => {
                 Self::apply_terminate_action(&mut cs_write);
@@ -86,25 +75,27 @@ impl Gateway {
     }
 
     /// Apply the resolve action: restore workflow messages and inject verification.
-    fn apply_resolve_action(
-        cs: &mut closeclaw_session::llm_session::ConversationSession,
-        run_snapshot: &closeclaw_workflow::run::WorkflowRun,
-        definition_snapshot: &closeclaw_workflow::definition::Workflow,
-        current_step: usize,
-    ) {
-        cs.remove_workflow_messages();
+    fn apply_resolve_action(cs: &mut closeclaw_session::llm_session::ConversationSession) {
+        cs.remove_workflow_verify_messages();
         if let Some(ref mut handler) = cs.workflow_handler_mut() {
             handler.on_owner_resolve();
         }
-        if let Some(step) = definition_snapshot.steps.get(current_step) {
-            let allow_blocked = step
-                .allow_blocked
-                .unwrap_or(definition_snapshot.allow_blocked);
-            let verify_msg =
-                closeclaw_workflow::definition::build_verify_message(step, allow_blocked);
-            cs.inject_workflow_message(&verify_msg);
+        // Capture snapshot AFTER on_owner_resolve() so pending_verify=0 and
+        // phase=Verifying are preserved (not overwritten by a stale snapshot).
+        if let Some(handler) = cs.workflow_handler() {
+            let run_snapshot = handler.run().clone();
+            let definition_snapshot = handler.definition().clone();
+            let current_step = handler.run().current_step;
+            if let Some(step) = definition_snapshot.steps.get(current_step) {
+                let allow_blocked = step
+                    .allow_blocked
+                    .unwrap_or(definition_snapshot.allow_blocked);
+                let verify_msg =
+                    closeclaw_workflow::definition::build_verify_message(step, allow_blocked);
+                cs.inject_workflow_message(&verify_msg);
+            }
+            cs.set_workflow_run(Some(run_snapshot));
         }
-        cs.set_workflow_run(Some(run_snapshot.clone()));
     }
 
     /// Apply the terminate action: clear all workflow state.
