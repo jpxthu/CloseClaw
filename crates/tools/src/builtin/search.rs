@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
 use serde_json::{json, Value};
 
-use crate::registry::{extract_keywords, strip_keywords_prefix};
+use crate::registry::{append_expensive_tag, extract_keywords, strip_keywords_prefix};
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -145,7 +145,9 @@ impl ToolSearchTool {
             .iter()
             .find(|d| d.name.to_lowercase() == query_lower)?;
         let schema = self.registry.get_tool_schema(&matched.name).await;
-        let detail = strip_keywords_prefix(&matched.detail);
+        let mut detail = strip_keywords_prefix(&matched.detail);
+        // Append (expensive) annotation for expensive tools in secondary detail.
+        detail = append_expensive_tag(&detail, matched.flags.is_expensive);
         Some(ToolResult {
             data: json!({
                 "name": matched.name,

@@ -47,6 +47,29 @@ impl ToolInfo {
     }
 }
 
+/// Append `(expensive)` annotation to a detail string if the tool is expensive.
+/// Used by both `format_tool_line` (first-level) and `search.rs` (secondary detail).
+pub(crate) fn append_expensive_tag(detail: &str, is_expensive: bool) -> String {
+    if is_expensive {
+        format!("{} (expensive)", detail.trim_end())
+    } else {
+        detail.to_string()
+    }
+}
+
+/// Sort tool groups so that groups containing eager (always-loaded) tools
+/// appear before all-deferred groups. Within each tier, groups are sorted
+/// alphabetically by name.
+fn sort_tool_groups(groups: &mut [(String, Vec<ToolInfo>)]) {
+    groups.sort_by(|a, b| {
+        let a_has_eager = a.1.iter().any(|t| !t.is_deferred);
+        let b_has_eager = b.1.iter().any(|t| !t.is_deferred);
+        // false < true, so !has_eager (all-deferred) sorts before has_eager.
+        // Reverse to put eager groups first.
+        b_has_eager.cmp(&a_has_eager).then_with(|| a.0.cmp(&b.0))
+    });
+}
+
 /// Maximum length of the first-level tools section (in characters).
 const TOOLS_SECTION_MAX_LEN: usize = 15000;
 
@@ -159,18 +182,14 @@ impl ToolRegistryImpl {
         } else {
             ""
         };
-        let expensive_mark = if tool.is_expensive {
-            " (expensive)"
-        } else {
-            ""
-        };
         let raw_line = if tool.is_deferred {
-            format!("  - {}{}{}", tool.name, danger_mark, expensive_mark)
+            // Deferred tools: name + danger mark only, no detail or expensive.
+            format!("  - {}{}", tool.name, danger_mark)
         } else {
-            format!(
-                "  - **{}**{}{}: {}",
-                tool.name, danger_mark, expensive_mark, tool.detail
-            )
+            // Eager tools: bold name + danger mark + detail.
+            // Append (expensive) to detail text (rendering layer, not Tool trait).
+            let detail = append_expensive_tag(&tool.detail, tool.is_expensive);
+            format!("  - **{}**{}: {}", tool.name, danger_mark, detail)
         };
 
         // Split long lines at word boundaries to stay within LINE_WIDTH.
@@ -383,7 +402,7 @@ impl ToolRegistryImpl {
 
         let mut lines: Vec<String> = Vec::new();
         let mut sorted_groups: Vec<_> = groups_map.into_iter().collect();
-        sorted_groups.sort_by_key(|(g, _)| g.clone());
+        sort_tool_groups(&mut sorted_groups);
 
         for (group_name, tools) in sorted_groups {
             let has_eager = tools.iter().any(|t| !t.is_deferred);
@@ -542,7 +561,7 @@ impl ToolRegistryImpl {
         let mut groups_skipped = false;
 
         let mut sorted_groups: Vec<_> = groups_map.into_iter().collect();
-        sorted_groups.sort_by_key(|(g, _)| g.clone());
+        sort_tool_groups(&mut sorted_groups);
 
         for (group_name, tools) in sorted_groups {
             let (line, new_len) =
