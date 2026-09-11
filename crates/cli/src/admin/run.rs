@@ -67,19 +67,14 @@ pub async fn handle_run_foreground(
     // Pre-check: reject if a daemon is already running, clean stale PID.
     ensure_no_running_daemon(&pid_file)?;
 
-    // Write PID file BEFORE running the daemon so integration tests can
-    // find the daemon's PID after startup.
+    // Capture PID before daemon starts — in foreground mode the daemon
+    // runs in the same process, so std::process::id() is the real PID.
     let pid = std::process::id();
-    closeclaw_platform::process::write_pid_file(&pid_file, pid)?;
 
     // Run daemon in-process (no subprocess spawn).
     daemon_runner
         .start_and_run(config_dir.to_str().unwrap_or("."))
         .await?;
-
-    // After daemon shuts down, read the PID file it wrote.
-    let pid = closeclaw_platform::process::read_pid_file(&pid_file)
-        .context("failed to read daemon PID file after run")?;
 
     if json {
         json_output(&RunOutput {
@@ -90,7 +85,6 @@ pub async fn handle_run_foreground(
         return Ok(());
     }
 
-    println!("PID {} written to {}", pid, pid_file.display());
     println!("Daemon started.");
     Ok(())
 }

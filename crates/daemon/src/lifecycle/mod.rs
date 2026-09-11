@@ -1,12 +1,14 @@
 //! Daemon lifecycle: start, run, and shutdown phases.
 
 use super::{Daemon, Phase5Deps};
+use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig};
 use closeclaw_permission::engine::audit_log::AuditLogger;
+use closeclaw_platform::process;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
-use crate::shutdown_heartbeat::ShutdownHeartbeat;
+mod bg_task_helpers;
 
 impl Daemon {
     /// Start the daemon with the given config directory.
@@ -15,16 +17,24 @@ impl Daemon {
         Self::start_with_engine(config_dir, audit_logger).await
     }
     /// Start the daemon with an optional audit logger.
-    ///
-    /// The `audit_logger` is injected into the [`PermissionEngine`] built
-    /// during phase-2 initialization. If `None`, the engine runs without
-    /// audit logging.
+    /// If `None`, the engine runs without audit logging.
     pub async fn start_with_engine(
         config_dir: &str,
         audit_logger: Option<Arc<dyn AuditLogger>>,
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
+        // PID self-registration (design doc § PID 自注册).
+        let pid_file_path = process::pid_file_path()?;
+        if let Err(e) = process::write_pid_file(&pid_file_path, std::process::id()) {
+            warn!(
+                error = %e,
+                pid_file = %pid_file_path.display(),
+                "failed to write PID file — daemon will continue without it"
+            );
+        } else {
+            info!(pid_file = %pid_file_path.display(), "PID file written");
+        }
         let (startup_layers, _phase_components) = Self::resolve_startup_order()?;
         Self::log_startup_order(&startup_layers);
         let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
@@ -176,7 +186,7 @@ impl Daemon {
         // Recovery injection may have created new ConversationSession / Session
         // entries. Rebuild key_registry so they are resolvable by routing key.
         if let Err(e) = session_manager.rebuild_key_registry().await {
-            tracing::warn!(
+            warn!(
                 error = %e,
                 "failed to rebuild key_registry after recovery injection \
                  — continuing"
@@ -232,9 +242,9 @@ impl Daemon {
             restart_state: crate::gateway_restart::RestartHandle::new(),
             restart_rx: Some(restart_rx),
             admin_restart_rx: Some(admin_restart_rx),
+            pid_file_path,
         })
     }
-
     /// Run the daemon — blocks until shutdown signal is received, then
     /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
@@ -352,7 +362,7 @@ impl Daemon {
         let plugins = gateway.get_all_plugins().await;
         for plugin in &plugins {
             if let Err(e) = plugin.shutdown_inbound().await {
-                tracing::warn!(
+                warn!(
                     platform = plugin.platform(),
                     error = %e,
                     "failed to shutdown plugin inbound — continuing"
@@ -363,10 +373,10 @@ impl Daemon {
 
     /// Send a heartbeat card if the interval has elapsed.
     /// Returns `true` if a heartbeat was sent.
-    async fn try_send_heartbeat(&self, heartbeat: &mut ShutdownHeartbeat) -> bool {
+    pub(crate) async fn try_send_heartbeat(&self, heartbeat: &mut ShutdownHeartbeat) -> bool {
         if heartbeat.should_send_heartbeat() {
             let mode = self.shutdown.mode();
-            tracing::info!(
+            info!(
                 elapsed = heartbeat.elapsed_secs(),
                 "shutdown heartbeat — sending periodic notification"
             );
@@ -557,7 +567,7 @@ impl Daemon {
             // Check if mode changed and update card
             let current_mode: closeclaw_common::shutdown::ShutdownMode = self.shutdown.mode();
             if current_mode != last_mode {
-                tracing::info!(
+                info!(
                     ?last_mode,
                     ?current_mode,
                     "shutdown mode changed, updating progress card"
@@ -592,7 +602,7 @@ impl Daemon {
         // join it in wait_all_bg_tasks (design doc: confirm all 5 tasks).
         if let Some(watcher) = self._config_watcher.take() {
             let subscriber = watcher.into_subscriber_handle();
-            tracing::info!("ConfigWatcher dropped in Phase 3");
+            info!("ConfigWatcher dropped in Phase 3");
             self.config_watcher_subscriber_handle = Some(subscriber);
         }
 
@@ -604,7 +614,7 @@ impl Daemon {
         // Stop the media cleanup task (RAII handle, drop signals shutdown).
         if let Some(handle) = self.media_cleanup_handle.take() {
             handle.shutdown();
-            tracing::info!("media cleanup task signaled to stop");
+            info!("media cleanup task signaled to stop");
         }
 
         let task_results = self.wait_all_bg_tasks().await;
@@ -614,153 +624,6 @@ impl Daemon {
         self.approval_flow.lock().await.clear();
     }
 
-    /// Wait for all background tasks to exit, sending periodic heartbeats.
-    ///
-    /// Waits for all 5 background tasks per the design doc:
-    /// ArchiveSweeper, AnnounceSweeper, PlanArchiveSweeper,
-    /// DreamingScheduler, and ConfigWatcher subscriber.
-    async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
-        let join_timeout = std::time::Duration::from_secs(7);
-        let abort_grace = std::time::Duration::from_secs(3);
-
-        // Compile-time: total Phase 3 budget must be 10s per design doc.
-        #[allow(clippy::assertions_on_constants, clippy::eq_op)]
-        const _: () = assert!(
-            7 + 3 == 10,
-            "Phase 3 total timeout (join_timeout + abort_grace) must equal 10s"
-        );
-        let mut heartbeat = ShutdownHeartbeat::new();
-        let mut results: Vec<(&str, TaskStopStatus)> = Vec::new();
-        let tasks: Vec<(&str, Option<tokio::task::JoinHandle<()>>)> = vec![
-            ("ArchiveSweeper", self.archive_sweeper_handle.take()),
-            ("AnnounceSweeper", self.announce_sweeper_handle.take()),
-            ("DreamingScheduler", self.dreaming_scheduler_handle.take()),
-            (
-                "PlanArchiveSweeper",
-                self.plan_archive_sweeper_handle.take(),
-            ),
-            (
-                "ConfigWatcherSubscriber",
-                self.config_watcher_subscriber_handle.take(),
-            ),
-        ];
-        for (name, handle) in tasks {
-            if let Some(h) = handle {
-                let status = self
-                    .wait_for_background_task_with_heartbeat(
-                        h,
-                        name,
-                        join_timeout,
-                        abort_grace,
-                        &mut heartbeat,
-                    )
-                    .await;
-                results.push((name, status));
-            }
-        }
-        results
-    }
-
-    /// Summarize Phase 3 background task stop results.
-    fn log_phase3_stop_confirmation(results: &[(&str, TaskStopStatus)]) {
-        let clean = results
-            .iter()
-            .filter(|(_, s)| matches!(s, TaskStopStatus::Clean))
-            .count();
-        let panicked = results
-            .iter()
-            .filter(|(_, s)| matches!(s, TaskStopStatus::Panicked))
-            .count();
-        let aborted = results
-            .iter()
-            .filter(|(_, s)| matches!(s, TaskStopStatus::Aborted))
-            .count();
-        info!(
-            clean,
-            panicked, aborted, "phase 3 background tasks stopped — confirmation"
-        );
-        for (name, status) in results {
-            match status {
-                TaskStopStatus::Clean => info!(task = %name, "stopped: clean exit"),
-                TaskStopStatus::Panicked => warn!(task = %name, "stopped: panicked"),
-                TaskStopStatus::Aborted => {
-                    warn!(task = %name, "stopped: aborted (timeout)")
-                }
-            }
-        }
-    }
-
-    /// Wait for a background task to exit, sending periodic shutdown
-    /// heartbeats during the wait.
-    ///
-    /// Uses `tokio::select!` with `ShutdownHeartbeat::next_deadline()`
-    /// to send heartbeat notifications every 30s while waiting for the
-    /// task to finish.  Ref: design doc § "心跳在存在等待的停止阶段
-    /// 生效" — Phase 3 后台任务停止.
-    async fn wait_for_background_task_with_heartbeat(
-        &self,
-        mut handle: tokio::task::JoinHandle<()>,
-        name: &str,
-        timeout: std::time::Duration,
-        abort_grace: std::time::Duration,
-        heartbeat: &mut ShutdownHeartbeat,
-    ) -> TaskStopStatus {
-        let wait_with_heartbeats = async {
-            loop {
-                tokio::select! {
-                    result = &mut handle => return result,
-                    _ = tokio::time::sleep_until(heartbeat.next_deadline()) => {
-                        self.try_send_heartbeat(heartbeat).await;
-                    }
-                }
-            }
-        };
-
-        match tokio::time::timeout(timeout, wait_with_heartbeats).await {
-            Ok(join_result) => Self::classify_task_result(name, join_result, heartbeat),
-            Err(_) => Self::abort_task_with_grace(handle, name, abort_grace, heartbeat).await,
-        }
-    }
-
-    /// Classify a completed task's join result into a stop status.
-    fn classify_task_result(
-        name: &str,
-        result: Result<(), tokio::task::JoinError>,
-        heartbeat: &mut ShutdownHeartbeat,
-    ) -> TaskStopStatus {
-        match result {
-            Ok(()) => {
-                info!("{} exited cleanly", name);
-                heartbeat.record_event();
-                TaskStopStatus::Clean
-            }
-            Err(e) => {
-                warn!(error = %e, "{} task panicked", name);
-                heartbeat.record_event();
-                TaskStopStatus::Panicked
-            }
-        }
-    }
-
-    /// Abort a task and wait with a grace period for termination.
-    async fn abort_task_with_grace(
-        handle: tokio::task::JoinHandle<()>,
-        name: &str,
-        abort_grace: std::time::Duration,
-        heartbeat: &mut ShutdownHeartbeat,
-    ) -> TaskStopStatus {
-        warn!("{} did not exit within timeout, aborting", name);
-        handle.abort();
-        match tokio::time::timeout(abort_grace, handle).await {
-            Ok(Ok(())) => info!("{} terminated after abort", name),
-            Ok(Err(_)) => info!("{} task panicked on abort join — terminated", name),
-            Err(_) => {
-                error!("{} still alive after abort — possible resource leak", name)
-            }
-        }
-        heartbeat.record_event();
-        TaskStopStatus::Aborted
-    }
     /// Phase 4: Final persistence — two-step fsync to ensure all
     /// session writes are safely persisted.
     ///
@@ -775,12 +638,12 @@ impl Daemon {
     /// "全局 fsync 同步" (global fsync synchronization) for Phase 4.
     async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
         match self.gateway().await.flush_all_sessions(mode).await {
-            Ok(n) => tracing::info!(count = n, mode = ?mode, "flushed session checkpoints"),
-            Err(e) => tracing::warn!(error = %e, "failed to flush sessions"),
+            Ok(n) => info!(count = n, mode = ?mode, "flushed session checkpoints"),
+            Err(e) => warn!(error = %e, "failed to flush sessions"),
         }
         match self.gateway().await.sync_storage().await {
-            Ok(()) => tracing::info!("storage fsync complete"),
-            Err(e) => tracing::warn!(error = %e, "storage fsync failed"),
+            Ok(()) => info!("storage fsync complete"),
+            Err(e) => warn!(error = %e, "storage fsync failed"),
         }
     }
 
@@ -792,8 +655,8 @@ impl Daemon {
     /// Phase 6: Storage close — release persistent connections/handles.
     async fn phase_6_storage_close(&self) {
         match self.gateway().await.close_storage().await {
-            Ok(()) => tracing::info!("storage closed"),
-            Err(e) => tracing::warn!(error = %e, "storage close failed"),
+            Ok(()) => info!("storage closed"),
+            Err(e) => warn!(error = %e, "storage close failed"),
         }
     }
 
@@ -822,14 +685,14 @@ impl Daemon {
             if is_stopped {
                 stopped_count += 1;
             } else {
-                tracing::warn!(
+                warn!(
                     session_id = %session.id,
                     "session still active and not stopped at exit — may need manual recovery"
                 );
             }
         }
         if !remaining.is_empty() {
-            tracing::info!(
+            info!(
                 remaining = remaining.len(),
                 stopped = stopped_count,
                 "phase 7: session table state at exit"
@@ -839,6 +702,24 @@ impl Daemon {
         let _ = tokio::fs::remove_file(&self.admin_socket_path).await;
         // Clean up chat socket file
         let _ = tokio::fs::remove_file(&self.chat_socket_path).await;
+        // Clean up PID file (ignore NotFound — already removed or never written)
+        match tokio::fs::remove_file(&self.pid_file_path).await {
+            Ok(()) => info!(
+                pid_file = %self.pid_file_path.display(),
+                "PID file removed"
+            ),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                debug!(
+                    pid_file = %self.pid_file_path.display(),
+                    "PID file already absent — no cleanup needed"
+                );
+            }
+            Err(e) => warn!(
+                error = %e,
+                pid_file = %self.pid_file_path.display(),
+                "failed to remove PID file"
+            ),
+        }
     }
 }
 
@@ -860,7 +741,7 @@ impl Daemon {
         let env_path = std::path::Path::new(config_dir).join(".env");
         if env_path.exists() {
             if let Err(e) = super::load_env_file(&env_path) {
-                tracing::warn!(error = %e, path = %env_path.display(), "failed to load .env file");
+                warn!(error = %e, path = %env_path.display(), "failed to load .env file");
             } else {
                 info!("Loaded environment from {}", env_path.display());
             }
@@ -884,7 +765,7 @@ impl Daemon {
         match closeclaw_config::migration::migrate_if_needed(&openclaw_json_path, config_dir) {
             Ok(true) => info!("Legacy openclaw.json migration completed successfully"),
             Ok(false) => info!("No migration needed — config directory is up to date"),
-            Err(e) => tracing::warn!(
+            Err(e) => warn!(
                 error = %e,
                 "openclaw.json migration failed — continuing with existing config"
             ),
@@ -900,14 +781,14 @@ impl Daemon {
             .join("config")
             .join("debug_log.json");
         if !config_path.exists() {
-            tracing::debug!("debug_log.json not found — skipping debug log init");
+            debug!("debug_log.json not found — skipping debug log init");
             return None;
         }
         match DebugLogConfig::from_file(&config_path).await {
             Ok(config) => match DebugLog::new(config).await {
                 Ok(debug_log) => Some(debug_log),
                 Err(e) => {
-                    tracing::warn!(
+                    warn!(
                         error = %e,
                         "failed to create DebugLog instance — continuing without"
                     );
@@ -915,7 +796,7 @@ impl Daemon {
                 }
             },
             Err(e) => {
-                tracing::warn!(
+                warn!(
                     error = %e,
                     path = %config_path.display(),
                     "failed to load debug_log.json — continuing without"

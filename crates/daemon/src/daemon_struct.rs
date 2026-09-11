@@ -106,6 +106,8 @@ pub struct Daemon {
     /// Receiver for admin RPC restart commands (force=true, cancel=false).
     /// Processed in `run()` select loop alongside config watcher signals.
     pub(crate) admin_restart_rx: Option<tokio::sync::mpsc::Receiver<bool>>,
+    /// Path to the PID file — written on start, cleaned up on exit.
+    pub(crate) pid_file_path: PathBuf,
 }
 
 impl Daemon {
