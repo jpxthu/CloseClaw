@@ -12,7 +12,7 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
 
 - Agent 在 System Prompt 中看到一份工具清单，包含每个工具的名称、分组归属和功能描述
 - 工具清单按**常用 / 延迟**两级呈现：
-  - **常用工具**：由 [F2](#f2-文件读取)（文件读取）、[F3](#f3-文件写入与编辑)（文件写入与编辑）、[F4](#f4-shell-命令执行)（Shell 命令执行）、[F5](#f5-后台任务执行)（后台任务执行）定义的工具，子 Session 管理工具（创建见 [agent §F7](agent.md)（子 Session 创建（Spawn））、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调）），以及工具检索入口（见本节「Agent 可以通过关键词或工具名查找工具」）。其完整说明直接呈现给 Agent，无需额外操作即可调用
+  - **常用工具**：由 [F2](#f2-文件读取)（文件读取；图片读取工具除外，按延迟工具处理）、[F3](#f3-文件写入与编辑)（文件写入与编辑）、[F4](#f4-shell-命令执行)（Shell 命令执行）定义的文件操作工具，[F5](#f5-后台任务执行)（后台任务执行）涉及的执行能力，子 Session 管理工具（创建见 [agent §F7](agent.md)（子 Session 创建（Spawn））、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调）），以及工具检索入口（见本节「Agent 可以通过关键词或工具名查找工具」）。其完整说明直接呈现给 Agent，无需额外操作即可调用
   - **延迟工具**：除常用工具外的全部工具，含本节的权限状态查询与 [F9](#f9-工具扩展接入)（工具扩展接入）中各模块注册的工具。至少展示名称和风险标记，Agent 可按需查询完整说明
 - Agent 可以通过关键词或工具名查找工具——用自然语言描述想做的事情，系统匹配最相关的工具
 - 工具清单总长度有上限（按 token 预算，默认值由设计文档定义），超出时从尾部截断并提示 Agent 如何了解未展示的工具
@@ -75,11 +75,11 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - `Use Ls and Grep — not shell ls or grep — for directory listing and content search.`
 - `Use ReadImage to look at an image; it downscales large images, so do not install image libraries or build thumbnails.`（随图片工具接入启用）
 
-**错误与提示**（`<path>` 为实际路径，`<type>` 为检测到的类型，`<start>`/`<end>`/`<total>`/`<N>` 为实际数值）
+**错误与提示**（`<path>` 为实际路径，`<type>` 为检测到的类型，`<regex>` 为正则表达式，`<start>`/`<end>`/`<total>`/`<N>` 为实际数值）
 
 - 文件不存在 — `cannot read "<path>": not found`
 - 路径不是普通文件 — `cannot read "<path>": not a regular file`
-- 二进制文件 — `cannot read "<path>": binary file (<type>)`；若为支持格式的图片，追加 `; use ReadImage to view it`
+- 二进制文件 — `cannot read "<path>": binary file (<type>)`；若为支持格式的图片、且图片工具已接入，追加 `; use ReadImage to view it`
 - 文件为空（提示，非错误）— `The file is empty.`
 - 单次读取截断 — `(Showing lines <start>-<end> of <total>. Use offset=<end+1> to continue.)`
 - 起始行越界 — `offset <start> is out of range for "<path>" (<total> lines)`
@@ -118,13 +118,11 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 - `Write` — `Create a file or fully replace its contents. Creates parent directories as needed.`
 - `Edit` — `Edit an existing text file by replacing literal text.`
 - `Git`（GitStatus / GitLog / GitCommit / GitPush / GitPull）— `Inspect working-tree status and history, and commit, push, and pull.`
-- `Write` 参数：`file_path` — path to write; `content` — full text content
-- `Edit` 参数：`file_path` — path to edit; `old_string` — literal text to replace, must match exactly; `new_string` — replacement text, empty to delete; `replace_all` — replace all matches, default false
 
 **使用引导**
 
 - `Use Write to create a file or replace its whole contents; read an existing file first — an overwrite of a file you have not read is rejected. Prefer Edit for a partial change; it sends only the changed text.`
-- `Edit replaces literal old text with new text; by default the old text must appear exactly once. If it appears more than once, widen the old text or set replace_all. Read the file first — a file changed since it was read must be re-read.`
+- `Edit replaces literal old text with new text; by default each old text must appear exactly once. If one appears more than once, widen it or set replace_all. All replacements match the original content, not after earlier edits. Read the file first — a file changed since it was read must be re-read.`
 - `Merge several distinct changes to one file into a single Edit call; every replacement matches the original content and none overlap. Keep each old text as small as it can be while staying unique.`
 - `Use the Git tools for status, history, commit, and push/pull — do not hand-assemble git commands. Write commit messages that describe the actual change.`
 
@@ -156,13 +154,11 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 **工具说明**
 
 - `Bash` — `Execute a shell command in a working directory and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (working directory, variables) persists — pass the working directory as a parameter instead of using cd. Long output is truncated to its head; the full output is saved to a file whose path is returned when available.`
-- 参数 `Bash`：`command` — the shell command; `timeout` — timeout in milliseconds (has a default and a cap); `workdir` — working directory, defaults to the session working directory; `description` — short purpose, shown in progress and notifications
 - （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令安全拦截与审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
 
 **使用引导**
 
 - `Run independent commands as separate calls in the same message; chain dependent commands in a single call (&&, or ; when the earlier result does not matter). Pass the working directory as a parameter — do not rely on cd. Keep temporary files in the system temp directory; do not hardcode a path.`
-- `For a command expected to run long, run it in the background instead of blocking: the call returns immediately and you are notified when it finishes.`
 - `Check the exit code on every result; on failure read its meaning and the error output, fix the cause, then retry — do not retry blindly.`
 
 **错误与提示**（`<cmd>` 为命令首词，`<dir>` 为工作目录，`<path>` 为输出文件路径，`<N>` 为实际数值）
@@ -192,29 +188,24 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 
 **工具说明**
 
-- 后台任务工具（提交 / 读取输出 / 列出 / 终止）— `Submit a command as a background job and return its id immediately; read a job's output; list this session's jobs; stop a running job.`
-- 提交参数：`command`、`workdir` — see [F4](#f4-shell-命令执行)
-- 读取输出参数：`job_id` — job id; `wait` — block until a terminal status, default false
-- 终止参数：`job_id` — job id; `reason` — optional reason
+- 后台执行 — `Start a long command with run_in_background: the call returns a task id and an output file path immediately; the output file can be read; a running task can be stopped by its id.`
 
 **使用引导**
 
-- `Do not poll or sleep on a background job — you are notified in-session when it finishes. Keep working on independent steps, and do not duplicate a running job's work.`
-- `Before a final answer, read the output of every still-relevant job; stop jobs that no longer matter. Do not use sleep for delays or timed retries.`
+- `Run a command expected to be long in the background instead of blocking — the call returns immediately and you are notified when it finishes. Do not poll or sleep on a background task, and do not duplicate a running task's work.`
+- `Before a final answer, read the output of every still-relevant background task; stop tasks that no longer matter. Do not use sleep for delays or timed retries.`
 
-**通知与回执**（逐字模板，`<job_id>` 为任务标识，`<cmd>` 为命令摘要，`<path>` 为输出文件路径，`<N>` 为退出码，`<tail>` 为阻塞时的尾部输出，`<K>` 为数量）
+**通知与回执**（逐字模板，`<task_id>` 为任务标识，`<cmd>` 为命令摘要，`<path>` 为输出文件路径，`<N>` 为退出码，`<tail>` 为阻塞时的尾部输出，`<K>` 为数量）
 
-- 后台提交返回（返回，非错误）— `started background job <job_id>`
-- 超时自动转后台（返回，非错误）— `moved to the background as <job_id>; output: <path>`
-- 终态通知（完成）— `background job <job_id> finished [exit code: <N>]. Output: <path>`
-- 终态通知（失败）— `background job <job_id> failed [exit code: <N>]. Output: <path>`
-- 终态通知（被终止）— `background job <job_id> was terminated. Output: <path>`
-- 卡住告警 — `background job <job_id> looks blocked on an interactive prompt (tail: <tail>) — stop it and rerun non-interactively (pipe the answers, add -y).`
-- 终止返回 — `requested cancellation of job <job_id>; output so far: <path>`
-- 终止不存在的任务 — `no such background job: <job_id>`
-- 运行中列表注入（每轮开始；无运行中任务时不注入）— `Background jobs (<K> running):\n- <job_id>: <cmd>`
-
-> **交叉引用**：后台任务通知与 Session 消息队列的对接。详见 [session §F9](session.md)（消息注入）。
+- 后台提交返回（返回，非错误）— `started background task <task_id>; output: <path>`
+- 超时自动转后台（返回，非错误）— `moved to the background as <task_id>; output: <path>`
+- 终态通知（完成）— `background task <task_id> finished [exit code: <N>]. Output: <path>`
+- 终态通知（失败）— `background task <task_id> failed [exit code: <N>]. Output: <path>`
+- 终态通知（被终止；仅系统清理触发，Agent 主动终止与 Session 停止不发通知）— `background task <task_id> was terminated. Output: <path>`
+- 卡住告警 — `background task <task_id> looks blocked on an interactive prompt (tail: <tail>) — stop it and rerun non-interactively (pipe the answers, add -y).`
+- 终止返回 — `requested cancellation of task <task_id>; output so far: <path>`
+- 终止不存在的任务 — `no such background task: <task_id>`
+- 运行中列表注入（每轮开始；无运行中任务时不注入）— `Background tasks (<K> running):\n- <task_id>: <cmd>`
 
 后台任务的输出文件按 Session 隔离存放于系统临时目录，生命周期各阶段行为如下：
 
@@ -224,7 +215,10 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 - Session 存续期间网关重启后：输出保留，仍可回读
 - 系统重启后：输出不可恢复
 
+> **交叉引用**：后台任务通知与 Session 消息队列的对接。详见 [session §F9](session.md)（消息注入）。
+
 > **交叉引用**：/stop 是 Session 停止的指令入口。详见 [slash §F3](slash.md)（Session 管理）。
+
 > **交叉引用**：Session 销毁的触发定义。详见 [session §F6](session.md)（Session 归档与清理）。
 
 ### F6. 并发工具调用
@@ -247,12 +241,12 @@ Agent 需要能够同时发起多个独立的工具调用，减少等待时间�
 
 Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
-- 工具说明能反映当前上下文——当权限受限时说明受限的操作范围，当工作目录确定时给出路径指引
+- 工具说明能反映当前上下文——当能力范围被收窄时说明受限的操作范围，当工作目录确定时给出路径指引
 - 工具说明能提示 Agent 如何组合使用——哪些工具搭配效率更高
 - 工具说明能指出常见误用模式——哪些操作看似正确但有问题
 - 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误与提示段），编辑类工具匹配失败时附带当前文件内容（不超过 50 行时附全文；超过时附匹配尝试位置前后各 25 行），Agent 无需额外发起读取即可修正重试
 - 缺少上下文感知能力的工具说明降级为静态描述，功能不受影响
-- 进入 System Prompt 工具区的说明文本保持稳定——权限状态、运行中任务等易变信息不嵌入工具说明，通过消息注入传达，避免前缀缓存反复失效
+- 进入 System Prompt 工具区的说明文本保持稳定——权限状态、运行中任务等易变信息不嵌入工具说明，通过消息注入传达
 
 ### F8. 命令安全防护
 
@@ -260,7 +254,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 
 - 命令执行前检测是否有攻击模式（如注入绕过、隐藏命令），一旦发现直接拦截并通知 Owner
 - 解析不确定的命令（如结构不完整）标记为可疑，发起审批请求，由 Owner 决定是否执行
-- 疑似攻击或解析不确定的命令单独记录日志到 workspace 之外的专用目录，日志包含触发消息与完整对话记录的引用，供安全调查
+- 疑似攻击或解析不确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
 - 结构清晰且无风险的命令正常进入白名单匹配流程
 - 危险文件路径（系统关键文件、版本控制内部文件等）的操作不进入白名单，必须经 Owner 审批
 - 审批请求推送给 Owner 时，附带 Agent 提供的命令用途说明，帮助 Owner 理解命令意图
@@ -292,14 +286,15 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 - 每次工具调用（工具名、参数摘要、返回结果、耗时）
 - 权限检查结果
 - 后台任务启动与到达终态（完成/失败/被终止）
-- 命令安全扫描结果（安全审计类事件除外，按 F8 独立处理）
+- 命令安全扫描结果（安全审计类事件除外，按 [F8](#f8-命令安全防护) 独立处理）
 
 > **交叉引用**：子 Session 创建与完成的日志事件。详见 [session §F12](session.md)（调试日志）。
+
 > **交叉引用**：日志框架定义详见 [debug_log §F1](debug_log.md)（完整消息链路追踪）、[debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留）、[debug_log §F4](debug_log.md)（隐私保护）。
 
 ### F11. 面向 Agent 的行为约束提示词（跨工具域）
 
-F2-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使用引导 / 错误与提示）；并发调用的使用引导归入 F6，后台执行的引导归入 F4——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
+F1-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使用引导 / 错误与提示或通知与回执）；并发调用的使用引导归入 F6，后台执行的使用引导归入 F5——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
 
 **子 Session 委派**（注入位置：spawn 工具及子 Session 管理工具的系统提示词引导，子 Session 交互详见 [agent §F7](agent.md)（子 Session 创建（Spawn））、[session §F4](session.md)（子 Session 委托与协调））：
 
