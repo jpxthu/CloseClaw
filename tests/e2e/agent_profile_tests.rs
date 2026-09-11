@@ -26,24 +26,20 @@
 
 #![cfg(feature = "fake-llm")]
 
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream as TokioUnixStream;
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::time::timeout;
+
+use super::helpers;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Bounded wait for the daemon admin socket (startup readiness signal).
-const DAEMON_READY_TIMEOUT: Duration = Duration::from_secs(30);
-/// Interval between admin-socket connect attempts.
-const DAEMON_POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// Upper bound for one full chat turn (request → Done/Error/EOF).
 const CHAT_TURN_TIMEOUT: Duration = Duration::from_secs(60);
 /// Upper bound for graceful shutdown after SIGTERM (drain timeout 30s + margin).
@@ -56,11 +52,6 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
 /// Path to the fake LLM scenario fixtures (basic-text + fallback).
 fn scenarios_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_llm/scenarios")
-}
-
-/// Path to the `closeclaw` daemon binary (not the test binary).
-fn closeclaw_binary() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/closeclaw")
 }
 
 // ---------------------------------------------------------------------------
@@ -167,28 +158,6 @@ fn write_agent_layout(root: &Path) {
 // Helper: daemon spawn + readiness
 // ---------------------------------------------------------------------------
 
-/// Poll the daemon admin socket until it accepts connections or times out.
-///
-/// Bounded, signal-targeted readiness wait (no blind sleep) — same pattern
-/// as `sigterm_tests.rs::wait_for_daemon_ready`.
-async fn wait_for_daemon_ready(config_dir: &Path) {
-    let socket_path = config_dir.join("admin.sock");
-    let deadline = tokio::time::Instant::now() + DAEMON_READY_TIMEOUT;
-    loop {
-        if UnixStream::connect(&socket_path).is_ok() {
-            return;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            panic!(
-                "daemon admin socket not ready after {:?}: {}",
-                DAEMON_READY_TIMEOUT,
-                socket_path.display()
-            );
-        }
-        tokio::time::sleep(DAEMON_POLL_INTERVAL).await;
-    }
-}
-
 /// Owns the spawned daemon child. Sending SIGTERM on Drop guarantees no
 /// residual process even when an assertion fails mid-test.
 struct DaemonGuard(Child);
@@ -224,21 +193,11 @@ impl Drop for DaemonGuard {
 
 /// Spawn the closeclaw daemon with the given config root.
 ///
-/// Sets up the command with `--config-dir <root> --foreground`, uses the
-/// config dir as `current_dir` (for credentialPath resolution), pipes
-/// stdout/stderr, and wraps in `DaemonGuard` for SIGTERM-on-drop safety.
+/// Wraps `helpers::spawn_daemon` which sets `HOME` to `config_root` for
+/// PID file isolation, then wraps the `Child` in a `DaemonGuard` for
+/// SIGTERM-on-drop safety.
 fn spawn_daemon(config_root: &Path) -> DaemonGuard {
-    let daemon = Command::new(closeclaw_binary())
-        .args(["run", "--config-dir"])
-        .arg(config_root.as_os_str())
-        .arg("--foreground")
-        .current_dir(config_root.join("config"))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("failed to spawn daemon");
-    DaemonGuard(daemon)
+    DaemonGuard(helpers::spawn_daemon(config_root))
 }
 
 // ---------------------------------------------------------------------------
@@ -357,13 +316,6 @@ fn assert_single_terminal(frames: &[serde_json::Value]) {
     );
 }
 
-/// Assert the daemon is still alive (has not exited prematurely).
-fn assert_daemon_alive(daemon: &mut DaemonGuard) {
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
-        panic!("daemon exited prematurely: {status:?}");
-    }
-}
-
 /// Write agent config with explicit tools and disallowed_tools lists.
 fn write_agent_config_with_tools(
     config_root: &Path,
@@ -443,7 +395,7 @@ async fn e2e_agent_profile_smoke() {
     write_agent_layout(config_root);
 
     let mut daemon = spawn_daemon(config_root);
-    wait_for_daemon_ready(config_root).await;
+    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
         panic!("daemon exited prematurely during startup: {status:?}");
@@ -511,7 +463,7 @@ async fn e2e_agent_model_selection() {
     write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let daemon = spawn_daemon(config_root);
-    wait_for_daemon_ready(config_root).await;
+    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
 
@@ -565,7 +517,7 @@ async fn e2e_agent_system_prompt_injection() {
     .expect("write bootstrap file");
 
     let daemon = spawn_daemon(config_root);
-    wait_for_daemon_ready(config_root).await;
+    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "tell me a joke").await;
 
@@ -637,7 +589,7 @@ async fn e2e_agent_workspace() {
     );
 
     let daemon = spawn_daemon(config_root);
-    wait_for_daemon_ready(config_root).await;
+    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     // Send a message — the workspace-marker scenario returns a tool_call
     // for Read("./bootstrap_marker.txt"). In the expected-pass state
@@ -718,8 +670,8 @@ async fn e2e_agent_tool_allow_deny() {
     );
 
     let mut daemon = spawn_daemon(config_root);
-    wait_for_daemon_ready(config_root).await;
-    assert_daemon_alive(&mut daemon);
+    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    helpers::assert_daemon_alive(&mut daemon.0);
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "use tools please").await;
 
@@ -728,7 +680,7 @@ async fn e2e_agent_tool_allow_deny() {
         "chat RPC should answer with at least one frame, got none"
     );
     assert_single_terminal(&frames);
-    assert_daemon_alive(&mut daemon);
+    helpers::assert_daemon_alive(&mut daemon.0);
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
@@ -783,7 +735,7 @@ async fn e2e_agent_runtime_config_query() {
     write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let mut daemon = spawn_daemon(config_root);
-    wait_for_daemon_ready(config_root).await;
+    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     let admin_sock = config_root.join("admin.sock");
     let request = serde_json::json!({"type": "agent_info", "name": "master"});
@@ -797,7 +749,7 @@ async fn e2e_agent_runtime_config_query() {
         "consecutive queries should be identical"
     );
 
-    assert_daemon_alive(&mut daemon);
+    helpers::assert_daemon_alive(&mut daemon.0);
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
@@ -817,7 +769,7 @@ async fn e2e_agent_runtime_config_query_unknown() {
     write_mandatory_configs(config_root, &fake_llm_addr.to_string());
 
     let mut daemon = spawn_daemon(config_root);
-    wait_for_daemon_ready(config_root).await;
+    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     let admin_sock = config_root.join("admin.sock");
     let request = serde_json::json!({"type": "agent_info", "name": "no-such-agent"});
@@ -837,7 +789,7 @@ async fn e2e_agent_runtime_config_query_unknown() {
         response["message"]
     );
 
-    assert_daemon_alive(&mut daemon);
+    helpers::assert_daemon_alive(&mut daemon.0);
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");

@@ -4,6 +4,7 @@
 //! See docs/developer/STANDARDS.md for the e2e/integration/unit classification.
 
 mod agent_profile_tests;
+mod helpers;
 mod sandbox_tests;
 mod shutdown_checkpoint_tests;
 mod sigterm_tests;
