@@ -226,7 +226,16 @@ impl SessionMessageHandler {
         }
         let mut skip_drain = false;
         match result {
-            Ok(stream_result) => {
+            Ok(mut stream_result) => {
+                // Dispatch tool calls when response contains ToolUse blocks.
+                // Replaces ToolUse blocks with executed ToolResult blocks.
+                stream_result.content_blocks = Self::maybe_dispatch_tool_calls(
+                    session_manager,
+                    session_id,
+                    stream_result.content_blocks,
+                    &session_manager.file_mutex_map,
+                )
+                .await;
                 // Append response to session message history. `append_response`
                 // takes a `UnifiedResponse`; convert via the existing
                 // `From<StreamResult> for UnifiedResponse` impl.

@@ -68,6 +68,7 @@ mod session_handler_compact;
 mod session_handler_dispatch;
 pub(crate) mod session_handler_reasoning;
 mod session_handler_streaming;
+mod session_handler_tool_dispatch;
 pub mod session_manager;
 mod shutdown_card;
 pub mod shutdown_handle;

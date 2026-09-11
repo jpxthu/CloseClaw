@@ -704,6 +704,22 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
         let guard = self.tools.read().await;
         guard.get(name).map(|t| t.flags().is_concurrency_safe)
     }
+
+    async fn call_tool(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+        ctx: &closeclaw_common::tool_trait::ToolContext,
+    ) -> Result<closeclaw_common::tool_trait::ToolResult, closeclaw_common::tool_trait::ToolCallError>
+    {
+        let guard = self.tools.read().await;
+        let tool: Arc<dyn closeclaw_common::tool_trait::Tool> = guard
+            .get(name)
+            .ok_or_else(|| closeclaw_common::tool_trait::ToolCallError::NotFound(name.to_string()))
+            .map(Arc::clone)?;
+        drop(guard);
+        tool.call(args, ctx).await
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

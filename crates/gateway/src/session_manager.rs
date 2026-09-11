@@ -71,6 +71,8 @@ pub struct SessionManager {
     workspace_dir: Option<PathBuf>,
     /// Tool registry for building system prompt ToolsSection
     tool_registry: RwLock<Option<Arc<dyn ToolRegistryQuery>>>,
+    /// Per-file mutex map for concurrent write serialization.
+    pub(crate) file_mutex_map: Arc<closeclaw_common::file_mutex::FileMutexMap>,
     /// Skill registry for querying available skills (listing generation)
     skill_registry: RwLock<Option<Arc<dyn SkillRegistryQuery>>>,
     /// Default reasoning level for new sessions
@@ -173,13 +175,11 @@ pub struct SessionManager {
     pub(crate) searcher_sessions:
         Arc<closeclaw_session::active_searcher_session::SearcherSessionTracker>,
 }
-
 impl std::fmt::Debug for SessionManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionManager").finish_non_exhaustive()
     }
 }
-
 impl SessionManager {
     /// Create a new SessionManager with the given config, optional storage,
     /// workspace directory and bootstrap mode.
@@ -197,6 +197,7 @@ impl SessionManager {
             conversation_sessions: RwLock::new(HashMap::new()),
             workspace_dir,
             tool_registry: RwLock::new(None),
+            file_mutex_map: Arc::new(closeclaw_common::file_mutex::FileMutexMap::new()),
             skill_registry: RwLock::new(None),
             default_reasoning_level,
             default_cache_break_thresholds: std::sync::RwLock::new(None),
@@ -231,7 +232,6 @@ impl SessionManager {
             ),
         }
     }
-
     /// Compute session key from channel, message and optional account_id.
     fn compute_session_key_local(
         &self,

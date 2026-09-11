@@ -20,7 +20,6 @@ use crate::permission_check::{
     check_tool_permission, CommandPermissionResult, PermDeps,
 };
 use crate::registry::ToolRegistryImpl;
-use closeclaw_common::ToolRegistryQuery;
 
 // Re-export types from common
 pub use closeclaw_common::dispatcher::{
@@ -40,7 +39,7 @@ pub async fn build_pending_call(
     id: String,
     tool_name: &str,
     args: Value,
-    registry: &ToolRegistryImpl,
+    registry: &dyn closeclaw_common::ToolRegistryQuery,
 ) -> PendingToolCall {
     let is_concurrency_safe = registry
         .get_tool_concurrency_safe(tool_name)

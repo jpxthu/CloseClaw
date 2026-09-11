@@ -149,6 +149,7 @@ impl SessionMessageHandler {
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
         compact_config: CompactConfig,
     ) -> Self {
+        let file_mutex_map = Arc::clone(&session_manager.file_mutex_map);
         Self {
             session_manager,
             fallback_client,
@@ -156,7 +157,7 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
                 compact_config,
             ))),
-            file_mutex_map: Arc::new(FileMutexMap::new()),
+            file_mutex_map,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
@@ -174,6 +175,7 @@ impl SessionMessageHandler {
         fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
         compact_config: CompactConfig,
     ) -> Self {
+        let file_mutex_map = Arc::clone(&session_manager.file_mutex_map);
         Self {
             session_manager,
             fallback_client,
@@ -181,7 +183,7 @@ impl SessionMessageHandler {
             compaction_service: Arc::new(tokio::sync::Mutex::new(CompactionService::new(
                 compact_config,
             ))),
-            file_mutex_map: Arc::new(FileMutexMap::new()),
+            file_mutex_map,
             fallback_llm_caller,
             gateway: None,
             shutdown_handle: None,
