@@ -238,18 +238,34 @@ impl ToolCallDispatcher {
     ///   serialized, different-file calls run in parallel.
     /// - **Serial**: executed one-by-one in order.
     ///
+    /// When `should_fallback_to_serial(provider_supports_parallel)`
+    /// returns `true` (i.e. `provider_supports_parallel` is `false`),
+    /// **all** calls are forced into the Serial group regardless of
+    /// individual classification.
+    ///
     /// Read calls targeting a file that also has MutexByFile calls are
     /// reordered to execute first (Edit depends on Read's mtime).
     pub async fn dispatch_all(
         &self,
         calls: Vec<PendingToolCall>,
         executor: &dyn ToolExecutor,
+        provider_supports_parallel: bool,
     ) -> Vec<ToolResult> {
         if calls.is_empty() {
             return Vec::new();
         }
 
-        let classified = self.classify_calls(&calls);
+        // When provider does not support parallel tool calls, force all
+        // calls to serial execution regardless of individual classification.
+        let classified = if self.should_fallback_to_serial(provider_supports_parallel) {
+            calls
+                .iter()
+                .enumerate()
+                .map(|(i, _)| (i, DispatchGroup::Serial))
+                .collect()
+        } else {
+            self.classify_calls(&calls)
+        };
         let parallel = Self::filter_group(&classified, &calls, DispatchGroup::Parallel);
         let mutex = Self::filter_group(&classified, &calls, DispatchGroup::MutexByFile);
         let serial = Self::filter_group(&classified, &calls, DispatchGroup::Serial);

@@ -160,10 +160,7 @@ impl SessionMessageHandler {
         };
 
         // 6. Create dispatcher.
-        let dispatcher = ToolCallDispatcher::new(
-            Arc::clone(file_mutex_map),
-            is_parallel_enabled && provider_supports_parallel,
-        );
+        let dispatcher = ToolCallDispatcher::new(Arc::clone(file_mutex_map), is_parallel_enabled);
 
         // 7. Construct ToolContext.
         let base_ctx = if let Some(cs) = session_manager.get_conversation_session(session_id).await
@@ -201,7 +198,9 @@ impl SessionMessageHandler {
 
         // 8. Execute.
         let executor = TraitObjectExecutor::new(Arc::clone(&registry), base_ctx);
-        let results = dispatcher.dispatch_all(calls, &executor).await;
+        let results = dispatcher
+            .dispatch_all(calls, &executor, provider_supports_parallel)
+            .await;
 
         // 9. Convert results to ContentBlock::ToolResult, preserving order.
         let tool_result_blocks: Vec<ContentBlock> = tool_uses
