@@ -51,7 +51,6 @@ impl ConversationSession {
             if processed {
                 self.workflow_run = Some(handler.run().clone());
             }
-            let now_jumping = handler.run().phase == Phase::Jumping;
             let jump_msg = if matches!(jump_result, JumpResult::Jumped) {
                 let current_step = handler.run().current_step;
                 handler
@@ -67,7 +66,7 @@ impl ConversationSession {
                 self.remove_workflow_verify_messages();
                 self.inject_workflow_message(&msg);
                 tracing::debug!("jump message injected into transcript");
-            } else if was_jumping && !now_jumping {
+            } else if was_jumping {
                 self.remove_workflow_jump_messages();
                 tracing::debug!("jump messages cleaned up after phase transition");
             }

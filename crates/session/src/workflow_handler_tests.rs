@@ -4,6 +4,8 @@ use closeclaw_common::ContentBlock;
 use closeclaw_workflow::definition::{Step, Workflow};
 use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
 
+use std::collections::HashMap;
+
 use crate::workflow_handler::WorkflowHandler;
 
 fn make_test_workflow() -> Workflow {
@@ -35,6 +37,50 @@ fn make_test_workflow() -> Workflow {
                 allow_blocked: Some(false),
             },
         ],
+    }
+}
+
+fn make_enum_workflow() -> Workflow {
+    use closeclaw_workflow::definition::JumpQuestion;
+    Workflow {
+        id: "enum-test".to_string(),
+        name: "Enum Test".to_string(),
+        description: "Workflow with enum questions".to_string(),
+        version: Some("0.1".to_string()),
+        allow_blocked: false,
+        verify_retry_limit: 3,
+        step_data_schema: serde_yaml::Value::Null,
+        steps: vec![Step {
+            id: 0,
+            name: "Decide".to_string(),
+            goal: "Choose".to_string(),
+            verify: vec![],
+            jump: vec![
+                JumpQuestion {
+                    id: "strategy".to_string(),
+                    prompt: "Which strategy?".to_string(),
+                    question_type: "enum".to_string(),
+                    options: vec!["fast".to_string(), "slow".to_string()],
+                    option_labels: vec![],
+                },
+                JumpQuestion {
+                    id: "mode".to_string(),
+                    prompt: "Which mode?".to_string(),
+                    question_type: "boolean".to_string(),
+                    options: vec![],
+                    option_labels: vec![],
+                },
+                JumpQuestion {
+                    id: "empty_opts".to_string(),
+                    prompt: "Empty options?".to_string(),
+                    question_type: "enum".to_string(),
+                    options: vec![],
+                    option_labels: vec![],
+                },
+            ],
+            transitions: vec![],
+            allow_blocked: None,
+        }],
     }
 }
 
@@ -206,4 +252,69 @@ fn test_on_verify_injected_within_limit() {
     assert_eq!(handler.run().pending_verify, 1);
     assert_eq!(handler.run().phase, Phase::Executing);
     assert!(handler.take_notification().is_none());
+}
+
+// ── map_enum_letter_answers ──────────────────────────────────────
+
+#[test]
+fn test_enum_letter_a_maps_to_first_option() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("A".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(
+        answers["strategy"],
+        serde_yaml::Value::String("fast".into())
+    );
+}
+
+#[test]
+fn test_enum_letter_b_maps_to_second_option() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("B".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(
+        answers["strategy"],
+        serde_yaml::Value::String("slow".into())
+    );
+}
+
+#[test]
+fn test_enum_letter_c_out_of_range_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("C".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    // C (index 2) >= options.len() (2) → not mapped
+    assert_eq!(answers["strategy"], serde_yaml::Value::String("C".into()));
+}
+
+#[test]
+fn test_enum_non_enum_question_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    // "mode" has question_type = "boolean", not "enum"
+    answers.insert("mode".into(), serde_yaml::Value::String("A".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(answers["mode"], serde_yaml::Value::String("A".into()));
+}
+
+#[test]
+fn test_enum_lowercase_letter_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    answers.insert("strategy".into(), serde_yaml::Value::String("a".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(answers["strategy"], serde_yaml::Value::String("a".into()));
+}
+
+#[test]
+fn test_enum_empty_options_not_mapped() {
+    let handler = WorkflowHandler::new(make_test_run(), make_enum_workflow());
+    let mut answers = HashMap::new();
+    // "empty_opts" has question_type = "enum" but options is empty
+    answers.insert("empty_opts".into(), serde_yaml::Value::String("A".into()));
+    handler.map_enum_letter_answers(&mut answers);
+    assert_eq!(answers["empty_opts"], serde_yaml::Value::String("A".into()));
 }

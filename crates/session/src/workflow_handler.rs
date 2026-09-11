@@ -227,32 +227,50 @@ impl WorkflowHandler {
     /// When an agent answers an enum question with a letter like "A",
     /// this maps it to the corresponding `options[index]` value so that
     /// `evaluate_transitions` can match against `expected_value`.
-    fn map_enum_letter_answers(&self, answers: &mut HashMap<String, serde_yaml::Value>) {
+    pub(crate) fn map_enum_letter_answers(&self, answers: &mut HashMap<String, serde_yaml::Value>) {
         let step = match self.definition.steps.get(self.run.current_step) {
             Some(s) => s,
             None => return,
         };
         for q in &step.jump {
-            if q.question_type != "enum" {
+            if q.question_type != "enum" || q.options.is_empty() {
                 continue;
             }
-            if q.options.is_empty() {
-                continue;
-            }
-            if let Some(answer_val) = answers.get(&q.id) {
-                if let Some(letter) = answer_val.as_str() {
-                    if letter.len() == 1 && letter.as_bytes()[0].is_ascii_uppercase() {
-                        let idx = (letter.as_bytes()[0] - b'A') as usize;
-                        if idx < q.options.len() {
-                            answers.insert(
-                                q.id.clone(),
-                                serde_yaml::Value::String(q.options[idx].clone()),
-                            );
-                        }
-                    }
-                }
+            let answer_val = match answers.get(&q.id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let letter = match answer_val.as_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            let idx = match Self::try_map_enum_answer(letter) {
+                Some(i) => i,
+                None => continue,
+            };
+            if idx < q.options.len() {
+                answers.insert(
+                    q.id.clone(),
+                    serde_yaml::Value::String(q.options[idx].clone()),
+                );
             }
         }
+    }
+
+    /// Try to parse a single-letter enum answer into an option index.
+    ///
+    /// Returns `Some(index)` for a single uppercase ASCII letter (A → 0,
+    /// B → 1, …), or `None` if the letter is lowercase, multi-char,
+    /// or non-ASCII.
+    fn try_map_enum_answer(letter: &str) -> Option<usize> {
+        if letter.len() != 1 {
+            return None;
+        }
+        let b = letter.as_bytes()[0];
+        if !b.is_ascii_uppercase() {
+            return None;
+        }
+        Some((b - b'A') as usize)
     }
 
     /// Handle a `workflow_blocked` tool result.
