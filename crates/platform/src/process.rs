@@ -307,11 +307,9 @@ pub async fn wait_for_shutdown_signal() -> anyhow::Result<(SignalKind, Signal, S
     let mut sigterm = signal(SignalKind::terminate())?;
     tokio::select! {
         _ = sigint.recv() => {
-            info!("Received Ctrl+C, initiating shutdown...");
             Ok((SignalKind::interrupt(), sigint, sigterm))
         }
         _ = sigterm.recv() => {
-            info!("Received SIGTERM, initiating graceful shutdown...");
             Ok((SignalKind::terminate(), sigint, sigterm))
         }
     }
