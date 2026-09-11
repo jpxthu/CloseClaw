@@ -105,11 +105,11 @@
   },
   {
     "path": "docs/design/config/README.md",
-    "commit": "d784ebd3b4282b7cfcc3b84a0900ef6dc2893b38",
-    "commit_time": "2026-09-01T03:36:24+08:00",
-    "confirmed_time": "2026-09-12T04:51:03.598821+08:00",
+    "commit": "4eefa0b665eaff9f921fa6708b535f3e4fb27292",
+    "commit_time": "2026-09-12T04:51:42+08:00",
+    "confirmed_time": "2026-09-12T05:06:46.815227+08:00",
     "comment": "",
-    "blocked_reason": "F2b 深度对比发现文档族内部不一致：docs/design/memory/config.md 明确声明「配置集成到 CloseClaw 的 ConfigProvider 体系」（memory.json 全局配置 + per-agent 字段级合并，20+ 字段已全部实现），但 docs/design/config/README.md 作为配置体系载体文档未反映：①配置目录结构未列出 memory.json ②核心组件缺 MemoryConfigProvider ③校验规则表缺 memory 行 ④间接消费方未列 memory 模块。docs/design/* 禁止修改（红线），需 Owner 裁决文档族对齐方向。"
+    "blocked_reason": "文档族内部矛盾持续（F2b 三轮 doc↔code 对比无 must_fix，但 doc↔doc 矛盾无法以代码修复，需 Owner 裁决）：memory/config.md 声明配置集成到 ConfigProvider 体系（memory.json），config/README.md 未反映；config/README.md「无关：tools」与代码 ConfigSection::Tools 完整实现矛盾。详见 issue #3004"
   },
   {
     "path": "docs/design/config/hot-reload.md",
