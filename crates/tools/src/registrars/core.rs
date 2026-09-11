@@ -1,6 +1,6 @@
 //! Core tools registrar — file_ops, meta, git_ops, bash groups.
 //!
-//! Registers 15 built-in tools that belong to the core domain.
+//! Registers 14 built-in tools that belong to the core domain.
 
 use async_trait::async_trait;
 use std::path::PathBuf;
@@ -13,9 +13,8 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_tasks::TaskManager;
 
 use crate::builtin::{
-    AuditLogTool, BashTool, CodingAgentTool, EditTool, GitCommitTool, GitLogTool, GitPullTool,
-    GitPushTool, GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool,
-    WriteTool,
+    AuditLogTool, BashTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
+    GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
 };
 use crate::try_register;
 use crate::Tool;
@@ -23,7 +22,7 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolReg
 
 /// Core tools registrar — registers all tools from the core domain.
 ///
-/// Covers `file_ops`, `meta`, `git_ops`, and `bash` groups (15 tools).
+/// Covers `file_ops`, `meta`, `git_ops`, and `bash` groups (14 tools).
 pub struct CoreToolsRegistrar {
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     task_manager: Arc<dyn TaskManager>,
@@ -100,7 +99,6 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(registry, registered, GitCommitTool::new(), r);
         try_register!(registry, registered, GitPushTool::new(), r);
         try_register!(registry, registered, GitPullTool::new(), r);
-        try_register!(registry, registered, CodingAgentTool::new(), r);
         // audit_log (optional — requires audit_log_path)
         if let Some(ref path) = self.audit_log_path {
             match AuditLogTool::new(path.clone()) {
@@ -131,7 +129,7 @@ impl ToolRegistrar for CoreToolsRegistrar {
         );
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 15 tools failed to register".to_string(),
+                "all 14 tools failed to register".to_string(),
             ));
         }
         Ok(())
