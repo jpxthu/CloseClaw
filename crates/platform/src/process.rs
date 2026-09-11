@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use tokio::signal::unix::{Signal, SignalKind};
 
 /// Options for spawning a daemon process.
 ///
@@ -291,18 +292,27 @@ pub fn spawn_daemon(
 
 /// Blocks until a shutdown signal is received.
 ///
-/// Listens for both SIGINT (Ctrl+C) and SIGTERM.
-pub async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
-    use tokio::signal::unix::{signal, SignalKind};
+/// Listens for both SIGINT (Ctrl+C) and SIGTERM. Returns the
+/// [`SignalKind`] that triggered the shutdown along with both signal
+/// handlers so that the caller can reuse them (e.g. to monitor for
+/// repeated signals during an inbound drain phase).
+///
+/// # Returns
+///
+/// On SIGINT: `(SignalKind::interrupt(), sigint, sigterm)`
+/// On SIGTERM: `(SignalKind::terminate(), sigint, sigterm)`
+pub async fn wait_for_shutdown_signal() -> anyhow::Result<(SignalKind, Signal, Signal)> {
+    use tokio::signal::unix::signal;
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;
     tokio::select! {
         _ = sigint.recv() => {
             info!("Received Ctrl+C, initiating shutdown...");
+            Ok((SignalKind::interrupt(), sigint, sigterm))
         }
         _ = sigterm.recv() => {
             info!("Received SIGTERM, initiating graceful shutdown...");
+            Ok((SignalKind::terminate(), sigint, sigterm))
         }
     }
-    Ok(())
 }
