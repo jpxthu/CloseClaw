@@ -62,16 +62,17 @@ impl WorkflowEngine {
     /// Called when the session becomes idle.
     ///
     /// Returns `true` if a verify message should be injected (i.e., the
-    /// run is in the `Executing` phase). Returns `false` for all other
-    /// phases where idle transitions are not relevant.
+    /// run is in the `Executing` or `Verifying` phase). Returns `false` for
+    /// all other phases where idle transitions are not relevant.
     pub fn on_session_idle(run: &WorkflowRun) -> bool {
-        run.phase == Phase::Executing
+        run.phase == Phase::Executing || run.phase == Phase::Verifying
     }
 
     /// Callback after a verify message has been injected.
     ///
     /// Increments `pending_verify`. If the count reaches the limit
     /// defined in `workflow`, the phase transitions to `Blocked`.
+    /// Otherwise, transitions to `Verifying`.
     pub fn on_verify_injected(run: &mut WorkflowRun, verify_retry_limit: usize) {
         run.pending_verify += 1;
         tracing::debug!(
@@ -86,6 +87,9 @@ impl WorkflowEngine {
                 limit = verify_retry_limit,
                 "verify limit reached, entering blocked"
             );
+        } else {
+            run.phase = Phase::Verifying;
+            tracing::debug!("verify injected, entering verifying");
         }
     }
 
