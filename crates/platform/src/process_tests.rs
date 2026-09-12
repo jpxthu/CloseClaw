@@ -235,7 +235,7 @@ fn test_send_signal_sigterm() {
     let pid = child.id();
 
     // Send SIGTERM (force=false). Should succeed and terminate the child.
-    send_signal(pid, false).expect("send_signal(pid, SIGTERM) failed");
+    send_signal(pid, SignalKind::terminate()).expect("send_signal(pid, SIGTERM) failed");
     let status = child.wait().unwrap();
     // Default SIGTERM handler kills with signal 15.
     assert_eq!(
@@ -252,7 +252,7 @@ fn test_send_signal_sigint() {
     let pid = child.id();
 
     // Send SIGINT (force=true). Should succeed and terminate the child.
-    send_signal(pid, true).expect("send_signal(pid, SIGINT) failed");
+    send_signal(pid, SignalKind::interrupt()).expect("send_signal(pid, SIGINT) failed");
     let status = child.wait().unwrap();
     // SIGINT = signal 2; default handler terminates the process.
     assert_eq!(
@@ -265,7 +265,7 @@ fn test_send_signal_sigint() {
 /// PID exceeding i32::MAX must fail with overflow error, not cast to negative.
 #[test]
 fn test_send_signal_pid_overflow() {
-    let err = send_signal(u32::MAX, false);
+    let err = send_signal(u32::MAX, SignalKind::terminate());
     assert!(
         err.is_err(),
         "send_signal with pid > i32::MAX should return Err"
@@ -281,17 +281,8 @@ fn test_send_signal_pid_overflow() {
 #[test]
 fn test_send_signal_invalid_pid() {
     // PID 999999999 is almost certainly not running.
-    let err = send_signal(999999999, false);
+    let err = send_signal(999999999, SignalKind::terminate());
     assert!(err.is_err(), "send_signal to invalid PID should fail");
-}
-
-#[test]
-fn test_send_signal_invalid_pid_force() {
-    let err = send_signal(999999999, true);
-    assert!(
-        err.is_err(),
-        "send_signal(force) to invalid PID should fail"
-    );
 }
 
 // ── spawn_daemon tests ────────────────────────────────────────────
@@ -416,21 +407,7 @@ fn test_stop_daemon_normal() {
     let pid = spawn_detached_sleep_pid();
     write_pid_file(&path, pid).unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
-    assert_eq!(outcome, StopOutcome::Stopped(pid));
-    assert!(!path.exists(), "PID file should be removed after stop");
-}
-
-/// Normal path with force (SIGINT): alive process is stopped and PID file is cleaned up.
-#[cfg(unix)]
-#[test]
-fn test_stop_daemon_normal_force() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("daemon.pid");
-    let pid = spawn_detached_sleep_pid();
-    write_pid_file(&path, pid).unwrap();
-
-    let outcome = stop_daemon(&path, true, std::time::Duration::from_secs(3)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(3)).unwrap();
     assert_eq!(outcome, StopOutcome::Stopped(pid));
     assert!(!path.exists(), "PID file should be removed after stop");
 }
@@ -459,7 +436,7 @@ fn test_stop_daemon_timeout() {
         libc::kill(pid as i32, libc::SIGSTOP);
     }
 
-    let result = stop_daemon(&path, false, std::time::Duration::from_millis(200));
+    let result = stop_daemon(&path, std::time::Duration::from_millis(200));
     assert!(result.is_err(), "timeout should return Err");
     assert!(
         path.exists(),
@@ -472,7 +449,10 @@ fn test_stop_daemon_timeout() {
     unsafe {
         libc::kill(pid as i32, libc::SIGCONT);
     }
-    send_signal(pid, true).ok();
+    // SAFETY: kill with SIGKILL is a standard POSIX operation.
+    unsafe {
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
     child.wait().ok();
 }
 
@@ -482,7 +462,7 @@ fn test_stop_daemon_no_pid_file() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("daemon.pid");
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(1)).unwrap();
     assert_eq!(outcome, StopOutcome::NotRunning);
 }
 
@@ -494,7 +474,7 @@ fn test_stop_daemon_stale_pid() {
     write_pid_file(&path, 99999999).unwrap();
     assert!(path.exists());
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(1)).unwrap();
     assert_eq!(outcome, StopOutcome::NotRunning);
     assert!(!path.exists(), "stale PID file should be removed");
 }
@@ -506,7 +486,7 @@ fn test_stop_daemon_invalid_pid_content() {
     let path = tmp.path().join("daemon.pid");
     std::fs::write(&path, "not_a_number").unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(1)).unwrap();
     assert_eq!(outcome, StopOutcome::NotRunning);
     // stop_daemon cleans up the PID file only when it reads a valid PID
     // and the process is not alive. Invalid (non-numeric) content yields
@@ -688,7 +668,7 @@ fn test_stop_daemon_exit_race() {
     // Write PID file *after* the process is dead (simulating race).
     write_pid_file(&path, pid).unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(3)).unwrap();
     assert_eq!(
         outcome,
         StopOutcome::NotRunning,
@@ -707,7 +687,7 @@ fn test_stop_daemon_normal_polling_wait() {
     let pid = spawn_detached_sleep_pid();
     write_pid_file(&path, pid).unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(3)).unwrap();
     assert_eq!(outcome, StopOutcome::Stopped(pid));
     assert!(!path.exists(), "PID file should be removed after stop");
 }

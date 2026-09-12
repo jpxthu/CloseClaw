@@ -869,11 +869,11 @@ async fn test_handle_stop_no_pid_and_self_kill() {
     let config_dir = tmp.path();
 
     // No PID file: text mode → Ok
-    let result = handle_stop_at(config_dir, false, false).await;
+    let result = handle_stop_at(config_dir, false).await;
     assert!(result.is_ok(), "no PID file should return Ok: {:?}", result);
 
     // No PID file: JSON mode → Ok
-    let result = handle_stop_at(config_dir, false, true).await;
+    let result = handle_stop_at(config_dir, true).await;
     assert!(
         result.is_ok(),
         "no PID file (json) should return Ok: {:?}",
@@ -884,7 +884,7 @@ async fn test_handle_stop_no_pid_and_self_kill() {
     let my_pid = std::process::id();
     let pid_file = pid_file_path().unwrap();
     write_pid_file(&pid_file, my_pid).unwrap();
-    let result = handle_stop_at(config_dir, false, false).await;
+    let result = handle_stop_at(config_dir, false).await;
     assert!(result.is_err(), "should refuse to kill self");
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -915,7 +915,7 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
     let pid = child.id();
     write_pid_file(&pid_file, pid).unwrap();
     assert!(pid_file.exists());
-    let result = handle_stop_at(config_dir, false, false).await;
+    let result = handle_stop_at(config_dir, false).await;
     assert!(result.is_err(), "should return Err on zombie timeout");
     assert!(pid_file.exists(), "PID file should be preserved on timeout");
     let err_msg = result.unwrap_err().to_string();

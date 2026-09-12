@@ -3,12 +3,12 @@
 use super::common::{config_root, json_output, StopOutput};
 use anyhow::Result;
 
-pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
+pub async fn handle_stop(json: bool) -> Result<()> {
     let root_dir = config_root()?;
-    handle_stop_at(&root_dir, force, json).await
+    handle_stop_at(&root_dir, json).await
 }
 
-pub async fn handle_stop_at(_config_dir: &std::path::Path, force: bool, json: bool) -> Result<()> {
+pub async fn handle_stop_at(_config_dir: &std::path::Path, json: bool) -> Result<()> {
     let p = closeclaw_platform::process::pid_file_path()?;
     // Self-kill guard: read PID before calling stop_daemon so we can bail
     // early without side effects.
@@ -17,19 +17,17 @@ pub async fn handle_stop_at(_config_dir: &std::path::Path, force: bool, json: bo
             anyhow::bail!("Refusing to kill self.");
         }
     }
-    let outcome =
-        closeclaw_platform::process::stop_daemon(&p, force, std::time::Duration::from_secs(5))?;
-    let sig = if force { "KILL" } else { "TERM" };
+    let outcome = closeclaw_platform::process::stop_daemon(&p, std::time::Duration::from_secs(5))?;
     match outcome {
         closeclaw_platform::process::StopOutcome::Stopped(pid) => {
             if json {
                 json_output(&StopOutput {
                     pid: Some(pid),
-                    signal: sig.to_string(),
+                    signal: "TERM".to_string(),
                     stopped: true,
                 });
             } else {
-                println!("Daemon (PID {}) stopped ({}).", pid, sig);
+                println!("Daemon (PID {}) stopped (TERM).", pid);
             }
         }
         closeclaw_platform::process::StopOutcome::NotRunning => {
