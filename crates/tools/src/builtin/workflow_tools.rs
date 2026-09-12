@@ -15,15 +15,14 @@ use serde_json::Value;
 
 /// Shared ToolFlags for all workflow tools.
 ///
-/// Workflow tools are system-level tools that must be immediately
-/// visible to the agent, so `is_deferred_by_default` is `false`.
+/// Workflow tools are deferred by default (`is_deferred_by_default = true`).
 fn workflow_flags() -> ToolFlags {
     ToolFlags {
         is_concurrency_safe: false,
         is_read_only: false,
         is_destructive: false,
         is_expensive: false,
-        is_deferred_by_default: false,
+        is_deferred_by_default: true,
     }
 }
 
@@ -294,5 +293,76 @@ impl Tool for WorkflowBlockedTool {
             new_messages: vec![],
             context_modifier: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{PromptGenerationContext, ToolRegistry};
+    use closeclaw_common::tool_registry::ToolRegistryQuery;
+
+    #[tokio::test]
+    async fn test_workflow_tools_appear_in_deferred_index_section() {
+        let reg = ToolRegistry::new();
+        reg.register(WorkflowStartTool).await.unwrap();
+        reg.register(WorkflowVerifyTool).await.unwrap();
+        reg.register(WorkflowJumpTool).await.unwrap();
+        reg.register(WorkflowBlockedTool).await.unwrap();
+
+        let ctx = PromptGenerationContext {
+            agent_id: "test".into(),
+            workdir: None,
+            available_tool_names: vec![],
+            tools: None,
+            disallowed_tools: None,
+            session_mode: None,
+            agent_role: None,
+            agent_type: None,
+        };
+        let index = reg.build_tools_section(&ctx).await;
+
+        // Deferred: name only, no bold detail
+        for name in &[
+            "workflow_start",
+            "workflow_verify",
+            "workflow_jump",
+            "workflow_blocked",
+        ] {
+            assert!(
+                index.contains(&format!("  - {}", name)),
+                "{} should appear in deferred section, got: {index}",
+                name
+            );
+            assert!(
+                !index.contains(&format!("**{}**:", name)),
+                "{} should NOT have bold detail in primary index, got: {index}",
+                name
+            );
+        }
+
+        // ToolSearch path: deferred tools are still discoverable via get_tool_detail
+        let q: &dyn ToolRegistryQuery = &reg;
+        for name in &[
+            "workflow_start",
+            "workflow_verify",
+            "workflow_jump",
+            "workflow_blocked",
+        ] {
+            let desc = q.get_tool_detail(name).await;
+            assert!(
+                desc.is_some(),
+                "{} must be discoverable via ToolSearch",
+                name
+            );
+            let desc = desc.unwrap();
+            assert!(desc.flags.is_deferred_by_default);
+        }
+    }
+
+    #[test]
+    fn test_workflow_flags_deferred() {
+        let flags = workflow_flags();
+        assert!(flags.is_deferred_by_default);
     }
 }

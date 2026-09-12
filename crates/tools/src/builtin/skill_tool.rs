@@ -168,7 +168,7 @@ impl Tool for SkillTool {
 
     fn flags(&self) -> ToolFlags {
         ToolFlags {
-            is_deferred_by_default: false,
+            is_deferred_by_default: true,
             ..Default::default()
         }
     }
@@ -257,6 +257,53 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_skill_tool_appears_in_deferred_index_section() {
+        use crate::{PromptGenerationContext, ToolRegistry};
+        use closeclaw_common::tool_registry::ToolRegistryQuery;
+
+        let registry = Arc::new(DiskSkillRegistry::new(vec![]));
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        let reg = ToolRegistry::new();
+        reg.register(SkillTool::new(registry, builtin))
+            .await
+            .unwrap();
+
+        let ctx = PromptGenerationContext {
+            agent_id: "test".into(),
+            workdir: None,
+            available_tool_names: vec![],
+            tools: None,
+            disallowed_tools: None,
+            session_mode: None,
+            agent_role: None,
+            agent_type: None,
+        };
+        let index = reg.build_tools_section(&ctx).await;
+        assert!(
+            index.contains("  - SkillTool"),
+            "SkillTool should appear in deferred section, got: {index}"
+        );
+        assert!(
+            !index.contains("**SkillTool**:"),
+            "SkillTool should NOT have bold detail in primary index, got: {index}"
+        );
+
+        // ToolSearch path: deferred tool is still discoverable via get_tool_detail
+        let q: &dyn ToolRegistryQuery = &reg;
+        let desc = q.get_tool_detail("SkillTool").await;
+        assert!(
+            desc.is_some(),
+            "SkillTool must be discoverable via ToolSearch"
+        );
+        let desc = desc.unwrap();
+        assert!(desc.flags.is_deferred_by_default);
+        assert!(
+            desc.detail.contains("skill"),
+            "Full detail should be available via ToolSearch"
+        );
+    }
+
     #[test]
     fn test_skill_tool_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
@@ -270,7 +317,7 @@ mod tests {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         let tool = SkillTool::new(registry, builtin);
-        assert!(!tool.flags().is_deferred_by_default);
+        assert!(tool.flags().is_deferred_by_default);
     }
 
     // -----------------------------------------------------------------

@@ -62,7 +62,7 @@ impl Tool for GitStatusTool {
             is_concurrency_safe: true,
             is_read_only: true,
             is_expensive: true,
-            is_deferred_by_default: true,
+            is_deferred_by_default: false,
             ..Default::default()
         }
     }
@@ -118,7 +118,7 @@ impl Tool for GitLogTool {
             is_concurrency_safe: true,
             is_read_only: true,
             is_expensive: true,
-            is_deferred_by_default: true,
+            is_deferred_by_default: false,
             ..Default::default()
         }
     }
@@ -180,7 +180,7 @@ impl Tool for GitCommitTool {
             is_concurrency_safe: false,
             is_destructive: true,
             is_expensive: true,
-            is_deferred_by_default: true,
+            is_deferred_by_default: false,
             ..Default::default()
         }
     }
@@ -235,7 +235,7 @@ impl Tool for GitPushTool {
         ToolFlags {
             is_concurrency_safe: false,
             is_destructive: true,
-            is_deferred_by_default: true,
+            is_deferred_by_default: false,
             ..Default::default()
         }
     }
@@ -290,7 +290,7 @@ impl Tool for GitPullTool {
         ToolFlags {
             is_concurrency_safe: false,
             is_destructive: true,
-            is_deferred_by_default: true,
+            is_deferred_by_default: false,
             ..Default::default()
         }
     }
@@ -330,7 +330,7 @@ mod tests {
         assert!(tool.flags().is_read_only);
         assert!(!tool.flags().is_destructive);
         assert!(tool.flags().is_expensive);
-        assert!(tool.flags().is_deferred_by_default);
+        assert!(!tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -367,7 +367,7 @@ mod tests {
         assert!(tool.flags().is_read_only);
         assert!(!tool.flags().is_destructive);
         assert!(tool.flags().is_expensive);
-        assert!(tool.flags().is_deferred_by_default);
+        assert!(!tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -404,7 +404,7 @@ mod tests {
         assert!(tool.flags().is_destructive);
         assert!(tool.flags().is_expensive);
         assert!(!tool.flags().is_read_only);
-        assert!(tool.flags().is_deferred_by_default);
+        assert!(!tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -442,7 +442,7 @@ mod tests {
         let tool = GitPushTool::new();
         assert!(tool.flags().is_destructive);
         assert!(!tool.flags().is_read_only);
-        assert!(tool.flags().is_deferred_by_default);
+        assert!(!tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -478,7 +478,7 @@ mod tests {
         let tool = GitPullTool::new();
         assert!(tool.flags().is_destructive);
         assert!(!tool.flags().is_read_only);
-        assert!(tool.flags().is_deferred_by_default);
+        assert!(!tool.flags().is_deferred_by_default);
     }
 
     #[test]
@@ -487,5 +487,62 @@ mod tests {
         let schema = tool.input_schema();
         let required = schema.pointer("/required").unwrap().as_array().unwrap();
         assert!(required.is_empty());
+    }
+
+    // --- Index behavior: git_ops tools now appear in eager section ---
+
+    #[tokio::test]
+    async fn test_git_ops_tools_appear_in_eager_index_section() {
+        use crate::{PromptGenerationContext, ToolRegistry};
+        use closeclaw_common::tool_registry::ToolRegistryQuery;
+
+        let reg = ToolRegistry::new();
+        reg.register(GitStatusTool::new()).await.unwrap();
+        reg.register(GitLogTool::new()).await.unwrap();
+        reg.register(GitCommitTool::new()).await.unwrap();
+        reg.register(GitPushTool::new()).await.unwrap();
+        reg.register(GitPullTool::new()).await.unwrap();
+
+        let ctx = PromptGenerationContext {
+            agent_id: "test".into(),
+            workdir: None,
+            available_tool_names: vec![],
+            tools: None,
+            disallowed_tools: None,
+            session_mode: None,
+            agent_role: None,
+            agent_type: None,
+        };
+        let index = reg.build_tools_section(&ctx).await;
+
+        // Eager: bold name + danger mark + detail
+        for name in &["GitStatus", "GitLog", "GitCommit", "GitPush", "GitPull"] {
+            // Bold name with danger mark (e.g. "**GitStatus** (read-only):" or "**GitCommit** (destructive):")
+            let bold_marker = format!("**{}**", name);
+            assert!(
+                index.contains(&bold_marker),
+                "{} should appear with bold name in eager section, got: {index}",
+                name
+            );
+            // Deferred-style bare name must NOT appear
+            assert!(
+                !index.contains(&format!("  - {}", name)),
+                "{} should NOT appear as bare deferred entry, got: {index}",
+                name
+            );
+        }
+
+        // ToolSearch path: tools remain discoverable
+        let q: &dyn ToolRegistryQuery = &reg;
+        for name in &["GitStatus", "GitLog", "GitCommit", "GitPush", "GitPull"] {
+            let desc = q.get_tool_detail(name).await;
+            assert!(
+                desc.is_some(),
+                "{} must be discoverable via ToolSearch",
+                name
+            );
+            let desc = desc.unwrap();
+            assert!(!desc.flags.is_deferred_by_default);
+        }
     }
 }
