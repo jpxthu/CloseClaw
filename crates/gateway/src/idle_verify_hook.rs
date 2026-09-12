@@ -232,16 +232,21 @@ pub(crate) mod tests {
 
     #[test]
     fn test_check_conditions_non_executing_phase_returns_none() {
-        for phase in [
-            Phase::Jumping,
-            Phase::Blocked,
-            Phase::Complete,
-            Phase::Verifying,
-        ] {
+        for phase in [Phase::Jumping, Phase::Blocked, Phase::Complete] {
             let cs = make_session_with_handler(phase.clone(), 0);
             let result = test_check_idle_verify_conditions(&cs, "sid");
             assert!(result.is_none(), "phase {:?} should return None", phase);
         }
+    }
+
+    #[test]
+    fn test_check_conditions_idle_verifying_returns_params() {
+        let cs = make_session_with_handler(Phase::Verifying, 0);
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        let params = result.expect("should return Some for idle+verifying");
+        assert_eq!(params.current_step, 0);
+        assert!(params.allow_blocked);
+        assert_eq!(params.verify_retry_limit, 3);
     }
 
     #[test]
@@ -345,7 +350,7 @@ pub(crate) mod tests {
             handler.on_verify_injected(3);
         }
         assert_eq!(cs.workflow_handler().unwrap().run().pending_verify, 1);
-        assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Executing);
+        assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Verifying);
     }
 
     #[test]

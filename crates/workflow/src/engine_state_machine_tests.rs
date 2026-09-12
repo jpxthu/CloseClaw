@@ -325,11 +325,11 @@ fn test_on_session_idle_returns_false_when_complete() {
 }
 
 #[test]
-fn test_on_session_idle_returns_false_when_verifying() {
+fn test_on_session_idle_returns_true_when_verifying() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.phase = Phase::Verifying;
-    assert!(!WorkflowEngine::on_session_idle(&run));
+    assert!(WorkflowEngine::on_session_idle(&run));
 }
 
 // ---------------------------------------------------------------------------
@@ -342,7 +342,7 @@ fn test_on_verify_injected_increments_count() {
     let mut run = WorkflowEngine::start(&wf);
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
     assert_eq!(run.pending_verify, 1);
-    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.phase, Phase::Verifying);
 }
 
 #[test]
@@ -352,19 +352,19 @@ fn test_on_verify_injected_twice() {
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
     assert_eq!(run.pending_verify, 2);
-    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.phase, Phase::Verifying);
 }
 
 #[test]
-fn test_on_verify_injected_two_times_stays_executing() {
+fn test_on_verify_injected_two_times_stays_verifying() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    // verify_retry_limit = 3; 2 < 3 → still Executing
+    // verify_retry_limit = 3; 2 < 3 → Verifying (not blocked)
     for _ in 0..2 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
     assert_eq!(run.pending_verify, 2);
-    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.phase, Phase::Verifying);
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn test_on_verify_injected_custom_limit() {
         WorkflowEngine::on_verify_injected(&mut run, 5);
     }
     assert_eq!(run.pending_verify, 4);
-    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.phase, Phase::Verifying);
     // 5th injection: pending=5, 5 >= 5 → blocked
     WorkflowEngine::on_verify_injected(&mut run, 5);
     assert_eq!(run.pending_verify, 5);
@@ -670,6 +670,7 @@ fn test_e2e_single_step_no_jumps_blocked_via_over_limit() {
     assert!(WorkflowEngine::on_session_idle(&run));
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
     assert_eq!(run.pending_verify, 1);
+    assert_eq!(run.phase, Phase::Verifying);
 
     // Handle verify → no jumps, no transitions → error (not blocked)
     let result = WorkflowEngine::handle_verify(&mut run, &wf);
@@ -678,11 +679,12 @@ fn test_e2e_single_step_no_jumps_blocked_via_over_limit() {
         result.unwrap_err(),
         crate::error::WorkflowError::NoMatchingTransition
     ));
-    // Phase remains Executing (error does not change phase).
-    assert_eq!(run.phase, Phase::Executing);
+    // Phase remains Verifying (error does not change phase).
+    assert_eq!(run.phase, Phase::Verifying);
 
     // Blocked is only triggered by verify retry overflow.
-    for _ in 0..4 {
+    // handle_verify reset pending_verify to 0; need 3 to reach limit of 3.
+    for _ in 0..3 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
     assert_eq!(run.phase, Phase::Blocked);
