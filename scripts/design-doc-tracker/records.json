@@ -105,11 +105,11 @@
   },
   {
     "path": "docs/design/config/README.md",
-    "commit": "4eefa0b665eaff9f921fa6708b535f3e4fb27292",
-    "commit_time": "2026-09-12T04:51:42+08:00",
-    "confirmed_time": "2026-09-12T05:06:46.815227+08:00",
+    "commit": "98ee557e8262a00be8eb9952591d808d763ae0fb",
+    "commit_time": "2026-09-13T06:28:38+08:00",
+    "confirmed_time": "2026-09-13T06:38:31.581518+08:00",
     "comment": "",
-    "blocked_reason": "文档族内部矛盾持续（F2b 三轮 doc↔code 对比无 must_fix，但 doc↔doc 矛盾无法以代码修复，需 Owner 裁决）：memory/config.md 声明配置集成到 ConfigProvider 体系（memory.json），config/README.md 未反映；config/README.md「无关：tools」与代码 ConfigSection::Tools 完整实现矛盾。详见 issue #3004"
+    "blocked_reason": ""
   },
   {
     "path": "docs/design/config/hot-reload.md",
