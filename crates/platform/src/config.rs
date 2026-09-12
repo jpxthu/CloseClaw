@@ -1,11 +1,13 @@
-//! Configuration directory resolution.
+//! Configuration root directory resolution.
 //!
-//! Returns the root and config directories for CloseClaw.
-//! - Root: `~/.closeclaw` (PID files, agents/, templates/, skills/, etc.)
-//! - Config: `~/.closeclaw/config` (JSON config files: models.json, channels.json, etc.)
+//! Returns the root CloseClaw directory (`~/.closeclaw`), which contains
+//! `config/`, `agents/`, `templates/`, `skills/`, PID files, and the admin socket.
 //!
-//! Both [`root_dir`] and [`config_dir`] guarantee the returned directory exists
-//! on disk (created via `create_dir_all`), so callers never need to create them.
+//! Sub-directory layout (e.g. `config/`) is the responsibility of upper-layer
+//! consumers (config module), not this crate.
+//!
+//! [`root_dir`] guarantees the returned directory exists on disk
+//! (created via `create_dir_all`), so callers never need to create it.
 
 use std::path::PathBuf;
 
