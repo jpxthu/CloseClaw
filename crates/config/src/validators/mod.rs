@@ -13,7 +13,12 @@ pub use tools::validate_tools;
 use crate::manager::ConfigSection;
 use crate::providers::channels::ALLOWED_CHANNEL_TYPES;
 use crate::SectionValidator;
-use closeclaw_common::compaction::CompactConfig;
+
+mod session;
+pub use session::validate_session;
+
+mod memory;
+pub use memory::validate_memory;
 
 // ---------------------------------------------------------------------------
 // Cross-reference data
@@ -364,6 +369,7 @@ fn validate_binding_entry(
 /// - Top-level must be a JSON object.
 /// - `port`, if present, must be a number in 1..=65535.
 /// - `timeout`, if present, must be a non-negative number.
+/// - `inboundQueueCapacity`, if present, must be a positive integer (> 0).
 fn validate_gateway(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "gateway")?;
     if let Some(port) = value.get("port") {
@@ -394,6 +400,14 @@ fn validate_gateway(value: &serde_json::Value) -> Result<(), String> {
             None => {
                 return Err("gateway.timeout must be a number".to_string());
             }
+        }
+    }
+    if let Some(cap) = value.get("inboundQueueCapacity") {
+        if cap.as_u64() == Some(0) {
+            return Err("gateway.inboundQueueCapacity must be greater than 0".to_string());
+        }
+        if !cap.is_number() || cap.as_u64().is_none() {
+            return Err("gateway.inboundQueueCapacity must be a positive integer".to_string());
         }
     }
     Ok(())
@@ -522,41 +536,6 @@ fn validate_system(value: &serde_json::Value) -> Result<(), String> {
         }
     }
 
-    Ok(())
-}
-
-/// Validate the **session** config section.
-///
-/// - Top-level must be a JSON object.
-/// - If `sweeperIntervalSeconds` is present, it must be a positive number.
-/// - If `idleMinutes` is present, it must be non-negative.
-/// - If `purgeAfterMinutes` is present, it must be non-negative.
-/// - If `compact` is present and non-null, it must deserialize to a valid
-///   `CompactConfig` (positive `chars_per_token`, thresholds in [0,1],
-///   `auto_compact_threshold_pct` < `warning_threshold_pct`).
-fn validate_session(value: &serde_json::Value) -> Result<(), String> {
-    ensure_object(value, "session")?;
-    if let Some(secs) = value.get("sweeperIntervalSeconds") {
-        if !secs.is_number() || secs.as_u64().unwrap_or(0) == 0 {
-            return Err("session.sweeperIntervalSeconds must be a positive number".to_string());
-        }
-    }
-    validate_non_negative_field(value, "idleMinutes")?;
-    validate_non_negative_field(value, "purgeAfterMinutes")?;
-    // planArchiveDays: if present, must be a non-negative number
-    validate_non_negative_field(value, "planArchiveDays")?;
-    // auditLogLimit: if present, must be a non-negative number
-    validate_non_negative_field(value, "auditLogLimit")?;
-    // compact: if present and non-null, validate via CompactConfig
-    if let Some(compact) = value.get("compact") {
-        if !compact.is_null() {
-            let config: CompactConfig = serde_json::from_value(compact.clone())
-                .map_err(|e| format!("session.compact: invalid config: {}", e))?;
-            config
-                .validate()
-                .map_err(|e| format!("session.compact: {}", e))?;
-        }
-    }
     Ok(())
 }
 
@@ -734,7 +713,10 @@ fn validate_account_channel_reference(
 ///
 /// - `bindings`, if present, must be a JSON array.
 /// - Each binding must have non-empty `bot_app_id` and `agent_id`.
-/// - `bot_app_id` must be globally unique.
+/// - Each `bot_app_id` must map to exactly one `agent_id` (same
+///   `bot_app_id` with different `agent_id` is rejected; same
+///   `bot_app_id` with the same `agent_id` appearing multiple times
+///   is allowed).
 fn validate_account_bindings(value: &serde_json::Value) -> Result<(), String> {
     let bindings = match value.get("bindings") {
         Some(arr) if arr.is_array() => arr.as_array().unwrap(),
@@ -746,7 +728,9 @@ fn validate_account_bindings(value: &serde_json::Value) -> Result<(), String> {
         }
         None => return Ok(()),
     };
-    let mut seen_bot_ids = std::collections::HashSet::new();
+    // bot_app_id → (agent_id, first occurrence index)
+    let mut bot_agent_map: std::collections::HashMap<String, (String, usize)> =
+        std::collections::HashMap::new();
     for (i, entry) in bindings.iter().enumerate() {
         if !entry.is_object() {
             return Err(format!("accounts.bindings[{}] must be a JSON object", i));
@@ -765,24 +749,34 @@ fn validate_account_bindings(value: &serde_json::Value) -> Result<(), String> {
             .get("bot_app_id")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if !seen_bot_ids.insert(bot_id.to_string()) {
-            return Err(format!(
-                "accounts.bindings[{}].bot_app_id '{}' is not unique; \
-                 each bot_app_id must map to exactly one agent_id",
-                i, bot_id
-            ));
+        let agent_id = entry.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
+        if let Some((existing_agent, first_idx)) = bot_agent_map.get(bot_id) {
+            if existing_agent != agent_id {
+                return Err(format!(
+                    "accounts.bindings[{}].bot_app_id '{}' is bound to \
+                     agent_id '{}' but already bound to '{}' at \
+                     accounts.bindings[{}]; each bot_app_id must map \
+                     to exactly one agent_id",
+                    i, bot_id, agent_id, existing_agent, first_idx
+                ));
+            }
+            // Same bot_app_id + same agent_id -> allowed (not a conflict)
+        } else {
+            bot_agent_map.insert(bot_id.to_string(), (agent_id.to_string(), i));
         }
     }
     Ok(())
 }
 
 /// Validate that a numeric field, if present, is non-negative.
+/// Rejects NaN and Infinity values.
 fn validate_non_negative_field(value: &serde_json::Value, field: &str) -> Result<(), String> {
     if let Some(v) = value.get(field) {
         if !v.is_number() {
             return Err(format!("session.{} must be a number", field));
         }
-        if v.as_f64().unwrap_or(0.0) < 0.0 {
+        let n = v.as_f64().unwrap_or(0.0);
+        if !n.is_finite() || n < 0.0 {
             return Err(format!("session.{} must be non-negative", field));
         }
     }
@@ -858,22 +852,15 @@ fn validate_agents(value: &serde_json::Value) -> Result<(), String> {
 /// Validate the **media** config section.
 ///
 /// - Top-level must be a JSON object.
-/// - Structural validation is delegated to serde deserialization;
-///   this function ensures the top-level shape is correct.
+/// - Detailed field validation (storageDir empty/null-byte) is performed by
+///   `MediaConfigData::validate()` in the provider; this structural validator
+///   only enforces the top-level shape to avoid duplicate rules.
 fn validate_media(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "media")?;
     Ok(())
 }
 
-/// Validate the **memory** config section.
-///
-/// - Top-level must be a JSON object.
-/// - Structural validation is delegated to serde deserialization;
-///   this function ensures the top-level shape is correct.
-fn validate_memory(value: &serde_json::Value) -> Result<(), String> {
-    ensure_object(value, "memory")?;
-    Ok(())
-}
+// validate_memory is defined in memory.rs module
 
 /// Validate the **skills** config section.
 ///
@@ -987,3 +974,11 @@ mod validators_session_archive_audit_tests;
 #[cfg(test)]
 #[path = "../validators_session_compact_tests.rs"]
 mod validators_session_compact_tests;
+
+#[cfg(test)]
+#[path = "../validators_memory_tests.rs"]
+mod validators_memory_tests;
+
+#[cfg(test)]
+#[path = "../validators_step_1_7_tests.rs"]
+mod validators_step_1_7_tests;

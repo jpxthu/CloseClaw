@@ -18,6 +18,8 @@ pub const DEFAULT_TIMEOUT: u64 = 30000;
 pub const DEFAULT_RATE_LIMIT_PER_MINUTE: u32 = 60;
 /// Default max message size in bytes
 pub const DEFAULT_MAX_MESSAGE_SIZE: usize = 16384;
+/// Default inbound queue capacity
+pub const DEFAULT_INBOUND_QUEUE_CAPACITY: usize = 256;
 /// Gateway configuration data structure
 ///
 /// Maps to the `gateway` field in `openclaw.json`.
@@ -40,6 +42,9 @@ pub struct GatewayConfigData {
 
     #[serde(default = "default_max_message_size")]
     pub max_message_size: usize,
+
+    #[serde(default = "default_inbound_queue_capacity")]
+    pub inbound_queue_capacity: usize,
 }
 
 fn default_version() -> String {
@@ -57,6 +62,9 @@ fn default_rate_limit_per_minute() -> u32 {
 fn default_max_message_size() -> usize {
     DEFAULT_MAX_MESSAGE_SIZE
 }
+fn default_inbound_queue_capacity() -> usize {
+    DEFAULT_INBOUND_QUEUE_CAPACITY
+}
 
 impl Default for GatewayConfigData {
     fn default() -> Self {
@@ -67,6 +75,7 @@ impl Default for GatewayConfigData {
             timeout: default_timeout(),
             rate_limit_per_minute: default_rate_limit_per_minute(),
             max_message_size: default_max_message_size(),
+            inbound_queue_capacity: default_inbound_queue_capacity(),
         }
     }
 }
@@ -98,6 +107,12 @@ impl ConfigProvider for GatewayConfigData {
             });
         }
         // u16 max is 65535, so no upper-bound check needed
+        if self.inbound_queue_capacity == 0 {
+            return Err(ConfigError::ValueError {
+                field: "inbound_queue_capacity".to_string(),
+                message: "inbound_queue_capacity must be greater than 0".to_string(),
+            });
+        }
         Ok(())
     }
 
@@ -115,6 +130,7 @@ impl ConfigProvider for GatewayConfigData {
             && self.timeout == default_timeout()
             && self.rate_limit_per_minute == default_rate_limit_per_minute()
             && self.max_message_size == default_max_message_size()
+            && self.inbound_queue_capacity == default_inbound_queue_capacity()
     }
 }
 
@@ -202,7 +218,8 @@ mod tests {
             "port": 3001,
             "timeout": 5000,
             "rateLimitPerMinute": 120,
-            "maxMessageSize": 32768
+            "maxMessageSize": 32768,
+            "inboundQueueCapacity": 512
         }"#;
         let config = GatewayConfigData::from_json_str(json).expect("valid JSON should parse");
         assert_eq!(config.name, "my-gateway");
@@ -210,6 +227,7 @@ mod tests {
         assert_eq!(config.timeout, 5000);
         assert_eq!(config.rate_limit_per_minute, 120);
         assert_eq!(config.max_message_size, 32768);
+        assert_eq!(config.inbound_queue_capacity, 512);
     }
 
     #[test]
@@ -224,6 +242,10 @@ mod tests {
         assert_eq!(config.timeout, DEFAULT_TIMEOUT);
         assert_eq!(config.rate_limit_per_minute, DEFAULT_RATE_LIMIT_PER_MINUTE);
         assert_eq!(config.max_message_size, DEFAULT_MAX_MESSAGE_SIZE);
+        assert_eq!(
+            config.inbound_queue_capacity,
+            DEFAULT_INBOUND_QUEUE_CAPACITY
+        );
     }
 
     #[test]
@@ -278,9 +300,54 @@ mod tests {
         assert!(!config.is_default());
     }
 
+    #[test]
+    fn test_is_default_inbound_queue_capacity_changed() {
+        let mut config = default_config();
+        config.inbound_queue_capacity = 128;
+        assert!(!config.is_default());
+    }
+
     // -------------------------------------------------------------------------
     // config_path and version
     // -------------------------------------------------------------------------
+
+    // ------------------------------------------------------------------------
+    // Inbound queue capacity validation tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_inbound_queue_capacity_zero_fails() {
+        let mut config = default_config();
+        config.inbound_queue_capacity = 0;
+        let result = config.validate();
+        assert!(
+            result.is_err(),
+            "inbound_queue_capacity=0 should fail validation"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::ValueError { field, .. } if field == "inbound_queue_capacity"),
+            "error should be about inbound_queue_capacity field"
+        );
+    }
+
+    #[test]
+    fn test_inbound_queue_capacity_positive_valid() {
+        let mut config = default_config();
+        config.inbound_queue_capacity = 1;
+        config
+            .validate()
+            .expect("inbound_queue_capacity=1 should be valid");
+
+        config.inbound_queue_capacity = 1024;
+        config
+            .validate()
+            .expect("inbound_queue_capacity=1024 should be valid");
+    }
+
+    // ------------------------------------------------------------------------
+    // config_path and version
+    // ------------------------------------------------------------------------
 
     #[test]
     fn test_config_path() {

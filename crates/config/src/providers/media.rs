@@ -34,7 +34,9 @@ pub struct MediaConfigData {
 
     /// Directory path for media file storage.
     /// Supports `~` prefix for home directory expansion.
+    /// `null` in JSON is treated as the default value.
     #[serde(default = "default_storage_dir")]
+    #[serde(deserialize_with = "deserialize_string_or_null")]
     pub storage_dir: String,
 
     /// Number of days to retain media files.
@@ -55,6 +57,15 @@ fn default_version() -> String {
 
 fn default_storage_dir() -> String {
     DEFAULT_STORAGE_DIR.to_string()
+}
+
+/// Deserialize a string field that also accepts `null` (treated as the default).
+fn deserialize_string_or_null<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_else(default_storage_dir))
 }
 
 fn default_retention_days() -> u64 {
@@ -100,6 +111,12 @@ impl ConfigProvider for MediaConfigData {
             return Err(ConfigError::ValueError {
                 field: "storage_dir".to_string(),
                 message: "storage_dir must not be empty".to_string(),
+            });
+        }
+        if self.storage_dir.contains('\0') {
+            return Err(ConfigError::ValueError {
+                field: "storage_dir".to_string(),
+                message: "storage_dir contains a null byte".to_string(),
             });
         }
         // retention_days and image_content_threshold_bytes are u64,
@@ -167,6 +184,42 @@ mod tests {
             ConfigError::ValueError { field, .. } => assert_eq!(field, "storage_dir"),
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[test]
+    fn test_validate_null_byte_storage_dir() {
+        let mut config = MediaConfigData::default();
+        config.storage_dir = "/tmp/media\0secret".to_string();
+        let result = config.validate();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::ValueError { field, message, .. } => {
+                assert_eq!(field, "storage_dir");
+                assert!(message.contains("null byte"), "message: {}", message);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn test_validate_valid_relative_path() {
+        let mut config = MediaConfigData::default();
+        config.storage_dir = "./media".to_string();
+        config.validate().expect("relative path should be valid");
+    }
+
+    #[test]
+    fn test_validate_valid_absolute_path() {
+        let mut config = MediaConfigData::default();
+        config.storage_dir = "/var/data/media".to_string();
+        config.validate().expect("absolute path should be valid");
+    }
+
+    #[test]
+    fn test_validate_valid_tilde_path() {
+        let mut config = MediaConfigData::default();
+        config.storage_dir = "~/.closeclaw/media".to_string();
+        config.validate().expect("tilde path should be valid");
     }
 
     #[test]

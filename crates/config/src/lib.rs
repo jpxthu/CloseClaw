@@ -48,3 +48,7 @@ pub use session::{
 #[cfg(test)]
 #[path = "step_1_8_tests.rs"]
 mod step_1_8_tests;
+
+#[cfg(test)]
+#[path = "step_1_5_cross_ref_tests.rs"]
+mod step_1_5_cross_ref_tests;

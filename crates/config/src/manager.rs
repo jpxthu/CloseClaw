@@ -392,16 +392,9 @@ impl ConfigManager {
             };
 
             // Business validation: reuse the same validators used by hot-reload.
-            // For Accounts, pass the channels config for cross-reference validation.
-            let validate_result = if section == ConfigSection::Accounts {
-                let channels_value = sections.get(&ConfigSection::Channels).cloned();
-                match channels_value {
-                    Some(channels_val) => {
-                        crate::validators::validate_accounts(&value, Some(&channels_val))
-                    }
-                    None => crate::validators::validate_accounts(&value, None),
-                }
-            } else {
+            // Structural validation only — cross-file reference checks are
+            // deferred to a dedicated step after all configs are loaded.
+            let validate_result = {
                 let validate = crate::validators::for_section(section);
                 validate(&value)
             };
@@ -547,27 +540,9 @@ impl ConfigManager {
         self.load_optional_section(&mut sections, ConfigSection::Skills);
         self.load_optional_section(&mut sections, ConfigSection::Media);
         self.load_optional_section(&mut sections, ConfigSection::Tools);
-        // Cross-validate credentials against models.json references.
-        if let Some(models_value) = sections.get(&ConfigSection::Models) {
-            match serde_json::from_value::<ModelsConfigData>(models_value.clone()) {
-                Ok(models_config) => {
-                    if let Err(e) =
-                        creds_provider.validate_model_references(&models_config, &self.config_dir)
-                    {
-                        warn!(
-                            error = %e,
-                            "credentials-models cross-validation warning"
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        "failed to parse models.json for credentials cross-validation"
-                    );
-                }
-            }
-        }
+
+        // Step 3 — Cross-file reference validation (non-blocking, WARN)
+        self.validate_cross_file_references(&sections, &creds_provider);
 
         drop(sections);
 
@@ -597,6 +572,32 @@ impl ConfigManager {
             }
         } else {
             info!("{} not found, using defaults", section);
+        }
+    }
+
+    /// Step 3 — Cross-file reference validation (non-blocking, WARN).
+    fn validate_cross_file_references(
+        &self,
+        sections: &HashMap<ConfigSection, serde_json::Value>,
+        creds_provider: &CredentialsProvider,
+    ) {
+        // accounts → channels: platform must match configured channels.
+        if let (Some(av), Some(cv)) = (
+            sections.get(&ConfigSection::Accounts),
+            sections.get(&ConfigSection::Channels),
+        ) {
+            if let Err(e) = crate::validators::validate_accounts(av, Some(cv)) {
+                warn!(error = %e, "accounts-channels cross-reference validation warning");
+            }
+        }
+        if let Some(mv) = sections.get(&ConfigSection::Models) {
+            if let Ok(mc) = serde_json::from_value::<ModelsConfigData>(mv.clone()) {
+                if let Err(e) = creds_provider.validate_model_references(&mc, &self.config_dir) {
+                    warn!(error = %e, "credentials-models cross-validation warning");
+                }
+            } else {
+                warn!("failed to parse models.json for credentials cross-validation");
+            }
         }
     }
 

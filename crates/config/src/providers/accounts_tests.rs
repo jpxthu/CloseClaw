@@ -455,7 +455,12 @@ fn test_accounts_validator_fail_duplicate_bot_app_id() {
     .unwrap();
     let err = validator(&v).unwrap_err();
     assert!(
-        err.contains("bot_app_id 'app1' is not unique"),
+        err.contains("bot_app_id 'app1' is bound to"),
+        "error: {}",
+        err
+    );
+    assert!(
+        err.contains("each bot_app_id must map to exactly one agent_id"),
         "error: {}",
         err
     );
@@ -729,4 +734,123 @@ fn test_accounts_validator_fail_duplicate_with_bot_app_id() {
     .unwrap();
     let err = validator(&v).unwrap_err();
     assert!(err.contains("duplicate binding"), "error: {}", err);
+}
+
+// ---------------------------------------------------------------------------
+// bot_app_id → agent_id uniqueness (Step 1.3)
+// ---------------------------------------------------------------------------
+
+/// Same bot_app_id with the same agent_id appearing multiple times
+/// in bindings is allowed (not a conflict).
+#[test]
+fn test_accounts_validator_pass_same_bot_app_same_agent() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"},
+                {"bot_app_id":"app1","agent_id":"eda"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+/// Same bot_app_id with different agent_id across bindings is
+/// rejected (each bot_app_id must map to exactly one agent_id).
+#[test]
+fn test_accounts_validator_fail_same_bot_different_agent() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"},
+                {"bot_app_id":"app1","agent_id":"ghost"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let err = validator(&v).unwrap_err();
+    assert!(err.contains("bound to agent_id 'ghost'"), "error: {}", err);
+    assert!(err.contains("already bound to 'eda'"), "error: {}", err);
+}
+
+/// Different bot_app_ids with different agent_ids are fine (no
+/// conflict — each bot_app_id maps to exactly one agent_id).
+#[test]
+fn test_accounts_validator_pass_distinct_bot_agents() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"},
+                {"bot_app_id":"app2","agent_id":"ghost"},
+                {"bot_app_id":"app3","agent_id":"eda"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+/// Same bot_app_id + same agent_id with accounts present (accounts
+/// don't carry agent_id, so this is structurally valid).
+#[test]
+fn test_accounts_validator_pass_same_bot_agent_with_accounts() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[
+                {"platform":"feishu","botAppId":"app1","senderId":"ou_a","accountId":"a1"}
+            ],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+/// Bot_app_id appears in both accounts (with botAppId) and bindings
+/// with the same agent — no conflict.
+#[test]
+fn test_accounts_validator_pass_cross_location_consistent() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[
+                {"platform":"feishu","botAppId":"app1","senderId":"ou_a","accountId":"a1"},
+                {"platform":"feishu","botAppId":"app1","senderId":"ou_b","accountId":"a2"}
+            ],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
+}
+
+/// Same bot_app_id binding to same agent across three entries —
+/// all allowed.
+#[test]
+fn test_accounts_validator_pass_same_bot_agent_three_entries() {
+    let validator = for_section(ConfigSection::Accounts);
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{
+            "accounts":[],
+            "bindings":[
+                {"bot_app_id":"app1","agent_id":"eda"},
+                {"bot_app_id":"app1","agent_id":"eda"},
+                {"bot_app_id":"app1","agent_id":"eda"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert!(validator(&v).is_ok());
 }

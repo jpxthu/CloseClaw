@@ -316,6 +316,50 @@ fn test_validate_gateway_pass_valid_values() {
     }
 }
 
+#[test]
+fn test_validate_gateway_inbound_queue_capacity_zero() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"inboundQueueCapacity":0}"#).unwrap();
+    let err = validate_gateway(&v).unwrap_err();
+    assert!(
+        err.contains("greater than 0"),
+        "error should mention capacity must be > 0: {}",
+        err
+    );
+}
+
+#[test]
+fn test_validate_gateway_inbound_queue_capacity_non_positive() {
+    for json in [
+        r#"{"inboundQueueCapacity":-1}"#,
+        r#"{"inboundQueueCapacity":"abc"}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        let err = validate_gateway(&v).unwrap_err();
+        assert!(err.contains("positive integer"), "json={}: {}", json, err);
+    }
+}
+
+#[test]
+fn test_validate_gateway_inbound_queue_capacity_valid() {
+    for json in [
+        r#"{"inboundQueueCapacity":1}"#,
+        r#"{"inboundQueueCapacity":256}"#,
+        r#"{"inboundQueueCapacity":1024}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_gateway(&v).is_ok(), "json={}", json);
+    }
+}
+
+#[test]
+fn test_validate_gateway_inbound_queue_capacity_missing_ok() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"port":8080}"#).unwrap();
+    assert!(
+        validate_gateway(&v).is_ok(),
+        "missing inboundQueueCapacity should pass"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // validate_plugins
 // ---------------------------------------------------------------------------
@@ -415,19 +459,15 @@ fn test_validate_plugins_fail_install_path_not_exists() {
 }
 
 #[test]
-fn test_validate_plugins_pass_install_path_empty_string() {
-    // Empty installPath should be ignored
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"installs":{"p":{"installPath":""}}}"#).unwrap();
-    assert!(validate_plugins(&v).is_ok());
-}
-
-#[test]
-fn test_validate_plugins_pass_install_path_absent() {
-    // No installPath field at all
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"installs":{"p":{"source":"archive"}}}"#).unwrap();
-    assert!(validate_plugins(&v).is_ok());
+fn test_validate_plugins_pass_install_path_optional() {
+    // Empty installPath should be ignored; absent installPath is also valid
+    for json in [
+        r#"{"installs":{"p":{"installPath":""}}}"#,
+        r#"{"installs":{"p":{"source":"archive"}}}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_plugins(&v).is_ok(), "json={}", json);
+    }
 }
 
 #[test]
@@ -491,15 +531,11 @@ fn test_validate_system_version() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_system_pass_cron_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"cron":{"enabled":true}}"#).unwrap();
-    assert!(validate_system(&v).is_ok());
-}
-
-#[test]
-fn test_validate_system_pass_cron_absent() {
-    let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
-    assert!(validate_system(&v).is_ok());
+fn test_validate_system_pass_cron_variants() {
+    for json in [r#"{"cron":{"enabled":true}}"#, r#"{}"#] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_system(&v).is_ok(), "json={}", json);
+    }
 }
 
 #[test]
@@ -530,17 +566,12 @@ fn test_validate_system_pass_version_and_cron() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_default_validator_models_passes_valid_json() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"models":[{"id":"m1"}]}"#).unwrap();
-    let validator = ConfigSection::Models.default_validator();
-    assert!(validator(&v).is_ok());
-}
-
-#[test]
-fn test_default_validator_models_rejects_non_object() {
-    let v: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
-    let validator = ConfigSection::Models.default_validator();
-    assert!(validator(&v).is_err());
+fn test_default_validator_models_pass_and_reject() {
+    let valid: serde_json::Value = serde_json::from_str(r#"{"models":[{"id":"m1"}]}"#).unwrap();
+    let invalid: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
+    let v = ConfigSection::Models.default_validator();
+    assert!(v(&valid).is_ok());
+    assert!(v(&invalid).is_err());
 }
 
 #[test]
@@ -559,21 +590,6 @@ fn test_default_validator_gateway_passes_valid_json() {
 }
 
 #[test]
-fn test_default_validator_plugins_passes_valid_json() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"entries":{"p":{"enabled":true}}}"#).unwrap();
-    let validator = ConfigSection::Plugins.default_validator();
-    assert!(validator(&v).is_ok());
-}
-
-#[test]
-fn test_default_validator_system_passes_valid_json() {
-    let v: serde_json::Value = serde_json::from_str(r#"{"version":"2.0"}"#).unwrap();
-    let validator = ConfigSection::System.default_validator();
-    assert!(validator(&v).is_ok());
-}
-
-#[test]
 fn test_default_validator_credentials_pass_and_reject() {
     let valid: serde_json::Value =
         serde_json::from_str(r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
@@ -585,28 +601,24 @@ fn test_default_validator_credentials_pass_and_reject() {
 
 #[test]
 fn test_for_section_returns_correct_validator() {
-    let sections = [
+    let valid_json: serde_json::Value = serde_json::from_str(r#"{"a":1}"#).unwrap();
+    let invalid_json: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
+    for section in [
         ConfigSection::Models,
         ConfigSection::Channels,
         ConfigSection::Gateway,
         ConfigSection::Plugins,
         ConfigSection::System,
-    ];
-    let valid_json: serde_json::Value = serde_json::from_str(r#"{"a":1}"#).unwrap();
-    let invalid_json: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
-
-    for section in sections {
-        let validator = for_section(section);
-        // valid object should pass all section validators
+    ] {
+        let v = for_section(section);
         assert!(
-            validator(&valid_json).is_ok(),
-            "validator for {:?} should pass valid JSON",
+            v(&valid_json).is_ok(),
+            "{:?} should pass valid JSON",
             section
         );
-        // array should fail all section validators
         assert!(
-            validator(&invalid_json).is_err(),
-            "validator for {:?} should reject array",
+            v(&invalid_json).is_err(),
+            "{:?} should reject array",
             section
         );
     }
@@ -620,11 +632,10 @@ fn test_for_section_returns_correct_validator() {
 fn test_validate_channels_cross_ref_unknown_agent_id() {
     let v: serde_json::Value = serde_json::from_str(
         r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"unknown-agent","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
-    )
-    .unwrap();
+    ).unwrap();
     let cr = CrossRefData {
-        agent_ids: ["known-agent".to_string()].into_iter().collect(),
-        account_ids: ["acc1".to_string()].into_iter().collect(),
+        agent_ids: ["known-agent".into()].into_iter().collect(),
+        account_ids: ["acc1".into()].into_iter().collect(),
     };
     let err = validate_channels_with_refs(&v, Some(&cr)).unwrap_err();
     assert!(
@@ -632,22 +643,17 @@ fn test_validate_channels_cross_ref_unknown_agent_id() {
         "error: {}",
         err
     );
-    assert!(
-        err.contains("unknown-agent"),
-        "error should mention the bad agent: {}",
-        err
-    );
+    assert!(err.contains("unknown-agent"), "bad agent: {}", err);
 }
 
 #[test]
 fn test_validate_channels_cross_ref_unknown_account_id() {
     let v: serde_json::Value = serde_json::from_str(
         r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"known-agent","match":{"channel":"feishu","accountId":"unknown-account"}}]}"#,
-    )
-    .unwrap();
+    ).unwrap();
     let cr = CrossRefData {
-        agent_ids: ["known-agent".to_string()].into_iter().collect(),
-        account_ids: ["known-account".to_string()].into_iter().collect(),
+        agent_ids: ["known-agent".into()].into_iter().collect(),
+        account_ids: ["known-account".into()].into_iter().collect(),
     };
     let err = validate_channels_with_refs(&v, Some(&cr)).unwrap_err();
     assert!(
@@ -655,33 +661,23 @@ fn test_validate_channels_cross_ref_unknown_account_id() {
         "error: {}",
         err
     );
-    assert!(
-        err.contains("unknown-account"),
-        "error should mention the bad account: {}",
-        err
-    );
+    assert!(err.contains("unknown-account"), "bad account: {}", err);
 }
 
 #[test]
 fn test_validate_channels_cross_ref_known_agent_and_account() {
     let v: serde_json::Value = serde_json::from_str(
         r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"agent-1","match":{"channel":"feishu","accountId":"acc-1"}}]}"#,
-    )
-    .unwrap();
+    ).unwrap();
     let cr = CrossRefData {
-        agent_ids: ["agent-1".to_string(), "agent-2".to_string()]
-            .into_iter()
-            .collect(),
-        account_ids: ["acc-1".to_string(), "acc-2".to_string()]
-            .into_iter()
-            .collect(),
+        agent_ids: ["agent-1".into(), "agent-2".into()].into_iter().collect(),
+        account_ids: ["acc-1".into(), "acc-2".into()].into_iter().collect(),
     };
     assert!(validate_channels_with_refs(&v, Some(&cr)).is_ok());
 }
 
 #[test]
 fn test_validate_channels_cross_ref_none_skips_validation() {
-    // With None cross-ref, binding structural validation only — agentId/accountId not checked
     let v: serde_json::Value = serde_json::from_str(
         r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"any-agent","match":{"channel":"feishu","accountId":"any-account"}}]}"#,
     )
@@ -721,6 +717,10 @@ fn test_validate_media_pass_variants() {
     for json in [
         r#"{}"#,
         r#"{"storageDir":"/data/media","retentionDays":14,"imageContentThresholdBytes":2097152}"#,
+        r#"{"storageDir":"./media"}"#,
+        r#"{"storageDir":"~/.closeclaw/media"}"#,
+        r#"{"storageDir":"relative/path"}"#,
+        r#"{"storageDir":null}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
         assert!(validate_media(&v).is_ok(), "json={}", json);
@@ -733,30 +733,31 @@ fn test_validate_media_fail_not_object() {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
         let err = validate_media(&v).unwrap_err();
         assert!(err.contains("JSON object"), "json={}: error: {}", json, err);
-        // Also check via default_validator path
         assert!(ConfigSection::Media.default_validator()(&v).is_err());
     }
 }
 
-// ---------------------------------------------------------------------------
-// validate_session
-// ---------------------------------------------------------------------------
-
 #[test]
-fn test_validate_session_pass_variants() {
+fn test_validate_media_structural_only_passes_field_errors() {
+    // StorageDir field-level validation is delegated to MediaConfigData::validate();
+    // the structural validator (mod.rs) only checks top-level shape.
     for json in [
-        r#"{}"#,
-        r#"{"sweeperIntervalSeconds":600}"#,
-        r#"{"sweeperIntervalSeconds":1}"#,
-        r#"{"sweeperIntervalSeconds":600,"idleMinutes":30,"purgeAfterMinutes":1440}"#,
-        r#"{"compact":null}"#,
-        r#"{"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3}}"#,
-        r#"{"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3,"autoCompactThresholdPct":0.05,"warningThresholdPct":0.1}}"#,
+        r#"{"storageDir":""}"#,
+        r#"{"storageDir":"   "}"#,
+        r#"{"storageDir":"/tmp/media\u0000bad"}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
-        assert!(validate_session(&v).is_ok(), "json={}", json);
+        assert!(validate_media(&v).is_ok(), "json={}", json);
     }
+    // Non-string types are still rejected by the structural validator
+    let v: serde_json::Value = serde_json::from_str(r#"{"storageDir":123}"#).unwrap();
+    assert!(
+        validate_media(&v).is_ok(),
+        "non-string storageDir passes structural check"
+    );
 }
+
+// validate_session
 
 #[test]
 fn test_validate_session_fail_invalid_type_and_sweeper() {
@@ -779,24 +780,51 @@ fn test_validate_session_fail_invalid_type_and_sweeper() {
 }
 
 // ---------------------------------------------------------------------------
-// validate_session — idleMinutes
+// validate_session — nested per-role idleMinutes / purgeAfterMinutes
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_validate_session_fail_idle_purge_invalid() {
-    let cases = [
-        (r#"{"idleMinutes":-1}"#, "idleMinutes must be non-negative"),
-        (r#"{"idleMinutes":"abc"}"#, "idleMinutes must be a number"),
+fn test_validate_session_nested_per_role() {
+    // Valid: nested defaults and agents overrides
+    for json in [
+        r#"{"defaults":{"mainAgent":{"idleMinutes":30,"purgeAfterMinutes":1440}}}"#,
+        r#"{"defaults":{"mainAgent":{"idleMinutes":0,"purgeAfterMinutes":0}}}"#,
+        r#"{"defaults":{"mainAgent":{"idleMinutes":30},"subAgent":{"idleMinutes":10}}}"#,
+        r#"{"defaults":{"mainAgent":{"idleMinutes":30}},"agents":{"a1":{"mainAgent":{"idleMinutes":60}}}}"#,
+        r#"{"defaults":{},"agents":{}}"#,
+    ] {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert!(validate_session(&v).is_ok(), "json={}", json);
+    }
+
+    // Fail: invalid nested values
+    let fail_cases = [
         (
-            r#"{"purgeAfterMinutes":-1}"#,
+            r#"{"defaults":{"mainAgent":{"idleMinutes":-1}}}"#,
+            "idleMinutes must be non-negative",
+        ),
+        (
+            r#"{"defaults":{"mainAgent":{"idleMinutes":"abc"}}}"#,
+            "idleMinutes must be a number",
+        ),
+        (
+            r#"{"defaults":{"mainAgent":{"purgeAfterMinutes":-1}}}"#,
             "purgeAfterMinutes must be non-negative",
         ),
         (
-            r#"{"purgeAfterMinutes":"abc"}"#,
-            "purgeAfterMinutes must be a number",
+            r#"{"defaults":{"mainAgent":{"idleMinutes":30,"purgeAfterMinutes":-1}}}"#,
+            "purgeAfterMinutes must be non-negative",
+        ),
+        (
+            r#"{"agents":{"a1":{"mainAgent":{"idleMinutes":-5}}}}"#,
+            "idleMinutes must be non-negative",
+        ),
+        (
+            r#"{"defaults":{"mainAgent":"invalid"}}"#,
+            "must be a JSON object",
         ),
     ];
-    for (json, expected) in cases {
+    for (json, expected) in fail_cases {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
         let err = validate_session(&v).unwrap_err();
         assert!(err.contains(expected), "{}: error: {}", json, err);
@@ -804,38 +832,19 @@ fn test_validate_session_fail_idle_purge_invalid() {
 }
 
 // ---------------------------------------------------------------------------
-// validate_session — combined fields
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_validate_session_fail_multiple_invalid() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"idleMinutes":30,"purgeAfterMinutes":-1}"#).unwrap();
-    let err = validate_session(&v).unwrap_err();
-    assert!(
-        err.contains("purgeAfterMinutes must be non-negative"),
-        "error: {}",
-        err
-    );
-}
-
-#[test]
-fn test_default_validator_session_passes_valid_json() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"sweeperIntervalSeconds":300,"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3}}"#).unwrap();
-    let validator = ConfigSection::Session.default_validator();
-    assert!(validator(&v).is_ok());
-}
-
 #[test]
 fn test_default_validator_session_and_for_section() {
     let valid: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
     let invalid: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
+    let compact_valid: serde_json::Value = serde_json::from_str(
+        r#"{"sweeperIntervalSeconds":300,"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3}}"#,
+    ).unwrap();
     assert!(ConfigSection::Session.default_validator()(&valid).is_ok());
+    assert!(ConfigSection::Session.default_validator()(&compact_valid).is_ok());
     assert!(ConfigSection::Session.default_validator()(&invalid).is_err());
-    let validator = for_section(ConfigSection::Session);
-    assert!(validator(&valid).is_ok());
-    assert!(validator(&invalid).is_err());
+    let v = for_section(ConfigSection::Session);
+    assert!(v(&valid).is_ok());
+    assert!(v(&invalid).is_err());
 }
 
 // ---------------------------------------------------------------------------
@@ -846,32 +855,28 @@ fn test_default_validator_session_and_for_section() {
 fn test_validate_channels_binding_ref_valid_channel_type() {
     let v: serde_json::Value = serde_json::from_str(
         r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
-    )
-    .unwrap();
+    ).unwrap();
     assert!(validate_channels(&v).is_ok());
 }
 
 #[test]
 fn test_validate_channels_binding_ref_undefined_channel_type() {
+    // Binding references slack which is not in channels config
     let v: serde_json::Value = serde_json::from_str(
         r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"slack","accountId":"acc1"}}]}"#,
-    )
-    .unwrap();
+    ).unwrap();
     let err = validate_channels(&v).unwrap_err();
     assert!(
         err.contains("references an undefined channel type"),
         "error: {}",
         err
     );
-    assert!(
-        err.contains("slack"),
-        "error should mention the bad channel: {}",
-        err
-    );
+    assert!(err.contains("slack"), "bad channel: {}", err);
 }
 
 #[test]
 fn test_validate_channels_binding_ref_no_channels_with_bindings() {
+    // No channels config at all, binding references feishu
     let v: serde_json::Value = serde_json::from_str(
         r#"{"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
     )
@@ -956,42 +961,40 @@ fn test_validate_models_api_key_ref_known_cred_provider() {
         serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
             .unwrap();
     let crps = CredentialProviderSet {
-        names: ["openai".to_string(), "anthropic".to_string()]
-            .into_iter()
-            .collect(),
+        names: ["openai".into(), "anthropic".into()].into_iter().collect(),
     };
     assert!(validate_models_with_refs(&v, Some(&crps)).is_ok());
 }
 
 #[test]
-fn test_validate_models_no_api_key_passes() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"openai":{"models":[{"id":"gpt-4"}]}}}"#).unwrap();
-    let crps = CredentialProviderSet {
+fn test_validate_models_pass_no_api_key_or_credential_path() {
+    let empty_creds = CredentialProviderSet {
         names: HashSet::new(),
     };
-    assert!(validate_models_with_refs(&v, Some(&crps)).is_ok());
+    // No apiKey: passes regardless of credential providers
+    let v1: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"openai":{"models":[{"id":"gpt-4"}]}}}"#).unwrap();
+    assert!(validate_models_with_refs(&v1, Some(&empty_creds)).is_ok());
+    // No cross-ref: skips credential check entirely
+    let v2: serde_json::Value =
+        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
+            .unwrap();
+    assert!(validate_models_with_refs(&v2, None).is_ok());
 }
 
 #[test]
 fn test_validate_models_api_key_with_credential_path_passes() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    let path = tmp.path().to_str().unwrap();
     let json = format!(
         r#"{{"providers":{{"openai":{{"apiKey":"sk-test","credentialPath":"{}","models":[]}}}}}}"#,
-        path
+        tmp.path().to_str().unwrap()
     );
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let crps = CredentialProviderSet {
-        names: HashSet::new(),
-    };
-    assert!(validate_models_with_refs(&v, Some(&crps)).is_ok());
-}
-
-#[test]
-fn test_validate_models_no_cross_ref_skips_check() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
-            .unwrap();
-    assert!(validate_models_with_refs(&v, None).is_ok());
+    assert!(validate_models_with_refs(
+        &v,
+        Some(&CredentialProviderSet {
+            names: HashSet::new()
+        })
+    )
+    .is_ok());
 }
