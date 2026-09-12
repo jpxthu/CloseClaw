@@ -138,7 +138,7 @@ async fn test_tool_flags() {
     assert!(flags.is_concurrency_safe);
     assert!(!flags.is_read_only);
     assert!(!flags.is_destructive);
-    assert!(!flags.is_deferred_by_default);
+    assert!(flags.is_deferred_by_default);
 }
 
 #[tokio::test]
@@ -785,4 +785,71 @@ async fn test_plan_mode_section_shows_readonly_tool() {
         section.contains("SomeReadOnlyTool"),
         "read-only tools should be visible in Plan Mode: {section}"
     );
+}
+
+// ── Deferred loading tests ──────────────────────────────────────────────────
+
+/// ModeExecutionTriggerTool flags().is_deferred_by_default == true.
+#[tokio::test]
+async fn test_mode_execution_trigger_is_deferred() {
+    let sm = make_session_manager();
+    let cf = make_confirm_flow();
+    let tool = make_tool(sm, cf);
+    assert!(tool.flags().is_deferred_by_default);
+}
+
+/// ModeExecutionTrigger appears in deferred index section (name only,
+/// no bold detail) when registered via ToolRegistry.
+#[tokio::test]
+async fn test_mode_execution_trigger_deferred_index_section() {
+    use crate::{PromptGenerationContext, ToolRegistry};
+
+    let reg = ToolRegistry::new();
+    reg.register(make_tool(make_session_manager(), make_confirm_flow()))
+        .await
+        .unwrap();
+
+    let ctx = PromptGenerationContext {
+        agent_id: "test".into(),
+        workdir: None,
+        available_tool_names: vec![],
+        tools: None,
+        disallowed_tools: None,
+        session_mode: None,
+        agent_role: None,
+        agent_type: None,
+    };
+    let index = reg.build_tools_section(&ctx).await;
+
+    // Deferred: name only, no bold detail
+    assert!(
+        index.contains("  - ModeExecutionTrigger"),
+        "ModeExecutionTrigger should appear in deferred section, got: {index}"
+    );
+    assert!(
+        !index.contains("**ModeExecutionTrigger**:"),
+        "ModeExecutionTrigger should NOT have bold detail in primary index, got: {index}"
+    );
+}
+
+/// ModeExecutionTrigger is still discoverable via ToolSearch (get_tool_detail)
+/// even though it is deferred.
+#[tokio::test]
+async fn test_mode_execution_trigger_toolsearch_discoverable() {
+    use crate::ToolRegistry;
+    use closeclaw_common::tool_registry::ToolRegistryQuery;
+
+    let reg = ToolRegistry::new();
+    reg.register(make_tool(make_session_manager(), make_confirm_flow()))
+        .await
+        .unwrap();
+
+    let q: &dyn ToolRegistryQuery = &reg;
+    let desc = q.get_tool_detail("ModeExecutionTrigger").await;
+    assert!(
+        desc.is_some(),
+        "ModeExecutionTrigger must be discoverable via ToolSearch"
+    );
+    let desc = desc.unwrap();
+    assert!(desc.flags.is_deferred_by_default);
 }
