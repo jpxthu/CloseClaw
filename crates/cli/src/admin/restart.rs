@@ -13,8 +13,14 @@ pub struct RestartOutput {
 }
 
 pub async fn handle_restart(force: bool, json: bool) -> Result<()> {
-    let config_dir = closeclaw_platform::config::root_dir()?;
-    handle_restart_at(&config_dir, force, json).await
+    let mgr =
+        closeclaw_config::ConfigManager::with_default_root_dir().map_err(|e| anyhow::anyhow!(e))?;
+    let root_dir = mgr
+        .config_dir()
+        .parent()
+        .unwrap_or(mgr.config_dir())
+        .to_path_buf();
+    handle_restart_at(&root_dir, force, json).await
 }
 
 pub async fn handle_restart_at(

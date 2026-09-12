@@ -4,8 +4,14 @@ use super::common::{json_output, StopOutput};
 use anyhow::Result;
 
 pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
-    let config_dir = closeclaw_platform::config::root_dir()?;
-    handle_stop_at(&config_dir, force, json).await
+    let mgr =
+        closeclaw_config::ConfigManager::with_default_root_dir().map_err(|e| anyhow::anyhow!(e))?;
+    let root_dir = mgr
+        .config_dir()
+        .parent()
+        .unwrap_or(mgr.config_dir())
+        .to_path_buf();
+    handle_stop_at(&root_dir, force, json).await
 }
 
 pub async fn handle_stop_at(_config_dir: &std::path::Path, force: bool, json: bool) -> Result<()> {

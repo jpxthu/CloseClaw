@@ -45,7 +45,12 @@ pub trait DaemonRunner: Send + Sync {
 /// `~/.closeclaw/daemon.pid` and is independent of `config_dir`.
 pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
-        closeclaw_platform::config::root_dir()?
+        let mgr = closeclaw_config::ConfigManager::with_default_root_dir()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        mgr.config_dir()
+            .parent()
+            .unwrap_or(mgr.config_dir())
+            .to_path_buf()
     } else {
         closeclaw_platform::fs::expand_path(&PathBuf::from(config_dir))
     };
