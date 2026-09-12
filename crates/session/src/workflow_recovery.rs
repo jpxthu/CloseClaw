@@ -45,8 +45,33 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
     handle_definition_version_change(session_id, &wf, &wf_run, checkpoint);
 
     // 3. Extract step info and store recovery notification
-    let step_num = wf_run.current_step;
-    store_recovery_notification(&wf_run, checkpoint);
+    //    Re-read from checkpoint (handle_definition_version_change may have
+    //    updated phase/paused_reason on the mutable reference).
+    let (step_num, definition_name, step_name, phase, paused_reason) = {
+        let wf_run = checkpoint
+            .workflow_run
+            .as_ref()
+            .expect("workflow_run set above");
+        (
+            wf_run.current_step,
+            wf_run.definition_name.clone(),
+            wf_run
+                .step_history
+                .last()
+                .map(|e| e.step_name.clone())
+                .unwrap_or_else(|| "unknown".to_string()),
+            wf_run.phase.clone(),
+            wf_run.paused_reason.clone(),
+        )
+    };
+    store_recovery_notification(
+        &definition_name,
+        step_num,
+        &step_name,
+        &phase,
+        &paused_reason,
+        checkpoint,
+    );
 
     tracing::info!(
         session_id = %session_id,
@@ -64,19 +89,21 @@ fn try_reload_definition(
     WorkflowDefinitionLoader::load(definition_name, None, None).ok()
 }
 
-/// Extract step info from a workflow run and store a recovery notification
-/// in `system_injection_appends`.
+/// Store a recovery notification in `system_injection_appends`.
 fn store_recovery_notification(
-    wf_run: &closeclaw_workflow::run::WorkflowRun,
+    definition_name: &str,
+    step_num: usize,
+    step_name: &str,
+    phase: &Phase,
+    paused_reason: &str,
     checkpoint: &mut SessionCheckpoint,
 ) {
-    let step_num = wf_run.current_step;
-    let step_name = wf_run
-        .step_history
-        .last()
-        .map(|e| e.step_name.as_str())
-        .unwrap_or("unknown");
-    let notification = build_recovery_notification(&wf_run.definition_name, step_num, step_name);
+    let reason = if *phase == Phase::Blocked && !paused_reason.is_empty() {
+        Some(paused_reason)
+    } else {
+        None
+    };
+    let notification = build_recovery_notification(definition_name, step_num, step_name, reason);
     let tagged = format!("{}{}", WORKFLOW_RECOVERY_PREFIX, notification);
     if let Some(slot) = checkpoint
         .system_injection_appends
@@ -90,13 +117,25 @@ fn store_recovery_notification(
 }
 
 /// Build a recovery notification string summarising the current workflow state.
-fn build_recovery_notification(definition_name: &str, step_num: usize, step_name: &str) -> String {
-    format!(
+///
+/// When `paused_reason` is `Some`, appends the pause reason (for blocked-phase
+/// recovery); otherwise returns a plain recovery notification.
+fn build_recovery_notification(
+    definition_name: &str,
+    step_num: usize,
+    step_name: &str,
+    paused_reason: Option<&str>,
+) -> String {
+    let base = format!(
         "[workflow recovered] 正在执行 {name}，当前 Step {step} ({step_name})",
         name = definition_name,
         step = step_num,
         step_name = step_name,
-    )
+    );
+    match paused_reason {
+        Some(reason) => format!("{}\n暂停原因：{}", base, reason),
+        None => base,
+    }
 }
 
 /// Handle definition_version changes — block the workflow if the current
@@ -127,11 +166,12 @@ fn handle_definition_version_change(
             total_steps = wf.steps.len(),
             "current step not in new definition — blocking workflow"
         );
-        checkpoint
+        let wf_ref = checkpoint
             .workflow_run
             .as_mut()
-            .expect("workflow_run checked above")
-            .phase = Phase::Blocked;
+            .expect("workflow_run checked above");
+        wf_ref.phase = Phase::Blocked;
+        wf_ref.paused_reason = "当前步骤在最新定义中已不存在".to_string();
     }
 }
 

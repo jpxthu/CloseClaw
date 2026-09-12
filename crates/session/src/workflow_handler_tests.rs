@@ -228,6 +228,25 @@ fn test_notification_taken_only_once() {
 }
 
 #[test]
+fn test_blocked_persists_paused_reason() {
+    let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
+    let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
+    assert!(handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Blocked);
+    assert_eq!(handler.run().paused_reason, "need help");
+}
+
+#[test]
+fn test_blocked_clears_paused_reason_on_not_allowed() {
+    let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
+    handler.run_mut().current_step = 1; // step 1 has allow_blocked = false
+    let content = r#"{"action": "workflow_blocked", "reason": "should not persist"}"#;
+    assert!(!handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Executing);
+    assert!(handler.run().paused_reason.is_empty());
+}
+
+#[test]
 fn test_on_verify_limit_exceeded() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.on_verify_injected(3);
