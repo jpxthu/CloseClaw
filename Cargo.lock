@@ -683,6 +683,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "closeclaw-common",
+ "closeclaw-platform",
  "cron",
  "dashmap",
  "dirs",

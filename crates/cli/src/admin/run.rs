@@ -1,6 +1,6 @@
 //! Run handler function for CLI admin.
 
-use super::common::{json_output, RunOutput};
+use super::common::{config_root, json_output, RunOutput};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
@@ -45,7 +45,7 @@ pub trait DaemonRunner: Send + Sync {
 /// `~/.closeclaw/daemon.pid` and is independent of `config_dir`.
 pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
-        closeclaw_platform::config::root_dir()?
+        config_root()?
     } else {
         closeclaw_platform::fs::expand_path(&PathBuf::from(config_dir))
     };

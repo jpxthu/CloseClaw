@@ -127,9 +127,10 @@ tests/
 
 ```
 Layer 0: closeclaw-common（共享类型 + 核心 trait，无内部依赖）
-Layer 1: config, platform, tasks（无业务模块依赖）
+         closeclaw-platform（纯 OS 抽象层，无业务依赖；config 模块依赖其配置目录接口）
+Layer 1: config, tasks（无业务模块依赖）
 Layer 2: llm, session, permission（依赖 common + 下层基础设施）
-Layer 3: 各业务 crate 只依赖 common（通过 trait）+ 下层基础设施
+Layer 3: 各业务 crate 只依赖 common + 下层基础设施（通过 trait 交互）
          ├── processor_chain
          ├── im_adapter
          ├── tools
