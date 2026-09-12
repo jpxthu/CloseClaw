@@ -457,9 +457,9 @@
   },
   {
     "path": "docs/design/platform/config-directory.md",
-    "commit": "2b583ad55ed6381da66bae3c09a5ec08cf6aac2c",
-    "commit_time": "2026-09-11T00:16:12+08:00",
-    "confirmed_time": "2026-09-11T00:29:25.717329+08:00",
+    "commit": "031417ef90f2a37a88a1f380a194e123b9338525",
+    "commit_time": "2026-09-12T14:18:52+08:00",
+    "confirmed_time": "2026-09-12T14:26:16.948561+08:00",
     "comment": "",
     "blocked_reason": ""
   },
