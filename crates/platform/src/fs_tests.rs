@@ -1,4 +1,4 @@
-use crate::fs::{expand_env, expand_home, expand_path, normalize_path, to_platform_path};
+use crate::fs::{expand_env, expand_home, expand_path, normalize_path};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -41,59 +41,6 @@ fn test_normalize_path_trailing_separator() {
     let path = Path::new(r"C:\Users\test\");
     let normalized = normalize_path(path);
     assert_eq!(normalized, PathBuf::from("C:/Users/test/"));
-}
-
-// --- to_platform_path tests ---
-
-#[test]
-fn test_to_platform_path_identity_unix() {
-    let path = Path::new("/usr/local/bin");
-    let result = to_platform_path(path);
-    assert_eq!(result, PathBuf::from("/usr/local/bin"));
-}
-
-#[test]
-fn test_to_platform_path_backslashes() {
-    let path = Path::new(r"C:\Users\test\file.txt");
-    let result = to_platform_path(path);
-    assert_eq!(result, PathBuf::from("C:/Users/test/file.txt"));
-}
-
-#[test]
-fn test_to_platform_path_mixed_separators() {
-    let path = Path::new(r"C:\Users/test\another/file");
-    let result = to_platform_path(path);
-    assert_eq!(result, PathBuf::from("C:/Users/test/another/file"));
-}
-
-#[test]
-fn test_to_platform_path_empty() {
-    let path = Path::new("");
-    let result = to_platform_path(path);
-    assert_eq!(result, PathBuf::from(""));
-}
-
-#[test]
-fn test_to_platform_path_trailing_separator() {
-    let path = Path::new(r"C:\Users\test\");
-    let result = to_platform_path(path);
-    assert_eq!(result, PathBuf::from("C:/Users/test/"));
-}
-
-/// On `/`-separator platforms, `to_platform_path` and `normalize_path` produce
-/// identical output — this round-trip property must hold.
-#[test]
-fn test_to_platform_path_roundtrip_with_normalize() {
-    let inputs = [
-        r"C:\Users\test",
-        "/usr/local/bin",
-        "relative/path",
-        r"mixed\\path/here",
-    ];
-    for input in &inputs {
-        let p = Path::new(input);
-        assert_eq!(to_platform_path(p), normalize_path(p));
-    }
 }
 
 // --- expand_home tests ---
@@ -366,37 +313,9 @@ fn test_expand_env_dollar_vs_brace_equivalent() {
     assert_ne!(r1, r2, "raw $ and ${{}} syntax preserve different literals");
 }
 
-/// normalize_path and to_platform_path must agree on all inputs.
-#[test]
-fn test_normalize_and_platform_path_agree() {
-    let inputs = [
-        r"C:\Users\test",
-        "/usr/local/bin",
-        "relative/path",
-        r"mixed\\path/here",
-        "",
-        "/",
-    ];
-    for input in &inputs {
-        let p = Path::new(input);
-        assert_eq!(
-            normalize_path(p),
-            to_platform_path(p),
-            "normalize_path and to_platform_path must agree for: {input}"
-        );
-    }
-}
-
 /// normalize_path converts all backslashes to forward slashes.
 #[test]
 fn test_normalize_path_backslash_unification() {
     let path = Path::new(r"a\b\c\d");
     assert_eq!(normalize_path(path), PathBuf::from("a/b/c/d"));
-}
-
-/// to_platform_path converts all backslashes to forward slashes.
-#[test]
-fn test_to_platform_path_backslash_unification() {
-    let path = Path::new(r"x\y\z");
-    assert_eq!(to_platform_path(path), PathBuf::from("x/y/z"));
 }
