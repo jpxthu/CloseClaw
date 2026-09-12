@@ -1,6 +1,6 @@
 //! Restart handler function for CLI admin.
 
-use super::common::json_output;
+use super::common::{config_root, json_output};
 use super::rpc::{admin_socket_path, AdminClient, AdminRequest, AdminResponse};
 use anyhow::Result;
 use serde::Serialize;
@@ -13,13 +13,7 @@ pub struct RestartOutput {
 }
 
 pub async fn handle_restart(force: bool, json: bool) -> Result<()> {
-    let mgr =
-        closeclaw_config::ConfigManager::with_default_root_dir().map_err(|e| anyhow::anyhow!(e))?;
-    let root_dir = mgr
-        .config_dir()
-        .parent()
-        .unwrap_or(mgr.config_dir())
-        .to_path_buf();
+    let root_dir = config_root()?;
     handle_restart_at(&root_dir, force, json).await
 }
 

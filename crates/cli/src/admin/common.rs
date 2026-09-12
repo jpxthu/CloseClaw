@@ -1,6 +1,5 @@
 //! Shared helpers and output structs for CLI admin handlers.
 
-use closeclaw_config::ConfigManager;
 use closeclaw_permission::Effect;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -115,12 +114,7 @@ pub struct AgentCreateOutput {
 /// that keeps the error type as [`anyhow::Result`] for ergonomic `?`
 /// propagation inside CLI admin handlers.
 pub(crate) fn config_root() -> anyhow::Result<PathBuf> {
-    let mgr = ConfigManager::with_default_root_dir().map_err(|e| anyhow::anyhow!(e))?;
-    Ok(mgr
-        .config_dir()
-        .parent()
-        .unwrap_or(mgr.config_dir())
-        .to_path_buf())
+    closeclaw_platform::config::root_dir()
 }
 
 #[allow(dead_code)]
