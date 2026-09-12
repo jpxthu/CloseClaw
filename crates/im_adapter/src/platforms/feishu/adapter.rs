@@ -196,6 +196,39 @@ pub struct FeishuAdapter {
     event_dedup: Arc<Mutex<EventDeduplicator>>,
 }
 
+/// Return type for `extract_message_content` / `parse_content_with_fallback`.
+type ContentResult = (String, Vec<MediaRef>, Option<String>);
+
+/// Try JSON parsing first; fall back to XML extraction for file/audio.
+///
+/// Returns `Ok(Some(...))` on success, `Ok(None)` when content cannot be
+/// interpreted (caller should discard the event), or `Err` for unexpected
+/// non-file/non-audio JSON failures.
+fn parse_content_with_fallback(
+    message_type: &str,
+    content: &str,
+) -> Result<Option<ContentResult>, AdapterError> {
+    match serde_json::from_str::<serde_json::Value>(content) {
+        Ok(value) => match FeishuAdapter::extract_message_content(message_type, &value) {
+            Ok(pair) => Ok(Some(pair)),
+            Err(_) => {
+                if matches!(message_type, "file" | "audio") {
+                    Ok(extract_file_audio_from_xml(message_type, content))
+                } else {
+                    Ok(None)
+                }
+            }
+        },
+        Err(json_err) => {
+            if matches!(message_type, "file" | "audio") {
+                Ok(extract_file_audio_from_xml(message_type, content))
+            } else {
+                Err(AdapterError::InvalidPayload(json_err.to_string()))
+            }
+        }
+    }
+}
+
 impl FeishuAdapter {
     pub fn new(profile: String, media_store: Arc<MediaStore>) -> Self {
         let http_client = Client::builder()
@@ -492,29 +525,10 @@ impl FeishuAdapter {
         let (sender_open_id, message_id, thread_id, original_root_id, original_parent_id) =
             Self::clone_event_fields(&event);
 
-        // Try JSON parse first; fall back to XML for file/audio content.
         let (text, mut media_refs, original_name) =
-            match serde_json::from_str::<serde_json::Value>(&event.event.content) {
-                Ok(content) => {
-                    match Self::extract_message_content(&event.event.message_type, &content) {
-                        Ok(pair) => pair,
-                        Err(_) => return Ok(None),
-                    }
-                }
-                Err(json_err) => {
-                    // JSON parse failed — try XML extraction for file/audio.
-                    if matches!(event.event.message_type.as_str(), "file" | "audio") {
-                        match extract_file_audio_from_xml(
-                            &event.event.message_type,
-                            &event.event.content,
-                        ) {
-                            Some(pair) => pair,
-                            None => return Ok(None),
-                        }
-                    } else {
-                        return Err(AdapterError::InvalidPayload(json_err.to_string()));
-                    }
-                }
+            match parse_content_with_fallback(&event.event.message_type, &event.event.content)? {
+                Some(pair) => pair,
+                None => return Ok(None),
             };
         let unavailable_media = self
             .persist_media_refs(&event, &mut media_refs, original_name.as_deref())
