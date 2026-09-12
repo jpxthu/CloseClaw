@@ -19,24 +19,6 @@ pub fn normalize_path(path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Converts an internal `/`-separated path to the current platform's
-/// native path representation.
-///
-/// On platforms that use `/` as the path separator (Linux, macOS,
-/// WSL2), this is equivalent to [`normalize_path`].
-///
-/// # Examples
-///
-/// ```
-/// # use std::path::Path;
-/// # use closeclaw_platform::fs::to_platform_path;
-/// let p = to_platform_path(Path::new("foo/bar"));
-/// assert_eq!(p, std::path::PathBuf::from("foo/bar"));
-/// ```
-pub fn to_platform_path(path: &Path) -> PathBuf {
-    normalize_path(path)
-}
-
 /// Expands `~` at the start of a path to the user's home directory.
 ///
 /// Supports `~`, `~/`, and `~/rest`. A bare `~otheruser` prefix is
