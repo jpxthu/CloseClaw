@@ -13,3 +13,12 @@ mod engine_tests;
 
 #[cfg(test)]
 mod engine_state_machine_tests;
+
+#[cfg(test)]
+mod engine_lifecycle_tests;
+
+#[cfg(test)]
+mod serialization_tests;
+
+#[cfg(test)]
+mod test_fixtures;

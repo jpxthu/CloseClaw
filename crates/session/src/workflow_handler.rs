@@ -305,7 +305,7 @@ impl WorkflowHandler {
         let allow_blocked = step.allow_blocked.unwrap_or(false);
 
         if let Err(e) =
-            WorkflowEngine::handle_blocked(&mut self.run, &self.definition, allow_blocked)
+            WorkflowEngine::handle_blocked(&mut self.run, &self.definition, allow_blocked, reason)
         {
             tracing::warn!(error = %e, "blocked handling failed");
             return false;

@@ -72,4 +72,10 @@ pub struct WorkflowRun {
     /// Number of verify attempts since last reset.
     #[serde(default)]
     pub pending_verify: usize,
+    /// Reason the workflow is paused while in `Blocked` phase.
+    ///
+    /// Only non-empty when `phase == Blocked`. Cleared on any transition
+    /// out of `Blocked`. 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空字符串）。
+    #[serde(default)]
+    pub paused_reason: String,
 }

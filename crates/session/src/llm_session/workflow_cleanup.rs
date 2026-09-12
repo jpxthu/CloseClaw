@@ -121,6 +121,7 @@ mod tests {
             step_data: Default::default(),
             pending_goal_hint: GoalHint::default(),
             pending_verify: 0,
+            paused_reason: String::new(),
         }
     }
 

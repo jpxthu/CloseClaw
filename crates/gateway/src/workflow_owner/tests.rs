@@ -42,6 +42,7 @@ fn make_test_run(phase: Phase, pending_verify: usize) -> WorkflowRun {
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
         pending_verify,
+        paused_reason: String::new(),
     }
 }
 

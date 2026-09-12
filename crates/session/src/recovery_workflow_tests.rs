@@ -22,6 +22,7 @@ mod tests {
             step_data: Default::default(),
             pending_goal_hint: GoalHint::default(),
             pending_verify: 0,
+            paused_reason: String::new(),
         }
     }
 
@@ -123,9 +124,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_blocked_phase() {
+    async fn test_blocked_phase_includes_paused_reason() {
         let mut cp = make_test_checkpoint("wf-4");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Blocked));
+        let mut run = make_workflow_run(0, Phase::Blocked);
+        run.paused_reason = "验收重试次数耗尽".to_string();
+        cp.workflow_run = Some(run);
 
         inject_workflow_recovery("wf-4", &mut cp).await;
 
@@ -135,6 +138,35 @@ mod tests {
             .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
             .unwrap();
         assert!(notif.contains("test-wf"), "got: {}", notif);
+        assert!(
+            notif.contains("暂停原因"),
+            "should contain pause reason, got: {}",
+            notif
+        );
+        assert!(
+            notif.contains("验收重试次数耗尽"),
+            "should contain specific reason, got: {}",
+            notif
+        );
+    }
+
+    #[tokio::test]
+    async fn test_executing_phase_no_paused_reason() {
+        let mut cp = make_test_checkpoint("wf-4b");
+        cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
+
+        inject_workflow_recovery("wf-4b", &mut cp).await;
+
+        let notif = cp
+            .system_injection_appends
+            .iter()
+            .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
+            .unwrap();
+        assert!(
+            !notif.contains("暂停原因"),
+            "should not contain pause reason, got: {}",
+            notif
+        );
     }
 
     #[tokio::test]
@@ -187,6 +219,53 @@ mod tests {
             .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
             .unwrap();
         assert!(notif.contains("test-wf"), "got: {}", notif);
+    }
+
+    #[tokio::test]
+    async fn test_definition_version_change_blocks_with_paused_reason() {
+        use crate::workflow_recovery::inject_workflow_recovery;
+        use closeclaw_workflow::run::Phase;
+
+        // Simulate the state produced by handle_definition_version_change:
+        // the current step does not exist in the new definition, so the
+        // workflow is blocked with a paused_reason.
+        //
+        // Note: try_reload_definition loads from disk and will return None
+        // in unit tests (no workflow file on disk), so handle_definition_version_change
+        // returns early. We simulate the outcome directly to test the
+        // notification path (paused_reason → recovery notification).
+        let mut cp = make_test_checkpoint("wf-dvc1");
+        let mut run = make_workflow_run(2, Phase::Executing);
+        run.definition_version = "0.1".to_string();
+        cp.workflow_run = Some(run);
+
+        // Simulate what handle_definition_version_change would produce
+        let wf_run = cp.workflow_run.as_mut().unwrap();
+        wf_run.phase = Phase::Blocked;
+        wf_run.paused_reason = "当前步骤在最新定义中已不存在".to_string();
+
+        inject_workflow_recovery("wf-dvc1", &mut cp).await;
+
+        let wf_run = cp.workflow_run.as_ref().unwrap();
+        assert_eq!(wf_run.phase, Phase::Blocked);
+        assert_eq!(wf_run.paused_reason, "当前步骤在最新定义中已不存在");
+
+        // Notification should include the pause reason
+        let notif = cp
+            .system_injection_appends
+            .iter()
+            .find(|s| s.starts_with(WORKFLOW_RECOVERY_PREFIX))
+            .unwrap();
+        assert!(
+            notif.contains("暂停原因"),
+            "should contain pause reason, got: {}",
+            notif
+        );
+        assert!(
+            notif.contains("当前步骤在最新定义中已不存在"),
+            "should contain specific reason, got: {}",
+            notif
+        );
     }
 
     #[tokio::test]
