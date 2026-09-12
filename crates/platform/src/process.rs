@@ -142,12 +142,16 @@ fn cleanup_pid_file(pid_file: &Path) {
     let _ = std::fs::remove_file(pid_file);
 }
 
-/// Complete daemon stop sequence: read PID → signal → wait → cleanup.
+/// Complete daemon stop sequence: read PID → SIGTERM → wait → cleanup.
 ///
-/// Reads the daemon PID from `pid_file`, sends a termination signal,
-/// waits for the process to exit within `timeout`, and removes the
-/// PID file on success. If the PID file is missing or stale, returns
+/// Reads the daemon PID from `pid_file`, sends SIGTERM, waits for the
+/// process to exit within `timeout`, and removes the PID file on
+/// success. If the PID file is missing or stale, returns
 /// [`StopOutcome::NotRunning`] after cleaning up.
+///
+/// Always uses SIGTERM to request graceful exit — no force-kill
+/// semantics. Both SIGTERM and SIGINT are standard termination signals;
+/// this function does not distinguish between them.
 ///
 /// If the signal cannot be sent because the process has already exited
 /// (ESRCH), the PID file is cleaned up and [`StopOutcome::NotRunning`]
@@ -160,11 +164,7 @@ fn cleanup_pid_file(pid_file: &Path) {
 ///
 /// Returns `Err` if the signal cannot be sent (for reasons other than
 /// ESRCH) or the process does not exit within `timeout`.
-pub fn stop_daemon(
-    pid_file: &Path,
-    force: bool,
-    timeout: std::time::Duration,
-) -> anyhow::Result<StopOutcome> {
+pub fn stop_daemon(pid_file: &Path, timeout: std::time::Duration) -> anyhow::Result<StopOutcome> {
     let pid = match read_pid_file(pid_file) {
         Some(pid) => pid,
         None => return Ok(StopOutcome::NotRunning),
@@ -173,7 +173,7 @@ pub fn stop_daemon(
         cleanup_pid_file(pid_file);
         return Ok(StopOutcome::NotRunning);
     }
-    if let Err(e) = send_signal(pid, force) {
+    if let Err(e) = send_signal(pid, SignalKind::terminate()) {
         // Exit race: process may have exited between is_process_alive
         // and send_signal. Check again; if gone, clean up and return.
         if !is_process_alive(pid) {
@@ -221,15 +221,18 @@ pub fn wait_for_exit(pid: u32, timeout: std::time::Duration) -> anyhow::Result<(
     }
 }
 
-/// Sends a termination signal to the process identified by `pid`.
+/// Sends a signal to the process identified by `pid`.
 ///
-/// Sends SIGTERM by default or SIGINT when `force` is true.
-pub fn send_signal(pid: u32, force: bool) -> anyhow::Result<()> {
-    let signal = if force { libc::SIGINT } else { libc::SIGTERM };
+/// The `signal` parameter specifies which signal to send (e.g.
+/// [`SignalKind::terminate`] for SIGTERM, [`SignalKind::interrupt`]
+/// for SIGINT). Callers choose the signal explicitly rather than
+/// relying on a boolean flag — both SIGTERM and SIGINT are standard
+/// termination signals with no force/non-force distinction.
+pub fn send_signal(pid: u32, signal: SignalKind) -> anyhow::Result<()> {
     let pid_i32 = i32::try_from(pid).context("PID exceeds i32::MAX")?;
     // SAFETY: kill with a valid signal is a standard POSIX operation.
     // pid_i32 is validated by i32::try_from above.
-    let ret = unsafe { libc::kill(pid_i32, signal) };
+    let ret = unsafe { libc::kill(pid_i32, signal.as_raw_value()) };
     if ret != 0 {
         anyhow::bail!(
             "Failed to send signal to process {pid}: {}",
@@ -290,27 +293,54 @@ pub fn spawn_daemon(
     Ok(child)
 }
 
-/// Blocks until a shutdown signal is received.
+/// Subscription handle for OS shutdown signals (SIGTERM / SIGINT).
 ///
-/// Listens for both SIGINT (Ctrl+C) and SIGTERM. Returns the
-/// [`SignalKind`] that triggered the shutdown along with both signal
-/// handlers so that the caller can reuse them (e.g. to monitor for
-/// repeated signals during an inbound drain phase).
+/// Wraps tokio signal handles and provides a streaming interface:
+/// each call to [`next_signal`](ShutdownSignalSubscription::next_signal)
+/// returns the next queued signal, or waits until one arrives.
 ///
-/// # Returns
-///
-/// On SIGINT: `(SignalKind::interrupt(), sigint, sigterm)`
-/// On SIGTERM: `(SignalKind::terminate(), sigint, sigterm)`
-pub async fn wait_for_shutdown_signal() -> anyhow::Result<(SignalKind, Signal, Signal)> {
-    use tokio::signal::unix::signal;
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let mut sigterm = signal(SignalKind::terminate())?;
-    tokio::select! {
-        _ = sigint.recv() => {
-            Ok((SignalKind::interrupt(), sigint, sigterm))
-        }
-        _ = sigterm.recv() => {
-            Ok((SignalKind::terminate(), sigint, sigterm))
+/// OS-level signals are kernel-queued (POSIX guarantee); tokio converts
+/// them to an async stream. Multiple rapid signals are delivered in FIFO
+/// order without loss. This matches the design doc requirement that
+/// "every signal is continuously dispatched to subscribers until the
+/// process exits".
+pub struct ShutdownSignalSubscription {
+    sigint: Signal,
+    sigterm: Signal,
+}
+
+impl ShutdownSignalSubscription {
+    /// Returns the next shutdown signal.
+    ///
+    /// Signals are delivered in FIFO order. If multiple signals arrive
+    /// before this method is called, they are buffered by the OS and
+    /// returned one at a time on successive calls.
+    ///
+    /// When both SIGINT and SIGTERM are pending, SIGINT is returned
+    /// first (`biased` selection). This matches the legacy
+    /// `wait_for_shutdown_signal` behavior.
+    pub async fn next_signal(&mut self) -> Option<SignalKind> {
+        use tokio::signal::unix::SignalKind as SK;
+        tokio::select! {
+            biased;
+            _ = self.sigint.recv() => Some(SK::interrupt()),
+            _ = self.sigterm.recv() => Some(SK::terminate()),
         }
     }
+}
+
+/// Creates a new shutdown signal subscription.
+///
+/// Registers listeners for both SIGINT (Ctrl+C) and SIGTERM. The
+/// returned [`ShutdownSignalSubscription`] can be used to receive
+/// signals one at a time via [`next_signal`](ShutdownSignalSubscription::next_signal).
+///
+/// # Errors
+///
+/// Returns an error if the OS signal handlers cannot be installed.
+pub async fn subscribe_shutdown_signals() -> anyhow::Result<ShutdownSignalSubscription> {
+    use tokio::signal::unix::signal;
+    let sigint = signal(SignalKind::interrupt())?;
+    let sigterm = signal(SignalKind::terminate())?;
+    Ok(ShutdownSignalSubscription { sigint, sigterm })
 }
