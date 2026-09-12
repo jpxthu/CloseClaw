@@ -292,14 +292,38 @@ async fn test_parse_message_event_thread_id_from_root_id() {
 async fn test_parse_card_action_deferred_returns_none() {
     let adapter = make_test_adapter();
     // Webhook format
-    let webhook = serde_json::json!({"schema":"2.0","header":{"event_id":"evt1","event_type":"card.action.trigger","create_time":"0","token":"t","app_id":"a"},"operator":{"open_id":"ou_op"},"token":"tok","action":{"value":{"action":"btn"}}});
+    let webhook = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "evt1",
+            "event_type": "card.action.trigger",
+            "create_time": "0",
+            "token": "t",
+            "app_id": "a",
+        },
+        "operator": {"open_id": "ou_op"},
+        "token": "tok",
+        "action": {"value": {"action": "btn"}},
+    });
     let r = adapter
         .parse_card_action(&serde_json::to_vec(&webhook).unwrap())
         .await
         .unwrap();
     assert!(r.is_none(), "webhook card.action.trigger deferred");
     // CLI format
-    let cli = serde_json::json!({"type":"card.action.trigger","event_id":"cli1","timestamp":"0","operator_id":"ou_cli","message_id":"om","chat_id":"oc","host":"im","token":"tok","action_tag":"button","action_value":"{}","checked":false});
+    let cli = serde_json::json!({
+        "type": "card.action.trigger",
+        "event_id": "cli1",
+        "timestamp": "0",
+        "operator_id": "ou_cli",
+        "message_id": "om",
+        "chat_id": "oc",
+        "host": "im",
+        "token": "tok",
+        "action_tag": "button",
+        "action_value": "{}",
+        "checked": false,
+    });
     let r2 = adapter
         .parse_card_action(&serde_json::to_vec(&cli).unwrap())
         .await
@@ -460,7 +484,14 @@ fn create_mock_cli_with_messages(
     responses: &std::collections::HashMap<String, String>,
 ) -> String {
     let script_path = tmp.path().join("mock_lark_cli_msgs");
-    let mut script = "#!/bin/sh\nMSG_ID=\"\"\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --message-id) MSG_ID=\"$2\"; shift 2;;\n    *) shift;;\n  esac\ndone\n".to_string();
+    let mut script = "#!/bin/sh\n".to_string();
+    script.push_str("MSG_ID=\"\"\n");
+    script.push_str("while [ $# -gt 0 ]; do\n");
+    script.push_str("  case \"$1\" in\n");
+    script.push_str("    --message-id) MSG_ID=\"$2\"; shift 2;;\n");
+    script.push_str("    *) shift;;\n");
+    script.push_str("  esac\n");
+    script.push_str("done\n");
     for (msg_id, resp) in responses {
         script.push_str(&format!(
             "if [ \"$MSG_ID\" = \"{}\" ]; then echo '{}'; exit 0; fi\n",
@@ -571,7 +602,21 @@ async fn test_quote_truncation_boundary() {
     // Case 1: 600 chars → truncated to 500 + "..."
     let long_text = "a".repeat(600);
     let mut msgs = std::collections::HashMap::new();
-    msgs.insert("om_parent3".to_string(), serde_json::json!({"code": 0, "msg": "ok", "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": &long_text}).to_string()}}]}).to_string());
+    msgs.insert(
+        "om_parent3".to_string(),
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{
+                "msg_type": "text",
+                "body": {
+                    "content": serde_json::json!({"text": &long_text})
+                        .to_string(),
+                },
+            }],
+        })
+        .to_string(),
+    );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
     let adapter = make_adapter_with_mock_cli(&cli);
     let event = make_message_event_with_parent(
@@ -588,7 +633,23 @@ async fn test_quote_truncation_boundary() {
     // Case 2: exactly 500 chars → no truncation
     let exact_text = "b".repeat(500);
     let mut msgs2 = std::collections::HashMap::new();
-    msgs2.insert("om_parent4".to_string(), serde_json::json!({"code": 0, "msg": "ok", "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": &exact_text}).to_string()}}]}).to_string());
+    msgs2.insert(
+        "om_parent4".to_string(),
+        serde_json::json!({
+            "code": 0,
+            "msg": "ok",
+            "items": [{
+                "msg_type": "text",
+                "body": {
+                    "content": serde_json::json!({
+                        "text": &exact_text,
+                    })
+                    .to_string(),
+                },
+            }],
+        })
+        .to_string(),
+    );
     let cli2 = create_mock_cli_with_messages(&tmp, &msgs2);
     let adapter2 = make_adapter_with_mock_cli(&cli2);
     let event2 = make_message_event_with_parent(
