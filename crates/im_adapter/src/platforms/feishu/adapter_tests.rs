@@ -166,16 +166,6 @@ fn test_expand_post_media_tag() {
 }
 
 #[test]
-fn test_expand_post_file_tag() {
-    let content = serde_json::json!({
-        "content": [[
-            {"tag": "file"}
-        ]]
-    });
-    assert_eq!(expand_post_content(&content), "[文件]");
-}
-
-#[test]
 fn test_expand_post_unknown_tag_with_text() {
     let content = serde_json::json!({
         "content": [[
@@ -277,34 +267,6 @@ async fn test_parse_message_event_image_type() {
     assert_eq!(msg.content, "[图片]");
 }
 #[tokio::test]
-async fn test_parse_message_event_file_type() {
-    let adapter = make_test_adapter();
-    let event = make_message_event_with_id(
-        "file",
-        &serde_json::json!({"file_key": "file_xxx", "file_name": "report.pdf"}).to_string(),
-        Some("om_msg_002"),
-    );
-    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, MessageType::File);
-    // Download fails in unit tests (no HTTP mock) → media unavailable
-    assert!(msg.media_refs.is_empty());
-    assert!(msg.content.is_empty());
-}
-#[tokio::test]
-async fn test_parse_message_event_audio_type() {
-    let adapter = make_test_adapter();
-    let event = make_message_event_with_id(
-        "audio",
-        &serde_json::json!({"file_key": "audio_xxx"}).to_string(),
-        Some("om_msg_003"),
-    );
-    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.message_type, MessageType::Audio);
-    // Download fails in unit tests (no HTTP mock) → media unavailable
-    assert!(msg.media_refs.is_empty());
-    assert!(msg.content.is_empty());
-}
-#[tokio::test]
 async fn test_parse_message_event_metadata_account_id() {
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
@@ -325,63 +287,48 @@ async fn test_parse_message_event_thread_id_from_root_id() {
 
 /// card.action.trigger is deferred per design doc: parse_card_action
 /// returns Ok(None) and logs debug info. The Gateway discards None.
+/// card.action.trigger returns None (deferred) — webhook and CLI formats.
 #[tokio::test]
 async fn test_parse_card_action_deferred_returns_none() {
     let adapter = make_test_adapter();
-    let payload = serde_json::json!({
+    // Webhook format
+    let webhook = serde_json::json!({
         "schema": "2.0",
         "header": {
-            "event_id": "evt_card_deferred_1",
+            "event_id": "evt1",
             "event_type": "card.action.trigger",
-            "create_time": "1234567890",
-            "token": "tok",
-            "app_id": "test_app_id"
+            "create_time": "0",
+            "token": "t",
+            "app_id": "a",
         },
-        "operator": {
-            "open_id": "ou_operator"
-        },
-        "token": "card_token",
-        "action": {
-            "value": {"action": "forceful_shutdown", "chat_id": "oc_chat123"},
-            "tag": "button"
-        }
+        "operator": {"open_id": "ou_op"},
+        "token": "tok",
+        "action": {"value": {"action": "btn"}},
     });
-    let result = adapter
-        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
+    let r = adapter
+        .parse_card_action(&serde_json::to_vec(&webhook).unwrap())
         .await
         .unwrap();
-    assert!(
-        result.is_none(),
-        "card.action.trigger should return None (deferred per design doc)"
-    );
-}
-
-/// card.action.trigger with CLI-format fixture payload also returns None.
-#[tokio::test]
-async fn test_parse_card_action_cli_fixture_deferred() {
-    let adapter = make_test_adapter();
-    // CLI format: top-level type/event_id, operator_id, action_value
-    let payload = serde_json::json!({
+    assert!(r.is_none(), "webhook card.action.trigger deferred");
+    // CLI format
+    let cli = serde_json::json!({
         "type": "card.action.trigger",
-        "event_id": "cli_card_evt_1",
-        "timestamp": "1787884959729992",
-        "operator_id": "ou_op_cli",
-        "message_id": "om_test",
-        "chat_id": "oc_chat_cli",
-        "host": "im_message",
-        "token": "card_token_cli",
+        "event_id": "cli1",
+        "timestamp": "0",
+        "operator_id": "ou_cli",
+        "message_id": "om",
+        "chat_id": "oc",
+        "host": "im",
+        "token": "tok",
         "action_tag": "button",
-        "action_value": "{\"action\":\"approve\",\"task\":\"t1\"}",
-        "checked": false
+        "action_value": "{}",
+        "checked": false,
     });
-    let result = adapter
-        .parse_card_action(&serde_json::to_vec(&payload).unwrap())
+    let r2 = adapter
+        .parse_card_action(&serde_json::to_vec(&cli).unwrap())
         .await
         .unwrap();
-    assert!(
-        result.is_none(),
-        "CLI card.action.trigger should return None (deferred per design doc)"
-    );
+    assert!(r2.is_none(), "CLI card.action.trigger deferred");
 }
 
 /// Duplicate card.action.trigger event_id is rejected via dedup.
@@ -532,15 +479,13 @@ fn make_adapter_with_mock_cli(mock_cli_path: &str) -> FeishuAdapter {
 }
 
 /// Create a mock lark-cli script that handles multiple message IDs.
-/// `responses` maps message_id → JSON response string.
 fn create_mock_cli_with_messages(
     tmp: &TempDir,
     responses: &std::collections::HashMap<String, String>,
 ) -> String {
     let script_path = tmp.path().join("mock_lark_cli_msgs");
-    let mut script = String::from("#!/bin/sh\n");
-    script.push_str(&format!("MSG_ID=\"{}\"\n", ""));
-    // Parse --message-id from args
+    let mut script = "#!/bin/sh\n".to_string();
+    script.push_str("MSG_ID=\"\"\n");
     script.push_str("while [ $# -gt 0 ]; do\n");
     script.push_str("  case \"$1\" in\n");
     script.push_str("    --message-id) MSG_ID=\"$2\"; shift 2;;\n");
@@ -650,9 +595,11 @@ async fn test_quote_post_type_prepends_expanded_blockquote() {
 
 // --- Test 3: quote content > 500 chars → truncated with "..." ---
 
+/// Quote truncation at 500 chars and boundary (exactly 500 = no truncation).
 #[tokio::test]
-async fn test_quote_truncates_at_500_chars() {
+async fn test_quote_truncation_boundary() {
     let tmp = TempDir::new().unwrap();
+    // Case 1: 600 chars → truncated to 500 + "..."
     let long_text = "a".repeat(600);
     let mut msgs = std::collections::HashMap::new();
     msgs.insert(
@@ -660,8 +607,15 @@ async fn test_quote_truncates_at_500_chars() {
         serde_json::json!({
             "code": 0,
             "msg": "ok",
-            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": &long_text}).to_string()}}]
-        }).to_string(),
+            "items": [{
+                "msg_type": "text",
+                "body": {
+                    "content": serde_json::json!({"text": &long_text})
+                        .to_string(),
+                },
+            }],
+        })
+        .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
     let adapter = make_adapter_with_mock_cli(&cli);
@@ -671,41 +625,42 @@ async fn test_quote_truncates_at_500_chars() {
         "om_parent3",
     );
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    // The blockquote line should be "> " + 500 chars + "..."
     let first_line = msg.content.lines().next().unwrap();
     assert!(first_line.starts_with("> "));
-    let quoted_part = &first_line[2..]; // strip "> "
+    let quoted_part = &first_line[2..];
     assert!(quoted_part.ends_with("..."));
-    assert_eq!(quoted_part.len(), 503); // 500 + "..."
-}
-
-// --- Test 4: quote content exactly 500 chars → no "..." ---
-
-#[tokio::test]
-async fn test_quote_exactly_500_chars_no_truncation() {
-    let tmp = TempDir::new().unwrap();
+    assert_eq!(quoted_part.len(), 503);
+    // Case 2: exactly 500 chars → no truncation
     let exact_text = "b".repeat(500);
-    let mut msgs = std::collections::HashMap::new();
-    msgs.insert(
+    let mut msgs2 = std::collections::HashMap::new();
+    msgs2.insert(
         "om_parent4".to_string(),
         serde_json::json!({
             "code": 0,
             "msg": "ok",
-            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": &exact_text}).to_string()}}]
-        }).to_string(),
+            "items": [{
+                "msg_type": "text",
+                "body": {
+                    "content": serde_json::json!({
+                        "text": &exact_text,
+                    })
+                    .to_string(),
+                },
+            }],
+        })
+        .to_string(),
     );
-    let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter = make_adapter_with_mock_cli(&cli);
-    let event = make_message_event_with_parent(
+    let cli2 = create_mock_cli_with_messages(&tmp, &msgs2);
+    let adapter2 = make_adapter_with_mock_cli(&cli2);
+    let event2 = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
         "om_parent4",
     );
-    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    let first_line = msg.content.lines().next().unwrap();
-    let quoted_part = &first_line[2..]; // strip "> "
-    assert_eq!(quoted_part, exact_text);
-    assert!(!quoted_part.ends_with("..."));
+    let msg2 = adapter2.parse_message_event(event2).await.unwrap().unwrap();
+    let quoted2 = &msg2.content.lines().next().unwrap()[2..];
+    assert_eq!(quoted2, exact_text);
+    assert!(!quoted2.ends_with("..."));
 }
 
 // --- Test 5: parent_id exists but CLI fails → no blockquote ---
@@ -725,40 +680,35 @@ async fn test_quote_api_failure_no_blockquote() {
     assert_eq!(msg.content, "reply");
 }
 
-// --- Test 6: parent_id exists but message type is image → no blockquote ---
+// --- Test 6+7: no parent_id unchanged, image type no blockquote ---
 
 #[tokio::test]
-async fn test_quote_image_type_no_blockquote() {
-    let tmp = TempDir::new().unwrap();
-    let mut msgs = std::collections::HashMap::new();
-    msgs.insert(
-        "om_parent6".to_string(),
-        serde_json::json!({
-            "code": 0,
-            "msg": "ok",
-            "items": [{"msg_type": "image", "body": {"content": serde_json::json!({"image_key": "img_xxx"}).to_string()}}]
-        }).to_string(),
-    );
-    let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter = make_adapter_with_mock_cli(&cli);
-    let event = make_message_event_with_parent(
-        "text",
-        &serde_json::json!({"text": "reply"}).to_string(),
-        "om_parent6",
-    );
-    let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
-    assert_eq!(msg.content, "reply");
-}
-
-// --- Test 7: no parent_id → behavior unchanged ---
-
-#[tokio::test]
-async fn test_no_parent_id_unchanged_behavior() {
+async fn test_quote_no_parent_id_and_image_type_unchanged() {
+    // No parent_id → behavior unchanged
     let adapter = make_test_adapter();
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "hello");
     assert!(!msg.content.contains("> "));
+    // Image type parent → no blockquote
+    let tmp = TempDir::new().unwrap();
+    let mut msgs = std::collections::HashMap::new();
+    msgs.insert(
+        "om_parent6".to_string(),
+        serde_json::json!({
+            "code": 0, "msg": "ok",
+            "items": [{"msg_type": "image", "body": {"content": serde_json::json!({"image_key": "img_xxx"}).to_string()}}]
+        }).to_string(),
+    );
+    let cli = create_mock_cli_with_messages(&tmp, &msgs);
+    let adapter2 = make_adapter_with_mock_cli(&cli);
+    let event2 = make_message_event_with_parent(
+        "text",
+        &serde_json::json!({"text": "reply"}).to_string(),
+        "om_parent6",
+    );
+    let msg2 = adapter2.parse_message_event(event2).await.unwrap().unwrap();
+    assert_eq!(msg2.content, "reply");
 }
 
 // --- Test 8: parent_id + root_id → thread_id uses root_id, quote still works ---
@@ -932,12 +882,11 @@ async fn test_anchor_account_id_unchanged() {
     assert_eq!(msg.peer_id, "ou_sender|om_msg_999");
 }
 
-/// thread_id fallback chain regression: thread_id > root_id > parent_id
+/// thread_id fallback chain: thread_id > root_id > parent_id
 #[tokio::test]
 async fn test_anchor_thread_id_fallback_chain() {
     let adapter = make_test_adapter();
-
-    // Case 1: explicit thread_id wins
+    // Case 1: explicit thread_id wins over root_id and parent_id
     let mut e1 = make_message_event_with_id(
         "text",
         &serde_json::json!({"text": "r"}).to_string(),
@@ -949,7 +898,6 @@ async fn test_anchor_thread_id_fallback_chain() {
     let msg1 = adapter.parse_message_event(e1).await.unwrap().unwrap();
     assert_eq!(msg1.thread_id.as_deref(), Some("t1"));
     assert_eq!(msg1.peer_id, "ou_sender|t1");
-
     // Case 2: root_id fallback when thread_id absent
     let mut e2 = make_message_event_with_id(
         "text",
@@ -960,7 +908,6 @@ async fn test_anchor_thread_id_fallback_chain() {
     let msg2 = adapter.parse_message_event(e2).await.unwrap().unwrap();
     assert_eq!(msg2.thread_id.as_deref(), Some("r2"));
     assert_eq!(msg2.peer_id, "ou_sender|r2");
-
     // Case 3: parent_id fallback when thread_id and root_id absent
     let mut e3 = make_message_event_with_id(
         "text",

@@ -2,7 +2,7 @@
 //!
 //! These tests were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
 
-use super::adapter::EventDeduplicator;
+use super::event_dedup::EventDeduplicator;
 use super::FeishuAdapter;
 use crate::media_store::MediaStore;
 use crate::IMAdapter;

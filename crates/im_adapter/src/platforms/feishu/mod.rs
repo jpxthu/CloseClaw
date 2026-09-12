@@ -7,6 +7,8 @@ mod adapter;
 #[cfg(test)]
 mod adapter_emoji_tests;
 #[cfg(test)]
+mod adapter_file_tests;
+#[cfg(test)]
 mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
@@ -21,6 +23,7 @@ mod cleaner_tests;
 mod credential_isolation_tests;
 #[cfg(test)]
 mod debug_log_tests;
+mod event_dedup;
 mod events;
 #[cfg(test)]
 mod events_tests;
@@ -60,6 +63,7 @@ pub mod tools;
 mod trace_id_tests;
 #[cfg(test)]
 mod try_resolve_media_path_tests;
+pub(crate) mod xml_content;
 
 use self::cardkit_streaming::CardkitStreamingRenderer;
 use self::outbound_media::{prepare_outbound_local_media, upload_file, upload_image};

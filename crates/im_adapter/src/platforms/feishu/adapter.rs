@@ -5,11 +5,13 @@ use async_trait::async_trait;
 use closeclaw_common::{CardActionEvent, MediaRef, MediaType, MessageType, NormalizedMessage};
 use closeclaw_gateway::Message;
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::event_dedup::{EventDeduplicator, DEFAULT_DEDUP_CAPACITY};
 use super::post_expand::{expand_post_content, extract_post_media_refs};
+use super::xml_content::extract_file_audio_from_xml;
 use crate::media_store::MediaStore;
 use reqwest::Client;
 use tokio::sync::Mutex;
@@ -96,71 +98,6 @@ pub(crate) struct FeishuCardAction {
 
 /// Default lark-cli command name.
 const DEFAULT_CLI_COMMAND: &str = "lark-cli";
-
-/// Default capacity for the event deduplicator (number of event IDs retained).
-const DEFAULT_DEDUP_CAPACITY: usize = 4096;
-
-// ---------------------------------------------------------------------------
-// Event deduplication
-// ---------------------------------------------------------------------------
-
-/// In-memory event deduplicator -- a bounded FIFO set keyed by `event_id`.
-///
-/// When the set reaches capacity the oldest entry is evicted so new events
-/// can always be accepted.  This provides "at most once" semantics for
-/// platform event processing: duplicate deliveries with the same `event_id`
-/// are silently dropped before any side-effects (media downloads, network
-/// calls, etc.) are triggered.
-#[derive(Debug)]
-pub(crate) struct EventDeduplicator {
-    seen: HashSet<String>,
-    order: VecDeque<String>,
-    capacity: usize,
-}
-
-impl EventDeduplicator {
-    /// Create a new deduplicator with the given maximum capacity.
-    pub(crate) fn new(capacity: usize) -> Self {
-        Self {
-            seen: HashSet::with_capacity(capacity.min(4096)),
-            order: VecDeque::with_capacity(capacity.min(4096)),
-            capacity,
-        }
-    }
-
-    /// Return `true` if `event_id` has already been recorded.
-    fn contains(&self, event_id: &str) -> bool {
-        self.seen.contains(event_id)
-    }
-
-    /// Record `event_id` as seen, evicting the oldest entry if at capacity.
-    fn insert(&mut self, event_id: String) {
-        if self.seen.contains(&event_id) {
-            return;
-        }
-        if self.order.len() >= self.capacity {
-            if let Some(oldest) = self.order.pop_front() {
-                self.seen.remove(&oldest);
-            }
-        }
-        self.seen.insert(event_id.clone());
-        self.order.push_back(event_id);
-    }
-
-    /// Check whether `event_id` is a duplicate and, if not, record it.
-    ///
-    /// Returns `true` when the event should be **dropped** (already seen).
-    pub(crate) fn check_and_record(&mut self, event_id: &str) -> bool {
-        if event_id.is_empty() {
-            return false;
-        }
-        if self.contains(event_id) {
-            return true;
-        }
-        self.insert(event_id.to_string());
-        false
-    }
-}
 
 // Quote helpers
 
@@ -257,6 +194,39 @@ pub struct FeishuAdapter {
     /// fields; the critical section is synchronous (no awaits) but the lock
     /// is acquired in an async context.
     event_dedup: Arc<Mutex<EventDeduplicator>>,
+}
+
+/// Return type for `extract_message_content` / `parse_content_with_fallback`.
+type ContentResult = (String, Vec<MediaRef>, Option<String>);
+
+/// Try JSON parsing first; fall back to XML extraction for file/audio.
+///
+/// Returns `Ok(Some(...))` on success, `Ok(None)` when content cannot be
+/// interpreted (caller should discard the event), or `Err` for unexpected
+/// non-file/non-audio JSON failures.
+fn parse_content_with_fallback(
+    message_type: &str,
+    content: &str,
+) -> Result<Option<ContentResult>, AdapterError> {
+    match serde_json::from_str::<serde_json::Value>(content) {
+        Ok(value) => match FeishuAdapter::extract_message_content(message_type, &value) {
+            Ok(pair) => Ok(Some(pair)),
+            Err(_) => {
+                if matches!(message_type, "file" | "audio") {
+                    Ok(extract_file_audio_from_xml(message_type, content))
+                } else {
+                    Ok(None)
+                }
+            }
+        },
+        Err(json_err) => {
+            if matches!(message_type, "file" | "audio") {
+                Ok(extract_file_audio_from_xml(message_type, content))
+            } else {
+                Err(AdapterError::InvalidPayload(json_err.to_string()))
+            }
+        }
+    }
 }
 
 impl FeishuAdapter {
@@ -552,17 +522,17 @@ impl FeishuAdapter {
         if Self::is_group_chat_event(&event) {
             return Ok(None);
         }
-        let content: serde_json::Value = serde_json::from_str(&event.event.content)
-            .map_err(|e| AdapterError::InvalidPayload(e.to_string()))?;
-
         let (sender_open_id, message_id, thread_id, original_root_id, original_parent_id) =
             Self::clone_event_fields(&event);
-        let (text, mut media_refs) =
-            match Self::extract_message_content(&event.event.message_type, &content) {
-                Ok(pair) => pair,
-                Err(_) => return Ok(None),
+
+        let (text, mut media_refs, original_name) =
+            match parse_content_with_fallback(&event.event.message_type, &event.event.content)? {
+                Some(pair) => pair,
+                None => return Ok(None),
             };
-        let unavailable_media = self.persist_media_refs(&event, &mut media_refs).await;
+        let unavailable_media = self
+            .persist_media_refs(&event, &mut media_refs, original_name.as_deref())
+            .await;
         media_refs.retain(|r| !unavailable_media.contains(&r.key));
         if Self::should_discard_message(&event.event.message_type, &text, &media_refs) {
             return Ok(None);
@@ -682,6 +652,7 @@ impl FeishuAdapter {
         &self,
         event: &FeishuEvent,
         media_refs: &mut [MediaRef],
+        original_name: Option<&str>,
     ) -> Vec<String> {
         let mut unavailable_media: Vec<String> = Vec::new();
         for r in media_refs.iter_mut() {
@@ -692,7 +663,13 @@ impl FeishuAdapter {
             {
                 Ok(url) => match self
                     .media_store
-                    .download_and_persist(&url, &r.key, &r.media_type, &self.http_client)
+                    .download_and_persist(
+                        &url,
+                        &r.key,
+                        &r.media_type,
+                        &self.http_client,
+                        original_name,
+                    )
                     .await
                 {
                     Ok(persisted) => {
@@ -768,7 +745,7 @@ impl FeishuAdapter {
     pub(crate) fn extract_message_content(
         message_type: &str,
         content: &serde_json::Value,
-    ) -> Result<(String, Vec<MediaRef>), AdapterError> {
+    ) -> Result<(String, Vec<MediaRef>, Option<String>), AdapterError> {
         match message_type {
             "text" => Ok((
                 content
@@ -777,19 +754,29 @@ impl FeishuAdapter {
                     .unwrap_or("")
                     .to_string(),
                 vec![],
+                None,
             )),
             "post" => {
                 let media = extract_post_media_refs(content);
-                Ok((expand_post_content(content), media))
+                Ok((expand_post_content(content), media, None))
             }
             "image" => Ok((
                 "[图片]".to_string(),
                 vec![Self::make_media_ref(content, "image_key", message_type)],
+                None,
             )),
-            "file" | "audio" => Ok((
-                String::new(),
-                vec![Self::make_media_ref(content, "file_key", message_type)],
-            )),
+            "file" | "audio" => {
+                let file_name = content
+                    .get("file_name")
+                    .and_then(|n| n.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+                Ok((
+                    String::new(),
+                    vec![Self::make_media_ref(content, "file_key", message_type)],
+                    file_name,
+                ))
+            }
             "sticker" => {
                 let emoji_type = content
                     .get("emoji_type")
@@ -797,9 +784,9 @@ impl FeishuAdapter {
                     .filter(|s| !s.is_empty())
                     .unwrap_or("");
                 if emoji_type.is_empty() {
-                    Ok(("[]".to_string(), vec![]))
+                    Ok(("[]".to_string(), vec![], None))
                 } else {
-                    Ok((format!("[{}]", emoji_type), vec![]))
+                    Ok((format!("[{}]", emoji_type), vec![], None))
                 }
             }
             other => {
