@@ -1,249 +1,10 @@
-//! Unit tests for workflow engine state machine and end-to-end lifecycle.
+//! Unit tests for workflow engine state machine.
 
 use std::collections::HashMap;
 
-use crate::definition::Workflow;
 use crate::engine::{VerifyAction, WorkflowEngine};
 use crate::run::{GoalHint, Phase};
-
-// ---------------------------------------------------------------------------
-// Helpers: workflow fixtures
-// ---------------------------------------------------------------------------
-
-fn simple_workflow() -> Workflow {
-    let yaml = r#"
-id: simple
-name: Simple
-description: Single step workflow
-steps:
-  - id: 0
-    name: Only Step
-    goal: Do the thing
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn two_step_goto_workflow() -> Workflow {
-    let yaml = r#"
-id: two-step
-name: Two Step
-description: Two step workflow
-steps:
-  - id: 0
-    name: First
-    goal: Step one
-    jump:
-      - id: go_next
-        prompt: Go to next?
-        type: boolean
-    transitions:
-      - when:
-          go_next: true
-        action: goto
-        target_step: 1
-      - action: complete
-  - id: 1
-    name: Second
-    goal: Step two
-    transitions:
-      - action: complete
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn two_step_default_goto_workflow() -> Workflow {
-    let yaml = r#"
-id: default-goto
-name: Default Goto
-description: Default goto on first step
-steps:
-  - id: 0
-    name: First
-    goal: Step one
-    transitions:
-      - action: goto
-        target_step: 1
-  - id: 1
-    name: Second
-    goal: Step two
-    transitions:
-      - action: complete
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn reexecute_workflow() -> Workflow {
-    let yaml = r#"
-id: reexec
-name: Reexec
-description: Reexecute workflow
-steps:
-  - id: 0
-    name: Loop
-    goal: Loop until done
-    jump:
-      - id: retry
-        prompt: Retry?
-        type: boolean
-    transitions:
-      - when:
-          retry: true
-        action: reexecute
-        target_step: 0
-      - action: complete
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn blocked_workflow() -> Workflow {
-    let yaml = r#"
-id: blocked
-name: Blocked
-description: Blockable workflow
-allow_blocked: false
-steps:
-  - id: 0
-    name: Can Block
-    allow_blocked: true
-    goal: Might block
-    transitions:
-      - action: goto
-        target_step: 1
-  - id: 1
-    name: Cannot Block
-    goal: Must not block
-    transitions:
-      - action: complete
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn three_step_lifecycle_workflow() -> Workflow {
-    let yaml = r#"
-id: lifecycle
-name: Lifecycle
-description: Full lifecycle
-steps:
-  - id: 0
-    name: Setup
-    goal: Set up
-    jump:
-      - id: ready
-        prompt: Ready?
-        type: boolean
-    transitions:
-      - when:
-          ready: true
-        action: goto
-        target_step: 1
-      - action: complete
-  - id: 1
-    name: Execute
-    goal: Do work
-    jump:
-      - id: done
-        prompt: Done?
-        type: boolean
-    transitions:
-      - when:
-          done: true
-        action: goto
-        target_step: 2
-      - action: complete
-  - id: 2
-    name: Cleanup
-    goal: Clean up
-    transitions:
-      - action: complete
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn conditional_only_workflow() -> Workflow {
-    let yaml = r#"
-id: conditional-only
-name: Conditional Only
-description: No default transitions
-steps:
-  - id: 0
-    name: Decide
-    goal: Choose
-    jump:
-      - id: go_next
-        prompt: Go?
-        type: boolean
-    transitions:
-      - when:
-          go_next: true
-        action: goto
-        target_step: 1
-  - id: 1
-    name: End
-    goal: Done
-    transitions:
-      - action: complete
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn goto_to_blockable_workflow() -> Workflow {
-    let yaml = r#"
-id: goto-block
-name: Goto Block
-description: Goto then block
-steps:
-  - id: 0
-    name: First
-    goal: Go to step 1
-    transitions:
-      - action: goto
-        target_step: 1
-  - id: 1
-    name: Second
-    goal: Will block
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
-
-fn enum_jump_workflow() -> Workflow {
-    let yaml = r#"
-id: enum-jump
-name: Enum Jump
-description: Workflow with enum jump questions
-steps:
-  - id: 0
-    name: Decide
-    goal: Choose a strategy
-    jump:
-      - id: strategy
-        prompt: Which strategy?
-        type: enum
-        options:
-          - fast
-          - slow
-    transitions:
-      - when:
-          strategy: fast
-        action: goto
-        target_step: 1
-      - when:
-          strategy: slow
-        action: goto
-        target_step: 2
-      - action: complete
-  - id: 1
-    name: Fast Path
-    goal: Do it fast
-    transitions:
-      - action: complete
-  - id: 2
-    name: Slow Path
-    goal: Do it slow
-    transitions:
-      - action: complete
-"#;
-    Workflow::parse_frontmatter(yaml).unwrap()
-}
+use crate::test_fixtures::*;
 
 // ===========================================================================
 // State machine tests
@@ -283,9 +44,7 @@ fn test_on_goal_injected_preserves_step_data_and_resets_hint() {
     run.step_data = serde_yaml::Value::String("old".into());
     run.pending_goal_hint = GoalHint::Reexecute;
     WorkflowEngine::on_goal_injected(&mut run);
-    // step_data is preserved (goto clears it, on_goal_injected does not).
     assert_eq!(run.step_data, serde_yaml::Value::String("old".into()));
-    // hint is consumed and reset to Normal.
     assert_eq!(run.pending_goal_hint, GoalHint::Normal);
 }
 
@@ -359,7 +118,6 @@ fn test_on_verify_injected_twice() {
 fn test_on_verify_injected_two_times_stays_verifying() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    // verify_retry_limit = 3; 2 < 3 → Verifying (not blocked)
     for _ in 0..2 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
@@ -371,12 +129,23 @@ fn test_on_verify_injected_two_times_stays_verifying() {
 fn test_on_verify_injected_three_times_enters_blocked() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    // verify_retry_limit = 3; 3 >= 3 → blocked
     for _ in 0..3 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
     assert_eq!(run.pending_verify, 3);
     assert_eq!(run.phase, Phase::Blocked);
+}
+
+#[test]
+fn test_on_verify_injected_beyond_limit_stays_blocked() {
+    let wf = simple_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    for _ in 0..4 {
+        WorkflowEngine::on_verify_injected(&mut run, 3);
+    }
+    assert_eq!(run.pending_verify, 4);
+    assert_eq!(run.phase, Phase::Blocked);
+    assert_eq!(run.paused_reason, "验收重试次数耗尽");
 }
 
 #[test]
@@ -388,7 +157,6 @@ fn test_on_verify_injected_custom_limit() {
     }
     assert_eq!(run.pending_verify, 4);
     assert_eq!(run.phase, Phase::Verifying);
-    // 5th injection: pending=5, 5 >= 5 → blocked
     WorkflowEngine::on_verify_injected(&mut run, 5);
     assert_eq!(run.pending_verify, 5);
     assert_eq!(run.phase, Phase::Blocked);
@@ -403,7 +171,6 @@ fn test_handle_verify_resets_pending_count() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.pending_verify = 2;
-    // step 0 has jump questions → Jump
     let _ = WorkflowEngine::handle_verify(&mut run, &wf);
     assert_eq!(run.pending_verify, 0);
 }
@@ -423,7 +190,6 @@ fn test_handle_verify_no_jumps_default_transition() {
     let mut run = WorkflowEngine::start(&wf);
     let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action, VerifyAction::Jump);
-    // default goto → step 1, phase = Executing
     assert_eq!(run.current_step, 1);
     assert_eq!(run.phase, Phase::Executing);
     assert_eq!(run.step_history.len(), 1);
@@ -439,7 +205,6 @@ fn test_handle_verify_no_jumps_no_transitions_returns_error() {
         result.unwrap_err(),
         crate::error::WorkflowError::NoMatchingTransition
     ));
-    // Phase must NOT be changed to Blocked.
     assert_eq!(run.phase, Phase::Executing);
 }
 
@@ -574,7 +339,6 @@ fn test_handle_jump_no_match_returns_error() {
 fn test_handle_blocked_allowed() {
     let wf = blocked_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    // step 0 has allow_blocked = true (override)
     WorkflowEngine::handle_blocked(&mut run, &wf, false, "test reason").unwrap();
     assert_eq!(run.phase, Phase::Blocked);
 }
@@ -583,7 +347,7 @@ fn test_handle_blocked_allowed() {
 fn test_handle_blocked_not_allowed_returns_error() {
     let wf = blocked_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    run.current_step = 1; // step 1 has no override, workflow allow_blocked = false
+    run.current_step = 1;
     let result = WorkflowEngine::handle_blocked(&mut run, &wf, false, "test reason");
     assert!(result.is_err());
     assert!(matches!(
@@ -593,14 +357,24 @@ fn test_handle_blocked_not_allowed_returns_error() {
 }
 
 #[test]
+fn test_handle_blocked_not_allowed_preserves_paused_reason() {
+    let wf = blocked_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.paused_reason = "existing reason".to_string();
+    run.current_step = 1;
+    let result = WorkflowEngine::handle_blocked(&mut run, &wf, false, "new reason");
+    assert!(result.is_err());
+    assert_eq!(run.paused_reason, "existing reason");
+    assert_eq!(run.phase, Phase::Executing);
+}
+
+#[test]
 fn test_handle_blocked_uses_workflow_level_when_no_override() {
     let wf = blocked_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    run.current_step = 1; // step 1: no override
-                          // workflow-level allow_blocked = false → blocked not allowed
+    run.current_step = 1;
     let result = WorkflowEngine::handle_blocked(&mut run, &wf, false, "test reason");
     assert!(result.is_err());
-    // but if workflow-level allow_blocked were true, it would succeed
     let result2 = WorkflowEngine::handle_blocked(&mut run, &wf, true, "test reason");
     assert!(result2.is_ok());
     assert_eq!(run.phase, Phase::Blocked);
@@ -642,7 +416,6 @@ fn test_on_verify_injected_sets_paused_reason_when_blocked() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     assert!(run.paused_reason.is_empty());
-    // verify_retry_limit = 3; 3 >= 3 → blocked with reason
     for _ in 0..3 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
@@ -688,7 +461,6 @@ fn test_paused_reason_stays_empty_through_normal_flow() {
     let mut run = WorkflowEngine::start(&wf);
     assert!(run.paused_reason.is_empty());
 
-    // Step 0: goal → verify → jumping → goto
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(run.paused_reason.is_empty());
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
@@ -698,7 +470,6 @@ fn test_paused_reason_stays_empty_through_normal_flow() {
     let _ = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
     assert!(run.paused_reason.is_empty());
 
-    // Step 1: goal → verify → complete
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(run.paused_reason.is_empty());
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
@@ -723,268 +494,4 @@ fn test_is_complete_false_when_executing() {
     let wf = simple_workflow();
     let run = WorkflowEngine::start(&wf);
     assert!(!WorkflowEngine::is_complete(&run));
-}
-
-// ===========================================================================
-// End-to-end: full workflow lifecycle
-// ===========================================================================
-
-#[test]
-fn test_e2e_single_step_no_jumps_blocked_via_over_limit() {
-    let wf = simple_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-    assert_eq!(run.phase, Phase::Executing);
-
-    // Goal injected
-    WorkflowEngine::on_goal_injected(&mut run);
-    assert_eq!(run.phase, Phase::Executing);
-
-    // Session idle → need verify
-    assert!(WorkflowEngine::on_session_idle(&run));
-    WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
-    assert_eq!(run.pending_verify, 1);
-    assert_eq!(run.phase, Phase::Verifying);
-
-    // Handle verify → no jumps, no transitions → error (not blocked)
-    let result = WorkflowEngine::handle_verify(&mut run, &wf);
-    assert!(result.is_err());
-    assert!(matches!(
-        result.unwrap_err(),
-        crate::error::WorkflowError::NoMatchingTransition
-    ));
-    // Phase remains Verifying (error does not change phase).
-    assert_eq!(run.phase, Phase::Verifying);
-
-    // Blocked is only triggered by verify retry overflow.
-    // handle_verify reset pending_verify to 0; need 3 to reach limit of 3.
-    for _ in 0..3 {
-        WorkflowEngine::on_verify_injected(&mut run, 3);
-    }
-    assert_eq!(run.phase, Phase::Blocked);
-}
-
-#[test]
-fn test_e2e_goto_then_complete() {
-    let wf = two_step_goto_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-
-    // Step 0: goal → idle → verify → jumping
-    WorkflowEngine::on_goal_injected(&mut run);
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(run.phase, Phase::Jumping);
-
-    // Step 0: jump → goto step 1
-    let mut answers = HashMap::new();
-    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
-    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
-    assert_eq!(action, crate::definition::JumpAction::Goto(1));
-    assert_eq!(run.current_step, 1);
-    assert_eq!(run.phase, Phase::Executing);
-    assert_eq!(run.step_history.len(), 1);
-
-    // Step 1: goal → idle → verify (no jumps, default complete → Complete)
-    WorkflowEngine::on_goal_injected(&mut run);
-    let action2 = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(action2, VerifyAction::Jump);
-    // Default complete transition on step 1 sets phase directly
-    assert_eq!(run.phase, Phase::Complete);
-    assert!(WorkflowEngine::is_complete(&run));
-}
-
-#[test]
-fn test_e2e_three_step_lifecycle() {
-    let wf = three_step_lifecycle_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-
-    // === Step 0: Setup ===
-    WorkflowEngine::on_goal_injected(&mut run);
-    assert!(WorkflowEngine::on_session_idle(&run));
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(run.phase, Phase::Jumping);
-
-    let mut answers0 = HashMap::new();
-    answers0.insert("ready".into(), serde_yaml::Value::Bool(true));
-    let action0 = WorkflowEngine::handle_jump(&mut run, &wf, &answers0).unwrap();
-    assert_eq!(action0, crate::definition::JumpAction::Goto(1));
-    assert_eq!(run.current_step, 1);
-    assert_eq!(run.step_history.len(), 1);
-
-    // === Step 1: Execute ===
-    WorkflowEngine::on_goal_injected(&mut run);
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(run.phase, Phase::Jumping);
-
-    let mut answers1 = HashMap::new();
-    answers1.insert("done".into(), serde_yaml::Value::Bool(true));
-    let action1 = WorkflowEngine::handle_jump(&mut run, &wf, &answers1).unwrap();
-    assert_eq!(action1, crate::definition::JumpAction::Goto(2));
-    assert_eq!(run.current_step, 2);
-    assert_eq!(run.step_history.len(), 2);
-
-    // === Step 2: Cleanup ===
-    WorkflowEngine::on_goal_injected(&mut run);
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    // Step 2 has default complete transition, no jump questions
-    assert_eq!(run.phase, Phase::Complete);
-    assert!(WorkflowEngine::is_complete(&run));
-    assert_eq!(run.step_history.len(), 2);
-}
-
-#[test]
-fn test_e2e_reexecute_then_complete() {
-    let wf = reexecute_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-
-    // First execution: retry = true → reexecute
-    WorkflowEngine::on_goal_injected(&mut run);
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    let mut answers1 = HashMap::new();
-    answers1.insert("retry".into(), serde_yaml::Value::Bool(true));
-    let action1 = WorkflowEngine::handle_jump(&mut run, &wf, &answers1).unwrap();
-    assert_eq!(action1, crate::definition::JumpAction::Reexecute(0));
-    assert_eq!(run.current_step, 0);
-    assert_eq!(run.phase, Phase::Executing);
-    assert!(run.step_history.is_empty());
-
-    // Second execution: retry = false → complete
-    WorkflowEngine::on_goal_injected(&mut run);
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    let mut answers2 = HashMap::new();
-    answers2.insert("retry".into(), serde_yaml::Value::Bool(false));
-    let action2 = WorkflowEngine::handle_jump(&mut run, &wf, &answers2).unwrap();
-    assert_eq!(action2, crate::definition::JumpAction::Complete);
-    assert!(WorkflowEngine::is_complete(&run));
-}
-
-#[test]
-fn test_e2e_owner_terminate_from_blocked() {
-    let wf = goto_to_blockable_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-
-    // Default goto goes to step 1.
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(run.current_step, 1);
-    WorkflowEngine::on_goal_injected(&mut run);
-
-    // Step 1 has no transitions → handle_verify returns error (not blocked).
-    let result = WorkflowEngine::handle_verify(&mut run, &wf);
-    assert!(result.is_err());
-    assert_eq!(run.phase, Phase::Executing);
-
-    // Blocked is reached via verify retry overflow.
-    for _ in 0..4 {
-        WorkflowEngine::on_verify_injected(&mut run, 3);
-    }
-    assert_eq!(run.phase, Phase::Blocked);
-
-    // Owner terminates
-    WorkflowEngine::on_owner_terminate(&mut run);
-    assert!(WorkflowEngine::is_complete(&run));
-}
-
-#[test]
-fn test_e2e_owner_resolve_then_verify() {
-    let wf = simple_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-
-    // Trigger blocked via pending_verify overflow
-    for _ in 0..4 {
-        WorkflowEngine::on_verify_injected(&mut run, 3);
-    }
-    assert_eq!(run.phase, Phase::Blocked);
-
-    // Owner resolves
-    WorkflowEngine::on_owner_resolve(&mut run);
-    assert_eq!(run.pending_verify, 0);
-    assert_eq!(run.phase, Phase::Verifying);
-}
-
-#[test]
-fn test_e2e_pending_verify_resets_after_jump() {
-    let wf = two_step_goto_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-    run.pending_verify = 2;
-
-    // Jump resets pending_verify
-    let mut answers = HashMap::new();
-    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
-    let _ = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
-    assert_eq!(run.pending_verify, 0);
-}
-
-#[test]
-fn test_e2e_pending_verify_resets_after_verify() {
-    let wf = two_step_goto_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-    run.pending_verify = 2;
-
-    // handle_verify resets pending_verify
-    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(run.pending_verify, 0);
-}
-
-// ===========================================================================
-// Enum answer mapping and lifecycle
-// ===========================================================================
-
-#[test]
-fn test_enum_answer_mapping_via_handler() {
-    let wf = enum_jump_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-    // Simulate enum letter mapping done by WorkflowHandler
-    let mut answers = HashMap::new();
-    answers.insert("strategy".into(), serde_yaml::Value::String("fast".into()));
-    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
-    assert_eq!(action, crate::definition::JumpAction::Goto(1));
-    assert_eq!(run.current_step, 1);
-}
-
-#[test]
-fn test_enum_answer_mapping_slow() {
-    let wf = enum_jump_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-    let mut answers = HashMap::new();
-    answers.insert("strategy".into(), serde_yaml::Value::String("slow".into()));
-    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
-    assert_eq!(action, crate::definition::JumpAction::Goto(2));
-    assert_eq!(run.current_step, 2);
-}
-
-#[test]
-fn test_e2e_verify_jumping_jump_goto_enum() {
-    let wf = enum_jump_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-
-    // Step 0: goal → idle → verify → jumping
-    WorkflowEngine::on_goal_injected(&mut run);
-    let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(action, VerifyAction::Jump);
-    assert_eq!(run.phase, Phase::Jumping);
-
-    // Step 0: jump with mapped enum answer → goto step 1
-    let mut answers = HashMap::new();
-    answers.insert("strategy".into(), serde_yaml::Value::String("fast".into()));
-    let jump_action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
-    assert_eq!(jump_action, crate::definition::JumpAction::Goto(1));
-    assert_eq!(run.current_step, 1);
-    assert_eq!(run.phase, Phase::Executing);
-    assert_eq!(run.step_history.len(), 1);
-
-    // Step 1: goal → verify (no jumps, default complete)
-    WorkflowEngine::on_goal_injected(&mut run);
-    let action2 = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(action2, VerifyAction::Jump);
-    assert_eq!(run.phase, Phase::Complete);
-}
-
-#[test]
-fn test_boolean_answer_no_mapping_needed() {
-    let wf = two_step_goto_workflow();
-    let mut run = WorkflowEngine::start(&wf);
-    run.phase = Phase::Jumping;
-    // Boolean answer is already native YAML bool — no mapping needed
-    let mut answers = HashMap::new();
-    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
-    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
-    assert_eq!(action, crate::definition::JumpAction::Goto(1));
 }
