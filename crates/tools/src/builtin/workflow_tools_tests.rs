@@ -22,8 +22,8 @@ fn assert_tool_metadata(tool: &dyn Tool, expected_name: &str, expected_group: &s
 fn assert_flags(tool: &dyn Tool) {
     let flags = tool.flags();
     assert!(
-        !flags.is_deferred_by_default,
-        "is_deferred_by_default must be false for workflow tools"
+        flags.is_deferred_by_default,
+        "is_deferred_by_default must be true for workflow tools"
     );
     assert!(
         !flags.is_concurrency_safe,

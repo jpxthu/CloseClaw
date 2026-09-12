@@ -21,7 +21,7 @@ use serde_json::Value;
 /// agent's own permissions. The actual permission enforcement happens in
 /// the tool-calling pipeline.
 ///
-/// This tool is always loaded in the index (`is_deferred_by_default = false`).
+/// This tool is deferred by default (`is_deferred_by_default = true`).
 pub struct PermissionQueryTool;
 
 impl Default for PermissionQueryTool {
@@ -76,7 +76,7 @@ impl Tool for PermissionQueryTool {
             is_read_only: true,
             is_destructive: false,
             is_expensive: false,
-            is_deferred_by_default: false,
+            is_deferred_by_default: true,
         }
     }
 }
@@ -84,6 +84,51 @@ impl Tool for PermissionQueryTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_permission_query_appears_in_deferred_index_section() {
+        use crate::{PromptGenerationContext, ToolRegistry};
+        use closeclaw_common::tool_registry::ToolRegistryQuery;
+
+        let reg = ToolRegistry::new();
+        reg.register(PermissionQueryTool::new()).await.unwrap();
+
+        // Build primary index — deferred tool must NOT show bold detail
+        let ctx = PromptGenerationContext {
+            agent_id: "test".into(),
+            workdir: None,
+            available_tool_names: vec![],
+            tools: None,
+            disallowed_tools: None,
+            session_mode: None,
+            agent_role: None,
+            agent_type: None,
+        };
+        let index = reg.build_tools_section(&ctx).await;
+        // Deferred: name only, no bold detail
+        assert!(
+            index.contains("  - PermissionQuery"),
+            "PermissionQuery should appear in deferred section, got: {index}"
+        );
+        assert!(
+            !index.contains("**PermissionQuery**:"),
+            "PermissionQuery should NOT have bold detail in primary index, got: {index}"
+        );
+
+        // ToolSearch path: deferred tool is still discoverable via get_tool_detail
+        let q: &dyn ToolRegistryQuery = &reg;
+        let desc = q.get_tool_detail("PermissionQuery").await;
+        assert!(
+            desc.is_some(),
+            "PermissionQuery must be discoverable via ToolSearch"
+        );
+        let desc = desc.unwrap();
+        assert!(desc.flags.is_deferred_by_default);
+        assert!(
+            desc.detail.contains("permission"),
+            "Full detail should be available via ToolSearch"
+        );
+    }
 
     #[test]
     fn test_permission_query_name_group() {
@@ -102,7 +147,7 @@ mod tests {
     fn test_permission_query_flags() {
         let tool = PermissionQueryTool::new();
         let flags = tool.flags();
-        assert!(!flags.is_deferred_by_default);
+        assert!(flags.is_deferred_by_default);
         assert!(flags.is_read_only);
         assert!(flags.is_concurrency_safe);
     }

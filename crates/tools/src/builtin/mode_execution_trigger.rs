@@ -123,7 +123,7 @@ impl Tool for ModeExecutionTriggerTool {
             is_read_only: false,
             is_destructive: false,
             is_expensive: false,
-            is_deferred_by_default: false,
+            is_deferred_by_default: true,
         }
     }
 
