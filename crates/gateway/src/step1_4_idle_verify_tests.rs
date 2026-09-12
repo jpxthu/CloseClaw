@@ -179,7 +179,7 @@ async fn test_full_chain_idle_injects_verify_message() {
 
     // pending_verify should be 1.
     let (phase, pending) = read_handler_state(&sm, &sid).await;
-    assert_eq!(phase, Phase::Executing);
+    assert_eq!(phase, Phase::Verifying);
     assert_eq!(pending, 1);
 }
 
@@ -232,12 +232,7 @@ async fn test_full_chain_exceeds_limit_blocks() {
         test_maybe_inject_workflow_verify(&sm, &sid, None).await;
         let (phase, pending) = read_handler_state(&sm, &sid).await;
         if i < 2 {
-            assert_eq!(
-                phase,
-                Phase::Executing,
-                "should still be Executing at {}",
-                i
-            );
+            assert_eq!(phase, Phase::Verifying, "should be Verifying at {}", i);
         }
         assert_eq!(pending, i + 1);
     }
