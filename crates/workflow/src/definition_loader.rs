@@ -88,7 +88,13 @@ mod tests {
         write_skill_md(
             tmp.path(),
             "test-wf",
-            "id: test-wf\nname: Test WF\ndescription: desc\nsteps:\n  - id: 0\n    name: S\n    goal: G",
+            concat!(
+                "id: test-wf\nname: Test WF\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete",
+            ),
         );
 
         let wf = WorkflowDefinitionLoader::load("test-wf", Some(tmp.path()), None).unwrap();
@@ -101,7 +107,13 @@ mod tests {
         write_skill_md(
             tmp.path(),
             "dot-wf",
-            "id: dot-wf\nname: Dot WF\ndescription: desc\nsteps:\n  - id: 0\n    name: S\n    goal: G",
+            concat!(
+                "id: dot-wf\nname: Dot WF\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete",
+            ),
         );
 
         let wf = WorkflowDefinitionLoader::load("dot-wf", None, Some(tmp.path())).unwrap();
@@ -117,12 +129,24 @@ mod tests {
         write_skill_md(
             &workspace,
             "priority-wf",
-            "id: from-workspace\nname: From Workspace\ndescription: desc\nsteps:\n  - id: 0\n    name: S\n    goal: G",
+            concat!(
+                "id: from-workspace\nname: From Workspace\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete",
+            ),
         );
         write_skill_md(
             &closeclaw,
             "priority-wf",
-            "id: from-closeclaw\nname: From Closeclaw\ndescription: desc\nsteps:\n  - id: 0\n    name: S\n    goal: G",
+            concat!(
+                "id: from-closeclaw\nname: From Closeclaw\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete",
+            ),
         );
 
         let wf = WorkflowDefinitionLoader::load("priority-wf", Some(&workspace), Some(&closeclaw))
@@ -178,5 +202,39 @@ mod tests {
 
         let result = WorkflowDefinitionLoader::load("empty-wf", Some(tmp.path()), None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_definition_returns_invalid_definition_error() {
+        // A SKILL.md that parses as valid YAML but fails structural
+        // validation (goto target does not exist).
+        let tmp = TempDir::new().unwrap();
+        let yaml_body = r#"id: bad-target
+name: Bad Target
+description: Goto target does not exist
+steps:
+  - id: 0
+    name: Step
+    goal: Goal
+    verify:
+      - Done
+    jump:
+      - id: go
+        prompt: Go?
+        type: boolean
+    transitions:
+      - when:
+          go: true
+        action: goto
+        target_step: 5
+      - action: complete"#;
+        write_skill_md(&tmp.path(), "bad-target", yaml_body);
+
+        let result = WorkflowDefinitionLoader::load("bad-target", Some(tmp.path()), None);
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, WorkflowError::InvalidDefinition(_)),
+            "expected InvalidDefinition, got: {err}"
+        );
     }
 }

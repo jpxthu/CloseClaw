@@ -12,7 +12,7 @@ use crate::test_fixtures::*;
 
 #[test]
 fn test_e2e_long_chain_verify_exhaust_resolve_complete() {
-    let wf = simple_workflow();
+    let wf = no_transitions_workflow();
     let mut run = WorkflowEngine::start(&wf);
     assert_eq!(run.phase, Phase::Executing);
 
@@ -46,7 +46,7 @@ fn test_e2e_long_chain_verify_exhaust_resolve_complete() {
 
 #[test]
 fn test_e2e_single_step_no_jumps_blocked_via_over_limit() {
-    let wf = simple_workflow();
+    let wf = no_transitions_workflow();
     let mut run = WorkflowEngine::start(&wf);
     assert_eq!(run.phase, Phase::Executing);
 
@@ -157,7 +157,7 @@ fn test_e2e_reexecute_then_complete() {
 
 #[test]
 fn test_e2e_owner_terminate_from_blocked() {
-    let wf = goto_to_blockable_workflow();
+    let wf = goto_then_no_transitions_workflow();
     let mut run = WorkflowEngine::start(&wf);
 
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
