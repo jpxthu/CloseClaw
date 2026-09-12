@@ -44,6 +44,7 @@ impl WorkflowEngine {
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::Normal,
             pending_verify: 0,
+            paused_reason: String::new(),
         }
     }
 

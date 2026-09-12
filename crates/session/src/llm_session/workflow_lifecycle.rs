@@ -232,6 +232,7 @@ mod tests {
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::default(),
             pending_verify: 0,
+            paused_reason: String::new(),
         }
     }
 

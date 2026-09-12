@@ -51,6 +51,7 @@ fn make_test_run(phase: Phase, pending_verify: usize) -> WorkflowRun {
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
         pending_verify,
+        paused_reason: String::new(),
     }
 }
 
@@ -294,6 +295,7 @@ fn test_verify_injected_queues_notification_when_blocked() {
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
         pending_verify: 0,
+        paused_reason: String::new(),
     };
     let mut handler = WorkflowHandler::new(run, make_test_workflow());
 
