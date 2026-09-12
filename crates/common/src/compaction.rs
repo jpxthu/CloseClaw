@@ -87,7 +87,7 @@ impl CompactConfig {
     /// Checks:
     /// - Both percentage thresholds are in [0, 1].
     /// - `chars_per_token` is positive.
-    /// - `auto_compact_threshold_pct` <= `warning_threshold_pct`.
+    /// - `auto_compact_threshold_pct` < `warning_threshold_pct`.
     pub fn validate(&self) -> Result<(), String> {
         if self.chars_per_token <= 0.0 {
             return Err(format!(
@@ -107,9 +107,9 @@ impl CompactConfig {
                 self.warning_threshold_pct
             ));
         }
-        if self.auto_compact_threshold_pct > self.warning_threshold_pct {
+        if self.auto_compact_threshold_pct >= self.warning_threshold_pct {
             return Err(format!(
-                "auto_compact_threshold_pct ({}) must be <= \
+                "auto_compact_threshold_pct ({}) must be < \
                  warning_threshold_pct ({})",
                 self.auto_compact_threshold_pct, self.warning_threshold_pct
             ));

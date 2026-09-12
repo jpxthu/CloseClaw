@@ -13,6 +13,7 @@ pub use tools::validate_tools;
 use crate::manager::ConfigSection;
 use crate::providers::channels::ALLOWED_CHANNEL_TYPES;
 use crate::SectionValidator;
+use closeclaw_common::compaction::CompactConfig;
 
 // ---------------------------------------------------------------------------
 // Cross-reference data
@@ -530,6 +531,9 @@ fn validate_system(value: &serde_json::Value) -> Result<(), String> {
 /// - If `sweeperIntervalSeconds` is present, it must be a positive number.
 /// - If `idleMinutes` is present, it must be non-negative.
 /// - If `purgeAfterMinutes` is present, it must be non-negative.
+/// - If `compact` is present and non-null, it must deserialize to a valid
+///   `CompactConfig` (positive `chars_per_token`, thresholds in [0,1],
+///   `auto_compact_threshold_pct` < `warning_threshold_pct`).
 fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "session")?;
     if let Some(secs) = value.get("sweeperIntervalSeconds") {
@@ -543,6 +547,16 @@ fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     validate_non_negative_field(value, "planArchiveDays")?;
     // auditLogLimit: if present, must be a non-negative number
     validate_non_negative_field(value, "auditLogLimit")?;
+    // compact: if present and non-null, validate via CompactConfig
+    if let Some(compact) = value.get("compact") {
+        if !compact.is_null() {
+            let config: CompactConfig = serde_json::from_value(compact.clone())
+                .map_err(|e| format!("session.compact: invalid config: {}", e))?;
+            config
+                .validate()
+                .map_err(|e| format!("session.compact: {}", e))?;
+        }
+    }
     Ok(())
 }
 
@@ -969,3 +983,7 @@ mod validators_cron_tests;
 #[cfg(test)]
 #[path = "../validators_session_archive_audit_tests.rs"]
 mod validators_session_archive_audit_tests;
+
+#[cfg(test)]
+#[path = "../validators_session_compact_tests.rs"]
+mod validators_session_compact_tests;
