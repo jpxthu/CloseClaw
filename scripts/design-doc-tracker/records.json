@@ -481,9 +481,9 @@
   },
   {
     "path": "docs/design/platform/terminal.md",
-    "commit": "614457f0ef681d0a6e702fad053e97106f695ded",
-    "commit_time": "2026-09-11T14:24:29+08:00",
-    "confirmed_time": "2026-09-11T14:30:48.383205+08:00",
+    "commit": "b0712c580f3243b6d0a10bdd3b190a7eb824059b",
+    "commit_time": "2026-09-12T17:32:14+08:00",
+    "confirmed_time": "2026-09-12T22:55:07.892750+08:00",
     "comment": "",
     "blocked_reason": ""
   },
