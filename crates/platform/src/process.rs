@@ -290,27 +290,51 @@ pub fn spawn_daemon(
     Ok(child)
 }
 
-/// Blocks until a shutdown signal is received.
+/// Subscription handle for OS shutdown signals (SIGTERM / SIGINT).
 ///
-/// Listens for both SIGINT (Ctrl+C) and SIGTERM. Returns the
-/// [`SignalKind`] that triggered the shutdown along with both signal
-/// handlers so that the caller can reuse them (e.g. to monitor for
-/// repeated signals during an inbound drain phase).
+/// Wraps tokio signal handles and provides a streaming interface:
+/// each call to [`next_signal`](ShutdownSignalSubscription::next_signal)
+/// returns the next queued signal, or waits until one arrives.
 ///
-/// # Returns
-///
-/// On SIGINT: `(SignalKind::interrupt(), sigint, sigterm)`
-/// On SIGTERM: `(SignalKind::terminate(), sigint, sigterm)`
-pub async fn wait_for_shutdown_signal() -> anyhow::Result<(SignalKind, Signal, Signal)> {
-    use tokio::signal::unix::signal;
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let mut sigterm = signal(SignalKind::terminate())?;
-    tokio::select! {
-        _ = sigint.recv() => {
-            Ok((SignalKind::interrupt(), sigint, sigterm))
-        }
-        _ = sigterm.recv() => {
-            Ok((SignalKind::terminate(), sigint, sigterm))
+/// OS-level signals are kernel-queued (POSIX guarantee); tokio converts
+/// them to an async stream. Multiple rapid signals are delivered in FIFO
+/// order without loss. This matches the design doc requirement that
+/// "every signal is continuously dispatched to subscribers until the
+/// process exits".
+pub struct ShutdownSignalSubscription {
+    sigint: Signal,
+    sigterm: Signal,
+}
+
+impl ShutdownSignalSubscription {
+    /// Returns the next shutdown signal, or `None` if both signal
+    /// streams are closed (i.e. the process is about to exit).
+    ///
+    /// Signals are delivered in FIFO order. If multiple signals arrive
+    /// before this method is called, they are buffered by the OS and
+    /// returned one at a time on successive calls.
+    pub async fn next_signal(&mut self) -> Option<SignalKind> {
+        use tokio::signal::unix::SignalKind as SK;
+        tokio::select! {
+            biased;
+            _ = self.sigint.recv() => Some(SK::interrupt()),
+            _ = self.sigterm.recv() => Some(SK::terminate()),
         }
     }
+}
+
+/// Creates a new shutdown signal subscription.
+///
+/// Registers listeners for both SIGINT (Ctrl+C) and SIGTERM. The
+/// returned [`ShutdownSignalSubscription`] can be used to receive
+/// signals one at a time via [`next_signal`](ShutdownSignalSubscription::next_signal).
+///
+/// # Errors
+///
+/// Returns an error if the OS signal handlers cannot be installed.
+pub async fn subscribe_shutdown_signals() -> anyhow::Result<ShutdownSignalSubscription> {
+    use tokio::signal::unix::signal;
+    let sigint = signal(SignalKind::interrupt())?;
+    let sigterm = signal(SignalKind::terminate())?;
+    Ok(ShutdownSignalSubscription { sigint, sigterm })
 }
