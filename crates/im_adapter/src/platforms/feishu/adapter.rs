@@ -692,7 +692,7 @@ impl FeishuAdapter {
             {
                 Ok(url) => match self
                     .media_store
-                    .download_and_persist(&url, &r.key, &r.media_type, &self.http_client)
+                    .download_and_persist(&url, &r.key, &r.media_type, &self.http_client, None)
                     .await
                 {
                     Ok(persisted) => {

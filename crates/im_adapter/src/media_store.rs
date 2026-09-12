@@ -107,15 +107,22 @@ impl MediaStore {
     ///
     /// Sanitizes the filename, appends a unique suffix to avoid
     /// conflicts, writes to disk, and returns a fully-populated [`MediaRef`].
+    ///
+    /// If `original_name` is `Some` and its sanitized form is non-empty,
+    /// it is used as the filename base; otherwise falls back to `key`.
     pub fn persist_to_disk(
         &self,
         key: &str,
         media_type: &MediaType,
         content_type: &str,
         bytes: bytes::Bytes,
+        original_name: Option<&str>,
     ) -> Result<MediaRef, MediaStoreError> {
         let extension = mime_to_extension(content_type);
-        let safe_name = sanitize_filename(key);
+        let safe_name = original_name
+            .map(sanitize_filename)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| sanitize_filename(key));
         let filename = unique_filename(&self.inbound_dir, &safe_name, extension);
         let file_path = self.inbound_dir.join(&filename);
 
@@ -135,15 +142,19 @@ impl MediaStore {
 
     /// Download content from `url`, sanitize the filename, write to
     /// `inbound/`, and return a fully-populated [`MediaRef`].
+    ///
+    /// If `original_name` is `Some` and its sanitized form is non-empty,
+    /// it is used as the filename base; otherwise falls back to `key`.
     pub async fn download_and_persist(
         &self,
         url: &str,
         key: &str,
         media_type: &MediaType,
         http_client: &reqwest::Client,
+        original_name: Option<&str>,
     ) -> Result<MediaRef, MediaStoreError> {
         let (bytes, content_type) = self.download_bytes(url, http_client).await?;
-        self.persist_to_disk(key, media_type, &content_type, bytes)
+        self.persist_to_disk(key, media_type, &content_type, bytes, original_name)
     }
 
     /// Delete files older than `retention_days` in both `inbound/` and
@@ -643,6 +654,7 @@ mod tests {
                 "test",
                 &closeclaw_common::MediaType::Image,
                 &client,
+                None,
             )
             .await;
 
@@ -676,6 +688,7 @@ mod tests {
                 "big-test",
                 &closeclaw_common::MediaType::Image,
                 &client,
+                None,
             )
             .await;
 
@@ -711,6 +724,7 @@ mod tests {
                 "test",
                 &closeclaw_common::MediaType::Image,
                 &client,
+                None,
             )
             .await;
 
