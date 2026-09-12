@@ -310,12 +310,15 @@ pub struct ShutdownSignalSubscription {
 }
 
 impl ShutdownSignalSubscription {
-    /// Returns the next shutdown signal, or `None` if both signal
-    /// streams are closed (i.e. the process is about to exit).
+    /// Returns the next shutdown signal.
     ///
     /// Signals are delivered in FIFO order. If multiple signals arrive
     /// before this method is called, they are buffered by the OS and
     /// returned one at a time on successive calls.
+    ///
+    /// When both SIGINT and SIGTERM are pending, SIGINT is returned
+    /// first (`biased` selection). This matches the legacy
+    /// `wait_for_shutdown_signal` behavior.
     pub async fn next_signal(&mut self) -> Option<SignalKind> {
         use tokio::signal::unix::SignalKind as SK;
         tokio::select! {

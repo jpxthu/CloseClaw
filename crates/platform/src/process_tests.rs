@@ -234,7 +234,7 @@ fn test_send_signal_sigterm() {
     let mut child = spawn_sleep_child();
     let pid = child.id();
 
-    // Send SIGTERM (force=false). Should succeed and terminate the child.
+    // Send SIGTERM. Should succeed and terminate the child.
     send_signal(pid, SignalKind::terminate()).expect("send_signal(pid, SIGTERM) failed");
     let status = child.wait().unwrap();
     // Default SIGTERM handler kills with signal 15.
@@ -251,7 +251,7 @@ fn test_send_signal_sigint() {
     let mut child = spawn_sleep_child();
     let pid = child.id();
 
-    // Send SIGINT (force=true). Should succeed and terminate the child.
+    // Send SIGINT. Should succeed and terminate the child.
     send_signal(pid, SignalKind::interrupt()).expect("send_signal(pid, SIGINT) failed");
     let status = child.wait().unwrap();
     // SIGINT = signal 2; default handler terminates the process.

@@ -489,6 +489,7 @@ impl Daemon {
         // tokio::select! loop.
         let mut escalation_sub = closeclaw_platform::process::subscribe_shutdown_signals()
             .await
+            .inspect_err(|e| warn!(error = %e, "failed to subscribe for escalation signals"))
             .ok();
 
         // Heartbeat state: send every 30s when no progress events arrive.
