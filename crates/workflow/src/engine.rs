@@ -83,6 +83,7 @@ impl WorkflowEngine {
         );
         if run.pending_verify >= verify_retry_limit {
             run.phase = Phase::Blocked;
+            run.paused_reason = "验收重试次数耗尽".to_string();
             tracing::warn!(
                 pending = run.pending_verify,
                 limit = verify_retry_limit,
@@ -201,6 +202,7 @@ impl WorkflowEngine {
         run: &mut WorkflowRun,
         workflow: &Workflow,
         allow_blocked: bool,
+        reason: &str,
     ) -> Result<(), WorkflowError> {
         let step = workflow
             .steps
@@ -213,6 +215,7 @@ impl WorkflowEngine {
         }
 
         run.phase = Phase::Blocked;
+        run.paused_reason = reason.to_string();
         tracing::debug!(
             step = run.current_step,
             "agent called blocked, entering blocked"
@@ -226,6 +229,7 @@ impl WorkflowEngine {
     /// to `Verifying`.
     pub fn on_owner_resolve(run: &mut WorkflowRun) {
         run.pending_verify = 0;
+        run.paused_reason.clear();
         run.phase = Phase::Verifying;
         tracing::debug!("owner resolved blocked, entering verifying");
     }
@@ -234,6 +238,7 @@ impl WorkflowEngine {
     ///
     /// Sets the phase to `Complete`.
     pub fn on_owner_terminate(run: &mut WorkflowRun) {
+        run.paused_reason.clear();
         run.phase = Phase::Complete;
         tracing::debug!("owner terminated workflow");
     }

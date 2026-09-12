@@ -575,7 +575,7 @@ fn test_handle_blocked_allowed() {
     let wf = blocked_workflow();
     let mut run = WorkflowEngine::start(&wf);
     // step 0 has allow_blocked = true (override)
-    WorkflowEngine::handle_blocked(&mut run, &wf, false).unwrap();
+    WorkflowEngine::handle_blocked(&mut run, &wf, false, "test reason").unwrap();
     assert_eq!(run.phase, Phase::Blocked);
 }
 
@@ -584,7 +584,7 @@ fn test_handle_blocked_not_allowed_returns_error() {
     let wf = blocked_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.current_step = 1; // step 1 has no override, workflow allow_blocked = false
-    let result = WorkflowEngine::handle_blocked(&mut run, &wf, false);
+    let result = WorkflowEngine::handle_blocked(&mut run, &wf, false, "test reason");
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
@@ -598,10 +598,10 @@ fn test_handle_blocked_uses_workflow_level_when_no_override() {
     let mut run = WorkflowEngine::start(&wf);
     run.current_step = 1; // step 1: no override
                           // workflow-level allow_blocked = false → blocked not allowed
-    let result = WorkflowEngine::handle_blocked(&mut run, &wf, false);
+    let result = WorkflowEngine::handle_blocked(&mut run, &wf, false, "test reason");
     assert!(result.is_err());
     // but if workflow-level allow_blocked were true, it would succeed
-    let result2 = WorkflowEngine::handle_blocked(&mut run, &wf, true);
+    let result2 = WorkflowEngine::handle_blocked(&mut run, &wf, true, "test reason");
     assert!(result2.is_ok());
     assert_eq!(run.phase, Phase::Blocked);
 }
@@ -630,6 +630,79 @@ fn test_on_owner_terminate_sets_complete() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     WorkflowEngine::on_owner_terminate(&mut run);
+    assert_eq!(run.phase, Phase::Complete);
+}
+
+// ---------------------------------------------------------------------------
+// paused_reason transitions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_on_verify_injected_sets_paused_reason_when_blocked() {
+    let wf = simple_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    assert!(run.paused_reason.is_empty());
+    // verify_retry_limit = 3; 3 >= 3 → blocked with reason
+    for _ in 0..3 {
+        WorkflowEngine::on_verify_injected(&mut run, 3);
+    }
+    assert_eq!(run.phase, Phase::Blocked);
+    assert_eq!(run.paused_reason, "验收重试次数耗尽");
+}
+
+#[test]
+fn test_handle_blocked_sets_paused_reason() {
+    let wf = blocked_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    assert!(run.paused_reason.is_empty());
+    WorkflowEngine::handle_blocked(&mut run, &wf, false, "agent needs help").unwrap();
+    assert_eq!(run.phase, Phase::Blocked);
+    assert_eq!(run.paused_reason, "agent needs help");
+}
+
+#[test]
+fn test_on_owner_resolve_clears_paused_reason() {
+    let wf = simple_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Blocked;
+    run.paused_reason = "验收重试次数耗尽".to_string();
+    WorkflowEngine::on_owner_resolve(&mut run);
+    assert!(run.paused_reason.is_empty());
+    assert_eq!(run.phase, Phase::Verifying);
+}
+
+#[test]
+fn test_on_owner_terminate_clears_paused_reason() {
+    let wf = simple_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Blocked;
+    run.paused_reason = "some reason".to_string();
+    WorkflowEngine::on_owner_terminate(&mut run);
+    assert!(run.paused_reason.is_empty());
+    assert_eq!(run.phase, Phase::Complete);
+}
+
+#[test]
+fn test_paused_reason_stays_empty_through_normal_flow() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    assert!(run.paused_reason.is_empty());
+
+    // Step 0: goal → verify → jumping → goto
+    WorkflowEngine::on_goal_injected(&mut run);
+    assert!(run.paused_reason.is_empty());
+    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
+    assert!(run.paused_reason.is_empty());
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
+    let _ = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
+    assert!(run.paused_reason.is_empty());
+
+    // Step 1: goal → verify → complete
+    WorkflowEngine::on_goal_injected(&mut run);
+    assert!(run.paused_reason.is_empty());
+    let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
+    assert!(run.paused_reason.is_empty());
     assert_eq!(run.phase, Phase::Complete);
 }
 

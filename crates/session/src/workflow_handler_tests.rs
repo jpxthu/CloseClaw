@@ -232,7 +232,7 @@ fn test_on_verify_limit_exceeded() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.on_verify_injected(3);
     assert_eq!(handler.run().pending_verify, 1);
-    assert_eq!(handler.run().phase, Phase::Executing);
+    assert_eq!(handler.run().phase, Phase::Verifying);
 
     handler.on_verify_injected(3);
     assert_eq!(handler.run().pending_verify, 2);
@@ -251,7 +251,7 @@ fn test_on_verify_injected_within_limit() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.on_verify_injected(5);
     assert_eq!(handler.run().pending_verify, 1);
-    assert_eq!(handler.run().phase, Phase::Executing);
+    assert_eq!(handler.run().phase, Phase::Verifying);
     assert!(handler.take_notification().is_none());
 }
 
