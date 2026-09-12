@@ -1,11 +1,11 @@
 //! Stop handler function for CLI admin.
 
-use super::common::{json_output, StopOutput};
+use super::common::{config_root, json_output, StopOutput};
 use anyhow::Result;
 
 pub async fn handle_stop(force: bool, json: bool) -> Result<()> {
-    let config_dir = closeclaw_platform::config::root_dir()?;
-    handle_stop_at(&config_dir, force, json).await
+    let root_dir = config_root()?;
+    handle_stop_at(&root_dir, force, json).await
 }
 
 pub async fn handle_stop_at(_config_dir: &std::path::Path, force: bool, json: bool) -> Result<()> {

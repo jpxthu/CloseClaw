@@ -312,6 +312,16 @@ impl ConfigManager {
         })
     }
 
+    /// Create a `ConfigManager` using the platform default config directory.
+    ///
+    /// Calls `closeclaw_platform::config::root_dir()` to resolve `~/.closeclaw`,
+    /// appends `config/`, and delegates to [`Self::new`].
+    pub fn with_default_root_dir() -> io::Result<Self> {
+        let root = closeclaw_platform::config::root_dir().map_err(io::Error::other)?;
+        let config_dir = root.join("config");
+        Self::new(config_dir)
+    }
+
     /// Get a reference to the shared backup manager.
     ///
     /// This returns a shared reference because both `ConfigManager` (for
@@ -978,11 +988,12 @@ impl ConfigManager {
         infos
     }
 }
-
-#[cfg(test)]
-#[path = "manager_tests.rs"]
-mod tests;
-
 #[cfg(test)]
 #[path = "restart_staging_tests.rs"]
 mod restart_staging_tests;
+#[cfg(test)]
+#[path = "manager_tests.rs"]
+mod tests;
+#[cfg(test)]
+#[path = "with_default_root_dir_tests.rs"]
+mod with_default_root_dir_tests;
