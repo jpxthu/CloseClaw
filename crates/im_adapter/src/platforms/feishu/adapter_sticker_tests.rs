@@ -47,28 +47,31 @@ fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
 
 #[test]
 fn test_extract_sticker_with_emoji_type() {
-    let (text, media) =
+    let (text, media, name) =
         FeishuAdapter::extract_message_content("sticker", &serde_json::json!({"emoji_type": "OK"}))
             .unwrap();
     assert_eq!(text, "[OK]");
     assert!(media.is_empty());
+    assert!(name.is_none());
 }
 
 #[test]
 fn test_extract_sticker_without_emoji_type() {
-    let (text, media) =
+    let (text, media, name) =
         FeishuAdapter::extract_message_content("sticker", &serde_json::json!({})).unwrap();
     assert_eq!(text, "[]");
     assert!(media.is_empty());
+    assert!(name.is_none());
 }
 
 #[test]
 fn test_extract_sticker_empty_emoji_type() {
-    let (text, media) =
+    let (text, media, name) =
         FeishuAdapter::extract_message_content("sticker", &serde_json::json!({"emoji_type": ""}))
             .unwrap();
     assert_eq!(text, "[]");
     assert!(media.is_empty());
+    assert!(name.is_none());
 }
 
 #[tokio::test]
