@@ -252,11 +252,11 @@ impl Daemon {
 
         // Phase 0: Signal reception & mode determination
         // Subscribe to shutdown signals via the platform interface.
-        // The returned handlers are reusable streams — after the first
-        // signal triggers graceful shutdown, they can still receive
-        // repeated signals during Phase 1 drain for escalation.
-        let shutdown_signal = closeclaw_platform::process::wait_for_shutdown_signal();
-        tokio::pin!(shutdown_signal);
+        // The subscription wraps reusable streams — after the first
+        // signal triggers graceful shutdown, subsequent calls to
+        // next_signal() still receive repeated signals during Phase 1
+        // drain for escalation.
+        let mut shutdown_sub = closeclaw_platform::process::subscribe_shutdown_signals().await?;
 
         // Process restart signals until shutdown is initiated.
         // The restart_rx receives change summaries from DaemonReloadCallback
@@ -266,15 +266,18 @@ impl Daemon {
         let mut ready_rx = self.take_restart_ready_rx();
         let mut restart_rx_closed = false;
         let mut admin_restart_rx_closed = false;
-        let mut sigint;
-        let mut sigterm;
         loop {
             tokio::select! {
                 biased;
-                result = &mut shutdown_signal => {
-                    let (kind, s_int, s_term) = result?;
-                    sigint = s_int;
-                    sigterm = s_term;
+                result = shutdown_sub.next_signal() => {
+                    let kind = match result {
+                        Some(k) => k,
+                        None => {
+                            warn!("shutdown signal streams closed unexpectedly");
+                            self.shutdown.try_start_shutdown();
+                            break;
+                        }
+                    };
                     if kind == SignalKind::interrupt() {
                         info!("Received Ctrl+C, initiating graceful shutdown...");
                     } else {
@@ -333,7 +336,7 @@ impl Daemon {
             .send_shutdown_start_notification(self.shutdown.mode())
             .await;
 
-        self.phase_1_inbound_drain(&mut sigint, &mut sigterm).await;
+        self.phase_1_inbound_drain(&mut shutdown_sub).await;
         let mode = self.shutdown.mode();
         info!(phase = 1, "inbound shutdown complete");
         let stop_result = self.phase_2_session_stop(mode).await;
@@ -397,8 +400,7 @@ impl Daemon {
     /// - Monitors for escalation signals (repeated SIGTERM/SIGINT)
     async fn phase_1_inbound_drain(
         &self,
-        sigint: &mut tokio::signal::unix::Signal,
-        sigterm: &mut tokio::signal::unix::Signal,
+        shutdown_sub: &mut closeclaw_platform::process::ShutdownSignalSubscription,
     ) {
         Self::shutdown_inbound_plugins(&self.gateway().await).await;
 
@@ -426,17 +428,16 @@ impl Daemon {
                     }
                     break;
                 }
-                _ = sigint.recv() => {
-                    if self.shutdown.escalate_to_forceful() {
-                        info!("Received repeated Ctrl+C, escalated to forceful shutdown");
+                signal = shutdown_sub.next_signal() => {
+                    if let Some(kind) = signal {
+                        if self.shutdown.escalate_to_forceful() {
+                            info!(
+                                signal = ?kind,
+                                "received repeated signal, escalated to forceful shutdown"
+                            );
+                        }
+                        heartbeat.record_event();
                     }
-                    heartbeat.record_event();
-                }
-                _ = sigterm.recv() => {
-                    if self.shutdown.escalate_to_forceful() {
-                        info!("Received repeated SIGTERM, escalated to forceful shutdown");
-                    }
-                    heartbeat.record_event();
                 }
                 _ = tokio::time::sleep_until(heartbeat.next_deadline()) => {
                     self.try_send_heartbeat(&mut heartbeat).await;
@@ -483,11 +484,13 @@ impl Daemon {
                 .await
         });
 
-        // Spawn fresh signal handlers for escalation monitoring during Phase 2.
-        // Phase 1's handlers are consumed by its tokio::select! loop.
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut sigint = signal(SignalKind::interrupt()).ok();
-        let mut sigterm = signal(SignalKind::terminate()).ok();
+        // Spawn a fresh signal subscription for escalation monitoring
+        // during Phase 2. Phase 1's subscription is consumed by its
+        // tokio::select! loop.
+        let mut escalation_sub = closeclaw_platform::process::subscribe_shutdown_signals()
+            .await
+            .inspect_err(|e| warn!(error = %e, "failed to subscribe for escalation signals"))
+            .ok();
 
         // Heartbeat state: send every 30s when no progress events arrive.
         let mut heartbeat = ShutdownHeartbeat::new();
@@ -536,27 +539,21 @@ impl Daemon {
                     }
                 }
 
-                _ = async {
-                    // Wait for any escalation signal regardless of
-                    // which handlers are available.
-                    let escalate = || {
-                        if self.shutdown.escalate_to_forceful() {
-                            info!("Phase 2: escalated to forceful shutdown");
-                        }
-                    };
-                    match (&mut sigint, &mut sigterm) {
-                        (Some(i), Some(t)) => {
-                            tokio::select! {
-                                _ = i.recv() => escalate(),
-                                _ = t.recv() => escalate(),
-                            }
-                        }
-                        (Some(i), None) => { let _ = i.recv().await; escalate(); }
-                        (None, Some(t)) => { let _ = t.recv().await; escalate(); }
-                        (None, None) => { std::future::pending::<()>().await; }
+                signal = async {
+                    match escalation_sub.as_mut() {
+                        Some(sub) => sub.next_signal().await,
+                        None => std::future::pending().await,
                     }
                 } => {
                     // Escalation signal received
+                    if let Some(kind) = signal {
+                        if self.shutdown.escalate_to_forceful() {
+                            info!(
+                                signal = ?kind,
+                                "Phase 2: escalated to forceful shutdown"
+                            );
+                        }
+                    }
                 }
 
                 _ = tokio::time::sleep_until(heartbeat.next_deadline()) => {

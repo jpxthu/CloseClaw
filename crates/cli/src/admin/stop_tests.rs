@@ -18,7 +18,7 @@ fn test_stop_not_running_no_pid_file() {
     let tmp = TempDir::new().unwrap();
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false, false));
+        .block_on(handle_stop_at(tmp.path(), false));
     assert!(
         result.is_ok(),
         "should succeed with no PID file: {result:?}"
@@ -32,7 +32,7 @@ fn test_stop_not_running_json_no_pid_file() {
     // json_output prints to stdout; we just verify it doesn't panic.
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false, true));
+        .block_on(handle_stop_at(tmp.path(), true));
     assert!(
         result.is_ok(),
         "should succeed in JSON mode with no PID file: {result:?}"
@@ -51,11 +51,7 @@ fn test_stop_not_running_stale_pid() {
 
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(
-            std::path::Path::new("/unused"),
-            false,
-            false,
-        ));
+        .block_on(handle_stop_at(std::path::Path::new("/unused"), false));
     assert!(result.is_ok(), "should succeed with stale PID: {result:?}");
     assert!(
         !pid_file.exists(),
@@ -74,11 +70,7 @@ fn test_stop_self_kill_protection() {
 
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(
-            std::path::Path::new("/unused"),
-            false,
-            false,
-        ));
+        .block_on(handle_stop_at(std::path::Path::new("/unused"), false));
     assert!(result.is_err(), "should bail when PID is self");
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -111,7 +103,7 @@ fn test_stop_output_mapping_not_running() {
     // No PID file → NotRunning → stopped:false
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false, false));
+        .block_on(handle_stop_at(tmp.path(), false));
     assert!(result.is_ok(), "should succeed: {result:?}");
     // The output is printed to stdout; we can't capture it easily, but
     // the fact that it succeeded without error confirms the NotRunning
@@ -125,6 +117,6 @@ fn test_stop_json_output_not_running() {
     let tmp = TempDir::new().unwrap();
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false, true));
+        .block_on(handle_stop_at(tmp.path(), true));
     assert!(result.is_ok(), "should succeed in JSON mode: {result:?}");
 }

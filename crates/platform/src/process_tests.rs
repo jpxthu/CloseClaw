@@ -1,6 +1,6 @@
 use crate::process::{
     check_stale_pid, is_process_alive, pid_file_path, pid_file_path_inner, read_pid_file,
-    send_signal, spawn_daemon, stop_daemon, wait_for_exit, wait_for_shutdown_signal,
+    send_signal, spawn_daemon, stop_daemon, subscribe_shutdown_signals, wait_for_exit,
     write_pid_file, SpawnOptions, StopOutcome,
 };
 #[cfg(unix)]
@@ -234,8 +234,8 @@ fn test_send_signal_sigterm() {
     let mut child = spawn_sleep_child();
     let pid = child.id();
 
-    // Send SIGTERM (force=false). Should succeed and terminate the child.
-    send_signal(pid, false).expect("send_signal(pid, SIGTERM) failed");
+    // Send SIGTERM. Should succeed and terminate the child.
+    send_signal(pid, SignalKind::terminate()).expect("send_signal(pid, SIGTERM) failed");
     let status = child.wait().unwrap();
     // Default SIGTERM handler kills with signal 15.
     assert_eq!(
@@ -251,8 +251,8 @@ fn test_send_signal_sigint() {
     let mut child = spawn_sleep_child();
     let pid = child.id();
 
-    // Send SIGINT (force=true). Should succeed and terminate the child.
-    send_signal(pid, true).expect("send_signal(pid, SIGINT) failed");
+    // Send SIGINT. Should succeed and terminate the child.
+    send_signal(pid, SignalKind::interrupt()).expect("send_signal(pid, SIGINT) failed");
     let status = child.wait().unwrap();
     // SIGINT = signal 2; default handler terminates the process.
     assert_eq!(
@@ -265,7 +265,7 @@ fn test_send_signal_sigint() {
 /// PID exceeding i32::MAX must fail with overflow error, not cast to negative.
 #[test]
 fn test_send_signal_pid_overflow() {
-    let err = send_signal(u32::MAX, false);
+    let err = send_signal(u32::MAX, SignalKind::terminate());
     assert!(
         err.is_err(),
         "send_signal with pid > i32::MAX should return Err"
@@ -281,17 +281,8 @@ fn test_send_signal_pid_overflow() {
 #[test]
 fn test_send_signal_invalid_pid() {
     // PID 999999999 is almost certainly not running.
-    let err = send_signal(999999999, false);
+    let err = send_signal(999999999, SignalKind::terminate());
     assert!(err.is_err(), "send_signal to invalid PID should fail");
-}
-
-#[test]
-fn test_send_signal_invalid_pid_force() {
-    let err = send_signal(999999999, true);
-    assert!(
-        err.is_err(),
-        "send_signal(force) to invalid PID should fail"
-    );
 }
 
 // ── spawn_daemon tests ────────────────────────────────────────────
@@ -416,21 +407,7 @@ fn test_stop_daemon_normal() {
     let pid = spawn_detached_sleep_pid();
     write_pid_file(&path, pid).unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
-    assert_eq!(outcome, StopOutcome::Stopped(pid));
-    assert!(!path.exists(), "PID file should be removed after stop");
-}
-
-/// Normal path with force (SIGINT): alive process is stopped and PID file is cleaned up.
-#[cfg(unix)]
-#[test]
-fn test_stop_daemon_normal_force() {
-    let tmp = TempDir::new().unwrap();
-    let path = tmp.path().join("daemon.pid");
-    let pid = spawn_detached_sleep_pid();
-    write_pid_file(&path, pid).unwrap();
-
-    let outcome = stop_daemon(&path, true, std::time::Duration::from_secs(3)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(3)).unwrap();
     assert_eq!(outcome, StopOutcome::Stopped(pid));
     assert!(!path.exists(), "PID file should be removed after stop");
 }
@@ -459,7 +436,7 @@ fn test_stop_daemon_timeout() {
         libc::kill(pid as i32, libc::SIGSTOP);
     }
 
-    let result = stop_daemon(&path, false, std::time::Duration::from_millis(200));
+    let result = stop_daemon(&path, std::time::Duration::from_millis(200));
     assert!(result.is_err(), "timeout should return Err");
     assert!(
         path.exists(),
@@ -472,7 +449,10 @@ fn test_stop_daemon_timeout() {
     unsafe {
         libc::kill(pid as i32, libc::SIGCONT);
     }
-    send_signal(pid, true).ok();
+    // SAFETY: kill with SIGKILL is a standard POSIX operation.
+    unsafe {
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
     child.wait().ok();
 }
 
@@ -482,7 +462,7 @@ fn test_stop_daemon_no_pid_file() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("daemon.pid");
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(1)).unwrap();
     assert_eq!(outcome, StopOutcome::NotRunning);
 }
 
@@ -494,7 +474,7 @@ fn test_stop_daemon_stale_pid() {
     write_pid_file(&path, 99999999).unwrap();
     assert!(path.exists());
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(1)).unwrap();
     assert_eq!(outcome, StopOutcome::NotRunning);
     assert!(!path.exists(), "stale PID file should be removed");
 }
@@ -506,7 +486,7 @@ fn test_stop_daemon_invalid_pid_content() {
     let path = tmp.path().join("daemon.pid");
     std::fs::write(&path, "not_a_number").unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(1)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(1)).unwrap();
     assert_eq!(outcome, StopOutcome::NotRunning);
     // stop_daemon cleans up the PID file only when it reads a valid PID
     // and the process is not alive. Invalid (non-numeric) content yields
@@ -514,19 +494,19 @@ fn test_stop_daemon_invalid_pid_content() {
     assert!(path.exists(), "invalid PID file should be preserved");
 }
 
-// ── Step 1.3: wait_for_shutdown_signal return value tests ──────
+// ── subscribe_shutdown_signals / next_signal tests ─────────────────
 
 /// Signal tests use subprocess isolation to prevent cross-contamination.
 /// Parent tests spawn the child in a subprocess; child tests are gated
 /// by `SIGNAL_TEST_CHILD=1` to avoid running in the parent process.
 
 #[test]
-fn test_wait_for_shutdown_signal_sigterm() {
+fn test_subscribe_shutdown_signals_sigterm() {
     let test_binary = std::env::current_exe().expect("current exe");
     let output = std::process::Command::new(test_binary)
         .env("SIGNAL_TEST_CHILD", "1")
         .arg("--exact")
-        .arg("process_tests::test_wait_for_shutdown_signal_sigterm_child")
+        .arg("process_tests::test_subscribe_shutdown_signals_sigterm_child")
         .output()
         .expect("failed to run subprocess");
     assert!(
@@ -537,12 +517,12 @@ fn test_wait_for_shutdown_signal_sigterm() {
 }
 
 #[test]
-fn test_wait_for_shutdown_signal_sigint() {
+fn test_subscribe_shutdown_signals_sigint() {
     let test_binary = std::env::current_exe().expect("current exe");
     let output = std::process::Command::new(test_binary)
         .env("SIGNAL_TEST_CHILD", "1")
         .arg("--exact")
-        .arg("process_tests::test_wait_for_shutdown_signal_sigint_child")
+        .arg("process_tests::test_subscribe_shutdown_signals_sigint_child")
         .output()
         .expect("failed to run subprocess");
     assert!(
@@ -552,13 +532,16 @@ fn test_wait_for_shutdown_signal_sigint() {
     );
 }
 
-/// Subprocess child: sends SIGTERM and verifies return value.
+/// Subprocess child: sends SIGTERM and verifies next_signal returns it.
 #[tokio::test]
-async fn test_wait_for_shutdown_signal_sigterm_child() {
+async fn test_subscribe_shutdown_signals_sigterm_child() {
     if std::env::var("SIGNAL_TEST_CHILD").is_err() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
+    let mut sub = subscribe_shutdown_signals()
+        .await
+        .expect("subscribe_shutdown_signals should succeed");
     let my_pid = std::process::id();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -567,19 +550,23 @@ async fn test_wait_for_shutdown_signal_sigterm_child() {
             libc::kill(my_pid as i32, libc::SIGTERM);
         }
     });
-    let (kind, _sigint, _sigterm) = wait_for_shutdown_signal()
+    let kind = sub
+        .next_signal()
         .await
-        .expect("wait_for_shutdown_signal should succeed");
+        .expect("next_signal should return a signal");
     assert_eq!(kind, SignalKind::terminate(), "should return terminate");
 }
 
-/// Subprocess child: sends SIGINT and verifies return value.
+/// Subprocess child: sends SIGINT and verifies next_signal returns it.
 #[tokio::test]
-async fn test_wait_for_shutdown_signal_sigint_child() {
+async fn test_subscribe_shutdown_signals_sigint_child() {
     if std::env::var("SIGNAL_TEST_CHILD").is_err() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
+    let mut sub = subscribe_shutdown_signals()
+        .await
+        .expect("subscribe_shutdown_signals should succeed");
     let my_pid = std::process::id();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -588,40 +575,47 @@ async fn test_wait_for_shutdown_signal_sigint_child() {
             libc::kill(my_pid as i32, libc::SIGINT);
         }
     });
-    let (kind, _sigint, _sigterm) = wait_for_shutdown_signal()
+    let kind = sub
+        .next_signal()
         .await
-        .expect("wait_for_shutdown_signal should succeed");
+        .expect("next_signal should return a signal");
     assert_eq!(kind, SignalKind::interrupt(), "should return interrupt");
 }
 
-/// Returned handlers can be reused for subsequent recv calls.
+/// Subscription can be called repeatedly: multiple next_signal calls
+/// each return a subsequent signal in FIFO order.
 /// Parent test spawns a subprocess with isolation to avoid cross-test
 /// signal handler contamination.
 #[test]
-fn test_wait_for_shutdown_signal_handler_reuse() {
+fn test_subscribe_shutdown_signals_multiple_next_signal() {
     let test_binary = std::env::current_exe().expect("current exe");
     let output = std::process::Command::new(test_binary)
         .env("SIGNAL_TEST_CHILD", "1")
         .arg("--exact")
-        .arg("process_tests::test_wait_for_shutdown_signal_handler_reuse_child")
+        .arg("process_tests::test_subscribe_shutdown_signals_multiple_next_signal_child")
         .output()
         .expect("failed to run subprocess");
     assert!(
         output.status.success(),
-        "handler reuse subprocess failed: {}",
+        "multiple next_signal subprocess failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
-/// Subprocess child: verifies returned handlers are reusable.
+/// Subprocess child: verifies repeated next_signal calls each capture
+/// a subsequent signal — the subscription is reusable.
 #[tokio::test]
-async fn test_wait_for_shutdown_signal_handler_reuse_child() {
+async fn test_subscribe_shutdown_signals_multiple_next_signal_child() {
     if std::env::var("SIGNAL_TEST_CHILD").is_err() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
+    let mut sub = subscribe_shutdown_signals()
+        .await
+        .expect("subscribe_shutdown_signals should succeed");
     let my_pid = std::process::id();
-    // First signal: triggers wait_for_shutdown_signal to return.
+
+    // First signal: SIGTERM.
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
         // SAFETY: kill with SIGTERM is a standard POSIX operation.
@@ -629,11 +623,17 @@ async fn test_wait_for_shutdown_signal_handler_reuse_child() {
             libc::kill(my_pid as i32, libc::SIGTERM);
         }
     });
-    let (_kind, mut sigint, mut sigterm) = wait_for_shutdown_signal()
+    let first = sub
+        .next_signal()
         .await
-        .expect("wait_for_shutdown_signal should succeed");
+        .expect("first next_signal should return a signal");
+    assert_eq!(
+        first,
+        SignalKind::terminate(),
+        "first signal should be SIGTERM"
+    );
 
-    // Second signal: verify returned handlers are still usable.
+    // Second signal: SIGINT.
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
         // SAFETY: kill with SIGINT is a standard POSIX operation.
@@ -641,15 +641,14 @@ async fn test_wait_for_shutdown_signal_handler_reuse_child() {
             libc::kill(my_pid as i32, libc::SIGINT);
         }
     });
-    // Use returned handlers in a new select to confirm they work.
-    let second_kind = tokio::select! {
-        _ = sigint.recv() => SignalKind::interrupt(),
-        _ = sigterm.recv() => SignalKind::terminate(),
-    };
+    let second = sub
+        .next_signal()
+        .await
+        .expect("second next_signal should return a signal");
     assert_eq!(
-        second_kind,
+        second,
         SignalKind::interrupt(),
-        "handler reuse should capture the second signal"
+        "second signal should be SIGINT"
     );
 }
 
@@ -669,7 +668,7 @@ fn test_stop_daemon_exit_race() {
     // Write PID file *after* the process is dead (simulating race).
     write_pid_file(&path, pid).unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(3)).unwrap();
     assert_eq!(
         outcome,
         StopOutcome::NotRunning,
@@ -688,7 +687,7 @@ fn test_stop_daemon_normal_polling_wait() {
     let pid = spawn_detached_sleep_pid();
     write_pid_file(&path, pid).unwrap();
 
-    let outcome = stop_daemon(&path, false, std::time::Duration::from_secs(3)).unwrap();
+    let outcome = stop_daemon(&path, std::time::Duration::from_secs(3)).unwrap();
     assert_eq!(outcome, StopOutcome::Stopped(pid));
     assert!(!path.exists(), "PID file should be removed after stop");
 }

@@ -44,10 +44,7 @@ enum Commands {
         #[arg(long, hide = true, default_value_t = false)]
         foreground: bool,
     },
-    Stop {
-        #[arg(short, long)]
-        force: bool,
-    },
+    Stop,
     /// Restart the gateway (optionally with --force to skip idle wait).
     Restart {
         #[arg(short, long)]
@@ -75,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
             let runner = closeclaw::daemon::bridge::DaemonRunnerImpl;
             handle_run(config_dir, cli.json, foreground, &runner).await?
         }
-        Commands::Stop { force } => handle_stop(force, cli.json).await?,
+        Commands::Stop => handle_stop(cli.json).await?,
         Commands::Restart { force } => handle_restart(force, cli.json).await?,
     }
     Ok(())

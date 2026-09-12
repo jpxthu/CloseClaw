@@ -13,8 +13,8 @@ pub use config::root_dir;
 pub use fs::{expand_env, expand_home, expand_path, normalize_path};
 pub use process::{
     check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,
-    stop_daemon, wait_for_exit, wait_for_shutdown_signal, write_pid_file, SpawnOptions,
-    StopOutcome,
+    stop_daemon, subscribe_shutdown_signals, wait_for_exit, write_pid_file,
+    ShutdownSignalSubscription, SpawnOptions, StopOutcome,
 };
 pub use terminal::{
     current_uid, detect, is_terminal, read_line_raw, resolve_terminal_width, supports_ansi,

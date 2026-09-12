@@ -473,9 +473,9 @@
   },
   {
     "path": "docs/design/platform/process.md",
-    "commit": "468328443326816e4dd9fc221dee1f1aeb5593e9",
-    "commit_time": "2026-09-11T14:02:31+08:00",
-    "confirmed_time": "2026-09-11T14:13:11.190039+08:00",
+    "commit": "9b583f701a7a82d54517e29ab495ea54990e43b9",
+    "commit_time": "2026-09-12T16:44:23+08:00",
+    "confirmed_time": "2026-09-12T16:54:17.018398+08:00",
     "comment": "",
     "blocked_reason": ""
   },
