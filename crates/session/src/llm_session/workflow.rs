@@ -140,7 +140,9 @@ mod tests {
             "    goal: Do first thing\n",
             "    allow_blocked: true\n",
             "    verify:\n",
-            "      - Check output",
+            "      - Check output\n",
+            "    transitions:\n",
+            "      - action: complete",
         );
         let content = format!("---\n{yaml}\n---\n\nBody.\n");
         std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
@@ -158,12 +160,18 @@ mod tests {
             "  - id: 0\n",
             "    name: Step 0\n",
             "    goal: Do first thing\n",
+            "    verify:\n",
+            "      - Check output\n",
             "    transitions:\n",
             "      - action: goto\n",
             "        target_step: 1\n",
             "  - id: 1\n",
             "    name: Step 1\n",
             "    goal: Do second thing\n",
+            "    verify:\n",
+            "      - Done\n",
+            "    transitions:\n",
+            "      - action: complete\n",
         );
         let content = format!("---\n{yaml}\n---\n\nBody.\n");
         std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
@@ -181,6 +189,8 @@ mod tests {
             "  - id: 0\n",
             "    name: Step 0\n",
             "    goal: Do thing\n",
+            "    verify:\n",
+            "      - Done\n",
             "    transitions:\n",
             "      - action: complete\n",
         );
@@ -200,6 +210,8 @@ mod tests {
             "  - id: 0\n",
             "    name: Step 0\n",
             "    goal: Do thing\n",
+            "    verify:\n",
+            "      - Done\n",
             "    transitions:\n",
             "      - action: reexecute\n",
             "        target_step: 0\n",
@@ -484,12 +496,17 @@ mod tests {
             "        type: boolean\n",
             "    transitions:\n",
             "      - when:\n",
-            "          go_next: 'yes'\n",
+            "          go_next: true\n",
             "        action: goto\n",
             "        target_step: 1\n",
+            "      - action: complete\n",
             "  - id: 1\n",
             "    name: Step 1\n",
             "    goal: Do second thing\n",
+            "    verify:\n",
+            "      - Done\n",
+            "    transitions:\n",
+            "      - action: complete\n",
         );
         let content = format!("---\n{yaml}\n---\n\nBody.\n");
         std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();

@@ -198,7 +198,7 @@ fn test_handle_verify_no_jumps_default_transition() {
 
 #[test]
 fn test_handle_verify_no_jumps_no_transitions_returns_error() {
-    let wf = simple_workflow();
+    let wf = no_transitions_workflow();
     let mut run = WorkflowEngine::start(&wf);
     let result = WorkflowEngine::handle_verify(&mut run, &wf);
     assert!(result.is_err());
@@ -317,13 +317,39 @@ fn test_handle_jump_complete() {
 
 #[test]
 fn test_handle_jump_no_match_returns_error() {
-    let wf = conditional_only_workflow();
+    // Use struct construction for a step with conditional-only transitions
+    // (no default fallback) to test the NoMatchingTransition error path.
+    let wf = crate::definition::Workflow {
+        id: "no-default".into(),
+        name: "No Default".into(),
+        description: "".into(),
+        version: None,
+        allow_blocked: false,
+        verify_retry_limit: 3,
+        step_data_schema: serde_yaml::Value::Null,
+        steps: vec![crate::definition::Step {
+            id: 0,
+            name: "Decide".into(),
+            allow_blocked: None,
+            goal: "Choose".into(),
+            verify: vec![],
+            jump: vec![crate::definition::JumpQuestion {
+                id: "go_next".into(),
+                prompt: "Go?".into(),
+                question_type: "boolean".into(),
+                options: vec![],
+                option_labels: vec![],
+            }],
+            transitions: vec![crate::definition::Transition {
+                when: Some(serde_yaml::from_str("go_next: true").unwrap()),
+                action: "goto".into(),
+                target_step: Some(0),
+            }],
+        }],
+    };
     let mut run = WorkflowEngine::start(&wf);
     let mut answers = HashMap::new();
-    answers.insert(
-        "go_next".into(),
-        serde_yaml::Value::String("neither".into()),
-    );
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(false));
     let result = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
     assert!(result.is_err());
     assert!(matches!(

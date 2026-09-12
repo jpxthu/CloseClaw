@@ -249,7 +249,9 @@ mod tests {
             "    goal: Do first thing\n",
             "    allow_blocked: true\n",
             "    verify:\n",
-            "      - Check output",
+            "      - Check output\n",
+            "    transitions:\n",
+            "      - action: complete",
         );
         let content = format!("---\n{yaml}\n---\n\nBody.\n");
         std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::definition_validator::validate_definition;
 use crate::error::WorkflowError;
 use crate::run::GoalHint;
 
@@ -60,6 +61,10 @@ impl Workflow {
 
         let workflow: Workflow =
             serde_yaml::from_str(content).map_err(WorkflowError::from_yaml_error)?;
+
+        // Defensive validation: reject invalid definitions before they
+        // enter the engine runtime.
+        validate_definition(&workflow)?;
 
         Ok(workflow)
     }

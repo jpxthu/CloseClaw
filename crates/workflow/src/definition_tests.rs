@@ -15,6 +15,10 @@ steps:
   - id: 0
     name: Step Zero
     goal: Do something
+    verify:
+      - Done
+    transitions:
+      - action: complete
 "#
 }
 
@@ -66,6 +70,10 @@ steps:
   - id: 0
     name: Step One
     goal: Execute
+    verify:
+      - Done
+    transitions:
+      - action: complete
 ---
 "#
 }
@@ -130,9 +138,9 @@ fn test_default_step_data_schema() {
 #[test]
 fn test_default_step_verify_and_jumps() {
     let wf = Workflow::parse_frontmatter(single_step_yaml()).unwrap();
-    assert!(wf.steps[0].verify.is_empty());
+    assert_eq!(wf.steps[0].verify, vec!["Done"]);
     assert!(wf.steps[0].jump.is_empty());
-    assert!(wf.steps[0].transitions.is_empty());
+    assert_eq!(wf.steps[0].transitions.len(), 1);
     assert!(wf.steps[0].allow_blocked.is_none());
 }
 
@@ -183,6 +191,8 @@ steps:
   - id: 0
     name: Decide
     goal: Choose a path
+    verify:
+      - Done
     jump:
       - id: path_choice
         prompt: Which path?
@@ -276,7 +286,14 @@ steps: "not an array"
 
 #[test]
 fn test_parse_skill_md_with_valid_frontmatter() {
-    let md = "---\nid: skill-md\nname: Skill MD\ndescription: Parsed from SKILL.md\nsteps:\n  - id: 0\n    name: Step\n    goal: Goal\n---\n\nSome body content that should be ignored.\n";
+    let md = concat!(
+        "---\nid: skill-md\nname: Skill MD\n",
+        "description: Parsed from SKILL.md\nsteps:\n",
+        "  - id: 0\n    name: Step\n    goal: Goal\n",
+        "    verify:\n      - Done\n",
+        "    transitions:\n      - action: complete\n",
+        "---\n\nSome body content that should be ignored.\n",
+    );
     let wf = Workflow::parse_skill_md(md).unwrap();
     assert_eq!(wf.id, "skill-md");
 }
@@ -323,6 +340,10 @@ steps:
   - id: 0
     name: Step
     goal: Goal
+    verify:
+      - Done
+    transitions:
+      - action: complete
 "#;
     let wf = Workflow::parse_frontmatter(yaml).unwrap();
     assert_eq!(wf.verify_retry_limit, 10);
@@ -344,9 +365,17 @@ steps:
     name: Blocked Step
     allow_blocked: true
     goal: Can block
+    verify:
+      - Check
+    transitions:
+      - action: complete
   - id: 1
     name: Non-blocked Step
     goal: Cannot block
+    verify:
+      - Check
+    transitions:
+      - action: complete
 "#;
     let wf = Workflow::parse_frontmatter(yaml).unwrap();
     assert!(!wf.allow_blocked);
@@ -615,4 +644,170 @@ fn test_build_jump_message_header() {
     let step = make_jump_step_boolean();
     let msg = build_jump_message(&step);
     assert!(msg.starts_with("Jump Step 0 (Ready) \u{2014} 请回答以下跳转问题:"));
+}
+
+// ---------------------------------------------------------------------------
+// Validation-rejection: structurally deserializable YAML that fails validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_parse_rejects_empty_steps() {
+    let yaml = r#"
+id: empty
+name: Empty
+description: No steps
+steps: []
+"#;
+    let result = Workflow::parse_frontmatter(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, crate::error::WorkflowError::InvalidDefinition(_)),
+        "expected InvalidDefinition, got: {err}"
+    );
+    let err = format!("{err}");
+    assert!(err.contains("steps must not be empty"));
+}
+
+#[test]
+fn test_parse_rejects_step_id_gap() {
+    let yaml = r#"
+id: gap
+name: Gap
+description: Id gap
+steps:
+  - id: 0
+    name: First
+    goal: First step
+    verify:
+      - Done
+    transitions:
+      - action: complete
+  - id: 2
+    name: Second
+    goal: Second step
+    verify:
+      - Done
+    transitions:
+      - action: complete
+"#;
+    let result = Workflow::parse_frontmatter(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, crate::error::WorkflowError::InvalidDefinition(_)),
+        "expected InvalidDefinition, got: {err}"
+    );
+    let err = format!("{err}");
+    assert!(err.contains("expected id 1, got 2"));
+}
+
+#[test]
+fn test_parse_rejects_empty_verify() {
+    let yaml = r#"
+id: no-verify
+name: No Verify
+description: Empty verify list
+steps:
+  - id: 0
+    name: Step
+    goal: Goal
+    verify: []
+    transitions:
+      - action: complete
+"#;
+    let result = Workflow::parse_frontmatter(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, crate::error::WorkflowError::InvalidDefinition(_)),
+        "expected InvalidDefinition, got: {err}"
+    );
+    let err = format!("{err}");
+    assert!(err.contains("verify checklist must not be empty"));
+}
+
+#[test]
+fn test_parse_rejects_empty_transitions() {
+    let yaml = r#"
+id: no-trans
+name: No Trans
+description: Empty transitions
+steps:
+  - id: 0
+    name: Step
+    goal: Goal
+    verify:
+      - Done
+    transitions: []
+"#;
+    let result = Workflow::parse_frontmatter(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, crate::error::WorkflowError::InvalidDefinition(_)),
+        "expected InvalidDefinition, got: {err}"
+    );
+    let err = format!("{err}");
+    assert!(err.contains("transitions must not be empty"));
+}
+
+#[test]
+fn test_parse_rejects_goto_target_out_of_range() {
+    let yaml = r#"
+id: bad-target
+name: Bad Target
+description: Goto target does not exist
+steps:
+  - id: 0
+    name: Step
+    goal: Goal
+    verify:
+      - Done
+    jump:
+      - id: go
+        prompt: Go?
+        type: boolean
+    transitions:
+      - when:
+          go: true
+        action: goto
+        target_step: 5
+      - action: complete
+"#;
+    let result = Workflow::parse_frontmatter(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, crate::error::WorkflowError::InvalidDefinition(_)),
+        "expected InvalidDefinition, got: {err}"
+    );
+    let err = format!("{err}");
+    assert!(err.contains("target_step is invalid or out of range"));
+}
+
+#[test]
+fn test_parse_rejects_empty_name() {
+    let yaml = r#"
+id: no-name
+name: ""
+description: Empty name
+steps:
+  - id: 0
+    name: ""
+    goal: Goal
+    verify:
+      - Done
+    transitions:
+      - action: complete
+"#;
+    let result = Workflow::parse_frontmatter(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(&err, crate::error::WorkflowError::InvalidDefinition(_)),
+        "expected InvalidDefinition, got: {err}"
+    );
+    let err = format!("{err}");
+    assert!(err.contains("name must not be empty"));
 }
