@@ -3,19 +3,7 @@
 
 use crate::engine::WorkflowEngine;
 use crate::run::{Phase, WorkflowRun};
-
-fn simple_workflow() -> crate::definition::Workflow {
-    let yaml = r#"
-id: simple
-name: Simple
-description: Single step workflow
-steps:
-  - id: 0
-    name: Only Step
-    goal: Do the thing
-"#;
-    crate::definition::Workflow::parse_frontmatter(yaml).unwrap()
-}
+use crate::test_fixtures::simple_workflow;
 
 #[test]
 fn test_paused_reason_round_trip_serde() {

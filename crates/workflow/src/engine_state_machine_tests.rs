@@ -134,6 +134,7 @@ fn test_on_verify_injected_three_times_enters_blocked() {
     }
     assert_eq!(run.pending_verify, 3);
     assert_eq!(run.phase, Phase::Blocked);
+    assert_eq!(run.paused_reason, "验收重试次数耗尽");
 }
 
 #[test]
