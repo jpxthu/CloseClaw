@@ -9,7 +9,7 @@ pub mod fs;
 pub mod process;
 pub mod terminal;
 
-pub use config::config_dir;
+pub use config::root_dir;
 pub use fs::{expand_env, expand_home, expand_path, normalize_path, to_platform_path};
 pub use process::{
     check_stale_pid, is_process_alive, pid_file_path, read_pid_file, send_signal, spawn_daemon,

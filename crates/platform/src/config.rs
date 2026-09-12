@@ -31,6 +31,7 @@ pub(crate) fn root_dir_path(home: &str) -> PathBuf {
 /// Computes the config path under the given home directory.
 ///
 /// Does **not** create the directory — pure path computation only.
+#[cfg(test)]
 pub(crate) fn config_dir_path(home: &str) -> PathBuf {
     PathBuf::from(home).join(DIR_NAME).join("config")
 }
@@ -52,6 +53,7 @@ pub(crate) fn root_dir_inner(home: &str) -> anyhow::Result<PathBuf> {
 ///
 /// Shared by [`config_dir`]; exists separately so tests can inject a
 /// synthetic `home` value without touching environment variables.
+#[cfg(test)]
 pub(crate) fn config_dir_inner(home: &str) -> anyhow::Result<PathBuf> {
     let path = config_dir_path(home);
     std::fs::create_dir_all(&path)
@@ -79,24 +81,4 @@ pub fn root_dir() -> anyhow::Result<PathBuf> {
     let home = std::env::var(home_env_var_name())
         .map_err(|_| anyhow::anyhow!("{} environment variable not set", home_env_var_name()))?;
     root_dir_inner(&home)
-}
-
-/// Returns the **config** directory,
-/// creating it (and any parent directories) if it does not yet exist.
-///
-/// This is the subdirectory that contains JSON config files (models.json,
-/// channels.json, gateway.json, plugins.json, system.json).
-///
-/// The directory is created idempotently — calling this function when the
-/// directory already exists is safe and has no side effects.
-///
-/// # Errors
-///
-/// Returns an error if the `HOME` environment variable cannot be determined,
-/// or if the directory cannot be created (e.g. a parent path is a file
-/// instead of a directory).
-pub fn config_dir() -> anyhow::Result<PathBuf> {
-    let home = std::env::var(home_env_var_name())
-        .map_err(|_| anyhow::anyhow!("{} environment variable not set", home_env_var_name()))?;
-    config_dir_inner(&home)
 }
