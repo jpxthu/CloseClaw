@@ -174,6 +174,7 @@ fn test_e2e_owner_terminate_from_blocked() {
     assert_eq!(run.phase, Phase::Blocked);
 
     WorkflowEngine::on_owner_terminate(&mut run);
+    assert!(run.paused_reason.is_empty());
     assert!(WorkflowEngine::is_complete(&run));
 }
 
