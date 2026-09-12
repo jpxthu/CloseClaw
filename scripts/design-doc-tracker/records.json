@@ -217,9 +217,9 @@
   },
   {
     "path": "docs/design/im_adapter/README.md",
-    "commit": "1a2176b26ea637bdc1be04bdfee7e2b0404750cf",
-    "commit_time": "2026-09-03T15:16:58+08:00",
-    "confirmed_time": "2026-09-03T15:34:32.093640+08:00",
+    "commit": "6b01b6637645d15e0ad99511929f382e00878bb2",
+    "commit_time": "2026-09-13T00:40:20+08:00",
+    "confirmed_time": "2026-09-13T01:48:12.608960+08:00",
     "comment": "",
     "blocked_reason": ""
   },
