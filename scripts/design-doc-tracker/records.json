@@ -449,9 +449,9 @@
   },
   {
     "path": "docs/design/platform/README.md",
-    "commit": "3d2037d2b4b1f6df4f74fa6b2a8ec60fab99c58a",
-    "commit_time": "2026-09-11T14:15:10+08:00",
-    "confirmed_time": "2026-09-11T14:23:26.167968+08:00",
+    "commit": "0ff279b684cc5336157b59f66c9ea4adda6ecd5c",
+    "commit_time": "2026-09-12T15:45:27+08:00",
+    "confirmed_time": "2026-09-12T15:53:03.992457+08:00",
     "comment": "",
     "blocked_reason": ""
   },
@@ -465,9 +465,9 @@
   },
   {
     "path": "docs/design/platform/file-path.md",
-    "commit": "30d5b7ed37ee73d8fda77d30ce7c07994462d31f",
-    "commit_time": "2026-09-11T02:49:24+08:00",
-    "confirmed_time": "2026-09-11T03:04:16.880785+08:00",
+    "commit": "4e06b4f5844cbc05817b8a975eb0ef028ac0523c",
+    "commit_time": "2026-09-12T15:27:31+08:00",
+    "confirmed_time": "2026-09-12T15:38:01.134378+08:00",
     "comment": "",
     "blocked_reason": ""
   },
