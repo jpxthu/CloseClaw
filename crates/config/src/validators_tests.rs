@@ -745,11 +745,13 @@ fn test_validate_media_fail_not_object() {
 #[test]
 fn test_validate_session_pass_variants() {
     for json in [
-        r#"{"sweeperIntervalSeconds":600,"compact":{}}"#,
         r#"{}"#,
-        r#"{"compact":{}}"#,
+        r#"{"sweeperIntervalSeconds":600}"#,
         r#"{"sweeperIntervalSeconds":1}"#,
-        r#"{"sweeperIntervalSeconds":600,"idleMinutes":30,"purgeAfterMinutes":1440,"compact":{}}"#,
+        r#"{"sweeperIntervalSeconds":600,"idleMinutes":30,"purgeAfterMinutes":1440}"#,
+        r#"{"compact":null}"#,
+        r#"{"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3}}"#,
+        r#"{"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3,"autoCompactThresholdPct":0.05,"warningThresholdPct":0.1}}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
         assert!(validate_session(&v).is_ok(), "json={}", json);
@@ -820,7 +822,7 @@ fn test_validate_session_fail_multiple_invalid() {
 #[test]
 fn test_default_validator_session_passes_valid_json() {
     let v: serde_json::Value =
-        serde_json::from_str(r#"{"sweeperIntervalSeconds":300,"compact":{}}"#).unwrap();
+        serde_json::from_str(r#"{"sweeperIntervalSeconds":300,"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3}}"#).unwrap();
     let validator = ConfigSection::Session.default_validator();
     assert!(validator(&v).is_ok());
 }
