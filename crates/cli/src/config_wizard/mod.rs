@@ -119,7 +119,7 @@ pub fn parse_model_selection(input: &str, total: usize) -> anyhow::Result<Vec<us
 
 /// Locate the project config directory (`~/.closeclaw/config/`).
 fn config_dir() -> anyhow::Result<PathBuf> {
-    closeclaw_platform::config::config_dir()
+    Ok(closeclaw_platform::root_dir()?.join("config"))
 }
 
 /// Create the initial `master` agent if it does not already exist.
