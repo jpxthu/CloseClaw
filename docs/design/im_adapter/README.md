@@ -41,7 +41,7 @@ platforms/<平台名>/
 
 IM Adapter 模块通过 [ToolRegistrar](../tools/tool-registrar.md) trait 向 ToolRegistry 注册平台插件工具。注册入口是**模块级唯一注册入口**——模块以单一 Registrar 加入 Tools 模块的全局编排（[四个标准 Registrar](../tools/tool-registrar.md#四个标准-registrar) 之一），与 tools/session/skills 模块对称。平台插件目录（`platforms/<平台>/tools/`）只承载工具实现，不承担注册职责。
 
-新增平台工具的约定：在对应平台 `tools/` 目录实现工具，并在模块级 Registrar 的注册清单中声明该工具分组。飞书平台注册的工具分组见 [飞书插件](platforms/feishu.md)，各工具分组详细参数见 [tools 模块文档](../tools/README.md)。
+新增平台工具的约定：在对应平台 `tools/` 目录实现工具，并在模块级 Registrar 的注册清单中声明该工具分组。飞书平台注册的工具分组与各工具定义见 [飞书插件 · 对外工具](platforms/feishu.md#对外工具)。
 
 ```
 im_adapter/

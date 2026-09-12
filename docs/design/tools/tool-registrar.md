@@ -2,7 +2,7 @@
 
 ## 概述
 
-ToolRegistrar 是工具注册能力的统一 trait，定义在 [common 模块](../common/core-traits.md#toolregistrar)，抽象各模块「我能注册工具」的接口契约。Tools 模块收集所有 ToolRegistrar 实现者、按优先级数值升序依次调用其注册方法，完成全局工具编排；Mode 执行触发工具、Workflow 工具属系统级例外，不经此 trait。
+ToolRegistrar 是工具注册能力的统一 trait，定义在 [common 模块](../common/core-traits.md#toolregistrar)，抽象各模块「我能注册工具」的接口契约。Tools 模块收集所有 ToolRegistrar 实现者、按优先级数值升序依次调用其注册方法，完成全局工具编排；Mode 执行触发工具、Workflow 工具属系统级例外，不经标准 Registrar 编排。
 
 ## 架构
 
@@ -12,13 +12,7 @@ ToolRegistrar 的完整接口定义见 [common/core-traits.md](../common/core-tr
 
 ### 编排流程
 
-Registrar 以「工具分组」为单位注册——注册一个分组即注册该组的全部工具。
-
-1. Tools 模块启动初始化，收集所有 ToolRegistrar 实现者
-2. 按优先级数值升序排序
-3. 依次调用各 Registrar 的注册方法，将其工具分组写入 ToolRegistry
-4. Mode 执行触发工具、Workflow 工具在冻结之前另行注册（独立于上述 Registrar 调用链）
-5. 全部注册完成，ToolRegistry 冻结，进入运行态
+Registrar 以「工具分组」为单位注册——注册一个分组即注册该组的全部工具。Tools 模块在启动编排阶段收集所有 ToolRegistrar 实现者，按优先级数值升序排序后依次调用其注册方法，将各分组写入 ToolRegistry；Mode 执行触发工具、Workflow 工具在冻结前另行注册，不经标准 Registrar 编排；全部注册完成后 ToolRegistry 冻结、进入运行态。逐步输入 → 处理 → 输出路径见「数据流」节。
 
 ### 四个标准 Registrar
 
@@ -31,11 +25,11 @@ Registrar 以「工具分组」为单位注册——注册一个分组即注册�
 
 优先级数值决定调用顺序；新增工具提供模块时选择合适的优先级值即可加入编排链，Tools 模块无需修改。
 
-Mode 的执行触发工具、Workflow 工具在 ToolRegistry 初始化阶段、冻结之前注册，不经上述四个标准 Registrar 编排（见 [mode/execution.md](../mode/execution.md)、[workflow-tools.md](../workflow/workflow-tools.md)）。
+Mode 执行触发工具、Workflow 工具在启动编排阶段、冻结之前注册，不经标准 Registrar 编排（见 [mode/execution.md](../mode/execution.md)、[workflow-tools.md](../workflow/workflow-tools.md)）。
 
 ### 冻结语义
 
-全部 Registrar 及系统级工具注册完成后，ToolRegistry 冻结进入运行态：冻结后不再接受新注册，仅对外提供详情查询、分组查询与索引构建。
+全部 Registrar 及系统级工具注册完成后，ToolRegistry 冻结进入运行态：冻结后注册集合保持不变、不再接受新注册，对外仅提供详情查询与分组查询。冻结发生在启动编排阶段；索引构建与工具清单在 System Prompt 组装时生成（见 [tools-prompt-injection.md](tools-prompt-injection.md)）。
 
 ### 补充规则
 
@@ -44,10 +38,10 @@ Mode 的执行触发工具、Workflow 工具在 ToolRegistry 初始化阶段、�
 ## 数据流
 
 1. 系统启动，Tools 模块收集所有 ToolRegistrar 实现者，按优先级数值升序排序
-2. 依次调用各 Registrar 的注册方法，将其工具分组写入 ToolRegistry：CoreToolsRegistrar -> bash/file_ops/git_ops/meta；SessionToolsRegistrar -> sessions；SkillsToolsRegistrar -> skills；ImAdapterToolsRegistrar -> feishu_im、feishu_calendar、feishu_task、feishu_bitable、feishu_doc、feishu_drive、feishu_sheet
+2. 依次调用各 Registrar 的注册方法，将其工具分组写入 ToolRegistry（各 Registrar 及其分组见「四个标准 Registrar」表）
 3. Mode 执行触发工具、Workflow 工具在冻结之前另行注册
 4. 全部注册完成，ToolRegistry 冻结，进入运行态
-5. 运行期由 ToolRegistry 对外提供详情查询、分组查询与索引构建
+5. 运行期由 ToolRegistry 对外提供详情查询与分组查询；索引构建在 System Prompt 组装时进行（见 [tools-prompt-injection.md](tools-prompt-injection.md)）
 
 ## 模块关系
 
@@ -69,4 +63,4 @@ Tools 模块自身以 CoreToolsRegistrar 实现 trait，注册 bash/file_ops/git
 ### 无关
 
 - **Tool trait**：ToolRegistrar 管理「谁注册工具」，不关心单个工具的内部接口
-- **注册后的工具调用路径**：权限校验、工具执行、结果返回等流程不受 ToolRegistrar 影响
+- **注册后的工具调用路径**：ToolRegistry 提供工具定义的查询与解析；权限校验、工具执行、结果返回由工具调用链完成，ToolRegistrar 仅承担注册入口职责、不参与调用路径

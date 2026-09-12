@@ -136,17 +136,19 @@ Renderer 产出的 RenderedOutput 由 Adapter 映射为 lark-cli 命令发送：
 
 ### 对外工具
 
-飞书插件通过 IM Adapter 的模块级工具注册入口（见 [README 对外工具](../README.md#对外工具)）注册以下工具分组到 ToolRegistry：
+飞书插件通过 IM Adapter 的模块级工具注册入口（见 [README 对外工具](../README.md#对外工具)）注册以下工具分组到 ToolRegistry。飞书工具的注册分组与能力范围以本节为准，其他文档引用本节、不重复定义；组内具名工具属实现细节，本文档不展开。
 
-- **feishu_im**：飞书 IM 消息操作（发送、撤回、编辑、表情回应等）
-- **feishu_calendar**：飞书日历管理
-- **feishu_task**：飞书任务管理
-- **feishu_bitable**：飞书多维表格操作
-- **feishu_doc**：飞书文档操作
-- **feishu_drive**：飞书云盘操作
-- **feishu_sheet**：飞书电子表格操作
+| 分组 | 能力范围 |
+|------|---------|
+| feishu_im | 飞书 IM 消息操作：发送、撤回、编辑消息，添加/撤回表情回应等 |
+| feishu_calendar | 飞书日历：日程创建、查询、修改、删除 |
+| feishu_task | 飞书任务：任务创建、查询、修改、删除 |
+| feishu_bitable | 飞书多维表格：表格数据读写、记录管理 |
+| feishu_doc | 飞书文档：文档创建、编辑、读取 |
+| feishu_drive | 飞书云盘：文件上传、下载、管理 |
+| feishu_sheet | 飞书电子表格：表格创建、编辑、读取 |
 
-全部飞书工具默认延迟加载，首次调用时才初始化。工具执行与 Adapter 的消息收发共用 lark-cli 命令通道与凭证管理。各工具分组的详细参数见 [tools 模块文档](../../tools/README.md)。
+全部飞书工具默认延迟加载，首次调用时才初始化。工具执行与 Adapter 的消息收发共用 lark-cli 命令通道与凭证管理。
 
 ## 模块关系
 

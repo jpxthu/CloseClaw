@@ -34,7 +34,7 @@ Tools 模块由三层组成：接口层、注册中心层、工具提供者层�
 
 ### 注册中心层
 
-ToolRegistry 是线程安全的全局工具注册与查询入口，运行期以工具名为键持有所有已注册工具。提供以下能力：
+ToolRegistry 是并发安全的全局工具注册与查询入口，运行期以工具名为键持有所有已注册工具。提供以下能力：
 
 - **注册**：Tools 模块按优先级编排各 ToolRegistrar，依次调用其注册方法写入其工具，工具名冲突时报错
 - **冻结**：全部注册完成后标记注册结束，此后拒绝新注册
@@ -78,8 +78,9 @@ Tools 模块自身向 ToolRegistry 注册以下核心工具：
 |------|------|---------|---------|
 | bash | Bash | 始终加载 | tools |
 | file_ops | Read、Write、Edit、Grep、Ls | 始终加载 | tools |
-| git_ops | GitStatus、GitLog、GitCommit、GitPush、GitPull | 延迟加载 | tools |
-| meta | ToolSearch、PermissionQuery | 始终加载 | tools |
+| git_ops | GitStatus、GitLog、GitCommit、GitPush、GitPull | 始终加载 | tools |
+| meta | ToolSearch | 始终加载 | tools |
+| meta | PermissionQuery | 延迟加载 | tools |
 
 Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read-tool.md](read-tool.md)、[write-edit-tool.md](write-edit-tool.md)。Git 操作组中状态和日志为只读，提交、推送、拉取为破坏性操作。meta 分组的 ToolSearch 承载工具发现，PermissionQuery 向 Agent 暴露当前权限状态、使其了解自己可执行的操作范围（权限维度与语义见 [permission 模块](../permission/README.md)）。
 
@@ -89,23 +90,16 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 
 | 注册模块 | 分组 | 工具 | 加载策略 |
 |---------|------|------|---------|
-| [Mode](../mode/README.md) | mode | 执行触发工具 | 始终加载 |
+| [Mode](../mode/README.md) | mode | 执行触发工具 | 延迟加载 |
 | [Session](../session/README.md) | sessions | sessions_spawn、sessions_steer、sessions_kill、sessions_yield | 始终加载 |
-| [Skills](../skills/README.md) | skills | SkillTool | 始终加载 |
-| [Workflow](../workflow/README.md) | workflow | workflow_start、workflow_verify、workflow_jump、workflow_blocked | 始终加载 |
-| [IM Adapter](../im_adapter/README.md) | feishu_im | feishu_im_user_message、feishu_im_user_get_messages、feishu_im_user_get_thread_messages、feishu_search_user | 延迟加载 |
-| [IM Adapter](../im_adapter/README.md) | feishu_calendar | — | — |
-| [IM Adapter](../im_adapter/README.md) | feishu_task | — | — |
-| [IM Adapter](../im_adapter/README.md) | feishu_bitable | — | — |
-| [IM Adapter](../im_adapter/README.md) | feishu_doc | — | — |
-| [IM Adapter](../im_adapter/README.md) | feishu_drive | — | — |
-| [IM Adapter](../im_adapter/README.md) | feishu_sheet | — | — |
+| [Skills](../skills/README.md) | skills | SkillTool | 延迟加载 |
+| [Workflow](../workflow/README.md) | workflow | workflow_start、workflow_verify、workflow_jump、workflow_blocked | 延迟加载 |
+| [IM Adapter](../im_adapter/README.md) | feishu_im / feishu_calendar / feishu_task / feishu_bitable / feishu_doc / feishu_drive / feishu_sheet | 见 [飞书插件](../im_adapter/platforms/feishu.md#对外工具) | 延迟加载 |
 
 补充说明：
 
 - **注册编排**：Mode 的执行触发工具、Workflow 工具在 ToolRegistry 初始化阶段、冻结之前注册，不经 [tool-registrar.md](tool-registrar.md) 的四个标准 Registrar（tools、session、skills、im_adapter）编排；其中仅 Workflow 工具为系统级工具、跳过权限校验（见 [mode/execution.md](../mode/execution.md)、[workflow-tools.md](../workflow/workflow-tools.md)）。
 - **SkillCreator** 是 Skills 模块的 Bundled 技能，经 SkillTool 分发执行，不作为独立工具注册（见 [skills/skill-execution.md](../skills/skill-execution.md)）。
-- **飞书扩展能力域**：IM 消息操作（feishu_im）是 CloseClaw 固有能力，工具已定义；日历、任务、多维表格、文档、云盘、电子表格由需求声明为飞书扩展能力域（见 [飞书需求 §F6](../../requirements/im_adapter/feishu.md)），但接口与采集数据尚未齐备、设计无法落地，其工具暂不定义（表中以 — 标注）。
 
 ## 数据流
 
