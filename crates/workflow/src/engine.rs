@@ -268,6 +268,7 @@ impl WorkflowEngine {
             step_name: step.name.clone(),
             entered_at: run.current_step_entered_at.clone(),
             completed_at: chrono::Utc::now().to_rfc3339(),
+            status: crate::run::StepHistoryStatus::Completed,
         });
 
         run.current_step = target;

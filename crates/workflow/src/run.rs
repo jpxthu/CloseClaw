@@ -30,6 +30,20 @@ pub enum Phase {
     Complete,
 }
 
+/// Completion status of a workflow step in history.
+///
+/// Indicates whether the step completed normally or was overridden by a
+/// jump (skipped to another target).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StepHistoryStatus {
+    /// Step completed normally.
+    #[default]
+    Completed,
+    /// Step was skipped via a jump action (overridden by engine).
+    Skipped,
+}
+
 /// Entry in the step history recording completed steps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepHistoryEntry {
@@ -42,6 +56,9 @@ pub struct StepHistoryEntry {
     pub entered_at: String,
     /// ISO 8601 timestamp when the step was completed.
     pub completed_at: String,
+    /// Completion status of the step (Completed or Skipped).
+    #[serde(default)]
+    pub status: StepHistoryStatus,
 }
 
 /// Persistent state tracking verify injection attempts.
