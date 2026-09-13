@@ -727,6 +727,42 @@ mod tests {
         }
     }
 
+    // ── Test 13: get_workdir None + static None + Level 2 hit ──────────
+
+    #[tokio::test]
+    async fn test_workflow_global_dir_fallback_no_workdir_no_static() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Write workflow only under the global directory (Level 2).
+        write_workflow_file(tmp.path(), "Test WF");
+
+        let mock = Arc::new(MockQuery::new());
+        // get_workdir returns None (default mock), agent_workspace is None.
+        // global_workflows points to tmp.path() so Level 2 is available.
+        let handler = WorkflowSlashHandler::new(mock.clone(), None, Some(tmp.path().to_path_buf()));
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("Test WF", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(
+                    msg.contains("已启动"),
+                    "should start via Level 2 global fallback (skip Level 1): {msg}"
+                );
+                assert!(msg.contains("Step Zero"));
+            }
+            _ => panic!("expected Reply for Level 2 fallback start"),
+        }
+
+        // Full chain side effects verified.
+        assert_eq!(mock.set_workflow_run_calls().len(), 1);
+        assert!(mock.set_workflow_run_calls()[0].1);
+        assert_eq!(mock.injection_appends().len(), 1);
+        assert!(mock.injection_appends()[0].1.contains("--- WORKFLOW ---"));
+        assert_eq!(mock.pending_messages().len(), 1);
+        assert!(mock.pending_messages()[0].1.contains("[workflow goal]"));
+    }
+
     // ── Test 12: Registration — commands() returns ["workflow"] ───────────
 
     #[test]

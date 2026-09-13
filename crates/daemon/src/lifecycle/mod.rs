@@ -869,7 +869,16 @@ impl Daemon {
         // Register `/workflow` slash handler (design doc §触发机制/§工具注册).
         // agent_workspace=None: resolved dynamically via get_workdir(session_id)
         // at handle()-time, consistent with session-layer workflow lookup.
-        let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
+        let global_workflows = match dirs::home_dir() {
+            Some(home) => Some(home.join(".openclaw")),
+            None => {
+                warn!(
+                    "global workflow directory unavailable: $HOME is not set — \
+                     workflow lookup will only search agent workspace and builtins"
+                );
+                None
+            }
+        };
         slash_registry.register(Arc::new(WorkflowSlashHandler::new(
             Arc::clone(&sm_query),
             None,
