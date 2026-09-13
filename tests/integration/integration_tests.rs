@@ -150,7 +150,7 @@ async fn test_skill_loading_and_execution_chain() {
         registry.register(skill).await;
     }
 
-    // Verify skills loaded (6 builtin skills, no permission_query)
+    // Verify skills loaded (7 builtin skills, no permission_query)
     let skills = registry.list().await;
     assert!(skills.contains(&"file_ops".to_string()));
     assert!(skills.contains(&"git_ops".to_string()));
@@ -158,7 +158,8 @@ async fn test_skill_loading_and_execution_chain() {
     assert!(skills.contains(&"skill_discovery".to_string()));
     assert!(skills.contains(&"coding_agent".to_string()));
     assert!(skills.contains(&"skill_creator".to_string()));
-    assert_eq!(skills.len(), 6);
+    assert!(skills.contains(&"create_workflow".to_string()));
+    assert_eq!(skills.len(), 7);
 
     // Verify each skill has a valid body (prompt instructions)
     let file_ops = registry.get("file_ops").await;
