@@ -127,7 +127,7 @@ fn build_template(name: &str, description: &str) -> serde_json::Value {
 /// Build a single step template aligned with design doc.
 fn build_step_template() -> serde_json::Value {
     json!({
-        "id": 1,
+        "id": 0,
         "name": "Step Name",
         "goal": "What the Agent should accomplish",
         "verify": ["check criterion"],
@@ -163,7 +163,7 @@ fn build_frontmatter_fields() -> serde_json::Value {
 /// Step fields documentation aligned with design doc.
 fn build_step_fields() -> serde_json::Value {
     json!({
-        "id": "Unique integer step identifier (1-based, sequential)",
+        "id": "Unique integer step identifier (0-based, sequential)",
         "name": "Human-readable step name",
         "allow_blocked": "Override workflow-level allow_blocked \
             (optional)",
@@ -188,8 +188,9 @@ fn build_transition_rules() -> Vec<serde_json::Value> {
         ),
         json!("Conditions must be unique within a step"),
         json!(
-            "A default transition (no when, action=complete) \
-            is required and must be the last entry"
+            "A default transition (no when) is required and \
+            must be the last entry; action may be \
+            goto, reexecute, or complete"
         ),
         json!(
             "target_step must reference a valid step id that \
@@ -257,7 +258,7 @@ consists of:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| id | int | Unique 1-based sequential identifier |
+| id | int | Unique 0-based sequential identifier |
 | name | string | Human-readable step name |
 | allow_blocked | bool | Override workflow-level allow_blocked (optional) |
 | goal | string | Step objective (plain text) |
@@ -272,8 +273,9 @@ consists of:
 - `when` maps JumpQuestion ids to expected values; omit for
   the default fallback.
 - Conditions must be unique within a step.
-- A default transition (no `when`, action="complete") is
-  **required** and must be the **last** entry.
+- A default transition (no `when`) is
+  **required** and must be the **last** entry. The `action`
+  may be `goto`, `reexecute`, or `complete`.
 - `target_step` must reference a valid step id that exists in
   the workflow.
 
