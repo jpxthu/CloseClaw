@@ -302,7 +302,7 @@ impl WorkflowHandler {
             Some(s) => s,
             None => return false,
         };
-        let allow_blocked = step.allow_blocked.unwrap_or(false);
+        let allow_blocked = step.allow_blocked.unwrap_or(self.definition.allow_blocked);
 
         if let Err(e) =
             WorkflowEngine::handle_blocked(&mut self.run, &self.definition, allow_blocked, reason)

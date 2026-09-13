@@ -36,7 +36,38 @@ fn make_test_workflow() -> Workflow {
                 transitions: vec![],
                 allow_blocked: Some(false),
             },
+            Step {
+                id: 2,
+                name: "Step 2".to_string(),
+                goal: "Do third thing".to_string(),
+                verify: vec!["Check third".to_string()],
+                jump: vec![],
+                transitions: vec![],
+                allow_blocked: None, // inherits from workflow
+            },
         ],
+    }
+}
+
+/// Workflow with allow_blocked=true at workflow level, no step overrides.
+fn make_workflow_level_blocked_workflow() -> Workflow {
+    Workflow {
+        id: "wf-level-blocked".to_string(),
+        name: "WF Level Blocked".to_string(),
+        description: "Workflow with allow_blocked=true".to_string(),
+        version: Some("0.1".to_string()),
+        allow_blocked: true,
+        verify_retry_limit: 3,
+        step_data_schema: serde_yaml::Value::Null,
+        steps: vec![Step {
+            id: 0,
+            name: "Step 0".to_string(),
+            goal: "Do thing".to_string(),
+            verify: vec![],
+            jump: vec![],
+            transitions: vec![],
+            allow_blocked: None, // inherits from workflow (true)
+        }],
     }
 }
 
@@ -337,4 +368,38 @@ fn test_enum_empty_options_not_mapped() {
     answers.insert("empty_opts".into(), serde_yaml::Value::String("A".into()));
     handler.map_enum_letter_answers(&mut answers);
     assert_eq!(answers["empty_opts"], serde_yaml::Value::String("A".into()));
+}
+
+// ── allow_blocked inheritance ──────────────────────────────────────
+
+#[test]
+fn test_step_inherits_workflow_level_allow_blocked() {
+    let wf = make_workflow_level_blocked_workflow();
+    let mut run = make_test_run();
+    run.workflow_id = wf.id.clone();
+    run.definition_name = wf.name.clone();
+    let mut handler = WorkflowHandler::new(run, wf);
+    // Step 0 has allow_blocked=None, workflow has allow_blocked=true
+    let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
+    assert!(handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Blocked);
+}
+
+#[test]
+fn test_step_override_blocks_workflow_level_allow_blocked() {
+    let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
+    // Step 0 has allow_blocked=Some(true) but workflow has allow_blocked=false
+    // Step-level override should win
+    let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
+    assert!(handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Blocked);
+}
+
+#[test]
+fn test_step_none_inherits_workflow_false() {
+    let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
+    handler.run_mut().current_step = 2; // step 2 has allow_blocked=None, workflow has allow_blocked=false
+    let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
+    assert!(!handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Executing);
 }
