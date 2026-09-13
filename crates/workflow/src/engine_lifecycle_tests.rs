@@ -207,6 +207,7 @@ fn test_e2e_owner_resolve_then_verify() {
 fn test_e2e_pending_verify_resets_after_jump() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.pending_verify.count = 2;
 
     let mut answers = HashMap::new();
@@ -234,6 +235,7 @@ fn test_e2e_pending_verify_resets_after_verify() {
 fn test_enum_answer_mapping_via_handler() {
     let wf = enum_jump_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("strategy".into(), serde_yaml::Value::String("fast".into()));
     let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
@@ -245,6 +247,7 @@ fn test_enum_answer_mapping_via_handler() {
 fn test_enum_answer_mapping_slow() {
     let wf = enum_jump_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("strategy".into(), serde_yaml::Value::String("slow".into()));
     let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();

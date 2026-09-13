@@ -221,6 +221,7 @@ fn test_handle_verify_no_jumps_no_transitions_returns_error() {
 fn test_handle_jump_goto_clears_step_data() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.step_data = serde_yaml::Value::String("data".into());
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
@@ -233,6 +234,7 @@ fn test_handle_jump_goto_clears_step_data() {
 fn test_handle_jump_goto_appends_history() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
     let _ = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
@@ -256,6 +258,7 @@ fn test_handle_jump_goto_sets_phase_executing() {
 fn test_handle_jump_goto_resets_pending_verify() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.pending_verify.count = 2;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
@@ -271,6 +274,7 @@ fn test_handle_jump_goto_resets_pending_verify() {
 fn test_handle_jump_reexecute_preserves_step_data() {
     let wf = reexecute_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.step_data = serde_yaml::Value::String("keep".into());
     let mut answers = HashMap::new();
     answers.insert("retry".into(), serde_yaml::Value::Bool(true));
@@ -308,6 +312,7 @@ fn test_handle_jump_reexecute_stays_same_step() {
 fn test_handle_jump_complete() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(false));
     let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
@@ -352,6 +357,7 @@ fn test_handle_jump_no_match_returns_error() {
         }],
     };
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(false));
     let result = WorkflowEngine::handle_jump(&mut run, &wf, &answers);

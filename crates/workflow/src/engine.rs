@@ -175,6 +175,13 @@ impl WorkflowEngine {
         workflow: &Workflow,
         answers: &HashMap<String, serde_yaml::Value>,
     ) -> Result<JumpAction, WorkflowError> {
+        if run.phase != Phase::Jumping {
+            return Err(WorkflowError::InvalidPhase {
+                expected: Phase::Jumping,
+                actual: run.phase.clone(),
+            });
+        }
+
         let step = workflow
             .steps
             .get(run.current_step)
