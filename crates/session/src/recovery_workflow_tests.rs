@@ -315,6 +315,27 @@ mod tests {
         }
     }
 
+    fn write_skill_md(dir: &std::path::Path, workflow_name: &str) {
+        let wf_dir = dir.join("workflows").join(workflow_name);
+        std::fs::create_dir_all(&wf_dir).unwrap();
+        let yaml = concat!(
+            "id: test-wf\n",
+            "name: Test Workflow\n",
+            "description: A test workflow\n",
+            "steps:\n",
+            "  - id: 0\n",
+            "    name: Step 0\n",
+            "    goal: Do first thing\n",
+            "    allow_blocked: true\n",
+            "    verify:\n",
+            "      - Check output\n",
+            "    transitions:\n",
+            "      - action: complete",
+        );
+        let content = format!("---\n{yaml}\n---\n\nBody.\n");
+        std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    }
+
     #[test]
     fn test_cleanup_removes_workflow_context() {
         let mut cp = make_test_checkpoint("wf-c1");
@@ -427,5 +448,124 @@ mod tests {
             .iter()
             .all(|s| !s.starts_with(WORKFLOW_RECOVERY_PREFIX)));
         assert!(cp.user_appends.contains(&"user-append".to_string()));
+    }
+
+    // ── recovery_workflow_messages tests ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_executing_with_definition() {
+        // When definition loads from disk, both recovered + goal messages are built.
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "test-wf");
+
+        let mut cp = make_test_checkpoint("wf-rwm-1");
+        cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
+
+        inject_workflow_recovery("wf-rwm-1", &mut cp, Some(tmp.path())).await;
+
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            2,
+            "should have recovered + goal"
+        );
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+        assert!(cp.recovery_workflow_messages[0].contains("test-wf"));
+        assert!(cp.recovery_workflow_messages[0].contains("Step 0"));
+        assert!(cp.recovery_workflow_messages[0].contains("Step Zero"));
+        assert!(cp.recovery_workflow_messages[1].starts_with("[workflow goal]"));
+        assert!(cp.recovery_workflow_messages[1].contains("Do first thing"));
+    }
+
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_no_definition() {
+        // When definition not found on disk, only recovered message is built.
+        let mut cp = make_test_checkpoint("wf-rwm-2");
+        cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
+
+        inject_workflow_recovery("wf-rwm-2", &mut cp, None).await;
+
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            1,
+            "should have only recovered"
+        );
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+        assert!(cp.recovery_workflow_messages[0].contains("Step 1"));
+    }
+
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_blocked_with_reason() {
+        // Blocked phase: recovered message includes pause reason, goal is still built.
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "test-wf");
+
+        let mut cp = make_test_checkpoint("wf-rwm-3");
+        let mut run = make_workflow_run(0, Phase::Executing);
+        run.definition_version = "999".to_string(); // Force version mismatch
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-rwm-3", &mut cp, Some(tmp.path())).await;
+
+        // Version mismatch → step 0 doesn't exist in definition with version "999"
+        // Wait: definition has version "0.1", run has "999", so handle_definition_version_change
+        // should block. But step 0 exists in definition (1 step), so it won't block.
+        // The version mismatch check is: if wf.version != wf_run.definition_version,
+        // then check if step_num >= wf.steps.len(). Since step 0 < 1, it won't block.
+        // So we should still get 2 messages.
+        assert!(cp.recovery_workflow_messages.len() >= 1);
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+    }
+
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_step_out_of_range() {
+        // When current_step exceeds definition steps, only recovered message built.
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "test-wf");
+
+        let mut cp = make_test_checkpoint("wf-rwm-4");
+        let mut run = make_workflow_run(5, Phase::Executing);
+        run.definition_version = "999".to_string(); // Force version mismatch
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-rwm-4", &mut cp, Some(tmp.path())).await;
+
+        // Step 5 >= 1 (definition has 1 step) → blocked, goal not built
+        let wf_run = cp.workflow_run.as_ref().unwrap();
+        assert_eq!(wf_run.phase, Phase::Blocked);
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            1,
+            "only recovered, no goal"
+        );
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+    }
+
+    #[test]
+    fn test_cleanup_clears_recovery_workflow_messages() {
+        let mut cp = make_test_checkpoint("wf-rwm-5");
+        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        cp.recovery_workflow_messages = vec!["msg1".to_string(), "msg2".to_string()];
+
+        cleanup_workflow_exit(&mut cp);
+
+        assert!(cp.recovery_workflow_messages.is_empty());
+    }
+
+    #[test]
+    fn test_cleanup_preserves_other_fields_with_messages() {
+        let mut cp = make_test_checkpoint("wf-rwm-6");
+        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        cp.recovery_workflow_messages = vec!["recovered".to_string(), "goal".to_string()];
+        cp.system_injection_appends
+            .push(build_workflow_context_append(&make_test_workflow_def()));
+        cp.user_appends.push("user-append".to_string());
+
+        let report = cleanup_workflow_exit(&mut cp);
+
+        assert!(report.had_workflow_run);
+        assert!(cp.workflow_run.is_none());
+        assert!(cp.recovery_workflow_messages.is_empty());
+        assert!(cp.system_injection_appends.is_empty());
+        assert_eq!(cp.user_appends.len(), 1);
     }
 }

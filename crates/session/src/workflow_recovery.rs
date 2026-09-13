@@ -5,8 +5,9 @@
 
 use crate::persistence::SessionCheckpoint;
 use closeclaw_workflow::context_append::{build_workflow_context_append, has_workflow_context};
+use closeclaw_workflow::definition::build_goal_message;
 use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
-use closeclaw_workflow::run::Phase;
+use closeclaw_workflow::run::{GoalHint, Phase};
 
 /// Prefix marker for workflow recovery notification in `system_injection_appends`.
 pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
@@ -68,6 +69,9 @@ pub async fn inject_workflow_recovery(
             wf_run.paused_reason.clone(),
         )
     };
+    // Build recovery workflow messages (recovered + goal) for transcript injection.
+    // store_recovery_notification remains for system prompt context.
+    build_recovery_workflow_messages(&wf, checkpoint);
     store_recovery_notification(
         &definition_name,
         step_num,
@@ -186,6 +190,56 @@ fn handle_definition_version_change(
     }
 }
 
+/// Build recovery workflow messages (recovered + goal) and store them
+/// in `checkpoint.recovery_workflow_messages` for Gateway transcript injection.
+///
+/// When the definition could not be loaded from disk (`wf` is `None`),
+/// only the recovered message is built (goal requires step definitions).
+/// When the workflow is in Blocked phase, goal message is skipped
+/// (per design doc: blocked recovery only injects recovered + goal if step exists).
+fn build_recovery_workflow_messages(
+    wf: &Option<closeclaw_workflow::definition::Workflow>,
+    checkpoint: &mut SessionCheckpoint,
+) {
+    let wf_run = match checkpoint.workflow_run.as_ref() {
+        Some(run) => run,
+        None => return,
+    };
+    let step_num = wf_run.current_step;
+    let step_name = wf_run
+        .step_history
+        .last()
+        .map(|e| e.step_name.as_str())
+        .unwrap_or("unknown");
+
+    // Recovered message (always built)
+    let recovered_msg = format!(
+        "[workflow recovered] 正在执行 {}，当前 Step {} ({})",
+        wf_run.definition_name, step_num, step_name
+    );
+
+    // Goal message (only when definition loaded and step exists)
+    let goal_msg = wf.as_ref().and_then(|wf_def| {
+        wf_def
+            .steps
+            .get(step_num)
+            .map(|step| build_goal_message(step, GoalHint::Normal))
+    });
+
+    let mut msgs = vec![recovered_msg];
+    if let Some(ref goal) = goal_msg {
+        msgs.push(goal.clone());
+    }
+
+    tracing::debug!(
+        step = step_num,
+        goal_built = goal_msg.is_some(),
+        "built recovery workflow messages"
+    );
+
+    checkpoint.recovery_workflow_messages = msgs;
+}
+
 /// Clean up all workflow-related state from a session checkpoint.
 ///
 /// Performs the four cleanup steps required by the workflow exit flow:
@@ -223,6 +277,9 @@ pub fn cleanup_workflow_exit(checkpoint: &mut SessionCheckpoint) -> WorkflowExit
     if had_workflow_run {
         checkpoint.workflow_run = None;
     }
+
+    // 4. Clear recovery_workflow_messages.
+    checkpoint.recovery_workflow_messages.clear();
 
     tracing::debug!(
         removed_contexts,
