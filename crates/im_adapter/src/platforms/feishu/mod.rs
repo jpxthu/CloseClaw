@@ -46,6 +46,8 @@ pub(crate) mod process_manager;
 mod process_manager_tests;
 pub mod renderer;
 #[cfg(test)]
+mod renderer_decision_tests;
+#[cfg(test)]
 mod send_fallback_tests;
 mod send_helpers;
 #[cfg(test)]
@@ -722,30 +724,26 @@ impl IMPlugin for FeishuPlugin {
     fn render(
         &self,
         content_blocks: &[ContentBlock],
-        dsl_result: Option<&DslParseResult>,
+        _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
         if content_blocks.is_empty() {
             return build_text("");
         }
 
-        let has_dsl = dsl_result
-            .as_ref()
-            .is_some_and(|r| !r.instructions.is_empty());
-
         if content_blocks.len() == 1 {
             if let ContentBlock::Text(text) = &content_blocks[0] {
-                if !has_dsl && !renderer::should_use_card(text, false) {
+                if !renderer::should_use_card(text, false) {
                     return build_text(text.trim());
                 }
             }
         }
 
-        if !should_use_card_for_blocks(content_blocks, has_dsl) {
+        if !should_use_card_for_blocks(content_blocks, false) {
             return build_text("");
         }
 
         let start = Instant::now();
-        let (title, elements) = renderer::dispatch_blocks(content_blocks, dsl_result, true);
+        let (title, elements) = renderer::dispatch_blocks(content_blocks, None, true);
         let output = build_card(title, elements);
         let render_duration_ms = start.elapsed().as_millis() as u64;
 

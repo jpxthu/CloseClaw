@@ -37,6 +37,9 @@ fn all_feishu_tools() -> Vec<Box<dyn Tool>> {
         Box::new(FeishuBitableAppTableRecordTool::new()),
         Box::new(FeishuBitableAppTableFieldTool::new()),
         Box::new(FeishuBitableAppTableViewTool::new()),
+        Box::new(FeishuDocCreateTool::new()),
+        Box::new(FeishuDocEditTool::new()),
+        Box::new(FeishuDocReadTool::new()),
         Box::new(FeishuDocCommentsTool::new()),
         Box::new(FeishuDocMediaTool::new()),
         Box::new(FeishuSearchDocWikiTool::new()),
@@ -65,6 +68,9 @@ fn expected_tools() -> Vec<(&'static str, &'static str)> {
         ("feishu_bitable_app_table_record", "feishu_bitable"),
         ("feishu_bitable_app_table_field", "feishu_bitable"),
         ("feishu_bitable_app_table_view", "feishu_bitable"),
+        ("feishu_doc_create", "feishu_doc"),
+        ("feishu_doc_edit", "feishu_doc"),
+        ("feishu_doc_read", "feishu_doc"),
         ("feishu_doc_comments", "feishu_doc"),
         ("feishu_doc_media", "feishu_doc"),
         ("feishu_search_doc_wiki", "feishu_doc"),
@@ -79,7 +85,7 @@ fn expected_tools() -> Vec<(&'static str, &'static str)> {
 
 #[test]
 fn test_all_tools_count() {
-    assert_eq!(all_feishu_tools().len(), 22);
+    assert_eq!(all_feishu_tools().len(), 25);
 }
 
 #[test]
@@ -119,7 +125,7 @@ async fn test_register_tools_populates_registry() {
 
     let ctx = make_ctx();
     let descriptors = registry.list_descriptors(&ctx).await;
-    assert_eq!(descriptors.len(), 22, "expected 22 feishu tools registered");
+    assert_eq!(descriptors.len(), 25, "expected 25 feishu tools registered");
 
     // Every tool should be deferred
     for desc in &descriptors {
@@ -160,7 +166,7 @@ async fn test_register_tools_no_duplicates() {
         result.is_err(),
         "expected conflict on duplicate registration"
     );
-    assert_eq!(registry.len_for_test().await, 22);
+    assert_eq!(registry.len_for_test().await, 25);
 }
 
 // ---------------------------------------------------------------------------
@@ -247,4 +253,69 @@ fn test_all_feishu_tools_keywords_are_lowercase_alphanumeric() {
             );
         }
     }
+}
+
+// ===========================================================================
+// Step 1.4: feishu_doc_create / feishu_doc_edit / feishu_doc_read
+//           metadata and NotImplemented behavior assertions
+// ===========================================================================
+
+#[tokio::test]
+async fn test_feishu_doc_create_metadata() {
+    let tool = FeishuDocCreateTool::new();
+    assert_eq!(tool.name(), "feishu_doc_create");
+    assert_eq!(tool.group(), "feishu_doc");
+    assert!(tool.flags().is_deferred_by_default);
+    assert!(tool.detail().starts_with("[keywords:"));
+}
+
+#[tokio::test]
+async fn test_feishu_doc_edit_metadata() {
+    let tool = FeishuDocEditTool::new();
+    assert_eq!(tool.name(), "feishu_doc_edit");
+    assert_eq!(tool.group(), "feishu_doc");
+    assert!(tool.flags().is_deferred_by_default);
+    assert!(tool.detail().starts_with("[keywords:"));
+}
+
+#[tokio::test]
+async fn test_feishu_doc_read_metadata() {
+    let tool = FeishuDocReadTool::new();
+    assert_eq!(tool.name(), "feishu_doc_read");
+    assert_eq!(tool.group(), "feishu_doc");
+    assert!(tool.flags().is_deferred_by_default);
+    assert!(tool.detail().starts_with("[keywords:"));
+}
+
+#[tokio::test]
+async fn test_feishu_doc_create_returns_not_implemented() {
+    let tool = FeishuDocCreateTool::new();
+    let ctx = make_ctx();
+    let result = tool.call(serde_json::json!({}), &ctx).await;
+    assert!(matches!(
+        result,
+        Err(closeclaw_tools::ToolCallError::NotImplemented)
+    ));
+}
+
+#[tokio::test]
+async fn test_feishu_doc_edit_returns_not_implemented() {
+    let tool = FeishuDocEditTool::new();
+    let ctx = make_ctx();
+    let result = tool.call(serde_json::json!({}), &ctx).await;
+    assert!(matches!(
+        result,
+        Err(closeclaw_tools::ToolCallError::NotImplemented)
+    ));
+}
+
+#[tokio::test]
+async fn test_feishu_doc_read_returns_not_implemented() {
+    let tool = FeishuDocReadTool::new();
+    let ctx = make_ctx();
+    let result = tool.call(serde_json::json!({}), &ctx).await;
+    assert!(matches!(
+        result,
+        Err(closeclaw_tools::ToolCallError::NotImplemented)
+    ));
 }
