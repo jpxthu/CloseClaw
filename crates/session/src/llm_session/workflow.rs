@@ -712,4 +712,67 @@ mod tests {
         let handler = session.workflow_handler().unwrap();
         assert_eq!(handler.run().pending_goal_hint, GoalHint::Normal);
     }
+
+    /// Blocked phase erases verify injection + tool_call + tool_result.
+    /// Reproduces the design-doc requirement:
+    /// > Agent 调用 workflow_verify **或 workflow_blocked** 后，Engine 抹除
+    /// > verify 注入消息 + tool_call + tool_result 三条消息
+    #[test]
+    fn test_blocked_triggers_message_erasure() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "Test Workflow");
+        let mut session = make_session_with_phase(&tmp, "Test Workflow", Phase::Executing);
+
+        // 1) Inject verify message (role: workflow).
+        session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
+        assert_eq!(wf_messages(&session).len(), 1, "verify injected");
+
+        // 2) Inject assistant tool_call(workflow_blocked) into session.
+        session.push_message(
+            "assistant",
+            vec![ContentBlock::ToolUse {
+                id: "tc_blocked".to_string(),
+                name: "workflow_blocked".to_string(),
+                input: r#"{"reason": "cannot proceed"}"#.to_string(),
+            }],
+        );
+
+        // 3) Process tool_result (not yet in session messages).
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_blocked".to_string(),
+            content: r#"{"action": "workflow_blocked", "reason": "cannot proceed"}"#.to_string(),
+        }];
+        let processed = session.process_workflow_tool_results(&blocks);
+
+        assert!(processed, "should have processed blocked action");
+        assert_eq!(
+            session.workflow_handler().unwrap().run().phase,
+            Phase::Blocked,
+            "phase should be Blocked"
+        );
+
+        // All three workflow messages erased:
+        // - verify injection (role: workflow)
+        // - assistant tool_call(workflow_blocked)
+        // - user tool_result
+        assert_eq!(
+            wf_messages(&session).len(),
+            0,
+            "verify injection should be erased"
+        );
+        let has_tool_call = session.messages.iter().any(|m| {
+            m.content_blocks.iter().any(|b| match b {
+                ContentBlock::ToolUse { name, .. } => name == "workflow_blocked",
+                _ => false,
+            })
+        });
+        assert!(!has_tool_call, "tool_call should be erased");
+        let has_tool_result = session.messages.iter().any(|m| {
+            m.content_blocks.iter().any(|b| match b {
+                ContentBlock::ToolResult { tool_call_id, .. } => tool_call_id == "tc_blocked",
+                _ => false,
+            })
+        });
+        assert!(!has_tool_result, "tool_result should be erased");
+    }
 }
