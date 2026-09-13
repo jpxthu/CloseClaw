@@ -8,8 +8,7 @@ use crate::workflow_handler::JumpResult;
 
 use super::ConversationSession;
 
-/// Workflow methods: run/handler access, tool result processing,
-/// transcript cleanup.
+// ── Run / handler accessors ─────────────────────────────────────
 impl ConversationSession {
     /// Returns a reference to the active workflow run, if any.
     pub fn workflow_run(&self) -> Option<&closeclaw_workflow::run::WorkflowRun> {
@@ -37,7 +36,10 @@ impl ConversationSession {
     ) {
         self.workflow_handler = handler;
     }
+}
 
+// ── Tool result processing ──────────────────────────────────────
+impl ConversationSession {
     /// Process workflow tool results from LLM content blocks.
     ///
     /// Returns `true` if any action was processed.
@@ -47,7 +49,7 @@ impl ConversationSession {
         self.ensure_workflow_handler();
         if let Some(ref mut handler) = self.workflow_handler {
             let was_jumping = handler.run().phase == Phase::Jumping;
-            let prev_phase = handler.run().phase.clone();
+            let was_blocked_before = handler.run().phase == Phase::Blocked;
             let (processed, jump_result) = handler.process_content_blocks(blocks);
             if processed {
                 self.workflow_run = Some(handler.run().clone());
@@ -84,21 +86,26 @@ impl ConversationSession {
                 };
                 self.dispatch_post_jump_phase(current_phase, current_step, hint);
                 tracing::debug!("jump messages cleaned up after phase transition");
-            } else if processed && prev_phase != Phase::Blocked {
-                // Verify blocked → remove verify messages + tool exchange.
-                let current_phase = self
-                    .workflow_handler
-                    .as_ref()
-                    .map(|h| h.run().phase.clone());
-                if current_phase == Some(Phase::Blocked) {
-                    self.remove_workflow_verify_messages();
-                    self.remove_workflow_tool_exchange(&["workflow_verify", "workflow_blocked"]);
-                    tracing::debug!("blocked phase: verify messages erased");
-                }
+            } else if processed && !was_blocked_before {
+                self.erase_blocked_phase_messages();
             }
             processed
         } else {
             false
+        }
+    }
+
+    /// Erase verify injection + tool_call + tool_result when blocked phase
+    /// is entered. Mirrors the erasure done on verify→jump transitions.
+    fn erase_blocked_phase_messages(&mut self) {
+        let is_blocked = self
+            .workflow_handler
+            .as_ref()
+            .is_some_and(|h| h.run().phase == Phase::Blocked);
+        if is_blocked {
+            self.remove_workflow_verify_messages();
+            self.remove_workflow_tool_exchange(&["workflow_verify", "workflow_blocked"]);
+            tracing::debug!("blocked phase: verify messages erased");
         }
     }
 
