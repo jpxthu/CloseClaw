@@ -865,9 +865,9 @@
   },
   {
     "path": "docs/design/tools/tools-prompt-injection.md",
-    "commit": "46866ea7f7c634846ea1b725b4a9d853cea8baac",
-    "commit_time": "2026-09-11T23:29:23+08:00",
-    "confirmed_time": "2026-09-11T23:48:03.868568+08:00",
+    "commit": "a5267bf8517e56002d563909f42c18618de4c183",
+    "commit_time": "2026-09-13T08:52:09+08:00",
+    "confirmed_time": "2026-09-13T09:00:37.195242+08:00",
     "comment": "",
     "blocked_reason": ""
   },
