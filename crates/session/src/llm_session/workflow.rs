@@ -8,8 +8,7 @@ use crate::workflow_handler::JumpResult;
 
 use super::ConversationSession;
 
-/// Workflow methods: run/handler access, tool result processing,
-/// transcript cleanup.
+// ── Run / handler accessors ─────────────────────────────────────
 impl ConversationSession {
     /// Returns a reference to the active workflow run, if any.
     pub fn workflow_run(&self) -> Option<&closeclaw_workflow::run::WorkflowRun> {
@@ -37,7 +36,10 @@ impl ConversationSession {
     ) {
         self.workflow_handler = handler;
     }
+}
 
+// ── Tool result processing ──────────────────────────────────────
+impl ConversationSession {
     /// Process workflow tool results from LLM content blocks.
     ///
     /// Returns `true` if any action was processed.
@@ -47,6 +49,7 @@ impl ConversationSession {
         self.ensure_workflow_handler();
         if let Some(ref mut handler) = self.workflow_handler {
             let was_jumping = handler.run().phase == Phase::Jumping;
+            let was_blocked_before = handler.run().phase == Phase::Blocked;
             let (processed, jump_result) = handler.process_content_blocks(blocks);
             if processed {
                 self.workflow_run = Some(handler.run().clone());
@@ -83,10 +86,26 @@ impl ConversationSession {
                 };
                 self.dispatch_post_jump_phase(current_phase, current_step, hint);
                 tracing::debug!("jump messages cleaned up after phase transition");
+            } else if processed && !was_blocked_before {
+                self.erase_blocked_phase_messages();
             }
             processed
         } else {
             false
+        }
+    }
+
+    /// Erase verify injection + tool_call + tool_result when blocked phase
+    /// is entered. Mirrors the erasure done on verify→jump transitions.
+    fn erase_blocked_phase_messages(&mut self) {
+        let is_blocked = self
+            .workflow_handler
+            .as_ref()
+            .is_some_and(|h| h.run().phase == Phase::Blocked);
+        if is_blocked {
+            self.remove_workflow_verify_messages();
+            self.remove_workflow_tool_exchange(&["workflow_verify", "workflow_blocked"]);
+            tracing::debug!("blocked phase: verify messages erased");
         }
     }
 
@@ -699,5 +718,68 @@ mod tests {
         // Handler hint should be Normal after injection consumed it.
         let handler = session.workflow_handler().unwrap();
         assert_eq!(handler.run().pending_goal_hint, GoalHint::Normal);
+    }
+
+    /// Blocked phase erases verify injection + tool_call + tool_result.
+    /// Reproduces the design-doc requirement:
+    /// > Agent 调用 workflow_verify **或 workflow_blocked** 后，Engine 抹除
+    /// > verify 注入消息 + tool_call + tool_result 三条消息
+    #[test]
+    fn test_blocked_triggers_message_erasure() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "Test Workflow");
+        let mut session = make_session_with_phase(&tmp, "Test Workflow", Phase::Executing);
+
+        // 1) Inject verify message (role: workflow).
+        session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
+        assert_eq!(wf_messages(&session).len(), 1, "verify injected");
+
+        // 2) Inject assistant tool_call(workflow_blocked) into session.
+        session.push_message(
+            "assistant",
+            vec![ContentBlock::ToolUse {
+                id: "tc_blocked".to_string(),
+                name: "workflow_blocked".to_string(),
+                input: r#"{"reason": "cannot proceed"}"#.to_string(),
+            }],
+        );
+
+        // 3) Process tool_result (not yet in session messages).
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_blocked".to_string(),
+            content: r#"{"action": "workflow_blocked", "reason": "cannot proceed"}"#.to_string(),
+        }];
+        let processed = session.process_workflow_tool_results(&blocks);
+
+        assert!(processed, "should have processed blocked action");
+        assert_eq!(
+            session.workflow_handler().unwrap().run().phase,
+            Phase::Blocked,
+            "phase should be Blocked"
+        );
+
+        // All three workflow messages erased:
+        // - verify injection (role: workflow)
+        // - assistant tool_call(workflow_blocked)
+        // - user tool_result
+        assert_eq!(
+            wf_messages(&session).len(),
+            0,
+            "verify injection should be erased"
+        );
+        let has_tool_call = session.messages.iter().any(|m| {
+            m.content_blocks.iter().any(|b| match b {
+                ContentBlock::ToolUse { name, .. } => name == "workflow_blocked",
+                _ => false,
+            })
+        });
+        assert!(!has_tool_call, "tool_call should be erased");
+        let has_tool_result = session.messages.iter().any(|m| {
+            m.content_blocks.iter().any(|b| match b {
+                ContentBlock::ToolResult { tool_call_id, .. } => tool_call_id == "tc_blocked",
+                _ => false,
+            })
+        });
+        assert!(!has_tool_result, "tool_result should be erased");
     }
 }
