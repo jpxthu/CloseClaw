@@ -38,10 +38,14 @@ fn make_test_run(phase: Phase, pending_verify: usize) -> WorkflowRun {
         definition_version: "0.1".to_string(),
         current_step: 0,
         phase,
+        current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
-        pending_verify,
+        pending_verify: closeclaw_workflow::run::PendingVerify {
+            count: pending_verify,
+            ..Default::default()
+        },
         paused_reason: String::new(),
     }
 }
@@ -129,7 +133,7 @@ fn test_resolve_pending_verify_zeroed_not_overwritten() {
     cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
 
     // Before resolve: pending_verify = 3.
-    assert_eq!(cs.workflow_handler().unwrap().run().pending_verify, 3);
+    assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 3);
     assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Blocked);
 
     Gateway::apply_resolve_action(&mut cs);
@@ -137,7 +141,7 @@ fn test_resolve_pending_verify_zeroed_not_overwritten() {
     // After resolve: pending_verify = 0, phase = Verifying.
     let handler = cs.workflow_handler().unwrap();
     assert_eq!(
-        handler.run().pending_verify,
+        handler.run().pending_verify.count,
         0,
         "pending_verify must be zeroed"
     );

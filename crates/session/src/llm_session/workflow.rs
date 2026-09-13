@@ -123,7 +123,7 @@ mod tests {
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::default(),
-            pending_verify: 0,
+            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
             paused_reason: String::new(),
         }
     }
@@ -318,7 +318,7 @@ mod tests {
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::default(),
-            pending_verify: 0,
+            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
             paused_reason: String::new(),
         };
         let mut handler = WorkflowHandler::new(run, definition);

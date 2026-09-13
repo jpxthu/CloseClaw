@@ -27,12 +27,12 @@ fn test_e2e_long_chain_verify_exhaust_resolve_complete() {
     }
     assert_eq!(run.phase, Phase::Blocked);
     assert_eq!(run.paused_reason, "验收重试次数耗尽");
-    assert_eq!(run.pending_verify, 3);
+    assert_eq!(run.pending_verify.count, 3);
 
     WorkflowEngine::on_owner_resolve(&mut run);
     assert_eq!(run.phase, Phase::Verifying);
     assert!(run.paused_reason.is_empty());
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
 
     let result2 = WorkflowEngine::handle_verify(&mut run, &wf);
     assert!(result2.is_err());
@@ -55,7 +55,7 @@ fn test_e2e_single_step_no_jumps_blocked_via_over_limit() {
 
     assert!(WorkflowEngine::on_session_idle(&run));
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
-    assert_eq!(run.pending_verify, 1);
+    assert_eq!(run.pending_verify.count, 1);
     assert_eq!(run.phase, Phase::Verifying);
 
     let result = WorkflowEngine::handle_verify(&mut run, &wf);
@@ -189,7 +189,7 @@ fn test_e2e_owner_resolve_then_verify() {
     assert_eq!(run.phase, Phase::Blocked);
 
     WorkflowEngine::on_owner_resolve(&mut run);
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
     assert_eq!(run.phase, Phase::Verifying);
 }
 
@@ -197,22 +197,22 @@ fn test_e2e_owner_resolve_then_verify() {
 fn test_e2e_pending_verify_resets_after_jump() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    run.pending_verify = 2;
+    run.pending_verify.count = 2;
 
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
     let _ = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
 }
 
 #[test]
 fn test_e2e_pending_verify_resets_after_verify() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    run.pending_verify = 2;
+    run.pending_verify.count = 2;
 
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
 }
 
 // ===========================================================================

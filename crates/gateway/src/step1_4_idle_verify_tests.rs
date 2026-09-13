@@ -47,10 +47,14 @@ fn make_test_run(phase: Phase, pending_verify: usize) -> WorkflowRun {
         definition_version: "0.1".to_string(),
         current_step: 0,
         phase,
+        current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
-        pending_verify,
+        pending_verify: closeclaw_workflow::run::PendingVerify {
+            count: pending_verify,
+            ..Default::default()
+        },
         paused_reason: String::new(),
     }
 }
@@ -139,7 +143,10 @@ async fn read_handler_state(sm: &SessionManager, session_id: &str) -> (Phase, us
     let cs = sm.get_conversation_session(session_id).await.unwrap();
     let cs_read = cs.read().await;
     let handler = cs_read.workflow_handler().unwrap();
-    (handler.run().phase.clone(), handler.run().pending_verify)
+    (
+        handler.run().phase.clone(),
+        handler.run().pending_verify.count,
+    )
 }
 
 // ── Full chain tests ───────────────────────────────────────────────────
@@ -291,10 +298,11 @@ fn test_verify_injected_queues_notification_when_blocked() {
         definition_version: "0.1".to_string(),
         current_step: 0,
         phase: Phase::Executing,
+        current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
-        pending_verify: 0,
+        pending_verify: closeclaw_workflow::run::PendingVerify::default(),
         paused_reason: String::new(),
     };
     let mut handler = WorkflowHandler::new(run, make_test_workflow());

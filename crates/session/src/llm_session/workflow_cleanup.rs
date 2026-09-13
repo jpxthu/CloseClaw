@@ -122,7 +122,7 @@ mod tests {
             }],
             step_data: Default::default(),
             pending_goal_hint: GoalHint::default(),
-            pending_verify: 0,
+            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
             paused_reason: String::new(),
         }
     }

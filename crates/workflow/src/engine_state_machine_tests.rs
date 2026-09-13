@@ -23,7 +23,7 @@ fn test_start_initializes_correctly() {
     assert_eq!(run.phase, Phase::Executing);
     assert!(run.step_history.is_empty());
     assert!(run.step_data.is_null());
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn test_on_verify_injected_increments_count() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
-    assert_eq!(run.pending_verify, 1);
+    assert_eq!(run.pending_verify.count, 1);
     assert_eq!(run.phase, Phase::Verifying);
 }
 
@@ -110,7 +110,7 @@ fn test_on_verify_injected_twice() {
     let mut run = WorkflowEngine::start(&wf);
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
     WorkflowEngine::on_verify_injected(&mut run, wf.verify_retry_limit);
-    assert_eq!(run.pending_verify, 2);
+    assert_eq!(run.pending_verify.count, 2);
     assert_eq!(run.phase, Phase::Verifying);
 }
 
@@ -121,7 +121,7 @@ fn test_on_verify_injected_two_times_stays_verifying() {
     for _ in 0..2 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
-    assert_eq!(run.pending_verify, 2);
+    assert_eq!(run.pending_verify.count, 2);
     assert_eq!(run.phase, Phase::Verifying);
 }
 
@@ -132,7 +132,7 @@ fn test_on_verify_injected_three_times_enters_blocked() {
     for _ in 0..3 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
-    assert_eq!(run.pending_verify, 3);
+    assert_eq!(run.pending_verify.count, 3);
     assert_eq!(run.phase, Phase::Blocked);
     assert_eq!(run.paused_reason, "验收重试次数耗尽");
 }
@@ -144,7 +144,7 @@ fn test_on_verify_injected_beyond_limit_stays_blocked() {
     for _ in 0..4 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
     }
-    assert_eq!(run.pending_verify, 4);
+    assert_eq!(run.pending_verify.count, 4);
     assert_eq!(run.phase, Phase::Blocked);
     assert_eq!(run.paused_reason, "验收重试次数耗尽");
 }
@@ -156,10 +156,10 @@ fn test_on_verify_injected_custom_limit() {
     for _ in 0..4 {
         WorkflowEngine::on_verify_injected(&mut run, 5);
     }
-    assert_eq!(run.pending_verify, 4);
+    assert_eq!(run.pending_verify.count, 4);
     assert_eq!(run.phase, Phase::Verifying);
     WorkflowEngine::on_verify_injected(&mut run, 5);
-    assert_eq!(run.pending_verify, 5);
+    assert_eq!(run.pending_verify.count, 5);
     assert_eq!(run.phase, Phase::Blocked);
 }
 
@@ -171,9 +171,9 @@ fn test_on_verify_injected_custom_limit() {
 fn test_handle_verify_resets_pending_count() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    run.pending_verify = 2;
+    run.pending_verify.count = 2;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf);
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
 }
 
 #[test]
@@ -252,11 +252,11 @@ fn test_handle_jump_goto_sets_phase_executing() {
 fn test_handle_jump_goto_resets_pending_verify() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    run.pending_verify = 2;
+    run.pending_verify.count = 2;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
     let _ = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -415,10 +415,10 @@ fn test_handle_blocked_uses_workflow_level_when_no_override() {
 fn test_on_owner_resolve_resets_pending_and_sets_verifying() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    run.pending_verify = 5;
+    run.pending_verify.count = 5;
     run.phase = Phase::Blocked;
     WorkflowEngine::on_owner_resolve(&mut run);
-    assert_eq!(run.pending_verify, 0);
+    assert_eq!(run.pending_verify.count, 0);
     assert_eq!(run.phase, Phase::Verifying);
 }
 

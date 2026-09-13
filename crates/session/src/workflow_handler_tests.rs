@@ -126,7 +126,7 @@ fn make_test_run() -> WorkflowRun {
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
-        pending_verify: 0,
+        pending_verify: closeclaw_workflow::run::PendingVerify::default(),
         paused_reason: String::new(),
     }
 }
@@ -212,10 +212,10 @@ fn test_process_content_blocks_no_workflow() {
 fn test_on_owner_resolve() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.run_mut().phase = Phase::Blocked;
-    handler.run_mut().pending_verify = 3;
+    handler.run_mut().pending_verify.count = 3;
     handler.on_owner_resolve();
     assert_eq!(handler.run().phase, Phase::Verifying);
-    assert_eq!(handler.run().pending_verify, 0);
+    assert_eq!(handler.run().pending_verify.count, 0);
 }
 
 #[test]
@@ -282,14 +282,14 @@ fn test_blocked_clears_paused_reason_on_not_allowed() {
 fn test_on_verify_limit_exceeded() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.on_verify_injected(3);
-    assert_eq!(handler.run().pending_verify, 1);
+    assert_eq!(handler.run().pending_verify.count, 1);
     assert_eq!(handler.run().phase, Phase::Verifying);
 
     handler.on_verify_injected(3);
-    assert_eq!(handler.run().pending_verify, 2);
+    assert_eq!(handler.run().pending_verify.count, 2);
 
     handler.on_verify_injected(3);
-    assert_eq!(handler.run().pending_verify, 3);
+    assert_eq!(handler.run().pending_verify.count, 3);
 
     // 4th call exceeds limit of 3
     handler.on_verify_injected(3);
@@ -301,7 +301,7 @@ fn test_on_verify_limit_exceeded() {
 fn test_on_verify_injected_within_limit() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.on_verify_injected(5);
-    assert_eq!(handler.run().pending_verify, 1);
+    assert_eq!(handler.run().pending_verify.count, 1);
     assert_eq!(handler.run().phase, Phase::Verifying);
     assert!(handler.take_notification().is_none());
 }

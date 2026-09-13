@@ -202,7 +202,10 @@ pub(crate) mod tests {
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::default(),
-            pending_verify,
+            pending_verify: closeclaw_workflow::run::PendingVerify {
+                count: pending_verify,
+                ..Default::default()
+            },
             paused_reason: String::new(),
         }
     }
@@ -351,7 +354,7 @@ pub(crate) mod tests {
             let handler = cs.workflow_handler_mut().unwrap();
             handler.on_verify_injected(3);
         }
-        assert_eq!(cs.workflow_handler().unwrap().run().pending_verify, 1);
+        assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 1);
         assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Verifying);
     }
 
@@ -362,7 +365,7 @@ pub(crate) mod tests {
             let handler = cs.workflow_handler_mut().unwrap();
             handler.on_verify_injected(1); // 1st: pending=1, limit=1 → blocked
         }
-        assert_eq!(cs.workflow_handler().unwrap().run().pending_verify, 1);
+        assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 1);
         assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Blocked);
     }
 
