@@ -169,6 +169,9 @@ async fn test_skill_loading_and_execution_chain() {
 
     let git_ops = registry.get("git_ops").await.unwrap();
     assert!(!git_ops.body().is_empty());
+
+    let create_workflow = registry.get("create_workflow").await.unwrap();
+    assert!(!create_workflow.body().is_empty());
 }
 
 #[tokio::test]
