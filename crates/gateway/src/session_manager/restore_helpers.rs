@@ -244,8 +244,9 @@ impl SessionManager {
                 }
                 info!(
                     session_id = %session_id,
-                    "injected recovery notification, {} tool failure(s), \
-                     and {} workflow recovery message(s)",
+                    "injected recovery data: notification={}, tool_failures={}, \
+                     workflow_messages={}",
+                    cp.recovery_notification.is_some(),
                     cp.pending_tool_failures.len(),
                     cp.recovery_workflow_messages.len()
                 );

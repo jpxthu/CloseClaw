@@ -597,35 +597,7 @@ impl SessionManager {
                                 }
                             }
                         }
-                        // Inject recovery data: notifications, tool failures,
-                        // and workflow recovery messages (incl. jump questions).
-                        {
-                            let cs = self.conversation_sessions.read().await;
-                            if let Some(cs) = cs.get(&archived_id) {
-                                let mut cs = cs.write().await;
-                                if let Some(ref n) = cp.recovery_notification {
-                                    cs.inject_system_message(n.clone());
-                                }
-                                for f in &cp.pending_tool_failures {
-                                    let id = serde_json::from_str::<serde_json::Value>(f)
-                                        .ok()
-                                        .and_then(|v| v.get("op_id")?.as_str().map(String::from))
-                                        .unwrap_or_else(|| "recovery".to_string());
-                                    cs.inject_tool_result(&id, f);
-                                }
-                                for m in &cp.recovery_workflow_messages {
-                                    cs.inject_workflow_message(m);
-                                }
-                                info!(session_key=%session_key, session_id=%archived_id,
-                                    routing_key=%routing_key, "recovery inject: notif={}, \
-                                    tools={}, wf={}",
-                                    cp.recovery_notification.is_some(),
-                                    cp.pending_tool_failures.len(),
-                                    cp.recovery_workflow_messages.len());
-                            }
-                        }
 
-                        // Create Session entry
                         {
                             let mut sessions = self.sessions.write().await;
                             if !sessions.contains_key(&archived_id) {
