@@ -849,9 +849,9 @@
   },
   {
     "path": "docs/design/tools/tool-registrar.md",
-    "commit": "4af7548219816602401e7539b3775fa58dff6a06",
-    "commit_time": "2026-09-11T23:01:37+08:00",
-    "confirmed_time": "2026-09-11T23:26:31.245013+08:00",
+    "commit": "be51cac2a39235b1e725fbe80b4d87cbefb3cc70",
+    "commit_time": "2026-09-13T08:43:24+08:00",
+    "confirmed_time": "2026-09-13T08:50:57.381296+08:00",
     "comment": "",
     "blocked_reason": ""
   },
