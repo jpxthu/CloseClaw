@@ -572,12 +572,12 @@ mod tests {
         }
     }
 
-    // ── Test 6: Non-existent workflow → error ────────────────────────────
+    // ── Test 6: Non-existent workflow → all three levels miss → error ────
 
     #[tokio::test]
     async fn test_workflow_nonexistent_returns_error() {
         let tmp = tempfile::tempdir().unwrap();
-        // No workflow file written.
+        // No workflow file written — Level 1 miss, Level 2 miss, no builtin.
 
         let mock = Arc::new(MockQuery::new());
         let handler = WorkflowSlashHandler::new(mock, Some(tmp.path().to_path_buf()), None);
@@ -667,5 +667,77 @@ mod tests {
             }
             _ => panic!("expected Reply for load error"),
         }
+    }
+
+    // ── Test 10: Global directory fallback (Level 2) ──────────────────────
+
+    #[tokio::test]
+    async fn test_workflow_global_dir_fallback_when_workdir_miss() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Write workflow only under the global directory (Level 2).
+        write_workflow_file(tmp.path(), "Test WF");
+
+        let mock = Arc::new(MockQuery::new());
+        // agent_workspace points to a different (empty) directory — Level 1 miss.
+        let empty_dir = tempfile::tempdir().unwrap();
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            Some(empty_dir.path().to_path_buf()),
+            Some(tmp.path().to_path_buf()),
+        );
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("Test WF", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(
+                    msg.contains("已启动"),
+                    "should start via Level 2 global fallback: {msg}"
+                );
+                assert!(msg.contains("Step Zero"));
+            }
+            _ => panic!("expected Reply for Level 2 fallback start"),
+        }
+
+        // Full chain side effects verified.
+        assert_eq!(mock.set_workflow_run_calls().len(), 1);
+        assert!(mock.set_workflow_run_calls()[0].1);
+        assert_eq!(mock.injection_appends().len(), 1);
+        assert!(mock.injection_appends()[0].1.contains("--- WORKFLOW ---"));
+        assert_eq!(mock.pending_messages().len(), 1);
+        assert!(mock.pending_messages()[0].1.contains("[workflow goal]"));
+    }
+
+    // ── Test 11: Whitespace-only name → usage hint ───────────────────────
+
+    #[tokio::test]
+    async fn test_workflow_whitespace_name_returns_usage() {
+        let mock = Arc::new(MockQuery::new());
+        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("   ", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(msg.contains("用法"), "should show usage: {msg}");
+            }
+            _ => panic!("expected Reply for whitespace-only name"),
+        }
+    }
+
+    // ── Test 12: Registration — commands() returns ["workflow"] ───────────
+
+    #[test]
+    fn test_workflow_handler_commands_returns_workflow() {
+        let mock = Arc::new(MockQuery::new());
+        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let cmds = handler.commands();
+        assert_eq!(
+            cmds,
+            &["workflow"],
+            "handler must register 'workflow' command"
+        );
     }
 }
