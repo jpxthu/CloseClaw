@@ -207,6 +207,9 @@ impl SessionManager {
         if let Some(ref notification) = cp.recovery_notification {
             conv.inject_system_message(notification.clone());
         }
+        for msg in &cp.recovery_workflow_messages {
+            conv.inject_workflow_message(msg);
+        }
     }
 
     /// Restore pending messages, user_appends, system_injection_appends,
