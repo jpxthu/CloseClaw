@@ -111,6 +111,13 @@ impl WorkflowEngine {
         run: &mut WorkflowRun,
         workflow: &Workflow,
     ) -> Result<VerifyAction, WorkflowError> {
+        if run.phase != Phase::Verifying {
+            return Err(WorkflowError::InvalidPhase {
+                expected: Phase::Verifying,
+                actual: run.phase.clone(),
+            });
+        }
+
         run.pending_verify.count = 0;
 
         let step = workflow

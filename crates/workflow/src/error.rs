@@ -30,6 +30,15 @@ pub enum WorkflowError {
     /// Workflow definition not found at any of the three lookup levels.
     #[error("workflow definition not found: {0}")]
     DefinitionNotFound(String),
+
+    /// The workflow is not in the expected phase for this operation.
+    #[error("invalid phase: expected {expected:?}, got {actual:?}")]
+    InvalidPhase {
+        /// The phase required by the operation.
+        expected: crate::run::Phase,
+        /// The actual current phase.
+        actual: crate::run::Phase,
+    },
 }
 
 impl WorkflowError {

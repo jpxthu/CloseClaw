@@ -172,6 +172,7 @@ fn test_handle_verify_resets_pending_count() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.pending_verify.count = 2;
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf);
     assert_eq!(run.pending_verify.count, 0);
 }
@@ -180,6 +181,7 @@ fn test_handle_verify_resets_pending_count() {
 fn test_handle_verify_with_jumps_enters_jumping() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
     let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action, VerifyAction::Jump);
     assert_eq!(run.phase, Phase::Jumping);
@@ -189,6 +191,7 @@ fn test_handle_verify_with_jumps_enters_jumping() {
 fn test_handle_verify_no_jumps_default_transition() {
     let wf = two_step_default_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
     let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action, VerifyAction::Jump);
     assert_eq!(run.current_step, 1);
@@ -200,13 +203,14 @@ fn test_handle_verify_no_jumps_default_transition() {
 fn test_handle_verify_no_jumps_no_transitions_returns_error() {
     let wf = no_transitions_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
     let result = WorkflowEngine::handle_verify(&mut run, &wf);
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
         crate::error::WorkflowError::NoMatchingTransition
     ));
-    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.phase, Phase::Verifying);
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +494,7 @@ fn test_paused_reason_stays_empty_through_normal_flow() {
 
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(run.paused_reason.is_empty());
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert!(run.paused_reason.is_empty());
     let mut answers = HashMap::new();
@@ -499,6 +504,7 @@ fn test_paused_reason_stays_empty_through_normal_flow() {
 
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(run.paused_reason.is_empty());
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert!(run.paused_reason.is_empty());
     assert_eq!(run.phase, Phase::Complete);
