@@ -4,7 +4,9 @@ mod tests {
         DreamingStatus, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionCheckpoint,
         SessionMode, SessionStatus,
     };
-    use crate::workflow_recovery::{inject_workflow_recovery, WORKFLOW_RECOVERY_PREFIX};
+    use crate::workflow_recovery::{
+        inject_workflow_recovery, DEFINITION_CHANGED_PAUSE_REASON, WORKFLOW_RECOVERY_PREFIX,
+    };
     use closeclaw_workflow::run::{
         GoalHint, Phase, StepHistoryEntry, StepHistoryStatus, WorkflowRun,
     };
@@ -248,13 +250,13 @@ mod tests {
         // Simulate what handle_definition_version_change would produce
         let wf_run = cp.workflow_run.as_mut().unwrap();
         wf_run.phase = Phase::Blocked;
-        wf_run.paused_reason = "当前步骤在最新定义中已不存在".to_string();
+        wf_run.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
 
         inject_workflow_recovery("wf-dvc1", &mut cp, None).await;
 
         let wf_run = cp.workflow_run.as_ref().unwrap();
         assert_eq!(wf_run.phase, Phase::Blocked);
-        assert_eq!(wf_run.paused_reason, "当前步骤在最新定义中已不存在");
+        assert_eq!(wf_run.paused_reason, DEFINITION_CHANGED_PAUSE_REASON);
 
         // Notification should include the pause reason
         let notif = cp
@@ -268,7 +270,7 @@ mod tests {
             notif
         );
         assert!(
-            notif.contains("当前步骤在最新定义中已不存在"),
+            notif.contains(DEFINITION_CHANGED_PAUSE_REASON),
             "should contain specific reason, got: {}",
             notif
         );
