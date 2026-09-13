@@ -47,6 +47,27 @@ impl ConversationSession {
     /// verify messages and injects a jump message into the transcript.
     pub fn process_workflow_tool_results(&mut self, blocks: &[ContentBlock]) -> bool {
         self.ensure_workflow_handler();
+
+        // ── Step 1.4: Reject workflow_start when an active workflow exists ──
+        if self.has_active_workflow() {
+            let has_start = blocks.iter().any(Self::is_workflow_start_block);
+            if has_start {
+                let phase = self
+                    .workflow_run
+                    .as_ref()
+                    .map(|r| format!("{:?}", r.phase))
+                    .unwrap_or_default();
+                self.inject_workflow_message(&format!(
+                    "⚠️ 无法启动新工作流：当前 Session 已有活跃的工作流运行（阶段：{phase}）。\n请等待当前工作流完成后再启动新工作流。"
+                ));
+                tracing::warn!(
+                    phase = %phase,
+                    "rejected workflow_start: active workflow exists"
+                );
+                return false;
+            }
+        }
+
         if let Some(ref mut handler) = self.workflow_handler {
             let was_jumping = handler.run().phase == Phase::Jumping;
             let was_blocked_before = handler.run().phase == Phase::Blocked;
@@ -121,6 +142,30 @@ impl ConversationSession {
         self.workflow_handler
             .as_ref()
             .is_some_and(|h| h.is_blocked())
+    }
+
+    /// Returns `true` if there is an active (non-Complete) workflow run.
+    fn has_active_workflow(&self) -> bool {
+        self.workflow_run
+            .as_ref()
+            .is_some_and(|r| r.phase != Phase::Complete)
+    }
+
+    /// Returns `true` if a content block is a `workflow_start` tool result.
+    fn is_workflow_start_block(block: &ContentBlock) -> bool {
+        match block {
+            ContentBlock::ToolResult { content, .. } => {
+                serde_json::from_str::<serde_json::Value>(content)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("action")
+                            .and_then(|a| a.as_str())
+                            .map(|a| a == "workflow_start")
+                    })
+                    .unwrap_or(false)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -781,5 +826,94 @@ mod tests {
             })
         });
         assert!(!has_tool_result, "tool_result should be erased");
+    }
+
+    // ── Step 1.4: reject workflow_start when active workflow exists ────
+
+    /// When a workflow_start tool result arrives and there is already an
+    /// active workflow run, the start is rejected and an error message is
+    /// injected into the session.
+    #[test]
+    fn test_workflow_start_rejected_when_active_workflow() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "Test Workflow");
+        let mut session = make_session_with_phase(&tmp, "Test Workflow", Phase::Executing);
+
+        // Simulate a workflow_start tool result from the LLM.
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_start".to_string(),
+            content: r#"{"action": "workflow_start"}"#.to_string(),
+        }];
+        let processed = session.process_workflow_tool_results(&blocks);
+
+        // Should not be processed.
+        assert!(!processed, "workflow_start should be rejected");
+        // Error message injected.
+        let wf = wf_messages(&session);
+        assert_eq!(wf.len(), 1, "should have one error message");
+        assert!(wf[0].contains("无法启动新工作流"), "error: {}", wf[0]);
+        // Handler should still have the original run (not overwritten).
+        assert_eq!(
+            session.workflow_handler().unwrap().run().phase,
+            Phase::Executing
+        );
+    }
+
+    /// workflow_start is rejected during Blocked phase.
+    #[test]
+    fn test_workflow_start_rejected_when_blocked() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "Test Workflow");
+        let mut session = make_session_with_phase(&tmp, "Test Workflow", Phase::Blocked);
+
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_start".to_string(),
+            content: r#"{"action": "workflow_start"}"#.to_string(),
+        }];
+        let processed = session.process_workflow_tool_results(&blocks);
+
+        assert!(!processed, "workflow_start should be rejected when blocked");
+        let wf = wf_messages(&session);
+        assert_eq!(wf.len(), 1);
+        assert!(wf[0].contains("Blocked"), "phase in error: {}", wf[0]);
+    }
+
+    /// Non-workflow_start actions are still processed when active workflow exists.
+    #[test]
+    fn test_non_start_actions_still_processed_when_active() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "Test Workflow");
+        let mut session = make_session_with_phase(&tmp, "Test Workflow", Phase::Executing);
+
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_blocked".to_string(),
+            content: r#"{"action": "workflow_blocked", "reason": "test"}"#.to_string(),
+        }];
+        let processed = session.process_workflow_tool_results(&blocks);
+
+        assert!(processed, "non-start actions should still be processed");
+        assert_eq!(
+            session.workflow_handler().unwrap().run().phase,
+            Phase::Blocked
+        );
+    }
+
+    /// When workflow is Complete, workflow_start is allowed.
+    #[test]
+    fn test_workflow_start_allowed_when_complete() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "Test Workflow");
+        let mut session = make_session_with_phase(&tmp, "Test Workflow", Phase::Complete);
+
+        let blocks = vec![ContentBlock::ToolResult {
+            tool_call_id: "tc_start".to_string(),
+            content: r#"{"action": "workflow_start"}"#.to_string(),
+        }];
+        let processed = session.process_workflow_tool_results(&blocks);
+
+        // Complete phase: start is allowed, processed by handler normally.
+        assert!(processed, "workflow_start should be allowed when complete");
+        let wf = wf_messages(&session);
+        assert!(wf.is_empty(), "no error message when allowed: {:?}", wf);
     }
 }
