@@ -47,6 +47,7 @@ impl ConversationSession {
         self.ensure_workflow_handler();
         if let Some(ref mut handler) = self.workflow_handler {
             let was_jumping = handler.run().phase == Phase::Jumping;
+            let prev_phase = handler.run().phase.clone();
             let (processed, jump_result) = handler.process_content_blocks(blocks);
             if processed {
                 self.workflow_run = Some(handler.run().clone());
@@ -83,6 +84,17 @@ impl ConversationSession {
                 };
                 self.dispatch_post_jump_phase(current_phase, current_step, hint);
                 tracing::debug!("jump messages cleaned up after phase transition");
+            } else if processed && prev_phase != Phase::Blocked {
+                // Verify blocked → remove verify messages + tool exchange.
+                let current_phase = self
+                    .workflow_handler
+                    .as_ref()
+                    .map(|h| h.run().phase.clone());
+                if current_phase == Some(Phase::Blocked) {
+                    self.remove_workflow_verify_messages();
+                    self.remove_workflow_tool_exchange(&["workflow_verify", "workflow_blocked"]);
+                    tracing::debug!("blocked phase: verify messages erased");
+                }
             }
             processed
         } else {
