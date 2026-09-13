@@ -82,7 +82,9 @@ mod tests {
     use closeclaw_common::ContentBlock;
     use closeclaw_workflow::context_append::build_workflow_context_append;
     use closeclaw_workflow::definition::{Step, Workflow};
-    use closeclaw_workflow::run::{GoalHint, Phase, StepHistoryEntry, WorkflowRun};
+    use closeclaw_workflow::run::{
+        GoalHint, Phase, StepHistoryEntry, StepHistoryStatus, WorkflowRun,
+    };
     use std::path::PathBuf;
 
     fn make_test_workflow() -> Workflow {
@@ -119,6 +121,7 @@ mod tests {
                 step_name: "Step Zero".to_string(),
                 entered_at: "2026-01-01T00:00:00Z".to_string(),
                 completed_at: "2026-01-01T00:00:00Z".to_string(),
+                status: StepHistoryStatus::Completed,
             }],
             step_data: Default::default(),
             pending_goal_hint: GoalHint::default(),

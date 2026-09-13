@@ -172,6 +172,7 @@ fn test_handle_verify_resets_pending_count() {
     let wf = simple_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.pending_verify.count = 2;
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf);
     assert_eq!(run.pending_verify.count, 0);
 }
@@ -180,6 +181,7 @@ fn test_handle_verify_resets_pending_count() {
 fn test_handle_verify_with_jumps_enters_jumping() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
     let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action, VerifyAction::Jump);
     assert_eq!(run.phase, Phase::Jumping);
@@ -189,6 +191,7 @@ fn test_handle_verify_with_jumps_enters_jumping() {
 fn test_handle_verify_no_jumps_default_transition() {
     let wf = two_step_default_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
     let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action, VerifyAction::Jump);
     assert_eq!(run.current_step, 1);
@@ -200,13 +203,90 @@ fn test_handle_verify_no_jumps_default_transition() {
 fn test_handle_verify_no_jumps_no_transitions_returns_error() {
     let wf = no_transitions_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
     let result = WorkflowEngine::handle_verify(&mut run, &wf);
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
         crate::error::WorkflowError::NoMatchingTransition
     ));
-    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.phase, Phase::Verifying);
+}
+
+// ---------------------------------------------------------------------------
+// handle_verify() — phase check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_handle_verify_invalid_phase_executing() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    // Default phase is Executing
+    let result = WorkflowEngine::handle_verify(&mut run, &wf);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Verifying);
+            assert_eq!(actual, Phase::Executing);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_handle_verify_invalid_phase_jumping() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+    let result = WorkflowEngine::handle_verify(&mut run, &wf);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Verifying);
+            assert_eq!(actual, Phase::Jumping);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// handle_jump() — phase check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_handle_jump_invalid_phase_executing() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    // Default phase is Executing
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
+    let result = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Jumping);
+            assert_eq!(actual, Phase::Executing);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_handle_jump_invalid_phase_verifying() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
+    let result = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Jumping);
+            assert_eq!(actual, Phase::Verifying);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +297,7 @@ fn test_handle_verify_no_jumps_no_transitions_returns_error() {
 fn test_handle_jump_goto_clears_step_data() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.step_data = serde_yaml::Value::String("data".into());
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
@@ -229,6 +310,7 @@ fn test_handle_jump_goto_clears_step_data() {
 fn test_handle_jump_goto_appends_history() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
     let _ = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
@@ -252,6 +334,7 @@ fn test_handle_jump_goto_sets_phase_executing() {
 fn test_handle_jump_goto_resets_pending_verify() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.pending_verify.count = 2;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
@@ -267,6 +350,7 @@ fn test_handle_jump_goto_resets_pending_verify() {
 fn test_handle_jump_reexecute_preserves_step_data() {
     let wf = reexecute_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.step_data = serde_yaml::Value::String("keep".into());
     let mut answers = HashMap::new();
     answers.insert("retry".into(), serde_yaml::Value::Bool(true));
@@ -304,6 +388,7 @@ fn test_handle_jump_reexecute_stays_same_step() {
 fn test_handle_jump_complete() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(false));
     let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
@@ -348,6 +433,7 @@ fn test_handle_jump_no_match_returns_error() {
         }],
     };
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("go_next".into(), serde_yaml::Value::Bool(false));
     let result = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
@@ -490,6 +576,7 @@ fn test_paused_reason_stays_empty_through_normal_flow() {
 
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(run.paused_reason.is_empty());
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert!(run.paused_reason.is_empty());
     let mut answers = HashMap::new();
@@ -499,6 +586,7 @@ fn test_paused_reason_stays_empty_through_normal_flow() {
 
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(run.paused_reason.is_empty());
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert!(run.paused_reason.is_empty());
     assert_eq!(run.phase, Phase::Complete);

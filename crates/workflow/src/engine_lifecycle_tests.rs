@@ -18,6 +18,7 @@ fn test_e2e_long_chain_verify_exhaust_resolve_complete() {
 
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(WorkflowEngine::on_session_idle(&run));
+    run.phase = Phase::Verifying;
     let result = WorkflowEngine::handle_verify(&mut run, &wf);
     assert!(result.is_err());
     assert!(run.paused_reason.is_empty());
@@ -78,6 +79,7 @@ fn test_e2e_goto_then_complete() {
     let mut run = WorkflowEngine::start(&wf);
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.phase, Phase::Jumping);
 
@@ -90,6 +92,7 @@ fn test_e2e_goto_then_complete() {
     assert_eq!(run.step_history.len(), 1);
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let action2 = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action2, VerifyAction::Jump);
     assert_eq!(run.phase, Phase::Complete);
@@ -103,6 +106,7 @@ fn test_e2e_three_step_lifecycle() {
 
     WorkflowEngine::on_goal_injected(&mut run);
     assert!(WorkflowEngine::on_session_idle(&run));
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.phase, Phase::Jumping);
 
@@ -114,6 +118,7 @@ fn test_e2e_three_step_lifecycle() {
     assert_eq!(run.step_history.len(), 1);
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.phase, Phase::Jumping);
 
@@ -125,6 +130,7 @@ fn test_e2e_three_step_lifecycle() {
     assert_eq!(run.step_history.len(), 2);
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.phase, Phase::Complete);
     assert!(WorkflowEngine::is_complete(&run));
@@ -137,6 +143,7 @@ fn test_e2e_reexecute_then_complete() {
     let mut run = WorkflowEngine::start(&wf);
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     let mut answers1 = HashMap::new();
     answers1.insert("retry".into(), serde_yaml::Value::Bool(true));
@@ -147,6 +154,7 @@ fn test_e2e_reexecute_then_complete() {
     assert!(run.step_history.is_empty());
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     let mut answers2 = HashMap::new();
     answers2.insert("retry".into(), serde_yaml::Value::Bool(false));
@@ -160,13 +168,15 @@ fn test_e2e_owner_terminate_from_blocked() {
     let wf = goto_then_no_transitions_workflow();
     let mut run = WorkflowEngine::start(&wf);
 
+    run.phase = Phase::Verifying;
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.current_step, 1);
     WorkflowEngine::on_goal_injected(&mut run);
 
+    run.phase = Phase::Verifying;
     let result = WorkflowEngine::handle_verify(&mut run, &wf);
     assert!(result.is_err());
-    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.phase, Phase::Verifying);
 
     for _ in 0..4 {
         WorkflowEngine::on_verify_injected(&mut run, 3);
@@ -197,6 +207,7 @@ fn test_e2e_owner_resolve_then_verify() {
 fn test_e2e_pending_verify_resets_after_jump() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     run.pending_verify.count = 2;
 
     let mut answers = HashMap::new();
@@ -210,6 +221,7 @@ fn test_e2e_pending_verify_resets_after_verify() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.pending_verify.count = 2;
+    run.phase = Phase::Verifying;
 
     let _ = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(run.pending_verify.count, 0);
@@ -223,6 +235,7 @@ fn test_e2e_pending_verify_resets_after_verify() {
 fn test_enum_answer_mapping_via_handler() {
     let wf = enum_jump_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("strategy".into(), serde_yaml::Value::String("fast".into()));
     let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
@@ -234,6 +247,7 @@ fn test_enum_answer_mapping_via_handler() {
 fn test_enum_answer_mapping_slow() {
     let wf = enum_jump_workflow();
     let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
     let mut answers = HashMap::new();
     answers.insert("strategy".into(), serde_yaml::Value::String("slow".into()));
     let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
@@ -247,6 +261,7 @@ fn test_e2e_verify_jumping_jump_goto_enum() {
     let mut run = WorkflowEngine::start(&wf);
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let action = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action, VerifyAction::Jump);
     assert_eq!(run.phase, Phase::Jumping);
@@ -260,6 +275,7 @@ fn test_e2e_verify_jumping_jump_goto_enum() {
     assert_eq!(run.step_history.len(), 1);
 
     WorkflowEngine::on_goal_injected(&mut run);
+    run.phase = Phase::Verifying;
     let action2 = WorkflowEngine::handle_verify(&mut run, &wf).unwrap();
     assert_eq!(action2, VerifyAction::Jump);
     assert_eq!(run.phase, Phase::Complete);

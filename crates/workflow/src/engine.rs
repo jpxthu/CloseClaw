@@ -111,6 +111,13 @@ impl WorkflowEngine {
         run: &mut WorkflowRun,
         workflow: &Workflow,
     ) -> Result<VerifyAction, WorkflowError> {
+        if run.phase != Phase::Verifying {
+            return Err(WorkflowError::InvalidPhase {
+                expected: Phase::Verifying,
+                actual: run.phase.clone(),
+            });
+        }
+
         run.pending_verify.count = 0;
 
         let step = workflow
@@ -168,6 +175,13 @@ impl WorkflowEngine {
         workflow: &Workflow,
         answers: &HashMap<String, serde_yaml::Value>,
     ) -> Result<JumpAction, WorkflowError> {
+        if run.phase != Phase::Jumping {
+            return Err(WorkflowError::InvalidPhase {
+                expected: Phase::Jumping,
+                actual: run.phase.clone(),
+            });
+        }
+
         let step = workflow
             .steps
             .get(run.current_step)
@@ -268,6 +282,7 @@ impl WorkflowEngine {
             step_name: step.name.clone(),
             entered_at: run.current_step_entered_at.clone(),
             completed_at: chrono::Utc::now().to_rfc3339(),
+            status: crate::run::StepHistoryStatus::Completed,
         });
 
         run.current_step = target;
