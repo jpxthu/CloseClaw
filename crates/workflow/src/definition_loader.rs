@@ -34,8 +34,8 @@ impl WorkflowDefinitionLoader {
     ///
     /// * `name` - The workflow name (used as the directory name under `workflows/`).
     /// * `agent_workspace` - Optional path to the agent workspace root.
-    /// * `global_workflows` - Optional path to the global workflows directory
-    ///   (e.g. `~/.openclaw/workflows/`).
+    /// * `global_workflows` - Optional path to the global config directory
+    ///   (e.g. `~/.openclaw/` — the loader joins `workflows/` internally).
     ///
     /// # Errors
     ///

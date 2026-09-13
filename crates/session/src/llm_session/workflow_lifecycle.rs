@@ -42,7 +42,7 @@ impl ConversationSession {
             Some(r) => r,
             None => return,
         };
-        let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw").join("workflows"));
+        let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
         let definition = match WorkflowDefinitionLoader::load(
             &run.definition_name,
             Some(self.workdir.as_path()),
