@@ -833,9 +833,9 @@
   },
   {
     "path": "docs/design/tools/multi-tool-calls.md",
-    "commit": "ae425e1b8a96823362c671a00f137ba500c98c16",
-    "commit_time": "2026-09-11T17:52:21+08:00",
-    "confirmed_time": "2026-09-11T18:03:38.708671+08:00",
+    "commit": "60c7a8038108455d3e9fda8c4860bb14605302fd",
+    "commit_time": "2026-09-13T08:10:23+08:00",
+    "confirmed_time": "2026-09-13T08:23:43.196192+08:00",
     "comment": "",
     "blocked_reason": ""
   },
