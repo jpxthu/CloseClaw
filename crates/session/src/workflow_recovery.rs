@@ -13,6 +13,11 @@ use closeclaw_workflow::run::{GoalHint, Phase};
 /// Prefix marker for workflow recovery notification in `system_injection_appends`.
 pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
 
+/// Fixed paused_reason text set when a workflow step no longer exists in
+/// the latest definition version. Used as a single source of truth for
+/// both the write site (recovery) and the read site (owner resolve guard).
+pub const DEFINITION_CHANGED_PAUSE_REASON: &str = "当前步骤在最新定义中已不存在";
+
 /// Inject workflow recovery state for sessions with active workflow runs.
 ///
 /// When a checkpoint contains a `workflow_run` with phase != Complete:
@@ -195,7 +200,7 @@ fn handle_definition_version_change(
             .as_mut()
             .expect("workflow_run checked above");
         wf_ref.phase = Phase::Blocked;
-        wf_ref.paused_reason = "当前步骤在最新定义中已不存在".to_string();
+        wf_ref.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
     }
 }
 
