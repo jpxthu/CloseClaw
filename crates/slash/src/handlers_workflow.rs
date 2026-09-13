@@ -86,7 +86,15 @@ impl SlashHandler for WorkflowSlashHandler {
         if name.is_empty() {
             return SlashResult::Reply("用法：/workflow <name>".to_owned());
         }
-        let workflow = match self.load_workflow(name) {
+        // Dynamically resolve agent workspace from session context.
+        // Falls back to the static `agent_workspace` field if session has
+        // no workdir set (e.g. tests or legacy sessions).
+        let resolved_workdir = self
+            .session_manager
+            .get_workdir(&ctx.session_id)
+            .await
+            .or_else(|| self.agent_workspace.clone());
+        let workflow = match self.load_workflow(name, resolved_workdir.as_deref()) {
             Ok(wf) => wf,
             Err(reply) => return reply,
         };
@@ -129,13 +137,16 @@ impl SlashHandler for WorkflowSlashHandler {
 
 impl WorkflowSlashHandler {
     /// Load workflow definition via three-level lookup.
-    fn load_workflow(&self, name: &str) -> Result<Workflow, SlashResult> {
-        WorkflowDefinitionLoader::load(
-            name,
-            self.agent_workspace.as_deref(),
-            self.global_workflows.as_deref(),
-        )
-        .map_err(|e| SlashResult::Reply(format!("工作流 \"{name}\" 加载失败：{e}")))
+    ///
+    /// `resolved_workdir` is the dynamically resolved agent workspace (from
+    /// session context or fallback); `None` means skip Level 1.
+    fn load_workflow(
+        &self,
+        name: &str,
+        resolved_workdir: Option<&std::path::Path>,
+    ) -> Result<Workflow, SlashResult> {
+        WorkflowDefinitionLoader::load(name, resolved_workdir, self.global_workflows.as_deref())
+            .map_err(|e| SlashResult::Reply(format!("工作流 \"{name}\" 加载失败：{e}")))
     }
 
     /// Initialize WorkflowRun and persist to checkpoint.
@@ -243,6 +254,7 @@ mod tests {
     /// Mock state shared across async calls.
     struct MockState {
         active_phases: HashMap<String, Option<String>>,
+        workdirs: HashMap<String, std::path::PathBuf>,
         set_workflow_run_calls: Vec<(String, bool)>,
         injection_appends: Vec<(String, String)>,
         pending_messages: Vec<(String, String)>,
@@ -257,6 +269,7 @@ mod tests {
             Self {
                 state: Mutex::new(MockState {
                     active_phases: HashMap::new(),
+                    workdirs: HashMap::new(),
                     set_workflow_run_calls: Vec::new(),
                     injection_appends: Vec::new(),
                     pending_messages: Vec::new(),
@@ -284,6 +297,15 @@ mod tests {
 
         fn pending_messages(&self) -> Vec<(String, String)> {
             self.state.lock().unwrap().pending_messages.clone()
+        }
+
+        /// Set the workdir for a session (simulates get_workdir returning Some).
+        fn set_workdir_for(&self, session_id: &str, path: std::path::PathBuf) {
+            self.state
+                .lock()
+                .unwrap()
+                .workdirs
+                .insert(session_id.to_string(), path);
         }
     }
 
@@ -357,8 +379,8 @@ mod tests {
         async fn get_session_mode(&self, _: &str) -> Option<closeclaw_common::SessionMode> {
             None
         }
-        async fn get_workdir(&self, _: &str) -> Option<std::path::PathBuf> {
-            None
+        async fn get_workdir(&self, session_id: &str) -> Option<std::path::PathBuf> {
+            self.state.lock().unwrap().workdirs.get(session_id).cloned()
         }
         async fn set_workdir(&self, _: &str, _: std::path::PathBuf) {}
         async fn get_system_appends(&self, _: &str) -> Vec<String> {
@@ -550,12 +572,12 @@ mod tests {
         }
     }
 
-    // ── Test 6: Non-existent workflow → error ────────────────────────────
+    // ── Test 6: Non-existent workflow → all three levels miss → error ────
 
     #[tokio::test]
     async fn test_workflow_nonexistent_returns_error() {
         let tmp = tempfile::tempdir().unwrap();
-        // No workflow file written.
+        // No workflow file written — Level 1 miss, Level 2 miss, no builtin.
 
         let mock = Arc::new(MockQuery::new());
         let handler = WorkflowSlashHandler::new(mock, Some(tmp.path().to_path_buf()), None);
@@ -569,5 +591,189 @@ mod tests {
             }
             _ => panic!("expected Reply for load error"),
         }
+    }
+
+    // ── Test 7: get_workdir returns Some → used as Level 1 baseline ─────
+
+    #[tokio::test]
+    async fn test_workflow_uses_get_workdir_as_level1_baseline() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_workflow_file(tmp.path(), "Test WF");
+
+        let mock = Arc::new(MockQuery::new());
+        mock.set_workdir_for("s1", tmp.path().to_path_buf());
+        // agent_workspace is None — get_workdir must supply Level 1.
+        let handler = WorkflowSlashHandler::new(mock.clone(), None, None);
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("Test WF", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(
+                    msg.contains("已启动"),
+                    "should start via get_workdir: {msg}"
+                );
+            }
+            _ => panic!("expected Reply for successful start via get_workdir"),
+        }
+
+        assert_eq!(mock.set_workflow_run_calls().len(), 1);
+    }
+
+    // ── Test 8: get_workdir returns Some overrides static agent_workspace ─
+
+    #[tokio::test]
+    async fn test_workflow_get_workdir_overrides_static_agent_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dynamic = tmp.path().join("dynamic");
+        let static_ws = tmp.path().join("static");
+
+        // Workflow exists only under dynamic workspace.
+        write_workflow_file(&dynamic, "Test WF");
+
+        let mock = Arc::new(MockQuery::new());
+        mock.set_workdir_for("s1", dynamic.clone());
+        // Static workspace is set but has no workflow — if get_workdir
+        // is used, the dynamic path should be tried first.
+        let handler = WorkflowSlashHandler::new(mock.clone(), Some(static_ws), None);
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("Test WF", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(msg.contains("已启动"), "should use get_workdir path: {msg}");
+            }
+            _ => panic!("expected Reply using dynamic workdir"),
+        }
+    }
+
+    // ── Test 9: get_workdir None + static None → skip Level 1 ────────────
+
+    #[tokio::test]
+    async fn test_workflow_skips_level1_when_no_workdir() {
+        // No workflow file anywhere — Level 1 skipped, Level 2 skipped, builtin empty → error.
+        let mock = Arc::new(MockQuery::new());
+        // get_workdir returns None (default), agent_workspace is None.
+        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("anything", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(msg.contains("加载失败"), "should report load error: {msg}");
+            }
+            _ => panic!("expected Reply for load error"),
+        }
+    }
+
+    // ── Test 10: Global directory fallback (Level 2) ──────────────────────
+
+    #[tokio::test]
+    async fn test_workflow_global_dir_fallback_when_workdir_miss() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Write workflow only under the global directory (Level 2).
+        write_workflow_file(tmp.path(), "Test WF");
+
+        let mock = Arc::new(MockQuery::new());
+        // agent_workspace points to a different (empty) directory — Level 1 miss.
+        let empty_dir = tempfile::tempdir().unwrap();
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            Some(empty_dir.path().to_path_buf()),
+            Some(tmp.path().to_path_buf()),
+        );
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("Test WF", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(
+                    msg.contains("已启动"),
+                    "should start via Level 2 global fallback: {msg}"
+                );
+                assert!(msg.contains("Step Zero"));
+            }
+            _ => panic!("expected Reply for Level 2 fallback start"),
+        }
+
+        // Full chain side effects verified.
+        assert_eq!(mock.set_workflow_run_calls().len(), 1);
+        assert!(mock.set_workflow_run_calls()[0].1);
+        assert_eq!(mock.injection_appends().len(), 1);
+        assert!(mock.injection_appends()[0].1.contains("--- WORKFLOW ---"));
+        assert_eq!(mock.pending_messages().len(), 1);
+        assert!(mock.pending_messages()[0].1.contains("[workflow goal]"));
+    }
+
+    // ── Test 11: Whitespace-only name → usage hint ───────────────────────
+
+    #[tokio::test]
+    async fn test_workflow_whitespace_name_returns_usage() {
+        let mock = Arc::new(MockQuery::new());
+        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("   ", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(msg.contains("用法"), "should show usage: {msg}");
+            }
+            _ => panic!("expected Reply for whitespace-only name"),
+        }
+    }
+
+    // ── Test 13: get_workdir None + static None + Level 2 hit ──────────
+
+    #[tokio::test]
+    async fn test_workflow_global_dir_fallback_no_workdir_no_static() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Write workflow only under the global directory (Level 2).
+        write_workflow_file(tmp.path(), "Test WF");
+
+        let mock = Arc::new(MockQuery::new());
+        // get_workdir returns None (default mock), agent_workspace is None.
+        // global_workflows points to tmp.path() so Level 2 is available.
+        let handler = WorkflowSlashHandler::new(mock.clone(), None, Some(tmp.path().to_path_buf()));
+        let ctx = make_slash_context("s1");
+
+        let result = handler.handle("Test WF", &ctx).await;
+
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(
+                    msg.contains("已启动"),
+                    "should start via Level 2 global fallback (skip Level 1): {msg}"
+                );
+                assert!(msg.contains("Step Zero"));
+            }
+            _ => panic!("expected Reply for Level 2 fallback start"),
+        }
+
+        // Full chain side effects verified.
+        assert_eq!(mock.set_workflow_run_calls().len(), 1);
+        assert!(mock.set_workflow_run_calls()[0].1);
+        assert_eq!(mock.injection_appends().len(), 1);
+        assert!(mock.injection_appends()[0].1.contains("--- WORKFLOW ---"));
+        assert_eq!(mock.pending_messages().len(), 1);
+        assert!(mock.pending_messages()[0].1.contains("[workflow goal]"));
+    }
+
+    // ── Test 12: Registration — commands() returns ["workflow"] ───────────
+
+    #[test]
+    fn test_workflow_handler_commands_returns_workflow() {
+        let mock = Arc::new(MockQuery::new());
+        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let cmds = handler.commands();
+        assert_eq!(
+            cmds,
+            &["workflow"],
+            "handler must register 'workflow' command"
+        );
     }
 }

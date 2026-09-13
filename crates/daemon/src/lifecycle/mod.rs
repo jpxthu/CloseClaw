@@ -832,7 +832,7 @@ impl Daemon {
         use closeclaw_slash::{
             ClearHandler, CompactHandler, ExecHandler, ExecuteHandler, HelpHandler, ModeHandler,
             NewSessionHandler, PlanBrowseHandler, PlanModeHandler, StatusHandler, StopHandler,
-            VerboseHandler,
+            VerboseHandler, WorkflowSlashHandler,
         };
 
         let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
@@ -866,6 +866,24 @@ impl Daemon {
         if let Some(config_dir) = gateway.get_config_dir().await {
             slash_registry.register(Arc::new(UserSlashHandler::new(config_dir)));
         }
+        // Register `/workflow` slash handler (design doc §触发机制/§工具注册).
+        // agent_workspace=None: resolved dynamically via get_workdir(session_id)
+        // at handle()-time, consistent with session-layer workflow lookup.
+        let global_workflows = match dirs::home_dir() {
+            Some(home) => Some(home.join(".openclaw")),
+            None => {
+                warn!(
+                    "global workflow directory unavailable: $HOME is not set — \
+                     workflow lookup will only search agent workspace and builtins"
+                );
+                None
+            }
+        };
+        slash_registry.register(Arc::new(WorkflowSlashHandler::new(
+            Arc::clone(&sm_query),
+            None,
+            global_workflows,
+        )));
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry))
             as Arc<dyn closeclaw_common::SlashRouter>;
         gateway.set_slash_dispatcher(slash_dispatcher).await;
