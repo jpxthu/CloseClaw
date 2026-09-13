@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::definition::{JumpAction, Transition, Workflow};
+use crate::definition::{build_jump_message, JumpAction, Transition, Workflow};
 use crate::error::WorkflowError;
 use crate::run::{GoalHint, Phase, WorkflowRun};
 
@@ -258,6 +258,24 @@ impl WorkflowEngine {
         run.paused_reason.clear();
         run.phase = Phase::Complete;
         tracing::debug!("owner terminated workflow");
+    }
+
+    /// Build the jump question message for a recovery scenario.
+    ///
+    /// When the workflow run is in the [`Phase::Jumping`] phase, constructs
+    /// the jump question message content using the same rendering logic as
+    /// the initial injection path ([`build_jump_message`]).
+    ///
+    /// Returns `None` for any phase other than `Jumping`, or when the
+    /// current step index is out of range.
+    ///
+    /// This is a pure function — it does not mutate the run or introduce
+    /// any global state.
+    pub fn build_recovery_jump_message(run: &WorkflowRun, workflow: &Workflow) -> Option<String> {
+        if run.phase != Phase::Jumping {
+            return None;
+        }
+        workflow.steps.get(run.current_step).map(build_jump_message)
     }
 
     /// Check whether the workflow run has reached the `Complete` phase.
