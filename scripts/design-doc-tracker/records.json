@@ -894,5 +894,13 @@
     "confirmed_time": "2026-09-13T17:05:42.311741+08:00",
     "comment": "",
     "blocked_reason": ""
+  },
+  {
+    "path": "docs/design/workflow/session-integration.md",
+    "commit": "a52a5686d26b64ba5c8119c1742d5ecf1e6381e3",
+    "commit_time": "2026-09-13T19:29:18+08:00",
+    "confirmed_time": "2026-09-13T19:42:33.441461+08:00",
+    "comment": "",
+    "blocked_reason": ""
   }
 ]
