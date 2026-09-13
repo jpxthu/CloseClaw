@@ -1,5 +1,8 @@
 //! Built-in skills - file_ops, git_ops, search, etc.
 
+pub mod create_workflow;
+#[cfg(test)]
+mod create_workflow_tests;
 pub mod discovery;
 #[cfg(test)]
 mod discovery_tests;
@@ -15,6 +18,7 @@ mod search_tests;
 #[cfg(test)]
 mod tests;
 
+pub use create_workflow::WorkflowCreatorSkill;
 pub use discovery::SkillDiscoverySkill;
 pub use file_ops::FileOpsSkill;
 pub use git_ops::GitOpsSkill;
@@ -36,6 +40,7 @@ impl BuiltinSkills {
             Arc::new(SkillDiscoverySkill::new()),
             Arc::new(crate::CodingAgentSkill::new()),
             Arc::new(crate::SkillCreatorSkill::new()),
+            Arc::new(WorkflowCreatorSkill::new()),
         ]
     }
 }
@@ -50,9 +55,9 @@ mod extra_tests {
     use super::*;
 
     #[test]
-    fn test_builtin_skills_all_returns_six_skills() {
+    fn test_builtin_skills_all_returns_seven_skills() {
         let skills = BuiltinSkills::all();
-        assert_eq!(skills.len(), 6);
+        assert_eq!(skills.len(), 7);
     }
 
     #[test]
@@ -84,7 +89,7 @@ mod extra_tests {
     #[test]
     fn test_builtin_skills_function() {
         let skills = builtin_skills();
-        assert_eq!(skills.len(), 6);
+        assert_eq!(skills.len(), 7);
     }
 
     #[test]
