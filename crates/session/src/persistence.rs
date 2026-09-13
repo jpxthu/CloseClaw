@@ -276,6 +276,16 @@ pub struct SessionCheckpoint {
     #[serde(default)]
     pub workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
 
+    /// Workflow recovery messages to inject into the transcript on restore.
+    ///
+    /// Built by the recovery service when reloading the definition during
+    /// session recovery. Contains workflow-role messages (recovered + goal)
+    /// that the Gateway will inject via `inject_workflow_message()`.
+    ///
+    /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为空 Vec）。
+    #[serde(default)]
+    pub recovery_workflow_messages: Vec<String>,
+
     /// Transient system-injected append-section items (runtime only).
     ///
     /// Populated by the recovery service during session recovery
@@ -341,6 +351,7 @@ impl SessionCheckpoint {
 
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            recovery_workflow_messages: Vec::new(),
             system_injection_appends: Vec::new(),
         }
     }

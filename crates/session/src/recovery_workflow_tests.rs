@@ -72,6 +72,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            recovery_workflow_messages: Vec::new(),
             system_injection_appends: Vec::new(),
         }
     }
@@ -81,7 +82,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-1");
         cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
 
-        inject_workflow_recovery("wf-1", &mut cp).await;
+        inject_workflow_recovery("wf-1", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -99,7 +100,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-2");
         cp.workflow_run = Some(make_workflow_run(1, Phase::Complete));
 
-        inject_workflow_recovery("wf-2", &mut cp).await;
+        inject_workflow_recovery("wf-2", &mut cp, None).await;
 
         let has_recovery = cp
             .system_injection_appends
@@ -115,7 +116,7 @@ mod tests {
         run.pending_verify.count = 2;
         cp.workflow_run = Some(run);
 
-        inject_workflow_recovery("wf-3", &mut cp).await;
+        inject_workflow_recovery("wf-3", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -132,7 +133,7 @@ mod tests {
         run.paused_reason = "验收重试次数耗尽".to_string();
         cp.workflow_run = Some(run);
 
-        inject_workflow_recovery("wf-4", &mut cp).await;
+        inject_workflow_recovery("wf-4", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -157,7 +158,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-4b");
         cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
 
-        inject_workflow_recovery("wf-4b", &mut cp).await;
+        inject_workflow_recovery("wf-4b", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -177,7 +178,7 @@ mod tests {
         cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
         cp.user_appends.push("existing-append".to_string());
 
-        inject_workflow_recovery("wf-5", &mut cp).await;
+        inject_workflow_recovery("wf-5", &mut cp, None).await;
 
         assert!(
             cp.user_appends.iter().any(|s| s == "existing-append"),
@@ -190,7 +191,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-6");
         // No workflow_run set
 
-        inject_workflow_recovery("wf-6", &mut cp).await;
+        inject_workflow_recovery("wf-6", &mut cp, None).await;
 
         let has_recovery = cp
             .system_injection_appends
@@ -206,7 +207,7 @@ mod tests {
         cp.system_injection_appends
             .push(format!("{}old notification", WORKFLOW_RECOVERY_PREFIX));
 
-        inject_workflow_recovery("wf-7", &mut cp).await;
+        inject_workflow_recovery("wf-7", &mut cp, None).await;
 
         let notif_count = cp
             .system_injection_appends
@@ -246,7 +247,7 @@ mod tests {
         wf_run.phase = Phase::Blocked;
         wf_run.paused_reason = "当前步骤在最新定义中已不存在".to_string();
 
-        inject_workflow_recovery("wf-dvc1", &mut cp).await;
+        inject_workflow_recovery("wf-dvc1", &mut cp, None).await;
 
         let wf_run = cp.workflow_run.as_ref().unwrap();
         assert_eq!(wf_run.phase, Phase::Blocked);
@@ -277,7 +278,7 @@ mod tests {
         run.step_history.clear();
         cp.workflow_run = Some(run);
 
-        inject_workflow_recovery("wf-8", &mut cp).await;
+        inject_workflow_recovery("wf-8", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -401,7 +402,7 @@ mod tests {
         // First inject recovery state (as would happen on resume).
         tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(inject_workflow_recovery("wf-c6", &mut cp));
+            .block_on(inject_workflow_recovery("wf-c6", &mut cp, None));
 
         // Verify injection happened.
         assert!(cp

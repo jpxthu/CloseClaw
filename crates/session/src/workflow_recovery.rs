@@ -18,13 +18,17 @@ pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
 /// 2. Stores a recovery notification with step information
 /// 3. Handles definition_version changes (transitions to blocked if current
 ///    step no longer exists in the new definition)
-pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut SessionCheckpoint) {
+pub async fn inject_workflow_recovery(
+    session_id: &str,
+    checkpoint: &mut SessionCheckpoint,
+    agent_workspace: Option<&std::path::Path>,
+) {
     let wf_run = match &checkpoint.workflow_run {
         Some(run) if run.phase != Phase::Complete => run.clone(),
         _ => return,
     };
 
-    let wf = try_reload_definition(&wf_run.definition_name);
+    let wf = try_reload_definition(&wf_run.definition_name, agent_workspace);
 
     // 1. Re-inject workflow context into system_injection_appends if not already present
     if !has_workflow_context(&checkpoint.system_injection_appends) {
@@ -85,9 +89,15 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
 /// Try to reload the workflow definition from disk.
 fn try_reload_definition(
     definition_name: &str,
+    agent_workspace: Option<&std::path::Path>,
 ) -> Option<closeclaw_workflow::definition::Workflow> {
     let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
-    WorkflowDefinitionLoader::load(definition_name, None, global_workflows.as_deref()).ok()
+    WorkflowDefinitionLoader::load(
+        definition_name,
+        agent_workspace,
+        global_workflows.as_deref(),
+    )
+    .ok()
 }
 
 /// Store a recovery notification in `system_injection_appends`.

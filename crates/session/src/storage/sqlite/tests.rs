@@ -57,6 +57,7 @@ fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
         communication_config: None,
         snapshot_metas: Vec::new(),
         workflow_run: None,
+        recovery_workflow_messages: Vec::new(),
         system_injection_appends: Vec::new(),
     }
 }
