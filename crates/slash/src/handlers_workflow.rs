@@ -90,6 +90,18 @@ impl SlashHandler for WorkflowSlashHandler {
             Ok(wf) => wf,
             Err(reply) => return reply,
         };
+
+        // Enforce one-active-workflow-per-session constraint.
+        if let Some(phase) = self
+            .session_manager
+            .get_active_workflow_run_phase(&ctx.session_id)
+            .await
+        {
+            return SlashResult::Reply(format!(
+                "无法启动工作流：当前 Session 已有活跃的工作流运行（阶段：{phase}）。请等待当前工作流完成或由 Owner 终止后再启动新工作流。"
+            ));
+        }
+
         if let Err(reply) = self
             .init_and_persist_run(&workflow, name, &ctx.session_id)
             .await
