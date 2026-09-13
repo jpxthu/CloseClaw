@@ -21,9 +21,16 @@ fn valid_skill_md() -> String {
     s.push_str("allow_blocked: false\n");
     s.push_str("verify_retry_limit: 3\n");
     s.push_str(SCHEMA_EMPTY);
-    s.push_str(
-        "\nsteps:\n  - id: 0\n    name: Step One\n    goal: Do something\n    verify:\n      - \"check A\"\n    jump: []\n    transitions:\n      - action: complete\n\n---\n",
-    );
+    s.push_str("\nsteps:\n");
+    s.push_str("  - id: 0\n");
+    s.push_str("    name: Step One\n");
+    s.push_str("    goal: Do something\n");
+    s.push_str("    verify:\n");
+    s.push_str("      - \"check A\"\n");
+    s.push_str("    jump: []\n");
+    s.push_str("    transitions:\n");
+    s.push_str("      - action: complete\n");
+    s.push_str("\n---\n");
     s
 }
 
@@ -34,9 +41,31 @@ fn valid_skill_md_two_steps() -> String {
     s.push_str("allow_blocked: false\n");
     s.push_str("verify_retry_limit: 3\n");
     s.push_str(SCHEMA_EMPTY);
-    s.push_str(
-        "\nsteps:\n  - id: 0\n    name: Step One\n    goal: Do something\n    verify:\n      - \"check A\"\n    jump:\n      - id: done\n        prompt: Is it done?\n        type: boolean\n    transitions:\n      - when:\n          done: true\n        action: goto\n        target_step: 1\n      - action: complete\n  - id: 1\n    name: Step Two\n    goal: Do more\n    verify:\n      - \"check B\"\n    jump: []\n    transitions:\n      - action: complete\n\n---\n",
-    );
+    s.push_str("\nsteps:\n");
+    s.push_str("  - id: 0\n");
+    s.push_str("    name: Step One\n");
+    s.push_str("    goal: Do something\n");
+    s.push_str("    verify:\n");
+    s.push_str("      - \"check A\"\n");
+    s.push_str("    jump:\n");
+    s.push_str("      - id: done\n");
+    s.push_str("        prompt: Is it done?\n");
+    s.push_str("        type: boolean\n");
+    s.push_str("    transitions:\n");
+    s.push_str("      - when:\n");
+    s.push_str("          done: true\n");
+    s.push_str("        action: goto\n");
+    s.push_str("        target_step: 1\n");
+    s.push_str("      - action: complete\n");
+    s.push_str("  - id: 1\n");
+    s.push_str("    name: Step Two\n");
+    s.push_str("    goal: Do more\n");
+    s.push_str("    verify:\n");
+    s.push_str("      - \"check B\"\n");
+    s.push_str("    jump: []\n");
+    s.push_str("    transitions:\n");
+    s.push_str("      - action: complete\n");
+    s.push_str("\n---\n");
     s
 }
 
