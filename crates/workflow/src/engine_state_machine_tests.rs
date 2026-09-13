@@ -366,7 +366,7 @@ fn test_handle_jump_no_match_returns_error() {
 fn test_handle_blocked_allowed() {
     let wf = blocked_workflow();
     let mut run = WorkflowEngine::start(&wf);
-    WorkflowEngine::handle_blocked(&mut run, &wf, false, "test reason").unwrap();
+    WorkflowEngine::handle_blocked(&mut run, &wf, true, "test reason").unwrap();
     assert_eq!(run.phase, Phase::Blocked);
 }
 
@@ -455,7 +455,7 @@ fn test_handle_blocked_sets_paused_reason() {
     let wf = blocked_workflow();
     let mut run = WorkflowEngine::start(&wf);
     assert!(run.paused_reason.is_empty());
-    WorkflowEngine::handle_blocked(&mut run, &wf, false, "agent needs help").unwrap();
+    WorkflowEngine::handle_blocked(&mut run, &wf, true, "agent needs help").unwrap();
     assert_eq!(run.phase, Phase::Blocked);
     assert_eq!(run.paused_reason, "agent needs help");
 }

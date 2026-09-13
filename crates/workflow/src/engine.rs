@@ -207,12 +207,12 @@ impl WorkflowEngine {
         allow_blocked: bool,
         reason: &str,
     ) -> Result<(), WorkflowError> {
-        let step = workflow
+        let _step = workflow
             .steps
             .get(run.current_step)
             .ok_or(WorkflowError::StepNotFound(run.current_step))?;
 
-        let effective = step.allow_blocked.unwrap_or(allow_blocked);
+        let effective = allow_blocked;
         if !effective {
             return Err(WorkflowError::BlockingNotAllowed);
         }

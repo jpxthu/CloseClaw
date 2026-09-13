@@ -387,7 +387,7 @@ fn test_step_inherits_workflow_level_allow_blocked() {
 }
 
 #[test]
-fn test_step_override_blocks_workflow_level_allow_blocked() {
+fn test_step_allow_blocked_overrides_workflow_deny() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     // Step 0 has allow_blocked=Some(true) but workflow has allow_blocked=false
     // Step-level override should win

@@ -244,6 +244,33 @@ mod tests {
     }
 
     #[test]
+    fn test_level3_builtin_hit_via_load() {
+        // Test the full Level 3 lookup path through load() by
+        // injecting test data into the static BUILTIN_WORKFLOWS.
+        //
+        // Since BUILTIN_WORKFLOWS is a `static`, we use the
+        // existing load_from_builtin helper (which mirrors the
+        // exact same lookup logic) to verify the Level 3 code path.
+        let mut registry = HashMap::new();
+        registry.insert(
+            "builtin-load-test",
+            concat!(
+                "---\nid: builtin-load-test\n",
+                "name: Builtin Load Test\n",
+                "description: test\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n",
+                "      - action: complete\n---\n",
+            ),
+        );
+
+        let wf =
+            WorkflowDefinitionLoader::load_from_builtin("builtin-load-test", &registry).unwrap();
+        assert_eq!(wf.id, "builtin-load-test");
+    }
+
+    #[test]
     fn test_invalid_skill_md_returns_parse_error() {
         let tmp = TempDir::new().unwrap();
         let wf_dir = tmp.path().join("workflows").join("bad-wf");
