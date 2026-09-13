@@ -12,7 +12,7 @@ Agent 在 Session 内可运行于以下模式之一，每种模式决定了 Agen
 
 - 默认模式：Agent 按完整配置运行，全工具集可用，无额外行为约束
 - Plan Mode：Agent 只做规划不做执行，工具集受限为只读（仅 plan 文件可写）。User 可以反复要求 Agent 修改 plan，Plan Mode 没有审批栅栏——User 说"执行"时才退出
-- Auto Mode（执行模式）：Agent 连续自主执行 plan 步骤，不等 User 逐步确认，但危险操作仍需 User 审批。可直接进入，不需要先经过 Plan Mode
+- Auto Mode（执行模式）：Agent 连续自主执行 plan 步骤，不等 User 逐步确认，但危险操作仍需 Owner 审批。可直接进入，不需要先经过 Plan Mode
 
 模式切换规则：
 - Plan Mode 与 Auto Mode 是独立模式，可分别进入和退出，也可通过 `/execute` 命令切换
@@ -114,7 +114,7 @@ Agent 在 Auto Mode 下的行为原则：
 - 常规决策自主做出，不上报给 User
 - 不在执行中途主动重新进入 Plan Mode（User 在失败后显式选择回退修改 plan 的情形除外，详见 F12）
 - 接受 User 随时发来的修正建议
-- 删除数据、修改生产配置等危险操作必须经 User 确认
+- 删除数据、修改生产配置等危险操作必须经 Owner 审批
 - 不擅自向外部平台发送消息
 
 Auto Mode 下 Agent 的工具集恢复到完整状态（写工具可见）。
