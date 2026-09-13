@@ -19,7 +19,7 @@ static BUILTIN_WORKFLOWS: LazyLock<HashMap<&'static str, &'static str>> =
 ///
 /// Priority order:
 /// 1. `{agent_workspace}/workflows/{name}/SKILL.md`
-/// 2. `{dot_closeclaw}/workflows/{name}/SKILL.md`
+/// 2. `{global_workflows}/workflows/{name}/SKILL.md`
 /// 3. Built-in workflows (future: embedded in binary)
 ///
 /// Each level is tried in order; the first match is used and subsequent levels
@@ -34,7 +34,8 @@ impl WorkflowDefinitionLoader {
     ///
     /// * `name` - The workflow name (used as the directory name under `workflows/`).
     /// * `agent_workspace` - Optional path to the agent workspace root.
-    /// * `dot_closeclaw` - Optional path to the `.closeclaw` directory.
+    /// * `global_workflows` - Optional path to the global workflows directory
+    ///   (e.g. `~/.openclaw/workflows/`).
     ///
     /// # Errors
     ///
@@ -44,7 +45,7 @@ impl WorkflowDefinitionLoader {
     pub fn load(
         name: &str,
         agent_workspace: Option<&Path>,
-        dot_closeclaw: Option<&Path>,
+        global_workflows: Option<&Path>,
     ) -> Result<Workflow, WorkflowError> {
         // Level 1: agent workspace
         if let Some(workspace) = agent_workspace {
@@ -54,9 +55,9 @@ impl WorkflowDefinitionLoader {
             }
         }
 
-        // Level 2: .closeclaw directory
-        if let Some(closeclaw_dir) = dot_closeclaw {
-            let path = closeclaw_dir.join("workflows").join(name).join("SKILL.md");
+        // Level 2: global workflows directory
+        if let Some(global_dir) = global_workflows {
+            let path = global_dir.join("workflows").join(name).join("SKILL.md");
             if path.exists() {
                 return Self::load_from_file(&path);
             }
@@ -128,13 +129,13 @@ mod tests {
     }
 
     #[test]
-    fn test_level2_dot_closeclaw_hit() {
+    fn test_level2_global_workflows_hit() {
         let tmp = TempDir::new().unwrap();
         write_skill_md(
             tmp.path(),
-            "dot-wf",
+            "global-wf",
             concat!(
-                "id: dot-wf\nname: Dot WF\n",
+                "id: global-wf\nname: Global WF\n",
                 "description: desc\nsteps:\n",
                 "  - id: 0\n    name: S\n    goal: G\n",
                 "    verify:\n      - Done\n",
@@ -142,8 +143,8 @@ mod tests {
             ),
         );
 
-        let wf = WorkflowDefinitionLoader::load("dot-wf", None, Some(tmp.path())).unwrap();
-        assert_eq!(wf.id, "dot-wf");
+        let wf = WorkflowDefinitionLoader::load("global-wf", None, Some(tmp.path())).unwrap();
+        assert_eq!(wf.id, "global-wf");
     }
 
     #[test]
