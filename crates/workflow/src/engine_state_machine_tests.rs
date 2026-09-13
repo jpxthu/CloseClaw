@@ -214,6 +214,82 @@ fn test_handle_verify_no_jumps_no_transitions_returns_error() {
 }
 
 // ---------------------------------------------------------------------------
+// handle_verify() — phase check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_handle_verify_invalid_phase_executing() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    // Default phase is Executing
+    let result = WorkflowEngine::handle_verify(&mut run, &wf);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Verifying);
+            assert_eq!(actual, Phase::Executing);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_handle_verify_invalid_phase_jumping() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+    let result = WorkflowEngine::handle_verify(&mut run, &wf);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Verifying);
+            assert_eq!(actual, Phase::Jumping);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// handle_jump() — phase check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_handle_jump_invalid_phase_executing() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    // Default phase is Executing
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
+    let result = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Jumping);
+            assert_eq!(actual, Phase::Executing);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_handle_jump_invalid_phase_verifying() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
+    let result = WorkflowEngine::handle_jump(&mut run, &wf, &answers);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        crate::error::WorkflowError::InvalidPhase { expected, actual } => {
+            assert_eq!(expected, Phase::Jumping);
+            assert_eq!(actual, Phase::Verifying);
+        }
+        other => panic!("expected InvalidPhase, got {:?}", other),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // handle_jump() — goto
 // ---------------------------------------------------------------------------
 
