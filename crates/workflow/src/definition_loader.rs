@@ -1,9 +1,19 @@
 //! Three-level workflow definition file lookup.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use crate::definition::Workflow;
 use crate::error::WorkflowError;
+
+/// Built-in workflow registry.
+///
+/// Maps workflow names to their embedded SKILL.md content.
+/// Currently empty; populate this map to register built-in workflows
+/// that are available without any file-system lookup.
+static BUILTIN_WORKFLOWS: LazyLock<HashMap<&'static str, &'static str>> =
+    LazyLock::new(HashMap::new);
 
 /// Loader that resolves workflow definitions via a three-level priority lookup.
 ///
@@ -52,10 +62,26 @@ impl WorkflowDefinitionLoader {
             }
         }
 
-        // Level 3: built-in (placeholder for future embedded workflows)
-        // Currently no built-in workflows are registered.
-        // Future: check a known embedded registry here.
+        // Level 3: built-in workflows
+        if let Some(content) = BUILTIN_WORKFLOWS.get(name) {
+            return Workflow::parse_skill_md(content);
+        }
 
+        Err(WorkflowError::DefinitionNotFound(name.to_string()))
+    }
+
+    /// Look up a workflow from a builtin registry and parse it.
+    ///
+    /// This is a separate method to allow unit testing the builtin lookup
+    /// path without requiring mutation of the static `BUILTIN_WORKFLOWS`.
+    #[cfg(test)]
+    pub(crate) fn load_from_builtin(
+        name: &str,
+        registry: &HashMap<&str, &str>,
+    ) -> Result<Workflow, WorkflowError> {
+        if let Some(content) = registry.get(name) {
+            return Workflow::parse_skill_md(content);
+        }
         Err(WorkflowError::DefinitionNotFound(name.to_string()))
     }
 
@@ -171,6 +197,50 @@ mod tests {
     fn test_no_paths_returns_error() {
         let result = WorkflowDefinitionLoader::load("anything", None, None);
         assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            WorkflowError::DefinitionNotFound(_)
+        ));
+    }
+
+    #[test]
+    fn test_level3_builtin_hit() {
+        let mut registry = HashMap::new();
+        registry.insert(
+            "builtin-wf",
+            concat!(
+                "---\nid: builtin-wf\nname: Built-in WF\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete\n---\n",
+            ),
+        );
+
+        let wf = WorkflowDefinitionLoader::load_from_builtin("builtin-wf", &registry).unwrap();
+        assert_eq!(wf.id, "builtin-wf");
+    }
+
+    #[test]
+    fn test_level3_builtin_miss_falls_through() {
+        let registry: HashMap<&str, &str> = HashMap::new();
+
+        let result = WorkflowDefinitionLoader::load_from_builtin("no-such-builtin", &registry);
+        assert!(matches!(
+            result.unwrap_err(),
+            WorkflowError::DefinitionNotFound(name) if name == "no-such-builtin"
+        ));
+    }
+
+    #[test]
+    fn test_level3_static_registry_miss() {
+        // With empty built-in registry, all miss should still return
+        // DefinitionNotFound.
+        let result = WorkflowDefinitionLoader::load("no-such-builtin", None, None);
+        assert!(matches!(
+            result.unwrap_err(),
+            WorkflowError::DefinitionNotFound(name) if name == "no-such-builtin"
+        ));
     }
 
     #[test]
