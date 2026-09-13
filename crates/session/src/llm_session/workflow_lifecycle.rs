@@ -29,7 +29,7 @@ impl ConversationSession {
     ///
     /// Loads the workflow definition via the three-level priority lookup:
     /// 1. `{agent_workspace}/workflows/{name}/SKILL.md`
-    /// 2. `{dot_closeclaw}/workflows/{name}/SKILL.md`
+    /// 2. `~/.openclaw/workflows/{name}/SKILL.md` (global workflows directory)
     /// 3. Built-in (currently a no-op placeholder)
     ///
     /// On failure, logs a warning and leaves the handler as `None`.
@@ -42,11 +42,11 @@ impl ConversationSession {
             Some(r) => r,
             None => return,
         };
-        let dot_closeclaw = self.workdir.join(".closeclaw");
+        let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
         let definition = match WorkflowDefinitionLoader::load(
             &run.definition_name,
             Some(self.workdir.as_path()),
-            Some(dot_closeclaw.as_path()),
+            global_workflows.as_deref(),
         ) {
             Ok(d) => d,
             Err(e) => {

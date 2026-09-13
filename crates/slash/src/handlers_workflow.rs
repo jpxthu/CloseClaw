@@ -31,7 +31,7 @@ use closeclaw_workflow::engine::WorkflowEngine;
 pub struct WorkflowSlashHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
     agent_workspace: Option<PathBuf>,
-    dot_closeclaw: Option<PathBuf>,
+    global_workflows: Option<PathBuf>,
 }
 
 impl WorkflowSlashHandler {
@@ -39,12 +39,12 @@ impl WorkflowSlashHandler {
     pub fn new(
         session_manager: Arc<dyn SlashSessionQuery>,
         agent_workspace: Option<PathBuf>,
-        dot_closeclaw: Option<PathBuf>,
+        global_workflows: Option<PathBuf>,
     ) -> Self {
         Self {
             session_manager,
             agent_workspace,
-            dot_closeclaw,
+            global_workflows,
         }
     }
 
@@ -121,7 +121,7 @@ impl WorkflowSlashHandler {
         WorkflowDefinitionLoader::load(
             name,
             self.agent_workspace.as_deref(),
-            self.dot_closeclaw.as_deref(),
+            self.global_workflows.as_deref(),
         )
         .map_err(|e| SlashResult::Reply(format!("工作流 \"{name}\" 加载失败：{e}")))
     }

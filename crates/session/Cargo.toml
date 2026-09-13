@@ -13,6 +13,7 @@ closeclaw-debug-log = { path = "../debug_log" }
 closeclaw-tasks = { path = "../tasks" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-workflow = { path = "../workflow" }
+dirs = "5"
 serde_yaml = "0.9"
 
 # Async runtime
