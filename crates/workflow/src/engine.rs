@@ -63,11 +63,15 @@ impl WorkflowEngine {
 
     /// Called when the session becomes idle.
     ///
-    /// Returns `true` if a verify message should be injected (i.e., the
-    /// run is in the `Executing` or `Verifying` phase). Returns `false` for
-    /// all other phases where idle transitions are not relevant.
+    /// Returns `true` if a workflow message should be injected on idle
+    /// (i.e., the run is in `Executing`, `Verifying`, or `Jumping` phase).
+    /// Returns `false` for all other phases where idle transitions are
+    /// not relevant.
     pub fn on_session_idle(run: &WorkflowRun) -> bool {
-        run.phase == Phase::Executing || run.phase == Phase::Verifying
+        matches!(
+            run.phase,
+            Phase::Executing | Phase::Verifying | Phase::Jumping
+        )
     }
 
     /// Callback after a verify message has been injected.

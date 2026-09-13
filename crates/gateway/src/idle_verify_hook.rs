@@ -1,8 +1,12 @@
-//! Idle → verify hook for workflow execution.
+//! Idle → workflow message hook for workflow execution.
 //!
 //! When a session becomes idle during workflow execution, this module
-//! injects a verify message to prompt the agent to check its output
-//! against the current step's verification criteria.
+//! injects the appropriate workflow message:
+//! - **Executing/Verifying phase**: injects a verify message to prompt
+//!   the agent to check its output against the current step's
+//!   verification criteria.
+//! - **Jumping phase**: re-injects the jump question message so the
+//!   agent can continue answering the jump question.
 //!
 //! Extracted from `session_handler_announce.rs` to keep files under the
 //! 1000-line project limit. Pure refactoring — behavior unchanged.
@@ -11,27 +15,26 @@ use std::sync::Arc;
 
 use super::session_handler::SessionMessageHandler;
 use crate::session_manager::SessionManager;
+use closeclaw_workflow::run::Phase;
 
-/// Parameters extracted from the handler for verify injection.
+/// Parameters extracted from the handler for idle hook injection.
 pub(crate) struct VerifyInjectParams {
     pub current_step: usize,
     pub allow_blocked: bool,
     pub verify_retry_limit: usize,
+    pub phase: Phase,
 }
 
-/// Step 1.3: idle→verify hook — inject verify message when session
-/// becomes idle during workflow execution.
+/// Idle → workflow message hook.
 ///
 /// After the pending queue is drained, checks whether the session
 /// is idle (no LLM activity, no foreground tools) and the workflow
-/// handler reports `on_session_idle` (phase == Executing). When
-/// both conditions hold:
+/// handler reports `on_session_idle`. When both conditions hold:
 ///
-/// 1. Removes the previous verify message from the transcript
-///    (preserving goal/recovered messages).
-/// 2. Injects a new verify message via `inject_workflow_message`.
-/// 3. Increments the verify counter via `on_verify_injected`.
-/// 4. Drains any queued workflow notification (e.g. blocked).
+/// - **Executing/Verifying**: removes the previous verify message,
+///   injects a new verify message, increments the verify counter.
+/// - **Jumping**: re-injects the jump question message so the agent
+///   can continue answering the jump question.
 pub(crate) async fn maybe_inject_workflow_verify(
     session_manager: &Arc<SessionManager>,
     session_id: &str,
@@ -50,21 +53,42 @@ pub(crate) async fn maybe_inject_workflow_verify(
         return;
     };
 
-    // Remove previous verify, build and inject new one.
-    inject_verify_message(&mut cs_write, &params);
+    match params.phase {
+        Phase::Jumping => {
+            // Re-inject jump question message.
+            inject_jump_message(&mut cs_write, &params);
+            tracing::info!(
+                session_id = %session_id,
+                step = params.current_step,
+                "idle hook: jump question message injected"
+            );
+        }
+        Phase::Executing | Phase::Verifying => {
+            // Remove previous verify, build and inject new one.
+            inject_verify_message(&mut cs_write, &params);
 
-    // Increment verify counter (may transition to Blocked).
-    let phase = {
-        let handler = cs_write.workflow_handler_mut().unwrap();
-        handler.on_verify_injected(params.verify_retry_limit);
-        handler.run().phase.clone()
-    };
-    tracing::info!(
-        session_id = %session_id,
-        step = params.current_step,
-        ?phase,
-        "idle hook: verify message injected"
-    );
+            // Increment verify counter (may transition to Blocked).
+            let phase = {
+                let handler = cs_write.workflow_handler_mut().unwrap();
+                handler.on_verify_injected(params.verify_retry_limit);
+                handler.run().phase.clone()
+            };
+            tracing::info!(
+                session_id = %session_id,
+                step = params.current_step,
+                ?phase,
+                "idle hook: verify message injected"
+            );
+        }
+        _ => {
+            tracing::debug!(
+                session_id = %session_id,
+                phase = ?params.phase,
+                "idle hook: unhandled phase, skipping"
+            );
+            return;
+        }
+    }
 
     // Drop the write lock before draining notifications (which may
     // need to read the session).
@@ -75,10 +99,11 @@ pub(crate) async fn maybe_inject_workflow_verify(
     SessionMessageHandler::drain_workflow_notification(session_manager, session_id, gateway).await;
 }
 
-/// Check whether the idle→verify hook should fire.
+/// Check whether the idle→workflow hook should fire.
 ///
 /// Returns `Some(VerifyInjectParams)` if the session is idle and
-/// the workflow handler is in Executing phase, `None` otherwise.
+/// the workflow handler is in Executing, Verifying, or Jumping
+/// phase. Returns `None` otherwise.
 pub(crate) fn check_idle_verify_conditions(
     cs: &closeclaw_session::llm_session::ConversationSession,
     session_id: &str,
@@ -92,7 +117,7 @@ pub(crate) fn check_idle_verify_conditions(
             fg_tool_active = dims.foreground_tool_active,
             bg_tool_active = dims.background_tool_active,
             child_active = dims.child_active,
-            "idle hook: session still active, skipping verify injection"
+            "idle hook: session still active, skipping injection"
         );
         return None;
     }
@@ -101,7 +126,8 @@ pub(crate) fn check_idle_verify_conditions(
     if !handler.on_session_idle() {
         tracing::debug!(
             session_id = %session_id,
-            "idle hook: workflow not in Executing phase, skipping"
+            phase = ?handler.run().phase,
+            "idle hook: workflow not in actionable phase, skipping"
         );
         return None;
     }
@@ -116,6 +142,7 @@ pub(crate) fn check_idle_verify_conditions(
         current_step: handler.run().current_step,
         allow_blocked,
         verify_retry_limit: handler.definition().verify_retry_limit,
+        phase: handler.run().phase.clone(),
     })
 }
 
@@ -131,6 +158,21 @@ fn inject_verify_message(
         closeclaw_workflow::definition::build_verify_message(step, params.allow_blocked)
     };
     cs.inject_workflow_message(&verify_msg);
+}
+
+/// Re-inject jump question message when the session is idle in Jumping
+/// phase. The jump question is removed when the agent calls
+/// `workflow_jump`; re-injection ensures the agent sees it again.
+fn inject_jump_message(
+    cs: &mut closeclaw_session::llm_session::ConversationSession,
+    params: &VerifyInjectParams,
+) {
+    let jump_msg = {
+        let handler = cs.workflow_handler().unwrap();
+        let step = &handler.definition().steps[params.current_step];
+        closeclaw_workflow::definition::build_jump_message(step)
+    };
+    cs.inject_workflow_message(&jump_msg);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -157,6 +199,13 @@ pub(crate) mod tests {
         params: &super::VerifyInjectParams,
     ) {
         super::inject_verify_message(cs, params)
+    }
+
+    pub(crate) fn test_inject_jump_message(
+        cs: &mut closeclaw_session::llm_session::ConversationSession,
+        params: &super::VerifyInjectParams,
+    ) {
+        super::inject_jump_message(cs, params)
     }
 
     /// Test wrapper: expose `maybe_inject_workflow_verify` for integration tests.
@@ -237,7 +286,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_check_conditions_non_executing_phase_returns_none() {
-        for phase in [Phase::Jumping, Phase::Blocked, Phase::Complete] {
+        for phase in [Phase::Blocked, Phase::Complete] {
             let cs = make_session_with_handler(phase.clone(), 0);
             let result = test_check_idle_verify_conditions(&cs, "sid");
             assert!(result.is_none(), "phase {:?} should return None", phase);
@@ -293,6 +342,7 @@ pub(crate) mod tests {
             current_step: 0,
             allow_blocked: true,
             verify_retry_limit: 3,
+            phase: Phase::Executing,
         };
         test_inject_verify_message(&mut cs, &params);
 
@@ -336,6 +386,7 @@ pub(crate) mod tests {
             current_step: 0,
             allow_blocked: true,
             verify_retry_limit: 3,
+            phase: Phase::Executing,
         };
         test_inject_verify_message(&mut cs, &params);
 
@@ -470,5 +521,71 @@ pub(crate) mod tests {
             result.is_none(),
             "bg_tool_active must prevent verify (four-dimensional check)"
         );
+    }
+
+    // ── Jumping phase tests (Step 1.3) ────────────────────────────
+
+    /// Idle + Jumping → Some with phase=Jumping.
+    #[test]
+    fn test_check_conditions_idle_jumping_returns_params() {
+        let cs = make_session_with_handler(Phase::Jumping, 0);
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        let params = result.expect("should return Some for idle+jumping");
+        assert_eq!(params.current_step, 0);
+        assert_eq!(params.phase, Phase::Jumping);
+    }
+
+    /// inject_jump_message builds jump message from step definition
+    /// and injects it as a workflow message.
+    #[test]
+    fn test_inject_jump_message_adds_workflow_message() {
+        use closeclaw_common::ContentBlock;
+
+        let mut cs = make_session_with_handler(Phase::Jumping, 0);
+        cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
+
+        let params = VerifyInjectParams {
+            current_step: 0,
+            allow_blocked: true,
+            verify_retry_limit: 3,
+            phase: Phase::Jumping,
+        };
+        test_inject_jump_message(&mut cs, &params);
+
+        let messages = cs.messages();
+        // goal + new jump = 2 workflow messages.
+        assert_eq!(messages.len(), 2, "goal + jump message");
+        assert_eq!(messages[0].role, "workflow"); // goal preserved
+        assert_eq!(messages[1].role, "workflow"); // jump injected
+
+        // Verify the jump message content matches build_jump_message output.
+        let wf_texts: Vec<String> = messages
+            .iter()
+            .filter(|m| m.role == "workflow")
+            .map(|m| {
+                m.content_blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .next()
+                    .unwrap_or_default()
+            })
+            .collect();
+        assert!(wf_texts[0].starts_with("[workflow goal]"));
+        let expected = closeclaw_workflow::definition::build_jump_message(
+            &cs.workflow_handler().unwrap().definition().steps[0],
+        );
+        assert_eq!(wf_texts[1], expected);
+    }
+
+    /// Jumping phase busy session → None (not idle).
+    #[test]
+    fn test_check_conditions_jumping_busy_returns_none() {
+        let cs = make_session_with_handler(Phase::Jumping, 0);
+        cs.set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
+        let result = test_check_idle_verify_conditions(&cs, "sid");
+        assert!(result.is_none());
     }
 }
