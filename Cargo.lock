@@ -973,6 +973,7 @@ dependencies = [
  "closeclaw-execution",
  "closeclaw-tasks",
  "closeclaw-workflow",
+ "dirs",
  "filetime",
  "futures",
  "hex",

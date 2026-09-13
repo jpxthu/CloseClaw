@@ -249,12 +249,12 @@ impl SessionManager {
             Some(ref agent_id) => self.query_agent_workspace(agent_id.as_str()).await,
             None => None,
         };
-        let dot_closeclaw = dirs::home_dir().map(|h| h.join(".closeclaw"));
+        let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw").join("workflows"));
 
         let workflow = match closeclaw_workflow::definition_loader::WorkflowDefinitionLoader::load(
             definition_name,
             agent_ws.as_deref(),
-            dot_closeclaw.as_deref(),
+            global_workflows.as_deref(),
         ) {
             Ok(wf) => wf,
             Err(e) => {
