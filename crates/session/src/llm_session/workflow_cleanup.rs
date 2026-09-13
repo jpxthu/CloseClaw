@@ -113,14 +113,16 @@ mod tests {
             definition_version: "0.1".to_string(),
             current_step: 0,
             phase: Phase::Executing,
+            current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
             step_history: vec![StepHistoryEntry {
                 step_id: 0,
                 step_name: "Step Zero".to_string(),
+                entered_at: "2026-01-01T00:00:00Z".to_string(),
                 completed_at: "2026-01-01T00:00:00Z".to_string(),
             }],
             step_data: Default::default(),
             pending_goal_hint: GoalHint::default(),
-            pending_verify: 0,
+            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
             paused_reason: String::new(),
         }
     }

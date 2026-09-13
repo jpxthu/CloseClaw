@@ -14,14 +14,16 @@ mod tests {
             definition_version: "0.1".to_string(),
             current_step,
             phase,
+            current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
             step_history: vec![StepHistoryEntry {
                 step_id: 0,
                 step_name: "Step Zero".to_string(),
+                entered_at: "2026-01-01T00:00:00Z".to_string(),
                 completed_at: "2026-01-01T00:00:00Z".to_string(),
             }],
             step_data: Default::default(),
             pending_goal_hint: GoalHint::default(),
-            pending_verify: 0,
+            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
             paused_reason: String::new(),
         }
     }
@@ -110,7 +112,7 @@ mod tests {
     async fn test_verifying_phase() {
         let mut cp = make_test_checkpoint("wf-3");
         let mut run = make_workflow_run(0, Phase::Verifying);
-        run.pending_verify = 2;
+        run.pending_verify.count = 2;
         cp.workflow_run = Some(run);
 
         inject_workflow_recovery("wf-3", &mut cp).await;

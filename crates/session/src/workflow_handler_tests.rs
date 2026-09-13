@@ -36,7 +36,38 @@ fn make_test_workflow() -> Workflow {
                 transitions: vec![],
                 allow_blocked: Some(false),
             },
+            Step {
+                id: 2,
+                name: "Step 2".to_string(),
+                goal: "Do third thing".to_string(),
+                verify: vec!["Check third".to_string()],
+                jump: vec![],
+                transitions: vec![],
+                allow_blocked: None, // inherits from workflow
+            },
         ],
+    }
+}
+
+/// Workflow with allow_blocked=true at workflow level, no step overrides.
+fn make_workflow_level_blocked_workflow() -> Workflow {
+    Workflow {
+        id: "wf-level-blocked".to_string(),
+        name: "WF Level Blocked".to_string(),
+        description: "Workflow with allow_blocked=true".to_string(),
+        version: Some("0.1".to_string()),
+        allow_blocked: true,
+        verify_retry_limit: 3,
+        step_data_schema: serde_yaml::Value::Null,
+        steps: vec![Step {
+            id: 0,
+            name: "Step 0".to_string(),
+            goal: "Do thing".to_string(),
+            verify: vec![],
+            jump: vec![],
+            transitions: vec![],
+            allow_blocked: None, // inherits from workflow (true)
+        }],
     }
 }
 
@@ -91,10 +122,11 @@ fn make_test_run() -> WorkflowRun {
         definition_version: "0.1".to_string(),
         current_step: 0,
         phase: Phase::Executing,
+        current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
-        pending_verify: 0,
+        pending_verify: closeclaw_workflow::run::PendingVerify::default(),
         paused_reason: String::new(),
     }
 }
@@ -180,10 +212,10 @@ fn test_process_content_blocks_no_workflow() {
 fn test_on_owner_resolve() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.run_mut().phase = Phase::Blocked;
-    handler.run_mut().pending_verify = 3;
+    handler.run_mut().pending_verify.count = 3;
     handler.on_owner_resolve();
     assert_eq!(handler.run().phase, Phase::Verifying);
-    assert_eq!(handler.run().pending_verify, 0);
+    assert_eq!(handler.run().pending_verify.count, 0);
 }
 
 #[test]
@@ -250,14 +282,14 @@ fn test_blocked_clears_paused_reason_on_not_allowed() {
 fn test_on_verify_limit_exceeded() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.on_verify_injected(3);
-    assert_eq!(handler.run().pending_verify, 1);
+    assert_eq!(handler.run().pending_verify.count, 1);
     assert_eq!(handler.run().phase, Phase::Verifying);
 
     handler.on_verify_injected(3);
-    assert_eq!(handler.run().pending_verify, 2);
+    assert_eq!(handler.run().pending_verify.count, 2);
 
     handler.on_verify_injected(3);
-    assert_eq!(handler.run().pending_verify, 3);
+    assert_eq!(handler.run().pending_verify.count, 3);
 
     // 4th call exceeds limit of 3
     handler.on_verify_injected(3);
@@ -269,7 +301,7 @@ fn test_on_verify_limit_exceeded() {
 fn test_on_verify_injected_within_limit() {
     let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
     handler.on_verify_injected(5);
-    assert_eq!(handler.run().pending_verify, 1);
+    assert_eq!(handler.run().pending_verify.count, 1);
     assert_eq!(handler.run().phase, Phase::Verifying);
     assert!(handler.take_notification().is_none());
 }
@@ -337,4 +369,38 @@ fn test_enum_empty_options_not_mapped() {
     answers.insert("empty_opts".into(), serde_yaml::Value::String("A".into()));
     handler.map_enum_letter_answers(&mut answers);
     assert_eq!(answers["empty_opts"], serde_yaml::Value::String("A".into()));
+}
+
+// ── allow_blocked inheritance ──────────────────────────────────────
+
+#[test]
+fn test_step_inherits_workflow_level_allow_blocked() {
+    let wf = make_workflow_level_blocked_workflow();
+    let mut run = make_test_run();
+    run.workflow_id = wf.id.clone();
+    run.definition_name = wf.name.clone();
+    let mut handler = WorkflowHandler::new(run, wf);
+    // Step 0 has allow_blocked=None, workflow has allow_blocked=true
+    let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
+    assert!(handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Blocked);
+}
+
+#[test]
+fn test_step_allow_blocked_overrides_workflow_deny() {
+    let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
+    // Step 0 has allow_blocked=Some(true) but workflow has allow_blocked=false
+    // Step-level override should win
+    let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
+    assert!(handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Blocked);
+}
+
+#[test]
+fn test_step_none_inherits_workflow_false() {
+    let mut handler = WorkflowHandler::new(make_test_run(), make_test_workflow());
+    handler.run_mut().current_step = 2; // step 2 has allow_blocked=None, workflow has allow_blocked=false
+    let content = r#"{"action": "workflow_blocked", "reason": "need help"}"#;
+    assert!(!handler.process_tool_result(content).0);
+    assert_eq!(handler.run().phase, Phase::Executing);
 }

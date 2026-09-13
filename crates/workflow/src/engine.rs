@@ -40,10 +40,11 @@ impl WorkflowEngine {
                 .unwrap_or_else(|| "0.1".to_string()),
             current_step: 0,
             phase: Phase::Executing,
+            current_step_entered_at: chrono::Utc::now().to_rfc3339(),
             step_history: Vec::new(),
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::Normal,
-            pending_verify: 0,
+            pending_verify: crate::run::PendingVerify::default(),
             paused_reason: String::new(),
         }
     }
@@ -75,18 +76,20 @@ impl WorkflowEngine {
     /// defined in `workflow`, the phase transitions to `Blocked`.
     /// Otherwise, transitions to `Verifying`.
     pub fn on_verify_injected(run: &mut WorkflowRun, verify_retry_limit: usize) {
-        run.pending_verify += 1;
+        run.pending_verify.count += 1;
+        run.pending_verify.last_inject_time = chrono::Utc::now().to_rfc3339();
+        run.pending_verify.max_retry_limit = verify_retry_limit;
         tracing::debug!(
-            pending = run.pending_verify,
-            limit = verify_retry_limit,
+            pending = run.pending_verify.count,
+            limit = run.pending_verify.max_retry_limit,
             "verify injected"
         );
-        if run.pending_verify >= verify_retry_limit {
+        if run.pending_verify.count >= run.pending_verify.max_retry_limit {
             run.phase = Phase::Blocked;
             run.paused_reason = "验收重试次数耗尽".to_string();
             tracing::warn!(
-                pending = run.pending_verify,
-                limit = verify_retry_limit,
+                pending = run.pending_verify.count,
+                limit = run.pending_verify.max_retry_limit,
                 "verify limit reached, entering blocked"
             );
         } else {
@@ -108,7 +111,7 @@ impl WorkflowEngine {
         run: &mut WorkflowRun,
         workflow: &Workflow,
     ) -> Result<VerifyAction, WorkflowError> {
-        run.pending_verify = 0;
+        run.pending_verify.count = 0;
 
         let step = workflow
             .steps
@@ -204,12 +207,12 @@ impl WorkflowEngine {
         allow_blocked: bool,
         reason: &str,
     ) -> Result<(), WorkflowError> {
-        let step = workflow
+        let _step = workflow
             .steps
             .get(run.current_step)
             .ok_or(WorkflowError::StepNotFound(run.current_step))?;
 
-        let effective = step.allow_blocked.unwrap_or(allow_blocked);
+        let effective = allow_blocked;
         if !effective {
             return Err(WorkflowError::BlockingNotAllowed);
         }
@@ -228,7 +231,7 @@ impl WorkflowEngine {
     /// Resets `pending_verify` to zero and transitions the phase back
     /// to `Verifying`.
     pub fn on_owner_resolve(run: &mut WorkflowRun) {
-        run.pending_verify = 0;
+        run.pending_verify.count = 0;
         run.paused_reason.clear();
         run.phase = Phase::Verifying;
         tracing::debug!("owner resolved blocked, entering verifying");
@@ -263,13 +266,15 @@ impl WorkflowEngine {
         run.step_history.push(crate::run::StepHistoryEntry {
             step_id: run.current_step,
             step_name: step.name.clone(),
+            entered_at: run.current_step_entered_at.clone(),
             completed_at: chrono::Utc::now().to_rfc3339(),
         });
 
         run.current_step = target;
+        run.current_step_entered_at = chrono::Utc::now().to_rfc3339();
         run.step_data = serde_yaml::Value::Null;
         run.pending_goal_hint = GoalHint::Normal;
-        run.pending_verify = 0;
+        run.pending_verify.count = 0;
         run.phase = Phase::Executing;
         tracing::debug!(target, "goto executed");
         Ok(())
@@ -286,9 +291,10 @@ impl WorkflowEngine {
         }
 
         run.current_step = target;
+        run.current_step_entered_at = chrono::Utc::now().to_rfc3339();
         // step_data is preserved (not cleared).
         run.pending_goal_hint = GoalHint::Reexecute;
-        run.pending_verify = 0;
+        run.pending_verify.count = 0;
         run.phase = Phase::Executing;
         tracing::debug!(target, "reexecute executed");
         Ok(())
