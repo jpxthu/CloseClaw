@@ -57,6 +57,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            recovery_workflow_messages: Vec::new(),
             system_injection_appends: Vec::new(),
         }
     }
@@ -438,6 +439,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            recovery_workflow_messages: Vec::new(),
             system_injection_appends: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
@@ -500,6 +502,7 @@ mod tests {
             communication_config: None,
             snapshot_metas: Vec::new(),
             workflow_run: None,
+            recovery_workflow_messages: Vec::new(),
             system_injection_appends: Vec::new(),
         };
         storage.save_checkpoint(&checkpoint).await?;
