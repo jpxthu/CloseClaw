@@ -86,7 +86,8 @@ pub async fn inject_workflow_recovery(session_id: &str, checkpoint: &mut Session
 fn try_reload_definition(
     definition_name: &str,
 ) -> Option<closeclaw_workflow::definition::Workflow> {
-    WorkflowDefinitionLoader::load(definition_name, None, None).ok()
+    let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
+    WorkflowDefinitionLoader::load(definition_name, None, global_workflows.as_deref()).ok()
 }
 
 /// Store a recovery notification in `system_injection_appends`.
