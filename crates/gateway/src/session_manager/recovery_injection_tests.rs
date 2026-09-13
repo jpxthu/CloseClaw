@@ -557,3 +557,93 @@ async fn test_restore_empty_system_injection_appends() {
         "empty system_injection_appends should remain empty"
     );
 }
+
+// =========================================================================
+// Step 1.4: recovery_workflow_messages injection tests
+// =========================================================================
+
+/// Verify that `recovery_workflow_messages` from the checkpoint are
+/// injected as workflow-role messages in the transcript.
+#[tokio::test]
+async fn test_inject_recovery_workflow_messages() {
+    let mut cp = SessionCheckpoint::new("sess-wf-1".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-wf-1".to_string())
+        .with_recovery_notification(Some("restart notice".to_string()));
+    cp.recovery_workflow_messages = vec![
+        "[workflow recovered] executing test-wf, Step 0 (Step Zero)".to_string(),
+        "[workflow goal] Step 0: Do first thing".to_string(),
+    ];
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    mgr.inject_startup_recovery_notifications(&["sess-wf-1".to_string()])
+        .await;
+
+    let conv = mgr
+        .get_conversation_session("sess-wf-1")
+        .await
+        .expect("ConversationSession should exist");
+    let conv = conv.read().await;
+    let msgs = conv.messages();
+
+    // Should contain workflow-role messages.
+    let workflow_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "workflow").collect();
+    assert_eq!(
+        workflow_msgs.len(),
+        2,
+        "should have 2 workflow messages, got {}",
+        workflow_msgs.len()
+    );
+
+    // Verify content of each workflow message.
+    match &workflow_msgs[0].content_blocks[0] {
+        closeclaw_common::ContentBlock::Text(t) => {
+            assert!(
+                t.contains("[workflow recovered]"),
+                "first workflow msg should be recovered, got: {}",
+                t
+            );
+        }
+        other => panic!("expected Text block, got {:?}", other),
+    }
+    match &workflow_msgs[1].content_blocks[0] {
+        closeclaw_common::ContentBlock::Text(t) => {
+            assert!(
+                t.contains("[workflow goal]"),
+                "second workflow msg should be goal, got: {}",
+                t
+            );
+        }
+        other => panic!("expected Text block, got {:?}", other),
+    }
+}
+
+/// Boundary: empty `recovery_workflow_messages` should not inject
+/// any workflow messages.
+#[tokio::test]
+async fn test_inject_empty_recovery_workflow_messages() {
+    let cp = SessionCheckpoint::new("sess-wf-2".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-wf-2".to_string())
+        .with_recovery_notification(Some("notice".to_string()));
+    // recovery_workflow_messages is empty (default).
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    mgr.inject_startup_recovery_notifications(&["sess-wf-2".to_string()])
+        .await;
+
+    let conv = mgr
+        .get_conversation_session("sess-wf-2")
+        .await
+        .expect("ConversationSession should exist");
+    let conv = conv.read().await;
+    let msgs = conv.messages();
+
+    let workflow_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "workflow").collect();
+    assert!(
+        workflow_msgs.is_empty(),
+        "should have no workflow messages when recovery_workflow_messages is empty"
+    );
+}

@@ -568,4 +568,53 @@ mod tests {
         assert!(cp.system_injection_appends.is_empty());
         assert_eq!(cp.user_appends.len(), 1);
     }
+
+    // ── Dimension 4: Agent workspace hit ────────────────────────────────
+
+    /// Verify that definition found ONLY in agent workspace (not in global)
+    /// is loaded and produces both recovered + goal messages.
+    #[tokio::test]
+    async fn test_recovery_messages_agent_workspace_only_hit() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md(tmp.path(), "agent-wf");
+
+        let mut cp = make_test_checkpoint("wf-aws-1");
+        let mut run = make_workflow_run(0, Phase::Executing);
+        run.definition_name = "agent-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        // agent_workspace = Some(tmp.path()) → definition found at level 1.
+        inject_workflow_recovery("wf-aws-1", &mut cp, Some(tmp.path())).await;
+
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            2,
+            "should have recovered + goal from agent workspace"
+        );
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+        assert!(cp.recovery_workflow_messages[0].contains("agent-wf"));
+        assert!(cp.recovery_workflow_messages[1].starts_with("[workflow goal]"));
+    }
+
+    /// Verify that definition NOT in agent workspace produces only recovered
+    /// message (no goal) when agent_workspace is passed but definition missing.
+    #[tokio::test]
+    async fn test_recovery_messages_agent_workspace_miss() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Do NOT write any workflow definition — agent workspace is empty.
+
+        let mut cp = make_test_checkpoint("wf-aws-2");
+        let mut run = make_workflow_run(0, Phase::Executing);
+        run.definition_name = "nonexistent-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-aws-2", &mut cp, Some(tmp.path())).await;
+
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            1,
+            "should have only recovered (no goal) when definition not found"
+        );
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+    }
 }
