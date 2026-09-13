@@ -53,6 +53,13 @@ pub trait SlashSessionQuery: Send + Sync {
         run: Option<Box<dyn std::any::Any + Send + Sync>>,
     ) -> Result<(), String>;
 
+    /// Get the phase of the active workflow run for a session, if any.
+    ///
+    /// Returns `Some(phase_string)` if a workflow run exists and is not
+    /// complete, `None` otherwise. Used to enforce the one-workflow-per-session
+    /// constraint before starting a new workflow.
+    async fn get_active_workflow_run_phase(&self, session_id: &str) -> Option<String>;
+
     // ── System prompt ──────────────────────────────────────────────────
 
     /// Invalidate the static-layer system prompt cache.
