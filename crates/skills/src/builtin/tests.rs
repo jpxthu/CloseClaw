@@ -12,7 +12,7 @@ use crate::builtin::{builtin_skills, BuiltinSkills};
 #[test]
 fn test_builtin_skills_count() {
     let skills = BuiltinSkills::all();
-    assert_eq!(skills.len(), 6);
+    assert_eq!(skills.len(), 7);
 }
 
 #[test]
@@ -25,6 +25,7 @@ fn test_builtin_skills_names() {
     assert!(names.contains(&"skill_discovery".to_string()));
     assert!(names.contains(&"coding_agent".to_string()));
     assert!(names.contains(&"skill_creator".to_string()));
+    assert!(names.contains(&"create_workflow".to_string()));
 }
 
 #[test]
