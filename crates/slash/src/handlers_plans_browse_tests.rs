@@ -72,6 +72,9 @@ impl SlashSessionQuery for MockQuery {
     ) -> Result<(), String> {
         unimplemented!()
     }
+    async fn get_active_workflow_run_phase(&self, _: &str) -> Option<String> {
+        unimplemented!()
+    }
     async fn invalidate_static_cache(&self) {
         unimplemented!()
     }

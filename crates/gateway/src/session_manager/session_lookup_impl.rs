@@ -98,6 +98,18 @@ impl SlashSessionQuery for SessionManager {
         SessionManager::set_workflow_run(self, session_id, typed_run).await
     }
 
+    async fn get_active_workflow_run_phase(&self, session_id: &str) -> Option<String> {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let cs = conv_sessions.get(session_id)?;
+        let cs = cs.read().await;
+        let run = cs.workflow_run()?;
+        if run.phase == closeclaw_workflow::run::Phase::Complete {
+            None
+        } else {
+            Some(format!("{:?}", run.phase))
+        }
+    }
+
     async fn invalidate_static_cache(&self) {
         SessionManager::invalidate_static_cache(self).await;
     }

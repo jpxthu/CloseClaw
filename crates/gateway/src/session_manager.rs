@@ -713,6 +713,25 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Get the phase of the active workflow run for a session, if any.
+    ///
+    /// Returns `Some(phase_string)` if a workflow run exists and is not
+    /// complete, `None` otherwise.
+    pub async fn get_active_workflow_run_phase(
+        &self,
+        session_id: &str,
+    ) -> Option<String> {
+        let conv_sessions = self.conversation_sessions.read().await;
+        let cs = conv_sessions.get(session_id)?;
+        let cs = cs.read().await;
+        let run = cs.workflow_run()?;
+        if run.phase == closeclaw_workflow::run::Phase::Complete {
+            None
+        } else {
+            Some(format!("{:?}", run.phase))
+        }
+    }
+
     /// Pop the oldest pending message for a given session.
     /// Returns None if the session does not exist or the queue is empty.
     pub async fn pop_pending_message(&self, session_id: &str) -> Option<PendingMessage> {
